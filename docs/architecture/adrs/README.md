@@ -23,6 +23,10 @@ Each ADR follows this format:
 | [002](./ADR-002-event-sourcing-cqrs.md) | Use Event Sourcing and CQRS | Accepted | 2024-01-16 |
 | [003](./ADR-003-use-postgresql.md) | Use PostgreSQL as Primary Database | Accepted | 2024-01-16 |
 | [004](./ADR-004-use-uuidv7.md) | Use UUIDv7 for all Entities | Accepted | 2024-01-16 |
+| [005](./ADR-005-use-axum.md) | Use Axum as Web Framework | Accepted | 2024-01-16 |
+| 006 | Authentication and Authorization Strategy | Planned | - |
+| 007 | Error Handling Strategy (anyhow/thiserror) | Planned | - |
+| 008 | Logging and Observability (tracing) | Planned | - |
 
 ## Creating a New ADR
 
