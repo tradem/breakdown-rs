@@ -1,0 +1,45 @@
+= Breakdown RS - Architecture Documentation
+:toc: left
+:toclevels: 3
+:sectlinks:
+:sectanchors:
+
+== Introduction
+
+This documentation follows the https://arc42.org/[arc42] template for architecture documentation.
+
+WARNING: This is a placeholder structure. Content will be added incrementally.
+
+---
+
+include::01-introduction-and-goals/README.adoc[]
+
+include::02-architecture-constraints/README.adoc[]
+
+include::03-system-scope-context/README.adoc[]
+
+include::04-solution-strategy/README.adoc[]
+
+include::05-building-block-view/README.adoc[]
+
+include::06-runtime-view/README.adoc[]
+
+include::07-deployment-view/README.adoc[]
+
+include::08-crosscutting-concepts/README.adoc[]
+
+include::09-architecture-decisions/README.adoc[]
+
+include::10-quality-requirements/README.adoc[]
+
+include::11-risks-technical-debt/README.adoc[]
+
+include::12-glossary/README.adoc[]
+
+---
+
+*Status*: Structure created, content pending.
+
+*Format*: AsciiDoc (`.adoc`) - will be added later.
+
+*Related*: See link:../adrs/README.md[ADRs] for detailed architecture decisions.
