@@ -1,0 +1,25 @@
+[package]
+name = "infra"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+# Core-Domäne
+core = { path = "../core" }
+
+# Event Sourcing & Actor
+kameo.workspace = true
+kameo_es.workspace = true
+
+# Datenbank
+sqlx.workspace = true
+
+# Serialisierung / IDs / Zeit
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+
+# Logging
+tracing.workspace = true

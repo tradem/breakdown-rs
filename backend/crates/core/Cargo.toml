@@ -1,0 +1,15 @@
+[package]
+name = "core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+# Domain-Modell: keine sqlx, kein axum, keine Infrastruktur
+serde.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+
+# Event Sourcing (Actor-Framework)
+kameo.workspace = true
+kameo_es.workspace = true

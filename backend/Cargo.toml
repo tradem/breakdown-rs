@@ -1,0 +1,50 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/api",          # OpenAPI / Axum Web-Layer
+    "crates/core",         # Domain-Modell, Event-Sourcing-Logik, Ports (Traits)
+    "crates/infra",        # PostgreSQL, Event-Store, Adapter
+    "crates/architecture"   # Architecture- and Vadliation tests
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+authors = ["Tobias Rademacher <your.email@example.com>"]
+license = "AGPL-3.0"
+
+[workspace.dependencies]
+# Web & API
+axum = "0.8"
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Datenbank & Event Sourcing
+sqlx = { version = "0.9", features = ["postgres", "runtime-tokio-native-tls", "uuid", "chrono", "json"] }
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Logging / Tracing
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# Event Sourcing (ES)
+kameo = "0.12"      # Das zugrundeliegende Actor-Framework
+kameo_es = { version = "0.1", features = ["postgres"] } 
+thiserror = "2.0"
+anyhow = "1.0"
+
+
+[licenses]
+unlicensed = "deny"
+# Hier erlaubt ihr die Lizenzen, die eure Abhängigkeiten haben dürfen:
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "BSD-2-Clause",
+    "CC0-1.0",
+    "AGPL-3.0"
+]
+copyleft = "allow" # Erlaubt eurer eigenen App, Copyleft zu sein

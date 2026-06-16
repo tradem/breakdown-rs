@@ -1,0 +1,28 @@
+[package]
+name = "api"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+# Domäne & Infrastruktur
+core = { path = "../core" }
+infra = { path = "../infra" }
+
+# Web-Framework
+axum.workspace = true
+tokio.workspace = true
+
+# Serialisierung / IDs / Zeit
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+
+# Actor / ES
+kameo.workspace = true
+kameo_es.workspace = true
+
+# Logging
+tracing.workspace = true
+anyhow.workspace = true
