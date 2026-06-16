@@ -21,6 +21,8 @@ Each ADR follows this format:
 |----|-------|--------|------|
 | [001](./ADR-001-hexagonal-architecture.md) | Use Hexagonal Architecture | Accepted | 2024-01-16 |
 | [002](./ADR-002-event-sourcing-cqrs.md) | Use Event Sourcing and CQRS | Accepted | 2024-01-16 |
+| [003](./ADR-003-use-postgresql.md) | Use PostgreSQL as Primary Database | Accepted | 2024-01-16 |
+| [004](./ADR-004-use-uuidv7.md) | Use UUIDv7 for all Entities | Accepted | 2024-01-16 |
 
 ## Creating a New ADR
 
