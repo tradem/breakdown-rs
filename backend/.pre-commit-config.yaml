@@ -1,0 +1,68 @@
+# Pre-commit hooks for Breakdown RS Backend
+# Install: cd backend && pre-commit install --install-hooks
+# Run manually: pre-commit run --all-files
+
+repos:
+  # Gitleaks - Detect secrets and credentials
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.2
+    hooks:
+      - id: gitleaks
+        name: "🔍 Gitleaks - Detect secrets"
+        description: "Detect hardcoded secrets in code"
+
+  # Conventional Commits - Enforce commit message format
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v3.4.0
+    hooks:
+      - id: conventional-pre-commit
+        name: "📝 Conventional Commit Message"
+        description: "Enforce conventional commit message format"
+        stages: [commit-msg]
+        args: []
+
+  # Rust Format Check
+  - repo: local
+    hooks:
+      - id: rustfmt
+        name: "🎨 Rust Format (cargo fmt)"
+        description: "Format Rust code with rustfmt"
+        entry: cargo
+        args: [fmt, --check, --all]
+        language: system
+        files: '\.rs$'
+        pass_filenames: false
+
+  # Rust Linting (Clippy)
+      - id: clippy
+        name: "🔧 Rust Lint (cargo clippy)"
+        description: "Lint Rust code with clippy"
+        entry: cargo
+        args: [clippy, --, -D, warnings]
+        language: system
+        files: '\.rs$'
+        pass_filenames: false
+
+  # Check for common issues in Rust
+      - id: cargo-check
+        name: "✓ Cargo Check"
+        description: "Quick syntax and type checking"
+        entry: cargo
+        args: [check, --all]
+        language: system
+        files: '\.rs$'
+        pass_filenames: false
+
+  # TOML linting for Cargo.toml files
+  - repo: https://github.com/mtkennerly/toml-sort
+    rev: v0.22.0
+    hooks:
+      - id: toml-sort
+        name: "📄 TOML Sort"
+        description: "Sort and format TOML files"
+        args: [--in-place]
+        files: '\.toml$'
+
+# Global settings
+fail_fast: false
+minimum_pre_commit_version: "3.0.0"

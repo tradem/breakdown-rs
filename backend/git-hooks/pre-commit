@@ -1,0 +1,57 @@
+#!/bin/bash
+# Pre-commit hook for Breakdown RS Backend
+# Runs: gitleaks, rustfmt, clippy, cargo check
+# To install: cd backend && ln -sf ../../git-hooks/pre-commit .git/hooks/pre-commit
+
+set -e
+
+echo "🔍 Running pre-commit hooks for backend..."
+echo ""
+
+# Change to backend directory
+cd "$(git rev-parse --show-toplevel)/backend"
+
+# Get list of staged Rust files
+STAGED_RS_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.rs$' || true)
+STAGED_TOML_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.toml$' || true)
+
+# 1. Run gitleaks on all staged files
+echo "📝 Checking for secrets with gitleaks..."
+if command -v gitleaks &> /dev/null; then
+    # Only check staged files
+    STAGED_FILES=$(git diff --cached --name-only)
+    if [ -n "$STAGED_FILES" ]; then
+        echo "$STAGED_FILES" | xargs -r gitleaks protect --verbose --redact --staged
+    fi
+    echo "✓ Gitleaks passed"
+else
+    echo "⚠️  Warning: gitleaks not installed. Install with: cargo install gitleaks"
+    echo "   Or download from: https://github.com/gitleaks/gitleaks/releases"
+fi
+echo ""
+
+# 2. Check Rust formatting
+if [ -n "$STAGED_RS_FILES" ]; then
+    echo "🎨 Checking Rust formatting (cargo fmt)..."
+    cargo fmt --check --all
+    echo "✓ Formatting OK"
+    echo ""
+fi
+
+# 3. Run clippy
+if [ -n "$STAGED_RS_FILES" ]; then
+    echo "🔧 Running Clippy (cargo clippy)..."
+    cargo clippy --all-targets --all-features -- -D warnings
+    echo "✓ Clippy passed"
+    echo ""
+fi
+
+# 4. Quick cargo check
+if [ -n "$STAGED_RS_FILES" ]; then
+    echo "✓ Running cargo check..."
+    cargo check --all-targets --all-features
+    echo "✓ Cargo check passed"
+    echo ""
+fi
+
+echo "✅ All pre-commit checks passed!"

@@ -1,0 +1,40 @@
+#!/bin/bash
+# Commit-msg hook for Conventional Commits
+# Enforces conventional commit message format
+# To install: cd backend && ln -sf ../../git-hooks/commit-msg .git/hooks/commit-msg
+
+set -e
+
+COMMIT_MSG_FILE=$1
+COMMIT_MSG=$(cat "$COMMIT_MSG_FILE")
+
+echo "📝 Validating commit message format..."
+
+# Conventional commit regex pattern
+# Format: type(scope): description
+# Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
+PATTERN="^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9-]+\))?: .{1,50}"
+
+if [[ ! $COMMIT_MSG =~ $PATTERN ]]; then
+    echo "❌ Invalid commit message format!"
+    echo ""
+    echo "Commit message must follow Conventional Commits format:"
+    echo "  <type>(<scope>): <description>"
+    echo ""
+    echo "Valid types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert"
+    echo ""
+    echo "Examples:"
+    echo "  feat(auth): add login endpoint"
+    echo "  fix(api): resolve cors issue"
+    echo "  docs(readme): update installation guide"
+    echo "  refactor(core): simplify event handling"
+    echo "  test(api): add integration tests for scenes"
+    echo ""
+    echo "Your commit message:"
+    echo "  $COMMIT_MSG"
+    echo ""
+    exit 1
+fi
+
+echo "✓ Commit message format is valid"
+exit 0
