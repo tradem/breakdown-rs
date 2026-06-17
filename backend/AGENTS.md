@@ -25,7 +25,7 @@ You are the primary coding agent for `breakdown-rs` – a collaborative costume 
 
 ## 4. Testing & Guardrails
 - **Unit/Integration Tests:** Write deterministic tests for domain logic in `core`.
-- **Mutation Testing:** Run `cargo mutants`. Improve test coverage if mutants survive.
+- **Mutation Testing:** Run `cargo mutants` ([crate](https://crates.io/crates/cargo-mutants) • [GitHub](https://github.com/sourcefrog/cargo-mutants)). Improve test coverage if mutants survive. Use `cargo mutants --in-diff` to only test changed code.
 - **Architecture Tests:** We use `arch_test` to enforce boundary rules. Run `cargo test -p architecture_tests` to ensure core does not depend on infra/api.
 
 ## 5. Code Example: kameo_es Aggregate
