@@ -50,4 +50,9 @@ impl Command<CostumeAggregate> for AssignCostume {
 }
 ```
 
+## 6. Licensing & Headers
+- **License:** AGPL-3.0 (see `LICENSE`)
+- **SPDX Headers:** Run `./scripts/add-spdx-headers.sh [dir]` to add headers to `.rs`, `.typ`, `.sh` files
+- **Format:** `// SPDX-License-Identifier: AGPL-3.0` + `// Copyright (C) 2024 Breakdown RS Contributors`
+
 *When in doubt about the domain logic or workflow, ask questions before generating code.*
