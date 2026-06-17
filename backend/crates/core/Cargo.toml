@@ -1,5 +1,5 @@
 [package]
-name = "core"
+name = "breakdown_core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -14,3 +14,9 @@ thiserror.workspace = true
 # Event Sourcing (Actor-Framework)
 kameo.workspace = true
 kameo_es.workspace = true
+
+# Domain-Modell: Rustische Decimals
+rust_decimal.workspace = true
+
+# Tests
+rstest = "0.24"

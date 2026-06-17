@@ -1,7 +1,7 @@
 # ADR-009: Photo Storage with OpenDAL and S3-Compatible API
 
 **Status**: Accepted
-**Date**: 2026-01-17
+**Date**: 2026-06-17
 **Author**: Architecture Decision
 
 ---
