@@ -24,9 +24,9 @@ Each ADR follows this format:
 | [003](./ADR-003-use-postgresql.md) | Use PostgreSQL as Primary Database | Accepted | 2024-01-16 |
 | [004](./ADR-004-use-uuidv7.md) | Use UUIDv7 for all Entities | Accepted | 2024-01-16 |
 | [005](./ADR-005-use-axum.md) | Use Axum as Web Framework | Accepted | 2024-01-16 |
-| 006 | Authentication and Authorization Strategy | Planned | - |
-| 007 | Error Handling Strategy (anyhow/thiserror) | Planned | - |
-| 008 | Logging and Observability (tracing) | Planned | - |
+| [006](./ADR-006-utoipa-openapi-codegen.md) | Use utoipa for OpenAPI Codegen | Accepted | 2024-01-20 |
+| [007](./ADR-007-frontend-technologies-and-api-communication.md) | Frontend Technologies and API Communication | Accepted | 2024-01-20 |
+| [008](./ADR-008-documentation-tooling-and-structure.md) | Documentation Tooling and Structure | Accepted | 2024-06-17 |
 
 ## Creating a New ADR
 
