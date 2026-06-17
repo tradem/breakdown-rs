@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024-2026 Breakdown RS Contributors
+
 //! # Core – Reine Domänenlogik
 //!
 //! Enthält **Commands**, **Events**, **Aggregates**, **Read-Model DTOs** und **Port Traits**.

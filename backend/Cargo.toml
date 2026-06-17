@@ -35,16 +35,6 @@ kameo_es = { version = "0.1", features = ["postgres"] }
 thiserror = "2.0"
 anyhow = "1.0"
 
-
-[licenses]
-unlicensed = "deny"
-# Hier erlaubt ihr die Lizenzen, die eure Abhängigkeiten haben dürfen:
-allow = [
-    "MIT",
-    "Apache-2.0",
-    "BSD-3-Clause",
-    "BSD-2-Clause",
-    "CC0-1.0",
-    "AGPL-3.0"
-]
-copyleft = "allow" # Erlaubt eurer eigenen App, Copyleft zu sein
+[workspace.lints.rust]
+unsafe_code = "forbid"
+edition_mismatch = "warn"
