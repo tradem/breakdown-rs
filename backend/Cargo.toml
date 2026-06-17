@@ -31,7 +31,7 @@ tracing-subscriber = "0.3"
 
 # Event Sourcing (ES)
 kameo = "0.12"      # Das zugrundeliegende Actor-Framework
-kameo_es = { version = "0.1", features = ["postgres"] } 
+kameo_es = { git = "https://github.com/sierra-db/kameo_es", branch = "main", features = ["postgres"] } 
 thiserror = "2.0"
 anyhow = "1.0"
 
