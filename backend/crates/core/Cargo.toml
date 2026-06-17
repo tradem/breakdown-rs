@@ -2,6 +2,7 @@
 name = "core"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [dependencies]
 # Domain-Modell: keine sqlx, kein axum, keine Infrastruktur
