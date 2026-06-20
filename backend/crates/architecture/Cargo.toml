@@ -9,8 +9,8 @@ publish = false
 [dependencies]
 # Pfade zu euren eigentlichen Projekt-Crates, die getestet werden sollen
 api = { path = "../api" }
-core = { path = "../core" }
+breakdown_core = { path = "../core" }
 infra = { path = "../infra" }
 
 [dev-dependencies]
-arch_test = "0.1" # Das Architektur-Test-Framework
+# arch_test = "0.1" # Nicht auf crates.io verfügbar – vorübergehend auskommentiert

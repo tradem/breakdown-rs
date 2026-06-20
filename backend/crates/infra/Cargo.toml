@@ -6,7 +6,7 @@ license.workspace = true
 
 [dependencies]
 # Core-Domäne
-core = { path = "../core" }
+breakdown_core = { path = "../core" }
 
 # Event Sourcing & Actor
 kameo.workspace = true

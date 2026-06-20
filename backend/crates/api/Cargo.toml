@@ -6,7 +6,7 @@ license.workspace = true
 
 [dependencies]
 # Domäne & Infrastruktur
-core = { path = "../core" }
+breakdown_core = { path = "../core" }
 infra = { path = "../infra" }
 
 # Web-Framework
@@ -26,4 +26,5 @@ kameo_es.workspace = true
 
 # Logging
 tracing.workspace = true
+tracing-subscriber.workspace = true
 anyhow.workspace = true
