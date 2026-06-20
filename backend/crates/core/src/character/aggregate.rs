@@ -2,14 +2,8 @@
 // Copyright (C) 2024 Breakdown RS Contributors
 
 //! Character aggregate using `kameo_es` event-sourced actor pattern.
-#![allow(unused_imports, unused_mut, dead_code, clippy::type_complexity)]
 
-use std::collections::HashMap;
-use std::str::FromStr;
-use std::time::Instant;
-
-use kameo_es::{Apply, Command, Context, Entity, Metadata, StreamId};
-use rust_decimal::Decimal;
+use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use uuid::Uuid;
 
 use crate::shared::{AggregateVersion, ProjectId};
@@ -17,25 +11,6 @@ use crate::shared::{AggregateVersion, ProjectId};
 use super::commands::{CreateCharacter, UpdateContactInfo, UpdateMeasurements};
 use super::error::CharacterError;
 use super::events::{CharacterEvent, CharacterMeasurements, ContactInfo};
-
-fn make_ctx<'a>() -> Context<'a, CharacterAggregate> {
-    static META: std::sync::LazyLock<Metadata<()>> = std::sync::LazyLock::new(Metadata::default);
-    static TRACKING: std::sync::LazyLock<
-        std::collections::HashMap<
-            StreamId,
-            (
-                u64,
-                std::collections::HashSet<std::borrow::Cow<'static, str>>,
-            ),
-        >,
-    > = std::sync::LazyLock::new(std::collections::HashMap::new);
-    Context {
-        metadata: &META,
-        causation_tracking: &TRACKING,
-        time: chrono::Utc::now(),
-        executed_at: Instant::now(),
-    }
-}
 
 /// State persisted by the Character aggregate.
 #[derive(Debug, Clone, Default)]
@@ -181,188 +156,196 @@ impl Command<UpdateContactInfo> for CharacterAggregate {
 
 // ── Tests ──────────────────────────────────────────────────────────
 
-fn create_character(name: &str) -> CharacterAggregate {
-    let project_id = ProjectId::new();
-    let cmd = CreateCharacter {
-        project_id,
-        name: name.to_string(),
-        is_extra: false,
-        is_main_character: true,
-    };
-    let events = CharacterAggregate::default()
-        .handle(cmd, make_ctx())
-        .unwrap();
-    let mut agg = CharacterAggregate::default();
-    for evt in events {
-        agg.apply(evt, Default::default());
-    }
-    agg
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::make_ctx;
+    use rust_decimal::Decimal;
+    use std::str::FromStr;
 
-#[test]
-fn test_create_character_success() {
-    let project_id = ProjectId::new();
-    let cmd = CreateCharacter {
-        project_id,
-        name: "Hans Müller".to_string(),
-        is_extra: false,
-        is_main_character: true,
-    };
-    let result = CharacterAggregate::default().handle(cmd, make_ctx());
-    assert!(result.is_ok());
-    let evt = result.unwrap().into_iter().next().unwrap();
-    match evt {
-        CharacterEvent::CharacterCreated {
-            name,
-            is_extra,
-            is_main_character,
-            version,
-            id,
-            ..
-        } => {
-            assert_eq!(name, "Hans Müller");
-            assert!(!is_extra);
-            assert!(is_main_character);
-            assert_eq!(version, AggregateVersion::INITIAL);
-            assert_ne!(id, Uuid::nil());
+    fn create_character(name: &str) -> CharacterAggregate {
+        let project_id = ProjectId::new();
+        let cmd = CreateCharacter {
+            project_id,
+            name: name.to_string(),
+            is_extra: false,
+            is_main_character: true,
+        };
+        let events = CharacterAggregate::default()
+            .handle(cmd, make_ctx())
+            .unwrap();
+        let mut agg = CharacterAggregate::default();
+        for evt in events {
+            agg.apply(evt, Default::default());
         }
-        _ => panic!("Expected CharacterCreated"),
+        agg
     }
-}
 
-#[test]
-fn test_create_character_empty_name() {
-    let project_id = ProjectId::new();
-    let cmd = CreateCharacter {
-        project_id,
-        name: String::new(),
-        is_extra: false,
-        is_main_character: false,
-    };
-    let result = CharacterAggregate::default().handle(cmd, make_ctx());
-    assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        CharacterError::ValidationError(_)
-    ));
-}
-
-#[test]
-fn test_update_measurements_success() {
-    let mut agg = create_character("Test");
-    let measurements = CharacterMeasurements {
-        shoe_size: Some(Decimal::from_str("42").unwrap()),
-        height: Some(Decimal::from_str("1.85").unwrap()),
-        ..Default::default()
-    };
-    let cmd = UpdateMeasurements {
-        id: agg.id,
-        measurements: measurements.clone(),
-        version: agg.version,
-    };
-    let events = agg.handle(cmd, make_ctx()).unwrap();
-    assert_eq!(events.len(), 1);
-    if let CharacterEvent::MeasurementsUpdated { version, .. } = &events[0] {
-        assert_eq!(*version, AggregateVersion(2));
-    } else {
-        panic!("Expected MeasurementsUpdated");
+    #[test]
+    fn test_create_character_success() {
+        let project_id = ProjectId::new();
+        let cmd = CreateCharacter {
+            project_id,
+            name: "Hans Müller".to_string(),
+            is_extra: false,
+            is_main_character: true,
+        };
+        let result = CharacterAggregate::default().handle(cmd, make_ctx());
+        assert!(result.is_ok());
+        let evt = result.unwrap().into_iter().next().unwrap();
+        match evt {
+            CharacterEvent::CharacterCreated {
+                name,
+                is_extra,
+                is_main_character,
+                version,
+                id,
+                ..
+            } => {
+                assert_eq!(name, "Hans Müller");
+                assert!(!is_extra);
+                assert!(is_main_character);
+                assert_eq!(version, AggregateVersion::INITIAL);
+                assert_ne!(id, Uuid::nil());
+            }
+            _ => panic!("Expected CharacterCreated"),
+        }
     }
-    for evt in events {
-        agg.apply(evt, Default::default());
+
+    #[test]
+    fn test_create_character_empty_name() {
+        let project_id = ProjectId::new();
+        let cmd = CreateCharacter {
+            project_id,
+            name: String::new(),
+            is_extra: false,
+            is_main_character: false,
+        };
+        let result = CharacterAggregate::default().handle(cmd, make_ctx());
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            CharacterError::ValidationError(_)
+        ));
     }
-    assert_eq!(
-        agg.measurements.shoe_size,
-        Some(Decimal::from_str("42").unwrap())
-    );
-    assert_eq!(agg.version, AggregateVersion(2));
-}
 
-#[test]
-fn test_update_measurements_idempotency() {
-    let agg = create_character("Test");
-    let cmd = UpdateMeasurements {
-        id: agg.id,
-        measurements: agg.measurements.clone(),
-        version: agg.version,
-    };
-    let result = agg.handle(cmd, make_ctx());
-    assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        CharacterError::ValidationError(ref m) if m.contains("unchanged")
-    ));
-}
-
-#[test]
-fn test_update_measurements_wrong_version() {
-    let agg = create_character("Test");
-    let cmd = UpdateMeasurements {
-        id: agg.id,
-        measurements: CharacterMeasurements {
+    #[test]
+    fn test_update_measurements_success() {
+        let mut agg = create_character("Test");
+        let measurements = CharacterMeasurements {
             shoe_size: Some(Decimal::from_str("42").unwrap()),
+            height: Some(Decimal::from_str("1.85").unwrap()),
             ..Default::default()
-        },
-        version: AggregateVersion(99),
-    };
-    let result = agg.handle(cmd, make_ctx());
-    assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        CharacterError::ValidationError(ref m) if m.contains("version mismatch")
-    ));
-}
-
-#[test]
-fn test_update_contact_info_success() {
-    let mut agg = create_character("Test");
-    let contact = ContactInfo {
-        phone: Some("+49 170 1234567".to_string()),
-        email: Some("hans@example.de".to_string()),
-    };
-    let cmd = UpdateContactInfo {
-        id: agg.id,
-        contact_info: contact.clone(),
-        version: agg.version,
-    };
-    let event = agg.handle(cmd, make_ctx());
-    for evt in event.unwrap() {
-        agg.apply(evt, Default::default());
+        };
+        let cmd = UpdateMeasurements {
+            id: agg.id,
+            measurements: measurements.clone(),
+            version: agg.version,
+        };
+        let events = agg.handle(cmd, make_ctx()).unwrap();
+        assert_eq!(events.len(), 1);
+        if let CharacterEvent::MeasurementsUpdated { version, .. } = &events[0] {
+            assert_eq!(*version, AggregateVersion(2));
+        } else {
+            panic!("Expected MeasurementsUpdated");
+        }
+        for evt in events {
+            agg.apply(evt, Default::default());
+        }
+        assert_eq!(
+            agg.measurements.shoe_size,
+            Some(Decimal::from_str("42").unwrap())
+        );
+        assert_eq!(agg.version, AggregateVersion(2));
     }
-    assert_eq!(agg.contact_info.phone, contact.phone);
-    assert_eq!(agg.contact_info.email, contact.email);
-}
 
-#[test]
-fn test_update_contact_info_idempotency() {
-    let agg = create_character("Test");
-    let cmd = UpdateContactInfo {
-        id: agg.id,
-        contact_info: agg.contact_info.clone(),
-        version: agg.version,
-    };
-    let result = agg.handle(cmd, make_ctx());
-    assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        CharacterError::ValidationError(ref m) if m.contains("unchanged")
-    ));
-}
+    #[test]
+    fn test_update_measurements_idempotency() {
+        let agg = create_character("Test");
+        let cmd = UpdateMeasurements {
+            id: agg.id,
+            measurements: agg.measurements.clone(),
+            version: agg.version,
+        };
+        let result = agg.handle(cmd, make_ctx());
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            CharacterError::ValidationError(ref m) if m.contains("unchanged")
+        ));
+    }
 
-#[test]
-fn test_update_contact_info_wrong_version() {
-    let agg = create_character("Test");
-    let cmd = UpdateContactInfo {
-        id: agg.id,
-        contact_info: ContactInfo {
-            phone: Some("test".to_string()),
-            email: None,
-        },
-        version: AggregateVersion(99),
-    };
-    let result = agg.handle(cmd, make_ctx());
-    assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        CharacterError::ValidationError(ref m) if m.contains("version mismatch")
-    ));
-}
+    #[test]
+    fn test_update_measurements_wrong_version() {
+        let agg = create_character("Test");
+        let cmd = UpdateMeasurements {
+            id: agg.id,
+            measurements: CharacterMeasurements {
+                shoe_size: Some(Decimal::from_str("42").unwrap()),
+                ..Default::default()
+            },
+            version: AggregateVersion(99),
+        };
+        let result = agg.handle(cmd, make_ctx());
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            CharacterError::ValidationError(ref m) if m.contains("version mismatch")
+        ));
+    }
+
+    #[test]
+    fn test_update_contact_info_success() {
+        let mut agg = create_character("Test");
+        let contact = ContactInfo {
+            phone: Some("+49 170 1234567".to_string()),
+            email: Some("hans@example.de".to_string()),
+        };
+        let cmd = UpdateContactInfo {
+            id: agg.id,
+            contact_info: contact.clone(),
+            version: agg.version,
+        };
+        let event = agg.handle(cmd, make_ctx());
+        for evt in event.unwrap() {
+            agg.apply(evt, Default::default());
+        }
+        assert_eq!(agg.contact_info.phone, contact.phone);
+        assert_eq!(agg.contact_info.email, contact.email);
+    }
+
+    #[test]
+    fn test_update_contact_info_idempotency() {
+        let agg = create_character("Test");
+        let cmd = UpdateContactInfo {
+            id: agg.id,
+            contact_info: agg.contact_info.clone(),
+            version: agg.version,
+        };
+        let result = agg.handle(cmd, make_ctx());
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            CharacterError::ValidationError(ref m) if m.contains("unchanged")
+        ));
+    }
+
+    #[test]
+    fn test_update_contact_info_wrong_version() {
+        let agg = create_character("Test");
+        let cmd = UpdateContactInfo {
+            id: agg.id,
+            contact_info: ContactInfo {
+                phone: Some("test".to_string()),
+                email: None,
+            },
+            version: AggregateVersion(99),
+        };
+        let result = agg.handle(cmd, make_ctx());
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            CharacterError::ValidationError(ref m) if m.contains("version mismatch")
+        ));
+    }
+} // mod tests

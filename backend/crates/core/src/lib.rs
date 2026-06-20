@@ -7,3 +7,6 @@ pub mod costume;
 pub mod error;
 pub mod scene;
 pub mod shared;
+
+#[cfg(test)]
+pub mod testing;

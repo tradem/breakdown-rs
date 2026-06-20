@@ -2,13 +2,8 @@
 // Copyright (C) 2024 Breakdown RS Contributors
 
 //! Calculation aggregate.
-#![allow(unused_imports, unused_mut, dead_code, clippy::type_complexity)]
 
-use std::time::Instant;
-
-use kameo_es::{Apply, Command, Context, Entity, Metadata, StreamId};
-use rust_decimal::Decimal;
-use std::str::FromStr;
+use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use uuid::Uuid;
 
 use crate::shared::{AggregateVersion, ProjectId};
@@ -16,25 +11,6 @@ use crate::shared::{AggregateVersion, ProjectId};
 use super::commands::*;
 use super::error::CalculationError;
 use super::events::*;
-
-fn make_ctx<'a>() -> Context<'a, CalculationAggregate> {
-    static META: std::sync::LazyLock<Metadata<()>> = std::sync::LazyLock::new(Metadata::default);
-    static TRACKING: std::sync::LazyLock<
-        std::collections::HashMap<
-            StreamId,
-            (
-                u64,
-                std::collections::HashSet<std::borrow::Cow<'static, str>>,
-            ),
-        >,
-    > = std::sync::LazyLock::new(std::collections::HashMap::new);
-    Context {
-        metadata: &META,
-        causation_tracking: &TRACKING,
-        time: chrono::Utc::now(),
-        executed_at: Instant::now(),
-    }
-}
 
 /// State persisted by the Calculation aggregate.
 #[derive(Debug, Clone, Default)]
@@ -270,356 +246,364 @@ impl Command<MarkItemAsUnpaid> for CalculationAggregate {
 
 // ── Tests ──────────────────────────────────────────────────────────
 
-fn make_calc() -> CalculationAggregate {
-    let pid = ProjectId::new();
-    let agg = CalculationAggregate::default();
-    let events = agg
-        .handle(CreateCalculation { project_id: pid }, make_ctx())
-        .unwrap();
-    let mut applied = CalculationAggregate::default();
-    for evt in events {
-        applied.apply(evt, Default::default());
-    }
-    applied
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::make_ctx;
+    use rust_decimal::Decimal;
+    use std::str::FromStr;
 
-#[test]
-fn test_create_calculation_success() {
-    let result = CalculationAggregate::default().handle(
-        CreateCalculation {
-            project_id: ProjectId::new(),
-        },
-        make_ctx(),
-    );
-    assert!(result.is_ok());
-    match result.unwrap().into_iter().next().unwrap() {
-        CalculationEvent::CalculationCreated {
-            id, version, items, ..
-        } => {
-            assert_ne!(id, Uuid::nil());
-            assert_eq!(version, AggregateVersion::INITIAL);
-            assert!(items.is_empty());
+    fn make_calc() -> CalculationAggregate {
+        let pid = ProjectId::new();
+        let agg = CalculationAggregate::default();
+        let events = agg
+            .handle(CreateCalculation { project_id: pid }, make_ctx())
+            .unwrap();
+        let mut applied = CalculationAggregate::default();
+        for evt in events {
+            applied.apply(evt, Default::default());
         }
-        _ => panic!("Expected CalculationCreated"),
+        applied
     }
-}
 
-#[test]
-fn test_update_header_info_success() {
-    let mut agg = make_calc();
-    let h = CalculationHeader {
-        subjects: Some("Budget".into()),
-        ..Default::default()
-    };
-    for evt in agg
-        .handle(
-            UpdateHeaderInfo {
-                id: agg.id,
-                header: h.clone(),
-                version: agg.version,
+    #[test]
+    fn test_create_calculation_success() {
+        let result = CalculationAggregate::default().handle(
+            CreateCalculation {
+                project_id: ProjectId::new(),
             },
             make_ctx(),
-        )
-        .unwrap()
-    {
-        agg.apply(evt, Default::default());
+        );
+        assert!(result.is_ok());
+        match result.unwrap().into_iter().next().unwrap() {
+            CalculationEvent::CalculationCreated {
+                id, version, items, ..
+            } => {
+                assert_ne!(id, Uuid::nil());
+                assert_eq!(version, AggregateVersion::INITIAL);
+                assert!(items.is_empty());
+            }
+            _ => panic!("Expected CalculationCreated"),
+        }
     }
-    assert_eq!(agg.header.subjects, h.subjects);
-}
 
-#[test]
-fn test_add_item_success() {
-    let mut agg = make_calc();
-    let item = CalculationItem {
-        id: Uuid::now_v7(),
-        name: "Fabric".into(),
-        quantity: Decimal::from_str("2").unwrap(),
-        unit_price: Decimal::from_str("10.00").unwrap(),
-        is_paid: false,
-    };
-    for evt in agg
-        .handle(
+    #[test]
+    fn test_update_header_info_success() {
+        let mut agg = make_calc();
+        let h = CalculationHeader {
+            subjects: Some("Budget".into()),
+            ..Default::default()
+        };
+        for evt in agg
+            .handle(
+                UpdateHeaderInfo {
+                    id: agg.id,
+                    header: h.clone(),
+                    version: agg.version,
+                },
+                make_ctx(),
+            )
+            .unwrap()
+        {
+            agg.apply(evt, Default::default());
+        }
+        assert_eq!(agg.header.subjects, h.subjects);
+    }
+
+    #[test]
+    fn test_add_item_success() {
+        let mut agg = make_calc();
+        let item = CalculationItem {
+            id: Uuid::now_v7(),
+            name: "Fabric".into(),
+            quantity: Decimal::from_str("2").unwrap(),
+            unit_price: Decimal::from_str("10.00").unwrap(),
+            is_paid: false,
+        };
+        for evt in agg
+            .handle(
+                AddCalculationItem {
+                    id: agg.id,
+                    item: item.clone(),
+                    version: agg.version,
+                },
+                make_ctx(),
+            )
+            .unwrap()
+        {
+            agg.apply(evt, Default::default());
+        }
+        assert_eq!(agg.items.len(), 1);
+        assert_eq!(agg.items[0].name, "Fabric");
+    }
+
+    #[test]
+    fn test_add_item_negative_quantity() {
+        let agg = make_calc();
+        let item = CalculationItem {
+            id: Uuid::now_v7(),
+            name: "Bad".into(),
+            quantity: Decimal::from_str("-1").unwrap(),
+            unit_price: Decimal::from_str("5.00").unwrap(),
+            is_paid: false,
+        };
+        let result = agg.handle(
             AddCalculationItem {
                 id: agg.id,
-                item: item.clone(),
+                item,
                 version: agg.version,
             },
             make_ctx(),
-        )
-        .unwrap()
-    {
-        agg.apply(evt, Default::default());
+        );
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            CalculationError::ValidationError(ref m) if m.contains("non-negative")
+        ));
     }
-    assert_eq!(agg.items.len(), 1);
-    assert_eq!(agg.items[0].name, "Fabric");
-}
 
-#[test]
-fn test_add_item_negative_quantity() {
-    let agg = make_calc();
-    let item = CalculationItem {
-        id: Uuid::now_v7(),
-        name: "Bad".into(),
-        quantity: Decimal::from_str("-1").unwrap(),
-        unit_price: Decimal::from_str("5.00").unwrap(),
-        is_paid: false,
-    };
-    let result = agg.handle(
-        AddCalculationItem {
-            id: agg.id,
-            item,
-            version: agg.version,
-        },
-        make_ctx(),
-    );
-    assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        CalculationError::ValidationError(ref m) if m.contains("non-negative")
-    ));
-}
-
-#[test]
-fn test_update_item_success() {
-    let mut agg = make_calc();
-    let item_id = Uuid::now_v7();
-    let item1 = CalculationItem {
-        id: item_id,
-        name: "X".into(),
-        quantity: Decimal::from_str("1").unwrap(),
-        unit_price: Decimal::from_str("5").unwrap(),
-        is_paid: false,
-    };
-    for evt in agg
-        .handle(
-            AddCalculationItem {
-                id: agg.id,
-                item: item1,
-                version: agg.version,
-            },
-            make_ctx(),
-        )
-        .unwrap()
-    {
-        agg.apply(evt, Default::default());
+    #[test]
+    fn test_update_item_success() {
+        let mut agg = make_calc();
+        let item_id = Uuid::now_v7();
+        let item1 = CalculationItem {
+            id: item_id,
+            name: "X".into(),
+            quantity: Decimal::from_str("1").unwrap(),
+            unit_price: Decimal::from_str("5").unwrap(),
+            is_paid: false,
+        };
+        for evt in agg
+            .handle(
+                AddCalculationItem {
+                    id: agg.id,
+                    item: item1,
+                    version: agg.version,
+                },
+                make_ctx(),
+            )
+            .unwrap()
+        {
+            agg.apply(evt, Default::default());
+        }
+        let item2 = CalculationItem {
+            id: item_id,
+            name: "Y".into(),
+            quantity: Decimal::from_str("3").unwrap(),
+            unit_price: Decimal::from_str("10").unwrap(),
+            is_paid: false,
+        };
+        for evt in agg
+            .handle(
+                UpdateCalculationItem {
+                    id: agg.id,
+                    item: item2,
+                    version: agg.version,
+                },
+                make_ctx(),
+            )
+            .unwrap()
+        {
+            agg.apply(evt, Default::default());
+        }
+        assert_eq!(agg.items[0].name, "Y");
     }
-    let item2 = CalculationItem {
-        id: item_id,
-        name: "Y".into(),
-        quantity: Decimal::from_str("3").unwrap(),
-        unit_price: Decimal::from_str("10").unwrap(),
-        is_paid: false,
-    };
-    for evt in agg
-        .handle(
+
+    #[test]
+    fn test_update_item_not_found() {
+        let agg = make_calc();
+        let item = CalculationItem {
+            id: Uuid::now_v7(),
+            name: "Z".into(),
+            quantity: Decimal::ONE,
+            unit_price: Decimal::ONE,
+            is_paid: false,
+        };
+        let result = agg.handle(
             UpdateCalculationItem {
                 id: agg.id,
-                item: item2,
+                item,
                 version: agg.version,
             },
             make_ctx(),
-        )
-        .unwrap()
-    {
-        agg.apply(evt, Default::default());
+        );
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            CalculationError::ValidationError(ref m) if m.contains("not found")
+        ));
     }
-    assert_eq!(agg.items[0].name, "Y");
-}
 
-#[test]
-fn test_update_item_not_found() {
-    let agg = make_calc();
-    let item = CalculationItem {
-        id: Uuid::now_v7(),
-        name: "Z".into(),
-        quantity: Decimal::ONE,
-        unit_price: Decimal::ONE,
-        is_paid: false,
-    };
-    let result = agg.handle(
-        UpdateCalculationItem {
-            id: agg.id,
-            item,
-            version: agg.version,
-        },
-        make_ctx(),
-    );
-    assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        CalculationError::ValidationError(ref m) if m.contains("not found")
-    ));
-}
-
-#[test]
-fn test_remove_item_success() {
-    let mut agg = make_calc();
-    let item_id = Uuid::now_v7();
-    for evt in agg
-        .handle(
-            AddCalculationItem {
-                id: agg.id,
-                item: CalculationItem {
-                    id: item_id,
-                    name: "ToRemove".into(),
-                    quantity: Decimal::ONE,
-                    unit_price: Decimal::ZERO,
-                    is_paid: false,
+    #[test]
+    fn test_remove_item_success() {
+        let mut agg = make_calc();
+        let item_id = Uuid::now_v7();
+        for evt in agg
+            .handle(
+                AddCalculationItem {
+                    id: agg.id,
+                    item: CalculationItem {
+                        id: item_id,
+                        name: "ToRemove".into(),
+                        quantity: Decimal::ONE,
+                        unit_price: Decimal::ZERO,
+                        is_paid: false,
+                    },
+                    version: agg.version,
                 },
-                version: agg.version,
-            },
-            make_ctx(),
-        )
-        .unwrap()
-    {
-        agg.apply(evt, Default::default());
+                make_ctx(),
+            )
+            .unwrap()
+        {
+            agg.apply(evt, Default::default());
+        }
+        for evt in agg
+            .handle(
+                RemoveCalculationItem {
+                    id: agg.id,
+                    item_id,
+                    version: agg.version,
+                },
+                make_ctx(),
+            )
+            .unwrap()
+        {
+            agg.apply(evt, Default::default());
+        }
+        assert!(agg.items.is_empty());
     }
-    for evt in agg
-        .handle(
+
+    #[test]
+    fn test_remove_item_not_found() {
+        let agg = make_calc();
+        let result = agg.handle(
             RemoveCalculationItem {
                 id: agg.id,
-                item_id,
+                item_id: Uuid::now_v7(),
                 version: agg.version,
             },
             make_ctx(),
-        )
-        .unwrap()
-    {
-        agg.apply(evt, Default::default());
+        );
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            CalculationError::ValidationError(ref m) if m.contains("not found")
+        ));
     }
-    assert!(agg.items.is_empty());
-}
 
-#[test]
-fn test_remove_item_not_found() {
-    let agg = make_calc();
-    let result = agg.handle(
-        RemoveCalculationItem {
-            id: agg.id,
-            item_id: Uuid::now_v7(),
-            version: agg.version,
-        },
-        make_ctx(),
-    );
-    assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        CalculationError::ValidationError(ref m) if m.contains("not found")
-    ));
-}
-
-#[test]
-fn test_mark_paid_success() {
-    let mut agg = make_calc();
-    let item_id = Uuid::now_v7();
-    let item = CalculationItem {
-        id: item_id,
-        name: "Buttons".into(),
-        quantity: Decimal::ONE,
-        unit_price: Decimal::from_str("5").unwrap(),
-        is_paid: false,
-    };
-    for evt in agg
-        .handle(
-            AddCalculationItem {
-                id: agg.id,
-                item,
-                version: agg.version,
-            },
-            make_ctx(),
-        )
-        .unwrap()
-    {
-        agg.apply(evt, Default::default());
+    #[test]
+    fn test_mark_paid_success() {
+        let mut agg = make_calc();
+        let item_id = Uuid::now_v7();
+        let item = CalculationItem {
+            id: item_id,
+            name: "Buttons".into(),
+            quantity: Decimal::ONE,
+            unit_price: Decimal::from_str("5").unwrap(),
+            is_paid: false,
+        };
+        for evt in agg
+            .handle(
+                AddCalculationItem {
+                    id: agg.id,
+                    item,
+                    version: agg.version,
+                },
+                make_ctx(),
+            )
+            .unwrap()
+        {
+            agg.apply(evt, Default::default());
+        }
+        for evt in agg
+            .handle(
+                MarkItemAsPaid {
+                    id: agg.id,
+                    item_id,
+                    version: agg.version,
+                },
+                make_ctx(),
+            )
+            .unwrap()
+        {
+            agg.apply(evt, Default::default());
+        }
+        assert!(agg.items[0].is_paid);
     }
-    for evt in agg
-        .handle(
+
+    #[test]
+    fn test_mark_paid_not_found() {
+        let agg = make_calc();
+        let result = agg.handle(
             MarkItemAsPaid {
                 id: agg.id,
-                item_id,
+                item_id: Uuid::now_v7(),
                 version: agg.version,
             },
             make_ctx(),
-        )
-        .unwrap()
-    {
-        agg.apply(evt, Default::default());
+        );
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            CalculationError::ValidationError(ref m) if m.contains("Item not found")
+        ));
     }
-    assert!(agg.items[0].is_paid);
-}
 
-#[test]
-fn test_mark_paid_not_found() {
-    let agg = make_calc();
-    let result = agg.handle(
-        MarkItemAsPaid {
-            id: agg.id,
-            item_id: Uuid::now_v7(),
-            version: agg.version,
-        },
-        make_ctx(),
-    );
-    assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        CalculationError::ValidationError(ref m) if m.contains("Item not found")
-    ));
-}
-
-#[test]
-fn test_mark_unpaid_success() {
-    let mut agg = make_calc();
-    let item_id = Uuid::now_v7();
-    let item = CalculationItem {
-        id: item_id,
-        name: "Curtains".into(),
-        quantity: Decimal::ONE,
-        unit_price: Decimal::ONE,
-        is_paid: true,
-    };
-    for evt in agg
-        .handle(
-            AddCalculationItem {
-                id: agg.id,
-                item,
-                version: agg.version,
-            },
-            make_ctx(),
-        )
-        .unwrap()
-    {
-        agg.apply(evt, Default::default());
+    #[test]
+    fn test_mark_unpaid_success() {
+        let mut agg = make_calc();
+        let item_id = Uuid::now_v7();
+        let item = CalculationItem {
+            id: item_id,
+            name: "Curtains".into(),
+            quantity: Decimal::ONE,
+            unit_price: Decimal::ONE,
+            is_paid: true,
+        };
+        for evt in agg
+            .handle(
+                AddCalculationItem {
+                    id: agg.id,
+                    item,
+                    version: agg.version,
+                },
+                make_ctx(),
+            )
+            .unwrap()
+        {
+            agg.apply(evt, Default::default());
+        }
+        for evt in agg
+            .handle(
+                MarkItemAsUnpaid {
+                    id: agg.id,
+                    item_id,
+                    version: agg.version,
+                },
+                make_ctx(),
+            )
+            .unwrap()
+        {
+            agg.apply(evt, Default::default());
+        }
+        assert!(!agg.items[0].is_paid);
     }
-    for evt in agg
-        .handle(
+
+    #[test]
+    fn test_mark_unpaid_not_found() {
+        let agg = make_calc();
+        let result = agg.handle(
             MarkItemAsUnpaid {
                 id: agg.id,
-                item_id,
+                item_id: Uuid::now_v7(),
                 version: agg.version,
             },
             make_ctx(),
-        )
-        .unwrap()
-    {
-        agg.apply(evt, Default::default());
+        );
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            CalculationError::ValidationError(ref m) if m.contains("Item not found")
+        ));
     }
-    assert!(!agg.items[0].is_paid);
-}
-
-#[test]
-fn test_mark_unpaid_not_found() {
-    let agg = make_calc();
-    let result = agg.handle(
-        MarkItemAsUnpaid {
-            id: agg.id,
-            item_id: Uuid::now_v7(),
-            version: agg.version,
-        },
-        make_ctx(),
-    );
-    assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        CalculationError::ValidationError(ref m) if m.contains("Item not found")
-    ));
-}
+} // mod tests

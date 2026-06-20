@@ -2,11 +2,8 @@
 // Copyright (C) 2024 Breakdown RS Contributors
 
 //! Scene aggregate.
-#![allow(unused_imports, unused_mut, dead_code, clippy::type_complexity)]
 
-use std::time::Instant;
-
-use kameo_es::{Apply, Command, Context, Entity, Metadata, StreamId};
+use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use uuid::Uuid;
 
 use crate::shared::{AggregateVersion, ProjectId};
@@ -16,25 +13,6 @@ use super::error::SceneError;
 use super::events::SceneEvent;
 
 use crate::scene::events::SceneDetails;
-
-fn make_ctx<'a>() -> Context<'a, SceneAggregate> {
-    static META: std::sync::LazyLock<Metadata<()>> = std::sync::LazyLock::new(Metadata::default);
-    static TRACKING: std::sync::LazyLock<
-        std::collections::HashMap<
-            StreamId,
-            (
-                u64,
-                std::collections::HashSet<std::borrow::Cow<'static, str>>,
-            ),
-        >,
-    > = std::sync::LazyLock::new(std::collections::HashMap::new);
-    Context {
-        metadata: &META,
-        causation_tracking: &TRACKING,
-        time: chrono::Utc::now(),
-        executed_at: Instant::now(),
-    }
-}
 
 /// State persisted by the Scene aggregate.
 #[derive(Debug, Clone, Default)]
@@ -195,236 +173,242 @@ impl Command<RemoveCharacter> for SceneAggregate {
 
 // ── Tests ──────────────────────────────────────────────────────────
 
-fn create_scene() -> SceneAggregate {
-    let pid = ProjectId::new();
-    let details = SceneDetails {
-        scene_number: Some(1),
-        location: Some("Studio A".to_string()),
-        mood: Some("IN".to_string()),
-        is_schedule_set: false,
-    };
-    let events = SceneAggregate::default().handle(
-        CreateScene {
-            project_id: pid,
-            details: details.clone(),
-        },
-        make_ctx(),
-    );
-    let _ = events;
-    let mut applied = SceneAggregate::default();
-    for evt in SceneAggregate::default()
-        .handle(
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::make_ctx;
+
+    fn create_scene() -> SceneAggregate {
+        let pid = ProjectId::new();
+        let details = SceneDetails {
+            scene_number: Some(1),
+            location: Some("Studio A".to_string()),
+            mood: Some("IN".to_string()),
+            is_schedule_set: false,
+        };
+        let events = SceneAggregate::default().handle(
+            CreateScene {
+                project_id: pid,
+                details: details.clone(),
+            },
+            make_ctx(),
+        );
+        let _ = events;
+        let mut applied = SceneAggregate::default();
+        for evt in SceneAggregate::default()
+            .handle(
+                CreateScene {
+                    project_id: pid,
+                    details,
+                },
+                make_ctx(),
+            )
+            .unwrap()
+        {
+            applied.apply(evt, Default::default());
+        }
+        applied
+    }
+
+    #[test]
+    fn test_create_scene_success() {
+        let pid = ProjectId::new();
+        let details = SceneDetails {
+            scene_number: Some(5),
+            location: Some("Berlin".into()),
+            mood: Some("DA".into()),
+            is_schedule_set: true,
+        };
+        let result = SceneAggregate::default().handle(
             CreateScene {
                 project_id: pid,
                 details,
             },
             make_ctx(),
-        )
-        .unwrap()
-    {
-        applied.apply(evt, Default::default());
-    }
-    applied
-}
-
-#[test]
-fn test_create_scene_success() {
-    let pid = ProjectId::new();
-    let details = SceneDetails {
-        scene_number: Some(5),
-        location: Some("Berlin".into()),
-        mood: Some("DA".into()),
-        is_schedule_set: true,
-    };
-    let result = SceneAggregate::default().handle(
-        CreateScene {
-            project_id: pid,
-            details,
-        },
-        make_ctx(),
-    );
-    assert!(result.is_ok());
-    let events = result.unwrap();
-    assert_eq!(events.len(), 1);
-    match events.into_iter().next().unwrap() {
-        SceneEvent::SceneCreated {
-            id,
-            project_id,
-            version,
-            assigned_characters,
-            ..
-        } => {
-            assert_ne!(id, Uuid::nil());
-            assert_eq!(version, AggregateVersion::INITIAL);
-            assert!(assigned_characters.is_empty());
-            assert_eq!(project_id, pid);
+        );
+        assert!(result.is_ok());
+        let events = result.unwrap();
+        assert_eq!(events.len(), 1);
+        match events.into_iter().next().unwrap() {
+            SceneEvent::SceneCreated {
+                id,
+                project_id,
+                version,
+                assigned_characters,
+                ..
+            } => {
+                assert_ne!(id, Uuid::nil());
+                assert_eq!(version, AggregateVersion::INITIAL);
+                assert!(assigned_characters.is_empty());
+                assert_eq!(project_id, pid);
+            }
+            _ => panic!("Expected SceneCreated"),
         }
-        _ => panic!("Expected SceneCreated"),
     }
-}
 
-#[test]
-fn test_update_scene_details_success() {
-    let mut agg = create_scene();
-    let details = SceneDetails {
-        scene_number: Some(10),
-        location: Some("Exterior".into()),
-        mood: Some("AT".into()),
-        is_schedule_set: true,
-    };
-    let event = agg.handle(
-        UpdateSceneDetails {
-            id: agg.id,
-            details: details.clone(),
-            version: agg.version,
-        },
-        make_ctx(),
-    );
-    for evt in event.unwrap() {
-        agg.apply(evt, Default::default());
-    }
-    assert_eq!(agg.details.scene_number, Some(10));
-}
-
-#[test]
-fn test_update_scene_details_idempotency() {
-    let agg = create_scene();
-    let result = agg.handle(
-        UpdateSceneDetails {
-            id: agg.id,
-            details: agg.details.clone(),
-            version: agg.version,
-        },
-        make_ctx(),
-    );
-    assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        SceneError::ValidationError(ref m) if m.contains("unchanged")
-    ));
-}
-
-#[test]
-fn test_update_scene_details_wrong_version() {
-    let agg = create_scene();
-    let result = agg.handle(
-        UpdateSceneDetails {
-            id: agg.id,
-            details: SceneDetails {
-                scene_number: Some(99),
-                ..Default::default()
+    #[test]
+    fn test_update_scene_details_success() {
+        let mut agg = create_scene();
+        let details = SceneDetails {
+            scene_number: Some(10),
+            location: Some("Exterior".into()),
+            mood: Some("AT".into()),
+            is_schedule_set: true,
+        };
+        let event = agg.handle(
+            UpdateSceneDetails {
+                id: agg.id,
+                details: details.clone(),
+                version: agg.version,
             },
-            version: AggregateVersion(99),
-        },
-        make_ctx(),
-    );
-    assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        SceneError::ValidationError(ref m) if m.contains("version mismatch")
-    ));
-}
+            make_ctx(),
+        );
+        for evt in event.unwrap() {
+            agg.apply(evt, Default::default());
+        }
+        assert_eq!(agg.details.scene_number, Some(10));
+    }
 
-#[test]
-fn test_assign_character_success() {
-    let mut agg = create_scene();
-    let char_id = Uuid::now_v7();
-    for evt in agg
-        .handle(
+    #[test]
+    fn test_update_scene_details_idempotency() {
+        let agg = create_scene();
+        let result = agg.handle(
+            UpdateSceneDetails {
+                id: agg.id,
+                details: agg.details.clone(),
+                version: agg.version,
+            },
+            make_ctx(),
+        );
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            SceneError::ValidationError(ref m) if m.contains("unchanged")
+        ));
+    }
+
+    #[test]
+    fn test_update_scene_details_wrong_version() {
+        let agg = create_scene();
+        let result = agg.handle(
+            UpdateSceneDetails {
+                id: agg.id,
+                details: SceneDetails {
+                    scene_number: Some(99),
+                    ..Default::default()
+                },
+                version: AggregateVersion(99),
+            },
+            make_ctx(),
+        );
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            SceneError::ValidationError(ref m) if m.contains("version mismatch")
+        ));
+    }
+
+    #[test]
+    fn test_assign_character_success() {
+        let mut agg = create_scene();
+        let char_id = Uuid::now_v7();
+        for evt in agg
+            .handle(
+                AssignCharacter {
+                    id: agg.id,
+                    character_id: char_id,
+                    version: agg.version,
+                },
+                make_ctx(),
+            )
+            .unwrap()
+        {
+            agg.apply(evt, Default::default());
+        }
+        assert_eq!(agg.assigned_characters.len(), 1);
+        assert_eq!(agg.assigned_characters[0], char_id);
+    }
+
+    #[test]
+    fn test_assign_character_conflict() {
+        let mut agg = create_scene();
+        let char_id = Uuid::now_v7();
+        for evt in agg
+            .handle(
+                AssignCharacter {
+                    id: agg.id,
+                    character_id: char_id,
+                    version: agg.version,
+                },
+                make_ctx(),
+            )
+            .unwrap()
+        {
+            agg.apply(evt, Default::default());
+        }
+        let result = agg.handle(
             AssignCharacter {
                 id: agg.id,
                 character_id: char_id,
                 version: agg.version,
             },
             make_ctx(),
-        )
-        .unwrap()
-    {
-        agg.apply(evt, Default::default());
+        );
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            SceneError::CharacterAlreadyAssigned
+        ));
     }
-    assert_eq!(agg.assigned_characters.len(), 1);
-    assert_eq!(agg.assigned_characters[0], char_id);
-}
 
-#[test]
-fn test_assign_character_conflict() {
-    let mut agg = create_scene();
-    let char_id = Uuid::now_v7();
-    for evt in agg
-        .handle(
-            AssignCharacter {
-                id: agg.id,
-                character_id: char_id,
-                version: agg.version,
-            },
-            make_ctx(),
-        )
-        .unwrap()
-    {
-        agg.apply(evt, Default::default());
+    #[test]
+    fn test_remove_character_success() {
+        let mut agg = create_scene();
+        let char_id = Uuid::now_v7();
+        for evt in agg
+            .handle(
+                AssignCharacter {
+                    id: agg.id,
+                    character_id: char_id,
+                    version: agg.version,
+                },
+                make_ctx(),
+            )
+            .unwrap()
+        {
+            agg.apply(evt, Default::default());
+        }
+        for evt in agg
+            .handle(
+                RemoveCharacter {
+                    id: agg.id,
+                    character_id: char_id,
+                    version: agg.version,
+                },
+                make_ctx(),
+            )
+            .unwrap()
+        {
+            agg.apply(evt, Default::default());
+        }
+        assert!(agg.assigned_characters.is_empty());
     }
-    let result = agg.handle(
-        AssignCharacter {
-            id: agg.id,
-            character_id: char_id,
-            version: agg.version,
-        },
-        make_ctx(),
-    );
-    assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        SceneError::CharacterAlreadyAssigned
-    ));
-}
 
-#[test]
-fn test_remove_character_success() {
-    let mut agg = create_scene();
-    let char_id = Uuid::now_v7();
-    for evt in agg
-        .handle(
-            AssignCharacter {
-                id: agg.id,
-                character_id: char_id,
-                version: agg.version,
-            },
-            make_ctx(),
-        )
-        .unwrap()
-    {
-        agg.apply(evt, Default::default());
-    }
-    for evt in agg
-        .handle(
+    #[test]
+    fn test_remove_character_not_assigned() {
+        let agg = create_scene();
+        let result = agg.handle(
             RemoveCharacter {
                 id: agg.id,
-                character_id: char_id,
+                character_id: Uuid::now_v7(),
                 version: agg.version,
             },
             make_ctx(),
-        )
-        .unwrap()
-    {
-        agg.apply(evt, Default::default());
+        );
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            SceneError::ValidationError(ref m) if m.contains("not assigned")
+        ));
     }
-    assert!(agg.assigned_characters.is_empty());
-}
-
-#[test]
-fn test_remove_character_not_assigned() {
-    let agg = create_scene();
-    let result = agg.handle(
-        RemoveCharacter {
-            id: agg.id,
-            character_id: Uuid::now_v7(),
-            version: agg.version,
-        },
-        make_ctx(),
-    );
-    assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        SceneError::ValidationError(ref m) if m.contains("not assigned")
-    ));
-}
+} // mod tests
