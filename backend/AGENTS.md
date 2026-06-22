@@ -28,6 +28,15 @@ You are the primary coding agent for `breakdown-rs` – a collaborative costume 
 - **Mutation Testing:** Run `cargo mutants` ([crate](https://crates.io/crates/cargo-mutants) • [GitHub](https://github.com/sourcefrog/cargo-mutants)). Improve test coverage if mutants survive. Use `cargo mutants --in-diff` to only test changed code.
 - **Architecture Tests:** We use `arch_test` to enforce boundary rules. Run `cargo test -p architecture_tests` to ensure core does not depend on infra/api.
 
+### Integration tests
+
+End-to-end, black-box integration tests live in the dedicated workspace member `crates/integration-tests`. They exercise the full `command → event → event-store → projector → projection` chain against an ephemeral PostgreSQL container managed by [`testcontainers`](https://crates.io/crates/testcontainers).
+
+- **How to run locally**: `cargo test -p integration-tests` (requires Docker or a compatible container runtime).
+- **Boundary**: The crate consumes only the `pub` API of `core` and `infra`. It is excluded from the `cargo-mutants` surface — only whitebox `#[cfg(test)]` modules are mutated.
+- **CI trigger**: The integration-test job runs on pull requests touching `backend/crates/{core,infra}/**`.
+- **Container policy**: Each test gets a fresh Postgres container by default. Optional local container reuse is documented in the harness module docs, but CI always uses fresh containers.
+
 ## 5. Code Example: kameo_es Aggregate
 ```rust
 #[derive(Actor, Default)]

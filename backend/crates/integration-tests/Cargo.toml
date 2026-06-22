@@ -1,0 +1,30 @@
+[package]
+name = "integration-tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+
+[dev-dependencies]
+breakdown_core = { path = "../core", features = ["testing"] }
+infra = { path = "../infra", features = ["testing"] }
+
+# Event-sourcing traits used by the in-memory aggregate command checks.
+kameo_es.workspace = true
+
+# Async test runtime
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+
+# Database access & migrations
+sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-native-tls", "uuid", "chrono", "json", "migrate"] }
+
+# Deterministic IDs
+uuid = { workspace = true, features = ["v7"] }
+
+# Error handling / utilities
+anyhow = { workspace = true }

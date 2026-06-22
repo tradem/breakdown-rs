@@ -97,8 +97,15 @@ CREATE TABLE projection_scenes (
 - Consider `pgcrypto` extension for UUIDv7 generation (see ADR-004)
 - For production: Use connection pooling (`deadpool-postgres` or `sqlx-pool`)
 
+### Implementation note (discovered during ADR-014 / Testcontainers work)
+
+During the implementation of the integration-test harness for ADR-014, we discovered that the current `kameo_es` dependency does **not** use PostgreSQL as the event-store backend. Instead, `kameo_es` persists events in **sierradb**, which reuses the Redis client protocol but is a separate event-store implementation. The `postgres` feature of `kameo_es` is used only for the projection/event-handler side (`PostgresProcessor`), i.e. for building read models from the event stream.
+
+As a result, PostgreSQL in this architecture is the store for **projections / read models only**, while the **event store itself lives in sierradb**. This ADR should be fully revised in the follow-up implementation branch to reflect that split; for now, this note captures the discovered state.
+
 ---
 
 **Related ADRs**:
 - [ADR-002: Use Event Sourcing and CQRS](./ADR-002-event-sourcing-cqrs.md)
 - [ADR-004: Use UUIDv7 for all entities](./ADR-004-use-uuidv7.md)
+- [ADR-014: Integration Testing with Testcontainers for PostgreSQL](./ADR-014-testcontainers-integration-testing.md)

@@ -20,3 +20,6 @@
 pub mod event_store;
 pub mod projectors;
 pub mod queries;
+
+#[cfg(feature = "testing")]
+pub mod testing;
