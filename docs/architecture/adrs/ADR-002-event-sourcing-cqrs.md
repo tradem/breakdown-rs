@@ -96,3 +96,4 @@ Following EventStorming methodology:
 
 **Related ADRs**:
 - [ADR-001: Use Hexagonal Architecture](./ADR-001-hexagonal-architecture.md)
+- [ADR-014: Integration Testing with Testcontainers for PostgreSQL](./ADR-014-testcontainers-integration-testing.md)

@@ -1,10 +1,11 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/core",    # Domain-Modell, Event-Sourcing-Logik, Ports (Traits)
-    "crates/api",     # Axum-Server, HTTP-Grenze
-    "crates/infra",   # Infrastruktur-Implementierungen (PostgreSQL, Event Store)
-    # "crates/architecture", # Architekturtests (arch_test) – vorübergehend deaktiviert (arch_test nicht auf crates.io)
+    "crates/core",              # Domain-Modell, Event-Sourcing-Logik, Ports (Traits)
+    "crates/api",               # Axum-Server, HTTP-Grenze
+    "crates/infra",             # Infrastruktur-Implementierungen (PostgreSQL, Event Store)
+    "crates/integration-tests", # Black-box Integrationstests (dev-only)
+    # "crates/architecture",      # Architekturtests (arch_test) – vorübergehend deaktiviert (arch_test nicht auf crates.io)
 ]
 
 [workspace.package]

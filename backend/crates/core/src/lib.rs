@@ -8,5 +8,5 @@ pub mod error;
 pub mod scene;
 pub mod shared;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod testing;

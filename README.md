@@ -2,6 +2,23 @@
 
 🦀 A modern, collaborative costume and scene continuity breakdown app built with Rust and PostgreSQL.
 
+## Development
+
+### Prerequisites
+
+- [Rust](https://rustup.rs/) (latest stable toolchain)
+- [Docker](https://docs.docker.com/get-docker/) or a compatible container runtime — required for the Testcontainers-based integration test suite.
+
+### Running integration tests locally
+
+The black-box integration tests spin up an ephemeral PostgreSQL container per test. From the repository root run:
+
+```bash
+cargo test -p integration-tests
+```
+
+For details on the integration-test boundary and CI triggers, see [`backend/AGENTS.md`](./backend/AGENTS.md).
+
 ## License
 
 This project is licensed under the [AGPL-3.0 License](LICENSE).

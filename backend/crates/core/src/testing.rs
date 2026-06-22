@@ -14,7 +14,7 @@
 //! add a dedicated helper instead of leaking test setup back into the domain
 //! modules.
 
-#![cfg(test)]
+#![cfg(any(test, feature = "testing"))]
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
