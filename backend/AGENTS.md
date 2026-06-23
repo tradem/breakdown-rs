@@ -59,7 +59,41 @@ impl Command<CostumeAggregate> for AssignCostume {
 }
 ```
 
-## 6. Licensing & Headers
+## 6. Local Dev Runtime
+
+v1 ships a **Postgres-only** dev compose. SierraDB is not included; the live `command → SierraDB → projector → PG` round-trip is deferred to the `sierradb-runtime-and-round-trip` follow-up change.
+
+### Prerequisites
+- Docker (or a compatible container runtime) for the dev database.
+
+### Start the dev database
+From the `backend/` directory run:
+
+```bash
+docker compose -f docker-compose.dev.yml up -d
+```
+
+This starts Postgres on `localhost:5432` with:
+- user: `postgres`
+- password: `postgres`
+- database: `breakdown`
+
+### Apply migrations
+With the database running:
+
+```bash
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/breakdown cargo run -p api
+```
+
+`main.rs` runs `sqlx::migrate!("../infra/migrations")` at boot. Tests that use `infra::testing::spawn_postgres()` apply the same migration set automatically.
+
+### Environment variables used by the API binary
+- `DATABASE_URL` – Postgres connection string (default: `postgres://postgres:postgres@localhost:5432/breakdown`)
+- `SIERRADB_URL` – SierraDB RESP3 connection string, currently unused in v1 but required by `main.rs` (default: `redis://127.0.0.1:6379`)
+- `BIND_ADDR` – HTTP bind address (default: `0.0.0.0:3000`)
+- OpenAPI/Swagger UI is served at `http://localhost:3000/swagger-ui`
+
+## 7. Licensing & Headers
 - **License:** AGPL-3.0 (see `LICENSE`)
 - **SPDX Headers:** Run `./scripts/add-spdx-headers.sh [dir]` to add headers to `.rs`, `.typ`, `.sh` files
 - **Format:** `// SPDX-License-Identifier: AGPL-3.0` + `// Copyright (C) 2024 Breakdown RS Contributors`

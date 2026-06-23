@@ -90,7 +90,7 @@ impl Command<CreateCharacter> for CharacterAggregate {
             ));
         }
         Ok(vec![CharacterEvent::CharacterCreated {
-            id: Uuid::now_v7(),
+            id: cmd.id,
             project_id: cmd.project_id,
             name: cmd.name,
             is_extra: cmd.is_extra,
@@ -166,6 +166,7 @@ mod tests {
     fn create_character(name: &str) -> CharacterAggregate {
         let project_id = ProjectId::new();
         let cmd = CreateCharacter {
+            id: Uuid::now_v7(),
             project_id,
             name: name.to_string(),
             is_extra: false,
@@ -185,6 +186,7 @@ mod tests {
     fn test_create_character_success() {
         let project_id = ProjectId::new();
         let cmd = CreateCharacter {
+            id: Uuid::now_v7(),
             project_id,
             name: "Hans Müller".to_string(),
             is_extra: false,
@@ -216,6 +218,7 @@ mod tests {
     fn test_create_character_empty_name() {
         let project_id = ProjectId::new();
         let cmd = CreateCharacter {
+            id: Uuid::now_v7(),
             project_id,
             name: String::new(),
             is_extra: false,

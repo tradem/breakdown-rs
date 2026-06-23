@@ -7,5 +7,9 @@ pub mod aggregate;
 pub mod commands;
 pub mod error;
 pub mod events;
+pub mod ports;
+pub mod views;
 
 pub use events::{CharacterMeasurements, ContactInfo};
+pub use ports::{CharacterCommands, CharacterRepository};
+pub use views::CharacterView;

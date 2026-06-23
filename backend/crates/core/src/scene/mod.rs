@@ -7,5 +7,9 @@ pub mod aggregate;
 pub mod commands;
 pub mod error;
 pub mod events;
+pub mod ports;
+pub mod views;
 
 pub use events::SceneDetails;
+pub use ports::{SceneCommands, SceneRepository};
+pub use views::SceneView;

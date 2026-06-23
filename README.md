@@ -7,7 +7,26 @@
 ### Prerequisites
 
 - [Rust](https://rustup.rs/) (latest stable toolchain)
-- [Docker](https://docs.docker.com/get-docker/) or a compatible container runtime — required for the Testcontainers-based integration test suite.
+- [Docker](https://docs.docker.com/get-docker/) or a compatible container runtime — required for the dev database and the Testcontainers-based integration test suite.
+
+### Start the dev database
+
+v1 ships a Postgres-only dev compose (SierraDB is deferred to the `sierradb-runtime-and-round-trip` follow-up):
+
+```bash
+cd backend
+docker compose -f docker-compose.dev.yml up -d
+```
+
+Postgres is reachable at `postgres://postgres:postgres@localhost:5432/breakdown`.
+
+### Apply migrations and run the API
+
+```bash
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/breakdown cargo run -p api
+```
+
+The API serves OpenAPI/Swagger UI at `http://localhost:3000/swagger-ui`.
 
 ### Running integration tests locally
 
@@ -17,7 +36,7 @@ The black-box integration tests spin up an ephemeral PostgreSQL container per te
 cargo test -p integration-tests
 ```
 
-For details on the integration-test boundary and CI triggers, see [`backend/AGENTS.md`](./backend/AGENTS.md).
+For details on the integration-test boundary, CI triggers, and local dev commands, see [`backend/AGENTS.md`](./backend/AGENTS.md).
 
 ## License
 

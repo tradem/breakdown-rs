@@ -8,41 +8,42 @@ use uuid::Uuid;
 use super::events::{CalculationHeader, CalculationItem};
 use crate::shared::{AggregateVersion, ProjectId};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct CreateCalculation {
+    pub id: Uuid,
     pub project_id: ProjectId,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct UpdateHeaderInfo {
     pub id: Uuid,
     pub header: CalculationHeader,
     pub version: AggregateVersion,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct AddCalculationItem {
     pub id: Uuid,
     pub item: CalculationItem,
     pub version: AggregateVersion,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct UpdateCalculationItem {
     pub id: Uuid,
     pub item: CalculationItem,
     pub version: AggregateVersion,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct RemoveCalculationItem {
     pub id: Uuid,
     pub item_id: Uuid,
     pub version: AggregateVersion,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct MarkItemAsPaid {
     pub id: Uuid,
     pub item_id: Uuid,
     pub version: AggregateVersion,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct MarkItemAsUnpaid {
     pub id: Uuid,
     pub item_id: Uuid,

@@ -9,9 +9,10 @@ use crate::shared::{AggregateVersion, ProjectId};
 
 use super::events::{CharacterMeasurements, ContactInfo};
 
-/// Create a new character role.
-#[derive(Debug, Clone)]
+/// Create a new character role with an externally supplied UUIDv7 id.
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct CreateCharacter {
+    pub id: Uuid,
     pub project_id: ProjectId,
     pub name: String,
     pub is_extra: bool,
@@ -19,7 +20,7 @@ pub struct CreateCharacter {
 }
 
 /// Update physical measurements as a God-Command payload.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct UpdateMeasurements {
     pub id: Uuid,
     pub measurements: CharacterMeasurements,
@@ -27,7 +28,7 @@ pub struct UpdateMeasurements {
 }
 
 /// Update contact information as a God-Command payload.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct UpdateContactInfo {
     pub id: Uuid,
     pub contact_info: ContactInfo,

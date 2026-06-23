@@ -8,46 +8,47 @@ use uuid::Uuid;
 use super::events::CostumeDetail;
 use crate::shared::{AggregateVersion, ProjectId};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct CreateCostume {
+    pub id: Uuid,
     pub project_id: ProjectId,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct UpdateCostumeNotes {
     pub id: Uuid,
     pub notes: String,
     pub version: AggregateVersion,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct AssignCostumeToCharacter {
     pub id: Uuid,
     pub character_id: Uuid,
     pub version: AggregateVersion,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct UnassignCostume {
     pub id: Uuid,
     pub version: AggregateVersion,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct AddDetail {
     pub id: Uuid,
     pub detail: CostumeDetail,
     pub version: AggregateVersion,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct RemoveDetail {
     pub id: Uuid,
     pub detail_id: Uuid,
     pub version: AggregateVersion,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct LinkPhoto {
     pub id: Uuid,
     pub photo_id: Uuid,
     pub version: AggregateVersion,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct UnlinkPhoto {
     pub id: Uuid,
     pub photo_id: Uuid,

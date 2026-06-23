@@ -16,6 +16,7 @@ tokio.workspace = true
 # Serialisierung / IDs / Zeit
 serde.workspace = true
 serde_json.workspace = true
+sqlx.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 thiserror.workspace = true
@@ -23,6 +24,11 @@ thiserror.workspace = true
 # Actor / ES
 kameo.workspace = true
 kameo_es.workspace = true
+redis.workspace = true
+
+# OpenAPI (ADR-006)
+utoipa.workspace = true
+utoipa-swagger-ui.workspace = true
 
 # Logging
 tracing.workspace = true

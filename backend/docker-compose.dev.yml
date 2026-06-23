@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+
+# Minimal developer Postgres for the persistence-layer v1 slice.
+# Production-grade runtime (Postgres + SierraDB, volumes, backups, monitoring) is
+# intentionally out of scope here; see the `sierradb-runtime-and-round-trip` follow-up.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: breakdown
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5

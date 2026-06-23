@@ -4,10 +4,14 @@
 //! Globally shared Value Objects and Domain Primitives.
 
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 /// A type alias for UUIDv7-based project identifiers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ToSchema,
+)]
+#[serde(transparent)]
 pub struct ProjectId(pub Uuid);
 
 impl ProjectId {
@@ -25,7 +29,10 @@ impl Default for ProjectId {
 
 /// Aggregate version for optimistic locking.
 /// Holds a 64-bit version incremented on every state mutation inside the aggregate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ToSchema,
+)]
+#[serde(transparent)]
 pub struct AggregateVersion(pub u64);
 
 impl AggregateVersion {
