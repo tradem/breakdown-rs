@@ -1,8 +1,20 @@
 # ADR-003: Use PostgreSQL as Primary Database
 
-**Status**: Accepted  
+**Status**: Superseded by [ADR-015](./ADR-015-sierradb-event-store-postgres-projections.md)  
 **Date**: 2024-01-16  
+**Superseded**: 2026-06-23 by ADR-015  
 **Author**: Initial Architecture Decision
+
+> **Supersession notice (2026-06-23).** This ADR was accepted under the incorrect
+> assumption that PostgreSQL would serve as the *single* database for both the
+> Event Store and the CQRS read-model projections. Subsequent implementation
+> (see ADR-014 integration-test discovery) revealed that the chosen event-sourcing
+> library `kameo_es` persists events exclusively in **SierraDB** (RESP3/Redis-
+> protocol but not Redis), while PostgreSQL is used only for the
+> projection/read-model side. The decision is therefore revised in
+> [ADR-015](./ADR-015-sierradb-event-store-postgres-projections.md), which keeps
+> PostgreSQL for projections (re-evaluated against MongoDB) and documents SierraDB
+> as the event store. This document is retained unchanged for history.
 
 ---
 
