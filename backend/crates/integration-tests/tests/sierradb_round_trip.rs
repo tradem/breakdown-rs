@@ -20,7 +20,7 @@
 //! Requirements: Docker (or a compatible container runtime) and network access
 //! to pull the SierraDB image. Excluded from `cargo-mutants` (`.mutants.toml`).
 
-use std::sync::Arc;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
@@ -35,7 +35,6 @@ use chrono::Utc;
 use infra::event_store::SceneCommandsImpl;
 use infra::queries::SceneRepositoryImpl;
 use kameo_es::command_service::CommandService;
-use std::sync::OnceLock;
 use uuid::Uuid;
 
 /// Bounded-retry window for the projector to catch up (ADR-015 eventual
@@ -77,14 +76,14 @@ async fn await_scene_projection(
 /// gracefully in a tight startup window.
 async fn boot_two_tiers() -> Result<(SceneCommandsImpl, SceneRepositoryImpl)> {
     let (pool, _pg) = infra::testing::spawn_postgres().await?;
-    let (redis_client, sierra_conn, _sierra) = infra::testing::spawn_sierradb().await?;
+    let (_redis_client, sierra_conn, _sierra) = infra::testing::spawn_sierradb().await?;
 
     // Live write path: CommandService over RESP3 (ADR-015 / ADR-016).
     let cmd_service = CommandService::new(sierra_conn);
 
-    // Spawn only the scene projector — this is the one the Tier-4 tests need.
-    let _scene_ref =
-        infra::projectors::spawn_scene_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    // NOTE: No projector is spawned here to isolate the CommandService→SierraDB
+    // connection from any subscription-manager connections that the projector
+    // would open. The projector is tested separately in the Tier-3 tests.
 
     let write = SceneCommandsImpl::new(cmd_service);
     let read = SceneRepositoryImpl::new(pool);
