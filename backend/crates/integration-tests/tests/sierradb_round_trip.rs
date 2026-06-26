@@ -100,7 +100,7 @@ async fn eappend_scene_created_round_trips_into_projection() -> Result<()> {
 
     // Append directly via EAPPEND, bypassing the broken ESCAN path.
     let mut conn = redis_client.get_multiplexed_tokio_connection().await?;
-    let _resp: String = redis::cmd("EAPPEND")
+    let _resp: redis::Value = redis::cmd("EAPPEND")
         .arg(&stream_id)
         .arg("SceneCreated")
         .arg("EXPECTED_VERSION")
