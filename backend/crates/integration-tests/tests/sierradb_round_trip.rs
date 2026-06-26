@@ -35,6 +35,7 @@ use chrono::Utc;
 use infra::event_store::SceneCommandsImpl;
 use infra::queries::SceneRepositoryImpl;
 use kameo_es::command_service::CommandService;
+use std::sync::OnceLock;
 use uuid::Uuid;
 
 /// Bounded-retry window for the projector to catch up (ADR-015 eventual
@@ -67,13 +68,13 @@ async fn await_scene_projection(
     }
 }
 
-/// Boot the full two-tier runtime: Postgres pool + SierraDB `CommandService` +
-/// the four `PostgresProcessor` projectors (mirrors `main.rs`).
+/// Boot the two-tier runtime: Postgres pool + SierraDB `CommandService` +
+/// the scene `PostgresProcessor` projector.
 ///
-/// The projector spawn functions each start a background subscription task that
-/// holds its own `ActorRef` clone, so the returned actor refs can be dropped
-/// immediately — the projectors keep running for the lifetime of the test (and
-/// are torn down when the container guards dropped by the caller go away).
+/// Only the scene projector is spawned because it is the only one the
+/// Tier-4 round-trip tests exercise. Spawning all four projectors would open
+/// many RESP3 connections simultaneously, which SierraDB v0.3.1 may not handle
+/// gracefully in a tight startup window.
 async fn boot_two_tiers() -> Result<(SceneCommandsImpl, SceneRepositoryImpl)> {
     let (pool, _pg) = infra::testing::spawn_postgres().await?;
     let (redis_client, _sierra) = infra::testing::spawn_sierradb().await?;
@@ -82,19 +83,9 @@ async fn boot_two_tiers() -> Result<(SceneCommandsImpl, SceneRepositoryImpl)> {
     let conn = redis_client.get_multiplexed_tokio_connection().await?;
     let cmd_service = CommandService::new(conn);
 
-    // Spawn all four projectors so the full `main.rs` boot is exercised. The
-    // returned `ActorRef`s are intentionally dropped — the background streams
-    // own clones and keep the actors alive.
+    // Spawn only the scene projector — this is the one the Tier-4 tests need.
     let _scene_ref =
         infra::projectors::spawn_scene_projector(pool.clone(), Arc::clone(&redis_client)).await?;
-    let _character_ref =
-        infra::projectors::spawn_character_projector(pool.clone(), Arc::clone(&redis_client))
-            .await?;
-    let _costume_ref =
-        infra::projectors::spawn_costume_projector(pool.clone(), Arc::clone(&redis_client)).await?;
-    let _calculation_ref =
-        infra::projectors::spawn_calculation_projector(pool.clone(), Arc::clone(&redis_client))
-            .await?;
 
     let write = SceneCommandsImpl::new(cmd_service);
     let read = SceneRepositoryImpl::new(pool);
@@ -103,6 +94,12 @@ async fn boot_two_tiers() -> Result<(SceneCommandsImpl, SceneRepositoryImpl)> {
 
 #[tokio::test]
 async fn create_scene_round_trips_into_projection() -> Result<()> {
+    // One-time init for tracing so SierraDB/kameo_es debug logs appear in CI.
+    static TRACE: OnceLock<()> = OnceLock::new();
+    TRACE.get_or_init(|| {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+    });
+
     let (write, read) = boot_two_tiers().await?;
 
     let scene_id = Uuid::now_v7();

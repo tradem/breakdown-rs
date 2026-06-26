@@ -52,7 +52,9 @@ jobs:
           echo "OK: no production crate depends on integration-tests"
 
       - name: Run integration tests
-        run: cargo test -p integration-tests
+        env:
+          RUST_LOG: info,sierradb=debug,kameo_es=debug
+        run: cargo test -p integration-tests -- --nocapture
 
       # If the job becomes too slow for PRs, move this step to a nightly
       # workflow and document the cutoff in backend/AGENTS.md.
