@@ -88,9 +88,10 @@ CREATE TABLE IF NOT EXISTS projection_calculation_item (
 );
 
 -- Per-projection checkpoint table consumed by kameo_es PostgresProcessor.
+-- The column name `sequence` is mandated by kameo_es internals; do not rename.
 CREATE TABLE IF NOT EXISTS sierradb_event_checkpoints (
     projection_id TEXT NOT NULL,
     partition_id SMALLINT NOT NULL,
-    last_sequence BIGINT NOT NULL,
+    sequence BIGINT NOT NULL,
     PRIMARY KEY (projection_id, partition_id)
 );
