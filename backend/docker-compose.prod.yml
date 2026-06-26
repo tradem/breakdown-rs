@@ -1,0 +1,81 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+
+# Production runtime for the two-tier stack (ADR-015 / ADR-016).
+#
+# Choice recorded in ADR-016: docker-compose (not k8s) for v1. Symmetric with the
+# dev surface; upgradeable to k8s later without changing the pinned-tag/policy
+# decisions.
+#
+# Covers: Postgres (read-model projections) + SierraDB (RESP3 event store) with
+# pinned tags, persistent named volumes, healthchecks, OpenTelemetry hooks
+# (ADR-011), and backup/recovery (see docs/operations/runbooks.md).
+#
+# Usage:
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Configure via the `.env` file or real env vars before booting the API binary
+# (see `services.api.environment`).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-breakdown}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  sierradb:
+    # Pinned upstream image (ADR-016). SierraDB speaks RESP3 only.
+    image: tqwewe/sierradb:0.3.1
+    restart: unless-stopped
+    command: ["--dir", "/app/data"]
+    ports:
+      - "${SIERRADB_PORT:-9090}:9090"
+    volumes:
+      - sierradb_data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -h 127.0.0.1 -p 9090 -3 PING | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      sierradb:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-breakdown}
+      SIERRADB_URL: redis://sierradb:9090/?protocol=resp3
+      BIND_ADDR: "0.0.0.0:3000"
+      # --- OpenTelemetry hooks (ADR-011) ---
+      # Enable OTEL export by setting OTEL_EXPORTER_OTLP_ENDPOINT.
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-breakdown-rs}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-http/protobuf}
+      OTEL_TRACES_EXPORTER: ${OTEL_TRACES_EXPORTER:-otlp}
+      OTEL_METRICS_EXPORTER: ${OTEL_METRICS_EXPORTER:-otlp}
+      OTEL_LOGS_EXPORTER: ${OTEL_LOGS_EXPORTER:-none}
+      RUST_LOG: ${RUST_LOG:-info,breakdown=info,sqlx=warn}
+    ports:
+      - "${API_PORT:-3000}:3000"
+
+volumes:
+  postgres_data:
+  sierradb_data:

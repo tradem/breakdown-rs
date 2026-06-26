@@ -98,7 +98,7 @@ impl Command<CreateCalculation> for CalculationAggregate {
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         Ok(vec![CalculationEvent::CalculationCreated {
-            id: Uuid::now_v7(),
+            id: cmd.id,
             project_id: cmd.project_id,
             header: CalculationHeader::default(),
             items: Vec::new(),
@@ -257,7 +257,13 @@ mod tests {
         let pid = ProjectId::new();
         let agg = CalculationAggregate::default();
         let events = agg
-            .handle(CreateCalculation { project_id: pid }, make_ctx())
+            .handle(
+                CreateCalculation {
+                    id: Uuid::now_v7(),
+                    project_id: pid,
+                },
+                make_ctx(),
+            )
             .unwrap();
         let mut applied = CalculationAggregate::default();
         for evt in events {
@@ -270,6 +276,7 @@ mod tests {
     fn test_create_calculation_success() {
         let result = CalculationAggregate::default().handle(
             CreateCalculation {
+                id: Uuid::now_v7(),
                 project_id: ProjectId::new(),
             },
             make_ctx(),

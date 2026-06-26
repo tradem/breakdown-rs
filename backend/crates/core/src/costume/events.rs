@@ -4,11 +4,12 @@
 //! Costume events.
 
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::shared::{AggregateVersion, ProjectId};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct CostumeDetail {
     pub id: Uuid,
     pub text: String,

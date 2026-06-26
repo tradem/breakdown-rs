@@ -5,22 +5,25 @@
 
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::shared::{AggregateVersion, ProjectId};
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, ToSchema)]
 pub struct CalculationHeader {
     pub subjects: Option<String>,
     pub sender_name: Option<String>,
     pub date: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct CalculationItem {
     pub id: Uuid,
     pub name: String,
+    #[schema(value_type = String)]
     pub quantity: Decimal,
+    #[schema(value_type = String)]
     pub unit_price: Decimal,
     pub is_paid: bool,
 }

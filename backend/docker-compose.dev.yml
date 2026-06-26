@@ -1,0 +1,50 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+
+# Developer runtime for the full two-tier stack (ADR-015 / ADR-016):
+#   * Postgres  — CQRS projections (read model)
+#   * SierraDB  — event store over RESP3 (write model)
+#
+# SierraDB is pinned to `tqwewe/sierradb:0.3.1` (the upstream image; see ADR-016
+# for the image-path decision and the pinned-tag rationale). It speaks RESP3 on
+# port 9090 — connect with a RESP3-capable redis client, e.g.
+#   redis://127.0.0.1:9090   (SIERRADB_URL)
+#
+# Production-grade runtime (volumes, backups, monitoring, OpenTelemetry hooks)
+# lives in `docker-compose.prod.yml`; this file is the minimal dev surface.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: breakdown
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  sierradb:
+    image: tqwewe/sierradb:0.3.1
+    # SierraDB stores events under --dir; persist them across container restarts.
+    command: ["--dir", "/app/data"]
+    ports:
+      - "9090:9090"
+    volumes:
+      - sierradb_dev_data:/app/data
+    healthcheck:
+      # SierraDB speaks RESP3; a successful PING means the RESP3 endpoint is up.
+      test: ["CMD-SHELL", "redis-cli -h 127.0.0.1 -p 9090 -3 PING | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  postgres_dev_data:
+  sierradb_dev_data:

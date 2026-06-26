@@ -1,0 +1,175 @@
+@startuml core-domain-model
+' SPDX-License-Identifier: AGPL-3.0
+' Copyright (C) 2024 Breakdown RS Contributors
+'
+' Domain Model des Core Bounded Context (crates/core)
+' Aggregates (Aggregate Roots), Entities, Value Objects und deren Beziehungen.
+'
+' Legende:
+'   (*) Aggregate Root  (entity)
+'   (E) Entity          (eigenständige Identität innerhalb eines Aggregats)
+'   (V) Value Object    (strukturelle Gleichheit, keine Identität)
+'   --o>   Aggregation / Komposition (das Aggregat enthält den Typ)
+'   ..o>   Referenz nach ID auf ein anderes Aggregat (Aggregate-Übergreifend)
+
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam entity {
+  BackgroundColor<> #FFFFFF
+}
+hide circle
+hide methods
+
+' ===== Gemeinsame Value Objects (shared.rs) =====
+package "Shared (Value Objects)" #EEEEEE {
+  class ProjectId << (V) >> {
+    + uuid : Uuid  <<UUIDv7>>
+  }
+  class AggregateVersion << (V) >> {
+    + value : u64
+    INITIAL = 1
+    + next() : AggregateVersion
+  }
+}
+
+' ====================================================================
+' SZENE
+' ====================================================================
+package "Scene Bounded Context" #F4F8FF {
+  class SceneAggregate << (E,*) Aggregate Root >> {
+    + id : Uuid
+    + project_id : ProjectId
+    + details : SceneDetails
+    + assigned_characters : Vec<Uuid>
+    + version : AggregateVersion
+  }
+  class SceneDetails << (V) >> {
+    + scene_number : Option<u32>
+    + location : Option<String>
+    + mood : Option<String>
+    + is_schedule_set : bool
+  }
+  SceneAggregate "1" *-- "1" SceneDetails : details
+  SceneAggregate *-- "0..*" Uuid : assigned_characters
+  SceneAggregate ..> ProjectId
+}
+
+' ====================================================================
+' CHARAKTER
+' ====================================================================
+package "Character Bounded Context" #F4FFF4 {
+  class CharacterAggregate << (E,*) Aggregate Root >> {
+    + id : Uuid
+    + project_id : ProjectId
+    + name : String
+    + is_extra : bool
+    + is_main_character : bool
+    + measurements : CharacterMeasurements
+    + contact_info : ContactInfo
+    + version : AggregateVersion
+  }
+  class CharacterMeasurements << (V) >> {
+    + shoe_size : Option<Decimal>
+    + hat_size : Option<Decimal>
+    + height : Option<Decimal>
+    + weight : Option<Decimal>
+    + chest : Option<Decimal>
+    + waist : Option<Decimal>
+    + hips : Option<Decimal>
+  }
+  class ContactInfo << (V) >> {
+    + phone : Option<String>
+    + email : Option<String>
+  }
+  CharacterAggregate "1" *-- "1" CharacterMeasurements : measurements
+  CharacterAggregate "1" *-- "1" ContactInfo : contact_info
+  CharacterAggregate ..> ProjectId
+}
+
+' ====================================================================
+' KOSTÜM
+' ====================================================================
+package "Costume Bounded Context" #FFF8F0 {
+  class CostumeAggregate << (E,*) Aggregate Root >> {
+    + id : Uuid
+    + project_id : ProjectId
+    + character_id : Option<Uuid>
+    + notes : String
+    + details : Vec<CostumeDetail>
+    + photos : Vec<Uuid>
+    + version : AggregateVersion
+  }
+  class CostumeDetail << (E) >> {
+    + id : Uuid
+    + text : String
+  }
+  CostumeAggregate "1" *-- "0..*" CostumeDetail : details
+  CostumeAggregate *-- "0..*" Uuid : photos
+  CostumeAggregate ..> ProjectId
+}
+
+' ====================================================================
+' KALKULATION
+' ====================================================================
+package "Calculation Bounded Context" #FFF4F4 {
+  class CalculationAggregate << (E,*) Aggregate Root >> {
+    + id : Uuid
+    + project_id : ProjectId
+    + header : CalculationHeader
+    + items : Vec<CalculationItem>
+    + version : AggregateVersion
+  }
+  class CalculationHeader << (V) >> {
+    + subjects : Option<String>
+    + sender_name : Option<String>
+    + date : Option<String>
+  }
+  class CalculationItem << (E) >> {
+    + id : Uuid
+    + name : String
+    + quantity : Decimal
+    + unit_price : Decimal
+    + is_paid : bool
+  }
+  CalculationAggregate "1" *-- "1" CalculationHeader : header
+  CalculationAggregate "1" *-- "0..*" CalculationItem : items
+  CalculationAggregate ..> ProjectId
+}
+
+' ====================================================================
+' Aggregate-Übergreifende Referenzen (per ID, lockere Kopplung)
+' ====================================================================
+' Scene referenziert Character per character_id:
+SceneAggregate "1" o.. "*" CharacterAggregate : "assigned_characters\n(per ID)"
+' Costume wird (optional) einem Character zugeordnet:
+CostumeAggregate "0..1" o.. "1" CharacterAggregate : "character_id\n(per ID)"
+' CharacterAggregate empfängt die Zuordnung von Scene (Rückrichtung通报):
+CharacterAggregate "1" <-- SceneAggregate : "wird zugewiesen"
+
+' ====================================================================
+' Notizen
+' ====================================================================
+note as RelationsNote
+**Aggregate-Übergreifende Referenzen per ID** (nicht direkte Objekt-Referenzen):
+  * SceneAggregate.assigned_characters : Vec<Uuid>
+        -> Referenzen auf CharacterAggregate
+  * CostumeAggregate.character_id : Option<Uuid>
+        -> Referenz auf CharacterAggregate
+  * CostumeAggregate.photos : Vec<Uuid>
+        -> Referenzen auf externe Photos (nicht in core)
+
+**Gemeinsame Value Objects** (shared.rs, Context-übergreifend):
+  * ProjectId (UUIDv7) - kennzeichnet das übergeordnete Projekt
+  * AggregateVersion (u64) - für Optimistic Locking
+
+Jedes Aggregat ist ein kameo_es::Entity (Event-Sourced):
+  type ID = Uuid, type Event = <Context>Event, type Metadata = ()
+State wird ausschließlich durch Replaying von Events aufgebaut (apply).
+end note
+
+SceneAggregate .. RelationsNote
+CharacterAggregate .. RelationsNote
+CostumeAggregate .. RelationsNote
+CalculationAggregate .. RelationsNote
+
+@enduml

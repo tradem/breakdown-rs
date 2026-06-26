@@ -5,24 +5,32 @@
 
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::shared::{AggregateVersion, ProjectId};
 
 /// Payload for measurement fields updated as a God-Command.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, ToSchema)]
 pub struct CharacterMeasurements {
+    #[schema(value_type = String)]
     pub shoe_size: Option<Decimal>,
+    #[schema(value_type = String)]
     pub hat_size: Option<Decimal>,
+    #[schema(value_type = String)]
     pub height: Option<Decimal>,
+    #[schema(value_type = String)]
     pub weight: Option<Decimal>,
+    #[schema(value_type = String)]
     pub chest: Option<Decimal>,
+    #[schema(value_type = String)]
     pub waist: Option<Decimal>,
+    #[schema(value_type = String)]
     pub hips: Option<Decimal>,
 }
 
 /// Payload for contact information updated as a God-Command.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, ToSchema)]
 pub struct ContactInfo {
     pub phone: Option<String>,
     pub email: Option<String>,

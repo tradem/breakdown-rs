@@ -23,8 +23,19 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 # Database access & migrations
 sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-native-tls", "uuid", "chrono", "json", "migrate"] }
 
+# Timestamps used by projector tests
+chrono = { workspace = true }
+
 # Deterministic IDs
 uuid = { workspace = true, features = ["v7"] }
 
 # Error handling / utilities
 anyhow = { workspace = true }
+
+# JSON for Redis events
+serde_json = "1.0"
+
+# Logging / tracing (for SierraDB/kameo_es debug output in CI)
+redis = { workspace = true }
+ciborium = "0.2"
+tracing-subscriber = { workspace = true }

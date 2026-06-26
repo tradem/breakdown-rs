@@ -86,7 +86,7 @@ impl Command<CreateScene> for SceneAggregate {
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         Ok(vec![SceneEvent::SceneCreated {
-            id: Uuid::now_v7(),
+            id: cmd.id,
             project_id: cmd.project_id,
             details: cmd.details,
             assigned_characters: Vec::new(),
@@ -188,6 +188,7 @@ mod tests {
         };
         let events = SceneAggregate::default().handle(
             CreateScene {
+                id: Uuid::now_v7(),
                 project_id: pid,
                 details: details.clone(),
             },
@@ -198,6 +199,7 @@ mod tests {
         for evt in SceneAggregate::default()
             .handle(
                 CreateScene {
+                    id: Uuid::now_v7(),
                     project_id: pid,
                     details,
                 },
@@ -221,6 +223,7 @@ mod tests {
         };
         let result = SceneAggregate::default().handle(
             CreateScene {
+                id: Uuid::now_v7(),
                 project_id: pid,
                 details,
             },

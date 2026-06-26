@@ -39,3 +39,7 @@ temp/
 coverage/
 *.coverage
 .coverage.*
+
+# Agent/IDE configuration directories
+.pi/**
+backend/.pi/plugins/ast-bro/**

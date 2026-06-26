@@ -1,22 +1,5 @@
-// SPDX-License-Identifier: AGPL-3.0
-// Copyright (C) 2024 Breakdown RS Contributors
-
-//! Template smoke test for the Postgres Testcontainers harness.
-//!
-//! This test exercises the canonical integration-test pattern:
-//!
-//! ```text
-//! spawn resource → seed via public command API → assert via public query API → drop guards
-//! ```
-//!
-//! In this minimal form the test only verifies the harness itself: a fresh
-//! Postgres container is started, the projection schema is applied, and a
-//! round-trip insert/select works. The command/event-store step against
-//! sierradb (via `kameo_es`) is deferred to a follow-up feature branch; the
-//! harness structure is already prepared to host that step once a sierradb
-//! test instance is available.
-
 use anyhow::Result;
+use breakdown_core::shared::ProjectId;
 use sqlx::Row;
 use uuid::Uuid;
 
@@ -25,19 +8,33 @@ async fn postgres_harness_spins_up_and_applies_migrations() -> Result<()> {
     let (pool, _container) = infra::testing::spawn_postgres().await?;
 
     let id = Uuid::now_v7();
+    let project_id = ProjectId::new();
 
-    sqlx::query("INSERT INTO integration_test_smoke_check (id) VALUES ($1)")
-        .bind(id)
-        .execute(&pool)
-        .await?;
+    sqlx::query(
+        r#"
+        INSERT INTO projection_character
+            (id, project_id, name, is_extra, is_main_character, measurements, contact, version, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+        "#,
+    )
+    .bind(id)
+    .bind(project_id.0)
+    .bind("Smoke Test")
+    .bind(false)
+    .bind(false)
+    .bind(serde_json::json!({}))
+    .bind(serde_json::json!({}))
+    .bind(1_i64)
+    .execute(&pool)
+    .await?;
 
-    let row: Uuid = sqlx::query("SELECT id FROM integration_test_smoke_check WHERE id = $1")
+    let row_name: String = sqlx::query("SELECT name FROM projection_character WHERE id = $1")
         .bind(id)
         .fetch_one(&pool)
         .await?
-        .try_get("id")?;
+        .try_get("name")?;
 
-    assert_eq!(row, id);
+    assert_eq!(row_name, "Smoke Test");
 
     Ok(())
 }

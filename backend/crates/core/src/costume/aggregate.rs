@@ -108,7 +108,7 @@ impl Command<CreateCostume> for CostumeAggregate {
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         Ok(vec![CostumeEvent::CostumeCreated {
-            id: Uuid::now_v7(),
+            id: cmd.id,
             project_id: cmd.project_id,
             character_id: None,
             notes: String::new(),
@@ -294,7 +294,13 @@ mod tests {
         let pid = ProjectId::new();
         let agg = CostumeAggregate::default();
         let events = agg
-            .handle(CreateCostume { project_id: pid }, make_ctx())
+            .handle(
+                CreateCostume {
+                    id: Uuid::now_v7(),
+                    project_id: pid,
+                },
+                make_ctx(),
+            )
             .unwrap();
         let mut applied = CostumeAggregate::default();
         for evt in events {
@@ -307,6 +313,7 @@ mod tests {
     fn test_create_costume_success() {
         let result = CostumeAggregate::default().handle(
             CreateCostume {
+                id: Uuid::now_v7(),
                 project_id: ProjectId::new(),
             },
             make_ctx(),

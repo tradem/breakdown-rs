@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::shared::{AggregateVersion, ProjectId};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, utoipa::ToSchema)]
 pub struct SceneDetails {
     pub scene_number: Option<u32>,
     pub location: Option<String>,

@@ -7,17 +7,49 @@
 ### Prerequisites
 
 - [Rust](https://rustup.rs/) (latest stable toolchain)
-- [Docker](https://docs.docker.com/get-docker/) or a compatible container runtime — required for the Testcontainers-based integration test suite.
+- [Docker](https://docs.docker.com/get-docker/) or a compatible container runtime — required for the dev database and the Testcontainers-based integration test suite.
+
+### Start the dev runtime (both tiers)
+
+The dev compose starts the full two-tier stack (ADR-015 / ADR-016): Postgres for
+the CQRS read-model projections **and** SierraDB for the RESP3 event store.
+
+```bash
+cd backend
+docker compose -f docker-compose.dev.yml up -d
+```
+
+- Postgres is reachable at `postgres://postgres:postgres@localhost:5432/breakdown`.
+- SierraDB (RESP3) is reachable at `redis://127.0.0.1:9090` (pinned to `tqwewe/sierradb:0.3.1`).
+
+### Apply migrations and run the API
+
+```bash
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/breakdown \
+SIERRADB_URL=redis://127.0.0.1:9090/?protocol=resp3 \
+cargo run -p api
+```
+
+`main.rs` applies the Postgres projection migrations at boot, opens a RESP3
+connection to SierraDB, and spawns the projectors that keep the Postgres
+projections in sync with the event store.
+
+The API serves OpenAPI/Swagger UI at `http://localhost:3000/swagger-ui`.
 
 ### Running integration tests locally
 
-The black-box integration tests spin up an ephemeral PostgreSQL container per test. From the repository root run:
+The black-box integration tests spin up ephemeral containers per test. Tier 1–3
+tests use Postgres only; Tier-4 tests (ADR-016) run the full
+`command → SierraDB → projector → Postgres` round-trip against both a SierraDB
+and a Postgres container. From the repository root run:
 
 ```bash
 cargo test -p integration-tests
 ```
 
-For details on the integration-test boundary and CI triggers, see [`backend/AGENTS.md`](./backend/AGENTS.md).
+Requires Docker (or a compatible container runtime); Tier-4 tests additionally
+pull the `tqwewe/sierradb:0.3.1` image. For details on the integration-test
+boundary, CI triggers, and local dev commands, see [`backend/AGENTS.md`](./backend/AGENTS.md).
 
 ## License
 
