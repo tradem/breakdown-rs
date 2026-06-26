@@ -122,7 +122,7 @@ async fn eappend_scene_created_round_trips_into_projection() -> Result<()> {
     assert_eq!(view.location.as_deref(), Some("Berlin"));
     assert_eq!(view.mood.as_deref(), Some("dark"));
     assert!(view.is_schedule_set);
-    assert_eq!(view.version, AggregateVersion::INITIAL);
+    assert_eq!(view.version, AggregateVersion(0));
     assert!(view.assigned_characters.is_empty());
 
     Ok(())
