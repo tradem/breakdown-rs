@@ -32,11 +32,15 @@
 //! runners must **never** set this variable; CI always uses fresh containers.
 
 use std::env;
+use std::sync::Arc;
+use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
+use redis::Client as RedisClient;
 use sqlx::PgPool;
+use testcontainers::core::{ContainerPort, WaitFor};
 use testcontainers::runners::AsyncRunner;
-use testcontainers::{ContainerAsync, ContainerRequest, ImageExt, ReuseDirective};
+use testcontainers::{ContainerAsync, ContainerRequest, Image, ImageExt, ReuseDirective};
 use testcontainers_modules::postgres::Postgres as PostgresImage;
 
 /// Starts an ephemeral Postgres container and returns a configured pool.
@@ -78,4 +82,117 @@ fn build_postgres_container_request() -> ContainerRequest<PostgresImage> {
     } else {
         image.into()
     }
+}
+
+// ---------------------------------------------------------------------------
+// SierraDB harness (ADR-016 / Tier-4 round-trip tests)
+// ---------------------------------------------------------------------------
+//
+// No upstream `testcontainers` module exists for SierraDB, so per ADR-014's
+// one-harness rule we add a small local `Image` impl here (same crate as the
+// Postgres helper) rather than introducing a parallel test-infrastructure crate.
+// The image is pinned to `tqwewe/sierradb:0.3.1` (ADR-016). SierraDB speaks
+// RESP3 only.
+
+/// Pinned SierraDB image tag (ADR-016). Keep in sync with the dev/prod composes.
+pub const SIERRADB_IMAGE_TAG: &str = "0.3.1";
+
+/// RESP3 port exposed by the `tqwewe/sierradb` image.
+const SIERRADB_PORT: u16 = 9090;
+
+/// `testcontainers::Image` for the upstream `tqwewe/sierradb` image.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct SierraDbImage;
+
+impl Image for SierraDbImage {
+    fn name(&self) -> &str {
+        "tqwewe/sierradb"
+    }
+
+    fn tag(&self) -> &str {
+        SIERRADB_IMAGE_TAG
+    }
+
+    fn ready_conditions(&self) -> Vec<WaitFor> {
+        // SierraDB logs `ready to receive connections on …` (tracing, either
+        // stdout/stderr depending on image config). The spawn helper additionally
+        // performs a bounded RESP3 PING as the real readiness gate.
+        vec![WaitFor::message_on_either_std(
+            "ready to receive connections",
+        )]
+    }
+
+    fn expose_ports(&self) -> &[ContainerPort] {
+        // The image already `EXPOSE`s 9090; re-declare it so testcontainers maps it
+        // even when the image metadata is not inspected.
+        static PORTS: [ContainerPort; 1] = [ContainerPort::Tcp(SIERRADB_PORT)];
+        &PORTS
+    }
+}
+
+/// Starts an ephemeral SierraDB container and returns a RESP3 `redis::Client`
+/// (wrapped in `Arc` so it can be shared with the projector spawns, mirroring
+/// `main.rs`) plus the owning [`ContainerAsync`] guard.
+///
+/// Readiness is gated by a bounded-retry RESP3 `PING`: SierraDB speaks RESP3
+/// only, so the connection URL carries `?protocol=resp3`.
+pub async fn spawn_sierradb() -> Result<(Arc<RedisClient>, ContainerAsync<SierraDbImage>)> {
+    let request = build_sierradb_container_request();
+    let container = request.start().await?;
+
+    let host = container.get_host().await?;
+    let port = container.get_host_port_ipv4(SIERRADB_PORT).await?;
+    let url = format!("redis://{host}:{port}/?protocol=resp3");
+
+    let client = Arc::new(RedisClient::open(url.as_str())?);
+
+    // Bounded RESP3 PING readiness gate.
+    let mut last_err = None;
+    for _ in 0..40 {
+        match ping_sierradb(&client).await {
+            Ok(()) => return Ok((client, container)),
+            Err(err) => last_err = Some(err),
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+
+    Err(anyhow!(
+        "SierraDB container did not answer RESP3 PING within readiness window: {}",
+        last_err
+            .map(|e| e.to_string())
+            .unwrap_or_else(|| "unknown".into())
+    ))
+}
+
+async fn ping_sierradb(client: &RedisClient) -> Result<()> {
+    let mut conn = client.get_multiplexed_tokio_connection().await?;
+    let resp: String = redis::cmd("PING").query_async(&mut conn).await?;
+    if resp == "PONG" {
+        Ok(())
+    } else {
+        Err(anyhow!("unexpected PING reply: {resp:?}"))
+    }
+}
+
+fn build_sierradb_container_request() -> ContainerRequest<SierraDbImage> {
+    let image = SierraDbImage;
+    if env::var("TESTCONTAINERS_REUSE")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+    {
+        image.with_reuse(ReuseDirective::Always)
+    } else {
+        image.into()
+    }
+}
+
+/// Test-only accessor for the pool backing a `SceneRepositoryImpl`.
+///
+/// Tier-4 round-trip tests need to open transactions against the same Postgres
+/// pool the read adapter uses (e.g. to re-deliver events to a projector for
+/// idempotency checks). `SceneRepositoryImpl` keeps its pool private for
+/// production callers; this helper reaches into it from within the `infra`
+/// crate (same-crate privacy) and is only compiled under the `testing` feature.
+pub fn scene_repo_pool(repo: &crate::queries::SceneRepositoryImpl) -> sqlx::PgPool {
+    repo.pool().clone()
 }

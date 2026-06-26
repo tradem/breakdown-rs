@@ -30,12 +30,22 @@ You are the primary coding agent for `breakdown-rs` – a collaborative costume 
 
 ### Integration tests
 
-End-to-end, black-box integration tests live in the dedicated workspace member `crates/integration-tests`. They exercise the full `command → event → event-store → projector → projection` chain against an ephemeral PostgreSQL container managed by [`testcontainers`](https://crates.io/crates/testcontainers).
+End-to-end, black-box integration tests live in the dedicated workspace member `crates/integration-tests`. They exercise the full `command → event → event-store → projector → projection` chain against ephemeral containers managed by [`testcontainers`](https://crates.io/crates/testcontainers).
 
-- **How to run locally**: `cargo test -p integration-tests` (requires Docker or a compatible container runtime).
+- **Tiers 1–3 (Postgres-only)**: projector and repository tests against an ephemeral PostgreSQL container.
+- **Tier 4 (full round-trip, ADR-016)**: `command → SierraDB event persisted → PostgresProcessor catches up → read via *Repository adapter asserts the projection row`, against ephemeral SierraDB (`tqwewe/sierradb:0.3.1`) **and** Postgres containers, with bounded-retry eventual-consistency handling. A second variant verifies projector idempotency under redelivery.
+- **How to run locally**: `cargo test -p integration-tests` (requires Docker or a compatible container runtime; Tier-4 tests additionally require network access to pull the SierraDB image).
 - **Boundary**: The crate consumes only the `pub` API of `core` and `infra`. It is excluded from the `cargo-mutants` surface — only whitebox `#[cfg(test)]` modules are mutated.
-- **CI trigger**: The integration-test job runs on pull requests touching `backend/crates/{core,infra}/**`.
-- **Container policy**: Each test gets a fresh Postgres container by default. Optional local container reuse is documented in the harness module docs, but CI always uses fresh containers.
+- **CI trigger**: The integration-test job runs on pull requests touching `backend/crates/{core,infra,api,integration-tests}/**`. CI starts both the Postgres and SierraDB containers.
+- **Container policy**: Each test gets fresh containers by default. Optional local container reuse is documented in the harness module docs, but CI always uses fresh containers.
+
+### CI prerequisites
+
+The integration-test workflow (`.github/workflows/integration-tests.yml`, ADR-014 / ADR-016) runs on `ubuntu-latest` and requires:
+
+- **Docker** (or a compatible container runtime) available on the runner. The workflow verifies `docker info` and fails loudly if it is missing.
+- **Network access to Docker Hub** — the Tier-4 tests pull `tqwewe/sierradb:0.3.1` (in addition to the Postgres image) via `testcontainers`. No manual image preload is required; `testcontainers` pulls automatically.
+- No service containers are declared in the workflow — `testcontainers` provisions both tiers per test, so the only host prerequisite is Docker + Hub connectivity.
 
 ## 5. Code Example: kameo_es Aggregate
 ```rust
@@ -64,32 +74,40 @@ impl Command<CostumeAggregate> for AssignCostume {
 v1 ships a **Postgres-only** dev compose. SierraDB is not included; the live `command → SierraDB → projector → PG` round-trip is deferred to the `sierradb-runtime-and-round-trip` follow-up change.
 
 ### Prerequisites
-- Docker (or a compatible container runtime) for the dev database.
+- Docker (or a compatible container runtime) for the dev database **and** the SierraDB event store.
 
-### Start the dev database
+### Start the dev runtime (both tiers)
+The dev compose starts the full two-tier stack from ADR-015 / ADR-016:
+Postgres (read model / projections) **and** SierraDB (event store, RESP3).
 From the `backend/` directory run:
 
 ```bash
 docker compose -f docker-compose.dev.yml up -d
 ```
 
-This starts Postgres on `localhost:5432` with:
-- user: `postgres`
-- password: `postgres`
-- database: `breakdown`
+This starts:
+- **Postgres** on `localhost:5432` — user `postgres`, password `postgres`, database `breakdown`.
+- **SierraDB** on `localhost:9090` (RESP3) — pinned to `tqwewe/sierradb:0.3.1`.
 
-### Apply migrations
-With the database running:
+### Apply migrations and run the API (full boot sequence)
+1. Start both tiers (above).
+2. Apply Postgres projection migrations + boot the API, pointing at both tiers:
 
 ```bash
-DATABASE_URL=postgres://postgres:postgres@localhost:5432/breakdown cargo run -p api
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/breakdown \
+SIERRADB_URL=redis://127.0.0.1:9090/?protocol=resp3 \
+cargo run -p api
 ```
 
-`main.rs` runs `sqlx::migrate!("../infra/migrations")` at boot. Tests that use `infra::testing::spawn_postgres()` apply the same migration set automatically.
+`main.rs` runs `sqlx::migrate!("../infra/migrations")` at boot, opens a RESP3
+connection to SierraDB, builds a live `CommandService` (write path), and spawns
+the four `PostgresProcessor` projectors that subscribe to SierraDB and update
+the Postgres projections. Tests that use `infra::testing::spawn_postgres()`
+apply the same migration set automatically.
 
 ### Environment variables used by the API binary
 - `DATABASE_URL` – Postgres connection string (default: `postgres://postgres:postgres@localhost:5432/breakdown`)
-- `SIERRADB_URL` – SierraDB RESP3 connection string, currently unused in v1 but required by `main.rs` (default: `redis://127.0.0.1:6379`)
+- `SIERRADB_URL` – SierraDB RESP3 connection string (default: `redis://127.0.0.1:9090/?protocol=resp3`). SierraDB speaks RESP3 only — keep `?protocol=resp3` (ADR-016).
 - `BIND_ADDR` – HTTP bind address (default: `0.0.0.0:3000`)
 - OpenAPI/Swagger UI is served at `http://localhost:3000/swagger-ui`
 

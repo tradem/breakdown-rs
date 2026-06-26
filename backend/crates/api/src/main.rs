@@ -32,9 +32,12 @@ async fn main() -> Result<()> {
         warn!("DATABASE_URL not set; using local dev default");
         "postgres://postgres:postgres@localhost:5432/breakdown".into()
     });
+    // SierraDB speaks RESP3 (ADR-015 / ADR-016). The dev compose exposes it on
+    // port 9090; connect with a RESP3-capable `redis::Client`. The URL is
+    // environment-driven (gitleaks-clean) — never hardcoded beyond the dev default.
     let sierradb_url = env::var("SIERRADB_URL").unwrap_or_else(|_| {
-        warn!("SIERRADB_URL not set; using local dev default");
-        "redis://127.0.0.1:6379".into()
+        warn!("SIERRADB_URL not set; using local dev default (RESP3, port 9090)");
+        "redis://127.0.0.1:9090/?protocol=resp3".into()
     });
 
     let pool = PgPoolOptions::new()

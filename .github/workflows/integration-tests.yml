@@ -1,10 +1,18 @@
 name: Integration Tests
 
+# Tier 1–3: Postgres-only projector/repository tests.
+# Tier 4 (ADR-016): full `command → SierraDB → projector → Postgres` round-trip.
+# The Tier-4 tests pull `tqwewe/sierradb:0.3.1` via testcontainers in addition to
+# the Postgres image, so the only host prerequisite is Docker (or a compatible
+# container runtime) with network access to Docker Hub. See
+# `backend/AGENTS.md` § Integration tests and `backend/docs/operations/runbooks.md`.
+
 on:
   pull_request:
     paths:
       - "backend/crates/core/**"
       - "backend/crates/infra/**"
+      - "backend/crates/api/**"
       - "backend/crates/integration-tests/**"
       - "backend/Cargo.toml"
       - "backend/Cargo.lock"
@@ -13,7 +21,7 @@ on:
 
 jobs:
   integration-tests:
-    name: Testcontainers Postgres integration tests
+    name: Testcontainers integration tests (Postgres + SierraDB)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -30,7 +38,8 @@ jobs:
         run: |
           docker info
           # This step must fail loudly if Docker is missing. Do not silently
-          # pass; missing Docker masks test failures.
+          # pass; missing Docker masks test failures. The Tier-4 tests also
+          # pull `tqwewe/sierradb:0.3.1`, so Docker Hub connectivity is required.
 
       - name: Check production crates do not depend on integration-tests
         run: |
