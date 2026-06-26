@@ -77,11 +77,10 @@ async fn await_scene_projection(
 /// gracefully in a tight startup window.
 async fn boot_two_tiers() -> Result<(SceneCommandsImpl, SceneRepositoryImpl)> {
     let (pool, _pg) = infra::testing::spawn_postgres().await?;
-    let (redis_client, _sierra) = infra::testing::spawn_sierradb().await?;
+    let (redis_client, sierra_conn, _sierra) = infra::testing::spawn_sierradb().await?;
 
     // Live write path: CommandService over RESP3 (ADR-015 / ADR-016).
-    let conn = redis_client.get_multiplexed_tokio_connection().await?;
-    let cmd_service = CommandService::new(conn);
+    let cmd_service = CommandService::new(sierra_conn);
 
     // Spawn only the scene projector — this is the one the Tier-4 tests need.
     let _scene_ref =

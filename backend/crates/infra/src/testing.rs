@@ -31,6 +31,7 @@
 //! When reuse is enabled the container may be kept alive across test runs. CI
 //! runners must **never** set this variable; CI always uses fresh containers.
 
+use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
 use std::time::Duration;
@@ -116,7 +117,7 @@ impl Image for SierraDbImage {
     fn ready_conditions(&self) -> Vec<WaitFor> {
         // SierraDB logs `ready to receive connections on …` (tracing, either
         // stdout/stderr depending on image config). The spawn helper additionally
-        // performs a bounded RESP3 PING as the real readiness gate.
+        // performs a bounded-retry ESVER probe as the real cluster-readiness gate.
         vec![WaitFor::message_on_either_std(
             "ready to receive connections",
         )]
@@ -128,21 +129,40 @@ impl Image for SierraDbImage {
         static PORTS: [ContainerPort; 1] = [ContainerPort::Tcp(SIERRADB_PORT)];
         &PORTS
     }
+
+    fn env_vars(
+        &self,
+    ) -> impl IntoIterator<
+        Item = (
+            impl Into<std::borrow::Cow<'_, str>>,
+            impl Into<std::borrow::Cow<'_, str>>,
+        ),
+    > {
+        // Disable cluster networking in single-node mode (enabled by default in
+        // sierra.default.toml). On CI runners the QUIC cluster listener may fail
+        // to bind, preventing the cluster actor from initialising its topology.
+        // Without this the ESCAN command (used by kameo_es EntityActor::resync_with_db)
+        // returns PartitionUnavailable → broken pipe.
+        HashMap::from([("SIERRADB_NETWORK__CLUSTER_ENABLED", "false")])
+    }
 }
 
 /// Starts an ephemeral SierraDB container and returns a RESP3 `redis::Client`
 /// (wrapped in `Arc` so it can be shared with the projector spawns, mirroring
-/// `main.rs`) plus the owning [`ContainerAsync`] guard.
+/// `main.rs`) plus a pre-verified RESP3 `MultiplexedConnection` for the
+/// `CommandService`, and the owning [`ContainerAsync`] guard.
 ///
 /// Readiness is gated by two layers:
 /// 1. The testcontainer's log-based `ready_conditions` (waits for
 ///    "ready to receive connections" in the SierraDB log).
-/// 2. A bounded-retry cluster-readiness probe using the `ESVER` command. This
-///    ensures the internal cluster actor has finished its topology initialisation
-///    before the caller opens a CommandService connection. Without this probe,
-///    `EntityActor::resync_with_db` can fail with a `broken pipe` error because
-///    the cluster actor is not yet ready to handle `ESCAN`.
-pub async fn spawn_sierradb() -> Result<(Arc<RedisClient>, ContainerAsync<SierraDbImage>)> {
+/// 2. A bounded-retry cluster-readiness probe using the `ESVER` command on the
+///    **same** connection that is returned to the caller. This avoids opening
+///    and closing extra connections, which SierraDB v0.3.1 handles poorly.
+pub async fn spawn_sierradb() -> Result<(
+    Arc<RedisClient>,
+    redis::aio::MultiplexedConnection,
+    ContainerAsync<SierraDbImage>,
+)> {
     let request = build_sierradb_container_request();
     let container = request.start().await?;
 
@@ -152,12 +172,29 @@ pub async fn spawn_sierradb() -> Result<(Arc<RedisClient>, ContainerAsync<Sierra
 
     let client = Arc::new(RedisClient::open(url.as_str())?);
 
-    // Bounded-retry cluster-readiness probe.
+    // Bounded-retry cluster-readiness probe on a single connection that we
+    // will return to the caller. The probe uses `ESVER` which goes through
+    // the cluster actor; if the topology isn't ready yet, it retries.
     let mut last_err = None;
     for _ in 0..60 {
-        match probe_cluster_ready(&client).await {
-            Ok(()) => return Ok((client, container)),
-            Err(err) => last_err = Some(err),
+        match client.get_multiplexed_tokio_connection().await {
+            Ok(conn) => {
+                // ESVER on the same connection — if the cluster is ready this
+                // succeeds and we return the connection together with the client.
+                match redis::cmd("ESVER")
+                    .arg("__sierradb_probe__")
+                    .query_async::<Option<u64>>(&mut conn.clone())
+                    .await
+                {
+                    Ok(_) => return Ok((client, conn, container)),
+                    Err(err) => {
+                        last_err = Some(err);
+                    }
+                }
+            }
+            Err(err) => {
+                last_err = Some(err);
+            }
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
@@ -168,18 +205,6 @@ pub async fn spawn_sierradb() -> Result<(Arc<RedisClient>, ContainerAsync<Sierra
             .map(|e| e.to_string())
             .unwrap_or_else(|| "unknown".into())
     ))
-}
-
-/// Open a temporary connection and send `ESVER` on a throw-away stream id.
-/// The `ESVER` command goes through the cluster actor; if the cluster topology
-/// is not yet initialised it will fail, letting us retry.
-async fn probe_cluster_ready(client: &RedisClient) -> Result<()> {
-    let mut conn = client.get_multiplexed_tokio_connection().await?;
-    let _: Option<u64> = redis::cmd("ESVER")
-        .arg("__sierradb_probe__")
-        .query_async(&mut conn)
-        .await?;
-    Ok(())
 }
 
 fn build_sierradb_container_request() -> ContainerRequest<SierraDbImage> {
