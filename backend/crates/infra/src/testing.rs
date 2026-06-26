@@ -33,9 +33,8 @@
 
 use std::env;
 use std::sync::Arc;
-use std::time::Duration;
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use redis::Client as RedisClient;
 use sqlx::PgPool;
 use testcontainers::core::{ContainerPort, WaitFor};
@@ -134,8 +133,10 @@ impl Image for SierraDbImage {
 /// (wrapped in `Arc` so it can be shared with the projector spawns, mirroring
 /// `main.rs`) plus the owning [`ContainerAsync`] guard.
 ///
-/// Readiness is gated by a bounded-retry RESP3 `PING`: SierraDB speaks RESP3
-/// only, so the connection URL carries `?protocol=resp3`.
+/// Readiness is gated by the testcontainer's log-based `ready_conditions`
+/// (waiting for the "ready to receive connections" line). No separate PING
+/// check is performed — the callers create their own connections from the
+/// returned client.
 pub async fn spawn_sierradb() -> Result<(Arc<RedisClient>, ContainerAsync<SierraDbImage>)> {
     let request = build_sierradb_container_request();
     let container = request.start().await?;
@@ -145,33 +146,7 @@ pub async fn spawn_sierradb() -> Result<(Arc<RedisClient>, ContainerAsync<Sierra
     let url = format!("redis://{host}:{port}/?protocol=resp3");
 
     let client = Arc::new(RedisClient::open(url.as_str())?);
-
-    // Bounded RESP3 PING readiness gate.
-    let mut last_err = None;
-    for _ in 0..40 {
-        match ping_sierradb(&client).await {
-            Ok(()) => return Ok((client, container)),
-            Err(err) => last_err = Some(err),
-        }
-        tokio::time::sleep(Duration::from_millis(250)).await;
-    }
-
-    Err(anyhow!(
-        "SierraDB container did not answer RESP3 PING within readiness window: {}",
-        last_err
-            .map(|e| e.to_string())
-            .unwrap_or_else(|| "unknown".into())
-    ))
-}
-
-async fn ping_sierradb(client: &RedisClient) -> Result<()> {
-    let mut conn = client.get_multiplexed_tokio_connection().await?;
-    let resp: String = redis::cmd("PING").query_async(&mut conn).await?;
-    if resp == "PONG" {
-        Ok(())
-    } else {
-        Err(anyhow!("unexpected PING reply: {resp:?}"))
-    }
+    Ok((client, container))
 }
 
 fn build_sierradb_container_request() -> ContainerRequest<SierraDbImage> {
