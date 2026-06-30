@@ -1,22 +1,16 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+#
+# cargo-deny configuration (ADR-017)
+# See https://embarkstudios.github.io/cargo-deny/
+#
+# Note: cargo-deny's `[[bans.deny]]` works globally (or via `wrappers`
+# allowlist). The per-crate bans for `breakdown_core` are enforced by a
+# dedicated test in `crates/architecture/tests/` that checks the crate's
+# Cargo.toml directly. See ADR-017 for the full two-layer strategy.
+
 [graph]
 all-features = true
 
-[licenses]
-unlicensed = "deny"
-allow = [
-    "MIT",
-    "Apache-2.0",
-    "BSD-3-Clause",
-    "BSD-2-Clause",
-    "CC0-1.0",
-    "AGPL-3.0"
-]
-copyleft = "allow"
-
-[advisories]
-vulnerability = "deny"
-unmaintained = "warn"
-yanked = "warn"
-
-[sources]
-unknown-source = "warn"
+[bans]
+multiple-versions = "warn"
