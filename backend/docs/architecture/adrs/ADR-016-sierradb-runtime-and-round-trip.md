@@ -81,7 +81,14 @@ testcontainers module exists; one-harness rule preserved). The Tier-4 test
 starts both containers, builds a `CommandService` over SierraDB, spawns the four
 projectors, issues a `CreateScene` command, and polls the `projection_scene`
 read adapter until the row appears (bounded-retry eventual consistency). A
-second variant verifies projector idempotency under redelivery. Tier-4 tests
+second variant (`eappend_character_assigned_twice_is_idempotent` in
+`crates/integration-tests/tests/sierradb_round_trip.rs`) verifies projector
+idempotency under event redelivery — appending a `CharacterAssigned` event
+twice with identical payload and asserting the projection row remains
+unchanged (no duplicate `assigned_characters` entries, no version drift).
+This test was implemented as part of the `add-idempotency-redelivery-test`
+change, closing task 4.3 of the original `sierradb-runtime-and-round-trip`
+change. Tier-4 tests
 remain excluded from `cargo-mutants` (`.mutants.toml`).
 
 ## Alternatives Considered
