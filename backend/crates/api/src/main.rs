@@ -19,14 +19,81 @@ use infra::queries::{
     CalculationRepositoryImpl, CharacterRepositoryImpl, CostumeRepositoryImpl, SceneRepositoryImpl,
 };
 use kameo_es::command_service::CommandService;
+use opentelemetry::trace::TracerProvider as _;
+use opentelemetry_otlp::WithExportConfig;
 use redis::Client as RedisClient;
 use sqlx::postgres::PgPoolOptions;
+use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+
+/// Initialise an OpenTelemetry tracer when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+///
+/// Returns `None` when the endpoint is not configured, keeping local dev
+/// free of OTLP connection attempts. When configured, builds an OTLP exporter
+/// respecting `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_PROTOCOL`, and
+/// `OTEL_TRACES_EXPORTER`.
+fn init_otel_tracer() -> Option<opentelemetry_sdk::trace::Tracer> {
+    let endpoint = env::var("OTEL_EXPORTER_OTLP_ENDPOINT").unwrap_or_default();
+    if endpoint.is_empty() {
+        info!("OTEL_EXPORTER_OTLP_ENDPOINT not set; OTLP tracing disabled");
+        return None;
+    }
+
+    let service_name = env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "breakdown-rs".to_string());
+
+    let protocol = env::var("OTEL_EXPORTER_OTLP_PROTOCOL").unwrap_or_else(|_| "grpc".to_string());
+
+    // Build the exporter based on the configured protocol.
+    let exporter = match protocol.as_str() {
+        "http/protobuf" => opentelemetry_otlp::SpanExporter::builder()
+            .with_http()
+            .with_endpoint(&endpoint)
+            .build()
+            .expect("failed to build OTLP HTTP exporter"),
+        _ => {
+            // Default to gRPC (tonic) when protocol is unset or "grpc".
+            opentelemetry_otlp::SpanExporter::builder()
+                .with_tonic()
+                .with_endpoint(&endpoint)
+                .build()
+                .expect("failed to build OTLP gRPC exporter")
+        }
+    };
+
+    let tracer_provider = opentelemetry_sdk::trace::TracerProvider::builder()
+        .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
+        .with_resource(opentelemetry_sdk::Resource::new([
+            opentelemetry::KeyValue::new("service.name", service_name),
+        ]))
+        .build();
+
+    // NOTE: The SDK logs batch export errors internally via `otel_error!` / `tracing::error!`
+    // under the "BatchSpanProcessor" target when the collector is unreachable.
+    // No custom error handler wiring is required for v1.
+
+    let tracer = tracer_provider.tracer("breakdown-rs");
+    let _ = opentelemetry::global::set_tracer_provider(tracer_provider);
+
+    Some(tracer)
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Logging initialisieren
-    tracing_subscriber::fmt::init();
+    // Initialise the tracing subscriber with a composable registry:
+    // the `fmt` layer is always active, and the OTLP layer is added
+    // conditionally when an OTLP endpoint is configured.
+    let fmt_layer = tracing_subscriber::fmt::layer();
+    let subscriber = tracing_subscriber::registry().with(fmt_layer);
+
+    if let Some(tracer) = init_otel_tracer() {
+        let otel_layer = tracing_opentelemetry::OpenTelemetryLayer::new(tracer);
+        subscriber.with(otel_layer).init();
+        info!("OTLP tracing enabled");
+    } else {
+        subscriber.init();
+    }
 
     let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
         warn!("DATABASE_URL not set; using local dev default");
@@ -77,7 +144,9 @@ async fn main() -> Result<()> {
     );
     let app_state = AppState::new(ports);
 
-    let app = app_router().with_state(app_state);
+    let app = app_router()
+        .with_state(app_state)
+        .layer(TraceLayer::new_for_http());
 
     let bind_addr = env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:3000".into());
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;

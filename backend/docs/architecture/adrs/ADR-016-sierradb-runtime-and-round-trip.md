@@ -69,9 +69,11 @@ for v1 simplicity; upgradeable to k8s later). The production compose
 - Healthchecks for both tiers.
 - Backup/recovery runbooks (pg_dump for Postgres; volume snapshot / `--dir` copy
   for SierraDB) documented in the runbooks section of `backend/docs/operations/`.
-- OpenTelemetry hooks (ADR-011) wired via the OTEL exporter env vars consumed by
-  the API binary and the `tracing-opentelemetry` subscriber; both tiers expose
-  health endpoints consumed by the compose healthchecks.
+- OpenTelemetry trace export (ADR-011): OTLP trace export via `tracing-opentelemetry`
+  is implemented — the API binary exports spans when `OTEL_EXPORTER_OTLP_ENDPOINT` is
+  configured. Metrics export remains deferred (the env vars are declared but
+  non-functional until a follow-up change). Both tiers expose health endpoints
+  consumed by the compose healthchecks.
 
 ### 4. Tier-4 round-trip test
 
