@@ -30,7 +30,14 @@ redis.workspace = true
 utoipa.workspace = true
 utoipa-swagger-ui.workspace = true
 
-# Logging
+# Logging / Tracing
 tracing.workspace = true
 tracing-subscriber.workspace = true
 anyhow.workspace = true
+
+# OpenTelemetry / Observability
+tracing-opentelemetry.workspace = true
+opentelemetry.workspace = true
+opentelemetry-otlp.workspace = true
+opentelemetry_sdk.workspace = true
+tower-http.workspace = true
