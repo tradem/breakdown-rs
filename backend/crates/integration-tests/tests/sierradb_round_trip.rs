@@ -128,6 +128,44 @@ async fn eappend_scene_created_round_trips_into_projection() -> Result<()> {
     Ok(())
 }
 
+/// Poll `find_by_id` until the projection version reaches at least `min_version`.
+///
+/// The scene row already exists (created by `await_scene_projection`), so we
+/// must wait for the asynchronous projector to apply the mutation event and
+/// bump the version. This is distinct from `await_scene_projection`, which
+/// only waits for the row to come into existence.
+async fn await_scene_version(
+    repo: &SceneRepositoryImpl,
+    scene_id: Uuid,
+    min_version: AggregateVersion,
+) -> Result<breakdown_core::scene::views::SceneView> {
+    let deadline = std::time::Instant::now() + PROJECTION_DEADLINE;
+    loop {
+        match repo.find_by_id(scene_id).await {
+            Ok(view) if view.version >= min_version => return Ok(view),
+            Ok(_) if std::time::Instant::now() < deadline => {
+                tokio::time::sleep(POLL_INTERVAL).await;
+            }
+            Ok(_) => {
+                bail!(
+                    "projection lag: Scene({scene_id}) version did not reach {min_version:?} \
+                     within {PROJECTION_DEADLINE:?}"
+                );
+            }
+            Err(DomainError::NotFound(_)) if std::time::Instant::now() < deadline => {
+                tokio::time::sleep(POLL_INTERVAL).await;
+            }
+            Err(DomainError::NotFound(_)) => {
+                bail!(
+                    "projection lag: Scene({scene_id}) disappeared or not yet created \
+                     within {PROJECTION_DEADLINE:?}"
+                );
+            }
+            Err(other) => return Err(anyhow!(other.to_string())),
+        }
+    }
+}
+
 /// Verifies projector idempotency under event redelivery (ADR-016 task 4.3).
 ///
 /// Appends a `CharacterAssigned` event **twice** (same payload) and asserts
@@ -213,7 +251,10 @@ async fn eappend_character_assigned_twice_is_idempotent() -> Result<()> {
         .await
         .map_err(|e| anyhow!("EAPPEND CharacterAssigned #1 failed: {e}"))?;
 
-    let view = await_scene_projection(&repo, scene_id).await?;
+    // Wait for the projector to process the CharacterAssigned event and bump
+    // the version to >= 1. `await_scene_projection` is insufficient here
+    // because the scene row already exists.
+    let view = await_scene_version(&repo, scene_id, AggregateVersion(1)).await?;
     assert_eq!(
         view.assigned_characters.len(),
         1,
@@ -242,9 +283,9 @@ async fn eappend_character_assigned_twice_is_idempotent() -> Result<()> {
         .await
         .map_err(|e| anyhow!("EAPPEND CharacterAssigned #2 (redelivery) failed: {e}"))?;
 
-    // 4. Assert projection is unchanged — idempotent projector must not
-    //    duplicate the character or bump the version on redelivery.
-    let view2 = await_scene_projection(&repo, scene_id).await?;
+    // 4. Wait for the projector to catch up on the redelivered event and
+    //    assert the projection is unchanged — version should remain at 1.
+    let view2 = await_scene_version(&repo, scene_id, AggregateVersion(1)).await?;
     assert_eq!(
         view2.assigned_characters.len(),
         1,
