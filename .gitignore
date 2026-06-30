@@ -40,6 +40,9 @@ coverage/
 *.coverage
 .coverage.*
 
+# Mutation testing
+mutants.out/
+
 # Agent/IDE configuration directories
 .pi/**
 backend/.pi/plugins/ast-bro/**

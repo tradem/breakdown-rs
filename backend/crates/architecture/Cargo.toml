@@ -1,16 +1,19 @@
-# crates/architecture/Cargo.toml
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+#
+# Architecture tests expressing hexagonal-boundary rules (ADR-017).
+# Replaces the defunct arch_test-based guardrail (Issue #27).
+
 [package]
 name = "architecture_tests"
 version = "0.1.0"
-edition = "2021"
-license = "AGPL-3.0"
+edition.workspace = true
+license.workspace = true
 publish = false
 
 [dependencies]
-# Pfade zu euren eigentlichen Projekt-Crates, die getestet werden sollen
 api = { path = "../api" }
 breakdown_core = { path = "../core" }
 infra = { path = "../infra" }
-
-[dev-dependencies]
-# arch_test = "0.1" # Nicht auf crates.io verfügbar – vorübergehend auskommentiert
+rust_arkitect = "0.3.7"
+toml = "0.8"
