@@ -25,7 +25,6 @@ impl<'a> EntityEventHandler<CharacterAggregate, Transaction<'a, Postgres>> for C
         _id: Uuid,
         event: Event<CharacterEvent, ()>,
     ) -> Result<(), Self::Error> {
-        let version = event.stream_version as i64;
         let updated_at = event.timestamp;
 
         match event.data {
@@ -37,10 +36,11 @@ impl<'a> EntityEventHandler<CharacterAggregate, Transaction<'a, Postgres>> for C
                 is_main_character,
                 measurements,
                 contact_info,
-                ..
+                version,
             } => {
                 let measurements_json = serde_json::to_value(&measurements).unwrap_or_default();
                 let contact_json = serde_json::to_value(&contact_info).unwrap_or_default();
+                let version = version.0 as i64;
 
                 sqlx::query(
                     r#"
@@ -71,9 +71,12 @@ impl<'a> EntityEventHandler<CharacterAggregate, Transaction<'a, Postgres>> for C
                 .await?;
             }
             CharacterEvent::MeasurementsUpdated {
-                id, measurements, ..
+                id,
+                measurements,
+                version,
             } => {
                 let measurements_json = serde_json::to_value(&measurements).unwrap_or_default();
+                let version = version.0 as i64;
                 sqlx::query(
                     r#"
                     UPDATE projection_character
@@ -89,9 +92,12 @@ impl<'a> EntityEventHandler<CharacterAggregate, Transaction<'a, Postgres>> for C
                 .await?;
             }
             CharacterEvent::ContactInfoUpdated {
-                id, contact_info, ..
+                id,
+                contact_info,
+                version,
             } => {
                 let contact_json = serde_json::to_value(&contact_info).unwrap_or_default();
+                let version = version.0 as i64;
                 sqlx::query(
                     r#"
                     UPDATE projection_character

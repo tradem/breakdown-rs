@@ -122,7 +122,7 @@ async fn eappend_scene_created_round_trips_into_projection() -> Result<()> {
     assert_eq!(view.location.as_deref(), Some("Berlin"));
     assert_eq!(view.mood.as_deref(), Some("dark"));
     assert!(view.is_schedule_set);
-    assert_eq!(view.version, AggregateVersion(0));
+    assert_eq!(view.version, AggregateVersion::INITIAL);
     assert!(view.assigned_characters.is_empty());
 
     Ok(())
@@ -229,7 +229,7 @@ async fn eappend_character_assigned_twice_is_idempotent() -> Result<()> {
     let assigned_event = SceneEvent::CharacterAssigned {
         id: scene_id,
         character_id,
-        version: AggregateVersion(1),
+        version: AggregateVersion(2),
     };
 
     let mut payload = Vec::new();
@@ -261,7 +261,7 @@ async fn eappend_character_assigned_twice_is_idempotent() -> Result<()> {
         "expected exactly one assigned character after first CharacterAssigned"
     );
     assert_eq!(view.assigned_characters[0], character_id);
-    assert_eq!(view.version, AggregateVersion(1));
+    assert_eq!(view.version, AggregateVersion(2));
 
     // 3. Second (redelivery) CharacterAssigned EAPPEND — same payload, expected version 1
     let mut payload = Vec::new();
