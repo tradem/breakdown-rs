@@ -252,9 +252,9 @@ async fn eappend_character_assigned_twice_is_idempotent() -> Result<()> {
         .map_err(|e| anyhow!("EAPPEND CharacterAssigned #1 failed: {e}"))?;
 
     // Wait for the projector to process the CharacterAssigned event and bump
-    // the version to >= 1. `await_scene_projection` is insufficient here
+    // the version to >= 2. `await_scene_projection` is insufficient here
     // because the scene row already exists.
-    let view = await_scene_version(&repo, scene_id, AggregateVersion(1)).await?;
+    let view = await_scene_version(&repo, scene_id, AggregateVersion(2)).await?;
     assert_eq!(
         view.assigned_characters.len(),
         1,
@@ -285,7 +285,7 @@ async fn eappend_character_assigned_twice_is_idempotent() -> Result<()> {
 
     // 4. Wait for the projector to catch up on the redelivered event and
     //    assert the projection is unchanged — version should remain at 1.
-    let view2 = await_scene_version(&repo, scene_id, AggregateVersion(1)).await?;
+    let view2 = await_scene_version(&repo, scene_id, AggregateVersion(2)).await?;
     assert_eq!(
         view2.assigned_characters.len(),
         1,
