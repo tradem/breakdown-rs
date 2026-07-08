@@ -1,0 +1,21 @@
+--- crates/infra/src/projectors/supervisor.rs
++++ replace >= with < in supervisor_loop
+@@ -83,17 +83,17 @@
+ 
+         // tokio::spawn catches panics via JoinError — panics are
+         // treated as failures and follow the same backoff path.
+         let handle = tokio::spawn(epoch_fut);
+ 
+         match handle.await {
+             // Epoch completed successfully.
+             Ok(Ok(())) => {
+-                if started_at.elapsed() >= Duration::from_secs(RESET_WINDOW_SECS) {
++                if started_at.elapsed() < /* ~ changed by cargo-mutants ~ */ Duration::from_secs(RESET_WINDOW_SECS) {
+                     long_success_occurred = true;
+                 }
+                 consecutive_failures = 0;
+                 continue; // next epoch
+             }
+ 
+             // stream.run() returned an error.
+             Ok(Err(err)) => {

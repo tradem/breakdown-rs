@@ -1,0 +1,39 @@
+--- crates/infra/src/queries/calculation.rs
++++ replace <impl CalculationRepository for CalculationRepositoryImpl>::list_by_project -> Result<Vec<CalculationView>, DomainError> with Ok(vec![Default::default()])
+@@ -80,35 +80,17 @@
+     }
+ 
+     async fn list_by_project(
+         &self,
+         project_id: ProjectId,
+         limit: i64,
+         offset: i64,
+     ) -> Result<Vec<CalculationView>, DomainError> {
+-        let rows = sqlx::query(
+-            r#"
+-            SELECT id, project_id, header, version, updated_at
+-            FROM projection_calculation
+-            WHERE project_id = $1
+-            ORDER BY updated_at DESC
+-            LIMIT $2 OFFSET $3
+-            "#,
+-        )
+-        .bind(project_id.0)
+-        .bind(limit)
+-        .bind(offset)
+-        .fetch_all(&self.pool)
+-        .await
+-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+-
+-        rows.into_iter()
+-            .map(map_calculation_row)
+-            .collect::<Result<Vec<_>, _>>()
++        Ok(vec![Default::default()]) /* ~ changed by cargo-mutants ~ */
+     }
+ 
+     async fn calculation_with_items(&self, id: Uuid) -> Result<CalculationView, DomainError> {
+         self.calculation_with_items(id).await
+     }
+ }
+ 
+ fn map_calculation_row(row: sqlx::postgres::PgRow) -> Result<CalculationView, DomainError> {

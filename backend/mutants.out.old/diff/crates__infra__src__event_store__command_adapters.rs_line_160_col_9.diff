@@ -1,0 +1,25 @@
+--- crates/infra/src/event_store/command_adapters.rs
++++ replace <impl CostumeCommands for CostumeCommandsImpl>::create -> Result<(Uuid, AggregateVersion), DomainError> with Ok((Default::default(), Default::default()))
+@@ -152,21 +152,17 @@
+ impl CostumeCommandsImpl {
+     pub fn new(cmd_service: CommandService) -> Self {
+         Self { cmd_service }
+     }
+ }
+ 
+ impl CostumeCommands for CostumeCommandsImpl {
+     async fn create(&self, cmd: CreateCostume) -> Result<(Uuid, AggregateVersion), DomainError> {
+-        let id = cmd.id;
+-        let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
+-            .expected_version(ExpectedVersion::Empty)
+-            .await;
+-        map_executed(id, result)
++        Ok((Default::default(), Default::default())) /* ~ changed by cargo-mutants ~ */
+     }
+ 
+     async fn update_notes(&self, cmd: UpdateCostumeNotes) -> Result<AggregateVersion, DomainError> {
+         let id = cmd.id;
+         let version = cmd.version;
+         check_nonzero_version(version)?;
+         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
+             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))

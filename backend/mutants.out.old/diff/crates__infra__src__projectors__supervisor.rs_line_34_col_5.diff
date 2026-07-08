@@ -1,0 +1,27 @@
+--- crates/infra/src/projectors/supervisor.rs
++++ replace compute_backoff -> Duration with Default::default()
+@@ -26,23 +26,17 @@
+ /// counter is reset on the next failure.
+ pub const RESET_WINDOW_SECS: u64 = 300;
+ 
+ // ── helpers ──────────────────────────────────────────────────────────
+ 
+ /// Compute the delay for a given attempt (0-indexed) with exponential
+ /// backoff, cap, and random jitter.
+ pub(super) fn compute_backoff(attempt: usize, max: Duration) -> Duration {
+-    let base = std::cmp::min(
+-        BACKOFF_BASE_MS * 2_u64.saturating_pow(attempt as u32),
+-        max.as_millis() as u64,
+-    );
+-    let jitter: u64 = fastrand::u64(0..=base / 4); // up to 25 % of base
+-    let total = base.saturating_add(jitter).min(max.as_millis() as u64);
+-    Duration::from_millis(total)
++    Default::default() /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ // ── public API ───────────────────────────────────────────────────────
+ 
+ /// Spawn a supervised projector subscription loop.
+ ///
+ /// The supplied closure `make_epoch` builds the SierraDB subscription +
+ /// calls `stream.run()`.  On `Err` or panic the loop restarts from the

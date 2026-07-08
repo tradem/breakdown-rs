@@ -1,0 +1,28 @@
+--- crates/infra/src/queries/calculation.rs
++++ replace map_calculation_row -> Result<CalculationView, DomainError> with Ok(Default::default())
+@@ -107,24 +107,14 @@
+     }
+ 
+     async fn calculation_with_items(&self, id: Uuid) -> Result<CalculationView, DomainError> {
+         self.calculation_with_items(id).await
+     }
+ }
+ 
+ fn map_calculation_row(row: sqlx::postgres::PgRow) -> Result<CalculationView, DomainError> {
+-    let header_json: serde_json::Value = row.try_get("header").map_err(map_err)?;
+-    Ok(CalculationView {
+-        id: row.try_get("id").map_err(map_err)?,
+-        project_id: ProjectId(row.try_get("project_id").map_err(map_err)?),
+-        header: serde_json::from_value(header_json).unwrap_or_default(),
+-        items: Vec::new(),
+-        version: AggregateVersion(row.try_get::<i64, _>("version").map_err(map_err)? as u64),
+-        updated_at: row
+-            .try_get::<DateTime<Utc>, _>("updated_at")
+-            .map_err(map_err)?,
+-    })
++    Ok(Default::default()) /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ fn map_err(e: sqlx::Error) -> DomainError {
+     DomainError::Conflict(e.to_string())
+ }

@@ -1,0 +1,27 @@
+--- crates/infra/src/event_store/command_adapters.rs
++++ replace <impl CostumeCommands for CostumeCommandsImpl>::unlink_photo -> Result<AggregateVersion, DomainError> with Ok(Default::default())
+@@ -223,23 +223,17 @@
+         check_nonzero_version(version)?;
+         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
+             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+             .await;
+         map_version_only(result)
+     }
+ 
+     async fn unlink_photo(&self, cmd: UnlinkPhoto) -> Result<AggregateVersion, DomainError> {
+-        let id = cmd.id;
+-        let version = cmd.version;
+-        check_nonzero_version(version)?;
+-        let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
+-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+-            .await;
+-        map_version_only(result)
++        Ok(Default::default()) /* ~ changed by cargo-mutants ~ */
+     }
+ }
+ 
+ /// Command adapter for the Calculation aggregate.
+ #[derive(Clone, Debug)]
+ pub struct CalculationCommandsImpl {
+     cmd_service: CommandService,
+ }

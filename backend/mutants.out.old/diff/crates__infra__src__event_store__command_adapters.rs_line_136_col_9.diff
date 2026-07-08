@@ -1,0 +1,27 @@
+--- crates/infra/src/event_store/command_adapters.rs
++++ replace <impl CharacterCommands for CharacterCommandsImpl>::update_contact_info -> Result<AggregateVersion, DomainError> with Ok(Default::default())
+@@ -128,23 +128,17 @@
+             .await;
+         map_version_only(result)
+     }
+ 
+     async fn update_contact_info(
+         &self,
+         cmd: UpdateContactInfo,
+     ) -> Result<AggregateVersion, DomainError> {
+-        let id = cmd.id;
+-        let version = cmd.version;
+-        check_nonzero_version(version)?;
+-        let result = CharacterAggregate::execute(&self.cmd_service, id, cmd)
+-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+-            .await;
+-        map_version_only(result)
++        Ok(Default::default()) /* ~ changed by cargo-mutants ~ */
+     }
+ }
+ 
+ /// Command adapter for the Costume aggregate.
+ #[derive(Clone, Debug)]
+ pub struct CostumeCommandsImpl {
+     cmd_service: CommandService,
+ }

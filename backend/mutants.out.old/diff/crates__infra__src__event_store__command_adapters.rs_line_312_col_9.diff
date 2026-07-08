@@ -1,0 +1,27 @@
+--- crates/infra/src/event_store/command_adapters.rs
++++ replace <impl CalculationCommands for CalculationCommandsImpl>::mark_item_paid -> Result<AggregateVersion, DomainError> with Ok(Default::default())
+@@ -304,23 +304,17 @@
+         check_nonzero_version(version)?;
+         let result = CalculationAggregate::execute(&self.cmd_service, id, cmd)
+             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+             .await;
+         map_version_only(result)
+     }
+ 
+     async fn mark_item_paid(&self, cmd: MarkItemAsPaid) -> Result<AggregateVersion, DomainError> {
+-        let id = cmd.id;
+-        let version = cmd.version;
+-        check_nonzero_version(version)?;
+-        let result = CalculationAggregate::execute(&self.cmd_service, id, cmd)
+-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+-            .await;
+-        map_version_only(result)
++        Ok(Default::default()) /* ~ changed by cargo-mutants ~ */
+     }
+ 
+     async fn mark_item_unpaid(
+         &self,
+         cmd: MarkItemAsUnpaid,
+     ) -> Result<AggregateVersion, DomainError> {
+         let id = cmd.id;
+         let version = cmd.version;

@@ -1,0 +1,21 @@
+--- crates/infra/src/event_store/command_adapters.rs
++++ replace == with != in check_nonzero_version
+@@ -428,17 +428,17 @@
+         ExpectedVersion::Empty => AggregateVersion::INITIAL,
+         _ => AggregateVersion::INITIAL,
+     }
+ }
+ 
+ /// Check that a domain version is non-zero (valid for update operations).
+ /// Returns `DomainError::VersionConflict` when `version.0 == 0`.
+ fn check_nonzero_version(version: AggregateVersion) -> Result<(), DomainError> {
+-    if version.0 == 0 {
++    if version.0 != /* ~ changed by cargo-mutants ~ */ 0 {
+         Err(DomainError::VersionConflict {
+             entity: String::new(),
+             expected: AggregateVersion(0),
+             current: AggregateVersion(0),
+         })
+     } else {
+         Ok(())
+     }

@@ -1,0 +1,27 @@
+--- crates/infra/src/projectors/scene.rs
++++ replace SceneProjector::touch_parent -> Result<(), sqlx::Error> with Ok(())
+@@ -155,23 +155,11 @@
+ 
+ impl SceneProjector {
+     async fn touch_parent<'b>(
+         ctx: &mut Transaction<'b, Postgres>,
+         id: Uuid,
+         version: i64,
+         updated_at: chrono::DateTime<chrono::Utc>,
+     ) -> Result<(), sqlx::Error> {
+-        sqlx::query(
+-            r#"
+-            UPDATE projection_scene
+-            SET version = $2, updated_at = $3
+-            WHERE id = $1
+-            "#,
+-        )
+-        .bind(id)
+-        .bind(version)
+-        .bind(updated_at)
+-        .execute(&mut **ctx)
+-        .await?;
+-        Ok(())
++        Ok(()) /* ~ changed by cargo-mutants ~ */
+     }
+ }

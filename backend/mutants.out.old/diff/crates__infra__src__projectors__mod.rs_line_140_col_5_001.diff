@@ -1,0 +1,30 @@
+--- crates/infra/src/projectors/mod.rs
++++ replace spawn_calculation_projector -> Result<ActorRef<CalculationProcessor>> with Ok(ActorRef::from_iter([Default::default()]))
+@@ -132,26 +132,10 @@
+     Ok(actor_ref)
+ }
+ 
+ /// Spawn the calculation projector actor and start its subscription loop.
+ pub async fn spawn_calculation_projector(
+     pool: PgPool,
+     redis_client: Arc<RedisClient>,
+ ) -> Result<ActorRef<CalculationProcessor>> {
+-    let conn = redis_client.get_multiplexed_tokio_connection().await?;
+-    let processor = CalculationProcessor::new(
+-        pool.clone(),
+-        conn,
+-        CHECKPOINTS_TABLE,
+-        "calculation",
+-        CalculationProjector,
+-    )
+-    .await?;
+-    let actor_ref = CalculationProcessor::spawn(processor);
+-    run_projection_stream!(
+-        CalculationAggregate,
+-        "calculation",
+-        redis_client,
+-        actor_ref.clone()
+-    )?;
+-    Ok(actor_ref)
++    Ok(ActorRef::from_iter([Default::default()])) /* ~ changed by cargo-mutants ~ */
+ }

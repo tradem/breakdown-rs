@@ -1,0 +1,22 @@
+--- crates/infra/src/projectors/supervisor.rs
++++ replace run_with_restart -> Result<tokio::task::JoinHandle<()>> with Ok(JoinHandle::new(()))
+@@ -55,18 +55,17 @@
+ pub async fn run_with_restart<F, Fut>(
+     category: &'static str,
+     make_epoch: F,
+ ) -> Result<tokio::task::JoinHandle<()>>
+ where
+     F: Fn() -> Fut + Send + 'static,
+     Fut: Future<Output = anyhow::Result<()>> + Send + 'static,
+ {
+-    let handle = tokio::spawn(supervisor_loop(category, make_epoch));
+-    Ok(handle)
++    Ok(JoinHandle::new(())) /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ async fn supervisor_loop<F, Fut>(category: &'static str, make_epoch: F)
+ where
+     F: Fn() -> Fut + Send + 'static,
+     Fut: Future<Output = anyhow::Result<()>> + Send + 'static,
+ {
+     let mut consecutive_failures: usize = 0;

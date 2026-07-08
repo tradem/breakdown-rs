@@ -44,27 +44,64 @@ fn pk_column_for(table: &str) -> &str {
     }
 }
 
-/// Wait for a projection row (up to 15 s for eventual consistency).
+/// Wait for a projection row (up to 15 s for eventual consistency),
+/// verifying the `version` column is at least `min_version`.
 async fn await_proj(pool: &sqlx::PgPool, table: &str, id: Uuid) {
+    await_proj_version(pool, table, id, 1).await;
+}
+
+/// Wait for a projection row whose `version` >= `min_version`.
+/// If `min_version` is 0, this falls back to existence-only checking
+/// (useful for child-table joins like projection_scene_character).
+async fn await_proj_version(pool: &sqlx::PgPool, table: &str, id: Uuid, min_version: u64) {
     let deadline = std::time::Instant::now() + Duration::from_secs(15);
     let col = pk_column_for(table);
-    let query = format!(
-        r#"SELECT EXISTS(SELECT 1 FROM "{}" WHERE {} = $1)"#,
-        table, col
-    );
+    let query = if min_version > 0 {
+        format!(r#"SELECT version FROM "{}" WHERE {} = $1"#, table, col)
+    } else {
+        format!(
+            r#"SELECT EXISTS(SELECT 1 FROM "{}" WHERE {} = $1)"#,
+            table, col
+        )
+    };
     let mut interval = tokio::time::interval(Duration::from_millis(150));
     loop {
         interval.tick().await;
         if std::time::Instant::now() > deadline {
-            panic!("{table}({}) not projected", id);
+            panic!(
+                "{table}({}) not projected{}",
+                id,
+                if min_version > 0 {
+                    format!(" (expected version >= {min_version})")
+                } else {
+                    String::new()
+                }
+            );
         }
-        let exists: Option<bool> = sqlx::query_scalar::<_, bool>(query.as_str())
+        let result = sqlx::query(&query)
             .bind(id)
             .fetch_optional(pool)
             .await
             .unwrap();
-        if exists == Some(true) {
-            return;
+
+        if min_version > 0 {
+            // Check that the row exists AND version >= min_version
+            if let Some(row) = result {
+                let version: i64 = sqlx::Row::try_get(&row, 0).unwrap();
+                if version >= min_version as i64 {
+                    return;
+                }
+            }
+        } else {
+            // Existence-only check: EXISTS() always returns one row
+            let exists: bool = sqlx::query_scalar::<_, bool>(&query)
+                .bind(id)
+                .fetch_one(pool)
+                .await
+                .unwrap();
+            if exists {
+                return;
+            }
         }
     }
 }
@@ -211,7 +248,8 @@ async fn scene_assign_remove_character() -> Result<()> {
         .await?;
     assert!(ver2.0 > ver.0);
 
-    await_proj(&pool, "projection_scene_character", scene_id).await;
+    await_proj_version(&pool, "projection_scene", scene_id, ver2.0 as u64).await;
+    await_proj_version(&pool, "projection_scene_character", scene_id, 0).await;
     let v = scene_repo.find_by_id(scene_id).await?;
     assert_eq!(v.assigned_characters.len(), 1);
 
@@ -224,6 +262,7 @@ async fn scene_assign_remove_character() -> Result<()> {
         .await?;
     assert!(ver3.0 > ver2.0);
 
+    await_proj_version(&pool, "projection_scene", scene_id, ver3.0 as u64).await;
     let v = scene_repo.find_by_id(scene_id).await?;
     assert!(v.assigned_characters.is_empty());
     Ok(())
@@ -291,7 +330,7 @@ async fn character_update_measurements() -> Result<()> {
         .await?;
     assert!(ver2.0 > ver.0);
 
-    await_proj(&pool, "projection_character", char_id).await;
+    await_proj_version(&pool, "projection_character", char_id, ver2.0 as u64).await;
     let v = char_repo.find_by_id(char_id).await?;
     assert_eq!(v.measurements.height, Some(Decimal::from(180)));
     Ok(())
@@ -315,7 +354,7 @@ async fn character_update_contact_info() -> Result<()> {
     let (_id, ver) = char_cmd.create(cmd).await?;
     await_proj(&pool, "projection_character", char_id).await;
 
-    char_cmd
+    let ver2 = char_cmd
         .update_contact_info(UpdateContactInfo {
             id: char_id,
             contact_info: ContactInfo {
@@ -326,7 +365,7 @@ async fn character_update_contact_info() -> Result<()> {
         })
         .await?;
 
-    await_proj(&pool, "projection_character", char_id).await;
+    await_proj_version(&pool, "projection_character", char_id, ver2.0 as u64).await;
     let v = char_repo.find_by_id(char_id).await?;
     assert_eq!(v.contact.email, Some("test@example.com".into()));
     Ok(())
@@ -385,7 +424,7 @@ async fn costume_notes() -> Result<()> {
         .await?;
     assert!(ver2.0 > ver.0);
 
-    await_proj(&pool, "projection_costume", costume_id).await;
+    await_proj_version(&pool, "projection_costume", costume_id, ver2.0 as u64).await;
     assert_eq!(
         costume_repo.find_by_id(costume_id).await?.notes,
         "Blue dress"
@@ -418,7 +457,7 @@ async fn costume_assign_unassign() -> Result<()> {
         .await?;
     assert!(ver2.0 > ver.0);
 
-    await_proj(&pool, "projection_costume", costume_id).await;
+    await_proj_version(&pool, "projection_costume", costume_id, ver2.0 as u64).await;
     assert_eq!(
         costume_repo.find_by_id(costume_id).await?.character_id,
         Some(char_id)
@@ -432,6 +471,7 @@ async fn costume_assign_unassign() -> Result<()> {
         .await?;
     assert!(ver3.0 > ver2.0);
 
+    await_proj_version(&pool, "projection_costume", costume_id, ver3.0 as u64).await;
     assert!(
         costume_repo
             .find_by_id(costume_id)
@@ -470,7 +510,8 @@ async fn costume_detail_add_remove() -> Result<()> {
         .await?;
     assert!(ver2.0 > ver.0);
 
-    await_proj(&pool, "projection_costume_detail", costume_id).await;
+    await_proj_version(&pool, "projection_costume", costume_id, ver2.0 as u64).await;
+    await_proj_version(&pool, "projection_costume_detail", costume_id, 0).await;
     assert_eq!(costume_repo.find_by_id(costume_id).await?.details.len(), 1);
 
     let ver3 = costume_cmd
@@ -481,6 +522,8 @@ async fn costume_detail_add_remove() -> Result<()> {
         })
         .await?;
     assert!(ver3.0 > ver2.0);
+
+    await_proj_version(&pool, "projection_costume", costume_id, ver3.0 as u64).await;
     assert!(
         costume_repo
             .find_by_id(costume_id)
@@ -516,7 +559,8 @@ async fn costume_photo_link_unlink() -> Result<()> {
         .await?;
     assert!(ver2.0 > ver.0);
 
-    await_proj(&pool, "projection_costume_photo", costume_id).await;
+    await_proj_version(&pool, "projection_costume", costume_id, ver2.0 as u64).await;
+    await_proj_version(&pool, "projection_costume_photo", costume_id, 0).await;
     assert_eq!(costume_repo.find_by_id(costume_id).await?.photos.len(), 1);
 
     let ver3 = costume_cmd
@@ -528,6 +572,7 @@ async fn costume_photo_link_unlink() -> Result<()> {
         .await?;
     assert!(ver3.0 > ver2.0);
 
+    await_proj_version(&pool, "projection_costume", costume_id, ver3.0 as u64).await;
     assert!(costume_repo.find_by_id(costume_id).await?.photos.is_empty());
     Ok(())
 }
@@ -591,7 +636,8 @@ async fn calculation_add_item() -> Result<()> {
         .await?;
     assert!(ver2.0 > ver.0);
 
-    await_proj(&pool, "projection_calculation_item", calc_id).await;
+    await_proj_version(&pool, "projection_calculation", calc_id, ver2.0 as u64).await;
+    await_proj_version(&pool, "projection_calculation_item", calc_id, 0).await;
     let v = calc_repo.find_by_id(calc_id).await?;
     assert_eq!(v.items.len(), 1);
     assert_eq!(v.items[0].name, "Makeup");
@@ -612,6 +658,7 @@ async fn calculation_remove_item() -> Result<()> {
         project_id: ProjectId::new(),
     };
     let (_id, ver) = calc_cmd.create(cmd).await?;
+    await_proj(&pool, "projection_calculation", calc_id).await;
 
     let ver2 = calc_cmd
         .add_item(breakdown_core::calculation::commands::AddCalculationItem {
@@ -626,6 +673,7 @@ async fn calculation_remove_item() -> Result<()> {
             version: ver,
         })
         .await?;
+    await_proj_version(&pool, "projection_calculation", calc_id, ver2.0 as u64).await;
 
     let ver3 = calc_cmd
         .remove_item(
@@ -638,6 +686,7 @@ async fn calculation_remove_item() -> Result<()> {
         .await?;
     assert!(ver3.0 > ver2.0);
 
+    await_proj_version(&pool, "projection_calculation", calc_id, ver3.0 as u64).await;
     assert!(calc_repo.find_by_id(calc_id).await?.items.is_empty());
     Ok(())
 }
@@ -670,6 +719,7 @@ async fn calculation_update_item() -> Result<()> {
             version: ver,
         })
         .await?;
+    await_proj_version(&pool, "projection_calculation", calc_id, ver2.0 as u64).await;
 
     let ver3 = calc_cmd
         .update_item(
@@ -688,6 +738,7 @@ async fn calculation_update_item() -> Result<()> {
         .await?;
     assert!(ver3.0 > ver2.0);
 
+    await_proj_version(&pool, "projection_calculation", calc_id, ver3.0 as u64).await;
     let v = calc_repo.find_by_id(calc_id).await?;
     assert_eq!(v.items[0].name, "Updated Props");
     Ok(())
@@ -721,6 +772,7 @@ async fn calculation_mark_paid_unpaid() -> Result<()> {
             version: ver,
         })
         .await?;
+    await_proj_version(&pool, "projection_calculation", calc_id, ver2.0 as u64).await;
 
     let ver3 = calc_cmd
         .mark_item_paid(breakdown_core::calculation::commands::MarkItemAsPaid {
@@ -731,6 +783,7 @@ async fn calculation_mark_paid_unpaid() -> Result<()> {
         .await?;
     assert!(ver3.0 > ver2.0);
 
+    await_proj_version(&pool, "projection_calculation", calc_id, ver3.0 as u64).await;
     assert!(calc_repo.find_by_id(calc_id).await?.items[0].is_paid);
 
     let ver4 = calc_cmd
@@ -742,6 +795,7 @@ async fn calculation_mark_paid_unpaid() -> Result<()> {
         .await?;
     assert!(ver4.0 > ver3.0);
 
+    await_proj_version(&pool, "projection_calculation", calc_id, ver4.0 as u64).await;
     assert!(!calc_repo.find_by_id(calc_id).await?.items[0].is_paid);
     Ok(())
 }
@@ -761,7 +815,7 @@ async fn calculation_update_header() -> Result<()> {
     let (_id, ver) = calc_cmd.create(cmd).await?;
     await_proj(&pool, "projection_calculation", calc_id).await;
 
-    calc_cmd
+    let ver2 = calc_cmd
         .update_header(breakdown_core::calculation::commands::UpdateHeaderInfo {
             id: calc_id,
             header: CalculationHeader {
@@ -773,6 +827,7 @@ async fn calculation_update_header() -> Result<()> {
         })
         .await?;
 
+    await_proj_version(&pool, "projection_calculation", calc_id, ver2.0 as u64).await;
     let v = calc_repo.find_by_id(calc_id).await?;
     assert_eq!(v.header.subjects, Some("Math".into()));
     Ok(())

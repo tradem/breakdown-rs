@@ -1,0 +1,21 @@
+--- crates/infra/src/queries/calculation.rs
++++ replace <impl CalculationRepository for CalculationRepositoryImpl>::find_by_id -> Result<CalculationView, DomainError> with Ok(Default::default())
+@@ -71,17 +71,17 @@
+                 })
+             })
+             .collect::<Result<Vec<_>, DomainError>>()
+     }
+ }
+ 
+ impl CalculationRepository for CalculationRepositoryImpl {
+     async fn find_by_id(&self, id: Uuid) -> Result<CalculationView, DomainError> {
+-        self.calculation_with_items(id).await
++        Ok(Default::default()) /* ~ changed by cargo-mutants ~ */
+     }
+ 
+     async fn list_by_project(
+         &self,
+         project_id: ProjectId,
+         limit: i64,
+         offset: i64,
+     ) -> Result<Vec<CalculationView>, DomainError> {

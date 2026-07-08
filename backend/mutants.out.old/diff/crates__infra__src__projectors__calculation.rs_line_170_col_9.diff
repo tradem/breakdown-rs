@@ -1,0 +1,33 @@
+--- crates/infra/src/projectors/calculation.rs
++++ replace CalculationProjector::touch_parent -> Result<(), sqlx::Error> with Ok(())
+@@ -162,29 +162,17 @@
+ 
+ impl CalculationProjector {
+     async fn touch_parent<'b>(
+         ctx: &mut Transaction<'b, Postgres>,
+         id: Uuid,
+         version: i64,
+         updated_at: chrono::DateTime<chrono::Utc>,
+     ) -> Result<(), sqlx::Error> {
+-        sqlx::query(
+-            r#"
+-            UPDATE projection_calculation
+-            SET version = $2, updated_at = $3
+-            WHERE id = $1
+-            "#,
+-        )
+-        .bind(id)
+-        .bind(version)
+-        .bind(updated_at)
+-        .execute(&mut **ctx)
+-        .await?;
+-        Ok(())
++        Ok(()) /* ~ changed by cargo-mutants ~ */
+     }
+ }
+ 
+ async fn upsert_calculation_item<'b>(
+     ctx: &mut Transaction<'b, Postgres>,
+     calculation_id: Uuid,
+     item: &breakdown_core::calculation::events::CalculationItem,
+ ) -> Result<(), sqlx::Error> {

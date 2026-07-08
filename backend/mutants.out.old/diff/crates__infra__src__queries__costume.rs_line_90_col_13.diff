@@ -1,0 +1,21 @@
+--- crates/infra/src/queries/costume.rs
++++ delete field photos from struct CostumeView expression in CostumeRepositoryImpl::enrich
+@@ -82,17 +82,17 @@
+                 Ok(CostumePhotoView {
+                     id: row.try_get("photo_id").map_err(map_err)?,
+                 })
+             })
+             .collect::<Result<Vec<_>, DomainError>>()?;
+ 
+         Ok(CostumeView {
+             details,
+-            photos,
++             /* ~ changed by cargo-mutants ~ */
+             ..view
+         })
+     }
+ }
+ 
+ impl CostumeRepository for CostumeRepositoryImpl {
+     async fn find_by_id(&self, id: Uuid) -> Result<CostumeView, DomainError> {
+         self.costumefind_by_id_with_children(id).await

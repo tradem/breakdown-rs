@@ -1,0 +1,6049 @@
+{
+  "outcomes": [
+    {
+      "scenario": "Baseline",
+      "summary": "Success",
+      "log_path": "log/baseline.log",
+      "diff_path": null,
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 28.816406472,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/mod.rs:78:5: replace spawn_scene_projector -> Result<ActorRef<SceneProcessor>> with Ok(ActorRef::new())",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/mod.rs",
+          "function": {
+            "function_name": "spawn_scene_projector",
+            "return_type": "-> Result<ActorRef<SceneProcessor>>",
+            "span": {
+              "start": {
+                "line": 73,
+                "column": 1
+              },
+              "end": {
+                "line": 90,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 78,
+              "column": 5
+            },
+            "end": {
+              "line": 89,
+              "column": 18
+            }
+          },
+          "replacement": "Ok(ActorRef::new())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__projectors__mod.rs_line_78_col_5.log",
+      "diff_path": "diff/crates__infra__src__projectors__mod.rs_line_78_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.551387777,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/mod.rs:78:5: replace spawn_scene_projector -> Result<ActorRef<SceneProcessor>> with Ok(ActorRef::from_iter([Default::default()]))",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/mod.rs",
+          "function": {
+            "function_name": "spawn_scene_projector",
+            "return_type": "-> Result<ActorRef<SceneProcessor>>",
+            "span": {
+              "start": {
+                "line": 73,
+                "column": 1
+              },
+              "end": {
+                "line": 90,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 78,
+              "column": 5
+            },
+            "end": {
+              "line": 89,
+              "column": 18
+            }
+          },
+          "replacement": "Ok(ActorRef::from_iter([Default::default()]))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__projectors__mod.rs_line_78_col_5_001.log",
+      "diff_path": "diff/crates__infra__src__projectors__mod.rs_line_78_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.451441309,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/mod.rs:78:5: replace spawn_scene_projector -> Result<ActorRef<SceneProcessor>> with Ok(ActorRef::new(Default::default()))",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/mod.rs",
+          "function": {
+            "function_name": "spawn_scene_projector",
+            "return_type": "-> Result<ActorRef<SceneProcessor>>",
+            "span": {
+              "start": {
+                "line": 73,
+                "column": 1
+              },
+              "end": {
+                "line": 90,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 78,
+              "column": 5
+            },
+            "end": {
+              "line": 89,
+              "column": 18
+            }
+          },
+          "replacement": "Ok(ActorRef::new(Default::default()))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__projectors__mod.rs_line_78_col_5_002.log",
+      "diff_path": "diff/crates__infra__src__projectors__mod.rs_line_78_col_5_002.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.451382009,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/mod.rs:78:5: replace spawn_scene_projector -> Result<ActorRef<SceneProcessor>> with Ok(ActorRef::from(Default::default()))",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/mod.rs",
+          "function": {
+            "function_name": "spawn_scene_projector",
+            "return_type": "-> Result<ActorRef<SceneProcessor>>",
+            "span": {
+              "start": {
+                "line": 73,
+                "column": 1
+              },
+              "end": {
+                "line": 90,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 78,
+              "column": 5
+            },
+            "end": {
+              "line": 89,
+              "column": 18
+            }
+          },
+          "replacement": "Ok(ActorRef::from(Default::default()))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__projectors__mod.rs_line_78_col_5_003.log",
+      "diff_path": "diff/crates__infra__src__projectors__mod.rs_line_78_col_5_003.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.401575384,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/mod.rs:97:5: replace spawn_character_projector -> Result<ActorRef<CharacterProcessor>> with Ok(ActorRef::new())",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/mod.rs",
+          "function": {
+            "function_name": "spawn_character_projector",
+            "return_type": "-> Result<ActorRef<CharacterProcessor>>",
+            "span": {
+              "start": {
+                "line": 92,
+                "column": 1
+              },
+              "end": {
+                "line": 114,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 97,
+              "column": 5
+            },
+            "end": {
+              "line": 113,
+              "column": 18
+            }
+          },
+          "replacement": "Ok(ActorRef::new())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__projectors__mod.rs_line_97_col_5.log",
+      "diff_path": "diff/crates__infra__src__projectors__mod.rs_line_97_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.401168266,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/mod.rs:97:5: replace spawn_character_projector -> Result<ActorRef<CharacterProcessor>> with Ok(ActorRef::from_iter([Default::default()]))",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/mod.rs",
+          "function": {
+            "function_name": "spawn_character_projector",
+            "return_type": "-> Result<ActorRef<CharacterProcessor>>",
+            "span": {
+              "start": {
+                "line": 92,
+                "column": 1
+              },
+              "end": {
+                "line": 114,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 97,
+              "column": 5
+            },
+            "end": {
+              "line": 113,
+              "column": 18
+            }
+          },
+          "replacement": "Ok(ActorRef::from_iter([Default::default()]))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__projectors__mod.rs_line_97_col_5_001.log",
+      "diff_path": "diff/crates__infra__src__projectors__mod.rs_line_97_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.451261298,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/mod.rs:97:5: replace spawn_character_projector -> Result<ActorRef<CharacterProcessor>> with Ok(ActorRef::new(Default::default()))",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/mod.rs",
+          "function": {
+            "function_name": "spawn_character_projector",
+            "return_type": "-> Result<ActorRef<CharacterProcessor>>",
+            "span": {
+              "start": {
+                "line": 92,
+                "column": 1
+              },
+              "end": {
+                "line": 114,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 97,
+              "column": 5
+            },
+            "end": {
+              "line": 113,
+              "column": 18
+            }
+          },
+          "replacement": "Ok(ActorRef::new(Default::default()))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__projectors__mod.rs_line_97_col_5_002.log",
+      "diff_path": "diff/crates__infra__src__projectors__mod.rs_line_97_col_5_002.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.401218414,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/mod.rs:97:5: replace spawn_character_projector -> Result<ActorRef<CharacterProcessor>> with Ok(ActorRef::from(Default::default()))",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/mod.rs",
+          "function": {
+            "function_name": "spawn_character_projector",
+            "return_type": "-> Result<ActorRef<CharacterProcessor>>",
+            "span": {
+              "start": {
+                "line": 92,
+                "column": 1
+              },
+              "end": {
+                "line": 114,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 97,
+              "column": 5
+            },
+            "end": {
+              "line": 113,
+              "column": 18
+            }
+          },
+          "replacement": "Ok(ActorRef::from(Default::default()))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__projectors__mod.rs_line_97_col_5_003.log",
+      "diff_path": "diff/crates__infra__src__projectors__mod.rs_line_97_col_5_003.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.401187294,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/mod.rs:121:5: replace spawn_costume_projector -> Result<ActorRef<CostumeProcessor>> with Ok(ActorRef::new())",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/mod.rs",
+          "function": {
+            "function_name": "spawn_costume_projector",
+            "return_type": "-> Result<ActorRef<CostumeProcessor>>",
+            "span": {
+              "start": {
+                "line": 116,
+                "column": 1
+              },
+              "end": {
+                "line": 133,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 121,
+              "column": 5
+            },
+            "end": {
+              "line": 132,
+              "column": 18
+            }
+          },
+          "replacement": "Ok(ActorRef::new())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__projectors__mod.rs_line_121_col_5.log",
+      "diff_path": "diff/crates__infra__src__projectors__mod.rs_line_121_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.401320234,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/mod.rs:121:5: replace spawn_costume_projector -> Result<ActorRef<CostumeProcessor>> with Ok(ActorRef::from_iter([Default::default()]))",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/mod.rs",
+          "function": {
+            "function_name": "spawn_costume_projector",
+            "return_type": "-> Result<ActorRef<CostumeProcessor>>",
+            "span": {
+              "start": {
+                "line": 116,
+                "column": 1
+              },
+              "end": {
+                "line": 133,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 121,
+              "column": 5
+            },
+            "end": {
+              "line": 132,
+              "column": 18
+            }
+          },
+          "replacement": "Ok(ActorRef::from_iter([Default::default()]))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__projectors__mod.rs_line_121_col_5_001.log",
+      "diff_path": "diff/crates__infra__src__projectors__mod.rs_line_121_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.401367624,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/mod.rs:121:5: replace spawn_costume_projector -> Result<ActorRef<CostumeProcessor>> with Ok(ActorRef::new(Default::default()))",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/mod.rs",
+          "function": {
+            "function_name": "spawn_costume_projector",
+            "return_type": "-> Result<ActorRef<CostumeProcessor>>",
+            "span": {
+              "start": {
+                "line": 116,
+                "column": 1
+              },
+              "end": {
+                "line": 133,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 121,
+              "column": 5
+            },
+            "end": {
+              "line": 132,
+              "column": 18
+            }
+          },
+          "replacement": "Ok(ActorRef::new(Default::default()))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__projectors__mod.rs_line_121_col_5_002.log",
+      "diff_path": "diff/crates__infra__src__projectors__mod.rs_line_121_col_5_002.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.401171754,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/mod.rs:121:5: replace spawn_costume_projector -> Result<ActorRef<CostumeProcessor>> with Ok(ActorRef::from(Default::default()))",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/mod.rs",
+          "function": {
+            "function_name": "spawn_costume_projector",
+            "return_type": "-> Result<ActorRef<CostumeProcessor>>",
+            "span": {
+              "start": {
+                "line": 116,
+                "column": 1
+              },
+              "end": {
+                "line": 133,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 121,
+              "column": 5
+            },
+            "end": {
+              "line": 132,
+              "column": 18
+            }
+          },
+          "replacement": "Ok(ActorRef::from(Default::default()))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__projectors__mod.rs_line_121_col_5_003.log",
+      "diff_path": "diff/crates__infra__src__projectors__mod.rs_line_121_col_5_003.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.3511345,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/mod.rs:140:5: replace spawn_calculation_projector -> Result<ActorRef<CalculationProcessor>> with Ok(ActorRef::new())",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/mod.rs",
+          "function": {
+            "function_name": "spawn_calculation_projector",
+            "return_type": "-> Result<ActorRef<CalculationProcessor>>",
+            "span": {
+              "start": {
+                "line": 135,
+                "column": 1
+              },
+              "end": {
+                "line": 157,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 140,
+              "column": 5
+            },
+            "end": {
+              "line": 156,
+              "column": 18
+            }
+          },
+          "replacement": "Ok(ActorRef::new())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__projectors__mod.rs_line_140_col_5.log",
+      "diff_path": "diff/crates__infra__src__projectors__mod.rs_line_140_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.35137103,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/mod.rs:140:5: replace spawn_calculation_projector -> Result<ActorRef<CalculationProcessor>> with Ok(ActorRef::from_iter([Default::default()]))",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/mod.rs",
+          "function": {
+            "function_name": "spawn_calculation_projector",
+            "return_type": "-> Result<ActorRef<CalculationProcessor>>",
+            "span": {
+              "start": {
+                "line": 135,
+                "column": 1
+              },
+              "end": {
+                "line": 157,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 140,
+              "column": 5
+            },
+            "end": {
+              "line": 156,
+              "column": 18
+            }
+          },
+          "replacement": "Ok(ActorRef::from_iter([Default::default()]))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__projectors__mod.rs_line_140_col_5_001.log",
+      "diff_path": "diff/crates__infra__src__projectors__mod.rs_line_140_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.35125388,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/mod.rs:140:5: replace spawn_calculation_projector -> Result<ActorRef<CalculationProcessor>> with Ok(ActorRef::new(Default::default()))",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/mod.rs",
+          "function": {
+            "function_name": "spawn_calculation_projector",
+            "return_type": "-> Result<ActorRef<CalculationProcessor>>",
+            "span": {
+              "start": {
+                "line": 135,
+                "column": 1
+              },
+              "end": {
+                "line": 157,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 140,
+              "column": 5
+            },
+            "end": {
+              "line": 156,
+              "column": 18
+            }
+          },
+          "replacement": "Ok(ActorRef::new(Default::default()))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__projectors__mod.rs_line_140_col_5_002.log",
+      "diff_path": "diff/crates__infra__src__projectors__mod.rs_line_140_col_5_002.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.301281906,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/mod.rs:140:5: replace spawn_calculation_projector -> Result<ActorRef<CalculationProcessor>> with Ok(ActorRef::from(Default::default()))",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/mod.rs",
+          "function": {
+            "function_name": "spawn_calculation_projector",
+            "return_type": "-> Result<ActorRef<CalculationProcessor>>",
+            "span": {
+              "start": {
+                "line": 135,
+                "column": 1
+              },
+              "end": {
+                "line": 157,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 140,
+              "column": 5
+            },
+            "end": {
+              "line": 156,
+              "column": 18
+            }
+          },
+          "replacement": "Ok(ActorRef::from(Default::default()))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__projectors__mod.rs_line_140_col_5_003.log",
+      "diff_path": "diff/crates__infra__src__projectors__mod.rs_line_140_col_5_003.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.3511614,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:51:9: replace <impl SceneCommands for SceneCommandsImpl>::create -> Result<(Uuid, AggregateVersion), DomainError> with Ok((Default::default(), Default::default()))",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "<impl SceneCommands for SceneCommandsImpl>::create",
+            "return_type": "-> Result<(Uuid, AggregateVersion), DomainError>",
+            "span": {
+              "start": {
+                "line": 50,
+                "column": 5
+              },
+              "end": {
+                "line": 56,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 51,
+              "column": 9
+            },
+            "end": {
+              "line": 55,
+              "column": 33
+            }
+          },
+          "replacement": "Ok((Default::default(), Default::default()))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_51_col_9.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_51_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.401298773,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:62:9: replace <impl SceneCommands for SceneCommandsImpl>::update_details -> Result<AggregateVersion, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "<impl SceneCommands for SceneCommandsImpl>::update_details",
+            "return_type": "-> Result<AggregateVersion, DomainError>",
+            "span": {
+              "start": {
+                "line": 58,
+                "column": 5
+              },
+              "end": {
+                "line": 69,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 62,
+              "column": 9
+            },
+            "end": {
+              "line": 68,
+              "column": 33
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_62_col_9.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_62_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.401317472,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:75:9: replace <impl SceneCommands for SceneCommandsImpl>::assign_character -> Result<AggregateVersion, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "<impl SceneCommands for SceneCommandsImpl>::assign_character",
+            "return_type": "-> Result<AggregateVersion, DomainError>",
+            "span": {
+              "start": {
+                "line": 71,
+                "column": 5
+              },
+              "end": {
+                "line": 82,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 75,
+              "column": 9
+            },
+            "end": {
+              "line": 81,
+              "column": 33
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_75_col_9.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_75_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351098259,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:88:9: replace <impl SceneCommands for SceneCommandsImpl>::remove_character -> Result<AggregateVersion, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "<impl SceneCommands for SceneCommandsImpl>::remove_character",
+            "return_type": "-> Result<AggregateVersion, DomainError>",
+            "span": {
+              "start": {
+                "line": 84,
+                "column": 5
+              },
+              "end": {
+                "line": 95,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 88,
+              "column": 9
+            },
+            "end": {
+              "line": 94,
+              "column": 33
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_88_col_9.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_88_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.301210306,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:112:9: replace <impl CharacterCommands for CharacterCommandsImpl>::create -> Result<(Uuid, AggregateVersion), DomainError> with Ok((Default::default(), Default::default()))",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "<impl CharacterCommands for CharacterCommandsImpl>::create",
+            "return_type": "-> Result<(Uuid, AggregateVersion), DomainError>",
+            "span": {
+              "start": {
+                "line": 111,
+                "column": 5
+              },
+              "end": {
+                "line": 117,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 112,
+              "column": 9
+            },
+            "end": {
+              "line": 116,
+              "column": 33
+            }
+          },
+          "replacement": "Ok((Default::default(), Default::default()))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_112_col_9.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_112_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.401129302,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:123:9: replace <impl CharacterCommands for CharacterCommandsImpl>::update_measurements -> Result<AggregateVersion, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "<impl CharacterCommands for CharacterCommandsImpl>::update_measurements",
+            "return_type": "-> Result<AggregateVersion, DomainError>",
+            "span": {
+              "start": {
+                "line": 119,
+                "column": 5
+              },
+              "end": {
+                "line": 130,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 123,
+              "column": 9
+            },
+            "end": {
+              "line": 129,
+              "column": 33
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_123_col_9.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_123_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.401191892,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:136:9: replace <impl CharacterCommands for CharacterCommandsImpl>::update_contact_info -> Result<AggregateVersion, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "<impl CharacterCommands for CharacterCommandsImpl>::update_contact_info",
+            "return_type": "-> Result<AggregateVersion, DomainError>",
+            "span": {
+              "start": {
+                "line": 132,
+                "column": 5
+              },
+              "end": {
+                "line": 143,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 136,
+              "column": 9
+            },
+            "end": {
+              "line": 142,
+              "column": 33
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_136_col_9.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_136_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.301067616,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:160:9: replace <impl CostumeCommands for CostumeCommandsImpl>::create -> Result<(Uuid, AggregateVersion), DomainError> with Ok((Default::default(), Default::default()))",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "<impl CostumeCommands for CostumeCommandsImpl>::create",
+            "return_type": "-> Result<(Uuid, AggregateVersion), DomainError>",
+            "span": {
+              "start": {
+                "line": 159,
+                "column": 5
+              },
+              "end": {
+                "line": 165,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 160,
+              "column": 9
+            },
+            "end": {
+              "line": 164,
+              "column": 33
+            }
+          },
+          "replacement": "Ok((Default::default(), Default::default()))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_160_col_9.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_160_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351323058,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:168:9: replace <impl CostumeCommands for CostumeCommandsImpl>::update_notes -> Result<AggregateVersion, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "<impl CostumeCommands for CostumeCommandsImpl>::update_notes",
+            "return_type": "-> Result<AggregateVersion, DomainError>",
+            "span": {
+              "start": {
+                "line": 167,
+                "column": 5
+              },
+              "end": {
+                "line": 175,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 168,
+              "column": 9
+            },
+            "end": {
+              "line": 174,
+              "column": 33
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_168_col_9.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_168_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351100088,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:181:9: replace <impl CostumeCommands for CostumeCommandsImpl>::assign_to_character -> Result<AggregateVersion, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "<impl CostumeCommands for CostumeCommandsImpl>::assign_to_character",
+            "return_type": "-> Result<AggregateVersion, DomainError>",
+            "span": {
+              "start": {
+                "line": 177,
+                "column": 5
+              },
+              "end": {
+                "line": 188,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 181,
+              "column": 9
+            },
+            "end": {
+              "line": 187,
+              "column": 33
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_181_col_9.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_181_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351103868,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:191:9: replace <impl CostumeCommands for CostumeCommandsImpl>::unassign -> Result<AggregateVersion, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "<impl CostumeCommands for CostumeCommandsImpl>::unassign",
+            "return_type": "-> Result<AggregateVersion, DomainError>",
+            "span": {
+              "start": {
+                "line": 190,
+                "column": 5
+              },
+              "end": {
+                "line": 198,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 191,
+              "column": 9
+            },
+            "end": {
+              "line": 197,
+              "column": 33
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_191_col_9.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_191_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.301067335,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:201:9: replace <impl CostumeCommands for CostumeCommandsImpl>::add_detail -> Result<AggregateVersion, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "<impl CostumeCommands for CostumeCommandsImpl>::add_detail",
+            "return_type": "-> Result<AggregateVersion, DomainError>",
+            "span": {
+              "start": {
+                "line": 200,
+                "column": 5
+              },
+              "end": {
+                "line": 208,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 201,
+              "column": 9
+            },
+            "end": {
+              "line": 207,
+              "column": 33
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_201_col_9.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_201_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351346967,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:211:9: replace <impl CostumeCommands for CostumeCommandsImpl>::remove_detail -> Result<AggregateVersion, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "<impl CostumeCommands for CostumeCommandsImpl>::remove_detail",
+            "return_type": "-> Result<AggregateVersion, DomainError>",
+            "span": {
+              "start": {
+                "line": 210,
+                "column": 5
+              },
+              "end": {
+                "line": 218,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 211,
+              "column": 9
+            },
+            "end": {
+              "line": 217,
+              "column": 33
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_211_col_9.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_211_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351126268,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:221:9: replace <impl CostumeCommands for CostumeCommandsImpl>::link_photo -> Result<AggregateVersion, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "<impl CostumeCommands for CostumeCommandsImpl>::link_photo",
+            "return_type": "-> Result<AggregateVersion, DomainError>",
+            "span": {
+              "start": {
+                "line": 220,
+                "column": 5
+              },
+              "end": {
+                "line": 228,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 221,
+              "column": 9
+            },
+            "end": {
+              "line": 227,
+              "column": 33
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_221_col_9.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_221_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351426376,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:231:9: replace <impl CostumeCommands for CostumeCommandsImpl>::unlink_photo -> Result<AggregateVersion, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "<impl CostumeCommands for CostumeCommandsImpl>::unlink_photo",
+            "return_type": "-> Result<AggregateVersion, DomainError>",
+            "span": {
+              "start": {
+                "line": 230,
+                "column": 5
+              },
+              "end": {
+                "line": 238,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 231,
+              "column": 9
+            },
+            "end": {
+              "line": 237,
+              "column": 33
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_231_col_9.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_231_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.301334243,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:258:9: replace <impl CalculationCommands for CalculationCommandsImpl>::create -> Result<(Uuid, AggregateVersion), DomainError> with Ok((Default::default(), Default::default()))",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "<impl CalculationCommands for CalculationCommandsImpl>::create",
+            "return_type": "-> Result<(Uuid, AggregateVersion), DomainError>",
+            "span": {
+              "start": {
+                "line": 254,
+                "column": 5
+              },
+              "end": {
+                "line": 263,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 258,
+              "column": 9
+            },
+            "end": {
+              "line": 262,
+              "column": 33
+            }
+          },
+          "replacement": "Ok((Default::default(), Default::default()))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_258_col_9.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_258_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351210286,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:266:9: replace <impl CalculationCommands for CalculationCommandsImpl>::update_header -> Result<AggregateVersion, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "<impl CalculationCommands for CalculationCommandsImpl>::update_header",
+            "return_type": "-> Result<AggregateVersion, DomainError>",
+            "span": {
+              "start": {
+                "line": 265,
+                "column": 5
+              },
+              "end": {
+                "line": 273,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 266,
+              "column": 9
+            },
+            "end": {
+              "line": 272,
+              "column": 33
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_266_col_9.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_266_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351071536,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:276:9: replace <impl CalculationCommands for CalculationCommandsImpl>::add_item -> Result<AggregateVersion, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "<impl CalculationCommands for CalculationCommandsImpl>::add_item",
+            "return_type": "-> Result<AggregateVersion, DomainError>",
+            "span": {
+              "start": {
+                "line": 275,
+                "column": 5
+              },
+              "end": {
+                "line": 283,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 276,
+              "column": 9
+            },
+            "end": {
+              "line": 282,
+              "column": 33
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_276_col_9.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_276_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.301039744,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:289:9: replace <impl CalculationCommands for CalculationCommandsImpl>::update_item -> Result<AggregateVersion, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "<impl CalculationCommands for CalculationCommandsImpl>::update_item",
+            "return_type": "-> Result<AggregateVersion, DomainError>",
+            "span": {
+              "start": {
+                "line": 285,
+                "column": 5
+              },
+              "end": {
+                "line": 296,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 289,
+              "column": 9
+            },
+            "end": {
+              "line": 295,
+              "column": 33
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_289_col_9.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_289_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.301173184,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:302:9: replace <impl CalculationCommands for CalculationCommandsImpl>::remove_item -> Result<AggregateVersion, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "<impl CalculationCommands for CalculationCommandsImpl>::remove_item",
+            "return_type": "-> Result<AggregateVersion, DomainError>",
+            "span": {
+              "start": {
+                "line": 298,
+                "column": 5
+              },
+              "end": {
+                "line": 309,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 302,
+              "column": 9
+            },
+            "end": {
+              "line": 308,
+              "column": 33
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_302_col_9.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_302_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351463235,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:312:9: replace <impl CalculationCommands for CalculationCommandsImpl>::mark_item_paid -> Result<AggregateVersion, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "<impl CalculationCommands for CalculationCommandsImpl>::mark_item_paid",
+            "return_type": "-> Result<AggregateVersion, DomainError>",
+            "span": {
+              "start": {
+                "line": 311,
+                "column": 5
+              },
+              "end": {
+                "line": 319,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 312,
+              "column": 9
+            },
+            "end": {
+              "line": 318,
+              "column": 33
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_312_col_9.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_312_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351448405,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:325:9: replace <impl CalculationCommands for CalculationCommandsImpl>::mark_item_unpaid -> Result<AggregateVersion, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "<impl CalculationCommands for CalculationCommandsImpl>::mark_item_unpaid",
+            "return_type": "-> Result<AggregateVersion, DomainError>",
+            "span": {
+              "start": {
+                "line": 321,
+                "column": 5
+              },
+              "end": {
+                "line": 332,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 325,
+              "column": 9
+            },
+            "end": {
+              "line": 331,
+              "column": 33
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_325_col_9.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_325_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.301283822,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:342:5: replace map_version_only -> Result<AggregateVersion, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "map_version_only",
+            "return_type": "-> Result<AggregateVersion, DomainError>",
+            "span": {
+              "start": {
+                "line": 335,
+                "column": 1
+              },
+              "end": {
+                "line": 345,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 342,
+              "column": 5
+            },
+            "end": {
+              "line": 344,
+              "column": 16
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_342_col_5.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_342_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351093945,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:355:5: replace map_executed -> Result<(Uuid, AggregateVersion), DomainError> with Ok((Default::default(), Default::default()))",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "map_executed",
+            "return_type": "-> Result<(Uuid, AggregateVersion), DomainError>",
+            "span": {
+              "start": {
+                "line": 347,
+                "column": 1
+              },
+              "end": {
+                "line": 356,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 355,
+              "column": 5
+            },
+            "end": {
+              "line": 355,
+              "column": 36
+            }
+          },
+          "replacement": "Ok((Default::default(), Default::default()))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_355_col_5.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_355_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351431354,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:362:5: replace stream_to_domain -> AggregateVersion with Default::default()",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "stream_to_domain",
+            "return_type": "-> AggregateVersion",
+            "span": {
+              "start": {
+                "line": 358,
+                "column": 1
+              },
+              "end": {
+                "line": 363,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 362,
+              "column": 5
+            },
+            "end": {
+              "line": 362,
+              "column": 41
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_362_col_5.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_362_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.301502431,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:362:37: replace + with - in stream_to_domain",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "stream_to_domain",
+            "return_type": "-> AggregateVersion",
+            "span": {
+              "start": {
+                "line": 358,
+                "column": 1
+              },
+              "end": {
+                "line": 363,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 362,
+              "column": 37
+            },
+            "end": {
+              "line": 362,
+              "column": 38
+            }
+          },
+          "replacement": "-",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_362_col_37.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_362_col_37.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.301261731,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:362:37: replace + with * in stream_to_domain",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "stream_to_domain",
+            "return_type": "-> AggregateVersion",
+            "span": {
+              "start": {
+                "line": 358,
+                "column": 1
+              },
+              "end": {
+                "line": 363,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 362,
+              "column": 37
+            },
+            "end": {
+              "line": 362,
+              "column": 38
+            }
+          },
+          "replacement": "*",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_362_col_37_001.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_362_col_37_001.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.301127402,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:369:5: replace domain_to_stream -> Option<u64> with None",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "domain_to_stream",
+            "return_type": "-> Option<u64>",
+            "span": {
+              "start": {
+                "line": 365,
+                "column": 1
+              },
+              "end": {
+                "line": 374,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 369,
+              "column": 5
+            },
+            "end": {
+              "line": 373,
+              "column": 6
+            }
+          },
+          "replacement": "None",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_369_col_5.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_369_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351173025,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:369:5: replace domain_to_stream -> Option<u64> with Some(0)",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "domain_to_stream",
+            "return_type": "-> Option<u64>",
+            "span": {
+              "start": {
+                "line": 365,
+                "column": 1
+              },
+              "end": {
+                "line": 374,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 369,
+              "column": 5
+            },
+            "end": {
+              "line": 373,
+              "column": 6
+            }
+          },
+          "replacement": "Some(0)",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_369_col_5_001.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_369_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.301316011,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:369:5: replace domain_to_stream -> Option<u64> with Some(1)",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "domain_to_stream",
+            "return_type": "-> Option<u64>",
+            "span": {
+              "start": {
+                "line": 365,
+                "column": 1
+              },
+              "end": {
+                "line": 374,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 369,
+              "column": 5
+            },
+            "end": {
+              "line": 373,
+              "column": 6
+            }
+          },
+          "replacement": "Some(1)",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_369_col_5_002.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_369_col_5_002.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.301305461,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:369:25: replace == with != in domain_to_stream",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "domain_to_stream",
+            "return_type": "-> Option<u64>",
+            "span": {
+              "start": {
+                "line": 365,
+                "column": 1
+              },
+              "end": {
+                "line": 374,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 369,
+              "column": 25
+            },
+            "end": {
+              "line": 369,
+              "column": 27
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_369_col_25.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_369_col_25.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351175255,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:372:31: replace - with + in domain_to_stream",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "domain_to_stream",
+            "return_type": "-> Option<u64>",
+            "span": {
+              "start": {
+                "line": 365,
+                "column": 1
+              },
+              "end": {
+                "line": 374,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 372,
+              "column": 31
+            },
+            "end": {
+              "line": 372,
+              "column": 32
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_372_col_31.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_372_col_31.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.301090282,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:372:31: replace - with / in domain_to_stream",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "domain_to_stream",
+            "return_type": "-> Option<u64>",
+            "span": {
+              "start": {
+                "line": 365,
+                "column": 1
+              },
+              "end": {
+                "line": 374,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 372,
+              "column": 31
+            },
+            "end": {
+              "line": 372,
+              "column": 32
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_372_col_31_001.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_372_col_31_001.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.301127901,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:384:5: replace map_executed_result -> Result<(Uuid, AggregateVersion), DomainError> with Ok((Default::default(), Default::default()))",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "map_executed_result",
+            "return_type": "-> Result<(Uuid, AggregateVersion), DomainError>",
+            "span": {
+              "start": {
+                "line": 376,
+                "column": 1
+              },
+              "end": {
+                "line": 411,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 384,
+              "column": 5
+            },
+            "end": {
+              "line": 410,
+              "column": 6
+            }
+          },
+          "replacement": "Ok((Default::default(), Default::default()))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_384_col_5.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_384_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351398963,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:417:5: replace version_from_current -> AggregateVersion with Default::default()",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "version_from_current",
+            "return_type": "-> AggregateVersion",
+            "span": {
+              "start": {
+                "line": 413,
+                "column": 1
+              },
+              "end": {
+                "line": 421,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 417,
+              "column": 5
+            },
+            "end": {
+              "line": 420,
+              "column": 6
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_417_col_5.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_417_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351470773,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:426:5: replace version_from_expected -> AggregateVersion with Default::default()",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "version_from_expected",
+            "return_type": "-> AggregateVersion",
+            "span": {
+              "start": {
+                "line": 423,
+                "column": 1
+              },
+              "end": {
+                "line": 431,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 426,
+              "column": 5
+            },
+            "end": {
+              "line": 430,
+              "column": 6
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_426_col_5.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_426_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.30133356,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:427:9: delete match arm ExpectedVersion::Exact(v) in version_from_expected",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "version_from_expected",
+            "return_type": "-> AggregateVersion",
+            "span": {
+              "start": {
+                "line": 423,
+                "column": 1
+              },
+              "end": {
+                "line": 431,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 427,
+              "column": 9
+            },
+            "end": {
+              "line": 427,
+              "column": 58
+            }
+          },
+          "replacement": "",
+          "genre": "MatchArm"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_427_col_9.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_427_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351421853,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:428:9: delete match arm ExpectedVersion::Empty in version_from_expected",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "version_from_expected",
+            "return_type": "-> AggregateVersion",
+            "span": {
+              "start": {
+                "line": 423,
+                "column": 1
+              },
+              "end": {
+                "line": 431,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 428,
+              "column": 9
+            },
+            "end": {
+              "line": 428,
+              "column": 61
+            }
+          },
+          "replacement": "",
+          "genre": "MatchArm"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_428_col_9.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_428_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351234492,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:436:5: replace check_nonzero_version -> Result<(), DomainError> with Ok(())",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "check_nonzero_version",
+            "return_type": "-> Result<(), DomainError>",
+            "span": {
+              "start": {
+                "line": 433,
+                "column": 1
+              },
+              "end": {
+                "line": 445,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 436,
+              "column": 5
+            },
+            "end": {
+              "line": 444,
+              "column": 6
+            }
+          },
+          "replacement": "Ok(())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_436_col_5.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_436_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351303422,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/event_store/command_adapters.rs:436:18: replace == with != in check_nonzero_version",
+          "package": "infra",
+          "file": "crates/infra/src/event_store/command_adapters.rs",
+          "function": {
+            "function_name": "check_nonzero_version",
+            "return_type": "-> Result<(), DomainError>",
+            "span": {
+              "start": {
+                "line": 433,
+                "column": 1
+              },
+              "end": {
+                "line": 445,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 436,
+              "column": 18
+            },
+            "end": {
+              "line": 436,
+              "column": 20
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__event_store__command_adapters.rs_line_436_col_18.log",
+      "diff_path": "diff/crates__infra__src__event_store__command_adapters.rs_line_436_col_18.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.30122522,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/calculation.rs:30:9: replace <impl EntityEventHandler<CalculationAggregate, Transaction<'a, Postgres>> for CalculationProjector>::handle -> Result<(), Self::Error> with Ok(())",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/calculation.rs",
+          "function": {
+            "function_name": "<impl EntityEventHandler<CalculationAggregate, Transaction<'a, Postgres>> for CalculationProjector>::handle",
+            "return_type": "-> Result<(), Self::Error>",
+            "span": {
+              "start": {
+                "line": 24,
+                "column": 5
+              },
+              "end": {
+                "line": 160,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 30,
+              "column": 9
+            },
+            "end": {
+              "line": 159,
+              "column": 15
+            }
+          },
+          "replacement": "Ok(())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__projectors__calculation.rs_line_30_col_9.log",
+      "diff_path": "diff/crates__infra__src__projectors__calculation.rs_line_30_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351404021,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/calculation.rs:170:9: replace CalculationProjector::touch_parent -> Result<(), sqlx::Error> with Ok(())",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/calculation.rs",
+          "function": {
+            "function_name": "CalculationProjector::touch_parent",
+            "return_type": "-> Result<(), sqlx::Error>",
+            "span": {
+              "start": {
+                "line": 164,
+                "column": 5
+              },
+              "end": {
+                "line": 183,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 170,
+              "column": 9
+            },
+            "end": {
+              "line": 182,
+              "column": 15
+            }
+          },
+          "replacement": "Ok(())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__projectors__calculation.rs_line_170_col_9.log",
+      "diff_path": "diff/crates__infra__src__projectors__calculation.rs_line_170_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351262692,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/calculation.rs:191:5: replace upsert_calculation_item -> Result<(), sqlx::Error> with Ok(())",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/calculation.rs",
+          "function": {
+            "function_name": "upsert_calculation_item",
+            "return_type": "-> Result<(), sqlx::Error>",
+            "span": {
+              "start": {
+                "line": 186,
+                "column": 1
+              },
+              "end": {
+                "line": 212,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 191,
+              "column": 5
+            },
+            "end": {
+              "line": 211,
+              "column": 11
+            }
+          },
+          "replacement": "Ok(())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__projectors__calculation.rs_line_191_col_5.log",
+      "diff_path": "diff/crates__infra__src__projectors__calculation.rs_line_191_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351165372,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/character.rs:28:9: replace <impl EntityEventHandler<CharacterAggregate, Transaction<'a, Postgres>> for CharacterProjector>::handle -> Result<(), Self::Error> with Ok(())",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/character.rs",
+          "function": {
+            "function_name": "<impl EntityEventHandler<CharacterAggregate, Transaction<'a, Postgres>> for CharacterProjector>::handle",
+            "return_type": "-> Result<(), Self::Error>",
+            "span": {
+              "start": {
+                "line": 22,
+                "column": 5
+              },
+              "end": {
+                "line": 118,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 28,
+              "column": 9
+            },
+            "end": {
+              "line": 117,
+              "column": 15
+            }
+          },
+          "replacement": "Ok(())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__projectors__character.rs_line_28_col_9.log",
+      "diff_path": "diff/crates__infra__src__projectors__character.rs_line_28_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351612081,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/costume.rs:28:9: replace <impl EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for CostumeProjector>::handle -> Result<(), Self::Error> with Ok(())",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/costume.rs",
+          "function": {
+            "function_name": "<impl EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for CostumeProjector>::handle",
+            "return_type": "-> Result<(), Self::Error>",
+            "span": {
+              "start": {
+                "line": 22,
+                "column": 5
+              },
+              "end": {
+                "line": 227,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 28,
+              "column": 9
+            },
+            "end": {
+              "line": 226,
+              "column": 15
+            }
+          },
+          "replacement": "Ok(())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__projectors__costume.rs_line_28_col_9.log",
+      "diff_path": "diff/crates__infra__src__projectors__costume.rs_line_28_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351240631,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/costume.rs:237:9: replace CostumeProjector::touch_parent -> Result<(), sqlx::Error> with Ok(())",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/costume.rs",
+          "function": {
+            "function_name": "CostumeProjector::touch_parent",
+            "return_type": "-> Result<(), sqlx::Error>",
+            "span": {
+              "start": {
+                "line": 231,
+                "column": 5
+              },
+              "end": {
+                "line": 250,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 237,
+              "column": 9
+            },
+            "end": {
+              "line": 249,
+              "column": 15
+            }
+          },
+          "replacement": "Ok(())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__projectors__costume.rs_line_237_col_9.log",
+      "diff_path": "diff/crates__infra__src__projectors__costume.rs_line_237_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351246822,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/scene.rs:28:9: replace <impl EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for SceneProjector>::handle -> Result<(), Self::Error> with Ok(())",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/scene.rs",
+          "function": {
+            "function_name": "<impl EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for SceneProjector>::handle",
+            "return_type": "-> Result<(), Self::Error>",
+            "span": {
+              "start": {
+                "line": 22,
+                "column": 5
+              },
+              "end": {
+                "line": 153,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 28,
+              "column": 9
+            },
+            "end": {
+              "line": 152,
+              "column": 15
+            }
+          },
+          "replacement": "Ok(())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__projectors__scene.rs_line_28_col_9.log",
+      "diff_path": "diff/crates__infra__src__projectors__scene.rs_line_28_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351084442,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/scene.rs:163:9: replace SceneProjector::touch_parent -> Result<(), sqlx::Error> with Ok(())",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/scene.rs",
+          "function": {
+            "function_name": "SceneProjector::touch_parent",
+            "return_type": "-> Result<(), sqlx::Error>",
+            "span": {
+              "start": {
+                "line": 157,
+                "column": 5
+              },
+              "end": {
+                "line": 176,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 163,
+              "column": 9
+            },
+            "end": {
+              "line": 175,
+              "column": 15
+            }
+          },
+          "replacement": "Ok(())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__projectors__scene.rs_line_163_col_9.log",
+      "diff_path": "diff/crates__infra__src__projectors__scene.rs_line_163_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351404741,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/supervisor.rs:34:5: replace compute_backoff -> Duration with Default::default()",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/supervisor.rs",
+          "function": {
+            "function_name": "compute_backoff",
+            "return_type": "-> Duration",
+            "span": {
+              "start": {
+                "line": 31,
+                "column": 1
+              },
+              "end": {
+                "line": 41,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 34,
+              "column": 5
+            },
+            "end": {
+              "line": 40,
+              "column": 33
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__projectors__supervisor.rs_line_34_col_5.log",
+      "diff_path": "diff/crates__infra__src__projectors__supervisor.rs_line_34_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.401408863,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/supervisor.rs:35:25: replace * with + in compute_backoff",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/supervisor.rs",
+          "function": {
+            "function_name": "compute_backoff",
+            "return_type": "-> Duration",
+            "span": {
+              "start": {
+                "line": 31,
+                "column": 1
+              },
+              "end": {
+                "line": 41,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 35,
+              "column": 25
+            },
+            "end": {
+              "line": 35,
+              "column": 26
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__projectors__supervisor.rs_line_35_col_25.log",
+      "diff_path": "diff/crates__infra__src__projectors__supervisor.rs_line_35_col_25.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.401333393,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/supervisor.rs:35:25: replace * with / in compute_backoff",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/supervisor.rs",
+          "function": {
+            "function_name": "compute_backoff",
+            "return_type": "-> Duration",
+            "span": {
+              "start": {
+                "line": 31,
+                "column": 1
+              },
+              "end": {
+                "line": 41,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 35,
+              "column": 25
+            },
+            "end": {
+              "line": 35,
+              "column": 26
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__projectors__supervisor.rs_line_35_col_25_001.log",
+      "diff_path": "diff/crates__infra__src__projectors__supervisor.rs_line_35_col_25_001.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351604909,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/supervisor.rs:38:46: replace / with % in compute_backoff",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/supervisor.rs",
+          "function": {
+            "function_name": "compute_backoff",
+            "return_type": "-> Duration",
+            "span": {
+              "start": {
+                "line": 31,
+                "column": 1
+              },
+              "end": {
+                "line": 41,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 38,
+              "column": 46
+            },
+            "end": {
+              "line": 38,
+              "column": 47
+            }
+          },
+          "replacement": "%",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__projectors__supervisor.rs_line_38_col_46.log",
+      "diff_path": "diff/crates__infra__src__projectors__supervisor.rs_line_38_col_46.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.301202038,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/supervisor.rs:38:46: replace / with * in compute_backoff",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/supervisor.rs",
+          "function": {
+            "function_name": "compute_backoff",
+            "return_type": "-> Duration",
+            "span": {
+              "start": {
+                "line": 31,
+                "column": 1
+              },
+              "end": {
+                "line": 41,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 38,
+              "column": 46
+            },
+            "end": {
+              "line": 38,
+              "column": 47
+            }
+          },
+          "replacement": "*",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__projectors__supervisor.rs_line_38_col_46_001.log",
+      "diff_path": "diff/crates__infra__src__projectors__supervisor.rs_line_38_col_46_001.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.301034299,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/supervisor.rs:63:5: replace run_with_restart -> Result<tokio::task::JoinHandle<()>> with Ok(JoinHandle::new())",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/supervisor.rs",
+          "function": {
+            "function_name": "run_with_restart",
+            "return_type": "-> Result<tokio::task::JoinHandle<()>>",
+            "span": {
+              "start": {
+                "line": 45,
+                "column": 1
+              },
+              "end": {
+                "line": 65,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 63,
+              "column": 5
+            },
+            "end": {
+              "line": 64,
+              "column": 15
+            }
+          },
+          "replacement": "Ok(JoinHandle::new())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__projectors__supervisor.rs_line_63_col_5.log",
+      "diff_path": "diff/crates__infra__src__projectors__supervisor.rs_line_63_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.701736873,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/supervisor.rs:63:5: replace run_with_restart -> Result<tokio::task::JoinHandle<()>> with Ok(JoinHandle::from_iter([()]))",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/supervisor.rs",
+          "function": {
+            "function_name": "run_with_restart",
+            "return_type": "-> Result<tokio::task::JoinHandle<()>>",
+            "span": {
+              "start": {
+                "line": 45,
+                "column": 1
+              },
+              "end": {
+                "line": 65,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 63,
+              "column": 5
+            },
+            "end": {
+              "line": 64,
+              "column": 15
+            }
+          },
+          "replacement": "Ok(JoinHandle::from_iter([()]))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__projectors__supervisor.rs_line_63_col_5_001.log",
+      "diff_path": "diff/crates__infra__src__projectors__supervisor.rs_line_63_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.701769321,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/supervisor.rs:63:5: replace run_with_restart -> Result<tokio::task::JoinHandle<()>> with Ok(JoinHandle::new(()))",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/supervisor.rs",
+          "function": {
+            "function_name": "run_with_restart",
+            "return_type": "-> Result<tokio::task::JoinHandle<()>>",
+            "span": {
+              "start": {
+                "line": 45,
+                "column": 1
+              },
+              "end": {
+                "line": 65,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 63,
+              "column": 5
+            },
+            "end": {
+              "line": 64,
+              "column": 15
+            }
+          },
+          "replacement": "Ok(JoinHandle::new(()))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__projectors__supervisor.rs_line_63_col_5_002.log",
+      "diff_path": "diff/crates__infra__src__projectors__supervisor.rs_line_63_col_5_002.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.701543322,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/supervisor.rs:63:5: replace run_with_restart -> Result<tokio::task::JoinHandle<()>> with Ok(JoinHandle::from(()))",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/supervisor.rs",
+          "function": {
+            "function_name": "run_with_restart",
+            "return_type": "-> Result<tokio::task::JoinHandle<()>>",
+            "span": {
+              "start": {
+                "line": 45,
+                "column": 1
+              },
+              "end": {
+                "line": 65,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 63,
+              "column": 5
+            },
+            "end": {
+              "line": 64,
+              "column": 15
+            }
+          },
+          "replacement": "Ok(JoinHandle::from(()))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__projectors__supervisor.rs_line_63_col_5_003.log",
+      "diff_path": "diff/crates__infra__src__projectors__supervisor.rs_line_63_col_5_003.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.70166204,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/supervisor.rs:72:5: replace supervisor_loop with ()",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/supervisor.rs",
+          "function": {
+            "function_name": "supervisor_loop",
+            "return_type": "",
+            "span": {
+              "start": {
+                "line": 67,
+                "column": 1
+              },
+              "end": {
+                "line": 162,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 72,
+              "column": 5
+            },
+            "end": {
+              "line": 161,
+              "column": 6
+            }
+          },
+          "replacement": "()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__projectors__supervisor.rs_line_72_col_5.log",
+      "diff_path": "diff/crates__infra__src__projectors__supervisor.rs_line_72_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351388328,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/supervisor.rs:91:41: replace >= with < in supervisor_loop",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/supervisor.rs",
+          "function": {
+            "function_name": "supervisor_loop",
+            "return_type": "",
+            "span": {
+              "start": {
+                "line": 67,
+                "column": 1
+              },
+              "end": {
+                "line": 162,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 91,
+              "column": 41
+            },
+            "end": {
+              "line": 91,
+              "column": 43
+            }
+          },
+          "replacement": "<",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__projectors__supervisor.rs_line_91_col_41.log",
+      "diff_path": "diff/crates__infra__src__projectors__supervisor.rs_line_91_col_41.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.40138216,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/supervisor.rs:104:38: replace += with -= in supervisor_loop",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/supervisor.rs",
+          "function": {
+            "function_name": "supervisor_loop",
+            "return_type": "",
+            "span": {
+              "start": {
+                "line": 67,
+                "column": 1
+              },
+              "end": {
+                "line": 162,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 104,
+              "column": 38
+            },
+            "end": {
+              "line": 104,
+              "column": 40
+            }
+          },
+          "replacement": "-=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__projectors__supervisor.rs_line_104_col_38.log",
+      "diff_path": "diff/crates__infra__src__projectors__supervisor.rs_line_104_col_38.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351277268,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/supervisor.rs:104:38: replace += with *= in supervisor_loop",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/supervisor.rs",
+          "function": {
+            "function_name": "supervisor_loop",
+            "return_type": "",
+            "span": {
+              "start": {
+                "line": 67,
+                "column": 1
+              },
+              "end": {
+                "line": 162,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 104,
+              "column": 38
+            },
+            "end": {
+              "line": 104,
+              "column": 40
+            }
+          },
+          "replacement": "*=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__projectors__supervisor.rs_line_104_col_38_001.log",
+      "diff_path": "diff/crates__infra__src__projectors__supervisor.rs_line_104_col_38_001.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351457328,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/supervisor.rs:106:41: replace >= with < in supervisor_loop",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/supervisor.rs",
+          "function": {
+            "function_name": "supervisor_loop",
+            "return_type": "",
+            "span": {
+              "start": {
+                "line": 67,
+                "column": 1
+              },
+              "end": {
+                "line": 162,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 106,
+              "column": 41
+            },
+            "end": {
+              "line": 106,
+              "column": 43
+            }
+          },
+          "replacement": "<",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__projectors__supervisor.rs_line_106_col_41.log",
+      "diff_path": "diff/crates__infra__src__projectors__supervisor.rs_line_106_col_41.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351490457,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/supervisor.rs:136:38: replace += with -= in supervisor_loop",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/supervisor.rs",
+          "function": {
+            "function_name": "supervisor_loop",
+            "return_type": "",
+            "span": {
+              "start": {
+                "line": 67,
+                "column": 1
+              },
+              "end": {
+                "line": 162,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 136,
+              "column": 38
+            },
+            "end": {
+              "line": 136,
+              "column": 40
+            }
+          },
+          "replacement": "-=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__projectors__supervisor.rs_line_136_col_38.log",
+      "diff_path": "diff/crates__infra__src__projectors__supervisor.rs_line_136_col_38.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351602056,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/supervisor.rs:136:38: replace += with *= in supervisor_loop",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/supervisor.rs",
+          "function": {
+            "function_name": "supervisor_loop",
+            "return_type": "",
+            "span": {
+              "start": {
+                "line": 67,
+                "column": 1
+              },
+              "end": {
+                "line": 162,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 136,
+              "column": 38
+            },
+            "end": {
+              "line": 136,
+              "column": 40
+            }
+          },
+          "replacement": "*=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__projectors__supervisor.rs_line_136_col_38_001.log",
+      "diff_path": "diff/crates__infra__src__projectors__supervisor.rs_line_136_col_38_001.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351132818,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/projectors/supervisor.rs:138:41: replace >= with < in supervisor_loop",
+          "package": "infra",
+          "file": "crates/infra/src/projectors/supervisor.rs",
+          "function": {
+            "function_name": "supervisor_loop",
+            "return_type": "",
+            "span": {
+              "start": {
+                "line": 67,
+                "column": 1
+              },
+              "end": {
+                "line": 162,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 138,
+              "column": 41
+            },
+            "end": {
+              "line": 138,
+              "column": 43
+            }
+          },
+          "replacement": "<",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__projectors__supervisor.rs_line_138_col_41.log",
+      "diff_path": "diff/crates__infra__src__projectors__supervisor.rs_line_138_col_41.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351512496,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/calculation.rs:26:9: replace CalculationRepositoryImpl::calculation_with_items -> Result<CalculationView, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/queries/calculation.rs",
+          "function": {
+            "function_name": "CalculationRepositoryImpl::calculation_with_items",
+            "return_type": "-> Result<CalculationView, DomainError>",
+            "span": {
+              "start": {
+                "line": 25,
+                "column": 5
+              },
+              "end": {
+                "line": 42,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 26,
+              "column": 9
+            },
+            "end": {
+              "line": 41,
+              "column": 17
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__queries__calculation.rs_line_26_col_9.log",
+      "diff_path": "diff/crates__infra__src__queries__calculation.rs_line_26_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351196938,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/calculation.rs:48:9: replace CalculationRepositoryImpl::items_for -> Result<Vec<CalculationItemView>, DomainError> with Ok(vec![])",
+          "package": "infra",
+          "file": "crates/infra/src/queries/calculation.rs",
+          "function": {
+            "function_name": "CalculationRepositoryImpl::items_for",
+            "return_type": "-> Result<Vec<CalculationItemView>, DomainError>",
+            "span": {
+              "start": {
+                "line": 44,
+                "column": 5
+              },
+              "end": {
+                "line": 74,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 48,
+              "column": 9
+            },
+            "end": {
+              "line": 73,
+              "column": 54
+            }
+          },
+          "replacement": "Ok(vec![])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__queries__calculation.rs_line_48_col_9.log",
+      "diff_path": "diff/crates__infra__src__queries__calculation.rs_line_48_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.401562668,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/calculation.rs:48:9: replace CalculationRepositoryImpl::items_for -> Result<Vec<CalculationItemView>, DomainError> with Ok(vec![Default::default()])",
+          "package": "infra",
+          "file": "crates/infra/src/queries/calculation.rs",
+          "function": {
+            "function_name": "CalculationRepositoryImpl::items_for",
+            "return_type": "-> Result<Vec<CalculationItemView>, DomainError>",
+            "span": {
+              "start": {
+                "line": 44,
+                "column": 5
+              },
+              "end": {
+                "line": 74,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 48,
+              "column": 9
+            },
+            "end": {
+              "line": 73,
+              "column": 54
+            }
+          },
+          "replacement": "Ok(vec![Default::default()])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__queries__calculation.rs_line_48_col_9_001.log",
+      "diff_path": "diff/crates__infra__src__queries__calculation.rs_line_48_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.301383265,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/calculation.rs:79:9: replace <impl CalculationRepository for CalculationRepositoryImpl>::find_by_id -> Result<CalculationView, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/queries/calculation.rs",
+          "function": {
+            "function_name": "<impl CalculationRepository for CalculationRepositoryImpl>::find_by_id",
+            "return_type": "-> Result<CalculationView, DomainError>",
+            "span": {
+              "start": {
+                "line": 78,
+                "column": 5
+              },
+              "end": {
+                "line": 80,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 79,
+              "column": 9
+            },
+            "end": {
+              "line": 79,
+              "column": 46
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__queries__calculation.rs_line_79_col_9.log",
+      "diff_path": "diff/crates__infra__src__queries__calculation.rs_line_79_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351265326,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/calculation.rs:88:9: replace <impl CalculationRepository for CalculationRepositoryImpl>::list_by_project -> Result<Vec<CalculationView>, DomainError> with Ok(vec![])",
+          "package": "infra",
+          "file": "crates/infra/src/queries/calculation.rs",
+          "function": {
+            "function_name": "<impl CalculationRepository for CalculationRepositoryImpl>::list_by_project",
+            "return_type": "-> Result<Vec<CalculationView>, DomainError>",
+            "span": {
+              "start": {
+                "line": 82,
+                "column": 5
+              },
+              "end": {
+                "line": 107,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 88,
+              "column": 9
+            },
+            "end": {
+              "line": 106,
+              "column": 44
+            }
+          },
+          "replacement": "Ok(vec![])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__queries__calculation.rs_line_88_col_9.log",
+      "diff_path": "diff/crates__infra__src__queries__calculation.rs_line_88_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351380166,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/calculation.rs:88:9: replace <impl CalculationRepository for CalculationRepositoryImpl>::list_by_project -> Result<Vec<CalculationView>, DomainError> with Ok(vec![Default::default()])",
+          "package": "infra",
+          "file": "crates/infra/src/queries/calculation.rs",
+          "function": {
+            "function_name": "<impl CalculationRepository for CalculationRepositoryImpl>::list_by_project",
+            "return_type": "-> Result<Vec<CalculationView>, DomainError>",
+            "span": {
+              "start": {
+                "line": 82,
+                "column": 5
+              },
+              "end": {
+                "line": 107,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 88,
+              "column": 9
+            },
+            "end": {
+              "line": 106,
+              "column": 44
+            }
+          },
+          "replacement": "Ok(vec![Default::default()])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__queries__calculation.rs_line_88_col_9_001.log",
+      "diff_path": "diff/crates__infra__src__queries__calculation.rs_line_88_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351271726,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/calculation.rs:110:9: replace <impl CalculationRepository for CalculationRepositoryImpl>::calculation_with_items -> Result<CalculationView, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/queries/calculation.rs",
+          "function": {
+            "function_name": "<impl CalculationRepository for CalculationRepositoryImpl>::calculation_with_items",
+            "return_type": "-> Result<CalculationView, DomainError>",
+            "span": {
+              "start": {
+                "line": 109,
+                "column": 5
+              },
+              "end": {
+                "line": 111,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 110,
+              "column": 9
+            },
+            "end": {
+              "line": 110,
+              "column": 46
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__queries__calculation.rs_line_110_col_9.log",
+      "diff_path": "diff/crates__infra__src__queries__calculation.rs_line_110_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351310036,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/calculation.rs:115:5: replace map_calculation_row -> Result<CalculationView, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/queries/calculation.rs",
+          "function": {
+            "function_name": "map_calculation_row",
+            "return_type": "-> Result<CalculationView, DomainError>",
+            "span": {
+              "start": {
+                "line": 114,
+                "column": 1
+              },
+              "end": {
+                "line": 126,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 115,
+              "column": 5
+            },
+            "end": {
+              "line": 125,
+              "column": 7
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__queries__calculation.rs_line_115_col_5.log",
+      "diff_path": "diff/crates__infra__src__queries__calculation.rs_line_115_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351359946,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/calculation.rs:129:5: replace map_err -> DomainError with Default::default()",
+          "package": "infra",
+          "file": "crates/infra/src/queries/calculation.rs",
+          "function": {
+            "function_name": "map_err",
+            "return_type": "-> DomainError",
+            "span": {
+              "start": {
+                "line": 128,
+                "column": 1
+              },
+              "end": {
+                "line": 130,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 129,
+              "column": 5
+            },
+            "end": {
+              "line": 129,
+              "column": 41
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__queries__calculation.rs_line_129_col_5.log",
+      "diff_path": "diff/crates__infra__src__queries__calculation.rs_line_129_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351466875,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/character.rs:28:9: replace <impl CharacterRepository for CharacterRepositoryImpl>::find_by_id -> Result<CharacterView, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/queries/character.rs",
+          "function": {
+            "function_name": "<impl CharacterRepository for CharacterRepositoryImpl>::find_by_id",
+            "return_type": "-> Result<CharacterView, DomainError>",
+            "span": {
+              "start": {
+                "line": 27,
+                "column": 5
+              },
+              "end": {
+                "line": 43,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 28,
+              "column": 9
+            },
+            "end": {
+              "line": 42,
+              "column": 31
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__queries__character.rs_line_28_col_9.log",
+      "diff_path": "diff/crates__infra__src__queries__character.rs_line_28_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351358475,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/character.rs:51:9: replace <impl CharacterRepository for CharacterRepositoryImpl>::list_by_project -> Result<Vec<CharacterView>, DomainError> with Ok(vec![])",
+          "package": "infra",
+          "file": "crates/infra/src/queries/character.rs",
+          "function": {
+            "function_name": "<impl CharacterRepository for CharacterRepositoryImpl>::list_by_project",
+            "return_type": "-> Result<Vec<CharacterView>, DomainError>",
+            "span": {
+              "start": {
+                "line": 45,
+                "column": 5
+              },
+              "end": {
+                "line": 69,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 51,
+              "column": 9
+            },
+            "end": {
+              "line": 68,
+              "column": 58
+            }
+          },
+          "replacement": "Ok(vec![])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__queries__character.rs_line_51_col_9.log",
+      "diff_path": "diff/crates__infra__src__queries__character.rs_line_51_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351354775,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/character.rs:51:9: replace <impl CharacterRepository for CharacterRepositoryImpl>::list_by_project -> Result<Vec<CharacterView>, DomainError> with Ok(vec![Default::default()])",
+          "package": "infra",
+          "file": "crates/infra/src/queries/character.rs",
+          "function": {
+            "function_name": "<impl CharacterRepository for CharacterRepositoryImpl>::list_by_project",
+            "return_type": "-> Result<Vec<CharacterView>, DomainError>",
+            "span": {
+              "start": {
+                "line": 45,
+                "column": 5
+              },
+              "end": {
+                "line": 69,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 51,
+              "column": 9
+            },
+            "end": {
+              "line": 68,
+              "column": 58
+            }
+          },
+          "replacement": "Ok(vec![Default::default()])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__queries__character.rs_line_51_col_9_001.log",
+      "diff_path": "diff/crates__infra__src__queries__character.rs_line_51_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.301309564,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/character.rs:73:5: replace map_character_row -> Result<CharacterView, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/queries/character.rs",
+          "function": {
+            "function_name": "map_character_row",
+            "return_type": "-> Result<CharacterView, DomainError>",
+            "span": {
+              "start": {
+                "line": 72,
+                "column": 1
+              },
+              "end": {
+                "line": 89,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 73,
+              "column": 5
+            },
+            "end": {
+              "line": 88,
+              "column": 7
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__queries__character.rs_line_73_col_5.log",
+      "diff_path": "diff/crates__infra__src__queries__character.rs_line_73_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351408544,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/character.rs:92:5: replace map_err -> DomainError with Default::default()",
+          "package": "infra",
+          "file": "crates/infra/src/queries/character.rs",
+          "function": {
+            "function_name": "map_err",
+            "return_type": "-> DomainError",
+            "span": {
+              "start": {
+                "line": 91,
+                "column": 1
+              },
+              "end": {
+                "line": 93,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 92,
+              "column": 5
+            },
+            "end": {
+              "line": 92,
+              "column": 41
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__queries__character.rs_line_92_col_5.log",
+      "diff_path": "diff/crates__infra__src__queries__character.rs_line_92_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351520144,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/costume.rs:26:9: replace CostumeRepositoryImpl::costumefind_by_id_with_children -> Result<CostumeView, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/queries/costume.rs",
+          "function": {
+            "function_name": "CostumeRepositoryImpl::costumefind_by_id_with_children",
+            "return_type": "-> Result<CostumeView, DomainError>",
+            "span": {
+              "start": {
+                "line": 25,
+                "column": 5
+              },
+              "end": {
+                "line": 40,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 26,
+              "column": 9
+            },
+            "end": {
+              "line": 39,
+              "column": 49
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__queries__costume.rs_line_26_col_9.log",
+      "diff_path": "diff/crates__infra__src__queries__costume.rs_line_26_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351248225,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/costume.rs:43:9: replace CostumeRepositoryImpl::enrich -> Result<CostumeView, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/queries/costume.rs",
+          "function": {
+            "function_name": "CostumeRepositoryImpl::enrich",
+            "return_type": "-> Result<CostumeView, DomainError>",
+            "span": {
+              "start": {
+                "line": 42,
+                "column": 5
+              },
+              "end": {
+                "line": 93,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 43,
+              "column": 9
+            },
+            "end": {
+              "line": 92,
+              "column": 11
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__queries__costume.rs_line_43_col_9.log",
+      "diff_path": "diff/crates__infra__src__queries__costume.rs_line_43_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351384904,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/costume.rs:89:13: delete field details from struct CostumeView expression in CostumeRepositoryImpl::enrich",
+          "package": "infra",
+          "file": "crates/infra/src/queries/costume.rs",
+          "function": {
+            "function_name": "CostumeRepositoryImpl::enrich",
+            "return_type": "-> Result<CostumeView, DomainError>",
+            "span": {
+              "start": {
+                "line": 42,
+                "column": 5
+              },
+              "end": {
+                "line": 93,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 89,
+              "column": 13
+            },
+            "end": {
+              "line": 89,
+              "column": 21
+            }
+          },
+          "replacement": "",
+          "genre": "StructField"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__queries__costume.rs_line_89_col_13.log",
+      "diff_path": "diff/crates__infra__src__queries__costume.rs_line_89_col_13.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351220954,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/costume.rs:90:13: delete field photos from struct CostumeView expression in CostumeRepositoryImpl::enrich",
+          "package": "infra",
+          "file": "crates/infra/src/queries/costume.rs",
+          "function": {
+            "function_name": "CostumeRepositoryImpl::enrich",
+            "return_type": "-> Result<CostumeView, DomainError>",
+            "span": {
+              "start": {
+                "line": 42,
+                "column": 5
+              },
+              "end": {
+                "line": 93,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 90,
+              "column": 13
+            },
+            "end": {
+              "line": 90,
+              "column": 20
+            }
+          },
+          "replacement": "",
+          "genre": "StructField"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__queries__costume.rs_line_90_col_13.log",
+      "diff_path": "diff/crates__infra__src__queries__costume.rs_line_90_col_13.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.301279932,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/costume.rs:98:9: replace <impl CostumeRepository for CostumeRepositoryImpl>::find_by_id -> Result<CostumeView, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/queries/costume.rs",
+          "function": {
+            "function_name": "<impl CostumeRepository for CostumeRepositoryImpl>::find_by_id",
+            "return_type": "-> Result<CostumeView, DomainError>",
+            "span": {
+              "start": {
+                "line": 97,
+                "column": 5
+              },
+              "end": {
+                "line": 99,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 98,
+              "column": 9
+            },
+            "end": {
+              "line": 98,
+              "column": 55
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__queries__costume.rs_line_98_col_9.log",
+      "diff_path": "diff/crates__infra__src__queries__costume.rs_line_98_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351430113,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/costume.rs:107:9: replace <impl CostumeRepository for CostumeRepositoryImpl>::list_by_project -> Result<Vec<CostumeView>, DomainError> with Ok(vec![])",
+          "package": "infra",
+          "file": "crates/infra/src/queries/costume.rs",
+          "function": {
+            "function_name": "<impl CostumeRepository for CostumeRepositoryImpl>::list_by_project",
+            "return_type": "-> Result<Vec<CostumeView>, DomainError>",
+            "span": {
+              "start": {
+                "line": 101,
+                "column": 5
+              },
+              "end": {
+                "line": 126,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 107,
+              "column": 9
+            },
+            "end": {
+              "line": 125,
+              "column": 44
+            }
+          },
+          "replacement": "Ok(vec![])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__queries__costume.rs_line_107_col_9.log",
+      "diff_path": "diff/crates__infra__src__queries__costume.rs_line_107_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351595442,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/costume.rs:107:9: replace <impl CostumeRepository for CostumeRepositoryImpl>::list_by_project -> Result<Vec<CostumeView>, DomainError> with Ok(vec![Default::default()])",
+          "package": "infra",
+          "file": "crates/infra/src/queries/costume.rs",
+          "function": {
+            "function_name": "<impl CostumeRepository for CostumeRepositoryImpl>::list_by_project",
+            "return_type": "-> Result<Vec<CostumeView>, DomainError>",
+            "span": {
+              "start": {
+                "line": 101,
+                "column": 5
+              },
+              "end": {
+                "line": 126,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 107,
+              "column": 9
+            },
+            "end": {
+              "line": 125,
+              "column": 44
+            }
+          },
+          "replacement": "Ok(vec![Default::default()])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__queries__costume.rs_line_107_col_9_001.log",
+      "diff_path": "diff/crates__infra__src__queries__costume.rs_line_107_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351284734,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/costume.rs:132:9: replace <impl CostumeRepository for CostumeRepositoryImpl>::costumes_by_character -> Result<Vec<CostumeView>, DomainError> with Ok(vec![])",
+          "package": "infra",
+          "file": "crates/infra/src/queries/costume.rs",
+          "function": {
+            "function_name": "<impl CostumeRepository for CostumeRepositoryImpl>::costumes_by_character",
+            "return_type": "-> Result<Vec<CostumeView>, DomainError>",
+            "span": {
+              "start": {
+                "line": 128,
+                "column": 5
+              },
+              "end": {
+                "line": 148,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 132,
+              "column": 9
+            },
+            "end": {
+              "line": 147,
+              "column": 44
+            }
+          },
+          "replacement": "Ok(vec![])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__queries__costume.rs_line_132_col_9.log",
+      "diff_path": "diff/crates__infra__src__queries__costume.rs_line_132_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351328843,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/costume.rs:132:9: replace <impl CostumeRepository for CostumeRepositoryImpl>::costumes_by_character -> Result<Vec<CostumeView>, DomainError> with Ok(vec![Default::default()])",
+          "package": "infra",
+          "file": "crates/infra/src/queries/costume.rs",
+          "function": {
+            "function_name": "<impl CostumeRepository for CostumeRepositoryImpl>::costumes_by_character",
+            "return_type": "-> Result<Vec<CostumeView>, DomainError>",
+            "span": {
+              "start": {
+                "line": 128,
+                "column": 5
+              },
+              "end": {
+                "line": 148,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 132,
+              "column": 9
+            },
+            "end": {
+              "line": 147,
+              "column": 44
+            }
+          },
+          "replacement": "Ok(vec![Default::default()])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__queries__costume.rs_line_132_col_9_001.log",
+      "diff_path": "diff/crates__infra__src__queries__costume.rs_line_132_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.301148213,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/costume.rs:151:9: replace <impl CostumeRepository for CostumeRepositoryImpl>::costume_with_details_photos -> Result<CostumeView, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/queries/costume.rs",
+          "function": {
+            "function_name": "<impl CostumeRepository for CostumeRepositoryImpl>::costume_with_details_photos",
+            "return_type": "-> Result<CostumeView, DomainError>",
+            "span": {
+              "start": {
+                "line": 150,
+                "column": 5
+              },
+              "end": {
+                "line": 152,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 151,
+              "column": 9
+            },
+            "end": {
+              "line": 151,
+              "column": 55
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__queries__costume.rs_line_151_col_9.log",
+      "diff_path": "diff/crates__infra__src__queries__costume.rs_line_151_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.301356552,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/costume.rs:156:5: replace map_costume_row -> Result<CostumeView, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/queries/costume.rs",
+          "function": {
+            "function_name": "map_costume_row",
+            "return_type": "-> Result<CostumeView, DomainError>",
+            "span": {
+              "start": {
+                "line": 155,
+                "column": 1
+              },
+              "end": {
+                "line": 168,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 156,
+              "column": 5
+            },
+            "end": {
+              "line": 167,
+              "column": 7
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__queries__costume.rs_line_156_col_5.log",
+      "diff_path": "diff/crates__infra__src__queries__costume.rs_line_156_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351224113,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/costume.rs:171:5: replace map_err -> DomainError with Default::default()",
+          "package": "infra",
+          "file": "crates/infra/src/queries/costume.rs",
+          "function": {
+            "function_name": "map_err",
+            "return_type": "-> DomainError",
+            "span": {
+              "start": {
+                "line": 170,
+                "column": 1
+              },
+              "end": {
+                "line": 172,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 171,
+              "column": 5
+            },
+            "end": {
+              "line": 171,
+              "column": 41
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__queries__costume.rs_line_171_col_5.log",
+      "diff_path": "diff/crates__infra__src__queries__costume.rs_line_171_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351472872,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/scene.rs:36:9: replace <impl SceneRepository for SceneRepositoryImpl>::find_by_id -> Result<SceneView, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/queries/scene.rs",
+          "function": {
+            "function_name": "<impl SceneRepository for SceneRepositoryImpl>::find_by_id",
+            "return_type": "-> Result<SceneView, DomainError>",
+            "span": {
+              "start": {
+                "line": 35,
+                "column": 5
+              },
+              "end": {
+                "line": 61,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 36,
+              "column": 9
+            },
+            "end": {
+              "line": 60,
+              "column": 27
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__queries__scene.rs_line_36_col_9.log",
+      "diff_path": "diff/crates__infra__src__queries__scene.rs_line_36_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351295713,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/scene.rs:69:9: replace <impl SceneRepository for SceneRepositoryImpl>::list_by_project -> Result<Vec<SceneView>, DomainError> with Ok(vec![])",
+          "package": "infra",
+          "file": "crates/infra/src/queries/scene.rs",
+          "function": {
+            "function_name": "<impl SceneRepository for SceneRepositoryImpl>::list_by_project",
+            "return_type": "-> Result<Vec<SceneView>, DomainError>",
+            "span": {
+              "start": {
+                "line": 63,
+                "column": 5
+              },
+              "end": {
+                "line": 97,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 69,
+              "column": 9
+            },
+            "end": {
+              "line": 96,
+              "column": 54
+            }
+          },
+          "replacement": "Ok(vec![])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__queries__scene.rs_line_69_col_9.log",
+      "diff_path": "diff/crates__infra__src__queries__scene.rs_line_69_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351274602,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/scene.rs:69:9: replace <impl SceneRepository for SceneRepositoryImpl>::list_by_project -> Result<Vec<SceneView>, DomainError> with Ok(vec![Default::default()])",
+          "package": "infra",
+          "file": "crates/infra/src/queries/scene.rs",
+          "function": {
+            "function_name": "<impl SceneRepository for SceneRepositoryImpl>::list_by_project",
+            "return_type": "-> Result<Vec<SceneView>, DomainError>",
+            "span": {
+              "start": {
+                "line": 63,
+                "column": 5
+              },
+              "end": {
+                "line": 97,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 69,
+              "column": 9
+            },
+            "end": {
+              "line": 96,
+              "column": 54
+            }
+          },
+          "replacement": "Ok(vec![Default::default()])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__queries__scene.rs_line_69_col_9_001.log",
+      "diff_path": "diff/crates__infra__src__queries__scene.rs_line_69_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.301213062,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/scene.rs:100:9: replace <impl SceneRepository for SceneRepositoryImpl>::scenes_by_character -> Result<Vec<SceneView>, DomainError> with Ok(vec![])",
+          "package": "infra",
+          "file": "crates/infra/src/queries/scene.rs",
+          "function": {
+            "function_name": "<impl SceneRepository for SceneRepositoryImpl>::scenes_by_character",
+            "return_type": "-> Result<Vec<SceneView>, DomainError>",
+            "span": {
+              "start": {
+                "line": 99,
+                "column": 5
+              },
+              "end": {
+                "line": 125,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 100,
+              "column": 9
+            },
+            "end": {
+              "line": 124,
+              "column": 54
+            }
+          },
+          "replacement": "Ok(vec![])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Success",
+      "log_path": "log/crates__infra__src__queries__scene.rs_line_100_col_9.log",
+      "diff_path": "diff/crates__infra__src__queries__scene.rs_line_100_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351278852,
+          "process_status": "Success",
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/scene.rs:100:9: replace <impl SceneRepository for SceneRepositoryImpl>::scenes_by_character -> Result<Vec<SceneView>, DomainError> with Ok(vec![Default::default()])",
+          "package": "infra",
+          "file": "crates/infra/src/queries/scene.rs",
+          "function": {
+            "function_name": "<impl SceneRepository for SceneRepositoryImpl>::scenes_by_character",
+            "return_type": "-> Result<Vec<SceneView>, DomainError>",
+            "span": {
+              "start": {
+                "line": 99,
+                "column": 5
+              },
+              "end": {
+                "line": 125,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 100,
+              "column": 9
+            },
+            "end": {
+              "line": 124,
+              "column": 54
+            }
+          },
+          "replacement": "Ok(vec![Default::default()])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__queries__scene.rs_line_100_col_9_001.log",
+      "diff_path": "diff/crates__infra__src__queries__scene.rs_line_100_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351281272,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/scene.rs:129:5: replace map_scene_row -> Result<SceneView, DomainError> with Ok(Default::default())",
+          "package": "infra",
+          "file": "crates/infra/src/queries/scene.rs",
+          "function": {
+            "function_name": "map_scene_row",
+            "return_type": "-> Result<SceneView, DomainError>",
+            "span": {
+              "start": {
+                "line": 128,
+                "column": 1
+              },
+              "end": {
+                "line": 143,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 129,
+              "column": 5
+            },
+            "end": {
+              "line": 142,
+              "column": 7
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__queries__scene.rs_line_129_col_5.log",
+      "diff_path": "diff/crates__infra__src__queries__scene.rs_line_129_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.351345622,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/src/queries/scene.rs:146:5: replace map_err -> DomainError with Default::default()",
+          "package": "infra",
+          "file": "crates/infra/src/queries/scene.rs",
+          "function": {
+            "function_name": "map_err",
+            "return_type": "-> DomainError",
+            "span": {
+              "start": {
+                "line": 145,
+                "column": 1
+              },
+              "end": {
+                "line": 147,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 146,
+              "column": 5
+            },
+            "end": {
+              "line": 146,
+              "column": 41
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__src__queries__scene.rs_line_146_col_5.log",
+      "diff_path": "diff/crates__infra__src__queries__scene.rs_line_146_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Check",
+          "duration": 0.35152263,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/home/digiwitcher/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+            "check",
+            "--tests",
+            "--verbose",
+            "--package=infra@0.1.0"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 114,
+  "missed": 0,
+  "caught": 0,
+  "timeout": 0,
+  "unviable": 44,
+  "success": 70,
+  "start_time": "2026-07-08T14:36:14.943166091Z",
+  "end_time": "2026-07-08T14:37:25.523579432Z",
+  "cargo_mutants_version": "27.1.0"
+}

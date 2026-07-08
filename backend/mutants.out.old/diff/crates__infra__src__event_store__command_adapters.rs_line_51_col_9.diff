@@ -1,0 +1,25 @@
+--- crates/infra/src/event_store/command_adapters.rs
++++ replace <impl SceneCommands for SceneCommandsImpl>::create -> Result<(Uuid, AggregateVersion), DomainError> with Ok((Default::default(), Default::default()))
+@@ -43,21 +43,17 @@
+ impl SceneCommandsImpl {
+     pub fn new(cmd_service: CommandService) -> Self {
+         Self { cmd_service }
+     }
+ }
+ 
+ impl SceneCommands for SceneCommandsImpl {
+     async fn create(&self, cmd: CreateScene) -> Result<(Uuid, AggregateVersion), DomainError> {
+-        let id = cmd.id;
+-        let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
+-            .expected_version(ExpectedVersion::Empty)
+-            .await;
+-        map_executed(id, result)
++        Ok((Default::default(), Default::default())) /* ~ changed by cargo-mutants ~ */
+     }
+ 
+     async fn update_details(
+         &self,
+         cmd: UpdateSceneDetails,
+     ) -> Result<AggregateVersion, DomainError> {
+         let id = cmd.id;
+         let version = cmd.version;

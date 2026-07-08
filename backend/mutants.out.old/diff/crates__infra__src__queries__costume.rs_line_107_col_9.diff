@@ -1,0 +1,39 @@
+--- crates/infra/src/queries/costume.rs
++++ replace <impl CostumeRepository for CostumeRepositoryImpl>::list_by_project -> Result<Vec<CostumeView>, DomainError> with Ok(vec![])
+@@ -99,35 +99,17 @@
+     }
+ 
+     async fn list_by_project(
+         &self,
+         project_id: ProjectId,
+         limit: i64,
+         offset: i64,
+     ) -> Result<Vec<CostumeView>, DomainError> {
+-        let rows = sqlx::query(
+-            r#"
+-            SELECT id, project_id, character_id, notes, version, updated_at
+-            FROM projection_costume
+-            WHERE project_id = $1
+-            ORDER BY updated_at DESC
+-            LIMIT $2 OFFSET $3
+-            "#,
+-        )
+-        .bind(project_id.0)
+-        .bind(limit)
+-        .bind(offset)
+-        .fetch_all(&self.pool)
+-        .await
+-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+-
+-        rows.into_iter()
+-            .map(map_costume_row)
+-            .collect::<Result<Vec<_>, _>>()
++        Ok(vec![]) /* ~ changed by cargo-mutants ~ */
+     }
+ 
+     async fn costumes_by_character(
+         &self,
+         character_id: Uuid,
+     ) -> Result<Vec<CostumeView>, DomainError> {
+         let rows = sqlx::query(
+             r#"

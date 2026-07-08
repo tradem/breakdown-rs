@@ -1,0 +1,14 @@
+--- crates/infra/src/queries/character.rs
++++ replace map_err -> DomainError with Default::default()
+@@ -84,10 +84,10 @@
+         version: AggregateVersion(row.try_get::<i64, _>("version").map_err(map_err)? as u64),
+         updated_at: row
+             .try_get::<DateTime<Utc>, _>("updated_at")
+             .map_err(map_err)?,
+     })
+ }
+ 
+ fn map_err(e: sqlx::Error) -> DomainError {
+-    DomainError::Conflict(e.to_string())
++    Default::default() /* ~ changed by cargo-mutants ~ */
+ }

@@ -1,0 +1,24 @@
+--- crates/infra/src/event_store/command_adapters.rs
++++ replace version_from_current -> AggregateVersion with Default::default()
+@@ -409,20 +409,17 @@
+         Err(err) => Err(DomainError::Conflict(err.to_string())),
+     }
+ }
+ 
+ /// Map `CurrentVersion` to the canonical domain version.
+ /// `Empty` (no events) → `AggregateVersion(0)` — no domain version yet.
+ /// `Current(v)` (SierraDB reports version `v`) → `AggregateVersion(v + 1)`.
+ fn version_from_current(current: CurrentVersion) -> AggregateVersion {
+-    match current {
+-        CurrentVersion::Current(v) => stream_to_domain(v),
+-        CurrentVersion::Empty => AggregateVersion(0),
+-    }
++    Default::default() /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// Map `ExpectedVersion` to the canonical domain version.
+ /// Only used in error context to inform the caller what they supplied.
+ fn version_from_expected(expected: ExpectedVersion) -> AggregateVersion {
+     match expected {
+         ExpectedVersion::Exact(v) => AggregateVersion(v),
+         ExpectedVersion::Empty => AggregateVersion::INITIAL,

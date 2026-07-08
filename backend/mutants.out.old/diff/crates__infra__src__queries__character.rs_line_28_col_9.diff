@@ -1,0 +1,35 @@
+--- crates/infra/src/queries/character.rs
++++ replace <impl CharacterRepository for CharacterRepositoryImpl>::find_by_id -> Result<CharacterView, DomainError> with Ok(Default::default())
+@@ -20,31 +20,17 @@
+ impl CharacterRepositoryImpl {
+     pub fn new(pool: PgPool) -> Self {
+         Self { pool }
+     }
+ }
+ 
+ impl CharacterRepository for CharacterRepositoryImpl {
+     async fn find_by_id(&self, id: Uuid) -> Result<CharacterView, DomainError> {
+-        let row = sqlx::query(
+-            r#"
+-            SELECT id, project_id, name, is_extra, is_main_character,
+-                   measurements, contact, version, updated_at
+-            FROM projection_character
+-            WHERE id = $1
+-            "#,
+-        )
+-        .bind(id)
+-        .fetch_optional(&self.pool)
+-        .await
+-        .map_err(|e| DomainError::Conflict(e.to_string()))?
+-        .ok_or_else(|| DomainError::NotFound(format!("Character({id})")))?;
+-
+-        map_character_row(row)
++        Ok(Default::default()) /* ~ changed by cargo-mutants ~ */
+     }
+ 
+     async fn list_by_project(
+         &self,
+         project_id: ProjectId,
+         limit: i64,
+         offset: i64,
+     ) -> Result<Vec<CharacterView>, DomainError> {

@@ -1,0 +1,27 @@
+--- crates/infra/src/event_store/command_adapters.rs
++++ replace <impl SceneCommands for SceneCommandsImpl>::update_details -> Result<AggregateVersion, DomainError> with Ok(Default::default())
+@@ -54,23 +54,17 @@
+             .await;
+         map_executed(id, result)
+     }
+ 
+     async fn update_details(
+         &self,
+         cmd: UpdateSceneDetails,
+     ) -> Result<AggregateVersion, DomainError> {
+-        let id = cmd.id;
+-        let version = cmd.version;
+-        check_nonzero_version(version)?;
+-        let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
+-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+-            .await;
+-        map_version_only(result)
++        Ok(Default::default()) /* ~ changed by cargo-mutants ~ */
+     }
+ 
+     async fn assign_character(
+         &self,
+         cmd: AssignCharacter,
+     ) -> Result<AggregateVersion, DomainError> {
+         let id = cmd.id;
+         let version = cmd.version;

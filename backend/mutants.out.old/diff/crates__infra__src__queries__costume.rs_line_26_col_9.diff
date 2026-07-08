@@ -1,0 +1,34 @@
+--- crates/infra/src/queries/costume.rs
++++ replace CostumeRepositoryImpl::costumefind_by_id_with_children -> Result<CostumeView, DomainError> with Ok(Default::default())
+@@ -18,30 +18,17 @@
+ }
+ 
+ impl CostumeRepositoryImpl {
+     pub fn new(pool: PgPool) -> Self {
+         Self { pool }
+     }
+ 
+     async fn costumefind_by_id_with_children(&self, id: Uuid) -> Result<CostumeView, DomainError> {
+-        let row = sqlx::query(
+-            r#"
+-            SELECT id, project_id, character_id, notes, version, updated_at
+-            FROM projection_costume
+-            WHERE id = $1
+-            "#,
+-        )
+-        .bind(id)
+-        .fetch_optional(&self.pool)
+-        .await
+-        .map_err(|e| DomainError::Conflict(e.to_string()))?
+-        .ok_or_else(|| DomainError::NotFound(format!("Costume({id})")))?;
+-
+-        self.enrich(map_costume_row(row)?).await
++        Ok(Default::default()) /* ~ changed by cargo-mutants ~ */
+     }
+ 
+     async fn enrich(&self, view: CostumeView) -> Result<CostumeView, DomainError> {
+         let details = sqlx::query(
+             r#"
+             SELECT detail_id, text
+             FROM projection_costume_detail
+             WHERE costume_id = $1

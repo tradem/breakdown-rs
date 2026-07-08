@@ -1,0 +1,27 @@
+--- crates/infra/src/event_store/command_adapters.rs
++++ replace <impl SceneCommands for SceneCommandsImpl>::remove_character -> Result<AggregateVersion, DomainError> with Ok(Default::default())
+@@ -80,23 +80,17 @@
+             .await;
+         map_version_only(result)
+     }
+ 
+     async fn remove_character(
+         &self,
+         cmd: RemoveCharacter,
+     ) -> Result<AggregateVersion, DomainError> {
+-        let id = cmd.id;
+-        let version = cmd.version;
+-        check_nonzero_version(version)?;
+-        let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
+-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+-            .await;
+-        map_version_only(result)
++        Ok(Default::default()) /* ~ changed by cargo-mutants ~ */
+     }
+ }
+ 
+ /// Command adapter for the Character aggregate.
+ #[derive(Clone, Debug)]
+ pub struct CharacterCommandsImpl {
+     cmd_service: CommandService,
+ }

@@ -51,27 +51,64 @@ fn pk_column_for(table: &str) -> &str {
     }
 }
 
-/// Wait for a projection row (up to 15 s for eventual consistency).
+/// Wait for a projection row (up to 15 s for eventual consistency),
+/// verifying the `version` column is at least `min_version`.
 async fn await_proj(pool: &sqlx::PgPool, table: &str, id: Uuid) {
+    await_proj_version(pool, table, id, 1).await;
+}
+
+/// Wait for a projection row whose `version` >= `min_version`.
+/// If `min_version` is 0, this falls back to existence-only checking
+/// (useful for child-table joins like projection_scene_character).
+async fn await_proj_version(pool: &sqlx::PgPool, table: &str, id: Uuid, min_version: u64) {
     let deadline = std::time::Instant::now() + Duration::from_secs(15);
     let col = pk_column_for(table);
-    let query = format!(
-        r#"SELECT EXISTS(SELECT 1 FROM "{}" WHERE {} = $1)"#,
-        table, col
-    );
+    let query = if min_version > 0 {
+        format!(r#"SELECT version FROM "{}" WHERE {} = $1"#, table, col)
+    } else {
+        format!(
+            r#"SELECT EXISTS(SELECT 1 FROM "{}" WHERE {} = $1)"#,
+            table, col
+        )
+    };
     let mut interval = tokio::time::interval(Duration::from_millis(150));
     loop {
         interval.tick().await;
         if std::time::Instant::now() > deadline {
-            panic!("{table}({}) not projected", id);
+            panic!(
+                "{table}({}) not projected{}",
+                id,
+                if min_version > 0 {
+                    format!(" (expected version >= {min_version})")
+                } else {
+                    String::new()
+                }
+            );
         }
-        let exists: Option<bool> = sqlx::query_scalar::<_, bool>(query.as_str())
+        let result = sqlx::query(&query)
             .bind(id)
             .fetch_optional(pool)
             .await
             .unwrap();
-        if exists == Some(true) {
-            return;
+
+        if min_version > 0 {
+            // Check that the row exists AND version >= min_version
+            if let Some(row) = result {
+                let version: i64 = sqlx::Row::try_get(&row, 0).unwrap();
+                if version >= min_version as i64 {
+                    return;
+                }
+            }
+        } else {
+            // Existence-only check: EXISTS() always returns one row
+            let exists: bool = sqlx::query_scalar::<_, bool>(&query)
+                .bind(id)
+                .fetch_one(pool)
+                .await
+                .unwrap();
+            if exists {
+                return;
+            }
         }
     }
 }
@@ -112,12 +149,11 @@ async fn init() -> Result<(
 
 #[tokio::test]
 async fn scenes_by_project_returns_data() -> Result<()> {
-    let (pool, _cmd_svc, _pg_guard, _sierra_guard) = init().await?;
+    let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let scene_repo = SceneRepositoryImpl::new(pool.clone());
+    let scene_cmd = SceneCommandsImpl::new(cmd_svc);
 
     let scene_id = Uuid::now_v7();
-    let (_pool2, cmd_svc, _, _) = init().await?;
-    let scene_cmd = SceneCommandsImpl::new(cmd_svc);
 
     let cmd = CreateScene {
         id: scene_id,
@@ -148,12 +184,11 @@ async fn scenes_by_project_returns_data() -> Result<()> {
 
 #[tokio::test]
 async fn characters_by_project_returns_data() -> Result<()> {
-    let (pool, _cmd_svc, _pg_guard, _sierra_guard) = init().await?;
+    let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let char_repo = CharacterRepositoryImpl::new(pool.clone());
+    let char_cmd = CharacterCommandsImpl::new(cmd_svc);
 
     let char_id = Uuid::now_v7();
-    let (_pool2, cmd_svc, _, _) = init().await?;
-    let char_cmd = CharacterCommandsImpl::new(cmd_svc);
 
     let cmd = CreateCharacter {
         id: char_id,
@@ -181,12 +216,11 @@ async fn characters_by_project_returns_data() -> Result<()> {
 
 #[tokio::test]
 async fn costumes_by_project_returns_data() -> Result<()> {
-    let (pool, _cmd_svc, _pg_guard, _sierra_guard) = init().await?;
+    let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let costume_repo = CostumeRepositoryImpl::new(pool.clone());
+    let costume_cmd = CostumeCommandsImpl::new(cmd_svc);
 
     let costume_id = Uuid::now_v7();
-    let (_pool2, cmd_svc, _, _) = init().await?;
-    let costume_cmd = CostumeCommandsImpl::new(cmd_svc);
 
     let cmd = CreateCostume {
         id: costume_id,
@@ -213,11 +247,11 @@ async fn costumes_by_project_returns_data() -> Result<()> {
 
 #[tokio::test]
 async fn costumes_with_details_returns_data() -> Result<()> {
-    let (pool, _cmd_svc, _pg_guard, _sierra_guard) = init().await?;
+    let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
+    let _costume_repo = CostumeRepositoryImpl::new(pool.clone());
+    let costume_cmd = CostumeCommandsImpl::new(cmd_svc);
 
     let costume_id = Uuid::now_v7();
-    let (_pool2, cmd_svc, _, _) = init().await?;
-    let costume_cmd = CostumeCommandsImpl::new(cmd_svc);
 
     let cmd = CreateCostume {
         id: costume_id,
@@ -229,7 +263,7 @@ async fn costumes_with_details_returns_data() -> Result<()> {
 
     // Add a detail
     let detail_id = Uuid::now_v7();
-    costume_cmd
+    let ver2 = costume_cmd
         .add_detail(AddDetail {
             id: costume_id,
             detail: CostumeDetail {
@@ -240,19 +274,19 @@ async fn costumes_with_details_returns_data() -> Result<()> {
         })
         .await?;
 
-    await_proj(&pool, "projection_costume_detail", costume_id).await;
+    await_proj_version(&pool, "projection_costume", costume_id, ver2.0 as u64).await;
+    await_proj_version(&pool, "projection_costume_detail", costume_id, 0).await;
 
     Ok(())
 }
 
 #[tokio::test]
 async fn calculations_with_items_returns_data() -> Result<()> {
-    let (pool, _cmd_svc, _pg_guard, _sierra_guard) = init().await?;
+    let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let calc_repo = CalculationRepositoryImpl::new(pool.clone());
+    let calc_cmd = CalculationCommandsImpl::new(cmd_svc);
 
     let calc_id = Uuid::now_v7();
-    let (_pool2, cmd_svc, _, _) = init().await?;
-    let calc_cmd = CalculationCommandsImpl::new(cmd_svc);
 
     let cmd = CreateCalculation {
         id: calc_id,
@@ -264,7 +298,7 @@ async fn calculations_with_items_returns_data() -> Result<()> {
 
     // Add an item
     let item_id = Uuid::now_v7();
-    calc_cmd
+    let ver2 = calc_cmd
         .add_item(AddCalculationItem {
             id: calc_id,
             item: CalculationItem {
@@ -278,7 +312,8 @@ async fn calculations_with_items_returns_data() -> Result<()> {
         })
         .await?;
 
-    await_proj(&pool, "projection_calculation_item", calc_id).await;
+    await_proj_version(&pool, "projection_calculation", calc_id, ver2.0 as u64).await;
+    await_proj_version(&pool, "projection_calculation_item", calc_id, 0).await;
 
     let v = calc_repo.find_by_id(calc_id).await?;
 
@@ -293,12 +328,11 @@ async fn calculations_with_items_returns_data() -> Result<()> {
 
 #[tokio::test]
 async fn calculations_by_project_returns_data() -> Result<()> {
-    let (pool, _cmd_svc, _pg_guard, _sierra_guard) = init().await?;
+    let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let calc_repo = CalculationRepositoryImpl::new(pool.clone());
+    let calc_cmd = CalculationCommandsImpl::new(cmd_svc);
 
     let calc_id = Uuid::now_v7();
-    let (_pool2, cmd_svc, _, _) = init().await?;
-    let calc_cmd = CalculationCommandsImpl::new(cmd_svc);
 
     let cmd = CreateCalculation {
         id: calc_id,

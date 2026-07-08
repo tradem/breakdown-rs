@@ -1,0 +1,70 @@
+--- crates/infra/src/queries/costume.rs
++++ replace CostumeRepositoryImpl::enrich -> Result<CostumeView, DomainError> with Ok(Default::default())
+@@ -35,66 +35,17 @@
+         .await
+         .map_err(|e| DomainError::Conflict(e.to_string()))?
+         .ok_or_else(|| DomainError::NotFound(format!("Costume({id})")))?;
+ 
+         self.enrich(map_costume_row(row)?).await
+     }
+ 
+     async fn enrich(&self, view: CostumeView) -> Result<CostumeView, DomainError> {
+-        let details = sqlx::query(
+-            r#"
+-            SELECT detail_id, text
+-            FROM projection_costume_detail
+-            WHERE costume_id = $1
+-            ORDER BY detail_id
+-            "#,
+-        )
+-        .bind(view.id)
+-        .fetch_all(&self.pool)
+-        .await
+-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+-
+-        let photos = sqlx::query(
+-            r#"
+-            SELECT photo_id
+-            FROM projection_costume_photo
+-            WHERE costume_id = $1
+-            ORDER BY photo_id
+-            "#,
+-        )
+-        .bind(view.id)
+-        .fetch_all(&self.pool)
+-        .await
+-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+-
+-        let details = details
+-            .into_iter()
+-            .map(|row| {
+-                Ok(CostumeDetailView {
+-                    id: row.try_get("detail_id").map_err(map_err)?,
+-                    text: row.try_get("text").map_err(map_err)?,
+-                })
+-            })
+-            .collect::<Result<Vec<_>, DomainError>>()?;
+-
+-        let photos = photos
+-            .into_iter()
+-            .map(|row| {
+-                Ok(CostumePhotoView {
+-                    id: row.try_get("photo_id").map_err(map_err)?,
+-                })
+-            })
+-            .collect::<Result<Vec<_>, DomainError>>()?;
+-
+-        Ok(CostumeView {
+-            details,
+-            photos,
+-            ..view
+-        })
++        Ok(Default::default()) /* ~ changed by cargo-mutants ~ */
+     }
+ }
+ 
+ impl CostumeRepository for CostumeRepositoryImpl {
+     async fn find_by_id(&self, id: Uuid) -> Result<CostumeView, DomainError> {
+         self.costumefind_by_id_with_children(id).await
+     }
+ 

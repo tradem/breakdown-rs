@@ -1,0 +1,21 @@
+--- crates/infra/src/event_store/command_adapters.rs
++++ delete match arm ExpectedVersion::Exact(v) in version_from_expected
+@@ -419,17 +419,17 @@
+         CurrentVersion::Empty => AggregateVersion(0),
+     }
+ }
+ 
+ /// Map `ExpectedVersion` to the canonical domain version.
+ /// Only used in error context to inform the caller what they supplied.
+ fn version_from_expected(expected: ExpectedVersion) -> AggregateVersion {
+     match expected {
+-        ExpectedVersion::Exact(v) => AggregateVersion(v),
++         /* ~ changed by cargo-mutants ~ */
+         ExpectedVersion::Empty => AggregateVersion::INITIAL,
+         _ => AggregateVersion::INITIAL,
+     }
+ }
+ 
+ /// Check that a domain version is non-zero (valid for update operations).
+ /// Returns `DomainError::VersionConflict` when `version.0 == 0`.
+ fn check_nonzero_version(version: AggregateVersion) -> Result<(), DomainError> {
