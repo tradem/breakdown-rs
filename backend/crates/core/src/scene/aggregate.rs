@@ -176,7 +176,7 @@ impl Command<RemoveCharacter> for SceneAggregate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::make_ctx;
+    use test_support::make_ctx;
 
     fn create_scene() -> SceneAggregate {
         let pid = ProjectId::new();

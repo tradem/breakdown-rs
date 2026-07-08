@@ -5,19 +5,15 @@ edition.workspace = true
 license.workspace = true
 publish = false
 
-
-[features]
-# Enables `infra::testing` imports in integration-tests tests.
-# Test files gated with `#[cfg(feature = "infra-testing")]` require this.
-infra-testing = []
 [lib]
 crate-type = ["lib"]
 
 [dependencies]
 
 [dev-dependencies]
-breakdown_core = { path = "../core", features = ["testing"] }
-infra = { path = "../infra", features = ["testing"] }
+breakdown_core = { path = "../core" }
+infra = { path = "../infra" }
+test_support = { path = "../test_support" }
 
 # Event-sourcing traits used by the in-memory aggregate command checks.
 kameo_es.workspace = true
@@ -27,6 +23,13 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 
 # Database access & migrations
 sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-native-tls", "uuid", "chrono", "json", "migrate"] }
+
+# Container runtime
+testcontainers = { version = "0.25", features = ["reusable-containers"] }
+testcontainers-modules = { version = "0.13", features = ["postgres"] }
+
+# Database & Redis clients
+redis.workspace = true
 
 # Timestamps used by projector tests
 chrono = { workspace = true }
@@ -41,6 +44,5 @@ anyhow = { workspace = true }
 serde_json = "1.0"
 
 # Logging / tracing (for SierraDB/kameo_es debug output in CI)
-redis = { workspace = true }
 ciborium = "0.2"
 tracing-subscriber = { workspace = true }

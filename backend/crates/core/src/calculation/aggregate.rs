@@ -249,7 +249,7 @@ impl Command<MarkItemAsUnpaid> for CalculationAggregate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::make_ctx;
+    use test_support::make_ctx;
     use rust_decimal::Decimal;
     use std::str::FromStr;
 

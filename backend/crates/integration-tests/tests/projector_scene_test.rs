@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024-2026 Breakdown RS Contributors
+
+mod fixtures;
+
 use anyhow::Result;
 use breakdown_core::scene::aggregate::SceneAggregate;
 use breakdown_core::scene::events::{SceneDetails, SceneEvent};
@@ -12,7 +17,7 @@ use uuid::Uuid;
 
 #[tokio::test]
 async fn scene_created_event_projects_to_projection_scene() -> Result<()> {
-    let (pool, _container) = infra::testing::spawn_postgres().await?;
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
 
     let project_id = ProjectId::new();
     let scene_id = Uuid::now_v7();

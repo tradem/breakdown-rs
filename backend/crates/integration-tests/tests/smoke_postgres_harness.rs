@@ -1,11 +1,17 @@
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024-2026 Breakdown RS Contributors
+
+mod fixtures;
+
 use anyhow::Result;
+use fixtures::spawn_postgres;
 use breakdown_core::shared::ProjectId;
 use sqlx::Row;
 use uuid::Uuid;
 
 #[tokio::test]
 async fn postgres_harness_spins_up_and_applies_migrations() -> Result<()> {
-    let (pool, _container) = infra::testing::spawn_postgres().await?;
+    let (pool, _container) = spawn_postgres().await?;
 
     let id = Uuid::now_v7();
     let project_id = ProjectId::new();

@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0
-// Copyright (C) 2024 Breakdown RS Contributors
+// Copyright (C) 2024-2026 Breakdown RS Contributors
 
-//! Test-only helpers for spinning up real external resources.
+//! Test-harness for integration and end-to-end tests.
 //!
-//! Everything in this module is compiled only when the `testing` cargo feature is
-//! enabled, so it never becomes part of a production build.
+//! Provides ephemeral container helpers (`spawn_postgres`, `spawn_sierradb`)
+//! and fixture structs (`TestApp`, `TestScene`) mirroring the former
+//! `infra::testing` API, so that Tier-1 to Tier-4 tests can spin up
+//! real Postgres and SierraDB instances deterministically.
 
 use std::collections::HashMap;
 use std::env;
@@ -20,7 +22,12 @@ use testcontainers::core::{ContainerPort, WaitFor};
 use testcontainers::runners::AsyncRunner;
 use testcontainers::{ContainerAsync, ContainerRequest, Image, ImageExt, ReuseDirective};
 use testcontainers_modules::postgres::Postgres as PostgresImage;
-use breakdown_core::scene::commands;
+
+use kameo_es::command_service::CommandService;
+
+// ---------------------------------------------------------------------------
+// Container helpers
+// ---------------------------------------------------------------------------
 
 /// Starts an ephemeral Postgres container and returns a configured pool.
 pub async fn spawn_postgres() -> Result<(PgPool, ContainerAsync<PostgresImage>)> {
@@ -37,7 +44,7 @@ pub async fn spawn_postgres() -> Result<(PgPool, ContainerAsync<PostgresImage>)>
         .await?;
 
     sqlx::query("SELECT 1").fetch_one(&pool).await?;
-    sqlx::migrate!("./migrations").run(&pool).await?;
+    sqlx::migrate!("../infra/migrations").run(&pool).await?;
 
     Ok((pool, container))
 }
@@ -54,6 +61,10 @@ fn build_postgres_container_request() -> ContainerRequest<PostgresImage> {
         image.into()
     }
 }
+
+// ---------------------------------------------------------------------------
+// SierraDB
+// ---------------------------------------------------------------------------
 
 /// SierraDB container image (tqwewe/sierradb:0.3.1, ADR-016).
 pub const SIERRADB_IMAGE_TAG: &str = "0.3.1";
@@ -81,25 +92,24 @@ impl Image for SierraDbImage {
     }
 }
 
-/// Starts an ephemeral SierraDB container and returns the client + connection + guard.
-pub async fn spawn_sierradb(
-) -> Result<(Arc<RedisClient>, redis::aio::MultiplexedConnection, ContainerAsync<SierraDbImage>)> {
+/// Starts an ephemeral SierraDB container and returns the client + multiplexed connection + guard.
+pub async fn spawn_sierradb() -> Result<(Arc<RedisClient>, redis::aio::MultiplexedConnection, ContainerAsync<SierraDbImage>)> {
     let request = build_sierradb_container_request();
     let container = request.start().await?;
 
     let host = container.get_host().await?;
     let port = container.get_host_port_ipv4(9090).await?;
-    let url = format!("redis://{host}:{port}/?protocol=resp3");
+    let url = format!("redis://{host}:{port}/0?protocol=resp3");
 
     let client = Arc::new(RedisClient::open(url.as_str())?);
 
-    // Bounded-retry cluster-readiness probe (ESVER)
+    // Retry loop: SierraDB may need a few hundred milliseconds to fully initialise.
     let mut last_err = None;
     for _ in 0..60 {
         match client.get_multiplexed_tokio_connection().await {
             Ok(conn) => {
                 match redis::cmd("ESVER").arg("__sierradb_probe__").query_async::<Option<u64>>(&mut conn.clone()).await {
-                    Ok(_) => return Ok((client, conn, container)),
+                    Ok(_) => return Ok((client.clone(), conn, container)),
                     Err(err) => last_err = Some(err),
                 }
             }
@@ -109,7 +119,7 @@ pub async fn spawn_sierradb(
     }
 
     Err(anyhow!(
-        "SierraDB cluster did not become ready: {}",
+        "SierraDB did not become ready: {}",
         last_err.map(|e| e.to_string()).unwrap_or_else(|| "unknown".into())
     ))
 }
@@ -126,86 +136,9 @@ fn build_sierradb_container_request() -> ContainerRequest<SierraDbImage> {
     }
 }
 
-/// Test-only accessor for the pool backing a `SceneRepositoryImpl`.
-pub fn scene_repo_pool(repo: &crate::queries::SceneRepositoryImpl) -> sqlx::PgPool {
-    repo.pool().clone()
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test App — command → event → reply → projection round-trip harness
-// ─────────────────────────────────────────────────────────────────────────────
-//
-// `CommandService` ist **nicht** `pub extern` (Rust: „pub bedeutet stabil").
-// Stattdessen wird sie hinterm `testing`-Feature exportiert.
-
-/// Re-export of `CommandService` from `kameo_es`.
-/// Only available behind the `testing` feature.
-pub use kameo_es::command_service::CommandService;
-
-/// Holds a SierraDB RESP3 connection alongside the CommandService.
-pub struct SierraConnGuard {
-    pub conn: redis::aio::MultiplexedConnection,
-    _container: ContainerAsync<SierraDbImage>,
-}
-
-/// Full test fixture: Postgres + SierraDB + command service + scene adapter.
-pub struct TestScene {
-    pub cmd_service: CommandService,
-    pub scene_commands: crate::event_store::SceneCommandsImpl,
-    pub pool: PgPool,
-    pub scene_repo: crate::queries::SceneRepositoryImpl,
-    _sierra_guard: SierraConnGuard,
-    _pg_guard: ContainerAsync<PostgresImage>,
-}
-
-impl TestScene {
-    /// Build a `TestScene` from a pre-built [`TestApp`].
-    pub async fn new(mut app: TestApp) -> Result<Self> {
-        let conn_for_cmd_service = app.sierra_client.get_multiplexed_tokio_connection().await?;
-        let conn_guard = SierraConnGuard {
-            conn: conn_for_cmd_service,
-            _container: app.sierra_guard.take().ok_or_else(|| anyhow!("sierradb guard lost"))?,
-        };
-
-        let cmd_service = CommandService::new(conn_guard.conn.clone());
-
-        let scene_commands = crate::event_store::SceneCommandsImpl::new(cmd_service.clone());
-        let scene_repo = crate::queries::SceneRepositoryImpl::new(app.pool.clone());
-
-        Ok(Self {
-            cmd_service,
-            scene_commands,
-            pool: app.pool,
-            scene_repo,
-            _sierra_guard: conn_guard,
-            _pg_guard: app.pg_guard.ok_or_else(|| anyhow!("pg guard lost"))?,
-        })
-    }
-
-    /// Execute a `CreateScene` command and return `(scene_id, reply_version)`.
-    pub async fn create_scene(
-        &self,
-        cmd: commands::CreateScene,
-    ) -> Result<(uuid::Uuid, breakdown_core::shared::AggregateVersion), DomainError> {
-        use SceneCommands;
-        self.scene_commands.create(cmd).await
-    }
-
-    /// Execute an `UpdateSceneDetails` command and return `reply_version`.
-    pub async fn update_scene(
-        &self,
-        cmd: commands::UpdateSceneDetails,
-    ) -> Result<breakdown_core::shared::AggregateVersion, DomainError> {
-        use SceneCommands;
-        self.scene_commands.update_details(cmd).await
-    }
-
-    /// Query the projection for a scene by ID.
-    pub async fn find_by_id(&self, scene_id: uuid::Uuid) -> Result<breakdown_core::scene::views::SceneView, DomainError> {
-        use SceneRepository;
-        self.scene_repo.find_by_id(scene_id).await
-    }
-}
+// ---------------------------------------------------------------------------
+// Fixtures
+// ---------------------------------------------------------------------------
 
 /// Pre-configured harness: Postgres + SierraDB + Redis client.
 pub struct TestApp {
@@ -228,4 +161,69 @@ impl TestApp {
             sierra_guard: Some(sierra_guard),
         })
     }
+}
+
+/// Full test fixture: Postgres + SierraDB + command service + scene adapter.
+pub struct TestScene {
+    pub cmd_service: CommandService,
+    pub scene_commands: infra::event_store::SceneCommandsImpl,
+    pub pool: PgPool,
+    pub scene_repo: infra::queries::SceneRepositoryImpl,
+    _sierra_guard: SierraConnGuard,
+    _pg_guard: ContainerAsync<PostgresImage>,
+}
+
+impl TestScene {
+    /// Build a `TestScene` from a pre-built [`TestApp`].
+    pub async fn new(mut app: TestApp) -> Result<Self> {
+        let conn_for_cmd_service = app.sierra_client.get_multiplexed_tokio_connection().await?;
+        let conn_guard = SierraConnGuard {
+            conn: conn_for_cmd_service,
+            _container: app.sierra_guard.take().ok_or_else(|| anyhow!("sierradb guard lost"))?,
+        };
+
+        let cmd_service = CommandService::new(conn_guard.conn.clone());
+
+        let scene_commands = infra::event_store::SceneCommandsImpl::new(cmd_service.clone());
+        let scene_repo = infra::queries::SceneRepositoryImpl::new(app.pool.clone());
+
+        Ok(Self {
+            cmd_service,
+            scene_commands,
+            pool: app.pool,
+            scene_repo,
+            _sierra_guard: conn_guard,
+            _pg_guard: app.pg_guard.take().ok_or_else(|| anyhow!("pg guard lost"))?,
+        })
+    }
+
+    /// Execute a `CreateScene` command and return `(scene_id, reply_version)`.
+    pub async fn create_scene(
+        &self,
+        cmd: breakdown_core::scene::commands::CreateScene,
+    ) -> Result<(uuid::Uuid, breakdown_core::shared::AggregateVersion), DomainError> {
+        use SceneCommands;
+        self.scene_commands.create(cmd).await
+    }
+
+    /// Execute an `UpdateSceneDetails` command and return `reply_version`.
+    pub async fn update_scene(
+        &self,
+        cmd: breakdown_core::scene::commands::UpdateSceneDetails,
+    ) -> Result<breakdown_core::shared::AggregateVersion, DomainError> {
+        use SceneCommands;
+        self.scene_commands.update_details(cmd).await
+    }
+
+    /// Query the projection for a scene by ID.
+    pub async fn find_by_id(&self, scene_id: uuid::Uuid) -> Result<breakdown_core::scene::views::SceneView, DomainError> {
+        use SceneRepository;
+        self.scene_repo.find_by_id(scene_id).await
+    }
+}
+
+/// Holds a SierraDB RESP3 connection alongside the CommandService.
+pub struct SierraConnGuard {
+    pub conn: redis::aio::MultiplexedConnection,
+    _container: ContainerAsync<SierraDbImage>,
 }

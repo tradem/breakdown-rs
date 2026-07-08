@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024-2026 Breakdown RS Contributors
+
+mod fixtures;
+
 use anyhow::Result;
 use breakdown_core::scene::ports::SceneRepository;
 use breakdown_core::shared::{AggregateVersion, ProjectId};
@@ -8,7 +13,7 @@ use uuid::Uuid;
 
 #[tokio::test]
 async fn scene_repository_returns_view_with_version_and_updated_at() -> Result<()> {
-    let (pool, _container) = infra::testing::spawn_postgres().await?;
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
 
     let project_id = ProjectId::new();
     let scene_id = Uuid::now_v7();

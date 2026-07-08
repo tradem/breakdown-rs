@@ -4,11 +4,6 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-[features]
-# Exposes the unit-test helper module (`testing`) to integration-test crates.
-# Not compiled into production builds.
-testing = []
-
 [dependencies]
 # Domain-Modell: keine sqlx, kein axum, keine Infrastruktur
 serde.workspace = true
@@ -31,3 +26,6 @@ async-trait.workspace = true
 
 # Tests
 rstest = "0.24"
+
+[dev-dependencies]
+test_support = { path = "../test_support" }

@@ -288,7 +288,7 @@ impl Command<UnlinkPhoto> for CostumeAggregate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::make_ctx;
+    use test_support::make_ctx;
 
     fn make_costume() -> CostumeAggregate {
         let pid = ProjectId::new();

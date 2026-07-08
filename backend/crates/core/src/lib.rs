@@ -7,6 +7,3 @@ pub mod costume;
 pub mod error;
 pub mod scene;
 pub mod shared;
-
-#[cfg(any(test, feature = "testing"))]
-pub mod testing;
