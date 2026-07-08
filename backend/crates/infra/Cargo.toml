@@ -36,3 +36,7 @@ tracing.workspace = true
 # Error handling
 anyhow.workspace = true
 
+# Random jitter for backoff
+rand.workspace = true
+fastrand = "2"
+

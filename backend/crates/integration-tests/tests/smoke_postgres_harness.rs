@@ -4,8 +4,8 @@
 mod fixtures;
 
 use anyhow::Result;
-use fixtures::spawn_postgres;
 use breakdown_core::shared::ProjectId;
+use fixtures::spawn_postgres;
 use sqlx::Row;
 use uuid::Uuid;
 
