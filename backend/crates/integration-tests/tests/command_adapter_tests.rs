@@ -209,7 +209,9 @@ async fn scene_update_details() -> Result<()> {
         .await?;
     assert!(ver2.0 > ver.0);
 
-    await_proj(&pool, "projection_scene", scene_id).await;
+    // Wait for the *update* to be projected, not just the create (min_version 1
+    // would return immediately on the stale create row).
+    await_proj_version(&pool, "projection_scene", scene_id, ver2.0 as u64).await;
     assert_eq!(
         scene_repo.find_by_id(scene_id).await?.scene_number,
         Some(99)
@@ -435,11 +437,29 @@ async fn costume_notes() -> Result<()> {
 #[tokio::test]
 async fn costume_assign_unassign() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(cmd_svc);
+    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(cmd_svc.clone());
+    let char_cmd = infra::event_store::CharacterCommandsImpl::new(cmd_svc);
     let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
 
     let costume_id = Uuid::now_v7();
     let char_id = Uuid::now_v7();
+
+    // `projection_costume.character_id` has a FOREIGN KEY to
+    // `projection_character(id)` (see migration 20250623000001). Assigning a
+    // costume to a non-existent character makes the projector's UPDATE fail
+    // with an FK violation, which kills the projector epoch and restarts it
+    // in a loop — the projection never advances past the create. Create the
+    // character first and wait for its projection so the FK is satisfied.
+    char_cmd
+        .create(CreateCharacter {
+            id: char_id,
+            project_id: ProjectId::new(),
+            name: "Wearer".into(),
+            is_extra: false,
+            is_main_character: false,
+        })
+        .await?;
+    await_proj(&pool, "projection_character", char_id).await;
 
     let cmd = CreateCostume {
         id: costume_id,
