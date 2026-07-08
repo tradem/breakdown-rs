@@ -96,6 +96,11 @@ async fn init() -> Result<(
     let _sp = spawn_costume_projector(pool.clone(), r3).await?;
     let _sp = spawn_calculation_projector(pool.clone(), r4).await?;
 
+    // Give the supervisor background tasks a chance to enter their epoch loop
+    // (tokio::spawn + first backoff + Redis subscription). In slow CI environments
+    // the projector subscriptions may not be ready immediately.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
     let cmd_service = CommandService::new(sierra_client.get_multiplexed_tokio_connection().await?);
 
     Ok((pool, cmd_service, pg_guard, sierra_guard))
