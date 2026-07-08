@@ -303,9 +303,7 @@ mod tests {
             )
             .unwrap();
         let mut applied = CostumeAggregate::default();
-        for evt in events {
-            applied.apply(evt, Default::default());
-        }
+        test_support::replay_events(&mut applied, events);
         applied
     }
 
@@ -338,7 +336,7 @@ mod tests {
     fn test_update_costume_notes_success() {
         let mut agg = make_costume();
         let n: String = "Tear on sleeve".to_string();
-        for evt in agg
+        let events = agg
             .handle(
                 UpdateCostumeNotes {
                     id: agg.id,
@@ -347,10 +345,8 @@ mod tests {
                 },
                 make_ctx(),
             )
-            .unwrap()
-        {
-            agg.apply(evt, Default::default());
-        }
+            .unwrap();
+        test_support::replay_events(&mut agg, events);
         assert_eq!(agg.notes, n);
     }
 
@@ -390,7 +386,7 @@ mod tests {
     fn test_assign_costume_success() {
         let mut agg = make_costume();
         let cid = Uuid::now_v7();
-        for evt in agg
+        let events = agg
             .handle(
                 AssignCostumeToCharacter {
                     id: agg.id,
@@ -399,10 +395,8 @@ mod tests {
                 },
                 make_ctx(),
             )
-            .unwrap()
-        {
-            agg.apply(evt, Default::default());
-        }
+            .unwrap();
+        test_support::replay_events(&mut agg, events);
         assert_eq!(agg.character_id, Some(cid));
     }
 
@@ -410,7 +404,7 @@ mod tests {
     fn test_assign_costume_conflict() {
         let mut agg = make_costume();
         let ca = Uuid::now_v7();
-        for evt in agg
+        let events = agg
             .handle(
                 AssignCostumeToCharacter {
                     id: agg.id,
@@ -419,10 +413,8 @@ mod tests {
                 },
                 make_ctx(),
             )
-            .unwrap()
-        {
-            agg.apply(evt, Default::default());
-        }
+            .unwrap();
+        test_support::replay_events(&mut agg, events);
         assert_eq!(agg.character_id, Some(ca));
         let result = agg.handle(
             AssignCostumeToCharacter {
@@ -443,7 +435,7 @@ mod tests {
     fn test_unassign_costume_success() {
         let mut agg = make_costume();
         let cid = Uuid::now_v7();
-        for evt in agg
+        let events = agg
             .handle(
                 AssignCostumeToCharacter {
                     id: agg.id,
@@ -452,12 +444,10 @@ mod tests {
                 },
                 make_ctx(),
             )
-            .unwrap()
-        {
-            agg.apply(evt, Default::default());
-        }
+            .unwrap();
+        test_support::replay_events(&mut agg, events);
         assert_eq!(agg.character_id, Some(cid));
-        for evt in agg
+        let events = agg
             .handle(
                 UnassignCostume {
                     id: agg.id,
@@ -465,10 +455,8 @@ mod tests {
                 },
                 make_ctx(),
             )
-            .unwrap()
-        {
-            agg.apply(evt, Default::default());
-        }
+            .unwrap();
+        test_support::replay_events(&mut agg, events);
         assert_eq!(agg.character_id, None);
     }
 
@@ -493,7 +481,7 @@ mod tests {
     fn test_add_detail_success() {
         let mut agg = make_costume();
         let did = Uuid::now_v7();
-        for evt in agg
+        let events = agg
             .handle(
                 AddDetail {
                     id: agg.id,
@@ -505,10 +493,8 @@ mod tests {
                 },
                 make_ctx(),
             )
-            .unwrap()
-        {
-            agg.apply(evt, Default::default());
-        }
+            .unwrap();
+        test_support::replay_events(&mut agg, events);
         assert_eq!(agg.details.len(), 1);
         assert_eq!(agg.details[0].text, "silk");
     }
@@ -517,7 +503,7 @@ mod tests {
     fn test_remove_detail_success() {
         let mut agg = make_costume();
         let did = Uuid::now_v7();
-        for evt in agg
+        let events = agg
             .handle(
                 AddDetail {
                     id: agg.id,
@@ -529,11 +515,9 @@ mod tests {
                 },
                 make_ctx(),
             )
-            .unwrap()
-        {
-            agg.apply(evt, Default::default());
-        }
-        for evt in agg
+            .unwrap();
+        test_support::replay_events(&mut agg, events);
+        let events = agg
             .handle(
                 RemoveDetail {
                     id: agg.id,
@@ -542,10 +526,8 @@ mod tests {
                 },
                 make_ctx(),
             )
-            .unwrap()
-        {
-            agg.apply(evt, Default::default());
-        }
+            .unwrap();
+        test_support::replay_events(&mut agg, events);
         assert!(agg.details.is_empty());
     }
 
@@ -571,7 +553,7 @@ mod tests {
     fn test_link_photo_success() {
         let mut agg = make_costume();
         let pid = Uuid::now_v7();
-        for evt in agg
+        let events = agg
             .handle(
                 LinkPhoto {
                     id: agg.id,
@@ -580,10 +562,8 @@ mod tests {
                 },
                 make_ctx(),
             )
-            .unwrap()
-        {
-            agg.apply(evt, Default::default());
-        }
+            .unwrap();
+        test_support::replay_events(&mut agg, events);
         assert_eq!(agg.photos.len(), 1);
     }
 
@@ -591,7 +571,7 @@ mod tests {
     fn test_link_photo_already_linked() {
         let mut agg = make_costume();
         let pid = Uuid::now_v7();
-        for evt in agg
+        let events = agg
             .handle(
                 LinkPhoto {
                     id: agg.id,
@@ -600,10 +580,8 @@ mod tests {
                 },
                 make_ctx(),
             )
-            .unwrap()
-        {
-            agg.apply(evt, Default::default());
-        }
+            .unwrap();
+        test_support::replay_events(&mut agg, events);
         let result = agg.handle(
             LinkPhoto {
                 id: agg.id,
@@ -623,7 +601,7 @@ mod tests {
     fn test_unlink_photo_success() {
         let mut agg = make_costume();
         let pid = Uuid::now_v7();
-        for evt in agg
+        let events = agg
             .handle(
                 LinkPhoto {
                     id: agg.id,
@@ -632,11 +610,9 @@ mod tests {
                 },
                 make_ctx(),
             )
-            .unwrap()
-        {
-            agg.apply(evt, Default::default());
-        }
-        for evt in agg
+            .unwrap();
+        test_support::replay_events(&mut agg, events);
+        let events = agg
             .handle(
                 UnlinkPhoto {
                     id: agg.id,
@@ -645,10 +621,8 @@ mod tests {
                 },
                 make_ctx(),
             )
-            .unwrap()
-        {
-            agg.apply(evt, Default::default());
-        }
+            .unwrap();
+        test_support::replay_events(&mut agg, events);
         assert!(agg.photos.is_empty());
     }
 

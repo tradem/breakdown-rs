@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 use std::time::Instant;
 
-use kameo_es::{Context, Entity, Metadata, StreamId};
+use kameo_es::{Apply, Context, Entity, Metadata, StreamId};
 
 /// Process-wide empty causation-tracking map shared by all test contexts.
 type CausationTracking = HashMap<StreamId, (u64, HashSet<Cow<'static, str>>)>;
@@ -35,5 +35,20 @@ where
         causation_tracking: &TRACKING,
         time: chrono::Utc::now(),
         executed_at: Instant::now(),
+    }
+}
+
+/// Replay a batch of events onto an entity state.
+///
+/// Use this after `handle()` to update the aggregate's state from the
+/// returned events without repeating the `for evt in events {
+///     agg.apply(evt, Default::default());
+/// }` noise in every test.
+pub fn replay_events<E>(agg: &mut E, events: impl IntoIterator<Item = E::Event>)
+where
+    E: Entity<Metadata = ()> + Apply,
+{
+    for event in events {
+        agg.apply(event, Metadata::default());
     }
 }
