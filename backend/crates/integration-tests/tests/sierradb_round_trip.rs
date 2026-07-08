@@ -21,6 +21,8 @@
 //! Requirements: Docker (or a compatible container runtime) and network access
 //! to pull the SierraDB image. Excluded from `cargo-mutants` (`.mutants.toml`).
 
+mod fixtures;
+
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -65,8 +67,8 @@ async fn await_scene_projection(
 
 #[tokio::test]
 async fn eappend_scene_created_round_trips_into_projection() -> Result<()> {
-    let (pool, _pg) = infra::testing::spawn_postgres().await?;
-    let (redis_client, _sierra_conn, _sierra) = infra::testing::spawn_sierradb().await?;
+    let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
+    let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
     // Start the scene projector so it subscribes to event notifications.
     let _scene_ref =
@@ -122,7 +124,7 @@ async fn eappend_scene_created_round_trips_into_projection() -> Result<()> {
     assert_eq!(view.location.as_deref(), Some("Berlin"));
     assert_eq!(view.mood.as_deref(), Some("dark"));
     assert!(view.is_schedule_set);
-    assert_eq!(view.version, AggregateVersion(0));
+    assert_eq!(view.version, AggregateVersion::INITIAL);
     assert!(view.assigned_characters.is_empty());
 
     Ok(())
@@ -174,8 +176,8 @@ async fn await_scene_version(
 /// pattern in the scene projector is truly idempotent.
 #[tokio::test]
 async fn eappend_character_assigned_twice_is_idempotent() -> Result<()> {
-    let (pool, _pg) = infra::testing::spawn_postgres().await?;
-    let (redis_client, _sierra_conn, _sierra) = infra::testing::spawn_sierradb().await?;
+    let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
+    let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
     let _scene_ref =
         infra::projectors::spawn_scene_projector(pool.clone(), Arc::clone(&redis_client)).await?;
@@ -229,7 +231,7 @@ async fn eappend_character_assigned_twice_is_idempotent() -> Result<()> {
     let assigned_event = SceneEvent::CharacterAssigned {
         id: scene_id,
         character_id,
-        version: AggregateVersion(1),
+        version: AggregateVersion(2),
     };
 
     let mut payload = Vec::new();
@@ -252,16 +254,16 @@ async fn eappend_character_assigned_twice_is_idempotent() -> Result<()> {
         .map_err(|e| anyhow!("EAPPEND CharacterAssigned #1 failed: {e}"))?;
 
     // Wait for the projector to process the CharacterAssigned event and bump
-    // the version to >= 1. `await_scene_projection` is insufficient here
+    // the version to >= 2. `await_scene_projection` is insufficient here
     // because the scene row already exists.
-    let view = await_scene_version(&repo, scene_id, AggregateVersion(1)).await?;
+    let view = await_scene_version(&repo, scene_id, AggregateVersion(2)).await?;
     assert_eq!(
         view.assigned_characters.len(),
         1,
         "expected exactly one assigned character after first CharacterAssigned"
     );
     assert_eq!(view.assigned_characters[0], character_id);
-    assert_eq!(view.version, AggregateVersion(1));
+    assert_eq!(view.version, AggregateVersion(2));
 
     // 3. Second (redelivery) CharacterAssigned EAPPEND — same payload, expected version 1
     let mut payload = Vec::new();
@@ -285,7 +287,7 @@ async fn eappend_character_assigned_twice_is_idempotent() -> Result<()> {
 
     // 4. Wait for the projector to catch up on the redelivered event and
     //    assert the projection is unchanged — version should remain at 1.
-    let view2 = await_scene_version(&repo, scene_id, AggregateVersion(1)).await?;
+    let view2 = await_scene_version(&repo, scene_id, AggregateVersion(2)).await?;
     assert_eq!(
         view2.assigned_characters.len(),
         1,

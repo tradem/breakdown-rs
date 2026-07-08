@@ -176,7 +176,7 @@ impl Command<RemoveCharacter> for SceneAggregate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::make_ctx;
+    use test_support::make_ctx;
 
     fn create_scene() -> SceneAggregate {
         let pid = ProjectId::new();
@@ -196,7 +196,7 @@ mod tests {
         );
         let _ = events;
         let mut applied = SceneAggregate::default();
-        for evt in SceneAggregate::default()
+        let events = SceneAggregate::default()
             .handle(
                 CreateScene {
                     id: Uuid::now_v7(),
@@ -205,10 +205,8 @@ mod tests {
                 },
                 make_ctx(),
             )
-            .unwrap()
-        {
-            applied.apply(evt, Default::default());
-        }
+            .unwrap();
+        test_support::replay_events(&mut applied, events);
         applied
     }
 
@@ -266,9 +264,7 @@ mod tests {
             },
             make_ctx(),
         );
-        for evt in event.unwrap() {
-            agg.apply(evt, Default::default());
-        }
+        test_support::replay_events(&mut agg, event.unwrap());
         assert_eq!(agg.details.scene_number, Some(10));
     }
 
@@ -315,7 +311,7 @@ mod tests {
     fn test_assign_character_success() {
         let mut agg = create_scene();
         let char_id = Uuid::now_v7();
-        for evt in agg
+        let events = agg
             .handle(
                 AssignCharacter {
                     id: agg.id,
@@ -324,10 +320,8 @@ mod tests {
                 },
                 make_ctx(),
             )
-            .unwrap()
-        {
-            agg.apply(evt, Default::default());
-        }
+            .unwrap();
+        test_support::replay_events(&mut agg, events);
         assert_eq!(agg.assigned_characters.len(), 1);
         assert_eq!(agg.assigned_characters[0], char_id);
     }
@@ -336,7 +330,7 @@ mod tests {
     fn test_assign_character_conflict() {
         let mut agg = create_scene();
         let char_id = Uuid::now_v7();
-        for evt in agg
+        let events = agg
             .handle(
                 AssignCharacter {
                     id: agg.id,
@@ -345,10 +339,8 @@ mod tests {
                 },
                 make_ctx(),
             )
-            .unwrap()
-        {
-            agg.apply(evt, Default::default());
-        }
+            .unwrap();
+        test_support::replay_events(&mut agg, events);
         let result = agg.handle(
             AssignCharacter {
                 id: agg.id,
@@ -368,7 +360,7 @@ mod tests {
     fn test_remove_character_success() {
         let mut agg = create_scene();
         let char_id = Uuid::now_v7();
-        for evt in agg
+        let events = agg
             .handle(
                 AssignCharacter {
                     id: agg.id,
@@ -377,11 +369,9 @@ mod tests {
                 },
                 make_ctx(),
             )
-            .unwrap()
-        {
-            agg.apply(evt, Default::default());
-        }
-        for evt in agg
+            .unwrap();
+        test_support::replay_events(&mut agg, events);
+        let events = agg
             .handle(
                 RemoveCharacter {
                     id: agg.id,
@@ -390,10 +380,9 @@ mod tests {
                 },
                 make_ctx(),
             )
-            .unwrap()
-        {
-            agg.apply(evt, Default::default());
-        }
+            .unwrap();
+        test_support::replay_events(&mut agg, events);
+        assert!(agg.assigned_characters.is_empty());
         assert!(agg.assigned_characters.is_empty());
     }
 

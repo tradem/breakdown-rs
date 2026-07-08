@@ -249,7 +249,7 @@ impl Command<MarkItemAsUnpaid> for CalculationAggregate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::make_ctx;
+    use test_support::make_ctx;
     use rust_decimal::Decimal;
     use std::str::FromStr;
 
@@ -266,9 +266,7 @@ mod tests {
             )
             .unwrap();
         let mut applied = CalculationAggregate::default();
-        for evt in events {
-            applied.apply(evt, Default::default());
-        }
+        test_support::replay_events(&mut applied, events);
         applied
     }
 
@@ -301,7 +299,7 @@ mod tests {
             subjects: Some("Budget".into()),
             ..Default::default()
         };
-        for evt in agg
+        let events = agg
             .handle(
                 UpdateHeaderInfo {
                     id: agg.id,
@@ -310,10 +308,8 @@ mod tests {
                 },
                 make_ctx(),
             )
-            .unwrap()
-        {
-            agg.apply(evt, Default::default());
-        }
+            .unwrap();
+        test_support::replay_events(&mut agg, events);
         assert_eq!(agg.header.subjects, h.subjects);
     }
 
@@ -327,7 +323,7 @@ mod tests {
             unit_price: Decimal::from_str("10.00").unwrap(),
             is_paid: false,
         };
-        for evt in agg
+        let events = agg
             .handle(
                 AddCalculationItem {
                     id: agg.id,
@@ -336,10 +332,8 @@ mod tests {
                 },
                 make_ctx(),
             )
-            .unwrap()
-        {
-            agg.apply(evt, Default::default());
-        }
+            .unwrap();
+        test_support::replay_events(&mut agg, events);
         assert_eq!(agg.items.len(), 1);
         assert_eq!(agg.items[0].name, "Fabric");
     }
@@ -380,7 +374,7 @@ mod tests {
             unit_price: Decimal::from_str("5").unwrap(),
             is_paid: false,
         };
-        for evt in agg
+        let events = agg
             .handle(
                 AddCalculationItem {
                     id: agg.id,
@@ -389,10 +383,8 @@ mod tests {
                 },
                 make_ctx(),
             )
-            .unwrap()
-        {
-            agg.apply(evt, Default::default());
-        }
+            .unwrap();
+        test_support::replay_events(&mut agg, events);
         let item2 = CalculationItem {
             id: item_id,
             name: "Y".into(),
@@ -400,7 +392,7 @@ mod tests {
             unit_price: Decimal::from_str("10").unwrap(),
             is_paid: false,
         };
-        for evt in agg
+        let events = agg
             .handle(
                 UpdateCalculationItem {
                     id: agg.id,
@@ -409,10 +401,8 @@ mod tests {
                 },
                 make_ctx(),
             )
-            .unwrap()
-        {
-            agg.apply(evt, Default::default());
-        }
+            .unwrap();
+        test_support::replay_events(&mut agg, events);
         assert_eq!(agg.items[0].name, "Y");
     }
 
@@ -445,7 +435,7 @@ mod tests {
     fn test_remove_item_success() {
         let mut agg = make_calc();
         let item_id = Uuid::now_v7();
-        for evt in agg
+        let events = agg
             .handle(
                 AddCalculationItem {
                     id: agg.id,
@@ -460,11 +450,9 @@ mod tests {
                 },
                 make_ctx(),
             )
-            .unwrap()
-        {
-            agg.apply(evt, Default::default());
-        }
-        for evt in agg
+            .unwrap();
+        test_support::replay_events(&mut agg, events);
+        let events = agg
             .handle(
                 RemoveCalculationItem {
                     id: agg.id,
@@ -473,10 +461,8 @@ mod tests {
                 },
                 make_ctx(),
             )
-            .unwrap()
-        {
-            agg.apply(evt, Default::default());
-        }
+            .unwrap();
+        test_support::replay_events(&mut agg, events);
         assert!(agg.items.is_empty());
     }
 
@@ -509,7 +495,7 @@ mod tests {
             unit_price: Decimal::from_str("5").unwrap(),
             is_paid: false,
         };
-        for evt in agg
+        let events = agg
             .handle(
                 AddCalculationItem {
                     id: agg.id,
@@ -518,11 +504,9 @@ mod tests {
                 },
                 make_ctx(),
             )
-            .unwrap()
-        {
-            agg.apply(evt, Default::default());
-        }
-        for evt in agg
+            .unwrap();
+        test_support::replay_events(&mut agg, events);
+        let events = agg
             .handle(
                 MarkItemAsPaid {
                     id: agg.id,
@@ -531,10 +515,8 @@ mod tests {
                 },
                 make_ctx(),
             )
-            .unwrap()
-        {
-            agg.apply(evt, Default::default());
-        }
+            .unwrap();
+        test_support::replay_events(&mut agg, events);
         assert!(agg.items[0].is_paid);
     }
 
@@ -567,7 +549,7 @@ mod tests {
             unit_price: Decimal::ONE,
             is_paid: true,
         };
-        for evt in agg
+        let events = agg
             .handle(
                 AddCalculationItem {
                     id: agg.id,
@@ -576,11 +558,9 @@ mod tests {
                 },
                 make_ctx(),
             )
-            .unwrap()
-        {
-            agg.apply(evt, Default::default());
-        }
-        for evt in agg
+            .unwrap();
+        test_support::replay_events(&mut agg, events);
+        let events = agg
             .handle(
                 MarkItemAsUnpaid {
                     id: agg.id,
@@ -589,10 +569,8 @@ mod tests {
                 },
                 make_ctx(),
             )
-            .unwrap()
-        {
-            agg.apply(evt, Default::default());
-        }
+            .unwrap();
+        test_support::replay_events(&mut agg, events);
         assert!(!agg.items[0].is_paid);
     }
 

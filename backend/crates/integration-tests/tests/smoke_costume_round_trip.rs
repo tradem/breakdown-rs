@@ -1,16 +1,22 @@
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024-2026 Breakdown RS Contributors
+
+mod fixtures;
+
 use anyhow::Result;
 use breakdown_core::{
     costume::{commands::CreateCostume, events::CostumeEvent},
     shared::ProjectId,
-    testing::make_ctx,
 };
+use test_support::make_ctx;
 use kameo_es::{Apply, Command};
+use fixtures::spawn_postgres;
 
 use breakdown_core::costume::aggregate::CostumeAggregate;
 
 #[tokio::test]
 async fn postgres_harness_supports_costume_round_trip_template() -> Result<()> {
-    let (_pool, _container) = infra::testing::spawn_postgres().await?;
+    let (_pool, _container) = spawn_postgres().await?;
 
     let project_id = ProjectId::new();
     let costume_id = uuid::Uuid::now_v7();

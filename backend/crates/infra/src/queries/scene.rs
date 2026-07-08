@@ -24,8 +24,8 @@ impl SceneRepositoryImpl {
 
     /// Test-only access to the underlying pool (e.g. for Tier-4 round-trip tests
     /// that need to open transactions against the same pool the read adapter
-    /// uses). Only compiled under the `testing` feature.
-    #[cfg(feature = "testing")]
+    /// uses). Only compiled during test builds.
+    #[cfg(test)]
     pub fn pool(&self) -> &PgPool {
         &self.pool
     }

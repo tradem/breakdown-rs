@@ -159,7 +159,7 @@ impl Command<UpdateContactInfo> for CharacterAggregate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::make_ctx;
+    use test_support::make_ctx;
     use rust_decimal::Decimal;
     use std::str::FromStr;
 
@@ -176,9 +176,7 @@ mod tests {
             .handle(cmd, make_ctx())
             .unwrap();
         let mut agg = CharacterAggregate::default();
-        for evt in events {
-            agg.apply(evt, Default::default());
-        }
+        test_support::replay_events(&mut agg, events);
         agg
     }
 
@@ -252,9 +250,7 @@ mod tests {
         } else {
             panic!("Expected MeasurementsUpdated");
         }
-        for evt in events {
-            agg.apply(evt, Default::default());
-        }
+        test_support::replay_events(&mut agg, events);
         assert_eq!(
             agg.measurements.shoe_size,
             Some(Decimal::from_str("42").unwrap())
@@ -310,9 +306,7 @@ mod tests {
             version: agg.version,
         };
         let event = agg.handle(cmd, make_ctx());
-        for evt in event.unwrap() {
-            agg.apply(evt, Default::default());
-        }
+        test_support::replay_events(&mut agg, event.unwrap());
         assert_eq!(agg.contact_info.phone, contact.phone);
         assert_eq!(agg.contact_info.email, contact.email);
     }

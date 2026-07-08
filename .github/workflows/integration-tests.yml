@@ -13,6 +13,7 @@ on:
       - "backend/crates/core/**"
       - "backend/crates/infra/**"
       - "backend/crates/api/**"
+      - "backend/crates/test_support/**"
       - "backend/crates/integration-tests/**"
       - "backend/Cargo.toml"
       - "backend/Cargo.lock"

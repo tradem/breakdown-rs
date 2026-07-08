@@ -61,8 +61,9 @@ impl SceneCommands for SceneCommandsImpl {
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
+        check_nonzero_version(version)?;
         let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(version.0))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
             .await;
         map_version_only(result)
     }
@@ -73,8 +74,9 @@ impl SceneCommands for SceneCommandsImpl {
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
+        check_nonzero_version(version)?;
         let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(version.0))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
             .await;
         map_version_only(result)
     }
@@ -85,8 +87,9 @@ impl SceneCommands for SceneCommandsImpl {
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
+        check_nonzero_version(version)?;
         let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(version.0))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
             .await;
         map_version_only(result)
     }
@@ -119,8 +122,9 @@ impl CharacterCommands for CharacterCommandsImpl {
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
+        check_nonzero_version(version)?;
         let result = CharacterAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(version.0))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
             .await;
         map_version_only(result)
     }
@@ -131,8 +135,9 @@ impl CharacterCommands for CharacterCommandsImpl {
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
+        check_nonzero_version(version)?;
         let result = CharacterAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(version.0))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
             .await;
         map_version_only(result)
     }
@@ -162,8 +167,9 @@ impl CostumeCommands for CostumeCommandsImpl {
     async fn update_notes(&self, cmd: UpdateCostumeNotes) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
+        check_nonzero_version(version)?;
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(version.0))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
             .await;
         map_version_only(result)
     }
@@ -174,8 +180,9 @@ impl CostumeCommands for CostumeCommandsImpl {
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
+        check_nonzero_version(version)?;
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(version.0))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
             .await;
         map_version_only(result)
     }
@@ -183,8 +190,9 @@ impl CostumeCommands for CostumeCommandsImpl {
     async fn unassign(&self, cmd: UnassignCostume) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
+        check_nonzero_version(version)?;
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(version.0))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
             .await;
         map_version_only(result)
     }
@@ -192,8 +200,9 @@ impl CostumeCommands for CostumeCommandsImpl {
     async fn add_detail(&self, cmd: AddDetail) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
+        check_nonzero_version(version)?;
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(version.0))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
             .await;
         map_version_only(result)
     }
@@ -201,8 +210,9 @@ impl CostumeCommands for CostumeCommandsImpl {
     async fn remove_detail(&self, cmd: RemoveDetail) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
+        check_nonzero_version(version)?;
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(version.0))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
             .await;
         map_version_only(result)
     }
@@ -210,8 +220,9 @@ impl CostumeCommands for CostumeCommandsImpl {
     async fn link_photo(&self, cmd: LinkPhoto) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
+        check_nonzero_version(version)?;
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(version.0))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
             .await;
         map_version_only(result)
     }
@@ -219,8 +230,9 @@ impl CostumeCommands for CostumeCommandsImpl {
     async fn unlink_photo(&self, cmd: UnlinkPhoto) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
+        check_nonzero_version(version)?;
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(version.0))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
             .await;
         map_version_only(result)
     }
@@ -253,8 +265,9 @@ impl CalculationCommands for CalculationCommandsImpl {
     async fn update_header(&self, cmd: UpdateHeaderInfo) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
+        check_nonzero_version(version)?;
         let result = CalculationAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(version.0))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
             .await;
         map_version_only(result)
     }
@@ -262,8 +275,9 @@ impl CalculationCommands for CalculationCommandsImpl {
     async fn add_item(&self, cmd: AddCalculationItem) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
+        check_nonzero_version(version)?;
         let result = CalculationAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(version.0))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
             .await;
         map_version_only(result)
     }
@@ -274,8 +288,9 @@ impl CalculationCommands for CalculationCommandsImpl {
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
+        check_nonzero_version(version)?;
         let result = CalculationAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(version.0))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
             .await;
         map_version_only(result)
     }
@@ -286,8 +301,9 @@ impl CalculationCommands for CalculationCommandsImpl {
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
+        check_nonzero_version(version)?;
         let result = CalculationAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(version.0))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
             .await;
         map_version_only(result)
     }
@@ -295,8 +311,9 @@ impl CalculationCommands for CalculationCommandsImpl {
     async fn mark_item_paid(&self, cmd: MarkItemAsPaid) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
+        check_nonzero_version(version)?;
         let result = CalculationAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(version.0))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
             .await;
         map_version_only(result)
     }
@@ -307,8 +324,9 @@ impl CalculationCommands for CalculationCommandsImpl {
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
+        check_nonzero_version(version)?;
         let result = CalculationAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(version.0))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
             .await;
         map_version_only(result)
     }
@@ -337,6 +355,24 @@ where
     map_executed_result(id, result)
 }
 
+/// Translate a SierraDB stream version (0-based) to the canonical domain version (1-based).
+/// `domain_version = stream_version + 1`
+#[must_use]
+pub fn stream_to_domain(stream_version: u64) -> AggregateVersion {
+    AggregateVersion(stream_version + 1)
+}
+
+/// Translate the canonical domain version (1-based) back to a SierraDB stream version (0-based).
+/// Returns `None` for domain version 0 (no events → no stream version).
+#[must_use]
+pub fn domain_to_stream(domain_version: AggregateVersion) -> Option<u64> {
+    if domain_version.0 == 0 {
+        None
+    } else {
+        Some(domain_version.0 - 1)
+    }
+}
+
 fn map_executed_result<Ent, Err>(
     id: Uuid,
     result: Result<ExecuteResult<Ent>, ExecuteError<Err>>,
@@ -349,7 +385,7 @@ where
         Ok(ExecuteResult::Executed(events)) => {
             let version = events
                 .last()
-                .map(|e| AggregateVersion(e.stream_version))
+                .map(|e| stream_to_domain(e.stream_version))
                 .ok_or_else(|| DomainError::Conflict("command produced no events".into()))?;
             Ok((id, version))
         }
@@ -363,28 +399,111 @@ where
         Err(ExecuteError::IncorrectExpectedVersion {
             stream_id,
             current,
-            expected,
+            expected: _,
             ..
         }) => Err(DomainError::VersionConflict {
             entity: stream_id.to_string(),
-            expected: version_from_expected(expected),
+            expected: AggregateVersion(0),
             current: version_from_current(current),
         }),
         Err(err) => Err(DomainError::Conflict(err.to_string())),
     }
 }
 
+/// Map `CurrentVersion` to the canonical domain version.
+/// `Empty` (no events) → `AggregateVersion(0)` — no domain version yet.
+/// `Current(v)` (SierraDB reports version `v`) → `AggregateVersion(v + 1)`.
 fn version_from_current(current: CurrentVersion) -> AggregateVersion {
     match current {
-        CurrentVersion::Current(v) => AggregateVersion(v),
-        CurrentVersion::Empty => AggregateVersion::INITIAL,
+        CurrentVersion::Current(v) => stream_to_domain(v),
+        CurrentVersion::Empty => AggregateVersion(0),
     }
 }
 
+/// Map `ExpectedVersion` to the canonical domain version.
+/// Only used in error context to inform the caller what they supplied.
 fn version_from_expected(expected: ExpectedVersion) -> AggregateVersion {
     match expected {
         ExpectedVersion::Exact(v) => AggregateVersion(v),
         ExpectedVersion::Empty => AggregateVersion::INITIAL,
         _ => AggregateVersion::INITIAL,
+    }
+}
+
+/// Check that a domain version is non-zero (valid for update operations).
+/// Returns `DomainError::VersionConflict` when `version.0 == 0`.
+fn check_nonzero_version(version: AggregateVersion) -> Result<(), DomainError> {
+    if version.0 == 0 {
+        Err(DomainError::VersionConflict {
+            entity: String::new(),
+            expected: AggregateVersion(0),
+            current: AggregateVersion(0),
+        })
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod translation_tests {
+    use super::*;
+
+    #[test]
+    fn stream_to_domain_basic() {
+        assert_eq!(stream_to_domain(0), AggregateVersion(1));
+        assert_eq!(stream_to_domain(1), AggregateVersion(2));
+        assert_eq!(stream_to_domain(99), AggregateVersion(100));
+    }
+
+    #[test]
+    fn domain_to_stream_basic() {
+        assert_eq!(domain_to_stream(AggregateVersion(1)), Some(0));
+        assert_eq!(domain_to_stream(AggregateVersion(2)), Some(1));
+        assert_eq!(domain_to_stream(AggregateVersion(100)), Some(99));
+    }
+
+    #[test]
+    fn domain_to_stream_zero_returns_none() {
+        assert_eq!(domain_to_stream(AggregateVersion(0)), None);
+    }
+
+    #[test]
+    fn version_from_current_current() {
+        assert_eq!(
+            version_from_current(CurrentVersion::Current(0)),
+            AggregateVersion(1)
+        );
+        assert_eq!(
+            version_from_current(CurrentVersion::Current(5)),
+            AggregateVersion(6)
+        );
+    }
+
+    #[test]
+    fn version_from_current_empty() {
+        assert_eq!(
+            version_from_current(CurrentVersion::Empty),
+            AggregateVersion(0)
+        );
+    }
+
+    #[test]
+    fn check_nonzero_version_rejects_zero() {
+        let result = check_nonzero_version(AggregateVersion(0));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn check_nonzero_version_accepts_initial() {
+        let result = check_nonzero_version(AggregateVersion::INITIAL);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn roundtrip_stream_domain() {
+        for sv in 0..100 {
+            let domain = stream_to_domain(sv);
+            assert_eq!(domain_to_stream(domain), Some(sv));
+        }
     }
 }

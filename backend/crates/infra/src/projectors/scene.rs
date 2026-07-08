@@ -25,7 +25,6 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
         _id: Uuid,
         event: Event<SceneEvent, ()>,
     ) -> Result<(), Self::Error> {
-        let version = event.stream_version as i64;
         let updated_at = event.timestamp;
 
         match event.data {
@@ -34,8 +33,9 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                 project_id,
                 details,
                 assigned_characters,
-                ..
+                version,
             } => {
+                let version = version.0 as i64;
                 sqlx::query(
                     r#"
                     INSERT INTO projection_scene
@@ -78,7 +78,12 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                     .await?;
                 }
             }
-            SceneEvent::SceneDetailsUpdated { id, details, .. } => {
+            SceneEvent::SceneDetailsUpdated {
+                id,
+                details,
+                version,
+            } => {
+                let version = version.0 as i64;
                 sqlx::query(
                     r#"
                     UPDATE projection_scene
@@ -102,8 +107,11 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                 .await?;
             }
             SceneEvent::CharacterAssigned {
-                id, character_id, ..
+                id,
+                character_id,
+                version,
             } => {
+                let version = version.0 as i64;
                 sqlx::query(
                     r#"
                     INSERT INTO projection_scene_character (scene_id, character_id, version)
@@ -121,8 +129,11 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                 Self::touch_parent(ctx, id, version, updated_at).await?;
             }
             SceneEvent::CharacterRemoved {
-                id, character_id, ..
+                id,
+                character_id,
+                version,
             } => {
+                let version = version.0 as i64;
                 sqlx::query(
                     r#"
                     DELETE FROM projection_scene_character

@@ -25,7 +25,6 @@ impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for Cos
         _id: Uuid,
         event: Event<CostumeEvent, ()>,
     ) -> Result<(), Self::Error> {
-        let version = event.stream_version as i64;
         let updated_at = event.timestamp;
 
         match event.data {
@@ -36,8 +35,9 @@ impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for Cos
                 notes,
                 details,
                 photos,
-                ..
+                version,
             } => {
+                let version = version.0 as i64;
                 sqlx::query(
                     r#"
                     INSERT INTO projection_costume
@@ -90,7 +90,8 @@ impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for Cos
                     .await?;
                 }
             }
-            CostumeEvent::CostumeNotesUpdated { id, notes, .. } => {
+            CostumeEvent::CostumeNotesUpdated { id, notes, version } => {
+                let version = version.0 as i64;
                 sqlx::query(
                     r#"
                     UPDATE projection_costume
@@ -106,8 +107,11 @@ impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for Cos
                 .await?;
             }
             CostumeEvent::CostumeAssignedToCharacter {
-                id, character_id, ..
+                id,
+                character_id,
+                version,
             } => {
+                let version = version.0 as i64;
                 sqlx::query(
                     r#"
                     UPDATE projection_costume
@@ -122,7 +126,8 @@ impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for Cos
                 .execute(&mut **ctx)
                 .await?;
             }
-            CostumeEvent::CostumeUnassigned { id, .. } => {
+            CostumeEvent::CostumeUnassigned { id, version } => {
+                let version = version.0 as i64;
                 sqlx::query(
                     r#"
                     UPDATE projection_costume
@@ -136,7 +141,12 @@ impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for Cos
                 .execute(&mut **ctx)
                 .await?;
             }
-            CostumeEvent::DetailAdded { id, detail, .. } => {
+            CostumeEvent::DetailAdded {
+                id,
+                detail,
+                version,
+            } => {
+                let version = version.0 as i64;
                 sqlx::query(
                     r#"
                     INSERT INTO projection_costume_detail (costume_id, detail_id, text)
@@ -153,7 +163,12 @@ impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for Cos
 
                 Self::touch_parent(ctx, id, version, updated_at).await?;
             }
-            CostumeEvent::DetailRemoved { id, detail_id, .. } => {
+            CostumeEvent::DetailRemoved {
+                id,
+                detail_id,
+                version,
+            } => {
+                let version = version.0 as i64;
                 sqlx::query(
                     r#"
                     DELETE FROM projection_costume_detail
@@ -167,7 +182,12 @@ impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for Cos
 
                 Self::touch_parent(ctx, id, version, updated_at).await?;
             }
-            CostumeEvent::PhotoLinked { id, photo_id, .. } => {
+            CostumeEvent::PhotoLinked {
+                id,
+                photo_id,
+                version,
+            } => {
+                let version = version.0 as i64;
                 sqlx::query(
                     r#"
                     INSERT INTO projection_costume_photo (costume_id, photo_id)
@@ -182,7 +202,12 @@ impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for Cos
 
                 Self::touch_parent(ctx, id, version, updated_at).await?;
             }
-            CostumeEvent::PhotoUnlinked { id, photo_id, .. } => {
+            CostumeEvent::PhotoUnlinked {
+                id,
+                photo_id,
+                version,
+            } => {
+                let version = version.0 as i64;
                 sqlx::query(
                     r#"
                     DELETE FROM projection_costume_photo

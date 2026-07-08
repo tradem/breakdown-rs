@@ -5,6 +5,7 @@ members = [
     "crates/api",               # Axum-Server, HTTP-Grenze
     "crates/infra",             # Infrastruktur-Implementierungen (PostgreSQL, Event Store)
     "crates/integration-tests", # Black-box Integrationstests (dev-only)
+    "crates/test_support",      # Shared test helpers (make_ctx)
     "crates/architecture",      # Architekturtests (rust_arkitect + cargo-deny, ADR-017)
 ]
 

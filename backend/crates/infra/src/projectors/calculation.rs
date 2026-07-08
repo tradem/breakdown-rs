@@ -27,7 +27,6 @@ impl<'a> EntityEventHandler<CalculationAggregate, Transaction<'a, Postgres>>
         _id: Uuid,
         event: Event<CalculationEvent, ()>,
     ) -> Result<(), Self::Error> {
-        let version = event.stream_version as i64;
         let updated_at = event.timestamp;
 
         match event.data {
@@ -36,9 +35,10 @@ impl<'a> EntityEventHandler<CalculationAggregate, Transaction<'a, Postgres>>
                 project_id,
                 header,
                 items,
-                ..
+                version,
             } => {
                 let header_json = serde_json::to_value(&header).unwrap_or_default();
+                let version = version.0 as i64;
 
                 sqlx::query(
                     r#"
@@ -64,8 +64,13 @@ impl<'a> EntityEventHandler<CalculationAggregate, Transaction<'a, Postgres>>
                     upsert_calculation_item(ctx, id, &item).await?;
                 }
             }
-            CalculationEvent::HeaderInfoUpdated { id, header, .. } => {
+            CalculationEvent::HeaderInfoUpdated {
+                id,
+                header,
+                version,
+            } => {
                 let header_json = serde_json::to_value(&header).unwrap_or_default();
+                let version = version.0 as i64;
                 sqlx::query(
                     r#"
                     UPDATE projection_calculation
@@ -80,15 +85,22 @@ impl<'a> EntityEventHandler<CalculationAggregate, Transaction<'a, Postgres>>
                 .execute(&mut **ctx)
                 .await?;
             }
-            CalculationEvent::CalculationItemAdded { id, item, .. } => {
+            CalculationEvent::CalculationItemAdded { id, item, version } => {
+                let version = version.0 as i64;
                 upsert_calculation_item(ctx, id, &item).await?;
                 Self::touch_parent(ctx, id, version, updated_at).await?;
             }
-            CalculationEvent::CalculationItemUpdated { id, item, .. } => {
+            CalculationEvent::CalculationItemUpdated { id, item, version } => {
+                let version = version.0 as i64;
                 upsert_calculation_item(ctx, id, &item).await?;
                 Self::touch_parent(ctx, id, version, updated_at).await?;
             }
-            CalculationEvent::CalculationItemRemoved { id, item_id, .. } => {
+            CalculationEvent::CalculationItemRemoved {
+                id,
+                item_id,
+                version,
+            } => {
+                let version = version.0 as i64;
                 sqlx::query(
                     r#"
                     DELETE FROM projection_calculation_item
@@ -102,7 +114,12 @@ impl<'a> EntityEventHandler<CalculationAggregate, Transaction<'a, Postgres>>
 
                 Self::touch_parent(ctx, id, version, updated_at).await?;
             }
-            CalculationEvent::ItemMarkedAsPaid { id, item_id, .. } => {
+            CalculationEvent::ItemMarkedAsPaid {
+                id,
+                item_id,
+                version,
+            } => {
+                let version = version.0 as i64;
                 sqlx::query(
                     r#"
                     UPDATE projection_calculation_item
@@ -117,7 +134,12 @@ impl<'a> EntityEventHandler<CalculationAggregate, Transaction<'a, Postgres>>
 
                 Self::touch_parent(ctx, id, version, updated_at).await?;
             }
-            CalculationEvent::ItemMarkedAsUnpaid { id, item_id, .. } => {
+            CalculationEvent::ItemMarkedAsUnpaid {
+                id,
+                item_id,
+                version,
+            } => {
+                let version = version.0 as i64;
                 sqlx::query(
                     r#"
                     UPDATE projection_calculation_item
