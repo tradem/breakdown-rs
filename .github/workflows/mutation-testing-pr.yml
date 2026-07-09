@@ -45,7 +45,7 @@ jobs:
           else
             echo "✅ No surviving mutants in changed code." >> "$GITHUB_STEP_SUMMARY"
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: mutants-out-pr
