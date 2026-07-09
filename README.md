@@ -2,10 +2,14 @@
 
 🦀 A modern, collaborative costume and scene continuity breakdown app built with Rust and PostgreSQL.
 
-[![CI](https://github.com/tradem/breakdown-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/tradem/breakdown-rs/actions/workflows/ci.yml)
-[![Architecture Checks](https://github.com/tradem/breakdown-rs/actions/workflows/architecture-checks.yml/badge.svg)](https://github.com/tradem/breakdown-rs/actions/workflows/architecture-checks.yml)
-[![Security Audit](https://github.com/tradem/breakdown-rs/actions/workflows/audit.yml/badge.svg)](https://github.com/tradem/breakdown-rs/actions/workflows/audit.yml)
-[![Mutation Testing](https://github.com/tradem/breakdown-rs/actions/workflows/mutation-testing.yml/badge.svg)](https://github.com/tradem/breakdown-rs/actions/workflows/mutation-testing.yml)
+## Quality Gates
+
+### 🦀 Backend
+
+- [![CI](https://github.com/tradem/breakdown-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/tradem/breakdown-rs/actions/workflows/ci.yml)
+- [![Architecture Checks](https://github.com/tradem/breakdown-rs/actions/workflows/architecture-checks.yml/badge.svg)](https://github.com/tradem/breakdown-rs/actions/workflows/architecture-checks.yml)
+- [![Security Audit](https://github.com/tradem/breakdown-rs/actions/workflows/audit.yml/badge.svg)](https://github.com/tradem/breakdown-rs/actions/workflows/audit.yml)
+- [![Mutation Testing](https://github.com/tradem/breakdown-rs/actions/workflows/mutation-testing.yml/badge.svg)](https://github.com/tradem/breakdown-rs/actions/workflows/mutation-testing.yml)
 
 ## Development
 
