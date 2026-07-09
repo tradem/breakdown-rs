@@ -66,12 +66,14 @@ fn event_from_sierra(ev: sierradb_client::Event) -> Result<Event, TryFromSierraE
 ///
 /// # Example
 ///
-/// ```
-/// match_event! {
+/// ```ignore
+/// // Example usage of the match_event! macro.
+/// // BankAccount needs to implement the Entity trait.
+/// kameo_es::match_event! {
 ///     event,
 ///     BankAccount => {
-///         let id: BankAccount::ID = event.entity_id()?;
-///         let data = BankAccount::Event = event.data()?;
+///         let id: <BankAccount as kameo_es::Entity>::ID = event.entity_id()?;
+///         let data: <BankAccount as kameo_es::Entity>::Event = event.data;
 ///         // ...
 ///     }
 ///     else => println!("unknown entity"),
