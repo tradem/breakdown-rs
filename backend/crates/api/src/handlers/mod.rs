@@ -594,9 +594,7 @@ pub(crate) mod test_helpers {
     use std::collections::HashMap;
     use std::sync::Arc;
 
-    use breakdown_core::calculation::ports::{
-        CalculationCommands, CalculationRepository,
-    };
+    use breakdown_core::calculation::ports::{CalculationCommands, CalculationRepository};
     use breakdown_core::calculation::views::CalculationView;
     use breakdown_core::character::ports::{CharacterCommands, CharacterRepository};
     use breakdown_core::character::views::CharacterView;
@@ -678,7 +676,7 @@ pub(crate) mod test_helpers {
         async fn update_notes(
             &self,
             _cmd: breakdown_core::costume::commands::UpdateCostumeNotes,
-        ) -> Result< AggregateVersion, DomainError> {
+        ) -> Result<AggregateVersion, DomainError> {
             Ok(AggregateVersion::INITIAL.next())
         }
         async fn assign_to_character(
@@ -843,10 +841,7 @@ pub(crate) mod test_helpers {
         ) -> Result<Vec<CostumeView>, DomainError> {
             Ok(Vec::new())
         }
-        async fn costume_with_details_photos(
-            &self,
-            id: Uuid,
-        ) -> Result<CostumeView, DomainError> {
+        async fn costume_with_details_photos(&self, id: Uuid) -> Result<CostumeView, DomainError> {
             Err(DomainError::NotFound(format!("Costume({id})")))
         }
     }
@@ -866,10 +861,7 @@ pub(crate) mod test_helpers {
         ) -> Result<Vec<CalculationView>, DomainError> {
             Ok(Vec::new())
         }
-        async fn calculation_with_items(
-            &self,
-            id: Uuid,
-        ) -> Result<CalculationView, DomainError> {
+        async fn calculation_with_items(&self, id: Uuid) -> Result<CalculationView, DomainError> {
             Err(DomainError::NotFound(format!("Calculation({id})")))
         }
     }
