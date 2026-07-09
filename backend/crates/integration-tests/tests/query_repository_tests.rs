@@ -150,6 +150,7 @@ async fn init() -> Result<(
 #[tokio::test]
 async fn scenes_by_project_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
+    let project_id = ProjectId::new();
     let scene_repo = SceneRepositoryImpl::new(pool.clone());
     let scene_cmd = SceneCommandsImpl::new(cmd_svc);
 
@@ -157,7 +158,7 @@ async fn scenes_by_project_returns_data() -> Result<()> {
 
     let cmd = CreateScene {
         id: scene_id,
-        project_id: ProjectId::new(),
+        project_id,
         details: SceneDetails {
             scene_number: Some(1),
             location: Some("A".into()),
@@ -169,7 +170,7 @@ async fn scenes_by_project_returns_data() -> Result<()> {
 
     await_proj(&pool, "projection_scene", scene_id).await;
 
-    let scenes = scene_repo.list_by_project(ProjectId::new(), 100, 0).await?;
+    let scenes = scene_repo.list_by_project(project_id, 100, 0).await?;
 
     assert!(
         !scenes.is_empty(),
@@ -185,6 +186,7 @@ async fn scenes_by_project_returns_data() -> Result<()> {
 #[tokio::test]
 async fn characters_by_project_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
+    let project_id = ProjectId::new();
     let char_repo = CharacterRepositoryImpl::new(pool.clone());
     let char_cmd = CharacterCommandsImpl::new(cmd_svc);
 
@@ -192,7 +194,7 @@ async fn characters_by_project_returns_data() -> Result<()> {
 
     let cmd = CreateCharacter {
         id: char_id,
-        project_id: ProjectId::new(),
+        project_id,
         name: "Heroin".into(),
         is_extra: false,
         is_main_character: false,
@@ -201,7 +203,7 @@ async fn characters_by_project_returns_data() -> Result<()> {
 
     await_proj(&pool, "projection_character", char_id).await;
 
-    let chars = char_repo.list_by_project(ProjectId::new(), 100, 0).await?;
+    let chars = char_repo.list_by_project(project_id, 100, 0).await?;
 
     assert!(
         !chars.is_empty(),
@@ -217,6 +219,7 @@ async fn characters_by_project_returns_data() -> Result<()> {
 #[tokio::test]
 async fn costumes_by_project_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
+    let project_id = ProjectId::new();
     let costume_repo = CostumeRepositoryImpl::new(pool.clone());
     let costume_cmd = CostumeCommandsImpl::new(cmd_svc);
 
@@ -224,15 +227,13 @@ async fn costumes_by_project_returns_data() -> Result<()> {
 
     let cmd = CreateCostume {
         id: costume_id,
-        project_id: ProjectId::new(),
+        project_id,
     };
     costume_cmd.create(cmd).await?;
 
     await_proj(&pool, "projection_costume", costume_id).await;
 
-    let costumes = costume_repo
-        .list_by_project(ProjectId::new(), 100, 0)
-        .await?;
+    let costumes = costume_repo.list_by_project(project_id, 100, 0).await?;
 
     assert!(
         !costumes.is_empty(),
@@ -329,6 +330,7 @@ async fn calculations_with_items_returns_data() -> Result<()> {
 #[tokio::test]
 async fn calculations_by_project_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
+    let project_id = ProjectId::new();
     let calc_repo = CalculationRepositoryImpl::new(pool.clone());
     let calc_cmd = CalculationCommandsImpl::new(cmd_svc);
 
@@ -336,13 +338,13 @@ async fn calculations_by_project_returns_data() -> Result<()> {
 
     let cmd = CreateCalculation {
         id: calc_id,
-        project_id: ProjectId::new(),
+        project_id,
     };
     calc_cmd.create(cmd).await?;
 
     await_proj(&pool, "projection_calculation", calc_id).await;
 
-    let calcs = calc_repo.list_by_project(ProjectId::new(), 100, 0).await?;
+    let calcs = calc_repo.list_by_project(project_id, 100, 0).await?;
 
     assert!(
         !calcs.is_empty(),

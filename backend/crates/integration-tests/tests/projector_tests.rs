@@ -53,6 +53,42 @@ async fn await_proj_row<
     }
 }
 
+/// Wait until the projection row for `id` exists and its `version` column is
+/// at least `min_version`.
+///
+/// Every projector handler bumps the parent's `version` (directly or via
+/// `touch_parent`) **in the same transaction** as its mutation. Awaiting the
+/// parent version is therefore a reliable eventual-consistency sync point —
+/// unlike an existence check (e.g. `find_by_id().is_ok()`), which returns as
+/// soon as the CREATE event is projected and can read stale state for any
+/// subsequent UPDATE/DELETE event on the same stream.
+async fn await_proj_version(
+    pool: &sqlx::PgPool,
+    table: &str,
+    id: Uuid,
+    min_version: i64,
+) -> Result<()> {
+    let query = format!(r#"SELECT version FROM "{table}" WHERE id = $1"#);
+    let deadline = std::time::Instant::now() + PROJECTION_DEADLINE;
+    loop {
+        tokio::time::sleep(POLL_INTERVAL).await;
+        if std::time::Instant::now() > deadline {
+            anyhow::bail!(
+                "{table}({id}) not projected to version >= {min_version} within {PROJECTION_DEADLINE:?}"
+            );
+        }
+        let version: Option<i64> = sqlx::query_scalar(&query)
+            .bind(id)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
+        if version.is_some_and(|v| v >= min_version) {
+            return Ok(());
+        }
+    }
+}
+
 /// EAPPEND an event stream in SierraDB and return the Redis client for
 /// subsequent events. Uses ciborium to CBOR-encode the event as kameo_es expects.
 async fn eappend_event<T: serde::Serialize>(
@@ -199,14 +235,7 @@ async fn scene_details_updated_projects_changes() -> Result<()> {
     )
     .await?;
 
-    await_proj_row(
-        || {
-            let s_repo = scene_repo.clone();
-            Box::pin(async move { s_repo.find_by_id(scene_id).await.is_ok() })
-        },
-        "scene",
-    )
-    .await?;
+    await_proj_version(&pool, "projection_scene", scene_id, 2).await?;
 
     let v = scene_repo.find_by_id(scene_id).await?;
     assert_eq!(v.scene_number, Some(99));
@@ -268,14 +297,7 @@ async fn scene_assign_character_creates_sub_row() -> Result<()> {
     )
     .await?;
 
-    await_proj_row(
-        || {
-            let s_repo = scene_repo.clone();
-            Box::pin(async move { s_repo.find_by_id(scene_id).await.is_ok() })
-        },
-        "scene",
-    )
-    .await?;
+    await_proj_version(&pool, "projection_scene", scene_id, 2).await?;
 
     let v = scene_repo.find_by_id(scene_id).await?;
     assert_eq!(v.assigned_characters.len(), 1);
@@ -333,14 +355,7 @@ async fn scene_remove_character_clears_sub_row() -> Result<()> {
     )
     .await?;
 
-    await_proj_row(
-        || {
-            let s_repo = scene_repo.clone();
-            Box::pin(async move { s_repo.find_by_id(scene_id).await.is_ok() })
-        },
-        "scene",
-    )
-    .await?;
+    await_proj_version(&pool, "projection_scene", scene_id, 2).await?;
 
     let v = scene_repo.find_by_id(scene_id).await?;
     assert!(v.assigned_characters.is_empty());
@@ -384,6 +399,8 @@ async fn character_created_projects_basic_fields() -> Result<()> {
         },
     )
     .await?;
+
+    await_proj_version(&pool, "projection_character", char_id, 1).await?;
 
     let v = char_repo.find_by_id(char_id).await?;
     assert_eq!(v.name, "Hero");
@@ -446,14 +463,7 @@ async fn character_measurements_updated_projects_values() -> Result<()> {
     )
     .await?;
 
-    await_proj_row(
-        || {
-            let c_repo = char_repo.clone();
-            Box::pin(async move { c_repo.find_by_id(char_id).await.is_ok() })
-        },
-        "character",
-    )
-    .await?;
+    await_proj_version(&pool, "projection_character", char_id, 2).await?;
 
     let v = char_repo.find_by_id(char_id).await?;
     assert_eq!(
@@ -516,14 +526,7 @@ async fn character_contact_info_updated_projects_values() -> Result<()> {
     )
     .await?;
 
-    await_proj_row(
-        || {
-            let c_repo = char_repo.clone();
-            Box::pin(async move { c_repo.find_by_id(char_id).await.is_ok() })
-        },
-        "character",
-    )
-    .await?;
+    await_proj_version(&pool, "projection_character", char_id, 2).await?;
 
     let v = char_repo.find_by_id(char_id).await?;
     assert_eq!(v.contact.email, Some("test@example.com".into()));
@@ -626,6 +629,8 @@ async fn costume_notes_updated_projects_changes() -> Result<()> {
     )
     .await?;
 
+    await_proj_version(&pool, "projection_costume", costume_id, 2).await?;
+
     let v = costume_repo.find_by_id(costume_id).await?;
     assert_eq!(v.notes, "Updated notes");
 
@@ -639,6 +644,15 @@ async fn costume_assign_unassign_characters() -> Result<()> {
 
     let _costume_ref =
         infra::projectors::spawn_costume_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    // The costume projector's `CostumeAssignedToCharacter` handler writes
+    // `character_id` into `projection_costume`, whose FK references
+    // `projection_character(id)`. We therefore also run the character
+    // projector and project the referenced character *before* appending the
+    // assign event, so the projector does not hit a foreign-key violation
+    // and stall the checkpoint.
+    let _char_ref =
+        infra::projectors::spawn_character_projector(pool.clone(), Arc::clone(&redis_client))
+            .await?;
 
     let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
 
@@ -664,6 +678,29 @@ async fn costume_assign_unassign_characters() -> Result<()> {
     )
     .await?;
 
+    // Create the referenced character so the `projection_costume.character_id`
+    // foreign key (-> projection_character.id) is satisfied when the assign
+    // event is projected.
+    let char_stream_id = format!("character-{}", character_id);
+    eappend_event(
+        Arc::clone(&redis_client),
+        &char_stream_id,
+        "CharacterCreated",
+        "EMPTY",
+        &breakdown_core::character::events::CharacterEvent::CharacterCreated {
+            id: character_id,
+            project_id,
+            name: "Wearer".into(),
+            is_extra: false,
+            is_main_character: false,
+            measurements: Default::default(),
+            contact_info: Default::default(),
+            version: AggregateVersion::INITIAL,
+        },
+    )
+    .await?;
+    await_proj_version(&pool, "projection_character", character_id, 1).await?;
+
     // Assign
     eappend_event(
         Arc::clone(&redis_client),
@@ -678,14 +715,7 @@ async fn costume_assign_unassign_characters() -> Result<()> {
     )
     .await?;
 
-    await_proj_row(
-        || {
-            let c_repo = costume_repo.clone();
-            Box::pin(async move { c_repo.find_by_id(costume_id).await.is_ok() })
-        },
-        "costume",
-    )
-    .await?;
+    await_proj_version(&pool, "projection_costume", costume_id, 2).await?;
 
     let v = costume_repo.find_by_id(costume_id).await?;
     assert_eq!(v.character_id, Some(character_id));
@@ -703,14 +733,7 @@ async fn costume_assign_unassign_characters() -> Result<()> {
     )
     .await?;
 
-    await_proj_row(
-        || {
-            let c_repo = costume_repo.clone();
-            Box::pin(async move { c_repo.find_by_id(costume_id).await.is_ok() })
-        },
-        "costume",
-    )
-    .await?;
+    await_proj_version(&pool, "projection_costume", costume_id, 3).await?;
 
     let v = costume_repo.find_by_id(costume_id).await?;
     assert!(v.character_id.is_none());
@@ -767,14 +790,7 @@ async fn costume_detail_add_remove() -> Result<()> {
     )
     .await?;
 
-    await_proj_row(
-        || {
-            let c_repo = costume_repo.clone();
-            Box::pin(async move { c_repo.costume_with_details_photos(costume_id).await.is_ok() })
-        },
-        "costume",
-    )
-    .await?;
+    await_proj_version(&pool, "projection_costume", costume_id, 2).await?;
 
     let v = costume_repo.costume_with_details_photos(costume_id).await?;
     assert_eq!(v.details.len(), 1);
@@ -794,14 +810,7 @@ async fn costume_detail_add_remove() -> Result<()> {
     )
     .await?;
 
-    await_proj_row(
-        || {
-            let c_repo = costume_repo.clone();
-            Box::pin(async move { c_repo.costume_with_details_photos(costume_id).await.is_ok() })
-        },
-        "costume",
-    )
-    .await?;
+    await_proj_version(&pool, "projection_costume", costume_id, 3).await?;
 
     let v = costume_repo.costume_with_details_photos(costume_id).await?;
     assert!(v.details.is_empty());
@@ -855,14 +864,7 @@ async fn costume_photo_link_unlink() -> Result<()> {
     )
     .await?;
 
-    await_proj_row(
-        || {
-            let c_repo = costume_repo.clone();
-            Box::pin(async move { c_repo.costume_with_details_photos(costume_id).await.is_ok() })
-        },
-        "costume",
-    )
-    .await?;
+    await_proj_version(&pool, "projection_costume", costume_id, 2).await?;
 
     let v = costume_repo.costume_with_details_photos(costume_id).await?;
     assert_eq!(v.photos.len(), 1);
@@ -882,14 +884,7 @@ async fn costume_photo_link_unlink() -> Result<()> {
     )
     .await?;
 
-    await_proj_row(
-        || {
-            let c_repo = costume_repo.clone();
-            Box::pin(async move { c_repo.costume_with_details_photos(costume_id).await.is_ok() })
-        },
-        "costume",
-    )
-    .await?;
+    await_proj_version(&pool, "projection_costume", costume_id, 3).await?;
 
     let v = costume_repo.costume_with_details_photos(costume_id).await?;
     assert!(v.photos.is_empty());
@@ -1010,14 +1005,7 @@ async fn calculation_calculation_item_added_projects_item() -> Result<()> {
     )
     .await?;
 
-    await_proj_row(
-        || {
-            let c_repo = calc_repo.clone();
-            Box::pin(async move { c_repo.find_by_id(calc_id).await.is_ok() })
-        },
-        "calculation",
-    )
-    .await?;
+    await_proj_version(&pool, "projection_calculation", calc_id, 2).await?;
 
     let v = calc_repo.find_by_id(calc_id).await?;
     assert_eq!(v.items.len(), 1);
@@ -1082,14 +1070,7 @@ async fn calculation_item_updated_projects_new_values() -> Result<()> {
     )
     .await?;
 
-    await_proj_row(
-        || {
-            let c_repo = calc_repo.clone();
-            Box::pin(async move { c_repo.find_by_id(calc_id).await.is_ok() })
-        },
-        "calculation",
-    )
-    .await?;
+    await_proj_version(&pool, "projection_calculation", calc_id, 2).await?;
 
     let v = calc_repo.find_by_id(calc_id).await?;
     assert_eq!(v.items[0].name, "Updated");
@@ -1149,14 +1130,7 @@ async fn calculation_item_removed_cleared_from_projection() -> Result<()> {
     )
     .await?;
 
-    await_proj_row(
-        || {
-            let c_repo = calc_repo.clone();
-            Box::pin(async move { c_repo.find_by_id(calc_id).await.is_ok() })
-        },
-        "calculation",
-    )
-    .await?;
+    await_proj_version(&pool, "projection_calculation", calc_id, 2).await?;
 
     let v = calc_repo.find_by_id(calc_id).await?;
     assert!(v.items.is_empty());
@@ -1215,14 +1189,7 @@ async fn calculation_item_marked_paid_unpaid() -> Result<()> {
     )
     .await?;
 
-    await_proj_row(
-        || {
-            let c_repo = calc_repo.clone();
-            Box::pin(async move { c_repo.find_by_id(calc_id).await.is_ok() })
-        },
-        "calculation",
-    )
-    .await?;
+    await_proj_version(&pool, "projection_calculation", calc_id, 2).await?;
 
     let v = calc_repo.find_by_id(calc_id).await?;
     assert!(v.items[0].is_paid);
@@ -1241,14 +1208,7 @@ async fn calculation_item_marked_paid_unpaid() -> Result<()> {
     )
     .await?;
 
-    await_proj_row(
-        || {
-            let c_repo = calc_repo.clone();
-            Box::pin(async move { c_repo.find_by_id(calc_id).await.is_ok() })
-        },
-        "calculation",
-    )
-    .await?;
+    await_proj_version(&pool, "projection_calculation", calc_id, 3).await?;
 
     let v = calc_repo.find_by_id(calc_id).await?;
     assert!(!v.items[0].is_paid);
@@ -1303,14 +1263,7 @@ async fn calculation_header_info_updated_projects_values() -> Result<()> {
     )
     .await?;
 
-    await_proj_row(
-        || {
-            let c_repo = calc_repo.clone();
-            Box::pin(async move { c_repo.find_by_id(calc_id).await.is_ok() })
-        },
-        "calculation",
-    )
-    .await?;
+    await_proj_version(&pool, "projection_calculation", calc_id, 2).await?;
 
     let v = calc_repo.find_by_id(calc_id).await?;
     assert_eq!(v.header.subjects, Some("Updated Subject".into()));
