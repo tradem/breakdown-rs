@@ -249,9 +249,9 @@ impl Command<MarkItemAsUnpaid> for CalculationAggregate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use test_support::make_ctx;
     use rust_decimal::Decimal;
     use std::str::FromStr;
+    use test_support::make_ctx;
 
     fn make_calc() -> CalculationAggregate {
         let pid = ProjectId::new();

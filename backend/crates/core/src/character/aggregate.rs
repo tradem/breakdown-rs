@@ -159,9 +159,9 @@ impl Command<UpdateContactInfo> for CharacterAggregate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use test_support::make_ctx;
     use rust_decimal::Decimal;
     use std::str::FromStr;
+    use test_support::make_ctx;
 
     fn create_character(name: &str) -> CharacterAggregate {
         let project_id = ProjectId::new();

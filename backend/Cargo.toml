@@ -46,6 +46,7 @@ sierradb-client = "0.1"
 thiserror = "2.0"
 anyhow = "1.0"
 rust_decimal = { version = "1.36", features = ["db-postgres"] }
+rand = "0.9"
 
 # Async traits (object-safe, mockable ports)
 async-trait = "0.1"

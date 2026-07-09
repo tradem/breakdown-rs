@@ -10,6 +10,7 @@ mod calculation;
 mod character;
 mod costume;
 mod scene;
+mod supervisor;
 
 pub use calculation::CalculationProjector;
 pub use character::CharacterProjector;
@@ -37,17 +38,34 @@ type CharacterProcessor = PostgresProcessor<(CharacterAggregate,), CharacterProj
 type CostumeProcessor = PostgresProcessor<(CostumeAggregate,), CostumeProjector>;
 type CalculationProcessor = PostgresProcessor<(CalculationAggregate,), CalculationProjector>;
 
+/// Spawn a supervised projector subscription loop.
+///
+/// `category` is a human-readable name used in tracing.  The supervisor
+/// wraps the SierraDB subscription + `stream.run()` in a restart loop
+/// with exponential backoff and bounded retry budget.
 macro_rules! run_projection_stream {
-    ($entity:ty, $redis_client:expr, $actor_ref:expr) => {{
-        let mut actor_ref = $actor_ref;
-        let mut manager = $redis_client.subscription_manager().await?;
-        let mut stream =
-            <($entity,)>::event_handler_stream(&mut manager, &mut actor_ref).await?;
-        tokio::spawn(async move {
-            if let Err(err) = stream.run(&mut actor_ref).await {
-                tracing::error!(error = %err, "projection stream failed");
+    ($entity:ty, $category:expr, $redis_client:expr, $actor_ref:expr) => {{
+        let actor_ref_inner = $actor_ref.clone();
+        let redis_client_inner = $redis_client.clone();
+        let category = $category;
+
+        let _handle = supervisor::run_with_restart(category, move || {
+            let mut ar = actor_ref_inner.clone();
+            let client = redis_client_inner.clone();
+            async move {
+                let mut manager = client.subscription_manager().await?;
+                let mut stream = <($entity,)>::event_handler_stream(&mut manager, &mut ar).await?;
+                stream
+                    .run(&mut ar)
+                    .await
+                    .map_err(|e| anyhow::Error::from(e))
             }
-        });
+        })
+        .await?;
+        // Drop immediately — the supervisor loop will restart and continue
+        // in the background. We intentionally do not keep the JoinHandle,
+        // so the supervisor is not prematurely aborted.
+        drop(_handle);
         Ok::<_, anyhow::Error>(())
     }};
 }
@@ -67,7 +85,7 @@ pub async fn spawn_scene_projector(
     )
     .await?;
     let actor_ref = SceneProcessor::spawn(processor);
-    run_projection_stream!(SceneAggregate, redis_client, actor_ref.clone())?;
+    run_projection_stream!(SceneAggregate, "scene", redis_client, actor_ref.clone())?;
     Ok(actor_ref)
 }
 
@@ -86,7 +104,12 @@ pub async fn spawn_character_projector(
     )
     .await?;
     let actor_ref = CharacterProcessor::spawn(processor);
-    run_projection_stream!(CharacterAggregate, redis_client, actor_ref.clone())?;
+    run_projection_stream!(
+        CharacterAggregate,
+        "character",
+        redis_client,
+        actor_ref.clone()
+    )?;
     Ok(actor_ref)
 }
 
@@ -105,7 +128,7 @@ pub async fn spawn_costume_projector(
     )
     .await?;
     let actor_ref = CostumeProcessor::spawn(processor);
-    run_projection_stream!(CostumeAggregate, redis_client, actor_ref.clone())?;
+    run_projection_stream!(CostumeAggregate, "costume", redis_client, actor_ref.clone())?;
     Ok(actor_ref)
 }
 
@@ -124,6 +147,11 @@ pub async fn spawn_calculation_projector(
     )
     .await?;
     let actor_ref = CalculationProcessor::spawn(processor);
-    run_projection_stream!(CalculationAggregate, redis_client, actor_ref.clone())?;
+    run_projection_stream!(
+        CalculationAggregate,
+        "calculation",
+        redis_client,
+        actor_ref.clone()
+    )?;
     Ok(actor_ref)
 }

@@ -422,6 +422,7 @@ fn version_from_current(current: CurrentVersion) -> AggregateVersion {
 
 /// Map `ExpectedVersion` to the canonical domain version.
 /// Only used in error context to inform the caller what they supplied.
+#[expect(dead_code)] // reserved for future error reporting
 fn version_from_expected(expected: ExpectedVersion) -> AggregateVersion {
     match expected {
         ExpectedVersion::Exact(v) => AggregateVersion(v),
