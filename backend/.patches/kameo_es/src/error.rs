@@ -87,7 +87,7 @@ pub enum ParseError {
 
 pub fn parse_stream_version_string(input: &str) -> Result<ParsedStream, ParseError> {
     static RE: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r"current stream version is (\S+) but expected (\S+) for partition key ([0-9a-fA-F-]+) and stream id (.+)").unwrap()
+        Regex::new(r"current stream version is (\S+) but expected (\S+) for partition key (\S+) and stream id (.+)").unwrap()
     });
 
     let captures = RE.captures(input).ok_or(ParseError::InvalidFormat)?;
