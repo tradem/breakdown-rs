@@ -591,4 +591,156 @@ mod tests {
             CalculationError::ValidationError(ref m) if m.contains("Item not found")
         ));
     }
+
+    /// Verify that apply() actually mutates aggregate state.
+    ///
+    /// Catches mutants that replace the `apply` body with `()` — if apply is a
+    /// no-op the assertion below fails because the header stays at its default.
+    #[test]
+    fn test_apply_updates_state() {
+        use kameo_es::Metadata;
+        let mut agg = make_calc();
+        let original_subjects = agg.header.subjects.clone();
+        let h = CalculationHeader {
+            subjects: Some("Costume Budget".into()),
+            ..Default::default()
+        };
+        agg.apply(
+            CalculationEvent::HeaderInfoUpdated {
+                id: agg.id,
+                header: h.clone(),
+                version: AggregateVersion(2),
+            },
+            Metadata::default(),
+        );
+        assert_eq!(
+            agg.header.subjects, h.subjects,
+            "apply() should mutate aggregate state"
+        );
+        assert_ne!(
+            agg.header.subjects, original_subjects,
+            "apply() should change the header"
+        );
+    }
+
+    /// Update one item among many — verifies the `==` match in `apply()` is not
+    /// flipped to `!=`, which would cause the update to target a wrong item.
+    #[test]
+    fn test_apply_updates_correct_item_among_many() {
+        use kameo_es::Metadata;
+        let mut agg = make_calc();
+        let id_a = Uuid::now_v7();
+        let id_b = Uuid::now_v7();
+
+        // Add two items.
+        agg.apply(
+            CalculationEvent::CalculationItemAdded {
+                id: agg.id,
+                item: CalculationItem {
+                    id: id_a,
+                    name: "A".into(),
+                    quantity: Decimal::ONE,
+                    unit_price: Decimal::ONE,
+                    is_paid: false,
+                },
+                version: AggregateVersion(2),
+            },
+            Metadata::default(),
+        );
+        agg.apply(
+            CalculationEvent::CalculationItemAdded {
+                id: agg.id,
+                item: CalculationItem {
+                    id: id_b,
+                    name: "B".into(),
+                    quantity: Decimal::ONE,
+                    unit_price: Decimal::ONE,
+                    is_paid: false,
+                },
+                version: AggregateVersion(3),
+            },
+            Metadata::default(),
+        );
+
+        // Update item A — name should change, B should stay unchanged.
+        agg.apply(
+            CalculationEvent::CalculationItemUpdated {
+                id: agg.id,
+                item: CalculationItem {
+                    id: id_a,
+                    name: "A-updated".into(),
+                    quantity: Decimal::ONE,
+                    unit_price: Decimal::ONE,
+                    is_paid: false,
+                },
+                version: AggregateVersion(4),
+            },
+            Metadata::default(),
+        );
+        assert_eq!(agg.items.len(), 2, "should still have two items");
+        let names: Vec<&str> = agg.items.iter().map(|i| i.name.as_str()).collect();
+        assert!(
+            names.contains(&"A-updated"),
+            "item A should be updated, got {names:?}"
+        );
+        assert!(
+            names.contains(&"B"),
+            "item B should be unchanged, got {names:?}"
+        );
+    }
+
+    /// Remove one item among many — verifies the `!=` match in `apply()` for
+    /// `retain` is not flipped to `==`, which would delete the wrong item.
+    #[test]
+    fn test_apply_removes_correct_item_among_many() {
+        use kameo_es::Metadata;
+        let mut agg = make_calc();
+        let id_a = Uuid::now_v7();
+        let id_b = Uuid::now_v7();
+
+        // Add two items.
+        agg.apply(
+            CalculationEvent::CalculationItemAdded {
+                id: agg.id,
+                item: CalculationItem {
+                    id: id_a,
+                    name: "A".into(),
+                    quantity: Decimal::ONE,
+                    unit_price: Decimal::ONE,
+                    is_paid: false,
+                },
+                version: AggregateVersion(2),
+            },
+            Metadata::default(),
+        );
+        agg.apply(
+            CalculationEvent::CalculationItemAdded {
+                id: agg.id,
+                item: CalculationItem {
+                    id: id_b,
+                    name: "B".into(),
+                    quantity: Decimal::ONE,
+                    unit_price: Decimal::ONE,
+                    is_paid: false,
+                },
+                version: AggregateVersion(3),
+            },
+            Metadata::default(),
+        );
+
+        // Remove item A only.
+        agg.apply(
+            CalculationEvent::CalculationItemRemoved {
+                id: agg.id,
+                item_id: id_a,
+                version: AggregateVersion(4),
+            },
+            Metadata::default(),
+        );
+        assert_eq!(agg.items.len(), 1, "only item A should be removed");
+        assert_eq!(
+            agg.items[0].id, id_b,
+            "item B should remain after removing A"
+        );
+    }
 } // mod tests

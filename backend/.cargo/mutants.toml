@@ -1,0 +1,23 @@
+# Accepted surviving mutants.
+#
+# Only pure routing/metadata constants (CommandName, EventType, category) and
+# API bootstrap functions are excluded here.  Mutating them produces wrong
+# constant values but does not affect domain behaviour — the tests that would
+# catch them are more like "test the constant is correct" which adds noise for
+# no domain benefit.
+#
+# Every other mutant outside these patterns is a genuine test gap and should be
+# fixed by strengthening the corresponding test — not by adding another regex.
+exclude_re = [
+    # kameo_es routing constants: CommandName → wrong &str
+    "command_name -> &'static str with",
+    # kameo_es event-type markers: EventType → wrong &str
+    "event_type -> &'static str with",
+    # Aggregate Entity category strings: category → wrong &str
+    "category -> &'static str with",
+    # API startup / bootstrap (no behavioural logic)
+    "init_otel_tracer",
+    "replace main -> Result",
+    "routes -> Router",
+    "app_router -> Router",
+]

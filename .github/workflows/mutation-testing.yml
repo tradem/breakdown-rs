@@ -26,4 +26,9 @@ jobs:
         with:
           workspaces: "backend"
       - run: cargo install cargo-mutants
-      - run: cargo mutants
+      - run: cargo mutants --copy-target
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutants-out-weekly
+          path: backend/mutants.out/
