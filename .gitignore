@@ -41,7 +41,7 @@ coverage/
 .coverage.*
 
 # Mutation testing
-mutants.out/
+mutants.out*/
 
 # Agent/IDE configuration directories
 .pi/**
