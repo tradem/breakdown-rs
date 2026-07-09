@@ -34,6 +34,8 @@ impl Entity for CostumeAggregate {
     }
 }
 
+// ADR-002 (Event Sourcing / CQRS): Apply replays past events to rebuild
+// aggregate state. Every command handler emits events that are applied here.
 impl Apply for CostumeAggregate {
     fn apply(&mut self, event: Self::Event, _metadata: Metadata<()>) {
         match event {
@@ -100,6 +102,8 @@ impl Apply for CostumeAggregate {
     }
 }
 
+// ADR-002 (Event Sourcing / CQRS): Commands validate invariants and emit
+// events. The aggregate state is never mutated directly — only via Apply.
 impl Command<CreateCostume> for CostumeAggregate {
     type Error = CostumeError;
     fn handle(
@@ -642,5 +646,72 @@ mod tests {
             result.unwrap_err(),
             CostumeError::ValidationError(ref m) if m.contains("not linked")
         ));
+    }
+
+    /// Verify that apply() actually mutates aggregate state.
+    ///
+    /// Catches mutants that replace the `apply` body with `()` — if apply is a
+    /// no-op the assertion below fails because the costume keeps its default
+    /// notes.
+    #[test]
+    fn test_apply_updates_state() {
+        use kameo_es::Metadata;
+        let mut agg = CostumeAggregate::default();
+        let id = Uuid::now_v7();
+        let project_id = ProjectId::new();
+        let notes = "Silk lining needs repair".to_string();
+        agg.apply(
+            CostumeEvent::CostumeCreated {
+                id,
+                project_id,
+                character_id: None,
+                notes: notes.clone(),
+                details: Vec::new(),
+                photos: Vec::new(),
+                version: AggregateVersion::INITIAL,
+            },
+            Metadata::default(),
+        );
+        assert_eq!(agg.notes, notes, "apply() should set the costume notes");
+        assert_eq!(agg.id, id);
+        assert_eq!(agg.version, AggregateVersion::INITIAL);
+    }
+
+    /// Verify that UnlinkPhoto checks `!self.photos.contains(...)` — if the `!`
+    /// is deleted the guard flips and unlinking a linked photo would be
+    /// rejected as if it were not linked.
+    #[test]
+    fn test_unlink_photo_uses_negation() {
+        use kameo_es::Metadata;
+        let mut agg = CostumeAggregate::default();
+        let id = Uuid::now_v7();
+        let project_id = ProjectId::new();
+        let photo_id = Uuid::now_v7();
+        // Create costume with one linked photo.
+        agg.apply(
+            CostumeEvent::CostumeCreated {
+                id,
+                project_id,
+                character_id: None,
+                notes: String::new(),
+                details: Vec::new(),
+                photos: vec![photo_id],
+                version: AggregateVersion::INITIAL,
+            },
+            Metadata::default(),
+        );
+        // Unlinking the linked photo should succeed.
+        let result = agg.handle(
+            UnlinkPhoto {
+                id,
+                photo_id,
+                version: AggregateVersion::INITIAL,
+            },
+            make_ctx(),
+        );
+        assert!(
+            result.is_ok(),
+            "unlinking a linked photo should succeed (guards ! negation)"
+        );
     }
 } // mod tests

@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024 Breakdown RS Contributors
+
+name: Mutation Testing (PR — core only)
+
+on:
+  pull_request:
+    paths:
+      - "backend/crates/core/**"
+      - "backend/Cargo.toml"
+      - "backend/Cargo.lock"
+      - ".github/workflows/mutation-testing-pr.yml"
+
+env:
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    working-directory: backend
+
+jobs:
+  mutate-core:
+    name: Mutate (core)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "backend"
+      - run: cargo install cargo-mutants
+      - name: Run cargo mutants on core crate (in-diff)
+        run: cargo mutants -p breakdown_core --in-diff origin/main
+        continue-on-error: true
+      - name: Report surviving mutants
+        run: |
+          if [ -f mutants.out/missed.txt ] && [ -s mutants.out/missed.txt ]; then
+            echo "## ⚠️ Surviving mutants in changed code" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            cat mutants.out/missed.txt >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "Mutation score: $(python3 -c "import json; o=json.load(open('mutants.out/outcomes.json')); t=o['missed']+o['caught']; print(f'{o[\"caught\"]}/{t} = {o[\"caught\"]/t*100:.0f}%')" 2>/dev/null || echo "N/A")"
+          else
+            echo "✅ No surviving mutants in changed code." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutants-out-pr
+          path: backend/mutants.out/

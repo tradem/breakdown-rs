@@ -35,6 +35,8 @@ impl Entity for CharacterAggregate {
     }
 }
 
+// ADR-002 (Event Sourcing / CQRS): Apply replays past events to rebuild
+// aggregate state. Every command handler emits events that are applied here.
 impl Apply for CharacterAggregate {
     fn apply(&mut self, event: Self::Event, _metadata: Metadata<()>) {
         match event {
@@ -77,6 +79,8 @@ impl Apply for CharacterAggregate {
     }
 }
 
+// ADR-002 (Event Sourcing / CQRS): Commands validate invariants and emit
+// events. The aggregate state is never mutated directly — only via Apply.
 impl Command<CreateCharacter> for CharacterAggregate {
     type Error = CharacterError;
     fn handle(
@@ -344,5 +348,90 @@ mod tests {
             result.unwrap_err(),
             CharacterError::ValidationError(ref m) if m.contains("version mismatch")
         ));
+    }
+
+    /// Verify that apply() actually mutates aggregate state.
+    ///
+    /// Catches mutants that replace the `apply` body with `()` — if apply is a
+    /// no-op the assertion below fails because the character stays at its
+    /// default (empty name).
+    #[test]
+    fn test_apply_updates_state() {
+        use kameo_es::Metadata;
+        let mut agg = CharacterAggregate::default();
+        let id = Uuid::now_v7();
+        let project_id = ProjectId::new();
+        agg.apply(
+            CharacterEvent::CharacterCreated {
+                id,
+                project_id,
+                name: "Liese".into(),
+                is_extra: false,
+                is_main_character: true,
+                measurements: CharacterMeasurements::default(),
+                contact_info: ContactInfo::default(),
+                version: AggregateVersion::INITIAL,
+            },
+            Metadata::default(),
+        );
+        assert_eq!(agg.name, "Liese", "apply() should set the character name");
+        assert_eq!(agg.id, id, "apply() should set the character id");
+        assert!(!agg.is_extra);
+        assert!(agg.is_main_character);
+        assert_eq!(agg.version, AggregateVersion::INITIAL);
+    }
+
+    /// Verify that the idempotency check in UpdateContactInfo uses `!=` (not
+    /// `==`), so passing identical contact info correctly returns an error.
+    #[test]
+    fn test_update_contact_info_idempotency_uses_not_equal() {
+        use kameo_es::Metadata;
+        let mut agg = CharacterAggregate::default();
+        // Start with contact info set.
+        let id = Uuid::now_v7();
+        let project_id = ProjectId::new();
+        let phone = "+49 170 111".to_string();
+        agg.apply(
+            CharacterEvent::CharacterCreated {
+                id,
+                project_id,
+                name: "Test".into(),
+                is_extra: false,
+                is_main_character: false,
+                measurements: CharacterMeasurements::default(),
+                contact_info: ContactInfo::default(),
+                version: AggregateVersion::INITIAL,
+            },
+            Metadata::default(),
+        );
+        // Apply a ContactInfoUpdated to set the contact info.
+        agg.apply(
+            CharacterEvent::ContactInfoUpdated {
+                id,
+                contact_info: ContactInfo {
+                    phone: Some(phone.clone()),
+                    email: None,
+                },
+                version: AggregateVersion(2),
+            },
+            Metadata::default(),
+        );
+        // Now sending UpdateContactInfo with the SAME info should fail
+        // (idempotency check: `cmd.contact_info != self.contact_info`).
+        let result = agg.handle(
+            UpdateContactInfo {
+                id,
+                contact_info: ContactInfo {
+                    phone: Some(phone.clone()),
+                    email: None,
+                },
+                version: AggregateVersion(2),
+            },
+            make_ctx(),
+        );
+        assert!(
+            result.is_err(),
+            "identical contact info should be rejected (idempotency check)"
+        );
     }
 } // mod tests
