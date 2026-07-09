@@ -16,4 +16,4 @@ api = { path = "../api" }
 breakdown_core = { path = "../core" }
 infra = { path = "../infra" }
 rust_arkitect = "0.3.7"
-toml = "0.8"
+toml = "1.1"
