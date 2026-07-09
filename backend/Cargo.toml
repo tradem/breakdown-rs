@@ -40,7 +40,7 @@ tower-http = { version = "0.5", features = ["trace"] }
 
 # Event Sourcing (ES)
 kameo = "0.19"      # Das zugrundeliegende Actor-Framework
-kameo_es = { git = "https://github.com/sierra-db/kameo_es", branch = "main", features = ["postgres"] }
+kameo_es = { path = ".patches/kameo_es", features = ["postgres"] }
 redis = "0.32"      # SierraDB RESP3 client (used by kameo_es)
 sierradb-client = "0.1" 
 thiserror = "2.0"
