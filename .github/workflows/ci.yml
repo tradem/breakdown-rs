@@ -87,4 +87,4 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check bans
-          working-directory: backend
+          manifest-path: backend/Cargo.toml

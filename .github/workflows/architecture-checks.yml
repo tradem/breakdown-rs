@@ -31,11 +31,11 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install cargo-deny
+      - name: Install and run cargo-deny
         uses: EmbarkStudios/cargo-deny-action@v2
-
-      - name: Run cargo-deny check bans
-        run: cargo deny check bans
+        with:
+          command: check bans
+          manifest-path: backend/Cargo.toml
 
   architecture-tests:
     name: rust_arkitect (source-level rules)
