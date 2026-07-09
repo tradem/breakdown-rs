@@ -52,8 +52,7 @@ fn core_cargo_toml_must_not_list_forbidden_dependencies() {
     let content = std::fs::read_to_string(&core_toml_path)
         .unwrap_or_else(|e| panic!("failed to read {}: {e}", core_toml_path.display()));
 
-    let toml_value: toml::Value = content
-        .parse()
+    let toml_value: toml::Value = toml::from_str(&content)
         .unwrap_or_else(|e| panic!("failed to parse {}: {e}", core_toml_path.display()));
 
     // Collect all dependency key names from [dependencies] and [dev-dependencies].
