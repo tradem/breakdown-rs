@@ -26,7 +26,7 @@ sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-native-
 
 # Container runtime
 testcontainers = { version = "0.25", features = ["reusable-containers"] }
-testcontainers-modules = { version = "0.13", features = ["postgres"] }
+testcontainers-modules = { version = "0.15", features = ["postgres"] }
 
 # Database & Redis clients
 redis.workspace = true
