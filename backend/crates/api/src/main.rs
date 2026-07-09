@@ -34,7 +34,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 /// free of OTLP connection attempts. When configured, builds an OTLP exporter
 /// respecting `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_PROTOCOL`, and
 /// `OTEL_TRACES_EXPORTER`.
-fn init_otel_tracer() -> Option<opentelemetry_sdk::trace::Tracer> {
+fn init_otel_tracer() -> Option<opentelemetry_sdk::trace::SdkTracer> {
     let endpoint = env::var("OTEL_EXPORTER_OTLP_ENDPOINT").unwrap_or_default();
     if endpoint.is_empty() {
         info!("OTEL_EXPORTER_OTLP_ENDPOINT not set; OTLP tracing disabled");
@@ -62,11 +62,13 @@ fn init_otel_tracer() -> Option<opentelemetry_sdk::trace::Tracer> {
         }
     };
 
-    let tracer_provider = opentelemetry_sdk::trace::TracerProvider::builder()
-        .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
-        .with_resource(opentelemetry_sdk::Resource::new([
-            opentelemetry::KeyValue::new("service.name", service_name),
-        ]))
+    let tracer_provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+        .with_batch_exporter(exporter)
+        .with_resource(
+            opentelemetry_sdk::Resource::builder()
+                .with_attribute(opentelemetry::KeyValue::new("service.name", service_name))
+                .build(),
+        )
         .build();
 
     // NOTE: The SDK logs batch export errors internally via `otel_error!` / `tracing::error!`
@@ -74,7 +76,7 @@ fn init_otel_tracer() -> Option<opentelemetry_sdk::trace::Tracer> {
     // No custom error handler wiring is required for v1.
 
     let tracer = tracer_provider.tracer("breakdown-rs");
-    let _ = opentelemetry::global::set_tracer_provider(tracer_provider);
+    opentelemetry::global::set_tracer_provider(tracer_provider);
 
     Some(tracer)
 }
