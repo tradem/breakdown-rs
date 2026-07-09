@@ -85,7 +85,7 @@ async fn await_proj_version(pool: &sqlx::PgPool, table: &str, id: Uuid, min_vers
                 }
             );
         }
-        let result = sqlx::query(sqlx::AssertSqlSafe(query.as_str()))
+        let result = sqlx::query(&query)
             .bind(id)
             .fetch_optional(pool)
             .await
@@ -101,7 +101,7 @@ async fn await_proj_version(pool: &sqlx::PgPool, table: &str, id: Uuid, min_vers
             }
         } else {
             // Existence-only check: EXISTS() always returns one row
-            let exists: bool = sqlx::query_scalar::<_, bool>(sqlx::AssertSqlSafe(query.as_str()))
+            let exists: bool = sqlx::query_scalar::<_, bool>(&query)
                 .bind(id)
                 .fetch_one(pool)
                 .await

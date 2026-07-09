@@ -77,7 +77,7 @@ async fn await_proj_version(
                 "{table}({id}) not projected to version >= {min_version} within {PROJECTION_DEADLINE:?}"
             );
         }
-        let version: Option<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(query.as_str()))
+        let version: Option<i64> = sqlx::query_scalar(&query)
             .bind(id)
             .fetch_optional(pool)
             .await
