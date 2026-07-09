@@ -397,10 +397,7 @@ where
         )),
         Err(ExecuteError::Handle(err)) => Err(err.into()),
         Err(ExecuteError::IncorrectExpectedVersion {
-            stream_id,
-            current,
-            expected: _,
-            ..
+            stream_id, current, ..
         }) => Err(DomainError::VersionConflict {
             entity: stream_id.to_string(),
             expected: AggregateVersion(0),
