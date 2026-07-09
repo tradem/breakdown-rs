@@ -35,6 +35,8 @@ impl Entity for CharacterAggregate {
     }
 }
 
+// ADR-002 (Event Sourcing / CQRS): Apply replays past events to rebuild
+// aggregate state. Every command handler emits events that are applied here.
 impl Apply for CharacterAggregate {
     fn apply(&mut self, event: Self::Event, _metadata: Metadata<()>) {
         match event {
@@ -77,6 +79,8 @@ impl Apply for CharacterAggregate {
     }
 }
 
+// ADR-002 (Event Sourcing / CQRS): Commands validate invariants and emit
+// events. The aggregate state is never mutated directly — only via Apply.
 impl Command<CreateCharacter> for CharacterAggregate {
     type Error = CharacterError;
     fn handle(
