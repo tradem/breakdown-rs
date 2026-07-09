@@ -53,7 +53,7 @@ async-trait = "0.1"
 
 # OpenAPI generation (ADR-006)
 utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
-utoipa-swagger-ui = { version = "8", features = ["axum"] }
+utoipa-swagger-ui = { version = "9", features = ["axum"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
