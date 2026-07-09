@@ -25,7 +25,7 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-native-tls", "uuid", "chrono", "json", "migrate"] }
 
 # Container runtime
-testcontainers = { version = "0.25", features = ["reusable-containers"] }
+testcontainers = { version = "0.27", features = ["reusable-containers"] }
 testcontainers-modules = { version = "0.15", features = ["postgres"] }
 
 # Database & Redis clients
