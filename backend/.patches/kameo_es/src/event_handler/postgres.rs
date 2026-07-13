@@ -688,7 +688,7 @@ where
         &mut self,
         _actor_ref: WeakActorRef<Self>,
         mailbox_rx: &mut MailboxReceiver<Self>,
-    ) -> Option<Signal<Self>> {
+    ) -> Result<Option<Signal<Self>>, Self::Error> {
         let last_flush_duration = self.last_flushed.elapsed();
         let flush_sleep_duration = if self.is_live {
             self.flush_live_interval_time
@@ -700,7 +700,7 @@ where
         let flush_sleep = OptionFuture::from(flush_sleep_duration.map(tokio::time::sleep));
 
         tokio::select! {
-            msg = mailbox_rx.recv() => return msg,
+            msg = mailbox_rx.recv() => return Ok(msg),
             _ = flush_sleep => {
                 flush_retry
                     .retry(ExponentialBuilder::new())
@@ -713,7 +713,7 @@ where
             }
         }
 
-        mailbox_rx.recv().await
+        Ok(mailbox_rx.recv().await)
     }
 }
 

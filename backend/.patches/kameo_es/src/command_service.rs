@@ -463,7 +463,9 @@ where
                 .send()
                 .await
                 .map_err(|err| match err {
-                    SendError::ActorNotRunning(_) => ExecuteError::CommandServiceNotRunning,
+                    SendError::ActorNotRunning(_) | SendError::ActorRestarting(_) => {
+                        ExecuteError::CommandServiceNotRunning
+                    }
                     SendError::ActorStopped => ExecuteError::CommandServiceStopped,
                     SendError::MailboxFull(_) => {
                         unreachable!("messages aren't sent to the command service with try_")
@@ -522,7 +524,9 @@ where
                     .send()
                     .await
                     .map_err(|err| match err {
-                        SendError::ActorNotRunning(_) => ExecuteError::CommandServiceNotRunning,
+                        SendError::ActorNotRunning(_) | SendError::ActorRestarting(_) => {
+                            ExecuteError::CommandServiceNotRunning
+                        }
                         SendError::ActorStopped => ExecuteError::CommandServiceStopped,
                         SendError::MailboxFull(_) => {
                             unreachable!("messages aren't sent to the command service with try_")
@@ -555,7 +559,9 @@ where
                 .send()
                 .await
                 .map_err(|err| match err {
-                    SendError::ActorNotRunning(_) => ExecuteError::CommandServiceNotRunning,
+                    SendError::ActorNotRunning(_) | SendError::ActorRestarting(_) => {
+                        ExecuteError::CommandServiceNotRunning
+                    }
                     SendError::ActorStopped => ExecuteError::CommandServiceStopped,
                     SendError::MailboxFull(_) => {
                         unreachable!("messages aren't sent to the command service with try_")

@@ -731,7 +731,9 @@ impl<E, Ev, M> From<AppendEventsError<Ev, M>> for ExecuteError<E> {
 impl<M, E, Ev, Me> From<SendError<M, AppendEventsError<Ev, Me>>> for ExecuteError<E> {
     fn from(err: SendError<M, AppendEventsError<Ev, Me>>) -> Self {
         match err {
-            SendError::ActorNotRunning(_) => ExecuteError::EventStoreActorNotRunning,
+            SendError::ActorNotRunning(_) | SendError::ActorRestarting(_) => {
+                ExecuteError::EventStoreActorNotRunning
+            }
             SendError::ActorStopped => ExecuteError::EventStoreActorStopped,
             SendError::MailboxFull(_) => unreachable!("sending is always awaited"),
             SendError::HandlerError(err) => err.into(),
