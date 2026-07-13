@@ -26,7 +26,7 @@ jobs:
         with:
           workspaces: "backend"
       - run: cargo install cargo-mutants
-      - run: cargo mutants --copy-target
+      - run: cargo mutants --copy-target=true
       - uses: actions/upload-artifact@v7
         if: always()
         with:
