@@ -1,0 +1,59 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+
+# Development IdP overlay (self-hosted Logto) for local OIDC testing.
+# Usage: docker compose -f docker-compose.dev.yml -f docker-compose.idp.yml up -d
+#
+# This overlay provides a self-hosted Logto instance for development and CI,
+# decoupling the dev loop from the production IdP decision (ADR-010).
+# Production IdP runtime is NOT provided by this overlay.
+#
+# Logto image: svhd/logto:1.13.0 (pinned minor tag for reproducibility)
+#
+# Services:
+#   - logto-db    : Dedicated Postgres for Logto's internal state
+#   - logto       : Self-hosted Logto IdP
+#
+# Ports:
+#   - 3301 : Logto OIDC endpoint (issuer URL base)
+#   - 3302 : Logto Admin UI and Admin API
+#
+# After boot, run: ./scripts/seed-logto-dev.sh to provision the OIDC application
+# and generate .env.idp with OIDC_ISS, OIDC_AUDIENCE, and OIDC_JWKS_URL.
+
+services:
+  logto-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: logto_user
+      POSTGRES_PASSWORD: logto_pass
+      POSTGRES_DB: logto_db
+    volumes:
+      - logto_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U logto_user"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  logto:
+    image: svhd/logto:1.13.0
+    depends_on:
+      logto-db:
+        condition: service_healthy
+    entrypoint: ["sh", "-c", "npm run cli db seed -- --swe && npm start"]
+    environment:
+      DB_URL: postgres://logto_user:logto_pass@logto-db:5432/logto_db
+      ENDPOINT: http://localhost:3301
+      ADMIN_ENDPOINT: http://localhost:3302
+    ports:
+      - "3301:3301"
+      - "3302:3302"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsSL http://localhost:3301/status || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  logto_db_data:

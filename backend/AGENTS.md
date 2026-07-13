@@ -111,6 +111,32 @@ apply the same migration set automatically.
 - `BIND_ADDR` – HTTP bind address (default: `0.0.0.0:3000`)
 - OpenAPI/Swagger UI is served at `http://localhost:3000/swagger-ui`
 
+### Optional: Local IdP for OIDC Development
+
+For auth-related work, you can boot a self-hosted Logto IdP using the IdP overlay. **This is dev-only**; production IdP runtime is governed by ADR-010 (Logto Cloud first, Zitadel migration later) and is not provided by this dev overlay.
+
+```bash
+# Boot the full stack with IdP
+docker compose -f docker-compose.dev.yml -f docker-compose.idp.yml up -d
+
+# Seed the OIDC application (generates .env.idp)
+./scripts/seed-logto-dev.sh
+```
+
+This starts:
+- **Logto OIDC** on `http://localhost:3301` — issuer URL for OIDC flows
+- **Logto Admin UI** on `http://localhost:3302` — admin console and Admin API
+- **logto-db** — dedicated Postgres for Logto state (isolated from breakdown read-model)
+
+After seeding, the `.env.idp` file contains:
+- `OIDC_ISS` — Issuer URL (e.g., `http://localhost:3301`)
+- `OIDC_AUDIENCE` — Resource indicator for your API (e.g., `https://api.breakdown.local`)
+- `OIDC_JWKS_URL` — JWKS endpoint for key discovery (e.g., `http://localhost:3301/.well-known/jwks`)
+
+**Dev ≠ Prod IdP:** The backend validates standard OIDC JWTs and is IdP-agnostic. Dev uses self-hosted Logto for convenience; production may use Logto Cloud or Zitadel per ADR-010. No code changes are needed to switch IdPs — only the environment variables change.
+
+**Frontend note:** Local frontend dev should configure the OIDC client to point to `http://localhost:3301` for the issuer.
+
 ## 7. Licensing & Headers
 - **License:** AGPL-3.0 (see `LICENSE`)
 - **SPDX Headers:** Run `./scripts/add-spdx-headers.sh [dir]` to add headers to `.rs`, `.typ`, `.sh` files

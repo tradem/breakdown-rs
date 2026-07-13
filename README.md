@@ -31,6 +31,19 @@ docker compose -f docker-compose.dev.yml up -d
 - Postgres is reachable at `postgres://postgres:postgres@localhost:5432/breakdown`.
 - SierraDB (RESP3) is reachable at `redis://127.0.0.1:9090` (pinned to `tqwewe/sierradb:0.3.1`).
 
+### Optional: IdP Overlay for Auth Development
+
+For auth-related work (OIDC flows), boot the optional IdP overlay:
+
+```bash
+cd backend
+docker compose -f docker-compose.dev.yml -f docker-compose.idp.yml up -d
+./scripts/seed-logto-dev.sh  # Generates .env.idp with OIDC configuration
+```
+
+This adds a self-hosted Logto IdP (`http://localhost:3301`) for local OIDC testing.
+**Dev-only** — production IdP is separate (see [AGENTS.md](./backend/AGENTS.md)).
+
 ### Apply migrations and run the API
 
 ```bash
