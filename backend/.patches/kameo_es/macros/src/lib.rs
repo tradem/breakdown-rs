@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024-2026 Breakdown RS Contributors
+
 use proc_macro::TokenStream;
 use quote::ToTokens;
 use syn::parse_macro_input;

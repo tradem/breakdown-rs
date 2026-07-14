@@ -68,8 +68,8 @@ The existing `persistence-dev-runtime` capability established the Compose-overla
 - Rollback: `docker compose -f docker-compose.idp.yml down -v` removes the IdP and its DB volume; `docker-compose.dev.yml` continues to provide Postgres + SierraDB unaffected.
 - Sequencing: this change has no migration of its own; it is itself the migration step *toward* exercising OIDC locally before the `add-oidc-auth-and-membership` code lands.
 
-## Open Questions
+## Open Questions (Resolved)
 
-1. **Logto image tag.** Pin `logto/logto:1.x` (specific minor) vs. tracking `latest` (dev convenience vs. reproducibility). Resolve at implementation time; recommend a pinned minor.
-2. **Seed script language.** Bash + `curl`+`jq`, or a small Rust binary in `crates/test_support`? Resolve at implementation time; recommend Bash for zero-build reproducibility unless contributors prefer Rust.
-3. **Frontend developer flow.** Does the Svelte app need documented Logto endpoints for local dev login? Out of scope for this change (frontend-side), but worth flagging to the frontend track.
+1. **Logto image tag.** ✅ **Resolved:** `svhd/logto:1.13.0` - pinned minor tag for reproducibility. Note: The official Logto image is published as `svhd/logto`, not `logto/logto`.
+2. **Seed script language.** ✅ **Resolved:** Bash + `curl`+`jq` for zero-build reproducibility. Implemented in `scripts/seed-logto-dev.sh`.
+3. **Frontend developer flow.** ✅ **Resolved:** Documented in AGENTS.md §6 - frontend should configure OIDC client to point to `http://localhost:3301` for local dev.

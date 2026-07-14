@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024-2026 Breakdown RS Contributors
+
 use std::{
     any, borrow::Cow, collections::HashMap, fmt, future::IntoFuture, marker::PhantomData, mem,
     num::NonZeroUsize, ops::ControlFlow, time::Instant, vec::IntoIter,
