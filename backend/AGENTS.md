@@ -25,7 +25,7 @@ You are the primary coding agent for `breakdown-rs` – a collaborative costume 
 
 ## 4. Testing & Guardrails
 - **Unit/Integration Tests:** Write deterministic tests for domain logic in `core`.
-- **Mutation Testing:** Run `cargo mutants` ([crate](https://crates.io/crates/cargo-mutants) • [GitHub](https://github.com/sourcefrog/cargo-mutants)). Improve test coverage if mutants survive. Use `cargo mutants --in-diff` to only test changed code.
+- **Mutation Testing:** Run `cargo mutants` ([crate](https://crates.io/crates/cargo-mutants) • [GitHub](https://github.com/sourcefrog/cargo-mutants)). Improve test coverage if mutants survive. Use `cargo mutants --in-diff` to only test changed code. The mutation configuration lives in `.cargo/mutants.toml` — a top-level `.mutants.toml` is **not** read by cargo-mutants, so any settings placed there are silently ignored.
 - **Architecture Tests:** We use `rust_arkitect` (source-level) and `cargo-deny` (dependency-level) to enforce boundary rules (ADR-017). Run `cargo test -p architecture_tests` and `cargo deny check bans` to ensure core does not depend on infra/api.
 
 ### Integration tests

@@ -37,7 +37,7 @@ fresh containers.
 - Docker (or a compatible container runtime) is required on dev machines and CI.
 - Tests carry a per-run container startup cost; isolation is per-test fresh.
 - The `crates/integration-tests` crate is **excluded from the `cargo-mutants`
-  surface** (see `.mutants.toml`); only inline `#[cfg(test)]` modules are mutated.
+  surface** (see `.cargo/mutants.toml`); only inline `#[cfg(test)]` modules are mutated.
 - ADR-002 and ADR-003 list ADR-014 under their related-ADRs sections.
 - ADR-016 extends this harness to also start a SierraDB container for Tier-4
   round-trip tests.

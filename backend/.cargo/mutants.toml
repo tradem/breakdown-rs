@@ -1,3 +1,11 @@
+# Exclude the `integration-tests` crate from mutation testing: it operates on real external
+# resources (Docker) and exercises the public API, not the whitebox code surface, so only
+# inline `#[cfg(test)]` modules in the other crates are mutated. (This is also cargo-mutants'
+# default behaviour, stated here explicitly to document the intent.)
+exclude_globs = [
+    "crates/integration-tests/**",
+]
+
 # Accepted surviving mutants.
 #
 # Only pure routing/metadata constants (CommandName, EventType, category) and
@@ -20,4 +28,18 @@ exclude_re = [
     "replace main -> Result",
     "routes -> Router",
     "app_router -> Router",
+    # Command adapter methods (Scene/Character/Costume/Calculation `*CommandsImpl`) delegate to
+    # `kameo_es::CommandService::execute`, which only runs against a live SierraDB event store
+    # (Docker). They are covered end-to-end by the Docker-gated `crates/integration-tests` suite,
+    # which is excluded from mutation for the same reason; spinning the same containers up inside
+    # the mutated infra crate would make every mutant rebuild run them and is not viable. These
+    # mutants therefore cannot be killed by fast whitebox unit tests in `infra`.
+    "CommandsImpl>::",
+    # `version_from_expected` is dead code (`#[expect(dead_code)]`). Its `Empty`-arm deletion is a
+    # semantically equivalent mutant: both the explicit `Empty` arm and the catch-all `_` arm map
+    # to `AggregateVersion::INITIAL`, so removing the arm does not change behaviour and it cannot
+    # be caught by a behavioural test. The other two arms are covered by a unit test. The regex is
+    # anchored to `version_from_expected` so it does not accidentally exclude unrelated
+    # `ExpectedVersion::Empty` arms elsewhere (e.g. in `.patches/kameo_es`).
+    "ExpectedVersion::Empty in version_from_expected",
 ]
