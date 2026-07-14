@@ -32,8 +32,10 @@ temp/
 *.tmp
 
 # Cargo
-**/Cargo.lock
-# (Comment out the above if you want to lock dependencies for applications)
+# The backend is a deployable application (a Cargo workspace whose `api` crate is a
+# binary), so its Cargo.lock is committed for reproducible builds and to let the
+# security audit (`.github/workflows/audit.yml`) trigger on lockfile changes.
+# **/Cargo.lock
 
 # Test coverage
 coverage/
