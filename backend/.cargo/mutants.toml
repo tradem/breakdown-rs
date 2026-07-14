@@ -1,3 +1,11 @@
+# Exclude the `integration-tests` crate from mutation testing: it operates on real external
+# resources (Docker) and exercises the public API, not the whitebox code surface, so only
+# inline `#[cfg(test)]` modules in the other crates are mutated. (This is also cargo-mutants'
+# default behaviour, stated here explicitly to document the intent.)
+exclude_globs = [
+    "crates/integration-tests/**",
+]
+
 # Accepted surviving mutants.
 #
 # Only pure routing/metadata constants (CommandName, EventType, category) and
