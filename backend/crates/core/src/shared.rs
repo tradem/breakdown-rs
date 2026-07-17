@@ -192,4 +192,28 @@ mod tests {
         let id = EpisodeId::new();
         assert_ne!(id.0, Uuid::nil());
     }
+
+    #[test]
+    fn series_id_from_uuid_preserves_value() {
+        let raw = Uuid::now_v7();
+        assert_eq!(SeriesId::from_uuid(raw).0, raw);
+    }
+
+    #[test]
+    fn season_id_from_uuid_preserves_value() {
+        let raw = Uuid::now_v7();
+        assert_eq!(SeasonId::from_uuid(raw).0, raw);
+    }
+
+    #[test]
+    fn block_id_from_uuid_preserves_value() {
+        let raw = Uuid::now_v7();
+        assert_eq!(BlockId::from_uuid(raw).0, raw);
+    }
+
+    #[test]
+    fn episode_id_from_uuid_preserves_value() {
+        let raw = Uuid::now_v7();
+        assert_eq!(EpisodeId::from_uuid(raw).0, raw);
+    }
 }
