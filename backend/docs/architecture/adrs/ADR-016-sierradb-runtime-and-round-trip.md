@@ -91,7 +91,7 @@ unchanged (no duplicate `assigned_characters` entries, no version drift).
 This test was implemented as part of the `add-idempotency-redelivery-test`
 change, closing task 4.3 of the original `sierradb-runtime-and-round-trip`
 change. Tier-4 tests
-remain excluded from `cargo-mutants` (`.mutants.toml`).
+remain excluded from `cargo-mutants` (`.cargo/mutants.toml`).
 
 ## Alternatives Considered
 

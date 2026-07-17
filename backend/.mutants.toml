@@ -1,4 +1,0 @@
-# Integration tests operate on real external resources and exercise the public
-# API, not the whitebox code surface. Exclude the crate from mutation testing so
-# that cargo-mutants only targets inline #[cfg(test)] modules.
-exclude = ["crates/integration-tests"]
