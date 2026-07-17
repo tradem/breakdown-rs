@@ -6,22 +6,33 @@
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::{Json, Router, routing};
-use breakdown_core::calculation::commands::{CreateCalculation, UpdateHeaderInfo};
-use breakdown_core::calculation::ports::{CalculationCommands, CalculationRepository};
-use breakdown_core::calculation::views::CalculationView;
-use breakdown_core::character::commands::{CreateCharacter, UpdateMeasurements};
-use breakdown_core::character::events::CharacterMeasurements;
+use breakdown_core::block::commands::{CreateBlock, UpdateBlockTimeSpan};
+use breakdown_core::block::ports::{BlockCommands, BlockRepository};
+use breakdown_core::block::views::BlockView;
+use breakdown_core::character::category::CharacterCategory;
+use breakdown_core::character::commands::{CreateCharacter, UpdateContactInfo, UpdateMeasurements};
+use breakdown_core::character::events::{CharacterMeasurements, ContactInfo};
 use breakdown_core::character::ports::{CharacterCommands, CharacterRepository};
 use breakdown_core::character::views::CharacterView;
-use breakdown_core::costume::commands::{CreateCostume, UpdateCostumeNotes};
+use breakdown_core::costume::commands::{
+    AssignCostumeToCharacter, CreateCostume, UnassignCostume, UpdateCostumeNotes,
+};
 use breakdown_core::costume::ports::{CostumeCommands, CostumeRepository};
 use breakdown_core::costume::views::CostumeView;
+use breakdown_core::episode::commands::{CreateEpisode, RenameEpisode};
+use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
+use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::error::DomainError;
-use breakdown_core::scene::commands::{CreateScene, UpdateSceneDetails};
+use breakdown_core::scene::commands::{
+    AssignCharacter, CreateScene, RemoveCharacter, UpdateSceneDetails,
+};
 use breakdown_core::scene::events::SceneDetails;
 use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
 use breakdown_core::scene::views::SceneView;
-use breakdown_core::shared::{AggregateVersion, ProjectId};
+use breakdown_core::season::commands::{CreateSeason, RenameSeason};
+use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
+use breakdown_core::season::views::SeasonView;
+use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, SeasonId, SeriesId};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
@@ -42,37 +53,61 @@ pub struct IdVersionResponse {
 }
 
 /// Query parameters for paginated list endpoints.
+///
+/// `episode_id` scopes Scene lists; `season_id` scopes Character/Block/Episode/Costume lists.
 #[derive(Debug, Clone, Deserialize, IntoParams)]
 pub struct ListParams {
-    pub project_id: ProjectId,
     #[param(default = 50)]
     pub limit: Option<i64>,
     #[param(default = 0)]
     pub offset: Option<i64>,
+    pub episode_id: Option<EpisodeId>,
+    pub season_id: Option<SeasonId>,
+    pub series_id: Option<SeriesId>,
 }
+
+// ---------------------------------------------------------------------------
+// Request DTOs
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct CreateSceneRequest {
-    pub project_id: ProjectId,
+    pub episode_id: EpisodeId,
     pub details: SceneDetails,
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct CreateCharacterRequest {
-    pub project_id: ProjectId,
+    pub season_id: SeasonId,
     pub name: String,
-    pub is_extra: bool,
-    pub is_main_character: bool,
+    pub category: CharacterCategory,
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
-pub struct CreateCostumeRequest {
-    pub project_id: ProjectId,
+pub struct CreateCostumeRequest {}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct CreateSeasonRequest {
+    pub series_id: SeriesId,
+    pub number: i32,
+    pub title: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
-pub struct CreateCalculationRequest {
-    pub project_id: ProjectId,
+pub struct CreateBlockRequest {
+    pub season_id: SeasonId,
+    pub series_id: SeriesId,
+    pub number: i32,
+    pub start_date: Option<chrono::NaiveDate>,
+    pub end_date: Option<chrono::NaiveDate>,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct CreateEpisodeRequest {
+    pub block_id: BlockId,
+    pub series_id: SeriesId,
+    pub number: i32,
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -88,14 +123,50 @@ pub struct UpdateMeasurementsRequest {
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct UpdateContactInfoRequest {
+    pub contact_info: ContactInfo,
+    pub version: AggregateVersion,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct UpdateCostumeNotesRequest {
     pub notes: String,
     pub version: AggregateVersion,
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
-pub struct UpdateHeaderInfoRequest {
-    pub header: CalculationHeader,
+pub struct RenameSeasonRequest {
+    pub title: Option<String>,
+    pub version: AggregateVersion,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct RenameEpisodeRequest {
+    pub name: Option<String>,
+    pub version: AggregateVersion,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct UpdateBlockTimeSpanRequest {
+    pub start_date: Option<chrono::NaiveDate>,
+    pub end_date: Option<chrono::NaiveDate>,
+    pub version: AggregateVersion,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct VersionRequest {
+    pub version: AggregateVersion,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct AssignCharacterRequest {
+    pub character_id: Uuid,
+    pub version: AggregateVersion,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct AssignCostumeRequest {
+    pub character_id: Uuid,
     pub version: AggregateVersion,
 }
 
@@ -113,6 +184,300 @@ fn map_err(err: DomainError) -> (StatusCode, Json<ErrorResponse>) {
             message: err.to_string(),
         }),
     )
+}
+
+fn require_episode(params: &ListParams) -> Result<EpisodeId, (StatusCode, Json<ErrorResponse>)> {
+    params.episode_id.ok_or_else(|| {
+        map_err(DomainError::ValidationError(
+            "episode_id is required".into(),
+        ))
+    })
+}
+
+fn require_season(params: &ListParams) -> Result<SeasonId, (StatusCode, Json<ErrorResponse>)> {
+    params
+        .season_id
+        .ok_or_else(|| map_err(DomainError::ValidationError("season_id is required".into())))
+}
+
+fn require_series(params: &ListParams) -> Result<SeriesId, (StatusCode, Json<ErrorResponse>)> {
+    params
+        .series_id
+        .ok_or_else(|| map_err(DomainError::ValidationError("series_id is required".into())))
+}
+
+// ---------------------------------------------------------------------------
+// Season handlers
+// ---------------------------------------------------------------------------
+
+#[utoipa::path(
+    post,
+    path = "/seasons",
+    request_body = CreateSeasonRequest,
+    responses((status = 201, description = "Season created", body = IdVersionResponse)),
+)]
+pub async fn create_season<P: Ports>(
+    State(state): State<AppState<P>>,
+    Json(req): Json<CreateSeasonRequest>,
+) -> ApiResult<IdVersionResponse> {
+    let id = Uuid::now_v7();
+    let cmd = CreateSeason {
+        id,
+        series_id: req.series_id,
+        number: req.number,
+        title: req.title,
+    };
+    let (id, version) = state
+        .ports
+        .season_commands()
+        .create(cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::CREATED, Json(IdVersionResponse { id, version })))
+}
+
+#[utoipa::path(
+    get,
+    path = "/seasons/{id}",
+    params(("id" = Uuid, Path, description = "Season id")),
+    responses((status = 200, body = SeasonView), (status = 404, body = ErrorResponse)),
+)]
+pub async fn get_season<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path(id): Path<Uuid>,
+) -> ApiResult<SeasonView> {
+    let view = state
+        .ports
+        .season_repo()
+        .find_by_id(id)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(view)))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/seasons/{id}/name",
+    request_body = RenameSeasonRequest,
+    responses((status = 200, body = AggregateVersion)),
+)]
+pub async fn rename_season<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<RenameSeasonRequest>,
+) -> ApiResult<AggregateVersion> {
+    let cmd = RenameSeason {
+        id,
+        title: req.title,
+        version: req.version,
+    };
+    let version = state
+        .ports
+        .season_commands()
+        .rename(cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+// ---------------------------------------------------------------------------
+// Block handlers
+// ---------------------------------------------------------------------------
+
+#[utoipa::path(
+    post,
+    path = "/blocks",
+    request_body = CreateBlockRequest,
+    responses((status = 201, description = "Block created", body = IdVersionResponse)),
+)]
+pub async fn create_block<P: Ports>(
+    State(state): State<AppState<P>>,
+    Json(req): Json<CreateBlockRequest>,
+) -> ApiResult<IdVersionResponse> {
+    let id = Uuid::now_v7();
+    let cmd = CreateBlock {
+        id,
+        season_id: req.season_id,
+        series_id: req.series_id,
+        number: req.number,
+        start_date: req.start_date,
+        end_date: req.end_date,
+    };
+    let (id, version) = state
+        .ports
+        .block_commands()
+        .create(cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::CREATED, Json(IdVersionResponse { id, version })))
+}
+
+#[utoipa::path(
+    get,
+    path = "/blocks/{id}",
+    params(("id" = Uuid, Path, description = "Block id")),
+    responses((status = 200, body = BlockView), (status = 404, body = ErrorResponse)),
+)]
+pub async fn get_block<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path(id): Path<Uuid>,
+) -> ApiResult<BlockView> {
+    let view = state
+        .ports
+        .block_repo()
+        .find_by_id(id)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(view)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/blocks",
+    params(ListParams),
+    responses((status = 200, body = Vec<BlockView>)),
+)]
+pub async fn list_blocks<P: Ports>(
+    State(state): State<AppState<P>>,
+    Query(params): Query<ListParams>,
+) -> ApiResult<Vec<BlockView>> {
+    let season_id = require_season(&params)?;
+    let views = state
+        .ports
+        .block_repo()
+        .list_by_season(
+            season_id,
+            params.limit.unwrap_or(50),
+            params.offset.unwrap_or(0),
+        )
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(views)))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/blocks/{id}/time-span",
+    request_body = UpdateBlockTimeSpanRequest,
+    responses((status = 200, body = AggregateVersion)),
+)]
+pub async fn update_block_time_span<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdateBlockTimeSpanRequest>,
+) -> ApiResult<AggregateVersion> {
+    let cmd = UpdateBlockTimeSpan {
+        id,
+        start_date: req.start_date,
+        end_date: req.end_date,
+        version: req.version,
+    };
+    let version = state
+        .ports
+        .block_commands()
+        .update_time_span(cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+// ---------------------------------------------------------------------------
+// Episode handlers
+// ---------------------------------------------------------------------------
+
+#[utoipa::path(
+    post,
+    path = "/episodes",
+    request_body = CreateEpisodeRequest,
+    responses((status = 201, description = "Episode created", body = IdVersionResponse)),
+)]
+pub async fn create_episode<P: Ports>(
+    State(state): State<AppState<P>>,
+    Json(req): Json<CreateEpisodeRequest>,
+) -> ApiResult<IdVersionResponse> {
+    let id = Uuid::now_v7();
+    let cmd = CreateEpisode {
+        id,
+        block_id: req.block_id,
+        series_id: req.series_id,
+        number: req.number,
+        name: req.name,
+    };
+    let (id, version) = state
+        .ports
+        .episode_commands()
+        .create(cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::CREATED, Json(IdVersionResponse { id, version })))
+}
+
+#[utoipa::path(
+    get,
+    path = "/episodes/{id}",
+    params(("id" = Uuid, Path, description = "Episode id")),
+    responses((status = 200, body = EpisodeView), (status = 404, body = ErrorResponse)),
+)]
+pub async fn get_episode<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path(id): Path<Uuid>,
+) -> ApiResult<EpisodeView> {
+    let view = state
+        .ports
+        .episode_repo()
+        .find_by_id(id)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(view)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/episodes",
+    params(ListParams),
+    responses((status = 200, body = Vec<EpisodeView>)),
+)]
+pub async fn list_episodes<P: Ports>(
+    State(state): State<AppState<P>>,
+    Query(params): Query<ListParams>,
+) -> ApiResult<Vec<EpisodeView>> {
+    let series_id = require_series(&params)?;
+    let views = state
+        .ports
+        .episode_repo()
+        .list_by_series(
+            series_id,
+            params.limit.unwrap_or(50),
+            params.offset.unwrap_or(0),
+        )
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(views)))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/episodes/{id}/name",
+    request_body = RenameEpisodeRequest,
+    responses((status = 200, body = AggregateVersion)),
+)]
+pub async fn rename_episode<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<RenameEpisodeRequest>,
+) -> ApiResult<AggregateVersion> {
+    let cmd = RenameEpisode {
+        id,
+        name: req.name,
+        version: req.version,
+    };
+    let version = state
+        .ports
+        .episode_commands()
+        .rename(cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(version)))
 }
 
 // ---------------------------------------------------------------------------
@@ -136,7 +501,7 @@ pub async fn create_scene<P: Ports>(
     let id = Uuid::now_v7();
     let cmd = CreateScene {
         id,
-        project_id: req.project_id,
+        episode_id: req.episode_id,
         details: req.details,
     };
     let (id, version) = state
@@ -180,11 +545,12 @@ pub async fn list_scenes<P: Ports>(
     State(state): State<AppState<P>>,
     Query(params): Query<ListParams>,
 ) -> ApiResult<Vec<SceneView>> {
+    let episode_id = require_episode(&params)?;
     let views = state
         .ports
         .scene_repo()
-        .list_by_project(
-            params.project_id,
+        .list_by_episode(
+            episode_id,
             params.limit.unwrap_or(50),
             params.offset.unwrap_or(0),
         )
@@ -222,6 +588,56 @@ pub async fn update_scene_details<P: Ports>(
     Ok((StatusCode::OK, Json(version)))
 }
 
+#[utoipa::path(
+    post,
+    path = "/scenes/{id}/characters",
+    request_body = AssignCharacterRequest,
+    responses((status = 200, body = AggregateVersion), (status = 409, body = ErrorResponse)),
+)]
+pub async fn assign_scene_character<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<AssignCharacterRequest>,
+) -> ApiResult<AggregateVersion> {
+    let cmd = AssignCharacter {
+        id,
+        character_id: req.character_id,
+        version: req.version,
+    };
+    let version = state
+        .ports
+        .scene_commands()
+        .assign_character(cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/scenes/{id}/characters/{character_id}",
+    params(("id" = Uuid, Path), ("character_id" = Uuid, Path)),
+    responses((status = 200, body = AggregateVersion), (status = 409, body = ErrorResponse)),
+)]
+pub async fn remove_scene_character<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path((id, character_id)): Path<(Uuid, Uuid)>,
+    Query(version): Query<VersionRequest>,
+) -> ApiResult<AggregateVersion> {
+    let cmd = RemoveCharacter {
+        id,
+        character_id,
+        version: version.version,
+    };
+    let version = state
+        .ports
+        .scene_commands()
+        .remove_character(cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
 // ---------------------------------------------------------------------------
 // Character handlers
 // ---------------------------------------------------------------------------
@@ -242,10 +658,9 @@ pub async fn create_character<P: Ports>(
     let id = Uuid::now_v7();
     let cmd = CreateCharacter {
         id,
-        project_id: req.project_id,
+        season_id: req.season_id,
         name: req.name,
-        is_extra: req.is_extra,
-        is_main_character: req.is_main_character,
+        category: req.category,
     };
     let (id, version) = state
         .ports
@@ -285,11 +700,12 @@ pub async fn list_characters<P: Ports>(
     State(state): State<AppState<P>>,
     Query(params): Query<ListParams>,
 ) -> ApiResult<Vec<CharacterView>> {
+    let season_id = require_season(&params)?;
     let views = state
         .ports
         .character_repo()
-        .list_by_project(
-            params.project_id,
+        .list_by_season(
+            season_id,
             params.limit.unwrap_or(50),
             params.offset.unwrap_or(0),
         )
@@ -327,6 +743,31 @@ pub async fn update_measurements<P: Ports>(
     Ok((StatusCode::OK, Json(version)))
 }
 
+#[utoipa::path(
+    patch,
+    path = "/characters/{id}/contact",
+    request_body = UpdateContactInfoRequest,
+    responses((status = 200, body = AggregateVersion)),
+)]
+pub async fn update_contact_info<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdateContactInfoRequest>,
+) -> ApiResult<AggregateVersion> {
+    let cmd = UpdateContactInfo {
+        id,
+        contact_info: req.contact_info,
+        version: req.version,
+    };
+    let version = state
+        .ports
+        .character_commands()
+        .update_contact_info(cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
 // ---------------------------------------------------------------------------
 // Costume handlers
 // ---------------------------------------------------------------------------
@@ -342,13 +783,10 @@ pub async fn update_measurements<P: Ports>(
 )]
 pub async fn create_costume<P: Ports>(
     State(state): State<AppState<P>>,
-    Json(req): Json<CreateCostumeRequest>,
+    Json(_req): Json<CreateCostumeRequest>,
 ) -> ApiResult<IdVersionResponse> {
     let id = Uuid::now_v7();
-    let cmd = CreateCostume {
-        id,
-        project_id: req.project_id,
-    };
+    let cmd = CreateCostume { id };
     let (id, version) = state
         .ports
         .costume_commands()
@@ -387,11 +825,12 @@ pub async fn list_costumes<P: Ports>(
     State(state): State<AppState<P>>,
     Query(params): Query<ListParams>,
 ) -> ApiResult<Vec<CostumeView>> {
+    let season_id = require_season(&params)?;
     let views = state
         .ports
         .costume_repo()
-        .list_by_project(
-            params.project_id,
+        .list_by_season(
+            season_id,
             params.limit.unwrap_or(50),
             params.offset.unwrap_or(0),
         )
@@ -429,105 +868,50 @@ pub async fn update_costume_notes<P: Ports>(
     Ok((StatusCode::OK, Json(version)))
 }
 
-// ---------------------------------------------------------------------------
-// Calculation handlers
-// ---------------------------------------------------------------------------
-
-use breakdown_core::calculation::events::CalculationHeader;
-
 #[utoipa::path(
     post,
-    path = "/calculations",
-    request_body = CreateCalculationRequest,
-    responses(
-        (status = 201, description = "Calculation created", body = IdVersionResponse),
-        (status = 400, description = "Validation error", body = ErrorResponse),
-    )
+    path = "/costumes/{id}/assign",
+    request_body = AssignCostumeRequest,
+    responses((status = 200, body = AggregateVersion), (status = 409, body = ErrorResponse)),
 )]
-pub async fn create_calculation<P: Ports>(
-    State(state): State<AppState<P>>,
-    Json(req): Json<CreateCalculationRequest>,
-) -> ApiResult<IdVersionResponse> {
-    let id = Uuid::now_v7();
-    let cmd = CreateCalculation {
-        id,
-        project_id: req.project_id,
-    };
-    let (id, version) = state
-        .ports
-        .calculation_commands()
-        .create(cmd)
-        .await
-        .map_err(map_err)?;
-    Ok((StatusCode::CREATED, Json(IdVersionResponse { id, version })))
-}
-
-#[utoipa::path(
-    get,
-    path = "/calculations/{id}",
-    params(("id" = Uuid, Path, description = "Calculation id")),
-    responses((status = 200, body = CalculationView), (status = 404, body = ErrorResponse))
-)]
-pub async fn get_calculation<P: Ports>(
+pub async fn assign_costume<P: Ports>(
     State(state): State<AppState<P>>,
     Path(id): Path<Uuid>,
-) -> ApiResult<CalculationView> {
-    let view = state
-        .ports
-        .calculation_repo()
-        .find_by_id(id)
-        .await
-        .map_err(map_err)?;
-    Ok((StatusCode::OK, Json(view)))
-}
-
-#[utoipa::path(
-    get,
-    path = "/calculations",
-    params(ListParams),
-    responses((status = 200, body = Vec<CalculationView>))
-)]
-pub async fn list_calculations<P: Ports>(
-    State(state): State<AppState<P>>,
-    Query(params): Query<ListParams>,
-) -> ApiResult<Vec<CalculationView>> {
-    let views = state
-        .ports
-        .calculation_repo()
-        .list_by_project(
-            params.project_id,
-            params.limit.unwrap_or(50),
-            params.offset.unwrap_or(0),
-        )
-        .await
-        .map_err(map_err)?;
-    Ok((StatusCode::OK, Json(views)))
-}
-
-#[utoipa::path(
-    patch,
-    path = "/calculations/{id}/header",
-    request_body = UpdateHeaderInfoRequest,
-    responses(
-        (status = 200, body = AggregateVersion),
-        (status = 404, body = ErrorResponse),
-        (status = 409, body = ErrorResponse),
-    )
-)]
-pub async fn update_calculation_header<P: Ports>(
-    State(state): State<AppState<P>>,
-    Path(id): Path<Uuid>,
-    Json(req): Json<UpdateHeaderInfoRequest>,
+    Json(req): Json<AssignCostumeRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let cmd = UpdateHeaderInfo {
+    let cmd = AssignCostumeToCharacter {
         id,
-        header: req.header,
+        character_id: req.character_id,
         version: req.version,
     };
     let version = state
         .ports
-        .calculation_commands()
-        .update_header(cmd)
+        .costume_commands()
+        .assign_to_character(cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+#[utoipa::path(
+    post,
+    path = "/costumes/{id}/unassign",
+    request_body = UpdateCostumeNotesRequest,
+    responses((status = 200, body = AggregateVersion)),
+)]
+pub async fn unassign_costume<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<VersionRequest>,
+) -> ApiResult<AggregateVersion> {
+    let cmd = UnassignCostume {
+        id,
+        version: req.version,
+    };
+    let version = state
+        .ports
+        .costume_commands()
+        .unassign(cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -540,6 +924,33 @@ pub async fn update_calculation_header<P: Ports>(
 /// Build the full Axum router using the concrete `ProductionPorts` bundle.
 pub fn routes() -> Router<AppState<ProductionPorts>> {
     Router::new()
+        .route("/seasons", routing::post(create_season::<ProductionPorts>))
+        .route("/seasons/:id", routing::get(get_season::<ProductionPorts>))
+        .route(
+            "/seasons/:id/name",
+            routing::patch(rename_season::<ProductionPorts>),
+        )
+        .route(
+            "/blocks",
+            routing::post(create_block::<ProductionPorts>).get(list_blocks::<ProductionPorts>),
+        )
+        .route("/blocks/:id", routing::get(get_block::<ProductionPorts>))
+        .route(
+            "/blocks/:id/time-span",
+            routing::patch(update_block_time_span::<ProductionPorts>),
+        )
+        .route(
+            "/episodes",
+            routing::post(create_episode::<ProductionPorts>).get(list_episodes::<ProductionPorts>),
+        )
+        .route(
+            "/episodes/:id",
+            routing::get(get_episode::<ProductionPorts>),
+        )
+        .route(
+            "/episodes/:id/name",
+            routing::patch(rename_episode::<ProductionPorts>),
+        )
         .route(
             "/scenes",
             routing::post(create_scene::<ProductionPorts>).get(list_scenes::<ProductionPorts>),
@@ -548,6 +959,14 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         .route(
             "/scenes/:id/details",
             routing::patch(update_scene_details::<ProductionPorts>),
+        )
+        .route(
+            "/scenes/:id/characters",
+            routing::post(assign_scene_character::<ProductionPorts>),
+        )
+        .route(
+            "/scenes/:id/characters/:character_id",
+            routing::delete(remove_scene_character::<ProductionPorts>),
         )
         .route(
             "/characters",
@@ -563,6 +982,10 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
             routing::patch(update_measurements::<ProductionPorts>),
         )
         .route(
+            "/characters/:id/contact",
+            routing::patch(update_contact_info::<ProductionPorts>),
+        )
+        .route(
             "/costumes",
             routing::post(create_costume::<ProductionPorts>).get(list_costumes::<ProductionPorts>),
         )
@@ -575,17 +998,12 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
             routing::patch(update_costume_notes::<ProductionPorts>),
         )
         .route(
-            "/calculations",
-            routing::post(create_calculation::<ProductionPorts>)
-                .get(list_calculations::<ProductionPorts>),
+            "/costumes/:id/assign",
+            routing::post(assign_costume::<ProductionPorts>),
         )
         .route(
-            "/calculations/:id",
-            routing::get(get_calculation::<ProductionPorts>),
-        )
-        .route(
-            "/calculations/:id/header",
-            routing::patch(update_calculation_header::<ProductionPorts>),
+            "/costumes/:id/unassign",
+            routing::post(unassign_costume::<ProductionPorts>),
         )
 }
 
@@ -594,16 +1012,34 @@ pub(crate) mod test_helpers {
     use std::collections::HashMap;
     use std::sync::Arc;
 
-    use breakdown_core::calculation::ports::{CalculationCommands, CalculationRepository};
-    use breakdown_core::calculation::views::CalculationView;
+    use breakdown_core::block::commands::{CreateBlock, UpdateBlockTimeSpan};
+    use breakdown_core::block::ports::{BlockCommands, BlockRepository};
+    use breakdown_core::block::views::BlockView;
+    use breakdown_core::character::category::CharacterCategory;
+    use breakdown_core::character::commands::{
+        CreateCharacter, UpdateContactInfo, UpdateMeasurements,
+    };
     use breakdown_core::character::ports::{CharacterCommands, CharacterRepository};
     use breakdown_core::character::views::CharacterView;
+    use breakdown_core::costume::commands::{
+        AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto, RemoveDetail,
+        UnassignCostume, UnlinkPhoto, UpdateCostumeNotes,
+    };
     use breakdown_core::costume::ports::{CostumeCommands, CostumeRepository};
     use breakdown_core::costume::views::CostumeView;
+    use breakdown_core::episode::commands::{CreateEpisode, RenameEpisode};
+    use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
+    use breakdown_core::episode::views::EpisodeView;
     use breakdown_core::error::DomainError;
+    use breakdown_core::scene::commands::{
+        AssignCharacter, CreateScene, RemoveCharacter, UpdateSceneDetails,
+    };
     use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
     use breakdown_core::scene::views::SceneView;
-    use breakdown_core::shared::{AggregateVersion, ProjectId};
+    use breakdown_core::season::commands::{CreateSeason, RenameSeason};
+    use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
+    use breakdown_core::season::views::SeasonView;
+    use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, SeasonId, SeriesId};
     use tokio::sync::Mutex;
     use uuid::Uuid;
 
@@ -613,27 +1049,24 @@ pub(crate) mod test_helpers {
     pub(crate) struct FakeSceneCommands;
 
     impl SceneCommands for FakeSceneCommands {
-        async fn create(
-            &self,
-            cmd: breakdown_core::scene::commands::CreateScene,
-        ) -> Result<(Uuid, AggregateVersion), DomainError> {
+        async fn create(&self, cmd: CreateScene) -> Result<(Uuid, AggregateVersion), DomainError> {
             Ok((cmd.id, AggregateVersion::INITIAL))
         }
         async fn update_details(
             &self,
-            _cmd: breakdown_core::scene::commands::UpdateSceneDetails,
+            _cmd: UpdateSceneDetails,
         ) -> Result<AggregateVersion, DomainError> {
             Ok(AggregateVersion::INITIAL.next())
         }
         async fn assign_character(
             &self,
-            _cmd: breakdown_core::scene::commands::AssignCharacter,
+            _cmd: AssignCharacter,
         ) -> Result<AggregateVersion, DomainError> {
             Ok(AggregateVersion::INITIAL.next())
         }
         async fn remove_character(
             &self,
-            _cmd: breakdown_core::scene::commands::RemoveCharacter,
+            _cmd: RemoveCharacter,
         ) -> Result<AggregateVersion, DomainError> {
             Ok(AggregateVersion::INITIAL.next())
         }
@@ -645,19 +1078,19 @@ pub(crate) mod test_helpers {
     impl CharacterCommands for FakeCharacterCommands {
         async fn create(
             &self,
-            cmd: breakdown_core::character::commands::CreateCharacter,
+            cmd: CreateCharacter,
         ) -> Result<(Uuid, AggregateVersion), DomainError> {
             Ok((cmd.id, AggregateVersion::INITIAL))
         }
         async fn update_measurements(
             &self,
-            _cmd: breakdown_core::character::commands::UpdateMeasurements,
+            _cmd: UpdateMeasurements,
         ) -> Result<AggregateVersion, DomainError> {
             Ok(AggregateVersion::INITIAL.next())
         }
         async fn update_contact_info(
             &self,
-            _cmd: breakdown_core::character::commands::UpdateContactInfo,
+            _cmd: UpdateContactInfo,
         ) -> Result<AggregateVersion, DomainError> {
             Ok(AggregateVersion::INITIAL.next())
         }
@@ -669,98 +1102,77 @@ pub(crate) mod test_helpers {
     impl CostumeCommands for FakeCostumeCommands {
         async fn create(
             &self,
-            cmd: breakdown_core::costume::commands::CreateCostume,
+            cmd: CreateCostume,
         ) -> Result<(Uuid, AggregateVersion), DomainError> {
             Ok((cmd.id, AggregateVersion::INITIAL))
         }
         async fn update_notes(
             &self,
-            _cmd: breakdown_core::costume::commands::UpdateCostumeNotes,
+            _cmd: UpdateCostumeNotes,
         ) -> Result<AggregateVersion, DomainError> {
             Ok(AggregateVersion::INITIAL.next())
         }
         async fn assign_to_character(
             &self,
-            _cmd: breakdown_core::costume::commands::AssignCostumeToCharacter,
+            _cmd: AssignCostumeToCharacter,
         ) -> Result<AggregateVersion, DomainError> {
             Ok(AggregateVersion::INITIAL.next())
         }
-        async fn unassign(
-            &self,
-            _cmd: breakdown_core::costume::commands::UnassignCostume,
-        ) -> Result<AggregateVersion, DomainError> {
+        async fn unassign(&self, _cmd: UnassignCostume) -> Result<AggregateVersion, DomainError> {
             Ok(AggregateVersion::INITIAL.next())
         }
-        async fn add_detail(
-            &self,
-            _cmd: breakdown_core::costume::commands::AddDetail,
-        ) -> Result<AggregateVersion, DomainError> {
+        async fn add_detail(&self, _cmd: AddDetail) -> Result<AggregateVersion, DomainError> {
             Ok(AggregateVersion::INITIAL.next())
         }
-        async fn remove_detail(
-            &self,
-            _cmd: breakdown_core::costume::commands::RemoveDetail,
-        ) -> Result<AggregateVersion, DomainError> {
+        async fn remove_detail(&self, _cmd: RemoveDetail) -> Result<AggregateVersion, DomainError> {
             Ok(AggregateVersion::INITIAL.next())
         }
-        async fn link_photo(
-            &self,
-            _cmd: breakdown_core::costume::commands::LinkPhoto,
-        ) -> Result<AggregateVersion, DomainError> {
+        async fn link_photo(&self, _cmd: LinkPhoto) -> Result<AggregateVersion, DomainError> {
             Ok(AggregateVersion::INITIAL.next())
         }
-        async fn unlink_photo(
+        async fn unlink_photo(&self, _cmd: UnlinkPhoto) -> Result<AggregateVersion, DomainError> {
+            Ok(AggregateVersion::INITIAL.next())
+        }
+    }
+
+    #[derive(Clone, Default)]
+    pub(crate) struct FakeSeasonCommands;
+
+    impl SeasonCommands for FakeSeasonCommands {
+        async fn create(&self, cmd: CreateSeason) -> Result<(Uuid, AggregateVersion), DomainError> {
+            Ok((cmd.id, AggregateVersion::INITIAL))
+        }
+        async fn rename(&self, _cmd: RenameSeason) -> Result<AggregateVersion, DomainError> {
+            Ok(AggregateVersion::INITIAL.next())
+        }
+    }
+
+    #[derive(Clone, Default)]
+    pub(crate) struct FakeBlockCommands;
+
+    impl BlockCommands for FakeBlockCommands {
+        async fn create(&self, cmd: CreateBlock) -> Result<(Uuid, AggregateVersion), DomainError> {
+            Ok((cmd.id, AggregateVersion::INITIAL))
+        }
+        async fn update_time_span(
             &self,
-            _cmd: breakdown_core::costume::commands::UnlinkPhoto,
+            _cmd: UpdateBlockTimeSpan,
         ) -> Result<AggregateVersion, DomainError> {
             Ok(AggregateVersion::INITIAL.next())
         }
     }
 
     #[derive(Clone, Default)]
-    pub(crate) struct FakeCalculationCommands;
+    pub(crate) struct FakeEpisodeCommands;
 
-    impl CalculationCommands for FakeCalculationCommands {
+    impl EpisodeCommands for FakeEpisodeCommands {
         async fn create(
             &self,
-            cmd: breakdown_core::calculation::commands::CreateCalculation,
+            cmd: CreateEpisode,
         ) -> Result<(Uuid, AggregateVersion), DomainError> {
             Ok((cmd.id, AggregateVersion::INITIAL))
         }
-        async fn update_header(
-            &self,
-            _cmd: breakdown_core::calculation::commands::UpdateHeaderInfo,
-        ) -> Result<AggregateVersion, DomainError> {
-            Ok(AggregateVersion::INITIAL.next())
-        }
-        async fn add_item(
-            &self,
-            _cmd: breakdown_core::calculation::commands::AddCalculationItem,
-        ) -> Result<AggregateVersion, DomainError> {
-            Ok(AggregateVersion::INITIAL.next())
-        }
-        async fn update_item(
-            &self,
-            _cmd: breakdown_core::calculation::commands::UpdateCalculationItem,
-        ) -> Result<AggregateVersion, DomainError> {
-            Ok(AggregateVersion::INITIAL.next())
-        }
-        async fn remove_item(
-            &self,
-            _cmd: breakdown_core::calculation::commands::RemoveCalculationItem,
-        ) -> Result<AggregateVersion, DomainError> {
-            Ok(AggregateVersion::INITIAL.next())
-        }
-        async fn mark_item_paid(
-            &self,
-            _cmd: breakdown_core::calculation::commands::MarkItemAsPaid,
-        ) -> Result<AggregateVersion, DomainError> {
-            Ok(AggregateVersion::INITIAL.next())
-        }
-        async fn mark_item_unpaid(
-            &self,
-            _cmd: breakdown_core::calculation::commands::MarkItemAsUnpaid,
-        ) -> Result<AggregateVersion, DomainError> {
+        async fn rename(&self, _cmd: RenameEpisode) -> Result<AggregateVersion, DomainError> {
             Ok(AggregateVersion::INITIAL.next())
         }
     }
@@ -787,9 +1199,9 @@ pub(crate) mod test_helpers {
                 .cloned()
                 .ok_or_else(|| DomainError::NotFound(format!("Scene({id})")))
         }
-        async fn list_by_project(
+        async fn list_by_episode(
             &self,
-            _project_id: ProjectId,
+            _episode_id: EpisodeId,
             _limit: i64,
             _offset: i64,
         ) -> Result<Vec<SceneView>, DomainError> {
@@ -810,12 +1222,24 @@ pub(crate) mod test_helpers {
         async fn find_by_id(&self, id: Uuid) -> Result<CharacterView, DomainError> {
             Err(DomainError::NotFound(format!("Character({id})")))
         }
-        async fn list_by_project(
+        async fn list_by_season(
             &self,
-            _project_id: ProjectId,
+            _season_id: SeasonId,
             _limit: i64,
             _offset: i64,
         ) -> Result<Vec<CharacterView>, DomainError> {
+            Ok(Vec::new())
+        }
+        async fn list_by_season_and_category(
+            &self,
+            _season_id: SeasonId,
+            _category: CharacterCategory,
+            _limit: i64,
+            _offset: i64,
+        ) -> Result<Vec<CharacterView>, DomainError> {
+            Ok(Vec::new())
+        }
+        async fn appearances(&self, _character_id: Uuid) -> Result<Vec<EpisodeId>, DomainError> {
             Ok(Vec::new())
         }
     }
@@ -827,9 +1251,9 @@ pub(crate) mod test_helpers {
         async fn find_by_id(&self, id: Uuid) -> Result<CostumeView, DomainError> {
             Err(DomainError::NotFound(format!("Costume({id})")))
         }
-        async fn list_by_project(
+        async fn list_by_season(
             &self,
-            _project_id: ProjectId,
+            _season_id: SeasonId,
             _limit: i64,
             _offset: i64,
         ) -> Result<Vec<CostumeView>, DomainError> {
@@ -847,22 +1271,82 @@ pub(crate) mod test_helpers {
     }
 
     #[derive(Clone, Default)]
-    pub(crate) struct FakeCalculationRepo;
+    pub(crate) struct FakeSeasonRepo;
 
-    impl CalculationRepository for FakeCalculationRepo {
-        async fn find_by_id(&self, id: Uuid) -> Result<CalculationView, DomainError> {
-            Err(DomainError::NotFound(format!("Calculation({id})")))
+    impl SeasonRepository for FakeSeasonRepo {
+        async fn find_by_id(&self, id: Uuid) -> Result<SeasonView, DomainError> {
+            Err(DomainError::NotFound(format!("Season({id})")))
         }
-        async fn list_by_project(
+        async fn list_by_series(
             &self,
-            _project_id: ProjectId,
+            _series_id: SeriesId,
             _limit: i64,
             _offset: i64,
-        ) -> Result<Vec<CalculationView>, DomainError> {
+        ) -> Result<Vec<SeasonView>, DomainError> {
             Ok(Vec::new())
         }
-        async fn calculation_with_items(&self, id: Uuid) -> Result<CalculationView, DomainError> {
-            Err(DomainError::NotFound(format!("Calculation({id})")))
+        async fn find_by_series_and_number(
+            &self,
+            _series_id: SeriesId,
+            _number: i32,
+        ) -> Result<Option<SeasonView>, DomainError> {
+            Ok(None)
+        }
+    }
+
+    #[derive(Clone, Default)]
+    pub(crate) struct FakeBlockRepo;
+
+    impl BlockRepository for FakeBlockRepo {
+        async fn find_by_id(&self, id: Uuid) -> Result<BlockView, DomainError> {
+            Err(DomainError::NotFound(format!("Block({id})")))
+        }
+        async fn list_by_season(
+            &self,
+            _season_id: SeasonId,
+            _limit: i64,
+            _offset: i64,
+        ) -> Result<Vec<BlockView>, DomainError> {
+            Ok(Vec::new())
+        }
+        async fn find_by_series_and_number(
+            &self,
+            _series_id: SeriesId,
+            _number: i32,
+        ) -> Result<Option<BlockView>, DomainError> {
+            Ok(None)
+        }
+    }
+
+    #[derive(Clone, Default)]
+    pub(crate) struct FakeEpisodeRepo;
+
+    impl EpisodeRepository for FakeEpisodeRepo {
+        async fn find_by_id(&self, id: Uuid) -> Result<EpisodeView, DomainError> {
+            Err(DomainError::NotFound(format!("Episode({id})")))
+        }
+        async fn list_by_block(
+            &self,
+            _block_id: BlockId,
+            _limit: i64,
+            _offset: i64,
+        ) -> Result<Vec<EpisodeView>, DomainError> {
+            Ok(Vec::new())
+        }
+        async fn list_by_series(
+            &self,
+            _series_id: SeriesId,
+            _limit: i64,
+            _offset: i64,
+        ) -> Result<Vec<EpisodeView>, DomainError> {
+            Ok(Vec::new())
+        }
+        async fn find_by_series_and_number(
+            &self,
+            _series_id: SeriesId,
+            _number: i32,
+        ) -> Result<Option<EpisodeView>, DomainError> {
+            Ok(None)
         }
     }
 
@@ -874,8 +1358,12 @@ pub(crate) mod test_helpers {
         pub(crate) character_repo: FakeCharacterRepo,
         pub(crate) costume_commands: FakeCostumeCommands,
         pub(crate) costume_repo: FakeCostumeRepo,
-        pub(crate) calculation_commands: FakeCalculationCommands,
-        pub(crate) calculation_repo: FakeCalculationRepo,
+        pub(crate) season_commands: FakeSeasonCommands,
+        pub(crate) season_repo: FakeSeasonRepo,
+        pub(crate) block_commands: FakeBlockCommands,
+        pub(crate) block_repo: FakeBlockRepo,
+        pub(crate) episode_commands: FakeEpisodeCommands,
+        pub(crate) episode_repo: FakeEpisodeRepo,
     }
 
     impl Ports for FakePorts {
@@ -885,8 +1373,12 @@ pub(crate) mod test_helpers {
         type CharacterRepo = FakeCharacterRepo;
         type CostumeCommands = FakeCostumeCommands;
         type CostumeRepo = FakeCostumeRepo;
-        type CalculationCommands = FakeCalculationCommands;
-        type CalculationRepo = FakeCalculationRepo;
+        type SeasonCommands = FakeSeasonCommands;
+        type SeasonRepo = FakeSeasonRepo;
+        type BlockCommands = FakeBlockCommands;
+        type BlockRepo = FakeBlockRepo;
+        type EpisodeCommands = FakeEpisodeCommands;
+        type EpisodeRepo = FakeEpisodeRepo;
 
         fn scene_commands(&self) -> &Self::SceneCommands {
             &self.scene_commands
@@ -906,11 +1398,23 @@ pub(crate) mod test_helpers {
         fn costume_repo(&self) -> &Self::CostumeRepo {
             &self.costume_repo
         }
-        fn calculation_commands(&self) -> &Self::CalculationCommands {
-            &self.calculation_commands
+        fn season_commands(&self) -> &Self::SeasonCommands {
+            &self.season_commands
         }
-        fn calculation_repo(&self) -> &Self::CalculationRepo {
-            &self.calculation_repo
+        fn season_repo(&self) -> &Self::SeasonRepo {
+            &self.season_repo
+        }
+        fn block_commands(&self) -> &Self::BlockCommands {
+            &self.block_commands
+        }
+        fn block_repo(&self) -> &Self::BlockRepo {
+            &self.block_repo
+        }
+        fn episode_commands(&self) -> &Self::EpisodeCommands {
+            &self.episode_commands
+        }
+        fn episode_repo(&self) -> &Self::EpisodeRepo {
+            &self.episode_repo
         }
     }
 }
@@ -920,8 +1424,9 @@ mod scene_tests {
     use axum::Json;
     use axum::extract::State;
     use axum::http::StatusCode;
+    use breakdown_core::scene::events::SceneDetails;
     use breakdown_core::scene::views::SceneView;
-    use breakdown_core::shared::{AggregateVersion, ProjectId};
+    use breakdown_core::shared::{AggregateVersion, EpisodeId};
     use chrono::Utc;
     use uuid::Uuid;
 
@@ -933,8 +1438,8 @@ mod scene_tests {
     async fn create_scene_returns_201_with_id_and_version() {
         let state = AppState::new(FakePorts::default());
         let req = CreateSceneRequest {
-            project_id: ProjectId::new(),
-            details: breakdown_core::scene::events::SceneDetails::default(),
+            episode_id: EpisodeId::new(),
+            details: SceneDetails::default(),
         };
 
         let result = create_scene(State(state), Json(req)).await;
@@ -951,7 +1456,7 @@ mod scene_tests {
         let scene_id = Uuid::now_v7();
         let view = SceneView {
             id: scene_id,
-            project_id: ProjectId::new(),
+            episode_id: EpisodeId::new(),
             scene_number: None,
             location: None,
             mood: None,
@@ -989,21 +1494,10 @@ mod scene_tests {
 
 #[cfg(test)]
 mod character_tests {
-    // TODO: Add character handler tests here.
-    // Tests from the original tests.rs were only for scene handlers.
-    // Character handler tests should be added as new tests.
+    // Character handler unit tests can be added here (mirroring scene_tests).
 }
 
 #[cfg(test)]
 mod costume_tests {
-    // TODO: Add costume handler tests here.
-    // Tests from the original tests.rs were only for scene handlers.
-    // Costume handler tests should be added as new tests.
-}
-
-#[cfg(test)]
-mod calculation_tests {
-    // TODO: Add calculation handler tests here.
-    // Tests from the original tests.rs were only for scene handlers.
-    // Calculation handler tests should be added as new tests.
+    // Costume handler unit tests can be added here (mirroring scene_tests).
 }

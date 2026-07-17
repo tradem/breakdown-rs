@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
 
-//! Scene aggregate.
+//! Scene aggregate using `kameo_es` event-sourced actor pattern.
 
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, ProjectId};
+use crate::shared::{AggregateVersion, EpisodeId};
 
 use super::commands::{AssignCharacter, CreateScene, RemoveCharacter, UpdateSceneDetails};
 use super::error::SceneError;
@@ -15,10 +15,13 @@ use super::events::SceneEvent;
 use crate::scene::events::SceneDetails;
 
 /// State persisted by the Scene aggregate.
+///
+/// A Scene references exactly one `EpisodeId` (the work-unit scope). It does
+/// NOT carry any production-level scope (Series/Season/Block) directly.
 #[derive(Debug, Clone, Default)]
 pub struct SceneAggregate {
     pub id: Uuid,
-    pub project_id: ProjectId,
+    pub episode_id: EpisodeId,
     pub details: SceneDetails,
     pub assigned_characters: Vec<Uuid>,
     pub version: AggregateVersion,
@@ -41,13 +44,13 @@ impl Apply for SceneAggregate {
         match event {
             SceneEvent::SceneCreated {
                 id,
-                project_id,
+                episode_id,
                 details,
                 assigned_characters,
                 version,
             } => {
                 self.id = id;
-                self.project_id = project_id;
+                self.episode_id = episode_id;
                 self.details = details;
                 self.assigned_characters = assigned_characters;
                 self.version = version;
@@ -91,7 +94,7 @@ impl Command<CreateScene> for SceneAggregate {
     ) -> Result<Vec<Self::Event>, Self::Error> {
         Ok(vec![SceneEvent::SceneCreated {
             id: cmd.id,
-            project_id: cmd.project_id,
+            episode_id: cmd.episode_id,
             details: cmd.details,
             assigned_characters: Vec::new(),
             version: AggregateVersion::INITIAL,
@@ -183,7 +186,7 @@ mod tests {
     use test_support::make_ctx;
 
     fn create_scene() -> SceneAggregate {
-        let pid = ProjectId::new();
+        let episode_id = EpisodeId::new();
         let details = SceneDetails {
             scene_number: Some(1),
             location: Some("Studio A".to_string()),
@@ -193,7 +196,7 @@ mod tests {
         let events = SceneAggregate::default().handle(
             CreateScene {
                 id: Uuid::now_v7(),
-                project_id: pid,
+                episode_id,
                 details: details.clone(),
             },
             make_ctx(),
@@ -204,7 +207,7 @@ mod tests {
             .handle(
                 CreateScene {
                     id: Uuid::now_v7(),
-                    project_id: pid,
+                    episode_id,
                     details,
                 },
                 make_ctx(),
@@ -216,7 +219,7 @@ mod tests {
 
     #[test]
     fn test_create_scene_success() {
-        let pid = ProjectId::new();
+        let episode_id = EpisodeId::new();
         let details = SceneDetails {
             scene_number: Some(5),
             location: Some("Berlin".into()),
@@ -226,7 +229,7 @@ mod tests {
         let result = SceneAggregate::default().handle(
             CreateScene {
                 id: Uuid::now_v7(),
-                project_id: pid,
+                episode_id,
                 details,
             },
             make_ctx(),
@@ -237,7 +240,7 @@ mod tests {
         match events.into_iter().next().unwrap() {
             SceneEvent::SceneCreated {
                 id,
-                project_id,
+                episode_id,
                 version,
                 assigned_characters,
                 ..
@@ -245,7 +248,7 @@ mod tests {
                 assert_ne!(id, Uuid::nil());
                 assert_eq!(version, AggregateVersion::INITIAL);
                 assert!(assigned_characters.is_empty());
-                assert_eq!(project_id, pid);
+                assert_eq!(episode_id, episode_id);
             }
             _ => panic!("Expected SceneCreated"),
         }

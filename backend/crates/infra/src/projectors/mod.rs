@@ -6,24 +6,30 @@
 //! Each projector has its own checkpoint row set inside `sierradb_event_checkpoints`
 //! and can fail/catch-up independently (ADR-015).
 
-mod calculation;
+mod block;
 mod character;
 mod costume;
+mod episode;
 mod scene;
+mod season;
 mod supervisor;
 
-pub use calculation::CalculationProjector;
+pub use block::BlockProjector;
 pub use character::CharacterProjector;
 pub use costume::CostumeProjector;
+pub use episode::EpisodeProjector;
 pub use scene::SceneProjector;
+pub use season::SeasonProjector;
 
 use std::sync::Arc;
 
 use anyhow::{self, Result};
-use breakdown_core::calculation::aggregate::CalculationAggregate;
+use breakdown_core::block::aggregate::BlockAggregate;
 use breakdown_core::character::aggregate::CharacterAggregate;
 use breakdown_core::costume::aggregate::CostumeAggregate;
+use breakdown_core::episode::aggregate::EpisodeAggregate;
 use breakdown_core::scene::aggregate::SceneAggregate;
+use breakdown_core::season::aggregate::SeasonAggregate;
 use kameo::actor::{ActorRef, Spawn};
 use kameo_es::event_handler::EventHandlerStreamBuilder;
 use kameo_es::event_handler::postgres::PostgresProcessor;
@@ -36,7 +42,9 @@ const CHECKPOINTS_TABLE: &str = "sierradb_event_checkpoints";
 type SceneProcessor = PostgresProcessor<(SceneAggregate,), SceneProjector>;
 type CharacterProcessor = PostgresProcessor<(CharacterAggregate,), CharacterProjector>;
 type CostumeProcessor = PostgresProcessor<(CostumeAggregate,), CostumeProjector>;
-type CalculationProcessor = PostgresProcessor<(CalculationAggregate,), CalculationProjector>;
+type SeasonProcessor = PostgresProcessor<(SeasonAggregate,), SeasonProjector>;
+type BlockProcessor = PostgresProcessor<(BlockAggregate,), BlockProjector>;
+type EpisodeProcessor = PostgresProcessor<(EpisodeAggregate,), EpisodeProjector>;
 
 /// Spawn a supervised projector subscription loop.
 ///
@@ -132,26 +140,59 @@ pub async fn spawn_costume_projector(
     Ok(actor_ref)
 }
 
-/// Spawn the calculation projector actor and start its subscription loop.
-pub async fn spawn_calculation_projector(
+/// Spawn the season projector actor and start its SierraDB subscription loop.
+pub async fn spawn_season_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
-) -> Result<ActorRef<CalculationProcessor>> {
+) -> Result<ActorRef<SeasonProcessor>> {
     let conn = redis_client.get_multiplexed_tokio_connection().await?;
-    let processor = CalculationProcessor::new(
+    let processor = SeasonProcessor::new(
         pool.clone(),
         conn,
         CHECKPOINTS_TABLE,
-        "calculation",
-        CalculationProjector,
+        "season",
+        SeasonProjector,
     )
     .await?;
-    let actor_ref = CalculationProcessor::spawn(processor);
-    run_projection_stream!(
-        CalculationAggregate,
-        "calculation",
-        redis_client,
-        actor_ref.clone()
-    )?;
+    let actor_ref = SeasonProcessor::spawn(processor);
+    run_projection_stream!(SeasonAggregate, "season", redis_client, actor_ref.clone())?;
+    Ok(actor_ref)
+}
+
+/// Spawn the block projector actor and start its SierraDB subscription loop.
+pub async fn spawn_block_projector(
+    pool: PgPool,
+    redis_client: Arc<RedisClient>,
+) -> Result<ActorRef<BlockProcessor>> {
+    let conn = redis_client.get_multiplexed_tokio_connection().await?;
+    let processor = BlockProcessor::new(
+        pool.clone(),
+        conn,
+        CHECKPOINTS_TABLE,
+        "block",
+        BlockProjector,
+    )
+    .await?;
+    let actor_ref = BlockProcessor::spawn(processor);
+    run_projection_stream!(BlockAggregate, "block", redis_client, actor_ref.clone())?;
+    Ok(actor_ref)
+}
+
+/// Spawn the episode projector actor and start its SierraDB subscription loop.
+pub async fn spawn_episode_projector(
+    pool: PgPool,
+    redis_client: Arc<RedisClient>,
+) -> Result<ActorRef<EpisodeProcessor>> {
+    let conn = redis_client.get_multiplexed_tokio_connection().await?;
+    let processor = EpisodeProcessor::new(
+        pool.clone(),
+        conn,
+        CHECKPOINTS_TABLE,
+        "episode",
+        EpisodeProjector,
+    )
+    .await?;
+    let actor_ref = EpisodeProcessor::spawn(processor);
+    run_projection_stream!(EpisodeAggregate, "episode", redis_client, actor_ref.clone())?;
     Ok(actor_ref)
 }

@@ -4,36 +4,44 @@
 //! Category D: Query-Repository integration tests.
 //!
 //! Exercise the read-model query implementations for Scene, Character, Costume,
-//! and Calculation across an empty → populated projection cycle.
+//! Season, Block and Episode across an empty → populated projection cycle.
 
 mod fixtures;
 
 use std::time::Duration;
 
 use anyhow::Result;
-use breakdown_core::calculation::commands::{AddCalculationItem, CreateCalculation};
-use breakdown_core::calculation::events::CalculationItem;
-use breakdown_core::calculation::ports::{CalculationCommands, CalculationRepository};
-use breakdown_core::character::commands::CreateCharacter;
+use breakdown_core::block::commands::CreateBlock;
+use breakdown_core::block::ports::{BlockCommands, BlockRepository};
+use breakdown_core::character::category::CharacterCategory;
+use breakdown_core::character::commands::{CreateCharacter, UpdateMeasurements};
+use breakdown_core::character::events::CharacterMeasurements;
 use breakdown_core::character::ports::{CharacterCommands, CharacterRepository};
-use breakdown_core::costume::commands::{AddDetail, CreateCostume};
+use breakdown_core::costume::commands::{AddDetail, AssignCostumeToCharacter, CreateCostume};
 use breakdown_core::costume::events::CostumeDetail;
 use breakdown_core::costume::ports::{CostumeCommands, CostumeRepository};
+use breakdown_core::episode::commands::CreateEpisode;
+use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::scene::commands::CreateScene;
 use breakdown_core::scene::events::SceneDetails;
 use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
-use breakdown_core::shared::ProjectId;
+use breakdown_core::season::commands::CreateSeason;
+use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
+use breakdown_core::shared::{BlockId, EpisodeId, SeasonId, SeriesId};
 use infra::event_store::{
-    CalculationCommandsImpl, CharacterCommandsImpl, CostumeCommandsImpl, SceneCommandsImpl,
+    BlockCommandsImpl, CharacterCommandsImpl, CostumeCommandsImpl, EpisodeCommandsImpl,
+    SceneCommandsImpl, SeasonCommandsImpl,
 };
 use infra::projectors::{
-    spawn_calculation_projector, spawn_character_projector, spawn_costume_projector,
-    spawn_scene_projector,
+    spawn_block_projector, spawn_character_projector, spawn_costume_projector,
+    spawn_episode_projector, spawn_scene_projector, spawn_season_projector,
 };
 use infra::queries::{
-    CalculationRepositoryImpl, CharacterRepositoryImpl, CostumeRepositoryImpl, SceneRepositoryImpl,
+    BlockRepositoryImpl, CharacterRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl,
+    SceneRepositoryImpl, SeasonRepositoryImpl,
 };
 use kameo_es::command_service::CommandService;
+use rust_decimal::Decimal;
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
@@ -45,7 +53,6 @@ fn pk_column_for(table: &str) -> &str {
     match table {
         "projection_scene_character" => "scene_id",
         "projection_costume_detail" | "projection_costume_photo" => "costume_id",
-        "projection_calculation_item" => "calculation_id",
         // All other major projection tables use `id` as primary key.
         _ => "id",
     }
@@ -127,11 +134,15 @@ async fn init() -> Result<(
     let r2 = sierra_client.clone();
     let r3 = sierra_client.clone();
     let r4 = sierra_client.clone();
+    let r5 = sierra_client.clone();
+    let r6 = sierra_client.clone();
 
-    let _sp = spawn_scene_projector(pool.clone(), r1).await?;
-    let _sp = spawn_character_projector(pool.clone(), r2).await?;
-    let _sp = spawn_costume_projector(pool.clone(), r3).await?;
-    let _sp = spawn_calculation_projector(pool.clone(), r4).await?;
+    let _sp = spawn_season_projector(pool.clone(), r1).await?;
+    let _sp = spawn_block_projector(pool.clone(), r2).await?;
+    let _sp = spawn_episode_projector(pool.clone(), r3).await?;
+    let _sp = spawn_scene_projector(pool.clone(), r4).await?;
+    let _sp = spawn_character_projector(pool.clone(), r5).await?;
+    let _sp = spawn_costume_projector(pool.clone(), r6).await?;
 
     // Give the supervisor background tasks a chance to enter their epoch loop
     // (tokio::spawn + first backoff + Redis subscription). In slow CI environments
@@ -148,9 +159,9 @@ async fn init() -> Result<(
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn scenes_by_project_returns_data() -> Result<()> {
+async fn scenes_by_episode_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
-    let project_id = ProjectId::new();
+    let episode_id = EpisodeId::new();
     let scene_repo = SceneRepositoryImpl::new(pool.clone());
     let scene_cmd = SceneCommandsImpl::new(cmd_svc);
 
@@ -158,7 +169,7 @@ async fn scenes_by_project_returns_data() -> Result<()> {
 
     let cmd = CreateScene {
         id: scene_id,
-        project_id,
+        episode_id,
         details: SceneDetails {
             scene_number: Some(1),
             location: Some("A".into()),
@@ -170,7 +181,7 @@ async fn scenes_by_project_returns_data() -> Result<()> {
 
     await_proj(&pool, "projection_scene", scene_id).await;
 
-    let scenes = scene_repo.list_by_project(project_id, 100, 0).await?;
+    let scenes = scene_repo.list_by_episode(episode_id, 100, 0).await?;
 
     assert!(
         !scenes.is_empty(),
@@ -184,9 +195,9 @@ async fn scenes_by_project_returns_data() -> Result<()> {
 }
 
 #[tokio::test]
-async fn characters_by_project_returns_data() -> Result<()> {
+async fn characters_by_season_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
-    let project_id = ProjectId::new();
+    let season_id = SeasonId::new();
     let char_repo = CharacterRepositoryImpl::new(pool.clone());
     let char_cmd = CharacterCommandsImpl::new(cmd_svc);
 
@@ -194,16 +205,15 @@ async fn characters_by_project_returns_data() -> Result<()> {
 
     let cmd = CreateCharacter {
         id: char_id,
-        project_id,
+        season_id,
         name: "Heroin".into(),
-        is_extra: false,
-        is_main_character: false,
+        category: CharacterCategory::MainCast,
     };
     char_cmd.create(cmd).await?;
 
     await_proj(&pool, "projection_character", char_id).await;
 
-    let chars = char_repo.list_by_project(project_id, 100, 0).await?;
+    let chars = char_repo.list_by_season(season_id, 100, 0).await?;
 
     assert!(
         !chars.is_empty(),
@@ -217,30 +227,46 @@ async fn characters_by_project_returns_data() -> Result<()> {
 }
 
 #[tokio::test]
-async fn costumes_by_project_returns_data() -> Result<()> {
+async fn costumes_by_season_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
-    let project_id = ProjectId::new();
-    let costume_repo = CostumeRepositoryImpl::new(pool.clone());
+    let season_id = SeasonId::new();
+    let char_cmd = CharacterCommandsImpl::new(cmd_svc.clone());
     let costume_cmd = CostumeCommandsImpl::new(cmd_svc);
+    let costume_repo = CostumeRepositoryImpl::new(pool.clone());
+
+    // A costume is only visible via `list_by_season` once it is bound to a
+    // character in that season (the query joins through `character_id`).
+    let char_id = Uuid::now_v7();
+    char_cmd
+        .create(CreateCharacter {
+            id: char_id,
+            season_id,
+            name: "Wearer".into(),
+            category: CharacterCategory::MainCast,
+        })
+        .await?;
+    await_proj(&pool, "projection_character", char_id).await;
 
     let costume_id = Uuid::now_v7();
-
-    let cmd = CreateCostume {
-        id: costume_id,
-        project_id,
-    };
-    costume_cmd.create(cmd).await?;
-
+    let (_id, ver) = costume_cmd.create(CreateCostume { id: costume_id }).await?;
     await_proj(&pool, "projection_costume", costume_id).await;
 
-    let costumes = costume_repo.list_by_project(project_id, 100, 0).await?;
+    costume_cmd
+        .assign_to_character(AssignCostumeToCharacter {
+            id: costume_id,
+            character_id: char_id,
+            version: ver,
+        })
+        .await?;
+    await_proj_version(&pool, "projection_costume", costume_id, ver.0 + 1).await;
+
+    let costumes = costume_repo.list_by_season(season_id, 100, 0).await?;
 
     assert!(
         !costumes.is_empty(),
         "expected at least 1 costume, got {}",
         costumes.len()
     );
-
     assert!(costumes.iter().any(|c| c.id == costume_id));
 
     Ok(())
@@ -254,10 +280,7 @@ async fn costumes_with_details_returns_data() -> Result<()> {
 
     let costume_id = Uuid::now_v7();
 
-    let cmd = CreateCostume {
-        id: costume_id,
-        project_id: ProjectId::new(),
-    };
+    let cmd = CreateCostume { id: costume_id };
     let (_id, ver) = costume_cmd.create(cmd).await?;
 
     await_proj(&pool, "projection_costume", costume_id).await;
@@ -282,75 +305,120 @@ async fn costumes_with_details_returns_data() -> Result<()> {
 }
 
 #[tokio::test]
-async fn calculations_with_items_returns_data() -> Result<()> {
+async fn seasons_by_series_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
-    let calc_repo = CalculationRepositoryImpl::new(pool.clone());
-    let calc_cmd = CalculationCommandsImpl::new(cmd_svc);
+    let series_id = SeriesId::new();
+    let season_repo = SeasonRepositoryImpl::new(pool.clone());
+    let season_cmd = SeasonCommandsImpl::new(cmd_svc);
 
-    let calc_id = Uuid::now_v7();
-
-    let cmd = CreateCalculation {
-        id: calc_id,
-        project_id: ProjectId::new(),
-    };
-    calc_cmd.create(cmd).await?;
-
-    await_proj(&pool, "projection_calculation", calc_id).await;
-
-    // Add an item
-    let item_id = Uuid::now_v7();
-    let ver2 = calc_cmd
-        .add_item(AddCalculationItem {
-            id: calc_id,
-            item: CalculationItem {
-                id: item_id,
-                name: "Item 1".into(),
-                quantity: rust_decimal::Decimal::ONE,
-                unit_price: rust_decimal::Decimal::ONE,
-                is_paid: false,
-            },
-            version: breakdown_core::shared::AggregateVersion(1),
+    let season_id = Uuid::now_v7();
+    season_cmd
+        .create(CreateSeason {
+            id: season_id,
+            series_id,
+            number: 2,
+            title: Some("S2".into()),
         })
         .await?;
+    await_proj(&pool, "projection_season", season_id).await;
 
-    await_proj_version(&pool, "projection_calculation", calc_id, ver2.0 as u64).await;
-    await_proj_version(&pool, "projection_calculation_item", calc_id, 0).await;
+    let seasons = season_repo.list_by_series(series_id, 100, 0).await?;
+    assert!(seasons.iter().any(|s| s.id == season_id));
 
-    let v = calc_repo.find_by_id(calc_id).await?;
-
-    assert!(
-        !v.items.is_empty(),
-        "expected at least 1 item, got {}",
-        v.items.len()
-    );
-
+    let found = season_repo.find_by_series_and_number(series_id, 2).await?;
+    assert_eq!(found.map(|s| s.id), Some(season_id));
     Ok(())
 }
 
 #[tokio::test]
-async fn calculations_by_project_returns_data() -> Result<()> {
+async fn blocks_by_season_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
-    let project_id = ProjectId::new();
-    let calc_repo = CalculationRepositoryImpl::new(pool.clone());
-    let calc_cmd = CalculationCommandsImpl::new(cmd_svc);
+    let season_id = SeasonId::new();
+    let series_id = SeriesId::new();
+    let block_repo = BlockRepositoryImpl::new(pool.clone());
+    let block_cmd = BlockCommandsImpl::new(cmd_svc);
 
-    let calc_id = Uuid::now_v7();
+    let block_id = Uuid::now_v7();
+    block_cmd
+        .create(CreateBlock {
+            id: block_id,
+            season_id,
+            series_id,
+            number: 4,
+            start_date: None,
+            end_date: None,
+        })
+        .await?;
+    await_proj(&pool, "projection_block", block_id).await;
 
-    let cmd = CreateCalculation {
-        id: calc_id,
-        project_id,
-    };
-    calc_cmd.create(cmd).await?;
+    let blocks = block_repo.list_by_season(season_id, 100, 0).await?;
+    assert!(blocks.iter().any(|b| b.id == block_id));
+    Ok(())
+}
 
-    await_proj(&pool, "projection_calculation", calc_id).await;
+#[tokio::test]
+async fn episodes_by_series_returns_data() -> Result<()> {
+    let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
+    let block_id = BlockId::new();
+    let series_id = SeriesId::new();
+    let episode_repo = EpisodeRepositoryImpl::new(pool.clone());
+    let episode_cmd = EpisodeCommandsImpl::new(cmd_svc);
 
-    let calcs = calc_repo.list_by_project(project_id, 100, 0).await?;
+    let episode_id = Uuid::now_v7();
+    episode_cmd
+        .create(CreateEpisode {
+            id: episode_id,
+            block_id,
+            series_id,
+            number: 9,
+            name: Some("E9".into()),
+        })
+        .await?;
+    await_proj(&pool, "projection_episode", episode_id).await;
 
-    assert!(
-        !calcs.is_empty(),
-        "expected at least 1 calculation, got {}",
-        calcs.len()
+    let episodes = episode_repo.list_by_series(series_id, 100, 0).await?;
+    assert!(episodes.iter().any(|e| e.id == episode_id));
+
+    let found = episode_repo.find_by_series_and_number(series_id, 9).await?;
+    assert_eq!(found.map(|e| e.id), Some(episode_id));
+    Ok(())
+}
+
+#[tokio::test]
+async fn character_measurements_persist() -> Result<()> {
+    let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
+    let season_id = SeasonId::new();
+    let char_cmd = CharacterCommandsImpl::new(cmd_svc);
+    let char_repo = CharacterRepositoryImpl::new(pool.clone());
+
+    let char_id = Uuid::now_v7();
+    let (_id, ver) = char_cmd
+        .create(CreateCharacter {
+            id: char_id,
+            season_id,
+            name: "Measured".into(),
+            category: CharacterCategory::Guest,
+        })
+        .await?;
+    await_proj(&pool, "projection_character", char_id).await;
+
+    let ver2 = char_cmd
+        .update_measurements(UpdateMeasurements {
+            id: char_id,
+            measurements: CharacterMeasurements {
+                height: Some(Decimal::from(180)),
+                weight: Some(Decimal::from(75)),
+                ..Default::default()
+            },
+            version: ver,
+        })
+        .await?;
+    assert!(ver2.0 > ver.0);
+
+    await_proj_version(&pool, "projection_character", char_id, ver2.0 as u64).await;
+    assert_eq!(
+        char_repo.find_by_id(char_id).await?.measurements.height,
+        Some(Decimal::from(180))
     );
-
     Ok(())
 }

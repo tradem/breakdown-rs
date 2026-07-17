@@ -11,7 +11,7 @@ use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, ProjectId};
+use crate::shared::{AggregateVersion, EpisodeId};
 
 /// Complete scene read model.
 ///
@@ -20,7 +20,7 @@ use crate::shared::{AggregateVersion, ProjectId};
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct SceneView {
     pub id: Uuid,
-    pub project_id: ProjectId,
+    pub episode_id: EpisodeId,
     pub scene_number: Option<u32>,
     pub location: Option<String>,
     pub mood: Option<String>,

@@ -6,15 +6,19 @@
 //! `AppState` is generic over a `Ports` implementation so that unit tests can
 //! substitute hand-written fakes without spinning up SierraDB or Postgres.
 
-use breakdown_core::calculation::{CalculationCommands, CalculationRepository};
+use breakdown_core::block::{BlockCommands, BlockRepository};
 use breakdown_core::character::{CharacterCommands, CharacterRepository};
 use breakdown_core::costume::{CostumeCommands, CostumeRepository};
+use breakdown_core::episode::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::scene::{SceneCommands, SceneRepository};
+use breakdown_core::season::{SeasonCommands, SeasonRepository};
 use infra::event_store::{
-    CalculationCommandsImpl, CharacterCommandsImpl, CostumeCommandsImpl, SceneCommandsImpl,
+    BlockCommandsImpl, CharacterCommandsImpl, CostumeCommandsImpl, EpisodeCommandsImpl,
+    SceneCommandsImpl, SeasonCommandsImpl,
 };
 use infra::queries::{
-    CalculationRepositoryImpl, CharacterRepositoryImpl, CostumeRepositoryImpl, SceneRepositoryImpl,
+    BlockRepositoryImpl, CharacterRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl,
+    SceneRepositoryImpl, SeasonRepositoryImpl,
 };
 
 /// The hexagonal seam surface used by API handlers. Production implements it
@@ -26,8 +30,12 @@ pub trait Ports: Clone + Send + Sync + 'static {
     type CharacterRepo: CharacterRepository;
     type CostumeCommands: CostumeCommands;
     type CostumeRepo: CostumeRepository;
-    type CalculationCommands: CalculationCommands;
-    type CalculationRepo: CalculationRepository;
+    type SeasonCommands: SeasonCommands;
+    type SeasonRepo: SeasonRepository;
+    type BlockCommands: BlockCommands;
+    type BlockRepo: BlockRepository;
+    type EpisodeCommands: EpisodeCommands;
+    type EpisodeRepo: EpisodeRepository;
 
     fn scene_commands(&self) -> &Self::SceneCommands;
     fn scene_repo(&self) -> &Self::SceneRepo;
@@ -35,8 +43,12 @@ pub trait Ports: Clone + Send + Sync + 'static {
     fn character_repo(&self) -> &Self::CharacterRepo;
     fn costume_commands(&self) -> &Self::CostumeCommands;
     fn costume_repo(&self) -> &Self::CostumeRepo;
-    fn calculation_commands(&self) -> &Self::CalculationCommands;
-    fn calculation_repo(&self) -> &Self::CalculationRepo;
+    fn season_commands(&self) -> &Self::SeasonCommands;
+    fn season_repo(&self) -> &Self::SeasonRepo;
+    fn block_commands(&self) -> &Self::BlockCommands;
+    fn block_repo(&self) -> &Self::BlockRepo;
+    fn episode_commands(&self) -> &Self::EpisodeCommands;
+    fn episode_repo(&self) -> &Self::EpisodeRepo;
 }
 
 /// Shared state handed to every Axum handler.
@@ -60,8 +72,12 @@ pub struct ProductionPorts {
     character_repo: CharacterRepositoryImpl,
     costume_commands: CostumeCommandsImpl,
     costume_repo: CostumeRepositoryImpl,
-    calculation_commands: CalculationCommandsImpl,
-    calculation_repo: CalculationRepositoryImpl,
+    season_commands: SeasonCommandsImpl,
+    season_repo: SeasonRepositoryImpl,
+    block_commands: BlockCommandsImpl,
+    block_repo: BlockRepositoryImpl,
+    episode_commands: EpisodeCommandsImpl,
+    episode_repo: EpisodeRepositoryImpl,
 }
 
 impl ProductionPorts {
@@ -73,8 +89,12 @@ impl ProductionPorts {
         character_repo: CharacterRepositoryImpl,
         costume_commands: CostumeCommandsImpl,
         costume_repo: CostumeRepositoryImpl,
-        calculation_commands: CalculationCommandsImpl,
-        calculation_repo: CalculationRepositoryImpl,
+        season_commands: SeasonCommandsImpl,
+        season_repo: SeasonRepositoryImpl,
+        block_commands: BlockCommandsImpl,
+        block_repo: BlockRepositoryImpl,
+        episode_commands: EpisodeCommandsImpl,
+        episode_repo: EpisodeRepositoryImpl,
     ) -> Self {
         Self {
             scene_commands,
@@ -83,8 +103,12 @@ impl ProductionPorts {
             character_repo,
             costume_commands,
             costume_repo,
-            calculation_commands,
-            calculation_repo,
+            season_commands,
+            season_repo,
+            block_commands,
+            block_repo,
+            episode_commands,
+            episode_repo,
         }
     }
 }
@@ -96,8 +120,12 @@ impl Ports for ProductionPorts {
     type CharacterRepo = CharacterRepositoryImpl;
     type CostumeCommands = CostumeCommandsImpl;
     type CostumeRepo = CostumeRepositoryImpl;
-    type CalculationCommands = CalculationCommandsImpl;
-    type CalculationRepo = CalculationRepositoryImpl;
+    type SeasonCommands = SeasonCommandsImpl;
+    type SeasonRepo = SeasonRepositoryImpl;
+    type BlockCommands = BlockCommandsImpl;
+    type BlockRepo = BlockRepositoryImpl;
+    type EpisodeCommands = EpisodeCommandsImpl;
+    type EpisodeRepo = EpisodeRepositoryImpl;
 
     fn scene_commands(&self) -> &Self::SceneCommands {
         &self.scene_commands
@@ -117,10 +145,22 @@ impl Ports for ProductionPorts {
     fn costume_repo(&self) -> &Self::CostumeRepo {
         &self.costume_repo
     }
-    fn calculation_commands(&self) -> &Self::CalculationCommands {
-        &self.calculation_commands
+    fn season_commands(&self) -> &Self::SeasonCommands {
+        &self.season_commands
     }
-    fn calculation_repo(&self) -> &Self::CalculationRepo {
-        &self.calculation_repo
+    fn season_repo(&self) -> &Self::SeasonRepo {
+        &self.season_repo
+    }
+    fn block_commands(&self) -> &Self::BlockCommands {
+        &self.block_commands
+    }
+    fn block_repo(&self) -> &Self::BlockRepo {
+        &self.block_repo
+    }
+    fn episode_commands(&self) -> &Self::EpisodeCommands {
+        &self.episode_commands
+    }
+    fn episode_repo(&self) -> &Self::EpisodeRepo {
+        &self.episode_repo
     }
 }

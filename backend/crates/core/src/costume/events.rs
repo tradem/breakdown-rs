@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, ProjectId};
+use crate::shared::AggregateVersion;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct CostumeDetail {
@@ -19,7 +19,6 @@ pub struct CostumeDetail {
 pub enum CostumeEvent {
     CostumeCreated {
         id: Uuid,
-        project_id: ProjectId,
         character_id: Option<Uuid>,
         notes: String,
         details: Vec<CostumeDetail>,

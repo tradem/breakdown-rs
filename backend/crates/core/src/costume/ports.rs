@@ -6,7 +6,7 @@
 use uuid::Uuid;
 
 use crate::error::DomainError;
-use crate::shared::{AggregateVersion, ProjectId};
+use crate::shared::{AggregateVersion, SeasonId};
 
 use super::commands::{
     AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto, RemoveDetail, UnassignCostume,
@@ -34,9 +34,9 @@ pub trait CostumeCommands: Send + Sync {
 #[allow(async_fn_in_trait)]
 pub trait CostumeRepository: Send + Sync {
     async fn find_by_id(&self, id: Uuid) -> Result<CostumeView, DomainError>;
-    async fn list_by_project(
+    async fn list_by_season(
         &self,
-        project_id: ProjectId,
+        season_id: SeasonId,
         limit: i64,
         offset: i64,
     ) -> Result<Vec<CostumeView>, DomainError>;

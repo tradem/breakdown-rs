@@ -5,10 +5,12 @@
 
 use thiserror::Error;
 
-use crate::calculation::error::CalculationError;
+use crate::block::error::BlockError;
 use crate::character::error::CharacterError;
 use crate::costume::error::CostumeError;
+use crate::episode::error::EpisodeError;
 use crate::scene::error::SceneError;
+use crate::season::error::SeasonError;
 use crate::shared::AggregateVersion;
 
 #[derive(Error, Debug, Clone, PartialEq)]
@@ -50,9 +52,6 @@ impl From<CharacterError> for DomainError {
         match err {
             CharacterError::ValidationError(msg) => DomainError::ValidationError(msg),
             CharacterError::NotFound { id } => DomainError::NotFound(format!("Character({id})")),
-            CharacterError::ProjectNotFound { id } => {
-                DomainError::NotFound(format!("Project({id})"))
-            }
         }
     }
 }
@@ -69,14 +68,29 @@ impl From<CostumeError> for DomainError {
     }
 }
 
-impl From<CalculationError> for DomainError {
-    fn from(err: CalculationError) -> Self {
+impl From<SeasonError> for DomainError {
+    fn from(err: SeasonError) -> Self {
         match err {
-            CalculationError::ValidationError(msg) => DomainError::ValidationError(msg),
-            CalculationError::ItemNotFound { id } => DomainError::NotFound(format!("Item({id})")),
-            CalculationError::NotFound { id } => {
-                DomainError::NotFound(format!("Calculation({id})"))
-            }
+            SeasonError::ValidationError(msg) => DomainError::ValidationError(msg),
+            SeasonError::NotFound { id } => DomainError::NotFound(format!("Season({id})")),
+        }
+    }
+}
+
+impl From<BlockError> for DomainError {
+    fn from(err: BlockError) -> Self {
+        match err {
+            BlockError::ValidationError(msg) => DomainError::ValidationError(msg),
+            BlockError::NotFound { id } => DomainError::NotFound(format!("Block({id})")),
+        }
+    }
+}
+
+impl From<EpisodeError> for DomainError {
+    fn from(err: EpisodeError) -> Self {
+        match err {
+            EpisodeError::ValidationError(msg) => DomainError::ValidationError(msg),
+            EpisodeError::NotFound { id } => DomainError::NotFound(format!("Episode({id})")),
         }
     }
 }

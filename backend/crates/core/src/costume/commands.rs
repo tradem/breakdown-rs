@@ -6,12 +6,11 @@
 use uuid::Uuid;
 
 use super::events::CostumeDetail;
-use crate::shared::{AggregateVersion, ProjectId};
+use crate::shared::AggregateVersion;
 
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct CreateCostume {
     pub id: Uuid,
-    pub project_id: ProjectId,
 }
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct UpdateCostumeNotes {

@@ -14,6 +14,14 @@ You are the primary coding agent for `breakdown-rs` – a collaborative costume 
 - **`crates/infra`:** Infrastructure implementations. Contains EventStore integrations, Projectors (Read-Model updaters), and `sqlx` queries.
 - **`crates/api`:** Axum web server. Translates HTTP requests to Core Commands (Write) or Infrastructure Queries (Read).
 
+### Production hierarchy (ADR: introduce-season-block-episode-hierarchy)
+The domain models a four-level production hierarchy:
+`Series` (opaque `SeriesId` only — no aggregate yet) → `Season` → `Block` → `Episode` → `Scene`.
+`Character` and `Costume` are scoped to a `Season` (`Character.season_id`) / scope-free (`Costume` is bound only to a `Character`).
+Core modules: `season`, `block`, `episode`, `scene`, `character`, `costume`, `shared`.
+The `calculation` context was removed; do not reintroduce it.
+`SeriesId` is an opaque UUIDv7 seam for a future additive `Series` aggregate — hierarchy entities reference it but no `Series` aggregate exists yet.
+
 ## 3. Workflow & Best Practices
 - **EventStorming Mapping:** 
   1. **Event** (Past tense, e.g., `SceneCreated`) -> `enum` in `core`

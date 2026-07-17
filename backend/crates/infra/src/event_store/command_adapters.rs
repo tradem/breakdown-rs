@@ -7,12 +7,9 @@
 //! `core` command into `SceneAggregate::execute(...)` / `ExpectedVersion` calls
 //! against SierraDB and maps the reply back to `DomainError`.
 
-use breakdown_core::calculation::aggregate::CalculationAggregate;
-use breakdown_core::calculation::commands::{
-    AddCalculationItem, CreateCalculation, MarkItemAsPaid, MarkItemAsUnpaid, RemoveCalculationItem,
-    UpdateCalculationItem, UpdateHeaderInfo,
-};
-use breakdown_core::calculation::ports::CalculationCommands;
+use breakdown_core::block::aggregate::BlockAggregate;
+use breakdown_core::block::commands::{CreateBlock, UpdateBlockTimeSpan};
+use breakdown_core::block::ports::BlockCommands;
 use breakdown_core::character::aggregate::CharacterAggregate;
 use breakdown_core::character::commands::{CreateCharacter, UpdateContactInfo, UpdateMeasurements};
 use breakdown_core::character::ports::CharacterCommands;
@@ -22,12 +19,18 @@ use breakdown_core::costume::commands::{
     UnlinkPhoto, UpdateCostumeNotes,
 };
 use breakdown_core::costume::ports::CostumeCommands;
+use breakdown_core::episode::aggregate::EpisodeAggregate;
+use breakdown_core::episode::commands::{CreateEpisode, RenameEpisode};
+use breakdown_core::episode::ports::EpisodeCommands;
 use breakdown_core::error::DomainError;
 use breakdown_core::scene::aggregate::SceneAggregate;
 use breakdown_core::scene::commands::{
     AssignCharacter, CreateScene, RemoveCharacter, UpdateSceneDetails,
 };
 use breakdown_core::scene::ports::SceneCommands;
+use breakdown_core::season::aggregate::SeasonAggregate;
+use breakdown_core::season::commands::{CreateSeason, RenameSeason};
+use breakdown_core::season::ports::SeasonCommands;
 use breakdown_core::shared::AggregateVersion;
 use kameo_es::command_service::{CommandService, ExecuteExt, ExecuteResult};
 use kameo_es::error::ExecuteError;
@@ -238,94 +241,99 @@ impl CostumeCommands for CostumeCommandsImpl {
     }
 }
 
-/// Command adapter for the Calculation aggregate.
+/// Command adapter for the Season aggregate.
 #[derive(Clone, Debug)]
-pub struct CalculationCommandsImpl {
+pub struct SeasonCommandsImpl {
     cmd_service: CommandService,
 }
 
-impl CalculationCommandsImpl {
+impl SeasonCommandsImpl {
     pub fn new(cmd_service: CommandService) -> Self {
         Self { cmd_service }
     }
 }
 
-impl CalculationCommands for CalculationCommandsImpl {
-    async fn create(
-        &self,
-        cmd: CreateCalculation,
-    ) -> Result<(Uuid, AggregateVersion), DomainError> {
+impl SeasonCommands for SeasonCommandsImpl {
+    async fn create(&self, cmd: CreateSeason) -> Result<(Uuid, AggregateVersion), DomainError> {
         let id = cmd.id;
-        let result = CalculationAggregate::execute(&self.cmd_service, id, cmd)
+        let result = SeasonAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Empty)
             .await;
         map_executed(id, result)
     }
 
-    async fn update_header(&self, cmd: UpdateHeaderInfo) -> Result<AggregateVersion, DomainError> {
+    async fn rename(&self, cmd: RenameSeason) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let result = CalculationAggregate::execute(&self.cmd_service, id, cmd)
+        let result = SeasonAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
             .await;
         map_version_only(result)
     }
+}
 
-    async fn add_item(&self, cmd: AddCalculationItem) -> Result<AggregateVersion, DomainError> {
+/// Command adapter for the Block aggregate.
+#[derive(Clone, Debug)]
+pub struct BlockCommandsImpl {
+    cmd_service: CommandService,
+}
+
+impl BlockCommandsImpl {
+    pub fn new(cmd_service: CommandService) -> Self {
+        Self { cmd_service }
+    }
+}
+
+impl BlockCommands for BlockCommandsImpl {
+    async fn create(&self, cmd: CreateBlock) -> Result<(Uuid, AggregateVersion), DomainError> {
         let id = cmd.id;
-        let version = cmd.version;
-        check_nonzero_version(version)?;
-        let result = CalculationAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+        let result = BlockAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Empty)
             .await;
-        map_version_only(result)
+        map_executed(id, result)
     }
 
-    async fn update_item(
+    async fn update_time_span(
         &self,
-        cmd: UpdateCalculationItem,
+        cmd: UpdateBlockTimeSpan,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let result = CalculationAggregate::execute(&self.cmd_service, id, cmd)
+        let result = BlockAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
             .await;
         map_version_only(result)
     }
+}
 
-    async fn remove_item(
-        &self,
-        cmd: RemoveCalculationItem,
-    ) -> Result<AggregateVersion, DomainError> {
+/// Command adapter for the Episode aggregate.
+#[derive(Clone, Debug)]
+pub struct EpisodeCommandsImpl {
+    cmd_service: CommandService,
+}
+
+impl EpisodeCommandsImpl {
+    pub fn new(cmd_service: CommandService) -> Self {
+        Self { cmd_service }
+    }
+}
+
+impl EpisodeCommands for EpisodeCommandsImpl {
+    async fn create(&self, cmd: CreateEpisode) -> Result<(Uuid, AggregateVersion), DomainError> {
         let id = cmd.id;
-        let version = cmd.version;
-        check_nonzero_version(version)?;
-        let result = CalculationAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+        let result = EpisodeAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Empty)
             .await;
-        map_version_only(result)
+        map_executed(id, result)
     }
 
-    async fn mark_item_paid(&self, cmd: MarkItemAsPaid) -> Result<AggregateVersion, DomainError> {
+    async fn rename(&self, cmd: RenameEpisode) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let result = CalculationAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
-            .await;
-        map_version_only(result)
-    }
-
-    async fn mark_item_unpaid(
-        &self,
-        cmd: MarkItemAsUnpaid,
-    ) -> Result<AggregateVersion, DomainError> {
-        let id = cmd.id;
-        let version = cmd.version;
-        check_nonzero_version(version)?;
-        let result = CalculationAggregate::execute(&self.cmd_service, id, cmd)
+        let result = EpisodeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
             .await;
         map_version_only(result)
@@ -518,7 +526,7 @@ mod adapter_mapping_tests {
     use super::*;
     use breakdown_core::scene::error::SceneError;
     use breakdown_core::scene::events::{SceneDetails, SceneEvent};
-    use breakdown_core::shared::ProjectId;
+    use breakdown_core::shared::EpisodeId;
     use chrono::Utc;
     use kameo_es::command_service::AppendedEvent;
 
@@ -527,7 +535,7 @@ mod adapter_mapping_tests {
         AppendedEvent {
             event: SceneEvent::SceneCreated {
                 id: Uuid::nil(),
-                project_id: ProjectId::new(),
+                episode_id: EpisodeId::new(),
                 details: SceneDetails::default(),
                 assigned_characters: Vec::new(),
                 version: AggregateVersion(1),

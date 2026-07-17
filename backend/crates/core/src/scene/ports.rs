@@ -10,7 +10,7 @@
 use uuid::Uuid;
 
 use crate::error::DomainError;
-use crate::shared::{AggregateVersion, ProjectId};
+use crate::shared::{AggregateVersion, EpisodeId};
 
 use super::commands::{AssignCharacter, CreateScene, RemoveCharacter, UpdateSceneDetails};
 use super::views::SceneView;
@@ -44,10 +44,10 @@ pub trait SceneRepository: Send + Sync {
     /// Fetch a single scene by id.
     async fn find_by_id(&self, id: Uuid) -> Result<SceneView, DomainError>;
 
-    /// Paginated list of scenes inside a project.
-    async fn list_by_project(
+    /// Paginated list of scenes inside an episode.
+    async fn list_by_episode(
         &self,
-        project_id: ProjectId,
+        episode_id: EpisodeId,
         limit: i64,
         offset: i64,
     ) -> Result<Vec<SceneView>, DomainError>;

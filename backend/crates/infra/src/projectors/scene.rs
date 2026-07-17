@@ -30,7 +30,7 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
         match event.data {
             SceneEvent::SceneCreated {
                 id,
-                project_id,
+                episode_id,
                 details,
                 assigned_characters,
                 version,
@@ -39,10 +39,10 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                 sqlx::query(
                     r#"
                     INSERT INTO projection_scene
-                        (id, project_id, scene_number, location, mood, is_schedule_set, version, updated_at)
+                        (id, episode_id, scene_number, location, mood, is_schedule_set, version, updated_at)
                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                     ON CONFLICT (id) DO UPDATE SET
-                        project_id = EXCLUDED.project_id,
+                        episode_id = EXCLUDED.episode_id,
                         scene_number = EXCLUDED.scene_number,
                         location = EXCLUDED.location,
                         mood = EXCLUDED.mood,
@@ -52,7 +52,7 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                     "#,
                 )
                 .bind(id)
-                .bind(project_id.0)
+                .bind(episode_id.0)
                 .bind(details.scene_number.map(|n| n as i32))
                 .bind(details.location)
                 .bind(details.mood)

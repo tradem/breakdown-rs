@@ -30,7 +30,6 @@ impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for Cos
         match event.data {
             CostumeEvent::CostumeCreated {
                 id,
-                project_id,
                 character_id,
                 notes,
                 details,
@@ -41,10 +40,9 @@ impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for Cos
                 sqlx::query(
                     r#"
                     INSERT INTO projection_costume
-                        (id, project_id, character_id, notes, version, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6)
+                        (id, character_id, notes, version, updated_at)
+                    VALUES ($1, $2, $3, $4, $5)
                     ON CONFLICT (id) DO UPDATE SET
-                        project_id = EXCLUDED.project_id,
                         character_id = EXCLUDED.character_id,
                         notes = EXCLUDED.notes,
                         version = EXCLUDED.version,
@@ -52,7 +50,6 @@ impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for Cos
                     "#,
                 )
                 .bind(id)
-                .bind(project_id.0)
                 .bind(character_id)
                 .bind(notes)
                 .bind(version)

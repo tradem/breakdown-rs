@@ -6,7 +6,7 @@
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, ProjectId};
+use crate::shared::AggregateVersion;
 
 use super::commands::*;
 use super::error::CostumeError;
@@ -16,7 +16,6 @@ use super::events::*;
 #[derive(Debug, Clone, Default)]
 pub struct CostumeAggregate {
     pub id: Uuid,
-    pub project_id: ProjectId,
     pub character_id: Option<Uuid>,
     pub notes: String,
     pub details: Vec<CostumeDetail>,
@@ -41,7 +40,6 @@ impl Apply for CostumeAggregate {
         match event {
             CostumeEvent::CostumeCreated {
                 id,
-                project_id,
                 character_id,
                 notes,
                 details,
@@ -49,7 +47,6 @@ impl Apply for CostumeAggregate {
                 version,
             } => {
                 self.id = id;
-                self.project_id = project_id;
                 self.character_id = character_id;
                 self.notes = notes;
                 self.details = details;
@@ -113,7 +110,6 @@ impl Command<CreateCostume> for CostumeAggregate {
     ) -> Result<Vec<Self::Event>, Self::Error> {
         Ok(vec![CostumeEvent::CostumeCreated {
             id: cmd.id,
-            project_id: cmd.project_id,
             character_id: None,
             notes: String::new(),
             details: Vec::new(),
@@ -295,16 +291,9 @@ mod tests {
     use test_support::make_ctx;
 
     fn make_costume() -> CostumeAggregate {
-        let pid = ProjectId::new();
         let agg = CostumeAggregate::default();
         let events = agg
-            .handle(
-                CreateCostume {
-                    id: Uuid::now_v7(),
-                    project_id: pid,
-                },
-                make_ctx(),
-            )
+            .handle(CreateCostume { id: Uuid::now_v7() }, make_ctx())
             .unwrap();
         let mut applied = CostumeAggregate::default();
         test_support::replay_events(&mut applied, events);
@@ -313,13 +302,8 @@ mod tests {
 
     #[test]
     fn test_create_costume_success() {
-        let result = CostumeAggregate::default().handle(
-            CreateCostume {
-                id: Uuid::now_v7(),
-                project_id: ProjectId::new(),
-            },
-            make_ctx(),
-        );
+        let result =
+            CostumeAggregate::default().handle(CreateCostume { id: Uuid::now_v7() }, make_ctx());
         assert!(result.is_ok());
         match result.unwrap().into_iter().next().unwrap() {
             CostumeEvent::CostumeCreated {
@@ -658,12 +642,10 @@ mod tests {
         use kameo_es::Metadata;
         let mut agg = CostumeAggregate::default();
         let id = Uuid::now_v7();
-        let project_id = ProjectId::new();
         let notes = "Silk lining needs repair".to_string();
         agg.apply(
             CostumeEvent::CostumeCreated {
                 id,
-                project_id,
                 character_id: None,
                 notes: notes.clone(),
                 details: Vec::new(),
@@ -685,13 +667,11 @@ mod tests {
         use kameo_es::Metadata;
         let mut agg = CostumeAggregate::default();
         let id = Uuid::now_v7();
-        let project_id = ProjectId::new();
         let photo_id = Uuid::now_v7();
         // Create costume with one linked photo.
         agg.apply(
             CostumeEvent::CostumeCreated {
                 id,
-                project_id,
                 character_id: None,
                 notes: String::new(),
                 details: Vec::new(),

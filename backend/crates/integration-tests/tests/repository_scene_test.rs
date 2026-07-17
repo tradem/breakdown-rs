@@ -5,7 +5,7 @@ mod fixtures;
 
 use anyhow::Result;
 use breakdown_core::scene::ports::SceneRepository;
-use breakdown_core::shared::{AggregateVersion, ProjectId};
+use breakdown_core::shared::{AggregateVersion, EpisodeId};
 use chrono::Timelike;
 use chrono::Utc;
 use infra::queries::SceneRepositoryImpl;
@@ -15,7 +15,7 @@ use uuid::Uuid;
 async fn scene_repository_returns_view_with_version_and_updated_at() -> Result<()> {
     let (pool, _container) = crate::fixtures::spawn_postgres().await?;
 
-    let project_id = ProjectId::new();
+    let episode_id = EpisodeId::new();
     let scene_id = Uuid::now_v7();
     let now = Utc::now();
     let updated_at = now
@@ -25,12 +25,12 @@ async fn scene_repository_returns_view_with_version_and_updated_at() -> Result<(
     sqlx::query(
         r#"
         INSERT INTO projection_scene
-            (id, project_id, scene_number, location, mood, is_schedule_set, version, updated_at)
+            (id, episode_id, scene_number, location, mood, is_schedule_set, version, updated_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         "#,
     )
     .bind(scene_id)
-    .bind(project_id.0)
+    .bind(episode_id.0)
     .bind(10_i32)
     .bind("Studio")
     .bind("Neutral")
@@ -44,7 +44,7 @@ async fn scene_repository_returns_view_with_version_and_updated_at() -> Result<(
     let view = repo.find_by_id(scene_id).await?;
 
     assert_eq!(view.id, scene_id);
-    assert_eq!(view.project_id, project_id);
+    assert_eq!(view.episode_id, episode_id);
     assert_eq!(view.scene_number, Some(10));
     assert_eq!(view.location, Some("Studio".into()));
     assert_eq!(view.mood, Some("Neutral".into()));

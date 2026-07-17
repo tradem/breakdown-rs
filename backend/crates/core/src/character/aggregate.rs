@@ -1,25 +1,28 @@
 // SPDX-License-Identifier: AGPL-3.0
-// Copyright (C) 2024 Breakdown RS Contributors
+// Copyright (C) 2024-2026 Breakdown RS Contributors
 
 //! Character aggregate using `kameo_es` event-sourced actor pattern.
 
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, ProjectId};
+use crate::shared::{AggregateVersion, SeasonId};
 
+use super::category::CharacterCategory;
 use super::commands::{CreateCharacter, UpdateContactInfo, UpdateMeasurements};
 use super::error::CharacterError;
 use super::events::{CharacterEvent, CharacterMeasurements, ContactInfo};
 
 /// State persisted by the Character aggregate.
+///
+/// A Character is scoped to exactly one `SeasonId`. Its role type is captured
+/// by a single exhaustive `CharacterCategory` enum (no boolean flags).
 #[derive(Debug, Clone, Default)]
 pub struct CharacterAggregate {
     pub id: Uuid,
-    pub project_id: ProjectId,
+    pub season_id: SeasonId,
     pub name: String,
-    pub is_extra: bool,
-    pub is_main_character: bool,
+    pub category: CharacterCategory,
     pub measurements: CharacterMeasurements,
     pub contact_info: ContactInfo,
     pub version: AggregateVersion,
@@ -42,19 +45,17 @@ impl Apply for CharacterAggregate {
         match event {
             CharacterEvent::CharacterCreated {
                 id,
-                project_id,
+                season_id,
                 name,
-                is_extra,
-                is_main_character,
+                category,
                 measurements,
                 contact_info,
                 version,
             } => {
                 self.id = id;
-                self.project_id = project_id;
+                self.season_id = season_id;
                 self.name = name;
-                self.is_extra = is_extra;
-                self.is_main_character = is_main_character;
+                self.category = category;
                 self.measurements = measurements;
                 self.contact_info = contact_info;
                 self.version = version;
@@ -95,10 +96,9 @@ impl Command<CreateCharacter> for CharacterAggregate {
         }
         Ok(vec![CharacterEvent::CharacterCreated {
             id: cmd.id,
-            project_id: cmd.project_id,
+            season_id: cmd.season_id,
             name: cmd.name,
-            is_extra: cmd.is_extra,
-            is_main_character: cmd.is_main_character,
+            category: cmd.category,
             measurements: CharacterMeasurements::default(),
             contact_info: ContactInfo::default(),
             version: AggregateVersion::INITIAL,
@@ -167,14 +167,13 @@ mod tests {
     use std::str::FromStr;
     use test_support::make_ctx;
 
-    fn create_character(name: &str) -> CharacterAggregate {
-        let project_id = ProjectId::new();
+    fn create_character(name: &str, category: CharacterCategory) -> CharacterAggregate {
+        let season_id = SeasonId::new();
         let cmd = CreateCharacter {
             id: Uuid::now_v7(),
-            project_id,
+            season_id,
             name: name.to_string(),
-            is_extra: false,
-            is_main_character: true,
+            category,
         };
         let events = CharacterAggregate::default()
             .handle(cmd, make_ctx())
@@ -186,13 +185,12 @@ mod tests {
 
     #[test]
     fn test_create_character_success() {
-        let project_id = ProjectId::new();
+        let season_id = SeasonId::new();
         let cmd = CreateCharacter {
             id: Uuid::now_v7(),
-            project_id,
+            season_id,
             name: "Hans Müller".to_string(),
-            is_extra: false,
-            is_main_character: true,
+            category: CharacterCategory::MainCast,
         };
         let result = CharacterAggregate::default().handle(cmd, make_ctx());
         assert!(result.is_ok());
@@ -200,15 +198,13 @@ mod tests {
         match evt {
             CharacterEvent::CharacterCreated {
                 name,
-                is_extra,
-                is_main_character,
+                category,
                 version,
                 id,
                 ..
             } => {
                 assert_eq!(name, "Hans Müller");
-                assert!(!is_extra);
-                assert!(is_main_character);
+                assert_eq!(category, CharacterCategory::MainCast);
                 assert_eq!(version, AggregateVersion::INITIAL);
                 assert_ne!(id, Uuid::nil());
             }
@@ -218,13 +214,12 @@ mod tests {
 
     #[test]
     fn test_create_character_empty_name() {
-        let project_id = ProjectId::new();
+        let season_id = SeasonId::new();
         let cmd = CreateCharacter {
             id: Uuid::now_v7(),
-            project_id,
+            season_id,
             name: String::new(),
-            is_extra: false,
-            is_main_character: false,
+            category: CharacterCategory::MainCast,
         };
         let result = CharacterAggregate::default().handle(cmd, make_ctx());
         assert!(result.is_err());
@@ -236,7 +231,7 @@ mod tests {
 
     #[test]
     fn test_update_measurements_success() {
-        let mut agg = create_character("Test");
+        let mut agg = create_character("Test", CharacterCategory::MainCast);
         let measurements = CharacterMeasurements {
             shoe_size: Some(Decimal::from_str("42").unwrap()),
             height: Some(Decimal::from_str("1.85").unwrap()),
@@ -264,7 +259,7 @@ mod tests {
 
     #[test]
     fn test_update_measurements_idempotency() {
-        let agg = create_character("Test");
+        let agg = create_character("Test", CharacterCategory::MainCast);
         let cmd = UpdateMeasurements {
             id: agg.id,
             measurements: agg.measurements.clone(),
@@ -280,7 +275,7 @@ mod tests {
 
     #[test]
     fn test_update_measurements_wrong_version() {
-        let agg = create_character("Test");
+        let agg = create_character("Test", CharacterCategory::MainCast);
         let cmd = UpdateMeasurements {
             id: agg.id,
             measurements: CharacterMeasurements {
@@ -299,7 +294,7 @@ mod tests {
 
     #[test]
     fn test_update_contact_info_success() {
-        let mut agg = create_character("Test");
+        let mut agg = create_character("Test", CharacterCategory::Guest);
         let contact = ContactInfo {
             phone: Some("+49 170 1234567".to_string()),
             email: Some("hans@example.de".to_string()),
@@ -317,7 +312,7 @@ mod tests {
 
     #[test]
     fn test_update_contact_info_idempotency() {
-        let agg = create_character("Test");
+        let agg = create_character("Test", CharacterCategory::Guest);
         let cmd = UpdateContactInfo {
             id: agg.id,
             contact_info: agg.contact_info.clone(),
@@ -333,7 +328,7 @@ mod tests {
 
     #[test]
     fn test_update_contact_info_wrong_version() {
-        let agg = create_character("Test");
+        let agg = create_character("Test", CharacterCategory::Guest);
         let cmd = UpdateContactInfo {
             id: agg.id,
             contact_info: ContactInfo {
@@ -360,14 +355,13 @@ mod tests {
         use kameo_es::Metadata;
         let mut agg = CharacterAggregate::default();
         let id = Uuid::now_v7();
-        let project_id = ProjectId::new();
+        let season_id = SeasonId::new();
         agg.apply(
             CharacterEvent::CharacterCreated {
                 id,
-                project_id,
+                season_id,
                 name: "Liese".into(),
-                is_extra: false,
-                is_main_character: true,
+                category: CharacterCategory::MainCast,
                 measurements: CharacterMeasurements::default(),
                 contact_info: ContactInfo::default(),
                 version: AggregateVersion::INITIAL,
@@ -376,8 +370,7 @@ mod tests {
         );
         assert_eq!(agg.name, "Liese", "apply() should set the character name");
         assert_eq!(agg.id, id, "apply() should set the character id");
-        assert!(!agg.is_extra);
-        assert!(agg.is_main_character);
+        assert_eq!(agg.category, CharacterCategory::MainCast);
         assert_eq!(agg.version, AggregateVersion::INITIAL);
     }
 
@@ -389,15 +382,14 @@ mod tests {
         let mut agg = CharacterAggregate::default();
         // Start with contact info set.
         let id = Uuid::now_v7();
-        let project_id = ProjectId::new();
+        let season_id = SeasonId::new();
         let phone = "+49 170 111".to_string();
         agg.apply(
             CharacterEvent::CharacterCreated {
                 id,
-                project_id,
+                season_id,
                 name: "Test".into(),
-                is_extra: false,
-                is_main_character: false,
+                category: CharacterCategory::MainCast,
                 measurements: CharacterMeasurements::default(),
                 contact_info: ContactInfo::default(),
                 version: AggregateVersion::INITIAL,

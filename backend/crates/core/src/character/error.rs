@@ -12,7 +12,4 @@ pub enum CharacterError {
 
     #[error("Entity not found: {id}")]
     NotFound { id: uuid::Uuid },
-
-    #[error("Project not found: {id}")]
-    ProjectNotFound { id: uuid::Uuid },
 }

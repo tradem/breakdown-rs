@@ -11,22 +11,25 @@ mod fixtures;
 use std::time::Duration;
 
 use anyhow::Result;
-use breakdown_core::calculation::commands::CreateCalculation;
-use breakdown_core::calculation::events::{CalculationHeader, CalculationItem};
-use breakdown_core::calculation::ports::{CalculationCommands, CalculationRepository};
+use breakdown_core::block::commands::CreateBlock;
+use breakdown_core::block::ports::{BlockCommands, BlockRepository};
+use breakdown_core::character::category::CharacterCategory;
 use breakdown_core::character::commands::{CreateCharacter, UpdateContactInfo, UpdateMeasurements};
 use breakdown_core::character::events::{CharacterMeasurements, ContactInfo};
 use breakdown_core::character::ports::{CharacterCommands, CharacterRepository};
 use breakdown_core::costume::commands::{AssignCostumeToCharacter, CreateCostume};
 use breakdown_core::costume::events::CostumeDetail;
 use breakdown_core::costume::ports::{CostumeCommands, CostumeRepository};
+use breakdown_core::episode::commands::CreateEpisode;
+use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::scene::commands::AssignCharacter;
 use breakdown_core::scene::events::SceneDetails;
 use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
-use breakdown_core::shared::ProjectId;
+use breakdown_core::season::commands::CreateSeason;
+use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
+use breakdown_core::shared::{BlockId, EpisodeId, SeasonId, SeriesId};
 use kameo_es::command_service::CommandService;
 use rust_decimal::Decimal;
-use std::str::FromStr;
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
@@ -38,7 +41,6 @@ fn pk_column_for(table: &str) -> &str {
     match table {
         "projection_scene_character" => "scene_id",
         "projection_costume_detail" | "projection_costume_photo" => "costume_id",
-        "projection_calculation_item" => "calculation_id",
         // All other major projection tables use `id` as primary key.
         _ => "id",
     }
@@ -123,11 +125,15 @@ async fn init() -> Result<(
     let r2 = sierra_client.clone();
     let r3 = sierra_client.clone();
     let r4 = sierra_client.clone();
+    let r5 = sierra_client.clone();
+    let r6 = sierra_client.clone();
 
-    let _sp = infra::projectors::spawn_scene_projector(pool.clone(), r1).await?;
-    let _sp = infra::projectors::spawn_character_projector(pool.clone(), r2).await?;
-    let _sp = infra::projectors::spawn_costume_projector(pool.clone(), r3).await?;
-    let _sp = infra::projectors::spawn_calculation_projector(pool.clone(), r4).await?;
+    let _sp = infra::projectors::spawn_season_projector(pool.clone(), r1).await?;
+    let _sp = infra::projectors::spawn_block_projector(pool.clone(), r2).await?;
+    let _sp = infra::projectors::spawn_episode_projector(pool.clone(), r3).await?;
+    let _sp = infra::projectors::spawn_scene_projector(pool.clone(), r4).await?;
+    let _sp = infra::projectors::spawn_character_projector(pool.clone(), r5).await?;
+    let _sp = infra::projectors::spawn_costume_projector(pool.clone(), r6).await?;
 
     // Give the supervisor background tasks a chance to enter their epoch loop
     // (tokio::spawn + first backoff + Redis subscription). In slow CI environments
@@ -149,11 +155,11 @@ async fn scene_create() -> Result<()> {
     let scene_repo = infra::queries::SceneRepositoryImpl::new(pool.clone());
 
     let scene_id = Uuid::now_v7();
-    let pid = ProjectId::new();
+    let episode_id = EpisodeId::new();
 
     let cmd = breakdown_core::scene::commands::CreateScene {
         id: scene_id,
-        project_id: pid,
+        episode_id,
         details: SceneDetails {
             scene_number: Some(42),
             location: Some("Berlin".into()),
@@ -184,7 +190,7 @@ async fn scene_update_details() -> Result<()> {
 
     let cmd = breakdown_core::scene::commands::CreateScene {
         id: scene_id,
-        project_id: ProjectId::new(),
+        episode_id: EpisodeId::new(),
         details: SceneDetails {
             scene_number: Some(1),
             location: Some("A".into()),
@@ -230,7 +236,7 @@ async fn scene_assign_remove_character() -> Result<()> {
 
     let cmd = breakdown_core::scene::commands::CreateScene {
         id: scene_id,
-        project_id: ProjectId::new(),
+        episode_id: EpisodeId::new(),
         details: SceneDetails {
             scene_number: Some(1),
             location: None,
@@ -284,10 +290,9 @@ async fn character_create() -> Result<()> {
 
     let cmd = CreateCharacter {
         id: char_id,
-        project_id: ProjectId::new(),
+        season_id: SeasonId::new(),
         name: "Hero".into(),
-        is_extra: false,
-        is_main_character: true,
+        category: CharacterCategory::MainCast,
     };
 
     let (rid, rv) = char_cmd.create(cmd).await?;
@@ -311,10 +316,9 @@ async fn character_update_measurements() -> Result<()> {
 
     let cmd = CreateCharacter {
         id: char_id,
-        project_id: ProjectId::new(),
+        season_id: SeasonId::new(),
         name: "Test".into(),
-        is_extra: false,
-        is_main_character: false,
+        category: CharacterCategory::Guest,
     };
     let (_id, ver) = char_cmd.create(cmd).await?;
     await_proj(&pool, "projection_character", char_id).await;
@@ -348,10 +352,9 @@ async fn character_update_contact_info() -> Result<()> {
 
     let cmd = CreateCharacter {
         id: char_id,
-        project_id: ProjectId::new(),
+        season_id: SeasonId::new(),
         name: "Test".into(),
-        is_extra: false,
-        is_main_character: false,
+        category: CharacterCategory::Guest,
     };
     let (_id, ver) = char_cmd.create(cmd).await?;
     await_proj(&pool, "projection_character", char_id).await;
@@ -385,10 +388,7 @@ async fn costume_create() -> Result<()> {
 
     let costume_id = Uuid::now_v7();
 
-    let cmd = CreateCostume {
-        id: costume_id,
-        project_id: ProjectId::new(),
-    };
+    let cmd = CreateCostume { id: costume_id };
 
     let (rid, rv) = costume_cmd.create(cmd).await?;
     assert_ne!(rid, Uuid::nil());
@@ -410,10 +410,7 @@ async fn costume_notes() -> Result<()> {
 
     let costume_id = Uuid::now_v7();
 
-    let cmd = CreateCostume {
-        id: costume_id,
-        project_id: ProjectId::new(),
-    };
+    let cmd = CreateCostume { id: costume_id };
     let (_id, ver) = costume_cmd.create(cmd).await?;
     await_proj(&pool, "projection_costume", costume_id).await;
 
@@ -453,18 +450,14 @@ async fn costume_assign_unassign() -> Result<()> {
     char_cmd
         .create(CreateCharacter {
             id: char_id,
-            project_id: ProjectId::new(),
+            season_id: SeasonId::new(),
             name: "Wearer".into(),
-            is_extra: false,
-            is_main_character: false,
+            category: CharacterCategory::Guest,
         })
         .await?;
     await_proj(&pool, "projection_character", char_id).await;
 
-    let cmd = CreateCostume {
-        id: costume_id,
-        project_id: ProjectId::new(),
-    };
+    let cmd = CreateCostume { id: costume_id };
     let (_id, ver) = costume_cmd.create(cmd).await?;
     await_proj(&pool, "projection_costume", costume_id).await;
 
@@ -511,10 +504,7 @@ async fn costume_detail_add_remove() -> Result<()> {
     let costume_id = Uuid::now_v7();
     let detail_id = Uuid::now_v7();
 
-    let cmd = CreateCostume {
-        id: costume_id,
-        project_id: ProjectId::new(),
-    };
+    let cmd = CreateCostume { id: costume_id };
     let (_id, ver) = costume_cmd.create(cmd).await?;
     await_proj(&pool, "projection_costume", costume_id).await;
 
@@ -563,10 +553,7 @@ async fn costume_photo_link_unlink() -> Result<()> {
     let costume_id = Uuid::now_v7();
     let photo_id = Uuid::now_v7();
 
-    let cmd = CreateCostume {
-        id: costume_id,
-        project_id: ProjectId::new(),
-    };
+    let cmd = CreateCostume { id: costume_id };
     let (_id, ver) = costume_cmd.create(cmd).await?;
     await_proj(&pool, "projection_costume", costume_id).await;
 
@@ -598,257 +585,88 @@ async fn costume_photo_link_unlink() -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// Calculation
+// Production hierarchy (Series > Season > Block > Episode)
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn calculation_create() -> Result<()> {
+async fn season_create() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let calc_cmd = infra::event_store::CalculationCommandsImpl::new(cmd_svc);
-    let calc_repo = infra::queries::CalculationRepositoryImpl::new(pool.clone());
+    let season_cmd = infra::event_store::SeasonCommandsImpl::new(cmd_svc);
+    let season_repo = infra::queries::SeasonRepositoryImpl::new(pool.clone());
 
-    let calc_id = Uuid::now_v7();
-
-    let cmd = CreateCalculation {
-        id: calc_id,
-        project_id: ProjectId::new(),
+    let season_id = Uuid::now_v7();
+    let series_id = SeriesId::new();
+    let cmd = CreateSeason {
+        id: season_id,
+        series_id,
+        number: 1,
+        title: Some("Season One".into()),
     };
 
-    let (rid, rv) = calc_cmd.create(cmd).await?;
+    let (rid, rv) = season_cmd.create(cmd).await?;
     assert_ne!(rid, Uuid::nil());
-    assert_eq!(rid, calc_id);
+    assert_eq!(rid, season_id);
     assert!(rv.0 >= 1);
 
-    await_proj(&pool, "projection_calculation", calc_id).await;
-    let v = calc_repo.find_by_id(calc_id).await?;
-    assert_eq!(v.id, calc_id);
+    await_proj(&pool, "projection_season", season_id).await;
+    let v = season_repo.find_by_id(season_id).await?;
+    assert_eq!(v.number, 1);
+    assert_eq!(v.title, Some("Season One".into()));
     Ok(())
 }
 
 #[tokio::test]
-async fn calculation_add_item() -> Result<()> {
+async fn block_create() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let calc_cmd = infra::event_store::CalculationCommandsImpl::new(cmd_svc);
-    let calc_repo = infra::queries::CalculationRepositoryImpl::new(pool.clone());
+    let block_cmd = infra::event_store::BlockCommandsImpl::new(cmd_svc);
+    let block_repo = infra::queries::BlockRepositoryImpl::new(pool.clone());
 
-    let calc_id = Uuid::now_v7();
-    let item_id = Uuid::now_v7();
-
-    let cmd = CreateCalculation {
-        id: calc_id,
-        project_id: ProjectId::new(),
+    let block_id = Uuid::now_v7();
+    let season_id = SeasonId::new();
+    let series_id = SeriesId::new();
+    let cmd = CreateBlock {
+        id: block_id,
+        season_id,
+        series_id,
+        number: 3,
+        start_date: None,
+        end_date: None,
     };
-    let (_id, ver) = calc_cmd.create(cmd).await?;
-    await_proj(&pool, "projection_calculation", calc_id).await;
 
-    let ver2 = calc_cmd
-        .add_item(breakdown_core::calculation::commands::AddCalculationItem {
-            id: calc_id,
-            item: CalculationItem {
-                id: item_id,
-                name: "Makeup".into(),
-                quantity: Decimal::from_str("50").unwrap(),
-                unit_price: Decimal::from_str("10").unwrap(),
-                is_paid: false,
-            },
-            version: ver,
-        })
-        .await?;
-    assert!(ver2.0 > ver.0);
+    let (rid, rv) = block_cmd.create(cmd).await?;
+    assert_eq!(rid, block_id);
+    assert!(rv.0 >= 1);
 
-    await_proj_version(&pool, "projection_calculation", calc_id, ver2.0 as u64).await;
-    await_proj_version(&pool, "projection_calculation_item", calc_id, 0).await;
-    let v = calc_repo.find_by_id(calc_id).await?;
-    assert_eq!(v.items.len(), 1);
-    assert_eq!(v.items[0].name, "Makeup");
+    await_proj(&pool, "projection_block", block_id).await;
+    let v = block_repo.find_by_id(block_id).await?;
+    assert_eq!(v.number, 3);
     Ok(())
 }
 
 #[tokio::test]
-async fn calculation_remove_item() -> Result<()> {
+async fn episode_create() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let calc_cmd = infra::event_store::CalculationCommandsImpl::new(cmd_svc);
-    let calc_repo = infra::queries::CalculationRepositoryImpl::new(pool.clone());
+    let episode_cmd = infra::event_store::EpisodeCommandsImpl::new(cmd_svc);
+    let episode_repo = infra::queries::EpisodeRepositoryImpl::new(pool.clone());
 
-    let calc_id = Uuid::now_v7();
-    let item_id = Uuid::now_v7();
-
-    let cmd = CreateCalculation {
-        id: calc_id,
-        project_id: ProjectId::new(),
+    let episode_id = Uuid::now_v7();
+    let block_id = BlockId::new();
+    let series_id = SeriesId::new();
+    let cmd = CreateEpisode {
+        id: episode_id,
+        block_id,
+        series_id,
+        number: 7,
+        name: Some("Pilot".into()),
     };
-    let (_id, ver) = calc_cmd.create(cmd).await?;
-    await_proj(&pool, "projection_calculation", calc_id).await;
 
-    let ver2 = calc_cmd
-        .add_item(breakdown_core::calculation::commands::AddCalculationItem {
-            id: calc_id,
-            item: CalculationItem {
-                id: item_id,
-                name: "Props".into(),
-                quantity: Decimal::ONE,
-                unit_price: Decimal::ONE,
-                is_paid: false,
-            },
-            version: ver,
-        })
-        .await?;
-    await_proj_version(&pool, "projection_calculation", calc_id, ver2.0 as u64).await;
+    let (rid, rv) = episode_cmd.create(cmd).await?;
+    assert_eq!(rid, episode_id);
+    assert!(rv.0 >= 1);
 
-    let ver3 = calc_cmd
-        .remove_item(
-            breakdown_core::calculation::commands::RemoveCalculationItem {
-                id: calc_id,
-                item_id,
-                version: ver2,
-            },
-        )
-        .await?;
-    assert!(ver3.0 > ver2.0);
-
-    await_proj_version(&pool, "projection_calculation", calc_id, ver3.0 as u64).await;
-    assert!(calc_repo.find_by_id(calc_id).await?.items.is_empty());
-    Ok(())
-}
-
-#[tokio::test]
-async fn calculation_update_item() -> Result<()> {
-    let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let calc_cmd = infra::event_store::CalculationCommandsImpl::new(cmd_svc);
-    let calc_repo = infra::queries::CalculationRepositoryImpl::new(pool.clone());
-
-    let calc_id = Uuid::now_v7();
-    let item_id = Uuid::now_v7();
-
-    let cmd = CreateCalculation {
-        id: calc_id,
-        project_id: ProjectId::new(),
-    };
-    let (_id, ver) = calc_cmd.create(cmd).await?;
-
-    let ver2 = calc_cmd
-        .add_item(breakdown_core::calculation::commands::AddCalculationItem {
-            id: calc_id,
-            item: CalculationItem {
-                id: item_id,
-                name: "Props".into(),
-                quantity: Decimal::ONE,
-                unit_price: Decimal::ONE,
-                is_paid: false,
-            },
-            version: ver,
-        })
-        .await?;
-    await_proj_version(&pool, "projection_calculation", calc_id, ver2.0 as u64).await;
-
-    let ver3 = calc_cmd
-        .update_item(
-            breakdown_core::calculation::commands::UpdateCalculationItem {
-                id: calc_id,
-                item: CalculationItem {
-                    id: item_id,
-                    name: "Updated Props".into(),
-                    quantity: Decimal::from(2),
-                    unit_price: Decimal::from(10),
-                    is_paid: false,
-                },
-                version: ver2,
-            },
-        )
-        .await?;
-    assert!(ver3.0 > ver2.0);
-
-    await_proj_version(&pool, "projection_calculation", calc_id, ver3.0 as u64).await;
-    let v = calc_repo.find_by_id(calc_id).await?;
-    assert_eq!(v.items[0].name, "Updated Props");
-    Ok(())
-}
-
-#[tokio::test]
-async fn calculation_mark_paid_unpaid() -> Result<()> {
-    let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let calc_cmd = infra::event_store::CalculationCommandsImpl::new(cmd_svc);
-    let calc_repo = infra::queries::CalculationRepositoryImpl::new(pool.clone());
-
-    let calc_id = Uuid::now_v7();
-    let item_id = Uuid::now_v7();
-
-    let cmd = CreateCalculation {
-        id: calc_id,
-        project_id: ProjectId::new(),
-    };
-    let (_id, ver) = calc_cmd.create(cmd).await?;
-
-    let ver2 = calc_cmd
-        .add_item(breakdown_core::calculation::commands::AddCalculationItem {
-            id: calc_id,
-            item: CalculationItem {
-                id: item_id,
-                name: "Props".into(),
-                quantity: Decimal::ONE,
-                unit_price: Decimal::ONE,
-                is_paid: false,
-            },
-            version: ver,
-        })
-        .await?;
-    await_proj_version(&pool, "projection_calculation", calc_id, ver2.0 as u64).await;
-
-    let ver3 = calc_cmd
-        .mark_item_paid(breakdown_core::calculation::commands::MarkItemAsPaid {
-            id: calc_id,
-            item_id,
-            version: ver2,
-        })
-        .await?;
-    assert!(ver3.0 > ver2.0);
-
-    await_proj_version(&pool, "projection_calculation", calc_id, ver3.0 as u64).await;
-    assert!(calc_repo.find_by_id(calc_id).await?.items[0].is_paid);
-
-    let ver4 = calc_cmd
-        .mark_item_unpaid(breakdown_core::calculation::commands::MarkItemAsUnpaid {
-            id: calc_id,
-            item_id,
-            version: ver3,
-        })
-        .await?;
-    assert!(ver4.0 > ver3.0);
-
-    await_proj_version(&pool, "projection_calculation", calc_id, ver4.0 as u64).await;
-    assert!(!calc_repo.find_by_id(calc_id).await?.items[0].is_paid);
-    Ok(())
-}
-
-#[tokio::test]
-async fn calculation_update_header() -> Result<()> {
-    let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let calc_cmd = infra::event_store::CalculationCommandsImpl::new(cmd_svc);
-    let calc_repo = infra::queries::CalculationRepositoryImpl::new(pool.clone());
-
-    let calc_id = Uuid::now_v7();
-
-    let cmd = CreateCalculation {
-        id: calc_id,
-        project_id: ProjectId::new(),
-    };
-    let (_id, ver) = calc_cmd.create(cmd).await?;
-    await_proj(&pool, "projection_calculation", calc_id).await;
-
-    let ver2 = calc_cmd
-        .update_header(breakdown_core::calculation::commands::UpdateHeaderInfo {
-            id: calc_id,
-            header: CalculationHeader {
-                subjects: Some("Math".into()),
-                sender_name: Some("Alice".into()),
-                date: Some("2025-01-01".into()),
-            },
-            version: ver,
-        })
-        .await?;
-
-    await_proj_version(&pool, "projection_calculation", calc_id, ver2.0 as u64).await;
-    let v = calc_repo.find_by_id(calc_id).await?;
-    assert_eq!(v.header.subjects, Some("Math".into()));
+    await_proj(&pool, "projection_episode", episode_id).await;
+    let v = episode_repo.find_by_id(episode_id).await?;
+    assert_eq!(v.number, 7);
+    assert_eq!(v.name, Some("Pilot".into()));
     Ok(())
 }

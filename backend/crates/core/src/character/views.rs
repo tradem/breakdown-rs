@@ -8,8 +8,9 @@ use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, ProjectId};
+use crate::shared::{AggregateVersion, SeasonId};
 
+use super::category::CharacterCategory;
 use super::events::{CharacterMeasurements, ContactInfo};
 
 /// Complete character read model.
@@ -18,10 +19,9 @@ use super::events::{CharacterMeasurements, ContactInfo};
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct CharacterView {
     pub id: Uuid,
-    pub project_id: ProjectId,
+    pub season_id: SeasonId,
     pub name: String,
-    pub is_extra: bool,
-    pub is_main_character: bool,
+    pub category: CharacterCategory,
     pub measurements: CharacterMeasurements,
     pub contact: ContactInfo,
     /// Aggregate version for optimistic-locking round-trips.

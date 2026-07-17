@@ -1,25 +1,25 @@
 ## 1. Shared domain primitives
 
-- [ ] 1.1 Add `UserId` opaque value type to `crates/core/src/shared.rs`, mirroring `ProjectId` (UUIDv7-independent; wraps the OIDC `sub` string, `#[serde(transparent)]`, derives for `Serialize/Deserialize/ToSchema`).
+- [ ] 1.1 Add `UserId` opaque value type to `crates/core/src/shared.rs`, mirroring the existing value types (UUIDv7-independent; wraps the OIDC `sub` string, `#[serde(transparent)]`, derives for `Serialize/Deserialize/ToSchema`).
 - [ ] 1.2 Add unit tests for `UserId` construction and serialization parity with the IdP `sub` claim.
 
 ## 2. Membership Bounded Context — core domain
 
 - [ ] 2.1 Scaffold `crates/core/src/membership/` with `mod.rs`, `aggregate.rs`, `commands.rs`, `events.rs`, `error.rs`, `ports.rs`, `views.rs`, mirroring the existing four context layouts.
 - [ ] 2.2 Define `Role` enum in `membership` with the v1 additive variants `Kostümbildner` and `Garderobier`, with backwards-compatible (additive) deserialization.
-- [ ] 2.3 Model `ProjectMembership` aggregate state: `{ project_id: ProjectId, members: HashMap<UserId, MembershipState> }` where `MembershipState` distinguishes pending invitations from active members.
-- [ ] 2.4 Implement `kameo_es::Entity` for `ProjectMembership` (category `"membership"`, `ID = ProjectId`, `Event = MembershipEvent`, `Metadata` per Decision 6).
+- [ ] 2.3 Model `BlockMembership` aggregate state: `{ block_id: BlockId, members: HashMap<UserId, MembershipState> }` where `MembershipState` distinguishes pending invitations from active members.
+- [ ] 2.4 Implement `kameo_es::Entity` for `BlockMembership` (category `"membership"`, `ID = BlockId`, `Event = MembershipEvent`, `Metadata` per Decision 6).
 - [ ] 2.5 Model and implement `InviteMember` / `MemberInvited` `execute` + `apply` (incl. the re-invite-rejection rule).
 - [ ] 2.6 Model and implement `AcceptInvitation` / `InvitationAccepted` `execute` + `apply` (incl. no-pending-invitation rejection).
 - [ ] 2.7 Model and implement `GrantRole` / `RoleGranted` `execute` + `apply` (incl. non-member rejection, prior-role replacement).
-- [ ] 2.8 Model and implement `RemoveMember` / `MemberRemoved` `execute` + `apply`, plus `LeaveProject` (self-issued equivalent).
+- [ ] 2.8 Model and implement `RemoveMember` / `MemberRemoved` `execute` + `apply`, plus `LeaveBlock` (self-issued equivalent).
 - [ ] 2.9 Define `MembershipError` via `thiserror` covering all rejection paths above.
 - [ ] 2.10 Define `MembershipView` and the `MembershipRepository` / `MembershipCommands` port traits, following the existing ports pattern.
 - [ ] 2.11 Write unit tests for every command's positive path and each rejection rule (`cargo mutants`-resilient).
 
 ## 3. Membership infrastructure
 
-- [ ] 3.1 Add a Postgres migration for the `membership` projection table (`project_id`, `user_id`, `role`, `state`, `joined_at`, primary key `(project_id, user_id)`).
+- [ ] 3.1 Add a Postgres migration for the `membership` projection table (`block_id`, `user_id`, `role`, `state`, `joined_at`, primary key `(block_id, user_id)`).
 - [ ] 3.2 Implement the membership projector (`crates/infra/src/projectors/membership.rs`) consuming `MembershipEvent`, applying idempotently under redelivery (reuse the established ADR-016 pattern).
 - [ ] 3.3 Register the membership projector in the `projectors` module and in `main.rs`'s `PostgresProcessor` supervisor.
 - [ ] 3.4 Implement `MembershipRepositoryImpl` (query adapter) in `crates/infra/src/queries/membership.rs`.
@@ -36,13 +36,14 @@
 - [ ] 4.6 Configure `OIDC_ISS`, `OIDC_AUDIENCE`, `OIDC_JWKS_URL` env vars; document them in `AGENTS.md` §6.
 - [ ] 4.7 Add unit tests for each token-validation branch (valid, missing, expired, bad signature, JWKS-failure).
 
-## 5. Authorization policy — API layer
+## 5. Authorization policy — API layer (action-scoped, block-scoped)
 
-- [ ] 5.1 Implement an authorization policy module in `crates/api` that queries `MembershipRepository` for the caller's active membership in the target `ProjectId`.
-- [ ] 5.2 Gate project-scoped write-command endpoints: return HTTP 403 when the caller is not an active member; else forward the command.
-- [ ] 5.3 Gate project-scoped read endpoints: return HTTP 403 for non-members; return data for members.
-- [ ] 5.4 Attach the acting `UserId` as `kameo_es` command metadata for audit on routed write commands, leaving command payloads unchanged (Decision 6).
-- [ ] 5.5 Provide a runtime feature flag flipping enforcement between "log-only" and "enforce", per the staged migration plan in `design.md`.
+- [ ] 5.1 Resolve the **active-Block transport**: decide how the request conveys the `BlockId` the caller is currently working in (path segment, header, body field, or UI session scope). Document the choice in `design.md`.
+- [ ] 5.2 Implement an authorization policy module in `crates/api` that resolves the active `BlockId` of the request and queries `MembershipRepository` for the caller's active membership in that block.
+- [ ] 5.3 Gate write-command endpoints: return HTTP 403 when the caller is not an active member of the active block; else forward the command.
+- [ ] 5.4 Gate block-scoped read endpoints: return HTTP 403 for non-members; return data for members.
+- [ ] 5.5 Attach the acting `UserId` as `kameo_es` command metadata for audit on routed write commands, leaving command payloads unchanged (Decision 6).
+- [ ] 5.6 Provide a runtime feature flag flipping enforcement between "log-only" and "enforce", per the staged migration plan in `design.md`.
 
 ## 6. Integration tests
 
@@ -66,7 +67,9 @@
 
 ## 9. Open Questions requiring sign-off before implementation
 
+- [ ] 9.0 **Pre-req**: `introduce-season-block-episode-hierarchy` has landed (provides `BlockId` + `Block` aggregate). This change cannot start otherwise.
+
 - [ ] 9.1 Stakeholder: confirm the v1 role set (only `Kostümbildner` + `Garderobier`, or additional roles such as `Regie`, `Maske`, `Produktionsleitung`).
-- [ ] 9.2 Stakeholder/product: confirm whether a "theater" maps to a Logto `Organization` containing multiple projects, and whether cross-theater isolation is required in v1.
+- [ ] 9.2 Stakeholder/product: confirm whether a "theater" maps to a Logto `Organization` containing multiple productions/seasons, and whether cross-theater isolation is required in v1.
 - [ ] 9.3 Stakeholder: decide whether audit needs a dedicated queryable audit projection or whether `kameo_es` metadata is sufficient.
 - [ ] 9.4 Confirm IdP is Logto Cloud (per ADR-010) at implementation start, or whether the team switches to Zitadel before this change lands.

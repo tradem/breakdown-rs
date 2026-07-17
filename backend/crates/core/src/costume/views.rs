@@ -8,7 +8,7 @@ use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, ProjectId};
+use crate::shared::AggregateVersion;
 
 /// Detailed costume element (e.g. belt, hat, shoes).
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -29,7 +29,6 @@ pub struct CostumePhotoView {
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct CostumeView {
     pub id: Uuid,
-    pub project_id: ProjectId,
     pub character_id: Option<Uuid>,
     pub notes: String,
     pub details: Vec<CostumeDetailView>,

@@ -1,25 +1,25 @@
 ## ADDED Requirements
 
 ### Requirement: Authorization before write command dispatch
-For project-scoped write commands (e.g. `CreateScene`, `CreateCharacter`, `CreateCostume`, `CreateCalculation`, and their updates), the API layer SHALL consult the membership read model before dispatching the command and SHALL reject the request with HTTP 403 when the authenticated `CurrentUser` is not an active member of the command's target `ProjectId`.
+For write commands belonging to a production scope (e.g. `CreateScene`, `CreateCharacter`, `CreateCostume`, and their updates), the API layer SHALL consult the **block-membership** read model for the caller's role in the **active `BlockId` of the request** before dispatching the command, and SHALL reject the request with HTTP 403 when the authenticated `CurrentUser` is not an active member of that block. The active Block SHALL be conveyed by the request (request path/header/body or a UI session scope); the membership context itself only needs the resolved `BlockId`. Authorization is **action-scoped** (the block the caller is working in), not data-scoped.
 
 #### Scenario: Member is allowed to dispatch a write command
-- **WHEN** an authenticated `CurrentUser` dispatches a project-scoped write command targeting a `ProjectId` of which they are an active member
+- **WHEN** an authenticated `CurrentUser` dispatches a write command while the request's active `BlockId` is one of which they are an active member
 - **THEN** the API layer SHALL forward the command to the write side
 
 #### Scenario: Non-member is denied
-- **WHEN** an authenticated `CurrentUser` dispatches a project-scoped write command targeting a `ProjectId` of which they are not an active member
+- **WHEN** an authenticated `CurrentUser` dispatches a write command while the request's active `BlockId` is one of which they are not an active member
 - **THEN** the API layer SHALL reject the request with HTTP 403 and SHALL NOT dispatch the command
 
-### Requirement: Project-scoped reads are gated by membership
-For project-scoped read endpoints that list or detail resources belonging to a `ProjectId`, the API layer SHALL deny the request with HTTP 403 when the authenticated `CurrentUser` is not an active member of that project.
+### Requirement: Block-scoped reads are gated by membership
+For block-scoped read endpoints that list or detail resources belonging to a `BlockId`, the API layer SHALL deny the request with HTTP 403 when the authenticated `CurrentUser` is not an active member of that block.
 
-#### Scenario: Member can read project data
-- **WHEN** an authenticated `CurrentUser` requests project-scoped read data for a `ProjectId` of which they are an active member
+#### Scenario: Member can read block data
+- **WHEN** an authenticated `CurrentUser` requests block-scoped read data for a `BlockId` of which they are an active member
 - **THEN** the API layer SHALL return the requested data
 
-#### Scenario: Non-member cannot read project data
-- **WHEN** an authenticated `CurrentUser` requests project-scoped read data for a `ProjectId` of which they are not an active member
+#### Scenario: Non-member cannot read block data
+- **WHEN** an authenticated `CurrentUser` requests block-scoped read data for a `BlockId` of which they are not an active member
 - **THEN** the API layer SHALL reject the request with HTTP 403
 
 ### Requirement: Authorization lives in the API layer, not in core

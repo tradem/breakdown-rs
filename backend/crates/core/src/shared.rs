@@ -7,21 +7,106 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-/// A type alias for UUIDv7-based project identifiers.
+/// Opaque identifier for a `Series` (a show run).
+///
+/// `SeriesId` is an opaque UUIDv7 value type introduced by the
+/// `introduce-season-block-episode-hierarchy` change. It is the seam for a
+/// future additive `Series` aggregate: every hierarchy entity (Season, Block,
+/// Episode) references it but no `Series` aggregate exists yet.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ToSchema,
 )]
 #[serde(transparent)]
-pub struct ProjectId(pub Uuid);
+pub struct SeriesId(pub Uuid);
 
-impl ProjectId {
-    /// Create a new UUIDv7 `ProjectId`.
+impl SeriesId {
+    /// Create a new UUIDv7 `SeriesId`.
     pub fn new() -> Self {
         Self(Uuid::now_v7())
     }
+
+    /// Construct from a raw `Uuid`.
+    pub fn from_uuid(id: Uuid) -> Self {
+        Self(id)
+    }
 }
 
-impl Default for ProjectId {
+impl Default for SeriesId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Opaque identifier for a `Season` aggregate.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ToSchema,
+)]
+#[serde(transparent)]
+pub struct SeasonId(pub Uuid);
+
+impl SeasonId {
+    /// Create a new UUIDv7 `SeasonId`.
+    pub fn new() -> Self {
+        Self(Uuid::now_v7())
+    }
+
+    /// Construct from a raw `Uuid`.
+    pub fn from_uuid(id: Uuid) -> Self {
+        Self(id)
+    }
+}
+
+impl Default for SeasonId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Opaque identifier for a `Block` aggregate.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ToSchema,
+)]
+#[serde(transparent)]
+pub struct BlockId(pub Uuid);
+
+impl BlockId {
+    /// Create a new UUIDv7 `BlockId`.
+    pub fn new() -> Self {
+        Self(Uuid::now_v7())
+    }
+
+    /// Construct from a raw `Uuid`.
+    pub fn from_uuid(id: Uuid) -> Self {
+        Self(id)
+    }
+}
+
+impl Default for BlockId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Opaque identifier for an `Episode` aggregate.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ToSchema,
+)]
+#[serde(transparent)]
+pub struct EpisodeId(pub Uuid);
+
+impl EpisodeId {
+    /// Create a new UUIDv7 `EpisodeId`.
+    pub fn new() -> Self {
+        Self(Uuid::now_v7())
+    }
+
+    /// Construct from a raw `Uuid`.
+    pub fn from_uuid(id: Uuid) -> Self {
+        Self(id)
+    }
+}
+
+impl Default for EpisodeId {
     fn default() -> Self {
         Self::new()
     }
@@ -82,5 +167,29 @@ mod tests {
     #[test]
     fn default_is_initial() {
         assert_eq!(AggregateVersion::default(), AggregateVersion::INITIAL);
+    }
+
+    #[test]
+    fn series_id_is_uuidv7() {
+        let id = SeriesId::new();
+        assert_ne!(id.0, Uuid::nil());
+    }
+
+    #[test]
+    fn season_id_is_uuidv7() {
+        let id = SeasonId::new();
+        assert_ne!(id.0, Uuid::nil());
+    }
+
+    #[test]
+    fn block_id_is_uuidv7() {
+        let id = BlockId::new();
+        assert_ne!(id.0, Uuid::nil());
+    }
+
+    #[test]
+    fn episode_id_is_uuidv7() {
+        let id = EpisodeId::new();
+        assert_ne!(id.0, Uuid::nil());
     }
 }

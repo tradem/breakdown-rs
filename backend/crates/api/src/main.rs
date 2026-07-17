@@ -13,10 +13,12 @@ use anyhow::Result;
 use api::routes::app_router;
 use api::state::{AppState, ProductionPorts};
 use infra::event_store::{
-    CalculationCommandsImpl, CharacterCommandsImpl, CostumeCommandsImpl, SceneCommandsImpl,
+    BlockCommandsImpl, CharacterCommandsImpl, CostumeCommandsImpl, EpisodeCommandsImpl,
+    SceneCommandsImpl, SeasonCommandsImpl,
 };
 use infra::queries::{
-    CalculationRepositoryImpl, CharacterRepositoryImpl, CostumeRepositoryImpl, SceneRepositoryImpl,
+    BlockRepositoryImpl, CharacterRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl,
+    SceneRepositoryImpl, SeasonRepositoryImpl,
 };
 use kameo_es::command_service::CommandService;
 use opentelemetry::trace::TracerProvider as _;
@@ -122,6 +124,12 @@ async fn main() -> Result<()> {
     let cmd_service = CommandService::new(sierra_conn);
 
     // Start one PostgresProcessor per aggregate, each with its own checkpoint stream.
+    let _season_projector =
+        infra::projectors::spawn_season_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _block_projector =
+        infra::projectors::spawn_block_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _episode_projector =
+        infra::projectors::spawn_episode_projector(pool.clone(), Arc::clone(&redis_client)).await?;
     let _scene_projector =
         infra::projectors::spawn_scene_projector(pool.clone(), Arc::clone(&redis_client)).await?;
     let _character_projector =
@@ -129,9 +137,6 @@ async fn main() -> Result<()> {
             .await?;
     let _costume_projector =
         infra::projectors::spawn_costume_projector(pool.clone(), Arc::clone(&redis_client)).await?;
-    let _calculation_projector =
-        infra::projectors::spawn_calculation_projector(pool.clone(), Arc::clone(&redis_client))
-            .await?;
     info!("projectors spawned");
 
     let ports = ProductionPorts::new(
@@ -141,8 +146,12 @@ async fn main() -> Result<()> {
         CharacterRepositoryImpl::new(pool.clone()),
         CostumeCommandsImpl::new(cmd_service.clone()),
         CostumeRepositoryImpl::new(pool.clone()),
-        CalculationCommandsImpl::new(cmd_service.clone()),
-        CalculationRepositoryImpl::new(pool.clone()),
+        SeasonCommandsImpl::new(cmd_service.clone()),
+        SeasonRepositoryImpl::new(pool.clone()),
+        BlockCommandsImpl::new(cmd_service.clone()),
+        BlockRepositoryImpl::new(pool.clone()),
+        EpisodeCommandsImpl::new(cmd_service.clone()),
+        EpisodeRepositoryImpl::new(pool.clone()),
     );
     let app_state = AppState::new(ports);
 
