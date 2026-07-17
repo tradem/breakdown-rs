@@ -54,19 +54,41 @@ The system SHALL allow a member to leave a block via a `LeaveBlock` command, equ
 - **WHEN** a `LeaveBlock { block_id }` command is dispatched by an active member of that block
 - **THEN** the aggregate SHALL emit `MemberRemoved { block_id, user_id }` for that member and SHALL no longer consider them an active member
 
+### Requirement: Bootstrap owner (auto-owner on block creation)
+The system SHALL let the user who creates a `Block` become its first
+active member (owner) without a pre-existing membership, resolving the
+seed/bootstrap chicken-and-egg gap. This is expressed as a dedicated
+`BootstrapOwner` command emitting `OwnerBootstrapped`, with a default
+role of `CostumeAssistant`. `BootstrapOwner` SHALL be rejected with a
+membership-domain error (`BootstrapNotAllowed`) once the block already has
+≥1 member, so it can never be used to add/overwrite members after seeding.
+
+#### Scenario: Creator is bootstrapped as owner
+- **WHEN** a `BootstrapOwner { block_id, user_id }` command targets a `BlockMembership` that has no members yet
+- **THEN** the aggregate SHALL emit `OwnerBootstrapped { block_id, user_id, role: CostumeAssistant }` and SHALL consider `user_id` an active member with that role
+
+#### Scenario: Bootstrap is rejected once seeded
+- **WHEN** a `BootstrapOwner` command targets a block that already has ≥1 active member
+- **THEN** the aggregate SHALL reject the command with `BootstrapNotAllowed` and emit no event
+
 ### Requirement: Roles are block-scoped domain values
 Roles SHALL be modeled as a domain `Role` enum local to the membership Bounded Context. A user's role SHALL be scoped to a single `BlockId` and SHALL NOT be a global attribute of the user, nor even a season/series-scoped one. The same `UserId` MAY hold different roles in different blocks — including two blocks of the same season, concurrently — because costume-department staff rotate roles at block boundaries.
 
 #### Scenario: Same user holds different roles across blocks of one season
 - **WHEN** a `UserId` is an active member of Block 1 and Block 2 of the same season
-- **THEN** the system MAY record a different `Role` for that user in each block (e.g. `Kostümbildner` in Block 1 and `Garderobier` in Block 2), and a role change in one block SHALL NOT affect the other
+- **THEN** the system MAY record a different `Role` for that user in each block (e.g. `costume_designer` in Block 1 and `wardrobe_supervisor` in Block 2), and a role change in one block SHALL NOT affect the other
 
 ### Requirement: Initial role set
-The initial role set SHALL consist of `Kostümbildner` and `Garderobier` as additive `Role` enum variants. The role set SHALL be designed for purely additive extension; removing or renaming a role SHALL be a breaking change requiring a separate proposal.
+The initial v1 role set SHALL consist of `CostumeDesigner` (`costume_designer`),
+`WardrobeSupervisor` (`wardrobe_supervisor`), and `CostumeAssistant`
+(`costume_assistant`) as additive `Role` enum variants (English ubiquitous-language
+spelling, `#[serde(rename_all = "snake_case")]` on the wire). The role set SHALL
+be designed for purely additive extension; removing or renaming a role SHALL be a
+breaking change requiring a separate proposal.
 
 #### Scenario: The initial roles are available
 - **WHEN** the membership Bounded Context is initialized
-- **THEN** the `Role` enum SHALL include at minimum the variants `Kostümbildner` and `Garderobier`
+- **THEN** the `Role` enum SHALL include the variants `CostumeDesigner`, `WardrobeSupervisor`, and `CostumeAssistant`
 
 ### Requirement: Membership read model
 The system SHALL maintain a membership projection in Postgres, updated by a membership projector reacting to membership events, exposing a query for "is `UserId` a member of `BlockId`, and with which `Role`?". The projector SHALL be idempotent under event redelivery.

@@ -97,3 +97,52 @@ Stakeholder input (confirmed) refines the original scope: roles are *block-scope
 3. **Dev-time IdP.** Local dev without Logto Cloud: dummy `CurrentUser` via feature flag, self-hosted Logto container in dev compose, or a tiny mocked JWKS server? (Technical — resolves at design-into-implementation.)
 4. **JWT validation crate.** `jsonwebtoken` (manual JWKS caching) vs. a higher-level OIDC resource-server crate. (Technical — resolves at design-into-implementation.)
 5. **Audit storage.** Is `kameo_es` metadata sufficient for audit, or do stakeholders need a dedicated, queryable audit projection? (Stakeholder + technical.)
+
+## Resolved Implementation Decisions (during implementation)
+
+These were resolved while building Sections 1–3 and are recorded here so the
+remaining Sections 4–9 can proceed without re-deriving them.
+
+### D1 — JWT validation crate (Open Question 4)
+Use **`jsonwebtoken`** for signature/claim validation + **`reqwest`** (blocking
+or async) to fetch the JWKS document. Wrap key discovery behind an injectable
+`trait JwksProvider { async fn decoding_keys(&self) -> Result<HashMap<String, DecodingKey>> }`
+so tests can inject a static provider. A `CachingJwksProvider` impl fetches from
+`OIDC_JWKS_URL`, caches the key set in a `tokio::sync::RwLock` with a TTL (~1h),
+and refreshes on miss / 401-from-validation. Rationale: std/recommended crates,
+no heavy opinionated OIDC framework, fully testable. (Decision recorded 2026-06-23.)
+
+### D2 — Active-Block transport (Open Question 2 of the auth spec)
+Carry the block context as a request header **`X-Active-Block: <BlockId>`**, parsed
+by an Axum extractor `ActiveBlock(BlockId)` that returns `400` on malformed/missing
+when a block-scoped endpoint requires it. Rejected alternative: query param (pollutes
+URLs/logs, less appropriate for session-scoped context). (Decision recorded 2026-06-23.)
+
+### D3 — Audit metadata (Open Question 5)
+Aggregate `Metadata = MembershipMetadata { actor: Option<UserId> }`. The membership
+`Command` impls read `cmd.metadata().actor`; `LeaveBlock` derives the leaving user from
+the actor (no `user_id` in its payload). Actor is `Some` for all authed requests because
+the auth middleware always populates `CurrentUser` before the handler runs.
+(Decision recorded 2026-06-23.)
+
+### D4 — `Entity::ID`
+Use **`Uuid`** as the `kameo_es` stream id (consistent with every existing aggregate),
+with `BlockId` carried as a domain field, not the stream id. `command_adapters` dispatch
+with `BlockMembership::execute(&cmd_service, cmd.block_id.0, cmd)` — i.e. the stream id
+is the `BlockId`'s inner `Uuid`, and one stream holds exactly one block's membership
+aggregate. (Decision recorded 2026-06-23.)
+
+### D5 — `core` boundary (ADR-017)
+`core` must NOT depend on `sqlx` / `axum` / `redis` / `sierradb-client` / `tokio`.
+Therefore the `AuthorizationPolicy` **port trait** and `PolicyDecision` enum are defined
+in `core` (so the domain stays DI-friendly and testable), while the concrete PEP
+middleware, `JwksProvider`, `CurrentUser` extractor, and `OidcConfig` live in `api`.
+`UserId`, `Role`, `MembershipStateKind` serde forms: `Role` unit variants serialize as
+`"Kostümbildner"` / `"Garderobier"`; `MembershipStateKind` is snake_case (`pending` /
+`active`). The `projection_membership` row stores these as their serde-JSON string form.
+(Decision recorded 2026-06-23.)
+
+### D6 — `kameo_es` patch parity
+The local `kameo_es` patch lives in `.patches/kameo_es` and pins `kameo = "0.15"`,
+edition 2021. Any change to the aggregate/command traits must keep patch parity
+(`Aggregate::execute(&CommandService, stream_id: Uuid, cmd).expected_version(..).metadata(..)`).

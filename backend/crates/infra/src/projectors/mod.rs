@@ -10,6 +10,7 @@ mod block;
 mod character;
 mod costume;
 mod episode;
+mod membership;
 mod scene;
 mod season;
 mod supervisor;
@@ -18,6 +19,7 @@ pub use block::BlockProjector;
 pub use character::CharacterProjector;
 pub use costume::CostumeProjector;
 pub use episode::EpisodeProjector;
+pub use membership::MembershipProjector;
 pub use scene::SceneProjector;
 pub use season::SeasonProjector;
 
@@ -28,6 +30,7 @@ use breakdown_core::block::aggregate::BlockAggregate;
 use breakdown_core::character::aggregate::CharacterAggregate;
 use breakdown_core::costume::aggregate::CostumeAggregate;
 use breakdown_core::episode::aggregate::EpisodeAggregate;
+use breakdown_core::membership::aggregate::BlockMembership;
 use breakdown_core::scene::aggregate::SceneAggregate;
 use breakdown_core::season::aggregate::SeasonAggregate;
 use kameo::actor::{ActorRef, Spawn};
@@ -45,6 +48,7 @@ type CostumeProcessor = PostgresProcessor<(CostumeAggregate,), CostumeProjector>
 type SeasonProcessor = PostgresProcessor<(SeasonAggregate,), SeasonProjector>;
 type BlockProcessor = PostgresProcessor<(BlockAggregate,), BlockProjector>;
 type EpisodeProcessor = PostgresProcessor<(EpisodeAggregate,), EpisodeProjector>;
+type MembershipProcessor = PostgresProcessor<(BlockMembership,), MembershipProjector>;
 
 /// Spawn a supervised projector subscription loop.
 ///
@@ -194,5 +198,29 @@ pub async fn spawn_episode_projector(
     .await?;
     let actor_ref = EpisodeProcessor::spawn(processor);
     run_projection_stream!(EpisodeAggregate, "episode", redis_client, actor_ref.clone())?;
+    Ok(actor_ref)
+}
+
+/// Spawn the membership projector actor and start its SierraDB subscription loop.
+pub async fn spawn_membership_projector(
+    pool: PgPool,
+    redis_client: Arc<RedisClient>,
+) -> Result<ActorRef<MembershipProcessor>> {
+    let conn = redis_client.get_multiplexed_tokio_connection().await?;
+    let processor = MembershipProcessor::new(
+        pool.clone(),
+        conn,
+        CHECKPOINTS_TABLE,
+        "membership",
+        MembershipProjector,
+    )
+    .await?;
+    let actor_ref = MembershipProcessor::spawn(processor);
+    run_projection_stream!(
+        BlockMembership,
+        "membership",
+        redis_client,
+        actor_ref.clone()
+    )?;
     Ok(actor_ref)
 }

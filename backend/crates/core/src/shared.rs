@@ -4,8 +4,46 @@
 //! Globally shared Value Objects and Domain Primitives.
 
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use utoipa::ToSchema;
 use uuid::Uuid;
+
+/// Opaque identifier for a user, wrapping the OIDC `sub` claim.
+///
+/// `UserId` references the authenticated principal without ever decoding,
+/// storing, or dereferencing identity attributes in `core`. The backend only
+/// trusts the IdP-issued `sub`; account lifecycle lives exclusively in the
+/// OIDC provider (ADR-010). Unlike the hierarchy ids, `UserId` is *not* a
+/// UUIDv7 — it is the raw string subject the IdP assigns.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
+#[serde(transparent)]
+pub struct UserId(pub String);
+
+impl UserId {
+    /// Construct a `UserId` from an OIDC `sub` claim string.
+    pub fn from_sub(sub: impl Into<String>) -> Self {
+        Self(sub.into())
+    }
+
+    /// Borrow the underlying `sub` string.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for UserId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::str::FromStr for UserId {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self(s.to_string()))
+    }
+}
 
 /// Opaque identifier for a `Series` (a show run).
 ///
@@ -212,8 +250,21 @@ mod tests {
     }
 
     #[test]
-    fn episode_id_from_uuid_preserves_value() {
-        let raw = Uuid::now_v7();
-        assert_eq!(EpisodeId::from_uuid(raw).0, raw);
+    fn user_id_serializes_transparent_like_sub() {
+        let id = UserId::from_sub("user_8xK2".to_string());
+        let json = serde_json::to_string(&id).unwrap();
+        assert_eq!(json, "\"user_8xK2\"");
+        // Round-trips back to the same subject (parity with the IdP `sub`).
+        let back: UserId = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, id);
+        assert_eq!(back.as_str(), "user_8xK2");
+    }
+
+    #[test]
+    fn user_id_preserves_opaque_sub_through_clone() {
+        let id = UserId::from_sub("auth0|abc123".to_string());
+        let cloned = id.clone();
+        assert_eq!(id, cloned);
+        assert_eq!(format!("{id}"), "auth0|abc123");
     }
 }

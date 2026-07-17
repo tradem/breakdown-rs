@@ -23,6 +23,12 @@ use breakdown_core::episode::aggregate::EpisodeAggregate;
 use breakdown_core::episode::commands::{CreateEpisode, RenameEpisode};
 use breakdown_core::episode::ports::EpisodeCommands;
 use breakdown_core::error::DomainError;
+use breakdown_core::membership::MembershipMetadata;
+use breakdown_core::membership::aggregate::BlockMembership;
+use breakdown_core::membership::commands::{
+    AcceptInvitation, BootstrapOwner, GrantRole, InviteMember, LeaveBlock, RemoveMember,
+};
+use breakdown_core::membership::ports::MembershipCommands;
 use breakdown_core::scene::aggregate::SceneAggregate;
 use breakdown_core::scene::commands::{
     AssignCharacter, CreateScene, RemoveCharacter, UpdateSceneDetails,
@@ -31,11 +37,13 @@ use breakdown_core::scene::ports::SceneCommands;
 use breakdown_core::season::aggregate::SeasonAggregate;
 use breakdown_core::season::commands::{CreateSeason, RenameSeason};
 use breakdown_core::season::ports::SeasonCommands;
-use breakdown_core::shared::AggregateVersion;
+use breakdown_core::shared::{AggregateVersion, UserId};
 use kameo_es::command_service::{CommandService, ExecuteExt, ExecuteResult};
 use kameo_es::error::ExecuteError;
 use sierradb_client::{CurrentVersion, ExpectedVersion};
 use uuid::Uuid;
+
+use async_trait::async_trait;
 
 /// Command adapter for the Scene aggregate.
 #[derive(Clone, Debug)]
@@ -337,6 +345,83 @@ impl EpisodeCommands for EpisodeCommandsImpl {
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
             .await;
         map_version_only(result)
+    }
+}
+
+/// Command adapter for the membership `BlockMembership` aggregate.
+///
+/// Every command is dispatched with `ExpectedVersion::Any` (the aggregate
+/// enforces invitation/role/membership invariants itself) and carries the
+/// authenticated `actor` as `kameo_es` command `Metadata` for audit (Decision 6).
+#[derive(Clone, Debug)]
+pub struct MembershipCommandsImpl {
+    cmd_service: CommandService,
+}
+
+impl MembershipCommandsImpl {
+    pub fn new(cmd_service: CommandService) -> Self {
+        Self { cmd_service }
+    }
+}
+
+#[async_trait]
+impl MembershipCommands for MembershipCommandsImpl {
+    async fn invite(&self, actor: UserId, cmd: InviteMember) -> Result<(), DomainError> {
+        let result = BlockMembership::execute(&self.cmd_service, cmd.block_id.0, cmd)
+            .expected_version(ExpectedVersion::Any)
+            .metadata(MembershipMetadata { actor: Some(actor) })
+            .await;
+        let _ = map_executed_result(Uuid::nil(), result)?;
+        Ok(())
+    }
+
+    async fn accept_invitation(
+        &self,
+        actor: UserId,
+        cmd: AcceptInvitation,
+    ) -> Result<(), DomainError> {
+        let result = BlockMembership::execute(&self.cmd_service, cmd.block_id.0, cmd)
+            .expected_version(ExpectedVersion::Any)
+            .metadata(MembershipMetadata { actor: Some(actor) })
+            .await;
+        let _ = map_executed_result(Uuid::nil(), result)?;
+        Ok(())
+    }
+
+    async fn grant_role(&self, actor: UserId, cmd: GrantRole) -> Result<(), DomainError> {
+        let result = BlockMembership::execute(&self.cmd_service, cmd.block_id.0, cmd)
+            .expected_version(ExpectedVersion::Any)
+            .metadata(MembershipMetadata { actor: Some(actor) })
+            .await;
+        let _ = map_executed_result(Uuid::nil(), result)?;
+        Ok(())
+    }
+
+    async fn remove_member(&self, actor: UserId, cmd: RemoveMember) -> Result<(), DomainError> {
+        let result = BlockMembership::execute(&self.cmd_service, cmd.block_id.0, cmd)
+            .expected_version(ExpectedVersion::Any)
+            .metadata(MembershipMetadata { actor: Some(actor) })
+            .await;
+        let _ = map_executed_result(Uuid::nil(), result)?;
+        Ok(())
+    }
+
+    async fn leave_block(&self, actor: UserId, cmd: LeaveBlock) -> Result<(), DomainError> {
+        let result = BlockMembership::execute(&self.cmd_service, cmd.block_id.0, cmd)
+            .expected_version(ExpectedVersion::Any)
+            .metadata(MembershipMetadata { actor: Some(actor) })
+            .await;
+        let _ = map_executed_result(Uuid::nil(), result)?;
+        Ok(())
+    }
+
+    async fn bootstrap_owner(&self, actor: UserId, cmd: BootstrapOwner) -> Result<(), DomainError> {
+        let result = BlockMembership::execute(&self.cmd_service, cmd.block_id.0, cmd)
+            .expected_version(ExpectedVersion::Any)
+            .metadata(MembershipMetadata { actor: Some(actor) })
+            .await;
+        let _ = map_executed_result(Uuid::nil(), result)?;
+        Ok(())
     }
 }
 

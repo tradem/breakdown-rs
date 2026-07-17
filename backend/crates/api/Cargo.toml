@@ -30,6 +30,12 @@ redis.workspace = true
 utoipa.workspace = true
 utoipa-swagger-ui.workspace = true
 
+# OIDC / JWT validation (Decision D1)
+jsonwebtoken = "9"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+base64 = "0.22"
+async-trait.workspace = true
+
 # Logging / Tracing
 tracing.workspace = true
 tracing-subscriber.workspace = true
@@ -41,3 +47,10 @@ opentelemetry.workspace = true
 opentelemetry-otlp.workspace = true
 opentelemetry_sdk.workspace = true
 tower-http.workspace = true
+
+[dev-dependencies]
+rsa = "0.9"
+rand_core = "0.6"
+hyper = { version = "1", features = ["server", "http1"] }
+http-body-util = "0.1"
+tower = "0.5"

@@ -30,7 +30,7 @@ The authorization policy SHALL be implemented in `crates/api` and SHALL NOT requ
 - **THEN** the decision SHALL be made using the membership read model in the API layer, and the dispatched command SHALL be the same command type already accepted by the aggregate
 
 ### Requirement: Role-based policy is additive and explicit
-Where the policy depends on a specific `Role` (e.g. "only a `Kostümbildner` may do X"), the rule SHALL be expressed explicitly against the membership read model and SHALL fail closed (deny) when the caller's role does not match. Initial v1 may enforce membership-only policy without role distinctions; role-distinct rules SHALL be added only as explicit, individually-documented behaviors.
+Where the policy depends on a specific `Role` (e.g. "only a `costume_designer` may do X"), the rule SHALL be expressed explicitly against the membership read model and SHALL fail closed (deny) when the caller's role does not match. Initial v1 may enforce membership-only policy without role distinctions; role-distinct rules SHALL be added only as explicit, individually-documented behaviors.
 
 #### Scenario: Role-distinct rule fails closed
 - **WHEN** a role-distinct authorization rule is configured and the caller's `Role` does not match the required role

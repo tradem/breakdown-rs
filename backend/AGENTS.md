@@ -119,6 +119,25 @@ apply the same migration set automatically.
 - `BIND_ADDR` – HTTP bind address (default: `0.0.0.0:3000`)
 - OpenAPI/Swagger UI is served at `http://localhost:3000/swagger-ui`
 
+#### OIDC / authorization (added by `add-oidc-auth-and-membership`)
+- `OIDC_ISS` – IdP issuer URL (expected `iss` claim). Production-only; when
+  absent **and** `DEV_AUTH_SUB` is set, the API runs in **dev auth mode** (see below).
+- `OIDC_AUDIENCE` – resource indicator / expected `aud` claim for this API.
+- `OIDC_JWKS_URL` – IdP JWKS document URL used to fetch RSA signing keys.
+- `AUTHZ_ENFORCE` – `false`/`0` disables authorization enforcement
+  (denials are logged, requests allowed — staged rollout / log-only); any other value
+  (or unset) enforces, returning `403` for non-members. **Dev auth mode defaults
+  enforcement OFF** so local development works without seeded membership.
+- `DEV_AUTH_SUB` – when set (and `OIDC_ISS` unset), auth runs in dev mode:
+  tokens are NOT verified and a fixed dummy `CurrentUser` (`sub = DEV_AUTH_SUB`)
+  is injected. **Never set in production.** `DEV_AUTH_EMAIL` optionally supplies the
+  dummy user's email.
+
+> Dev auth mode is an explicit, env-gated bypass used only for local development
+> and tests. `main.rs` only ever enters it when `OIDC_ISS` is absent and
+> `DEV_AUTH_SUB` is present; production deployments set `OIDC_ISS` and therefore
+> can never reach dev mode.
+
 ### Optional: Local IdP for OIDC Development
 
 For auth-related work, you can boot a self-hosted Logto IdP using the IdP overlay. **This is dev-only**; production IdP runtime is governed by ADR-010 (Logto Cloud first, Zitadel migration later) and is not provided by this dev overlay.

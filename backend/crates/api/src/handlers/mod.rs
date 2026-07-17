@@ -23,6 +23,7 @@ use breakdown_core::episode::commands::{CreateEpisode, RenameEpisode};
 use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::error::DomainError;
+use breakdown_core::membership::{BootstrapOwner, MembershipCommands, Role};
 use breakdown_core::scene::commands::{
     AssignCharacter, CreateScene, RemoveCharacter, UpdateSceneDetails,
 };
@@ -37,6 +38,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
+use crate::auth::CurrentUser;
 use crate::state::{AppState, Ports, ProductionPorts};
 
 /// JSON error body returned on command/query failures.
@@ -292,6 +294,7 @@ pub async fn rename_season<P: Ports>(
 )]
 pub async fn create_block<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Json(req): Json<CreateBlockRequest>,
 ) -> ApiResult<IdVersionResponse> {
     let id = Uuid::now_v7();
@@ -309,6 +312,29 @@ pub async fn create_block<P: Ports>(
         .create(cmd)
         .await
         .map_err(map_err)?;
+
+    // Decision A: the block creator becomes the first (owner) member, breaking
+    // the chicken-and-egg between invitation and active-membership gating. The
+    // bootstrap command only succeeds on an empty block.
+    let bootstrap = BootstrapOwner {
+        block_id: BlockId(id),
+        user_id: current_user.sub.clone(),
+        role: Role::CostumeAssistant,
+    };
+    if let Err(e) = state
+        .ports
+        .membership_commands()
+        .bootstrap_owner(current_user.sub.clone(), bootstrap)
+        .await
+    {
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                message: format!("failed to bootstrap block owner: {e}"),
+            }),
+        ));
+    }
+
     Ok((StatusCode::CREATED, Json(IdVersionResponse { id, version })))
 }
 
@@ -925,18 +951,18 @@ pub async fn unassign_costume<P: Ports>(
 pub fn routes() -> Router<AppState<ProductionPorts>> {
     Router::new()
         .route("/seasons", routing::post(create_season::<ProductionPorts>))
-        .route("/seasons/:id", routing::get(get_season::<ProductionPorts>))
+        .route("/seasons/{id}", routing::get(get_season::<ProductionPorts>))
         .route(
-            "/seasons/:id/name",
+            "/seasons/{id}/name",
             routing::patch(rename_season::<ProductionPorts>),
         )
         .route(
             "/blocks",
             routing::post(create_block::<ProductionPorts>).get(list_blocks::<ProductionPorts>),
         )
-        .route("/blocks/:id", routing::get(get_block::<ProductionPorts>))
+        .route("/blocks/{id}", routing::get(get_block::<ProductionPorts>))
         .route(
-            "/blocks/:id/time-span",
+            "/blocks/{id}/time-span",
             routing::patch(update_block_time_span::<ProductionPorts>),
         )
         .route(
@@ -944,28 +970,28 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
             routing::post(create_episode::<ProductionPorts>).get(list_episodes::<ProductionPorts>),
         )
         .route(
-            "/episodes/:id",
+            "/episodes/{id}",
             routing::get(get_episode::<ProductionPorts>),
         )
         .route(
-            "/episodes/:id/name",
+            "/episodes/{id}/name",
             routing::patch(rename_episode::<ProductionPorts>),
         )
         .route(
             "/scenes",
             routing::post(create_scene::<ProductionPorts>).get(list_scenes::<ProductionPorts>),
         )
-        .route("/scenes/:id", routing::get(get_scene::<ProductionPorts>))
+        .route("/scenes/{id}", routing::get(get_scene::<ProductionPorts>))
         .route(
-            "/scenes/:id/details",
+            "/scenes/{id}/details",
             routing::patch(update_scene_details::<ProductionPorts>),
         )
         .route(
-            "/scenes/:id/characters",
+            "/scenes/{id}/characters",
             routing::post(assign_scene_character::<ProductionPorts>),
         )
         .route(
-            "/scenes/:id/characters/:character_id",
+            "/scenes/{id}/characters/{character_id}",
             routing::delete(remove_scene_character::<ProductionPorts>),
         )
         .route(
@@ -974,15 +1000,15 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
                 .get(list_characters::<ProductionPorts>),
         )
         .route(
-            "/characters/:id",
+            "/characters/{id}",
             routing::get(get_character::<ProductionPorts>),
         )
         .route(
-            "/characters/:id/measurements",
+            "/characters/{id}/measurements",
             routing::patch(update_measurements::<ProductionPorts>),
         )
         .route(
-            "/characters/:id/contact",
+            "/characters/{id}/contact",
             routing::patch(update_contact_info::<ProductionPorts>),
         )
         .route(
@@ -990,19 +1016,19 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
             routing::post(create_costume::<ProductionPorts>).get(list_costumes::<ProductionPorts>),
         )
         .route(
-            "/costumes/:id",
+            "/costumes/{id}",
             routing::get(get_costume::<ProductionPorts>),
         )
         .route(
-            "/costumes/:id/notes",
+            "/costumes/{id}/notes",
             routing::patch(update_costume_notes::<ProductionPorts>),
         )
         .route(
-            "/costumes/:id/assign",
+            "/costumes/{id}/assign",
             routing::post(assign_costume::<ProductionPorts>),
         )
         .route(
-            "/costumes/:id/unassign",
+            "/costumes/{id}/unassign",
             routing::post(unassign_costume::<ProductionPorts>),
         )
 }
@@ -1042,6 +1068,16 @@ pub(crate) mod test_helpers {
     use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, SeasonId, SeriesId};
     use tokio::sync::Mutex;
     use uuid::Uuid;
+
+    use async_trait::async_trait;
+    use breakdown_core::membership::commands::{
+        AcceptInvitation, BootstrapOwner, GrantRole, InviteMember, LeaveBlock, RemoveMember,
+    };
+    use breakdown_core::membership::ports::{MembershipCommands, MembershipRepository};
+    use breakdown_core::membership::{MembershipStateKind, MembershipView, Role};
+    use breakdown_core::shared::UserId;
+    use chrono::Utc;
+    use std::collections::HashSet;
 
     use crate::state::Ports;
 
@@ -1174,6 +1210,93 @@ pub(crate) mod test_helpers {
         }
         async fn rename(&self, _cmd: RenameEpisode) -> Result<AggregateVersion, DomainError> {
             Ok(AggregateVersion::INITIAL.next())
+        }
+    }
+
+    // ---- Membership fakes (Section 6.4) ----
+
+    #[derive(Clone, Default)]
+    pub(crate) struct FakeMembershipCommands;
+
+    #[async_trait]
+    impl MembershipCommands for FakeMembershipCommands {
+        async fn invite(&self, _actor: UserId, _cmd: InviteMember) -> Result<(), DomainError> {
+            Ok(())
+        }
+        async fn accept_invitation(
+            &self,
+            _actor: UserId,
+            _cmd: AcceptInvitation,
+        ) -> Result<(), DomainError> {
+            Ok(())
+        }
+        async fn grant_role(&self, _actor: UserId, _cmd: GrantRole) -> Result<(), DomainError> {
+            Ok(())
+        }
+        async fn remove_member(
+            &self,
+            _actor: UserId,
+            _cmd: RemoveMember,
+        ) -> Result<(), DomainError> {
+            Ok(())
+        }
+        async fn leave_block(&self, _actor: UserId, _cmd: LeaveBlock) -> Result<(), DomainError> {
+            Ok(())
+        }
+        async fn bootstrap_owner(
+            &self,
+            _actor: UserId,
+            _cmd: BootstrapOwner,
+        ) -> Result<(), DomainError> {
+            Ok(())
+        }
+    }
+
+    /// In-memory membership repository whose active-membership is driven by a
+    /// controllable set of `(block_id, user_id)` pairs.
+    #[derive(Clone, Default)]
+    pub(crate) struct FakeMembershipRepo {
+        pub(crate) members: Arc<Mutex<HashSet<(BlockId, UserId)>>>,
+    }
+
+    #[async_trait]
+    impl MembershipRepository for FakeMembershipRepo {
+        async fn find(
+            &self,
+            block_id: BlockId,
+            user_id: UserId,
+        ) -> Result<Option<MembershipView>, DomainError> {
+            if self
+                .members
+                .lock()
+                .await
+                .contains(&(block_id, user_id.clone()))
+            {
+                Ok(Some(MembershipView {
+                    block_id,
+                    user_id,
+                    role: Role::CostumeAssistant,
+                    state: MembershipStateKind::Active,
+                    joined_at: Utc::now(),
+                }))
+            } else {
+                Ok(None)
+            }
+        }
+        async fn list_by_block(
+            &self,
+            _block_id: BlockId,
+            _limit: i64,
+            _offset: i64,
+        ) -> Result<Vec<MembershipView>, DomainError> {
+            Ok(Vec::new())
+        }
+        async fn is_active_member(
+            &self,
+            block_id: BlockId,
+            user_id: UserId,
+        ) -> Result<bool, DomainError> {
+            Ok(self.members.lock().await.contains(&(block_id, user_id)))
         }
     }
 
@@ -1364,6 +1487,8 @@ pub(crate) mod test_helpers {
         pub(crate) block_repo: FakeBlockRepo,
         pub(crate) episode_commands: FakeEpisodeCommands,
         pub(crate) episode_repo: FakeEpisodeRepo,
+        pub(crate) membership_commands: FakeMembershipCommands,
+        pub(crate) membership_repo: FakeMembershipRepo,
     }
 
     impl Ports for FakePorts {
@@ -1379,6 +1504,8 @@ pub(crate) mod test_helpers {
         type BlockRepo = FakeBlockRepo;
         type EpisodeCommands = FakeEpisodeCommands;
         type EpisodeRepo = FakeEpisodeRepo;
+        type MembershipCommands = FakeMembershipCommands;
+        type MembershipRepo = FakeMembershipRepo;
 
         fn scene_commands(&self) -> &Self::SceneCommands {
             &self.scene_commands
@@ -1415,6 +1542,12 @@ pub(crate) mod test_helpers {
         }
         fn episode_repo(&self) -> &Self::EpisodeRepo {
             &self.episode_repo
+        }
+        fn membership_commands(&self) -> &Self::MembershipCommands {
+            &self.membership_commands
+        }
+        fn membership_repo(&self) -> &Self::MembershipRepo {
+            &self.membership_repo
         }
     }
 }
@@ -1500,4 +1633,190 @@ mod character_tests {
 #[cfg(test)]
 mod costume_tests {
     // Costume handler unit tests can be added here (mirroring scene_tests).
+}
+
+#[cfg(test)]
+mod authz_tests {
+    // Section 6.4: API-layer test asserting authorized / non-authorized
+    // dispatch through the real auth + authorization middleware stack.
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use axum::Router;
+    use axum::body::Body as AxumBody;
+    use axum::http::{Request, StatusCode};
+    use axum::middleware::from_fn_with_state;
+    use axum::routing::{get, post};
+    use jsonwebtoken::Algorithm;
+    use tower::ServiceExt;
+
+    use super::test_helpers::FakeMembershipRepo;
+    use breakdown_core::shared::{BlockId, UserId};
+
+    use crate::auth::AuthState;
+    use crate::auth::authorization::{AuthorizationState, MembershipAuthorizationPolicy};
+    use crate::auth::jwks::StaticJwksProvider;
+    use crate::auth::{CurrentUser, OidcConfig, auth_middleware, authorize_middleware};
+
+    const DEV_SUB: &str = "dev-user";
+
+    /// Tiny `Router<()>` that applies the real `auth_middleware` (outer) and
+    /// `authorize_middleware` (inner) around no-op handlers, so requests are
+    /// dispatched through the exact production gating path.
+    fn auth_router(auth: Arc<AuthState>, authz: Arc<AuthorizationState>) -> Router<()> {
+        Router::new()
+            .route("/seasons", post(|| async { StatusCode::OK }))
+            .route("/blocks/{id}", get(|| async { StatusCode::OK }))
+            .route("/scenes", post(|| async { StatusCode::OK }))
+            .route("/swagger-ui", get(|| async { StatusCode::OK }))
+            .route("/api-docs", get(|| async { StatusCode::OK }))
+            .layer(from_fn_with_state(authz, authorize_middleware))
+            .layer(from_fn_with_state(auth, auth_middleware))
+            .with_state(())
+    }
+
+    async fn status_of(router: &Router<()>, req: Request<AxumBody>) -> StatusCode {
+        router.clone().oneshot(req).await.unwrap().status()
+    }
+
+    #[tokio::test]
+    async fn dev_mode_authenticated_write_is_allowed() {
+        // POST /seasons needs only authentication -> dev dummy user passes.
+        let auth = Arc::new(AuthState::dev(CurrentUser::dummy(DEV_SUB)));
+        let repo = Arc::new(FakeMembershipRepo::default());
+        let policy = Arc::new(MembershipAuthorizationPolicy::new(repo));
+        let authz = Arc::new(AuthorizationState::new(policy, /*enforce=*/ true));
+
+        let app = auth_router(auth, authz);
+        let req = Request::builder()
+            .method("POST")
+            .uri("/seasons")
+            .body(AxumBody::empty())
+            .unwrap();
+
+        assert_eq!(status_of(&app, req).await, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn dev_mode_block_member_read_is_allowed() {
+        // GET /blocks/{id} needs active membership; dev-user IS a member here.
+        let auth = Arc::new(AuthState::dev(CurrentUser::dummy(DEV_SUB)));
+        let block = BlockId::new();
+        let repo = Arc::new(FakeMembershipRepo::default());
+        repo.members
+            .lock()
+            .await
+            .insert((block, UserId::from_sub(DEV_SUB)));
+        let policy = Arc::new(MembershipAuthorizationPolicy::new(repo));
+        let authz = Arc::new(AuthorizationState::new(policy, /*enforce=*/ true));
+
+        let app = auth_router(auth, authz);
+        let req = Request::builder()
+            .method("GET")
+            .uri(format!("/blocks/{}", block.0))
+            .header("X-Active-Block", block.0.to_string())
+            .body(AxumBody::empty())
+            .unwrap();
+
+        assert_eq!(status_of(&app, req).await, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn dev_mode_non_member_block_read_is_forbidden() {
+        // GET /blocks/{id} needs active membership; dev-user is NOT a member.
+        let auth = Arc::new(AuthState::dev(CurrentUser::dummy(DEV_SUB)));
+        let block = BlockId::new();
+        let repo = Arc::new(FakeMembershipRepo::default());
+        let policy = Arc::new(MembershipAuthorizationPolicy::new(repo));
+        let authz = Arc::new(AuthorizationState::new(policy, /*enforce=*/ true));
+
+        let app = auth_router(auth, authz);
+        let req = Request::builder()
+            .method("GET")
+            .uri(format!("/blocks/{}", block.0))
+            .header("X-Active-Block", block.0.to_string())
+            .body(AxumBody::empty())
+            .unwrap();
+
+        assert_eq!(status_of(&app, req).await, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn missing_token_in_prod_mode_is_unauthorized() {
+        // Production (non-dev) auth state with an empty JWKS: a request without a
+        // valid bearer token must be rejected with 401 before authorization.
+        let auth = Arc::new(AuthState::new(
+            OidcConfig {
+                iss: "https://issuer.example".into(),
+                audience: "https://api.example".into(),
+                jwks_url: "https://issuer.example/.well-known/jwks".into(),
+                algorithm: Algorithm::RS256,
+            },
+            Arc::new(StaticJwksProvider::new(HashMap::new())),
+        ));
+        let repo = Arc::new(FakeMembershipRepo::default());
+        let policy = Arc::new(MembershipAuthorizationPolicy::new(repo));
+        let authz = Arc::new(AuthorizationState::new(policy, /*enforce=*/ true));
+
+        let app = auth_router(auth, authz);
+        let req = Request::builder()
+            .method("POST")
+            .uri("/seasons")
+            .body(AxumBody::empty())
+            .unwrap();
+
+        assert_eq!(status_of(&app, req).await, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn doc_endpoints_skip_authorization() {
+        // `/swagger-ui` and `/api-docs` are public: the authz middleware
+        // must short-circuit (skip gating) for them.
+        let auth = Arc::new(AuthState::dev(CurrentUser::dummy(DEV_SUB)));
+        let repo = Arc::new(FakeMembershipRepo::default());
+        let policy = Arc::new(MembershipAuthorizationPolicy::new(repo));
+        let authz = Arc::new(AuthorizationState::new(policy, /*enforce=*/ true));
+        let app = auth_router(auth, authz);
+        for path in ["/swagger-ui", "/api-docs"] {
+            let req = Request::builder()
+                .uri(path)
+                .body(AxumBody::empty())
+                .unwrap();
+            assert_eq!(
+                status_of(&app, req).await,
+                StatusCode::OK,
+                "doc path {path} must be public"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn doc_endpoints_public_in_prod_mode() {
+        // In production (non-dev) auth, doc paths are still public:
+        // `auth_middleware` short-circuits them before token validation.
+        let auth = Arc::new(AuthState::new(
+            OidcConfig {
+                iss: "https://issuer.example".into(),
+                audience: "https://api.example".into(),
+                jwks_url: "https://issuer.example/.well-known/jwks".into(),
+                algorithm: Algorithm::RS256,
+            },
+            Arc::new(StaticJwksProvider::new(HashMap::new())),
+        ));
+        let repo = Arc::new(FakeMembershipRepo::default());
+        let policy = Arc::new(MembershipAuthorizationPolicy::new(repo));
+        let authz = Arc::new(AuthorizationState::new(policy, /*enforce=*/ true));
+        let app = auth_router(auth, authz);
+        for path in ["/swagger-ui", "/api-docs"] {
+            let req = Request::builder()
+                .uri(path)
+                .body(AxumBody::empty())
+                .unwrap();
+            assert_eq!(
+                status_of(&app, req).await,
+                StatusCode::OK,
+                "doc path {path} must be public even in prod mode"
+            );
+        }
+    }
 }

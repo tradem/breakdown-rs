@@ -36,6 +36,9 @@ tracing.workspace = true
 # Error handling
 anyhow.workspace = true
 
+# Async traits (object-safe, mockable ports)
+async-trait.workspace = true
+
 # Random jitter for backoff
 rand.workspace = true
 fastrand = "2"

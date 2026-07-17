@@ -9,6 +9,7 @@ use crate::block::error::BlockError;
 use crate::character::error::CharacterError;
 use crate::costume::error::CostumeError;
 use crate::episode::error::EpisodeError;
+use crate::membership::error::MembershipError;
 use crate::scene::error::SceneError;
 use crate::season::error::SeasonError;
 use crate::shared::AggregateVersion;
@@ -91,6 +92,30 @@ impl From<EpisodeError> for DomainError {
         match err {
             EpisodeError::ValidationError(msg) => DomainError::ValidationError(msg),
             EpisodeError::NotFound { id } => DomainError::NotFound(format!("Episode({id})")),
+        }
+    }
+}
+
+impl From<MembershipError> for DomainError {
+    fn from(err: MembershipError) -> Self {
+        match err {
+            MembershipError::ValidationError(msg) => DomainError::ValidationError(msg),
+            MembershipError::AlreadyInvited { user_id } => {
+                DomainError::Conflict(format!("User {user_id} already has a pending invitation"))
+            }
+            MembershipError::NoPendingInvitation { user_id } => {
+                DomainError::Conflict(format!("No pending invitation for user {user_id}"))
+            }
+            MembershipError::NotActiveMember { user_id } => {
+                DomainError::Conflict(format!("User {user_id} is not an active member"))
+            }
+            MembershipError::MissingActor => {
+                DomainError::ValidationError("LeaveBlock requires an authenticated actor".into())
+            }
+            MembershipError::BootstrapNotAllowed { id } => DomainError::Conflict(format!(
+                "Block {id:?} already has members; bootstrap is only allowed on an empty block"
+            )),
+            MembershipError::NotFound { id } => DomainError::NotFound(format!("Block({id:?})")),
         }
     }
 }
