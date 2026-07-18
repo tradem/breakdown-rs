@@ -381,49 +381,73 @@ CONTEXT (already done, do not redo)
 - kameo_es patch parity is kept in `.patches/kameo_es`. UUIDv7 only. CQRS:
   commands → aggregate + event store; reads → Postgres projection.
 
-OPEN DECISIONS TO RESOLVE + IMPLEMENT
-These were deliberately surfaced, not faked. For each, get the stakeholder
-answer (or confirm the stated default), then implement the chosen design and
-update the spec deltas + `design.md` accordingly.
+OPEN DECISIONS — MUST BE CLARIFIED, NOT ASSUMED
+These three points were deliberately surfaced, not faked. They are OPEN
+DECISIONS, not defaults. A new session MUST raise them with the stakeholder
+and obtain an **explicit** answer before implementing anything. Do NOT
+silently adopt a "stated default" — if the stakeholder is undecided, keep
+the task OPEN, record the options + trade-offs in `design.md`, and stop.
+These decisions constrain the auth/membership layer that is ALREADY shipped,
+so getting them wrong now is expensive (tenancy touches every policy/query;
+audit touches the event-metadata contract; the IdP touches deploy + claims).
 
-9.2 — Tenancy: does a "theater" map to a Logto `Organization` holding
-     multiple seasons/blocks, and is cross-theater isolation required in v1?
-   - If YES: the authorization `AuthContext`/membership scoping currently
-     keys on `UserId` + active `BlockId` only. You'll likely need a
-     tenant/series scope (SeriesId/SeasonId) threading through
+CRITICAL CLARIFICATION (Nachfrage) — per decision, ASK the stakeholder:
+
+9.2 — Tenancy / cross-theater isolation
+   Concrete questions to ask:
+   - Does v1 serve ONE theater or MANY? If many, is a "theater" a Logto
+     `Organization` containing several seasons/blocks, or something else?
+   - Is cross-theater data isolation required in v1, or is it acceptable that
+     members of theater A could (accidentally) see theater B's blocks?
+   - What is the exact isolation boundary — per `SeriesId`, per `SeasonId`,
+     or per `BlockId`? Does the authz gate need an `X-Active-Series` (or
+     tenant) header in addition to `X-Active-Block`?
+   - If single-tenant for now: is that a permanent v1 scope or a temporary
+     deferral (i.e. must the data model leave room for tenancy later)?
+   Decision + code impact:
+   - If multi-tenant / isolation required: thread a tenant/series scope through
      `core/src/membership/policy.rs` `AuthContext`, the
-     `MembershipAuthorizationPolicy`, and the `X-Active-Block` extractor
-     (or an `X-Active-Series` header). Membership read model
-     (`infra/src/queries/membership.rs`) + projection may need a tenant column.
-   - If NO (single-tenant v1): leave as-is; just document the assumption.
-   - CODE IMPACT: `core/src/membership/{policy.rs,ports.rs,aggregate.rs}`,
-     `api/src/auth/authorization.rs`, `api/src/auth/mod.rs` (ActiveBlock /
-     new extractor), `crates/infra/src/queries/membership.rs`, migration.
+     `MembershipAuthorizationPolicy`, the `X-Active-Block` extractor (or a
+     new `X-Active-Series` header), and the membership read model
+     (`infra/src/queries/membership.rs`) + projection (likely a tenant column
+     + a uniqueness/FK adjustment). CODE IMPACT: `core/src/membership/
+     {policy.rs,ports.rs,aggregate.rs}`, `api/src/auth/authorization.rs`,
+     `api/src/auth/mod.rs`, `crates/infra/src/queries/membership.rs`, migration.
+   - If single-tenant: leave as-is and DOCUMENT the assumption explicitly in
+     `design.md` (state it is a deferred, not a rejected, decision).
 
-9.3 — Audit: is `kameo_es` command `Metadata` (`MembershipMetadata
-     { actor: Option<UserId> }`) enough for v1, or is a dedicated queryable
-     audit projection needed?
-   - If Metadata is enough: no work; document it (matches current `MembershipCommandsImpl`
-     which attaches `cmd.metadata().actor`).
-   - If a dedicated audit projection is needed: add a new projector + read
+9.3 — Audit needs
+   Concrete questions to ask:
+   - What must the v1 audit answer? (who acted, when, on which block, which
+     command, which actor `sub`?) Is `kameo_es` metadata sufficient, or does a
+     stakeholder need to QUERY audit (filter by user/block/time) via the API?
+   - Any compliance / retention requirement that forces a dedicated, queryable
+     store rather than event metadata?
+   Decision + code impact:
+   - If metadata is enough: no code; DOCUMENT it (current `MembershipCommandsImpl`
+     already attaches `cmd.metadata().actor` as `MembershipMetadata`).
+   - If a queryable audit projection is needed: add a new projector + read
      model (mirror `crates/infra/src/projectors/membership.rs` + the ADR-016
      idempotent-redelivery pattern), a Postgres migration, and wire it into
      `PostgresProcessor` in main.rs. Keep the domain free of sqlx
-     (port in core, impl in infra).
-   - CODE IMPACT: new `crates/infra/src/projectors/audit.rs`,
+     (port in core, impl in infra). CODE IMPACT: new `crates/infra/src/projectors/audit.rs`,
      `crates/infra/src/queries/audit.rs`, migration, main.rs wiring,
      possibly a new core `audit` module/port.
 
-9.4 — IdP: confirm Logto Cloud at landing (ADR-010), or does the team
-     switch to Zitadel before this ships?
+9.4 — IdP runtime
+   Concrete questions to ask:
+   - Is the IdP decision FINAL for landing: Logto Cloud (ADR-010) or Zitadel?
+   - Exactly which claims does the chosen IdP emit (`iss`, `aud` as string vs
+     array, `sub`, `email`)? Does `aud` match our `OIDC_AUDIENCE` exactly?
+   - Any non-JWKS auth (opaque tokens, introspection) that would break the
+     `JwksProvider` signature-verification approach?
+   Decision + code impact:
    - The `JwksProvider` abstraction (api/src/auth/jwks.rs) + env-driven
      `OIDC_ISS`/`OIDC_AUDIENCE`/`OIDC_JWKS_URL` already make the IdP pluggable;
-     a Zitadel swap is config-only (different JWKS URL/iss/aud). Confirm the
-     production env values and, if Zitadel, verify its JWKS/claim shape
-     (aud as array, etc.) against `api/src/auth/mod.rs` `AuthState::new`
-     `Validation`. No code change expected unless claims differ.
-   - CODE IMPACT: likely none (config only); only `AGENTS.md`/deploy docs +
-     a dev overlay note if needed.
+     a Zitadel swap is config-only. Verify the production env values and, if
+     Zitadel, validate its JWKS/claim shape against `api/src/auth/mod.rs`
+     `AuthState::new` `Validation`. CODE IMPACT: likely none (config only);
+     only `AGENTS.md`/deploy docs + a dev overlay note if needed.
 
 DELIVERABLES for this session
 - Written decisions for 9.2–9.4 (update `design.md` + the three spec deltas
@@ -432,8 +456,9 @@ DELIVERABLES for this session
   handler/authz tests (handlers/mod.rs `authz_tests`, api `test_helpers`
   `FakePorts`/`FakeMembership*`), and keep `cargo mutants --in-diff` green
   (whitebox `#[cfg(test)]` only).
-- Update `tasks.md`: close 9.2–9.4 once answered. Do NOT fake sign-off —
-  mark them OPEN until the stakeholder answer is recorded.
+- Update `tasks.md`: close 9.2–9.4 only once an answer is EXPLICITLY
+  recorded. Do NOT fake sign-off — mark them OPEN until the stakeholder's
+  explicit decision is written down (with the chosen option + rationale).
 
 VERIFY before declaring done
 - `cargo build --workspace`
