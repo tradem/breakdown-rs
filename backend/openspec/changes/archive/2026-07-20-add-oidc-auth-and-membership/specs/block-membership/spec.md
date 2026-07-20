@@ -107,3 +107,14 @@ The membership Bounded Context SHALL NOT model block metadata (number, dates, pa
 #### Scenario: Block metadata is out of scope
 - **WHEN** a `BlockMembership` aggregate is created
 - **THEN** its state SHALL contain only the membership map keyed by `UserId` and SHALL NOT store any block-level metadata
+
+### Requirement: Membership audit journal (queryable projection)
+The system SHALL maintain a queryable audit/journal projection recording membership-domain events (`MemberInvited`, `InvitationAccepted`, `RoleGranted`, `MemberRemoved`, `OwnerBootstrapped`), capturing the acting `sub` (from command metadata), the `block_id`, the event type, and the time of occurrence. The journal SHALL be idempotent under event redelivery (ADR-016). The projection schema SHALL be generic (`entity_type` + `payload` JSONB + nullable tenant/`series_id`) so that events from other Bounded Contexts can be appended in a future change without a breaking migration; the v1 scope is membership-only and SHALL NOT preclude a future all-domain journal.
+
+#### Scenario: Membership change is recorded
+- **WHEN** a `MembershipEvent` has been projected
+- **THEN** the audit journal SHALL contain a row for that event with the acting `sub`, `block_id`, event type, and `occurred_at`
+
+#### Scenario: Idempotent audit under redelivery
+- **WHEN** the same membership event is delivered more than once
+- **THEN** the audit journal SHALL contain exactly one row for that event

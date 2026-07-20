@@ -1,5 +1,8 @@
-## ADDED Requirements
+# oidc-authentication Specification
 
+## Purpose
+TBD - created by archiving change add-oidc-auth-and-membership. Update Purpose after archive.
+## Requirements
 ### Requirement: OIDC ID-Token validation
 The API layer SHALL validate every incoming request's OIDC ID-Token by verifying the JWT signature against the configured IdP JWKS, and by checking the `iss`, `aud`, and `exp` claims. Requests without a valid token SHALL be rejected.
 
@@ -39,3 +42,11 @@ The backend SHALL NOT implement user registration, password handling, MFA, accou
 #### Scenario: Backend only references an opaque subject
 - **WHEN** the backend needs to identify a user
 - **THEN** it SHALL use the OIDC `sub` claim, wrapped as an opaque `UserId` value type, and SHALL NOT dereference or store identity attributes beyond what is present in the signed token's standard claims
+
+### Requirement: IdP may be self-hosted in production (deployment topology, not IdP selection)
+The backend SHALL support a **self-hosted** OIDC provider instance (e.g. self-hosted Logto) in production, not only a SaaS tenant, with no code change — only `OIDC_ISS` / `OIDC_AUDIENCE` / `OIDC_JWKS_URL` configuration differs. Self-hosting is a deployment-topology choice; the selected IdP (Logto, per ADR-010) is unchanged, so switching SaaS↔self-hosted is configuration-only. The production `OIDC_*` values SHALL be verified at deploy time.
+
+#### Scenario: Self-hosted IdP validates identically to SaaS
+- **WHEN** the operator points `OIDC_ISS` / `OIDC_JWKS_URL` at a self-hosted Logto instance instead of Logto Cloud
+- **THEN** the backend SHALL validate tokens exactly as before, with no code change, because the self-hosted instance emits the same `iss` / `aud` / `sub` / `email` claims and a standard `.well-known/jwks` endpoint
+

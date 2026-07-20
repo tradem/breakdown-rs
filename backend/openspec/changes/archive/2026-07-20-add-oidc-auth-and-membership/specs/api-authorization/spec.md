@@ -35,3 +35,10 @@ Where the policy depends on a specific `Role` (e.g. "only a `costume_designer` m
 #### Scenario: Role-distinct rule fails closed
 - **WHEN** a role-distinct authorization rule is configured and the caller's `Role` does not match the required role
 - **THEN** the API layer SHALL reject the request with HTTP 403
+
+### Requirement: Tenancy boundary is per `SeriesId`, deferred (no v1 enforcement)
+The system defines its tenant boundary as **per `SeriesId`** (a production today; a future "movie" iteration is also a `Series`). In v1 the deployment is effectively single-tenant and the system SHALL NOT enforce cross-tenant isolation at the domain layer; the IdP organization check remains upstream at login (ADR-010). The authorization design SHALL leave an explicit, documented seam (a future active-series scope + policy check) so that per-`SeriesId` isolation can be added as an additive follow-up change without a rewrite.
+
+#### Scenario: Single-tenant v1 is allowed
+- **WHEN** a request is authorized in a v1 single-tenant deployment
+- **THEN** the policy SHALL decide based on the active `BlockId` membership only, with no cross-tenant check

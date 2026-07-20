@@ -111,6 +111,7 @@ so tests can inject a static provider. A `CachingJwksProvider` impl fetches from
 `OIDC_JWKS_URL`, caches the key set in a `tokio::sync::RwLock` with a TTL (~1h),
 and refreshes on miss / 401-from-validation. Rationale: std/recommended crates,
 no heavy opinionated OIDC framework, fully testable. (Decision recorded 2026-06-23.)
+**Formalized in ADR-018.**
 
 ### D2 — Active-Block transport (Open Question 2 of the auth spec)
 Carry the block context as a request header **`X-Active-Block: <BlockId>`**, parsed
@@ -146,3 +147,72 @@ middleware, `JwksProvider`, `CurrentUser` extractor, and `OidcConfig` live in `a
 The local `kameo_es` patch lives in `.patches/kameo_es` and pins `kameo = "0.15"`,
 edition 2021. Any change to the aggregate/command traits must keep patch parity
 (`Aggregate::execute(&CommandService, stream_id: Uuid, cmd).expected_version(..).metadata(..)`).
+
+### D7 — Dev-mode auth toggle (Open Question 3)
+Local dev and the test suite must run without a live IdP. Auth state is built
+by `AuthState::from_env_or_dev()`: when `OIDC_ISS` / `OIDC_AUDIENCE` /
+`OIDC_JWKS_URL` are all set it is **production mode** (real RS256 verification
+against the `CachingJwksProvider`); otherwise, if `DEV_AUTH_SUB` is set it is
+**dev mode** — a dummy `CurrentUser` (`sub = DEV_AUTH_SUB`, optional `email` from
+`DEV_AUTH_EMAIL`) is injected and token verification is skipped. `main.rs` only
+enters dev mode when `OIDC_ISS` is **absent**, so production (which always sets
+`OIDC_ISS`) can never reach the bypass. The toggle is documented as dev/test
+only — never for production (see `AGENTS.md` §6). **Formalized in ADR-018.**
+
+### Resolved Open Decisions (9.2–9.4)
+
+These were the three open sign-offs surfaced in the handoff. They are now
+explicitly decided with stakeholder input and recorded here (not faked).
+
+#### 9.2 — Tenancy (per `SeriesId`), deferred enforcement ("prepare, don't enforce")
+- **Decision:** v1 is effectively single-tenant. The tenant boundary is defined as
+  **per `SeriesId`** (a "production" today; a future "movie" iteration is also a
+  `Series`). The system is **prepared** for multi-tenancy but does **not** enforce
+  cross-tenant isolation in v1.
+- **What "prepare" means (no hard-enforcement code in v1):**
+  1. Document the per-`SeriesId` tenant boundary as *deferred, not rejected*.
+  2. The new audit projection (9.3) is made **tenant-aware** from the start
+     (carries a nullable `series_id` dimension) so future per-tenant audit
+     queries are free.
+  3. `AuthContext` / `MembershipAuthorizationPolicy` stay extensible (the policy
+     port is not hard-closed to a single scope).
+  4. A documented seam remains for a future `X-Active-Series` header + policy
+     check + `projection_membership` tenant column as a follow-up change.
+- **Rationale:** block-scoped membership already models the v1 need; adding hard
+  per-`SeriesId` enforcement now is premature (v1 single-tenant, and block→series
+  resolution is not yet wired into the membership BC, which treats `BlockId` as
+  opaque). Enforcing later is an additive change.
+
+#### 9.3 — Audit: queryable projection (membership-scoped v1, extensible)
+- **Decision:** implement a **queryable audit / journal projection**. v1 captures
+  the **membership-domain events** (`MemberInvited`, `InvitationAccepted`,
+  `RoleGranted`, `MemberRemoved`, `OwnerBootstrapped`) with the acting `sub` taken
+  from command metadata (`MembershipMetadata.actor`), plus `block_id`, event type,
+  and `occurred_at`. The schema is **generic** (`entity_type` + `payload` JSONB +
+  nullable `series_id`) so **other contexts' events can be appended later without a
+  breaking migration** — the membership scope must not preclude a future
+  all-domain journal.
+- **Impact:** new `crates/infra/src/projectors/audit.rs` +
+  `crates/infra/src/queries/audit.rs` (mirroring the membership projector + the
+  ADR-016 idempotent-redelivery pattern), a Postgres migration, and
+  `PostgresProcessor` wiring in `main.rs`. The `AuditRepository` **port** lives in
+  `core`, the impl in `infra` (ADR-017).
+
+#### 9.4 — IdP runtime: self-hosted Logto in production (config-only, no code change)
+- **Decision:** the IdP is **Logto**, **self-hosted even in production** (not Logto
+  Cloud SaaS). This is a **deployment-topology** choice, *not* an IdP-selection
+  change — it remains Logto, so ADR-010 ("Logto first") is unaffected in spirit;
+  only its deployment note (Cloud vs self-host) is updated. The dev overlay
+  (`docker-compose.idp.yml`) already self-hosts Logto, proving end-to-end
+  validation works against a self-hosted instance.
+- **Code impact:** **none.** The backend validates standard OIDC JWTs via the
+  injectable `JwksProvider` + `OIDC_ISS` / `OIDC_AUDIENCE` / `OIDC_JWKS_URL`;
+  self-hosted Logto emits identical `iss` / `aud` / `sub` / `email` claims and a
+  `.well-known/jwks` endpoint. Switching Cloud→self-host is purely a config change.
+- **Operational caveats (recorded, not blocking):** self-hosting moves IdP
+  availability, security-patching, and GDPR-controller burden onto the team. The
+  auth middleware already fails honest (503 on JWKS failure), so an IdP outage =
+  full auth outage — mitigate with HA Logto + HA Postgres + monitoring/backups.
+  Verify the production `OIDC_*` values at deploy time and document them
+  (AGENTS.md §6 / deploy docs). Zitadel remains a future option behind the same
+  abstraction.
