@@ -32,3 +32,10 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           working-directory: backend
+          # RUSTSEC-2023-0071 ("Marvin Attack", crate `rsa`) is pulled in
+          # transitively by `jsonwebtoken`, which we use only for RS256
+          # signature *verification* with the IdP public key: no private key is
+          # ever held server-side, so the timing key-recovery side-channel does
+          # not apply. `rsa` 0.9.x has no patched release. Revisit if we switch
+          # JWT libraries or `rsa` publishes a constant-time fix.
+          ignore: RUSTSEC-2023-0071
