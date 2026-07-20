@@ -12,6 +12,7 @@ use crate::episode::error::EpisodeError;
 use crate::membership::error::MembershipError;
 use crate::scene::error::SceneError;
 use crate::season::error::SeasonError;
+use crate::shooting_day::error::ShootingDayError;
 use crate::shared::AggregateVersion;
 
 #[derive(Error, Debug, Clone, PartialEq)]
@@ -44,6 +45,12 @@ impl From<SceneError> for DomainError {
             SceneError::CharacterAlreadyAssigned => {
                 DomainError::Conflict("Character already assigned to this scene".into())
             }
+            SceneError::AlreadyScheduled { shooting_day_id } => DomainError::Conflict(format!(
+                "Scene is already scheduled on shooting day {shooting_day_id}"
+            )),
+            SceneError::NotScheduled { shooting_day_id } => DomainError::Conflict(format!(
+                "Scene is not scheduled on shooting day {shooting_day_id}"
+            )),
         }
     }
 }
@@ -65,6 +72,26 @@ impl From<CostumeError> for DomainError {
             CostumeError::AlreadyAssigned { assigned_to } => DomainError::Conflict(format!(
                 "Costume already assigned to character {assigned_to}"
             )),
+        }
+    }
+}
+
+impl From<ShootingDayError> for DomainError {
+    fn from(err: ShootingDayError) -> Self {
+        match err {
+            ShootingDayError::ValidationError(msg) => DomainError::ValidationError(msg),
+            ShootingDayError::NotFound { id } => DomainError::NotFound(format!("ShootingDay({id})")),
+            ShootingDayError::ArchivedCannotBeMutated { id } => DomainError::Conflict(format!(
+                "ShootingDay({id}) is archived and cannot be mutated"
+            )),
+            ShootingDayError::DuplicateOrderKey(key) => {
+                DomainError::Conflict(format!("order key {key} already exists for this episode"))
+            }
+            ShootingDayError::VersionMismatch { expected, actual } => DomainError::VersionConflict {
+                entity: "ShootingDay".into(),
+                expected,
+                current: actual,
+            },
         }
     }
 }

@@ -6,7 +6,7 @@
 use breakdown_core::error::DomainError;
 use breakdown_core::scene::ports::SceneRepository;
 use breakdown_core::scene::views::SceneView;
-use breakdown_core::shared::{AggregateVersion, EpisodeId};
+use breakdown_core::shared::{AggregateVersion, EpisodeId, ShootingDayId};
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
@@ -34,11 +34,14 @@ impl SceneRepository for SceneRepositoryImpl {
                 s.location,
                 s.mood,
                 s.is_schedule_set,
+                s.summary,
                 s.version,
                 s.updated_at,
-                COALESCE(array_agg(sc.character_id) FILTER (WHERE sc.character_id IS NOT NULL), ARRAY[]::uuid[]) AS assigned_characters
+                COALESCE(array_agg(sc.character_id) FILTER (WHERE sc.character_id IS NOT NULL), ARRAY[]::uuid[]) AS assigned_characters,
+                COALESCE(array_agg(ssd.shooting_day_id) FILTER (WHERE ssd.shooting_day_id IS NOT NULL), ARRAY[]::uuid[]) AS shooting_day_ids
             FROM projection_scene s
             LEFT JOIN projection_scene_character sc ON sc.scene_id = s.id
+            LEFT JOIN projection_scene_shooting_day ssd ON ssd.scene_id = s.id
             WHERE s.id = $1
             GROUP BY s.id
             "#,
@@ -67,11 +70,14 @@ impl SceneRepository for SceneRepositoryImpl {
                 s.location,
                 s.mood,
                 s.is_schedule_set,
+                s.summary,
                 s.version,
                 s.updated_at,
-                COALESCE(array_agg(sc.character_id) FILTER (WHERE sc.character_id IS NOT NULL), ARRAY[]::uuid[]) AS assigned_characters
+                COALESCE(array_agg(sc.character_id) FILTER (WHERE sc.character_id IS NOT NULL), ARRAY[]::uuid[]) AS assigned_characters,
+                COALESCE(array_agg(ssd.shooting_day_id) FILTER (WHERE ssd.shooting_day_id IS NOT NULL), ARRAY[]::uuid[]) AS shooting_day_ids
             FROM projection_scene s
             LEFT JOIN projection_scene_character sc ON sc.scene_id = s.id
+            LEFT JOIN projection_scene_shooting_day ssd ON ssd.scene_id = s.id
             WHERE s.episode_id = $1
             GROUP BY s.id
             ORDER BY s.scene_number, s.updated_at DESC
@@ -93,17 +99,20 @@ impl SceneRepository for SceneRepositoryImpl {
             r#"
             SELECT
                 s.id,
-                s.project_id,
+                s.episode_id,
                 s.scene_number,
                 s.location,
                 s.mood,
                 s.is_schedule_set,
+                s.summary,
                 s.version,
                 s.updated_at,
-                COALESCE(array_agg(sc2.character_id) FILTER (WHERE sc2.character_id IS NOT NULL), ARRAY[]::uuid[]) AS assigned_characters
+                COALESCE(array_agg(sc2.character_id) FILTER (WHERE sc2.character_id IS NOT NULL), ARRAY[]::uuid[]) AS assigned_characters,
+                COALESCE(array_agg(ssd.shooting_day_id) FILTER (WHERE ssd.shooting_day_id IS NOT NULL), ARRAY[]::uuid[]) AS shooting_day_ids
             FROM projection_scene s
             JOIN projection_scene_character sc ON sc.scene_id = s.id AND sc.character_id = $1
             LEFT JOIN projection_scene_character sc2 ON sc2.scene_id = s.id
+            LEFT JOIN projection_scene_shooting_day ssd ON ssd.scene_id = s.id
             GROUP BY s.id
             ORDER BY s.scene_number, s.updated_at DESC
             "#,
@@ -119,6 +128,8 @@ impl SceneRepository for SceneRepositoryImpl {
 
 fn map_scene_row(row: sqlx::postgres::PgRow) -> Result<SceneView, DomainError> {
     let scene_number: Option<i32> = row.try_get("scene_number").map_err(map_err)?;
+    let summary: Option<String> = row.try_get("summary").map_err(map_err)?;
+    let shooting_day_ids: Vec<Uuid> = row.try_get("shooting_day_ids").map_err(map_err)?;
     Ok(SceneView {
         id: row.try_get("id").map_err(map_err)?,
         episode_id: EpisodeId(row.try_get("episode_id").map_err(map_err)?),
@@ -126,6 +137,8 @@ fn map_scene_row(row: sqlx::postgres::PgRow) -> Result<SceneView, DomainError> {
         location: row.try_get("location").map_err(map_err)?,
         mood: row.try_get("mood").map_err(map_err)?,
         is_schedule_set: row.try_get("is_schedule_set").map_err(map_err)?,
+        summary,
+        shooting_day_ids: shooting_day_ids.into_iter().map(ShootingDayId).collect(),
         assigned_characters: row.try_get("assigned_characters").map_err(map_err)?,
         version: AggregateVersion(row.try_get::<i64, _>("version").map_err(map_err)? as u64),
         updated_at: row

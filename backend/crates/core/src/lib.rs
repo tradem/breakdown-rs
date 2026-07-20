@@ -10,4 +10,5 @@ pub mod error;
 pub mod membership;
 pub mod scene;
 pub mod season;
+pub mod shooting_day;
 pub mod shared;

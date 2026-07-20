@@ -6,9 +6,12 @@
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, EpisodeId};
+use crate::shared::{AggregateVersion, EpisodeId, ShootingDayId};
 
-use super::commands::{AssignCharacter, CreateScene, RemoveCharacter, UpdateSceneDetails};
+use super::commands::{
+    AssignCharacter, CreateScene, RemoveCharacter, ScheduleSceneOnShootingDay,
+    UnscheduleSceneFromShootingDay, UpdateSceneDetails,
+};
 use super::error::SceneError;
 use super::events::SceneEvent;
 
@@ -24,6 +27,8 @@ pub struct SceneAggregate {
     pub episode_id: EpisodeId,
     pub details: SceneDetails,
     pub assigned_characters: Vec<Uuid>,
+    /// Shooting days this scene is linked to (the scene owns the collection).
+    pub shooting_day_ids: Vec<ShootingDayId>,
     pub version: AggregateVersion,
 }
 
@@ -53,6 +58,9 @@ impl Apply for SceneAggregate {
                 self.episode_id = episode_id;
                 self.details = details;
                 self.assigned_characters = assigned_characters;
+                // Legacy `SceneCreated` events carry no shooting-day links; the
+                // collection is always initialised empty and grown via commands.
+                self.shooting_day_ids = Vec::new();
                 self.version = version;
             }
             SceneEvent::SceneDetailsUpdated {
@@ -77,6 +85,24 @@ impl Apply for SceneAggregate {
                 ..
             } => {
                 self.assigned_characters.retain(|&id| id != character_id);
+                self.version = version;
+            }
+            SceneEvent::ShootingDayScheduled {
+                shooting_day_id,
+                version,
+                ..
+            } => {
+                if !self.shooting_day_ids.contains(&shooting_day_id) {
+                    self.shooting_day_ids.push(shooting_day_id);
+                }
+                self.version = version;
+            }
+            SceneEvent::ShootingDayUnscheduled {
+                shooting_day_id,
+                version,
+                ..
+            } => {
+                self.shooting_day_ids.retain(|&id| id != shooting_day_id);
                 self.version = version;
             }
         }
@@ -173,6 +199,59 @@ impl Command<RemoveCharacter> for SceneAggregate {
         Ok(vec![SceneEvent::CharacterRemoved {
             id: self.id,
             character_id: cmd.character_id,
+            version: new_version,
+        }])
+    }
+}
+
+impl Command<ScheduleSceneOnShootingDay> for SceneAggregate {
+    type Error = SceneError;
+    fn handle(
+        &self,
+        cmd: ScheduleSceneOnShootingDay,
+        _ctx: Context<'_, Self>,
+    ) -> Result<Vec<Self::Event>, Self::Error> {
+        if cmd.version != self.version {
+            return Err(SceneError::ValidationError(
+                "Aggregate version mismatch".into(),
+            ));
+        }
+        if self.shooting_day_ids.contains(&cmd.shooting_day_id) {
+            // Idempotent push: already scheduled → reject without emitting.
+            return Err(SceneError::AlreadyScheduled {
+                shooting_day_id: cmd.shooting_day_id,
+            });
+        }
+        let new_version = self.version.next();
+        Ok(vec![SceneEvent::ShootingDayScheduled {
+            id: self.id,
+            shooting_day_id: cmd.shooting_day_id,
+            version: new_version,
+        }])
+    }
+}
+
+impl Command<UnscheduleSceneFromShootingDay> for SceneAggregate {
+    type Error = SceneError;
+    fn handle(
+        &self,
+        cmd: UnscheduleSceneFromShootingDay,
+        _ctx: Context<'_, Self>,
+    ) -> Result<Vec<Self::Event>, Self::Error> {
+        if cmd.version != self.version {
+            return Err(SceneError::ValidationError(
+                "Aggregate version mismatch".into(),
+            ));
+        }
+        if !self.shooting_day_ids.contains(&cmd.shooting_day_id) {
+            return Err(SceneError::NotScheduled {
+                shooting_day_id: cmd.shooting_day_id,
+            });
+        }
+        let new_version = self.version.next();
+        Ok(vec![SceneEvent::ShootingDayUnscheduled {
+            id: self.id,
+            shooting_day_id: cmd.shooting_day_id,
             version: new_version,
         }])
     }

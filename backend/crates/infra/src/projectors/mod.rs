@@ -14,6 +14,7 @@ mod episode;
 mod membership;
 mod scene;
 mod season;
+mod shooting_day;
 mod supervisor;
 
 pub use audit::AuditProjector;
@@ -24,6 +25,7 @@ pub use episode::EpisodeProjector;
 pub use membership::MembershipProjector;
 pub use scene::SceneProjector;
 pub use season::SeasonProjector;
+pub use shooting_day::ShootingDayProjector;
 
 use std::sync::Arc;
 
@@ -35,6 +37,7 @@ use breakdown_core::episode::aggregate::EpisodeAggregate;
 use breakdown_core::membership::aggregate::BlockMembership;
 use breakdown_core::scene::aggregate::SceneAggregate;
 use breakdown_core::season::aggregate::SeasonAggregate;
+use breakdown_core::shooting_day::aggregate::ShootingDayAggregate;
 use kameo::actor::{ActorRef, Spawn};
 use kameo_es::event_handler::EventHandlerStreamBuilder;
 use kameo_es::event_handler::postgres::PostgresProcessor;
@@ -52,6 +55,7 @@ type BlockProcessor = PostgresProcessor<(BlockAggregate,), BlockProjector>;
 type EpisodeProcessor = PostgresProcessor<(EpisodeAggregate,), EpisodeProjector>;
 type MembershipProcessor = PostgresProcessor<(BlockMembership,), MembershipProjector>;
 type AuditProcessor = PostgresProcessor<(BlockMembership,), AuditProjector>;
+type ShootingDayProcessor = PostgresProcessor<(ShootingDayAggregate,), ShootingDayProjector>;
 
 /// Spawn a supervised projector subscription loop.
 ///
@@ -244,5 +248,29 @@ pub async fn spawn_audit_projector(
     .await?;
     let actor_ref = AuditProcessor::spawn(processor);
     run_projection_stream!(BlockMembership, "audit", redis_client, actor_ref.clone())?;
+    Ok(actor_ref)
+}
+
+/// Spawn the shooting-day projector actor and start its SierraDB subscription loop.
+pub async fn spawn_shooting_day_projector(
+    pool: PgPool,
+    redis_client: Arc<RedisClient>,
+) -> Result<ActorRef<ShootingDayProcessor>> {
+    let conn = redis_client.get_multiplexed_tokio_connection().await?;
+    let processor = ShootingDayProcessor::new(
+        pool.clone(),
+        conn,
+        CHECKPOINTS_TABLE,
+        "shooting_day",
+        ShootingDayProjector,
+    )
+    .await?;
+    let actor_ref = ShootingDayProcessor::spawn(processor);
+    run_projection_stream!(
+        ShootingDayAggregate,
+        "shooting_day",
+        redis_client,
+        actor_ref.clone()
+    )?;
     Ok(actor_ref)
 }

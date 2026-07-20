@@ -5,6 +5,8 @@
 
 use thiserror::Error;
 
+use crate::shared::ShootingDayId;
+
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum SceneError {
     #[error("Validation error: {0}")]
@@ -18,4 +20,10 @@ pub enum SceneError {
 
     #[error("Character is already assigned to this scene")]
     CharacterAlreadyAssigned,
+
+    #[error("Scene is already scheduled on shooting day {shooting_day_id}")]
+    AlreadyScheduled { shooting_day_id: ShootingDayId },
+
+    #[error("Scene is not scheduled on shooting day {shooting_day_id}")]
+    NotScheduled { shooting_day_id: ShootingDayId },
 }

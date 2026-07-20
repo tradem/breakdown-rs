@@ -18,8 +18,14 @@ You are the primary coding agent for `breakdown-rs` – a collaborative costume 
 The domain models a four-level production hierarchy:
 `Series` (opaque `SeriesId` only — no aggregate yet) → `Season` → `Block` → `Episode` → `Scene`.
 `Character` and `Costume` are scoped to a `Season` (`Character.season_id`) / scope-free (`Costume` is bound only to a `Character`).
-Core modules: `season`, `block`, `episode`, `scene`, `character`, `costume`, `shared`.
+Core modules: `season`, `block`, `episode`, `scene`, `shooting_day`, `character`, `costume`, `shared`.
 The `calculation` context was removed; do not reintroduce it.
+`shooting_day` is an Episode-scoped `Drehtag` aggregate. It carries a `label`, a `LexicalSortKey`
+fractional-ordering value (`shared`), an optional `date`, a `ShootingDaySource` provenance
+discriminator (Manual | AiExtracted), and an `archived` flag. Scenes link to ShootingDays via a
+many-to-many join (`Scene.schedule_on_shooting_day`) kept on the Scene aggregate; the read model
+mirrors it in `projection_scene_shooting_day`. Archived days are excluded from the picker query
+`ShootingDayRepository::list_by_episode`.
 `SeriesId` is an opaque UUIDv7 seam for a future additive `Series` aggregate — hierarchy entities reference it but no `Series` aggregate exists yet.
 
 ## 3. Workflow & Best Practices

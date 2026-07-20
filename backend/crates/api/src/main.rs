@@ -17,11 +17,12 @@ use api::state::{AppState, Ports, ProductionPorts};
 use breakdown_core::membership::policy::AuthorizationPolicy;
 use infra::event_store::{
     BlockCommandsImpl, CharacterCommandsImpl, CostumeCommandsImpl, EpisodeCommandsImpl,
-    MembershipCommandsImpl, SceneCommandsImpl, SeasonCommandsImpl,
+    MembershipCommandsImpl, SceneCommandsImpl, SeasonCommandsImpl, ShootingDayCommandsImpl,
 };
 use infra::queries::{
     AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl, CostumeRepositoryImpl,
     EpisodeRepositoryImpl, MembershipRepositoryImpl, SceneRepositoryImpl, SeasonRepositoryImpl,
+    ShootingDayRepositoryImpl,
 };
 use kameo_es::command_service::CommandService;
 use opentelemetry::trace::TracerProvider as _;
@@ -145,11 +146,16 @@ async fn main() -> Result<()> {
             .await?;
     let _audit_projector =
         infra::projectors::spawn_audit_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _shooting_day_projector =
+        infra::projectors::spawn_shooting_day_projector(pool.clone(), Arc::clone(&redis_client))
+            .await?;
     info!("projectors spawned");
 
     let ports = ProductionPorts::new(
         SceneCommandsImpl::new(cmd_service.clone()),
         SceneRepositoryImpl::new(pool.clone()),
+        ShootingDayCommandsImpl::new(cmd_service.clone()),
+        ShootingDayRepositoryImpl::new(pool.clone()),
         CharacterCommandsImpl::new(cmd_service.clone()),
         CharacterRepositoryImpl::new(pool.clone()),
         CostumeCommandsImpl::new(cmd_service.clone()),

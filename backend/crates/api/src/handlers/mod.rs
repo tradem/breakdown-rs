@@ -30,15 +30,23 @@ use breakdown_core::membership::{
     MembershipRepository, RemoveMember, Role,
 };
 use breakdown_core::scene::commands::{
-    AssignCharacter, CreateScene, RemoveCharacter, UpdateSceneDetails,
+    AssignCharacter, CreateScene, RemoveCharacter, ScheduleSceneOnShootingDay,
+    UnscheduleSceneFromShootingDay, UpdateSceneDetails,
 };
 use breakdown_core::scene::events::SceneDetails;
 use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
 use breakdown_core::scene::views::SceneView;
+use breakdown_core::shooting_day::commands::{
+    ArchiveShootingDay, CreateShootingDay, ReorderShootingDay, RenameShootingDay,
+    RescheduleShootingDay,
+};
+use breakdown_core::shooting_day::events::ShootingDaySource;
+use breakdown_core::shooting_day::ports::{ShootingDayCommands, ShootingDayRepository};
+use breakdown_core::shooting_day::views::ShootingDayView;
 use breakdown_core::season::commands::{CreateSeason, RenameSeason};
 use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
 use breakdown_core::season::views::SeasonView;
-use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, SeasonId, SeriesId, UserId};
+use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, LexicalSortKey, SeasonId, SeriesId, ShootingDayId, UserId};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
@@ -162,6 +170,40 @@ pub struct UpdateBlockTimeSpanRequest {
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct VersionRequest {
+    pub version: AggregateVersion,
+}
+
+/// Request body for creating a `ShootingDay` (a Drehtag) inside an Episode.
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct CreateShootingDayRequest {
+    pub episode_id: EpisodeId,
+    /// Free-form display label (e.g. "1. Tag").
+    pub label: Option<String>,
+    /// Canonical ordering key within the Episode (lexicographically sortable).
+    pub order_key: LexicalSortKey,
+    /// Calendar date; `None` while planning.
+    pub date: Option<chrono::NaiveDate>,
+    /// Import provenance (`Manual` or `AiExtracted`).
+    pub source: ShootingDaySource,
+}
+
+/// Request body for mutating a `ShootingDay`.
+///
+/// Exactly one of `order_key` / `date` / `label` should be set; the handler
+/// dispatches the matching command (reorder > reschedule > rename). `date`
+/// being `Some(None)` is the explicit "unschedule" (clear the calendar date).
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct UpdateShootingDayRequest {
+    pub version: AggregateVersion,
+    pub label: Option<String>,
+    pub date: Option<chrono::NaiveDate>,
+    pub order_key: Option<LexicalSortKey>,
+}
+
+/// Request body for linking a `Scene` to a `ShootingDay`.
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct ScheduleSceneRequest {
+    pub shooting_day_id: ShootingDayId,
     pub version: AggregateVersion,
 }
 
@@ -706,6 +748,203 @@ pub async fn remove_scene_character<P: Ports>(
         .ports
         .scene_commands()
         .remove_character(cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+// ---------------------------------------------------------------------------
+// ShootingDay handlers
+// ---------------------------------------------------------------------------
+
+#[utoipa::path(
+    post,
+    path = "/episodes/{episode_id}/shooting-days",
+    params(("episode_id" = EpisodeId, Path, description = "Episode id")),
+    request_body = CreateShootingDayRequest,
+    responses((status = 201, description = "Shooting day created", body = IdVersionResponse)),
+)]
+pub async fn create_shooting_day<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path(episode_id): Path<EpisodeId>,
+    Json(req): Json<CreateShootingDayRequest>,
+) -> ApiResult<IdVersionResponse> {
+    let id = ShootingDayId::new();
+    let cmd = CreateShootingDay {
+        id,
+        episode_id,
+        label: req.label,
+        order_key: req.order_key,
+        date: req.date,
+        source: req.source,
+    };
+    let (id, version) = state
+        .ports
+        .shooting_day_commands()
+        .create(cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::CREATED, Json(IdVersionResponse { id: id.0, version })))
+}
+
+#[utoipa::path(
+    get,
+    path = "/episodes/{episode_id}/shooting-days",
+    params(("episode_id" = EpisodeId, Path, description = "Episode id")),
+    responses((status = 200, body = Vec<ShootingDayView>)),
+)]
+pub async fn list_shooting_days<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path(episode_id): Path<EpisodeId>,
+) -> ApiResult<Vec<ShootingDayView>> {
+    let views = state
+        .ports
+        .shooting_day_repo()
+        .list_by_episode(episode_id)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(views)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/shooting-days/{id}",
+    params(("id" = ShootingDayId, Path, description = "Shooting day id")),
+    responses((status = 200, body = ShootingDayView), (status = 404, body = ErrorResponse)),
+)]
+pub async fn get_shooting_day<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path(id): Path<ShootingDayId>,
+) -> ApiResult<ShootingDayView> {
+    let view = state
+        .ports
+        .shooting_day_repo()
+        .find_by_id(id)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(view)))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/shooting-days/{id}",
+    params(("id" = ShootingDayId, Path, description = "Shooting day id")),
+    request_body = UpdateShootingDayRequest,
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 400, description = "No update field provided"),
+        (status = 409, body = ErrorResponse),
+    ),
+)]
+pub async fn update_shooting_day<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path(id): Path<ShootingDayId>,
+    Json(req): Json<UpdateShootingDayRequest>,
+) -> ApiResult<AggregateVersion> {
+    let cmds = state.ports.shooting_day_commands();
+    if let Some(order_key) = req.order_key {
+        let version = cmds
+            .reorder(ReorderShootingDay { id, order_key, version: req.version })
+            .await
+            .map_err(map_err)?;
+        return Ok((StatusCode::OK, Json(version)));
+    }
+    if req.date.is_some() {
+        let version = cmds
+            .reschedule(RescheduleShootingDay { id, date: req.date, version: req.version })
+            .await
+            .map_err(map_err)?;
+        return Ok((StatusCode::OK, Json(version)));
+    }
+    if req.label.is_some() {
+        let version = cmds
+            .rename(RenameShootingDay { id, label: req.label, version: req.version })
+            .await
+            .map_err(map_err)?;
+        return Ok((StatusCode::OK, Json(version)));
+    }
+    Err((
+        StatusCode::BAD_REQUEST,
+        Json(ErrorResponse {
+            message: "no update field provided (order_key, date, or label)".into(),
+        }),
+    ))
+}
+
+#[utoipa::path(
+    post,
+    path = "/shooting-days/{id}/archive",
+    params(("id" = ShootingDayId, Path, description = "Shooting day id")),
+    request_body = VersionRequest,
+    responses((status = 200, body = AggregateVersion), (status = 409, body = ErrorResponse)),
+)]
+pub async fn archive_shooting_day<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path(id): Path<ShootingDayId>,
+    Json(req): Json<VersionRequest>,
+) -> ApiResult<AggregateVersion> {
+    let version = state
+        .ports
+        .shooting_day_commands()
+        .archive(ArchiveShootingDay { id, version: req.version })
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+// ---------------------------------------------------------------------------
+// Scene ↔ ShootingDay scheduling handlers
+// ---------------------------------------------------------------------------
+
+#[utoipa::path(
+    post,
+    path = "/scenes/{id}/shooting-days",
+    params(("id" = Uuid, Path, description = "Scene id")),
+    request_body = ScheduleSceneRequest,
+    responses((status = 200, body = AggregateVersion), (status = 409, body = ErrorResponse)),
+)]
+pub async fn schedule_scene_on_shooting_day<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<ScheduleSceneRequest>,
+) -> ApiResult<AggregateVersion> {
+    let cmd = ScheduleSceneOnShootingDay {
+        id,
+        shooting_day_id: req.shooting_day_id,
+        version: req.version,
+    };
+    let version = state
+        .ports
+        .scene_commands()
+        .schedule_on_shooting_day(cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/scenes/{id}/shooting-days/{shooting_day_id}",
+    params(
+        ("id" = Uuid, Path, description = "Scene id"),
+        ("shooting_day_id" = ShootingDayId, Path, description = "Shooting day id")
+    ),
+    responses((status = 200, body = AggregateVersion), (status = 409, body = ErrorResponse)),
+)]
+pub async fn unschedule_scene_from_shooting_day<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path((id, shooting_day_id)): Path<(Uuid, ShootingDayId)>,
+    Query(version): Query<VersionRequest>,
+) -> ApiResult<AggregateVersion> {
+    let cmd = UnscheduleSceneFromShootingDay {
+        id,
+        shooting_day_id,
+        version: version.version,
+    };
+    let version = state
+        .ports
+        .scene_commands()
+        .unschedule_from_shooting_day(cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -1301,6 +1540,31 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         .route(
             "/scenes/{id}/characters/{character_id}",
             routing::delete(remove_scene_character::<ProductionPorts>),
+        )
+        .route(
+            "/scenes/{id}/shooting-days",
+            routing::post(schedule_scene_on_shooting_day::<ProductionPorts>),
+        )
+        .route(
+            "/scenes/{id}/shooting-days/{shooting_day_id}",
+            routing::delete(unschedule_scene_from_shooting_day::<ProductionPorts>),
+        )
+        .route(
+            "/episodes/{episode_id}/shooting-days",
+            routing::post(create_shooting_day::<ProductionPorts>)
+                .get(list_shooting_days::<ProductionPorts>),
+        )
+        .route(
+            "/shooting-days/{id}",
+            routing::get(get_shooting_day::<ProductionPorts>),
+        )
+        .route(
+            "/shooting-days/{id}",
+            routing::patch(update_shooting_day::<ProductionPorts>),
+        )
+        .route(
+            "/shooting-days/{id}/archive",
+            routing::post(archive_shooting_day::<ProductionPorts>),
         )
         .route(
             "/characters",

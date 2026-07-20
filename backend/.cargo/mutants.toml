@@ -42,4 +42,11 @@ exclude_re = [
     # anchored to `version_from_expected` so it does not accidentally exclude unrelated
     # `ExpectedVersion::Empty` arms elsewhere (e.g. in `.patches/kameo_es`).
     "ExpectedVersion::Empty in version_from_expected",
+    # LexicalSortKey::midpoint: the loop-bound `<`→`<=` mutants are behaviour-preserving
+    # (the `av[i] == bv[i]` equality guard short-circuits the scan before `i` can ever reach
+    # the bound for any valid a<b input), and the `i += 1`→`i *= 1` mutant is an untestable
+    # infinite loop (the mutated program never terminates). Both are scoped to this function so
+    # unrelated mutants are not affected.
+    "replace < with <= in LexicalSortKey::midpoint",
+    "replace \\+= with \\*= in LexicalSortKey::midpoint",
 ]

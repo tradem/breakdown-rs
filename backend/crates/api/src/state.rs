@@ -14,13 +14,15 @@ use breakdown_core::episode::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::membership::{MembershipCommands, MembershipRepository};
 use breakdown_core::scene::{SceneCommands, SceneRepository};
 use breakdown_core::season::{SeasonCommands, SeasonRepository};
+use breakdown_core::shooting_day::{ShootingDayCommands, ShootingDayRepository};
 use infra::event_store::{
     BlockCommandsImpl, CharacterCommandsImpl, CostumeCommandsImpl, EpisodeCommandsImpl,
-    MembershipCommandsImpl, SceneCommandsImpl, SeasonCommandsImpl,
+    MembershipCommandsImpl, SceneCommandsImpl, SeasonCommandsImpl, ShootingDayCommandsImpl,
 };
 use infra::queries::{
     AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl, CostumeRepositoryImpl,
     EpisodeRepositoryImpl, MembershipRepositoryImpl, SceneRepositoryImpl, SeasonRepositoryImpl,
+    ShootingDayRepositoryImpl,
 };
 
 /// The hexagonal seam surface used by API handlers. Production implements it
@@ -28,6 +30,8 @@ use infra::queries::{
 pub trait Ports: Clone + Send + Sync + 'static {
     type SceneCommands: SceneCommands;
     type SceneRepo: SceneRepository;
+    type ShootingDayCommands: ShootingDayCommands;
+    type ShootingDayRepo: ShootingDayRepository;
     type CharacterCommands: CharacterCommands;
     type CharacterRepo: CharacterRepository;
     type CostumeCommands: CostumeCommands;
@@ -44,6 +48,8 @@ pub trait Ports: Clone + Send + Sync + 'static {
 
     fn scene_commands(&self) -> &Self::SceneCommands;
     fn scene_repo(&self) -> &Self::SceneRepo;
+    fn shooting_day_commands(&self) -> &Self::ShootingDayCommands;
+    fn shooting_day_repo(&self) -> &Self::ShootingDayRepo;
     fn character_commands(&self) -> &Self::CharacterCommands;
     fn character_repo(&self) -> &Self::CharacterRepo;
     fn costume_commands(&self) -> &Self::CostumeCommands;
@@ -76,6 +82,8 @@ impl<P: Ports> AppState<P> {
 pub struct ProductionPorts {
     scene_commands: SceneCommandsImpl,
     scene_repo: SceneRepositoryImpl,
+    shooting_day_commands: ShootingDayCommandsImpl,
+    shooting_day_repo: ShootingDayRepositoryImpl,
     character_commands: CharacterCommandsImpl,
     character_repo: CharacterRepositoryImpl,
     costume_commands: CostumeCommandsImpl,
@@ -96,6 +104,8 @@ impl ProductionPorts {
     pub fn new(
         scene_commands: SceneCommandsImpl,
         scene_repo: SceneRepositoryImpl,
+        shooting_day_commands: ShootingDayCommandsImpl,
+        shooting_day_repo: ShootingDayRepositoryImpl,
         character_commands: CharacterCommandsImpl,
         character_repo: CharacterRepositoryImpl,
         costume_commands: CostumeCommandsImpl,
@@ -113,6 +123,8 @@ impl ProductionPorts {
         Self {
             scene_commands,
             scene_repo,
+            shooting_day_commands,
+            shooting_day_repo,
             character_commands,
             character_repo,
             costume_commands,
@@ -133,6 +145,8 @@ impl ProductionPorts {
 impl Ports for ProductionPorts {
     type SceneCommands = SceneCommandsImpl;
     type SceneRepo = SceneRepositoryImpl;
+    type ShootingDayCommands = ShootingDayCommandsImpl;
+    type ShootingDayRepo = ShootingDayRepositoryImpl;
     type CharacterCommands = CharacterCommandsImpl;
     type CharacterRepo = CharacterRepositoryImpl;
     type CostumeCommands = CostumeCommandsImpl;
@@ -152,6 +166,12 @@ impl Ports for ProductionPorts {
     }
     fn scene_repo(&self) -> &Self::SceneRepo {
         &self.scene_repo
+    }
+    fn shooting_day_commands(&self) -> &Self::ShootingDayCommands {
+        &self.shooting_day_commands
+    }
+    fn shooting_day_repo(&self) -> &Self::ShootingDayRepo {
+        &self.shooting_day_repo
     }
     fn character_commands(&self) -> &Self::CharacterCommands {
         &self.character_commands

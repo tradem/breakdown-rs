@@ -175,6 +175,7 @@ async fn scenes_by_episode_returns_data() -> Result<()> {
             location: Some("A".into()),
             mood: Some("A".into()),
             is_schedule_set: false,
+summary: None,
         },
     };
     scene_cmd.create(cmd).await?;

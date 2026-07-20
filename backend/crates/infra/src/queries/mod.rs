@@ -11,6 +11,7 @@ mod episode;
 mod membership;
 mod scene;
 mod season;
+mod shooting_day;
 
 pub use audit::AuditRepositoryImpl;
 pub use block::BlockRepositoryImpl;
@@ -20,3 +21,4 @@ pub use episode::EpisodeRepositoryImpl;
 pub use membership::MembershipRepositoryImpl;
 pub use scene::SceneRepositoryImpl;
 pub use season::SeasonRepositoryImpl;
+pub use shooting_day::ShootingDayRepositoryImpl;

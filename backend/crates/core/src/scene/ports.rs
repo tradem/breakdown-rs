@@ -12,7 +12,10 @@ use uuid::Uuid;
 use crate::error::DomainError;
 use crate::shared::{AggregateVersion, EpisodeId};
 
-use super::commands::{AssignCharacter, CreateScene, RemoveCharacter, UpdateSceneDetails};
+use super::commands::{
+    AssignCharacter, CreateScene, RemoveCharacter, ScheduleSceneOnShootingDay,
+    UnscheduleSceneFromShootingDay, UpdateSceneDetails,
+};
 use super::views::SceneView;
 
 /// Async write port for the `SceneAggregate`. Mockable seam used by API handlers.
@@ -36,6 +39,18 @@ pub trait SceneCommands: Send + Sync {
     /// Remove a character from the scene.
     async fn remove_character(&self, cmd: RemoveCharacter)
     -> Result<AggregateVersion, DomainError>;
+
+    /// Link a `ShootingDay` to this scene (scene owns the collection).
+    async fn schedule_on_shooting_day(
+        &self,
+        cmd: ScheduleSceneOnShootingDay,
+    ) -> Result<AggregateVersion, DomainError>;
+
+    /// Remove a `ShootingDay` link from this scene.
+    async fn unschedule_from_shooting_day(
+        &self,
+        cmd: UnscheduleSceneFromShootingDay,
+    ) -> Result<AggregateVersion, DomainError>;
 }
 
 /// Async read port returning flat `SceneView` projections.

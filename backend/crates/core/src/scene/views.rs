@@ -11,7 +11,7 @@ use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, EpisodeId};
+use crate::shared::{AggregateVersion, EpisodeId, ShootingDayId};
 
 /// Complete scene read model.
 ///
@@ -25,6 +25,9 @@ pub struct SceneView {
     pub location: Option<String>,
     pub mood: Option<String>,
     pub is_schedule_set: bool,
+    pub summary: Option<String>,
+    /// Shooting days this scene is scheduled on.
+    pub shooting_day_ids: Vec<ShootingDayId>,
     pub assigned_characters: Vec<Uuid>,
     /// Aggregate version of the last applied event; echo back in optimistic-locking commands.
     pub version: AggregateVersion,

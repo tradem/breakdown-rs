@@ -6,7 +6,7 @@
 use uuid::Uuid;
 
 use super::events::SceneDetails;
-use crate::shared::{AggregateVersion, EpisodeId};
+use crate::shared::{AggregateVersion, EpisodeId, ShootingDayId};
 
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct CreateScene {
@@ -54,5 +54,30 @@ impl kameo_es::CommandName for AssignCharacter {
 impl kameo_es::CommandName for RemoveCharacter {
     fn command_name() -> &'static str {
         "RemoveCharacter"
+    }
+}
+
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
+pub struct ScheduleSceneOnShootingDay {
+    pub id: Uuid,
+    pub shooting_day_id: ShootingDayId,
+    pub version: AggregateVersion,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
+pub struct UnscheduleSceneFromShootingDay {
+    pub id: Uuid,
+    pub shooting_day_id: ShootingDayId,
+    pub version: AggregateVersion,
+}
+
+impl kameo_es::CommandName for ScheduleSceneOnShootingDay {
+    fn command_name() -> &'static str {
+        "ScheduleSceneOnShootingDay"
+    }
+}
+impl kameo_es::CommandName for UnscheduleSceneFromShootingDay {
+    fn command_name() -> &'static str {
+        "UnscheduleSceneFromShootingDay"
     }
 }
