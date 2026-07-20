@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024-2026 Breakdown RS Contributors
+
 //! Messages like events and commands are written to and read from streams. To
 //! write and read from streams, the subject stream is identified by its name.
 //!

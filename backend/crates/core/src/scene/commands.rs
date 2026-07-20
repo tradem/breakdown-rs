@@ -6,12 +6,12 @@
 use uuid::Uuid;
 
 use super::events::SceneDetails;
-use crate::shared::{AggregateVersion, ProjectId};
+use crate::shared::{AggregateVersion, EpisodeId};
 
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct CreateScene {
     pub id: Uuid,
-    pub project_id: ProjectId,
+    pub episode_id: EpisodeId,
     pub details: SceneDetails,
 }
 

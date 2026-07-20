@@ -30,28 +30,27 @@ impl<'a> EntityEventHandler<CharacterAggregate, Transaction<'a, Postgres>> for C
         match event.data {
             CharacterEvent::CharacterCreated {
                 id,
-                project_id,
+                season_id,
                 name,
-                is_extra,
-                is_main_character,
+                category,
                 measurements,
                 contact_info,
                 version,
             } => {
                 let measurements_json = serde_json::to_value(&measurements).unwrap_or_default();
                 let contact_json = serde_json::to_value(&contact_info).unwrap_or_default();
+                let category_json = serde_json::to_value(category).unwrap_or_default();
                 let version = version.0 as i64;
 
                 sqlx::query(
                     r#"
                     INSERT INTO projection_character
-                        (id, project_id, name, is_extra, is_main_character, measurements, contact, version, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                        (id, season_id, name, category, measurements, contact, version, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                     ON CONFLICT (id) DO UPDATE SET
-                        project_id = EXCLUDED.project_id,
+                        season_id = EXCLUDED.season_id,
                         name = EXCLUDED.name,
-                        is_extra = EXCLUDED.is_extra,
-                        is_main_character = EXCLUDED.is_main_character,
+                        category = EXCLUDED.category,
                         measurements = EXCLUDED.measurements,
                         contact = EXCLUDED.contact,
                         version = EXCLUDED.version,
@@ -59,10 +58,9 @@ impl<'a> EntityEventHandler<CharacterAggregate, Transaction<'a, Postgres>> for C
                     "#,
                 )
                 .bind(id)
-                .bind(project_id.0)
+                .bind(season_id.0)
                 .bind(name)
-                .bind(is_extra)
-                .bind(is_main_character)
+                .bind(category_json)
                 .bind(measurements_json)
                 .bind(contact_json)
                 .bind(version)

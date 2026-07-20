@@ -17,11 +17,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
-use breakdown_core::calculation::ports::CalculationRepository;
+
+use breakdown_core::character::category::CharacterCategory;
 use breakdown_core::character::ports::CharacterRepository;
 use breakdown_core::costume::ports::CostumeRepository;
 use breakdown_core::scene::ports::SceneRepository;
-use breakdown_core::shared::{AggregateVersion, ProjectId};
+use breakdown_core::shared::{AggregateVersion, EpisodeId, SeasonId};
 use chrono::Utc;
 use redis::Client as RedisClient;
 use uuid::Uuid;
@@ -122,7 +123,7 @@ async fn eappend_event<T: serde::Serialize>(
 }
 
 // ---------------------------------------------------------------------------
-// Scene projector tests
+
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -136,12 +137,12 @@ async fn scene_created_projects_scene_details() -> Result<()> {
     let scene_repo = infra::queries::SceneRepositoryImpl::new(pool.clone());
 
     let scene_id = Uuid::now_v7();
-    let project_id = ProjectId::new();
+    let episode_id = EpisodeId::new();
     let stream_id = format!("scene-{}", scene_id);
 
     let event = breakdown_core::scene::events::SceneEvent::SceneCreated {
         id: scene_id,
-        project_id,
+        episode_id,
         details: breakdown_core::scene::events::SceneDetails {
             scene_number: Some(42),
             location: Some("Berlin".into()),
@@ -190,13 +191,13 @@ async fn scene_details_updated_projects_changes() -> Result<()> {
     let scene_repo = infra::queries::SceneRepositoryImpl::new(pool.clone());
 
     let scene_id = Uuid::now_v7();
-    let project_id = ProjectId::new();
+    let episode_id = EpisodeId::new();
     let stream_id = format!("scene-{}", scene_id);
 
     // 1. SceneCreated
     let created = breakdown_core::scene::events::SceneEvent::SceneCreated {
         id: scene_id,
-        project_id,
+        episode_id,
         details: breakdown_core::scene::events::SceneDetails {
             scene_number: Some(1),
             location: Some("A".into()),
@@ -259,7 +260,7 @@ async fn scene_assign_character_creates_sub_row() -> Result<()> {
 
     let scene_id = Uuid::now_v7();
     let character_id = Uuid::now_v7();
-    let project_id = ProjectId::new();
+    let episode_id = EpisodeId::new();
     let stream_id = format!("scene-{}", scene_id);
 
     // SceneCreated
@@ -270,7 +271,7 @@ async fn scene_assign_character_creates_sub_row() -> Result<()> {
         "EMPTY",
         &breakdown_core::scene::events::SceneEvent::SceneCreated {
             id: scene_id,
-            project_id,
+            episode_id,
             details: breakdown_core::scene::events::SceneDetails {
                 scene_number: Some(1),
                 location: None,
@@ -318,7 +319,7 @@ async fn scene_remove_character_clears_sub_row() -> Result<()> {
 
     let scene_id = Uuid::now_v7();
     let character_id = Uuid::now_v7();
-    let project_id = ProjectId::new();
+    let episode_id = EpisodeId::new();
     let stream_id = format!("scene-{}", scene_id);
 
     eappend_event(
@@ -328,7 +329,7 @@ async fn scene_remove_character_clears_sub_row() -> Result<()> {
         "EMPTY",
         &breakdown_core::scene::events::SceneEvent::SceneCreated {
             id: scene_id,
-            project_id,
+            episode_id,
             details: breakdown_core::scene::events::SceneDetails {
                 scene_number: Some(1),
                 location: None,
@@ -364,7 +365,7 @@ async fn scene_remove_character_clears_sub_row() -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// Character projector tests
+
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -379,7 +380,7 @@ async fn character_created_projects_basic_fields() -> Result<()> {
     let char_repo = infra::queries::CharacterRepositoryImpl::new(pool.clone());
 
     let char_id = Uuid::now_v7();
-    let project_id = ProjectId::new();
+    let season_id = SeasonId::new();
     let stream_id = format!("character-{}", char_id);
 
     eappend_event(
@@ -389,10 +390,9 @@ async fn character_created_projects_basic_fields() -> Result<()> {
         "EMPTY",
         &breakdown_core::character::events::CharacterEvent::CharacterCreated {
             id: char_id,
-            project_id,
+            season_id,
             name: "Hero".into(),
-            is_extra: false,
-            is_main_character: true,
+            category: CharacterCategory::MainCast,
             measurements: Default::default(),
             contact_info: Default::default(),
             version: AggregateVersion::INITIAL,
@@ -404,8 +404,7 @@ async fn character_created_projects_basic_fields() -> Result<()> {
 
     let v = char_repo.find_by_id(char_id).await?;
     assert_eq!(v.name, "Hero");
-    assert!(!v.is_extra);
-    assert!(v.is_main_character);
+    assert_eq!(v.category, CharacterCategory::MainCast);
 
     Ok(())
 }
@@ -422,7 +421,7 @@ async fn character_measurements_updated_projects_values() -> Result<()> {
     let char_repo = infra::queries::CharacterRepositoryImpl::new(pool.clone());
 
     let char_id = Uuid::now_v7();
-    let project_id = ProjectId::new();
+    let season_id = SeasonId::new();
     let stream_id = format!("character-{}", char_id);
 
     // Create
@@ -433,10 +432,9 @@ async fn character_measurements_updated_projects_values() -> Result<()> {
         "EMPTY",
         &breakdown_core::character::events::CharacterEvent::CharacterCreated {
             id: char_id,
-            project_id,
+            season_id,
             name: "Test".into(),
-            is_extra: false,
-            is_main_character: false,
+            category: CharacterCategory::Guest,
             measurements: Default::default(),
             contact_info: Default::default(),
             version: AggregateVersion::INITIAL,
@@ -487,7 +485,7 @@ async fn character_contact_info_updated_projects_values() -> Result<()> {
     let char_repo = infra::queries::CharacterRepositoryImpl::new(pool.clone());
 
     let char_id = Uuid::now_v7();
-    let project_id = ProjectId::new();
+    let season_id = SeasonId::new();
     let stream_id = format!("character-{}", char_id);
 
     // Create
@@ -498,10 +496,9 @@ async fn character_contact_info_updated_projects_values() -> Result<()> {
         "EMPTY",
         &breakdown_core::character::events::CharacterEvent::CharacterCreated {
             id: char_id,
-            project_id,
+            season_id,
             name: "Test".into(),
-            is_extra: false,
-            is_main_character: false,
+            category: CharacterCategory::Guest,
             measurements: Default::default(),
             contact_info: Default::default(),
             version: AggregateVersion::INITIAL,
@@ -536,7 +533,7 @@ async fn character_contact_info_updated_projects_values() -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// Costume projector tests
+
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -550,7 +547,6 @@ async fn costume_created_projects_basic_fields() -> Result<()> {
     let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
 
     let costume_id = Uuid::now_v7();
-    let project_id = ProjectId::new();
     let stream_id = format!("costume-{}", costume_id);
 
     eappend_event(
@@ -560,7 +556,6 @@ async fn costume_created_projects_basic_fields() -> Result<()> {
         "EMPTY",
         &breakdown_core::costume::events::CostumeEvent::CostumeCreated {
             id: costume_id,
-            project_id,
             character_id: None,
             notes: "Blue dress".into(),
             details: vec![],
@@ -596,7 +591,6 @@ async fn costume_notes_updated_projects_changes() -> Result<()> {
     let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
 
     let costume_id = Uuid::now_v7();
-    let project_id = ProjectId::new();
     let stream_id = format!("costume-{}", costume_id);
 
     eappend_event(
@@ -606,7 +600,6 @@ async fn costume_notes_updated_projects_changes() -> Result<()> {
         "EMPTY",
         &breakdown_core::costume::events::CostumeEvent::CostumeCreated {
             id: costume_id,
-            project_id,
             character_id: None,
             notes: "Initial".into(),
             details: vec![],
@@ -658,7 +651,7 @@ async fn costume_assign_unassign_characters() -> Result<()> {
 
     let costume_id = Uuid::now_v7();
     let character_id = Uuid::now_v7();
-    let project_id = ProjectId::new();
+    let season_id = SeasonId::new();
     let stream_id = format!("costume-{}", costume_id);
 
     eappend_event(
@@ -668,7 +661,6 @@ async fn costume_assign_unassign_characters() -> Result<()> {
         "EMPTY",
         &breakdown_core::costume::events::CostumeEvent::CostumeCreated {
             id: costume_id,
-            project_id,
             character_id: None,
             notes: String::new(),
             details: vec![],
@@ -689,10 +681,9 @@ async fn costume_assign_unassign_characters() -> Result<()> {
         "EMPTY",
         &breakdown_core::character::events::CharacterEvent::CharacterCreated {
             id: character_id,
-            project_id,
+            season_id,
             name: "Wearer".into(),
-            is_extra: false,
-            is_main_character: false,
+            category: CharacterCategory::Guest,
             measurements: Default::default(),
             contact_info: Default::default(),
             version: AggregateVersion::INITIAL,
@@ -753,7 +744,6 @@ async fn costume_detail_add_remove() -> Result<()> {
 
     let costume_id = Uuid::now_v7();
     let detail_id = Uuid::now_v7();
-    let project_id = ProjectId::new();
     let stream_id = format!("costume-{}", costume_id);
 
     eappend_event(
@@ -763,7 +753,6 @@ async fn costume_detail_add_remove() -> Result<()> {
         "EMPTY",
         &breakdown_core::costume::events::CostumeEvent::CostumeCreated {
             id: costume_id,
-            project_id,
             character_id: None,
             notes: String::new(),
             details: vec![],
@@ -830,7 +819,6 @@ async fn costume_photo_link_unlink() -> Result<()> {
 
     let costume_id = Uuid::now_v7();
     let photo_id = Uuid::now_v7();
-    let project_id = ProjectId::new();
     let stream_id = format!("costume-{}", costume_id);
 
     eappend_event(
@@ -840,7 +828,6 @@ async fn costume_photo_link_unlink() -> Result<()> {
         "EMPTY",
         &breakdown_core::costume::events::CostumeEvent::CostumeCreated {
             id: costume_id,
-            project_id,
             character_id: None,
             notes: String::new(),
             details: vec![],
@@ -893,382 +880,3 @@ async fn costume_photo_link_unlink() -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// Calculation projector tests
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn calculation_created_projects_header_and_items() -> Result<()> {
-    let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
-    let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
-
-    let _calc_ref =
-        infra::projectors::spawn_calculation_projector(pool.clone(), Arc::clone(&redis_client))
-            .await?;
-
-    let calc_repo = infra::queries::CalculationRepositoryImpl::new(pool.clone());
-
-    let calc_id = Uuid::now_v7();
-    let item_id = Uuid::now_v7();
-    let project_id = ProjectId::new();
-    let stream_id = format!("calculation-{}", calc_id);
-
-    eappend_event(
-        Arc::clone(&redis_client),
-        &stream_id,
-        "CalculationCreated",
-        "EMPTY",
-        &breakdown_core::calculation::events::CalculationEvent::CalculationCreated {
-            id: calc_id,
-            project_id,
-            header: breakdown_core::calculation::events::CalculationHeader {
-                subjects: Some("Math".into()),
-                sender_name: Some("Alice".into()),
-                date: Some("2025-01-01".into()),
-            },
-            items: vec![breakdown_core::calculation::events::CalculationItem {
-                id: item_id,
-                name: "Makeup".into(),
-                quantity: rust_decimal::Decimal::from(50),
-                unit_price: rust_decimal::Decimal::from(10),
-                is_paid: false,
-            }],
-            version: AggregateVersion::INITIAL,
-        },
-    )
-    .await?;
-
-    await_proj_row(
-        || {
-            let c_repo = calc_repo.clone();
-            Box::pin(async move { c_repo.find_by_id(calc_id).await.is_ok() })
-        },
-        "calculation",
-    )
-    .await?;
-
-    let v = calc_repo.find_by_id(calc_id).await?;
-    assert_eq!(v.header.subjects, Some("Math".into()));
-    assert_eq!(v.header.sender_name, Some("Alice".into()));
-    assert_eq!(v.items.len(), 1);
-    assert_eq!(v.items[0].name, "Makeup");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn calculation_calculation_item_added_projects_item() -> Result<()> {
-    let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
-    let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
-
-    let _calc_ref =
-        infra::projectors::spawn_calculation_projector(pool.clone(), Arc::clone(&redis_client))
-            .await?;
-
-    let calc_repo = infra::queries::CalculationRepositoryImpl::new(pool.clone());
-
-    let calc_id = Uuid::now_v7();
-    let item_id = Uuid::now_v7();
-    let project_id = ProjectId::new();
-    let stream_id = format!("calculation-{}", calc_id);
-
-    eappend_event(
-        Arc::clone(&redis_client),
-        &stream_id,
-        "CalculationCreated",
-        "EMPTY",
-        &breakdown_core::calculation::events::CalculationEvent::CalculationCreated {
-            id: calc_id,
-            project_id,
-            header: Default::default(),
-            items: vec![],
-            version: AggregateVersion::INITIAL,
-        },
-    )
-    .await?;
-
-    eappend_event(
-        Arc::clone(&redis_client),
-        &stream_id,
-        "CalculationItemAdded",
-        "0",
-        &breakdown_core::calculation::events::CalculationEvent::CalculationItemAdded {
-            id: calc_id,
-            item: breakdown_core::calculation::events::CalculationItem {
-                id: item_id,
-                name: "Props".into(),
-                quantity: rust_decimal::Decimal::from(2),
-                unit_price: rust_decimal::Decimal::from(10),
-                is_paid: false,
-            },
-            version: AggregateVersion(2),
-        },
-    )
-    .await?;
-
-    await_proj_version(&pool, "projection_calculation", calc_id, 2).await?;
-
-    let v = calc_repo.find_by_id(calc_id).await?;
-    assert_eq!(v.items.len(), 1);
-    assert_eq!(v.items[0].name, "Props");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn calculation_item_updated_projects_new_values() -> Result<()> {
-    let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
-    let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
-
-    let _calc_ref =
-        infra::projectors::spawn_calculation_projector(pool.clone(), Arc::clone(&redis_client))
-            .await?;
-
-    let calc_repo = infra::queries::CalculationRepositoryImpl::new(pool.clone());
-
-    let calc_id = Uuid::now_v7();
-    let item_id = Uuid::now_v7();
-    let project_id = ProjectId::new();
-    let stream_id = format!("calculation-{}", calc_id);
-
-    eappend_event(
-        Arc::clone(&redis_client),
-        &stream_id,
-        "CalculationCreated",
-        "EMPTY",
-        &breakdown_core::calculation::events::CalculationEvent::CalculationCreated {
-            id: calc_id,
-            project_id,
-            header: Default::default(),
-            items: vec![breakdown_core::calculation::events::CalculationItem {
-                id: item_id,
-                name: "Original".into(),
-                quantity: rust_decimal::Decimal::ONE,
-                unit_price: rust_decimal::Decimal::ONE,
-                is_paid: false,
-            }],
-            version: AggregateVersion::INITIAL,
-        },
-    )
-    .await?;
-
-    eappend_event(
-        Arc::clone(&redis_client),
-        &stream_id,
-        "CalculationItemUpdated",
-        "0",
-        &breakdown_core::calculation::events::CalculationEvent::CalculationItemUpdated {
-            id: calc_id,
-            item: breakdown_core::calculation::events::CalculationItem {
-                id: item_id,
-                name: "Updated".into(),
-                quantity: rust_decimal::Decimal::from(3),
-                unit_price: rust_decimal::Decimal::from(20),
-                is_paid: true,
-            },
-            version: AggregateVersion(2),
-        },
-    )
-    .await?;
-
-    await_proj_version(&pool, "projection_calculation", calc_id, 2).await?;
-
-    let v = calc_repo.find_by_id(calc_id).await?;
-    assert_eq!(v.items[0].name, "Updated");
-    assert_eq!(v.items[0].quantity, rust_decimal::Decimal::from(3));
-    assert!(v.items[0].is_paid);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn calculation_item_removed_cleared_from_projection() -> Result<()> {
-    let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
-    let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
-
-    let _calc_ref =
-        infra::projectors::spawn_calculation_projector(pool.clone(), Arc::clone(&redis_client))
-            .await?;
-
-    let calc_repo = infra::queries::CalculationRepositoryImpl::new(pool.clone());
-
-    let calc_id = Uuid::now_v7();
-    let item_id = Uuid::now_v7();
-    let project_id = ProjectId::new();
-    let stream_id = format!("calculation-{}", calc_id);
-
-    eappend_event(
-        Arc::clone(&redis_client),
-        &stream_id,
-        "CalculationCreated",
-        "EMPTY",
-        &breakdown_core::calculation::events::CalculationEvent::CalculationCreated {
-            id: calc_id,
-            project_id,
-            header: Default::default(),
-            items: vec![breakdown_core::calculation::events::CalculationItem {
-                id: item_id,
-                name: "ToBeRemoved".into(),
-                quantity: rust_decimal::Decimal::ONE,
-                unit_price: rust_decimal::Decimal::ONE,
-                is_paid: false,
-            }],
-            version: AggregateVersion::INITIAL,
-        },
-    )
-    .await?;
-
-    eappend_event(
-        Arc::clone(&redis_client),
-        &stream_id,
-        "CalculationItemRemoved",
-        "0",
-        &breakdown_core::calculation::events::CalculationEvent::CalculationItemRemoved {
-            id: calc_id,
-            item_id,
-            version: AggregateVersion(2),
-        },
-    )
-    .await?;
-
-    await_proj_version(&pool, "projection_calculation", calc_id, 2).await?;
-
-    let v = calc_repo.find_by_id(calc_id).await?;
-    assert!(v.items.is_empty());
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn calculation_item_marked_paid_unpaid() -> Result<()> {
-    let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
-    let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
-
-    let _calc_ref =
-        infra::projectors::spawn_calculation_projector(pool.clone(), Arc::clone(&redis_client))
-            .await?;
-
-    let calc_repo = infra::queries::CalculationRepositoryImpl::new(pool.clone());
-
-    let calc_id = Uuid::now_v7();
-    let item_id = Uuid::now_v7();
-    let project_id = ProjectId::new();
-    let stream_id = format!("calculation-{}", calc_id);
-
-    eappend_event(
-        Arc::clone(&redis_client),
-        &stream_id,
-        "CalculationCreated",
-        "EMPTY",
-        &breakdown_core::calculation::events::CalculationEvent::CalculationCreated {
-            id: calc_id,
-            project_id,
-            header: Default::default(),
-            items: vec![breakdown_core::calculation::events::CalculationItem {
-                id: item_id,
-                name: "Item".into(),
-                quantity: rust_decimal::Decimal::ONE,
-                unit_price: rust_decimal::Decimal::ONE,
-                is_paid: false,
-            }],
-            version: AggregateVersion::INITIAL,
-        },
-    )
-    .await?;
-
-    // Mark paid
-    eappend_event(
-        Arc::clone(&redis_client),
-        &stream_id,
-        "ItemMarkedAsPaid",
-        "0",
-        &breakdown_core::calculation::events::CalculationEvent::ItemMarkedAsPaid {
-            id: calc_id,
-            item_id,
-            version: AggregateVersion(2),
-        },
-    )
-    .await?;
-
-    await_proj_version(&pool, "projection_calculation", calc_id, 2).await?;
-
-    let v = calc_repo.find_by_id(calc_id).await?;
-    assert!(v.items[0].is_paid);
-
-    // Mark unpaid
-    eappend_event(
-        Arc::clone(&redis_client),
-        &stream_id,
-        "ItemMarkedAsUnpaid",
-        "1",
-        &breakdown_core::calculation::events::CalculationEvent::ItemMarkedAsUnpaid {
-            id: calc_id,
-            item_id,
-            version: AggregateVersion(3),
-        },
-    )
-    .await?;
-
-    await_proj_version(&pool, "projection_calculation", calc_id, 3).await?;
-
-    let v = calc_repo.find_by_id(calc_id).await?;
-    assert!(!v.items[0].is_paid);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn calculation_header_info_updated_projects_values() -> Result<()> {
-    let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
-    let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
-
-    let _calc_ref =
-        infra::projectors::spawn_calculation_projector(pool.clone(), Arc::clone(&redis_client))
-            .await?;
-
-    let calc_repo = infra::queries::CalculationRepositoryImpl::new(pool.clone());
-
-    let calc_id = Uuid::now_v7();
-    let project_id = ProjectId::new();
-    let stream_id = format!("calculation-{}", calc_id);
-
-    eappend_event(
-        Arc::clone(&redis_client),
-        &stream_id,
-        "CalculationCreated",
-        "EMPTY",
-        &breakdown_core::calculation::events::CalculationEvent::CalculationCreated {
-            id: calc_id,
-            project_id,
-            header: Default::default(),
-            items: vec![],
-            version: AggregateVersion::INITIAL,
-        },
-    )
-    .await?;
-
-    eappend_event(
-        Arc::clone(&redis_client),
-        &stream_id,
-        "HeaderInfoUpdated",
-        "0",
-        &breakdown_core::calculation::events::CalculationEvent::HeaderInfoUpdated {
-            id: calc_id,
-            header: breakdown_core::calculation::events::CalculationHeader {
-                subjects: Some("Updated Subject".into()),
-                sender_name: Some("Bob".into()),
-                date: Some("2025-06-15".into()),
-            },
-            version: AggregateVersion(2),
-        },
-    )
-    .await?;
-
-    await_proj_version(&pool, "projection_calculation", calc_id, 2).await?;
-
-    let v = calc_repo.find_by_id(calc_id).await?;
-    assert_eq!(v.header.subjects, Some("Updated Subject".into()));
-    assert_eq!(v.header.sender_name, Some("Bob".into()));
-    assert_eq!(v.header.date, Some("2025-06-15".into()));
-
-    Ok(())
-}

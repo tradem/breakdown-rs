@@ -1,0 +1,16 @@
+# cargo-audit configuration (used by the CI "Audit" job via rustsec/audit-check).
+#
+# RUSTSEC-2023-0071 ("Marvin Attack") affects the `rsa` crate, pulled in
+# transitively by `jsonwebtoken`. We use `jsonwebtoken` exclusively for RS256
+# *signature verification* with the IdP's public key: the server never holds or
+# performs operations on a private key, so the timing key-recovery
+# side-channel described in the advisory does not apply to our usage.
+#
+# `rsa` 0.9.x has no patched release, and `jsonwebtoken` (the standard RS256
+# verification library) still depends on it, so we acknowledge and ignore this
+# advisory until an upstream fix ships. Revisit if we switch JWT libraries or
+# `rsa` publishes a constant-time patch.
+[advisories]
+ignore = [
+    "RUSTSEC-2023-0071",
+]

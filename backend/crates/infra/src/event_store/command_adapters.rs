@@ -7,12 +7,9 @@
 //! `core` command into `SceneAggregate::execute(...)` / `ExpectedVersion` calls
 //! against SierraDB and maps the reply back to `DomainError`.
 
-use breakdown_core::calculation::aggregate::CalculationAggregate;
-use breakdown_core::calculation::commands::{
-    AddCalculationItem, CreateCalculation, MarkItemAsPaid, MarkItemAsUnpaid, RemoveCalculationItem,
-    UpdateCalculationItem, UpdateHeaderInfo,
-};
-use breakdown_core::calculation::ports::CalculationCommands;
+use breakdown_core::block::aggregate::BlockAggregate;
+use breakdown_core::block::commands::{CreateBlock, UpdateBlockTimeSpan};
+use breakdown_core::block::ports::BlockCommands;
 use breakdown_core::character::aggregate::CharacterAggregate;
 use breakdown_core::character::commands::{CreateCharacter, UpdateContactInfo, UpdateMeasurements};
 use breakdown_core::character::ports::CharacterCommands;
@@ -22,17 +19,31 @@ use breakdown_core::costume::commands::{
     UnlinkPhoto, UpdateCostumeNotes,
 };
 use breakdown_core::costume::ports::CostumeCommands;
+use breakdown_core::episode::aggregate::EpisodeAggregate;
+use breakdown_core::episode::commands::{CreateEpisode, RenameEpisode};
+use breakdown_core::episode::ports::EpisodeCommands;
 use breakdown_core::error::DomainError;
+use breakdown_core::membership::MembershipMetadata;
+use breakdown_core::membership::aggregate::BlockMembership;
+use breakdown_core::membership::commands::{
+    AcceptInvitation, BootstrapOwner, GrantRole, InviteMember, LeaveBlock, RemoveMember,
+};
+use breakdown_core::membership::ports::MembershipCommands;
 use breakdown_core::scene::aggregate::SceneAggregate;
 use breakdown_core::scene::commands::{
     AssignCharacter, CreateScene, RemoveCharacter, UpdateSceneDetails,
 };
 use breakdown_core::scene::ports::SceneCommands;
-use breakdown_core::shared::AggregateVersion;
+use breakdown_core::season::aggregate::SeasonAggregate;
+use breakdown_core::season::commands::{CreateSeason, RenameSeason};
+use breakdown_core::season::ports::SeasonCommands;
+use breakdown_core::shared::{AggregateVersion, UserId};
 use kameo_es::command_service::{CommandService, ExecuteExt, ExecuteResult};
 use kameo_es::error::ExecuteError;
 use sierradb_client::{CurrentVersion, ExpectedVersion};
 use uuid::Uuid;
+
+use async_trait::async_trait;
 
 /// Command adapter for the Scene aggregate.
 #[derive(Clone, Debug)]
@@ -238,97 +249,179 @@ impl CostumeCommands for CostumeCommandsImpl {
     }
 }
 
-/// Command adapter for the Calculation aggregate.
+/// Command adapter for the Season aggregate.
 #[derive(Clone, Debug)]
-pub struct CalculationCommandsImpl {
+pub struct SeasonCommandsImpl {
     cmd_service: CommandService,
 }
 
-impl CalculationCommandsImpl {
+impl SeasonCommandsImpl {
     pub fn new(cmd_service: CommandService) -> Self {
         Self { cmd_service }
     }
 }
 
-impl CalculationCommands for CalculationCommandsImpl {
-    async fn create(
-        &self,
-        cmd: CreateCalculation,
-    ) -> Result<(Uuid, AggregateVersion), DomainError> {
+impl SeasonCommands for SeasonCommandsImpl {
+    async fn create(&self, cmd: CreateSeason) -> Result<(Uuid, AggregateVersion), DomainError> {
         let id = cmd.id;
-        let result = CalculationAggregate::execute(&self.cmd_service, id, cmd)
+        let result = SeasonAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Empty)
             .await;
         map_executed(id, result)
     }
 
-    async fn update_header(&self, cmd: UpdateHeaderInfo) -> Result<AggregateVersion, DomainError> {
+    async fn rename(&self, cmd: RenameSeason) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let result = CalculationAggregate::execute(&self.cmd_service, id, cmd)
+        let result = SeasonAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
             .await;
         map_version_only(result)
     }
+}
 
-    async fn add_item(&self, cmd: AddCalculationItem) -> Result<AggregateVersion, DomainError> {
+/// Command adapter for the Block aggregate.
+#[derive(Clone, Debug)]
+pub struct BlockCommandsImpl {
+    cmd_service: CommandService,
+}
+
+impl BlockCommandsImpl {
+    pub fn new(cmd_service: CommandService) -> Self {
+        Self { cmd_service }
+    }
+}
+
+impl BlockCommands for BlockCommandsImpl {
+    async fn create(&self, cmd: CreateBlock) -> Result<(Uuid, AggregateVersion), DomainError> {
         let id = cmd.id;
-        let version = cmd.version;
-        check_nonzero_version(version)?;
-        let result = CalculationAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+        let result = BlockAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Empty)
             .await;
-        map_version_only(result)
+        map_executed(id, result)
     }
 
-    async fn update_item(
+    async fn update_time_span(
         &self,
-        cmd: UpdateCalculationItem,
+        cmd: UpdateBlockTimeSpan,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let result = CalculationAggregate::execute(&self.cmd_service, id, cmd)
+        let result = BlockAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
             .await;
         map_version_only(result)
     }
+}
 
-    async fn remove_item(
+/// Command adapter for the Episode aggregate.
+#[derive(Clone, Debug)]
+pub struct EpisodeCommandsImpl {
+    cmd_service: CommandService,
+}
+
+impl EpisodeCommandsImpl {
+    pub fn new(cmd_service: CommandService) -> Self {
+        Self { cmd_service }
+    }
+}
+
+impl EpisodeCommands for EpisodeCommandsImpl {
+    async fn create(&self, cmd: CreateEpisode) -> Result<(Uuid, AggregateVersion), DomainError> {
+        let id = cmd.id;
+        let result = EpisodeAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Empty)
+            .await;
+        map_executed(id, result)
+    }
+
+    async fn rename(&self, cmd: RenameEpisode) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let result = EpisodeAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .await;
+        map_version_only(result)
+    }
+}
+
+/// Command adapter for the membership `BlockMembership` aggregate.
+///
+/// Every command is dispatched with `ExpectedVersion::Any` (the aggregate
+/// enforces invitation/role/membership invariants itself) and carries the
+/// authenticated `actor` as `kameo_es` command `Metadata` for audit (Decision 6).
+#[derive(Clone, Debug)]
+pub struct MembershipCommandsImpl {
+    cmd_service: CommandService,
+}
+
+impl MembershipCommandsImpl {
+    pub fn new(cmd_service: CommandService) -> Self {
+        Self { cmd_service }
+    }
+}
+
+#[async_trait]
+impl MembershipCommands for MembershipCommandsImpl {
+    async fn invite(&self, actor: UserId, cmd: InviteMember) -> Result<(), DomainError> {
+        let result = BlockMembership::execute(&self.cmd_service, cmd.block_id.0, cmd)
+            .expected_version(ExpectedVersion::Any)
+            .metadata(MembershipMetadata { actor: Some(actor) })
+            .await;
+        let _ = map_executed_result(Uuid::nil(), result)?;
+        Ok(())
+    }
+
+    async fn accept_invitation(
         &self,
-        cmd: RemoveCalculationItem,
-    ) -> Result<AggregateVersion, DomainError> {
-        let id = cmd.id;
-        let version = cmd.version;
-        check_nonzero_version(version)?;
-        let result = CalculationAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+        actor: UserId,
+        cmd: AcceptInvitation,
+    ) -> Result<(), DomainError> {
+        let result = BlockMembership::execute(&self.cmd_service, cmd.block_id.0, cmd)
+            .expected_version(ExpectedVersion::Any)
+            .metadata(MembershipMetadata { actor: Some(actor) })
             .await;
-        map_version_only(result)
+        let _ = map_executed_result(Uuid::nil(), result)?;
+        Ok(())
     }
 
-    async fn mark_item_paid(&self, cmd: MarkItemAsPaid) -> Result<AggregateVersion, DomainError> {
-        let id = cmd.id;
-        let version = cmd.version;
-        check_nonzero_version(version)?;
-        let result = CalculationAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+    async fn grant_role(&self, actor: UserId, cmd: GrantRole) -> Result<(), DomainError> {
+        let result = BlockMembership::execute(&self.cmd_service, cmd.block_id.0, cmd)
+            .expected_version(ExpectedVersion::Any)
+            .metadata(MembershipMetadata { actor: Some(actor) })
             .await;
-        map_version_only(result)
+        let _ = map_executed_result(Uuid::nil(), result)?;
+        Ok(())
     }
 
-    async fn mark_item_unpaid(
-        &self,
-        cmd: MarkItemAsUnpaid,
-    ) -> Result<AggregateVersion, DomainError> {
-        let id = cmd.id;
-        let version = cmd.version;
-        check_nonzero_version(version)?;
-        let result = CalculationAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+    async fn remove_member(&self, actor: UserId, cmd: RemoveMember) -> Result<(), DomainError> {
+        let result = BlockMembership::execute(&self.cmd_service, cmd.block_id.0, cmd)
+            .expected_version(ExpectedVersion::Any)
+            .metadata(MembershipMetadata { actor: Some(actor) })
             .await;
-        map_version_only(result)
+        let _ = map_executed_result(Uuid::nil(), result)?;
+        Ok(())
+    }
+
+    async fn leave_block(&self, actor: UserId, cmd: LeaveBlock) -> Result<(), DomainError> {
+        let result = BlockMembership::execute(&self.cmd_service, cmd.block_id.0, cmd)
+            .expected_version(ExpectedVersion::Any)
+            .metadata(MembershipMetadata { actor: Some(actor) })
+            .await;
+        let _ = map_executed_result(Uuid::nil(), result)?;
+        Ok(())
+    }
+
+    async fn bootstrap_owner(&self, actor: UserId, cmd: BootstrapOwner) -> Result<(), DomainError> {
+        let result = BlockMembership::execute(&self.cmd_service, cmd.block_id.0, cmd)
+            .expected_version(ExpectedVersion::Any)
+            .metadata(MembershipMetadata { actor: Some(actor) })
+            .await;
+        let _ = map_executed_result(Uuid::nil(), result)?;
+        Ok(())
     }
 }
 
@@ -441,189 +534,9 @@ fn check_nonzero_version(version: AggregateVersion) -> Result<(), DomainError> {
         Ok(())
     }
 }
-
 #[cfg(test)]
-mod translation_tests {
-    use super::*;
-
-    #[test]
-    fn stream_to_domain_basic() {
-        assert_eq!(stream_to_domain(0), AggregateVersion(1));
-        assert_eq!(stream_to_domain(1), AggregateVersion(2));
-        assert_eq!(stream_to_domain(99), AggregateVersion(100));
-    }
-
-    #[test]
-    fn domain_to_stream_basic() {
-        assert_eq!(domain_to_stream(AggregateVersion(1)), Some(0));
-        assert_eq!(domain_to_stream(AggregateVersion(2)), Some(1));
-        assert_eq!(domain_to_stream(AggregateVersion(100)), Some(99));
-    }
-
-    #[test]
-    fn domain_to_stream_zero_returns_none() {
-        assert_eq!(domain_to_stream(AggregateVersion(0)), None);
-    }
-
-    #[test]
-    fn version_from_current_current() {
-        assert_eq!(
-            version_from_current(CurrentVersion::Current(0)),
-            AggregateVersion(1)
-        );
-        assert_eq!(
-            version_from_current(CurrentVersion::Current(5)),
-            AggregateVersion(6)
-        );
-    }
-
-    #[test]
-    fn version_from_current_empty() {
-        assert_eq!(
-            version_from_current(CurrentVersion::Empty),
-            AggregateVersion(0)
-        );
-    }
-
-    #[test]
-    fn check_nonzero_version_rejects_zero() {
-        let result = check_nonzero_version(AggregateVersion(0));
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn check_nonzero_version_accepts_initial() {
-        let result = check_nonzero_version(AggregateVersion::INITIAL);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn roundtrip_stream_domain() {
-        for sv in 0..100 {
-            let domain = stream_to_domain(sv);
-            assert_eq!(domain_to_stream(domain), Some(sv));
-        }
-    }
-}
-
-/// Whitebox tests for the command-adapter mapping helpers.
-///
-/// These functions are pure (no event store required) and therefore testable in the
-/// mutation CI environment, which does not provide a live SierraDB. The adapter
-/// methods themselves (`*CommandsImpl`) need a live event store and are excluded from
-/// mutation testing via `.mutants.toml` (they are covered end-to-end by
-/// `crates/integration-tests`).
+#[path = "adapter_mapping_tests.rs"]
+mod adapter_mapping_tests;
 #[cfg(test)]
-mod adapter_mapping_tests {
-    use super::*;
-    use breakdown_core::scene::error::SceneError;
-    use breakdown_core::scene::events::{SceneDetails, SceneEvent};
-    use breakdown_core::shared::ProjectId;
-    use chrono::Utc;
-    use kameo_es::command_service::AppendedEvent;
-
-    /// Build a single appended event carrying the given SierraDB (0-based) stream version.
-    fn appended_event(stream_version: u64) -> AppendedEvent<SceneEvent> {
-        AppendedEvent {
-            event: SceneEvent::SceneCreated {
-                id: Uuid::nil(),
-                project_id: ProjectId::new(),
-                details: SceneDetails::default(),
-                assigned_characters: Vec::new(),
-                version: AggregateVersion(1),
-            },
-            event_id: Uuid::nil(),
-            partition_id: 0,
-            partition_sequence: 0,
-            stream_version,
-            timestamp: Utc::now(),
-        }
-    }
-
-    /// The result type the helpers operate on, pinned to a concrete entity/error so the
-    /// otherwise-unconstrained generic parameters resolve.
-    type ExecResult = Result<ExecuteResult<SceneAggregate>, ExecuteError<SceneError>>;
-
-    #[test]
-    fn map_executed_result_uses_last_event_stream_version() {
-        let id = Uuid::now_v7();
-        // Two events: the mapped version must come from the *last* event's stream version.
-        let result: ExecResult = Ok(ExecuteResult::Executed(vec![
-            appended_event(0),
-            appended_event(4),
-        ]));
-        let (rid, version) = map_executed_result(id, result).unwrap();
-        assert_eq!(rid, id);
-        // stream_version 4 -> domain version 5
-        assert_eq!(version, AggregateVersion(5));
-    }
-
-    #[test]
-    fn map_executed_result_idempotent_current() {
-        let id = Uuid::now_v7();
-        let result: ExecResult = Ok(ExecuteResult::Idempotent {
-            current_version: CurrentVersion::Current(2),
-        });
-        let (rid, version) = map_executed_result(id, result).unwrap();
-        assert_eq!(rid, id);
-        assert_eq!(version, AggregateVersion(3));
-    }
-
-    #[test]
-    fn map_executed_result_idempotent_empty() {
-        let id = Uuid::now_v7();
-        let result: ExecResult = Ok(ExecuteResult::Idempotent {
-            current_version: CurrentVersion::Empty,
-        });
-        let (rid, version) = map_executed_result(id, result).unwrap();
-        assert_eq!(rid, id);
-        assert_eq!(version, AggregateVersion(0));
-    }
-
-    #[test]
-    fn map_executed_result_handle_error_is_domain_error() {
-        let id = Uuid::now_v7();
-        let result: ExecResult = Err(ExecuteError::Handle(SceneError::ValidationError(
-            "boom".into(),
-        )));
-        let err = map_executed_result(id, result).unwrap_err();
-        assert!(matches!(err, DomainError::ValidationError(_)));
-    }
-
-    #[test]
-    fn map_version_only_discards_id_and_returns_version() {
-        // Use a non-initial stream version so the mapped domain version (5) differs from
-        // `AggregateVersion::default()` (== INITIAL == 1), which the "replace body with
-        // Ok(Default::default())" mutant would otherwise return and go undetected.
-        let result: ExecResult = Ok(ExecuteResult::Executed(vec![appended_event(4)]));
-        let version = map_version_only(result).unwrap();
-        assert_eq!(version, AggregateVersion(5));
-    }
-
-    #[test]
-    fn map_executed_preserves_id_and_returns_version() {
-        let id = Uuid::now_v7();
-        let result: ExecResult = Ok(ExecuteResult::Executed(vec![appended_event(2)]));
-        let (rid, version) = map_executed(id, result).unwrap();
-        assert_eq!(rid, id);
-        assert_eq!(version, AggregateVersion(3));
-    }
-
-    #[test]
-    fn version_from_expected_maps_exact_and_empty() {
-        // `Exact(v)` maps to the literal domain version `v`.
-        assert_eq!(
-            version_from_expected(ExpectedVersion::Exact(5)),
-            AggregateVersion(5)
-        );
-        // `Empty` and any other variant map to the initial domain version.
-        assert_eq!(
-            version_from_expected(ExpectedVersion::Empty),
-            AggregateVersion::INITIAL
-        );
-        assert_eq!(
-            version_from_expected(ExpectedVersion::Any),
-            AggregateVersion::INITIAL
-        );
-    }
-}
+#[path = "translation_tests.rs"]
+mod translation_tests;

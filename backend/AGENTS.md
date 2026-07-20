@@ -14,6 +14,14 @@ You are the primary coding agent for `breakdown-rs` – a collaborative costume 
 - **`crates/infra`:** Infrastructure implementations. Contains EventStore integrations, Projectors (Read-Model updaters), and `sqlx` queries.
 - **`crates/api`:** Axum web server. Translates HTTP requests to Core Commands (Write) or Infrastructure Queries (Read).
 
+### Production hierarchy (ADR: introduce-season-block-episode-hierarchy)
+The domain models a four-level production hierarchy:
+`Series` (opaque `SeriesId` only — no aggregate yet) → `Season` → `Block` → `Episode` → `Scene`.
+`Character` and `Costume` are scoped to a `Season` (`Character.season_id`) / scope-free (`Costume` is bound only to a `Character`).
+Core modules: `season`, `block`, `episode`, `scene`, `character`, `costume`, `shared`.
+The `calculation` context was removed; do not reintroduce it.
+`SeriesId` is an opaque UUIDv7 seam for a future additive `Series` aggregate — hierarchy entities reference it but no `Series` aggregate exists yet.
+
 ## 3. Workflow & Best Practices
 - **EventStorming Mapping:** 
   1. **Event** (Past tense, e.g., `SceneCreated`) -> `enum` in `core`
@@ -110,6 +118,51 @@ apply the same migration set automatically.
 - `SIERRADB_URL` – SierraDB RESP3 connection string (default: `redis://127.0.0.1:9090/?protocol=resp3`). SierraDB speaks RESP3 only — keep `?protocol=resp3` (ADR-016).
 - `BIND_ADDR` – HTTP bind address (default: `0.0.0.0:3000`)
 - OpenAPI/Swagger UI is served at `http://localhost:3000/swagger-ui`
+
+#### OIDC / authorization (added by `add-oidc-auth-and-membership`)
+- `OIDC_ISS` – IdP issuer URL (expected `iss` claim). Production-only; when
+  absent **and** `DEV_AUTH_SUB` is set, the API runs in **dev auth mode** (see below).
+- `OIDC_AUDIENCE` – resource indicator / expected `aud` claim for this API.
+- `OIDC_JWKS_URL` – IdP JWKS document URL used to fetch RSA signing keys.
+- `AUTHZ_ENFORCE` – `false`/`0` disables authorization enforcement
+  (denials are logged, requests allowed — staged rollout / log-only); any other value
+  (or unset) enforces, returning `403` for non-members. **Dev auth mode defaults
+  enforcement OFF** so local development works without seeded membership.
+- `DEV_AUTH_SUB` – when set (and `OIDC_ISS` unset), auth runs in dev mode:
+  tokens are NOT verified and a fixed dummy `CurrentUser` (`sub = DEV_AUTH_SUB`)
+  is injected. **Never set in production.** `DEV_AUTH_EMAIL` optionally supplies the
+  dummy user's email.
+
+> Dev auth mode is an explicit, env-gated bypass used only for local development
+> and tests. `main.rs` only ever enters it when `OIDC_ISS` is absent and
+> `DEV_AUTH_SUB` is present; production deployments set `OIDC_ISS` and therefore
+> can never reach dev mode.
+
+### Optional: Local IdP for OIDC Development
+
+For auth-related work, you can boot a self-hosted Logto IdP using the IdP overlay. **This is dev-only**; production IdP runtime is governed by ADR-010 (Logto Cloud first, Zitadel migration later) and is not provided by this dev overlay.
+
+```bash
+# Boot the full stack with IdP
+docker compose -f docker-compose.dev.yml -f docker-compose.idp.yml up -d
+
+# Seed the OIDC application (generates .env.idp)
+./scripts/seed-logto-dev.sh
+```
+
+This starts:
+- **Logto OIDC** on `http://localhost:3301` — issuer URL for OIDC flows
+- **Logto Admin UI** on `http://localhost:3302` — admin console and Admin API
+- **logto-db** — dedicated Postgres for Logto state (isolated from breakdown read-model)
+
+After seeding, the `.env.idp` file contains:
+- `OIDC_ISS` — Issuer URL (e.g., `http://localhost:3301`)
+- `OIDC_AUDIENCE` — Resource indicator for your API (e.g., `https://api.breakdown.local`)
+- `OIDC_JWKS_URL` — JWKS endpoint for key discovery (e.g., `http://localhost:3301/.well-known/jwks`)
+
+**Dev ≠ Prod IdP:** The backend validates standard OIDC JWTs and is IdP-agnostic. Dev uses self-hosted Logto for convenience; production may use Logto Cloud or Zitadel per ADR-010. No code changes are needed to switch IdPs — only the environment variables change.
+
+**Frontend note:** Local frontend dev should configure the OIDC client to point to `http://localhost:3301` for the issuer.
 
 ## 7. Licensing & Headers
 - **License:** AGPL-3.0 (see `LICENSE`)

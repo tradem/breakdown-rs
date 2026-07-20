@@ -6,7 +6,7 @@ mod fixtures;
 use anyhow::Result;
 use breakdown_core::scene::aggregate::SceneAggregate;
 use breakdown_core::scene::events::{SceneDetails, SceneEvent};
-use breakdown_core::shared::{AggregateVersion, ProjectId};
+use breakdown_core::shared::{AggregateVersion, EpisodeId};
 use chrono::Utc;
 use infra::projectors::SceneProjector;
 use kameo_es::event_handler::EntityEventHandler;
@@ -19,7 +19,7 @@ use uuid::Uuid;
 async fn scene_created_event_projects_to_projection_scene() -> Result<()> {
     let (pool, _container) = crate::fixtures::spawn_postgres().await?;
 
-    let project_id = ProjectId::new();
+    let episode_id = EpisodeId::new();
     let scene_id = Uuid::now_v7();
     let details = SceneDetails {
         scene_number: Some(42),
@@ -29,7 +29,7 @@ async fn scene_created_event_projects_to_projection_scene() -> Result<()> {
     };
     let event = SceneEvent::SceneCreated {
         id: scene_id,
-        project_id,
+        episode_id,
         details: details.clone(),
         assigned_characters: vec![Uuid::now_v7()],
         version: AggregateVersion::INITIAL,
@@ -61,7 +61,7 @@ async fn scene_created_event_projects_to_projection_scene() -> Result<()> {
         .await?;
 
     assert_eq!(row.try_get::<Uuid, _>("id")?, scene_id);
-    assert_eq!(row.try_get::<Uuid, _>("project_id")?, project_id.0);
+    assert_eq!(row.try_get::<Uuid, _>("episode_id")?, episode_id.0);
     assert_eq!(row.try_get::<i32, _>("scene_number")?, 42);
     assert_eq!(row.try_get::<String, _>("location")?, "Berlin");
     assert_eq!(row.try_get::<String, _>("mood")?, "dark");

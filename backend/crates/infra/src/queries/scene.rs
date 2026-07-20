@@ -6,7 +6,7 @@
 use breakdown_core::error::DomainError;
 use breakdown_core::scene::ports::SceneRepository;
 use breakdown_core::scene::views::SceneView;
-use breakdown_core::shared::{AggregateVersion, ProjectId};
+use breakdown_core::shared::{AggregateVersion, EpisodeId};
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
@@ -21,14 +21,6 @@ impl SceneRepositoryImpl {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
-
-    /// Test-only access to the underlying pool (e.g. for Tier-4 round-trip tests
-    /// that need to open transactions against the same pool the read adapter
-    /// uses). Only compiled during test builds.
-    #[cfg(test)]
-    pub fn pool(&self) -> &PgPool {
-        &self.pool
-    }
 }
 
 impl SceneRepository for SceneRepositoryImpl {
@@ -37,7 +29,7 @@ impl SceneRepository for SceneRepositoryImpl {
             r#"
             SELECT
                 s.id,
-                s.project_id,
+                s.episode_id,
                 s.scene_number,
                 s.location,
                 s.mood,
@@ -60,9 +52,9 @@ impl SceneRepository for SceneRepositoryImpl {
         map_scene_row(row)
     }
 
-    async fn list_by_project(
+    async fn list_by_episode(
         &self,
-        project_id: ProjectId,
+        episode_id: EpisodeId,
         limit: i64,
         offset: i64,
     ) -> Result<Vec<SceneView>, DomainError> {
@@ -70,7 +62,7 @@ impl SceneRepository for SceneRepositoryImpl {
             r#"
             SELECT
                 s.id,
-                s.project_id,
+                s.episode_id,
                 s.scene_number,
                 s.location,
                 s.mood,
@@ -80,13 +72,13 @@ impl SceneRepository for SceneRepositoryImpl {
                 COALESCE(array_agg(sc.character_id) FILTER (WHERE sc.character_id IS NOT NULL), ARRAY[]::uuid[]) AS assigned_characters
             FROM projection_scene s
             LEFT JOIN projection_scene_character sc ON sc.scene_id = s.id
-            WHERE s.project_id = $1
+            WHERE s.episode_id = $1
             GROUP BY s.id
             ORDER BY s.scene_number, s.updated_at DESC
             LIMIT $2 OFFSET $3
             "#,
         )
-        .bind(project_id.0)
+        .bind(episode_id.0)
         .bind(limit)
         .bind(offset)
         .fetch_all(&self.pool)
@@ -129,7 +121,7 @@ fn map_scene_row(row: sqlx::postgres::PgRow) -> Result<SceneView, DomainError> {
     let scene_number: Option<i32> = row.try_get("scene_number").map_err(map_err)?;
     Ok(SceneView {
         id: row.try_get("id").map_err(map_err)?,
-        project_id: ProjectId(row.try_get("project_id").map_err(map_err)?),
+        episode_id: EpisodeId(row.try_get("episode_id").map_err(map_err)?),
         scene_number: scene_number.map(|n| n as u32),
         location: row.try_get("location").map_err(map_err)?,
         mood: row.try_get("mood").map_err(map_err)?,
@@ -145,3 +137,7 @@ fn map_scene_row(row: sqlx::postgres::PgRow) -> Result<SceneView, DomainError> {
 fn map_err(e: sqlx::Error) -> DomainError {
     DomainError::Conflict(e.to_string())
 }
+
+#[cfg(test)]
+#[path = "scene_test.rs"]
+mod tests;

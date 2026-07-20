@@ -6,7 +6,7 @@
 use breakdown_core::costume::ports::CostumeRepository;
 use breakdown_core::costume::views::{CostumeDetailView, CostumePhotoView, CostumeView};
 use breakdown_core::error::DomainError;
-use breakdown_core::shared::{AggregateVersion, ProjectId};
+use breakdown_core::shared::{AggregateVersion, SeasonId};
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
@@ -25,7 +25,7 @@ impl CostumeRepositoryImpl {
     async fn costumefind_by_id_with_children(&self, id: Uuid) -> Result<CostumeView, DomainError> {
         let row = sqlx::query(
             r#"
-            SELECT id, project_id, character_id, notes, version, updated_at
+            SELECT id, character_id, notes, version, updated_at
             FROM projection_costume
             WHERE id = $1
             "#,
@@ -98,22 +98,23 @@ impl CostumeRepository for CostumeRepositoryImpl {
         self.costumefind_by_id_with_children(id).await
     }
 
-    async fn list_by_project(
+    async fn list_by_season(
         &self,
-        project_id: ProjectId,
+        season_id: SeasonId,
         limit: i64,
         offset: i64,
     ) -> Result<Vec<CostumeView>, DomainError> {
         let rows = sqlx::query(
             r#"
-            SELECT id, project_id, character_id, notes, version, updated_at
-            FROM projection_costume
-            WHERE project_id = $1
-            ORDER BY updated_at DESC
+            SELECT c.id, c.character_id, c.notes, c.version, c.updated_at
+            FROM projection_costume c
+            JOIN projection_character ch ON ch.id = c.character_id
+            WHERE ch.season_id = $1
+            ORDER BY c.updated_at DESC
             LIMIT $2 OFFSET $3
             "#,
         )
-        .bind(project_id.0)
+        .bind(season_id.0)
         .bind(limit)
         .bind(offset)
         .fetch_all(&self.pool)
@@ -131,7 +132,7 @@ impl CostumeRepository for CostumeRepositoryImpl {
     ) -> Result<Vec<CostumeView>, DomainError> {
         let rows = sqlx::query(
             r#"
-            SELECT id, project_id, character_id, notes, version, updated_at
+            SELECT id, character_id, notes, version, updated_at
             FROM projection_costume
             WHERE character_id = $1
             ORDER BY updated_at DESC
@@ -155,7 +156,6 @@ impl CostumeRepository for CostumeRepositoryImpl {
 fn map_costume_row(row: sqlx::postgres::PgRow) -> Result<CostumeView, DomainError> {
     Ok(CostumeView {
         id: row.try_get("id").map_err(map_err)?,
-        project_id: ProjectId(row.try_get("project_id").map_err(map_err)?),
         character_id: row.try_get("character_id").map_err(map_err)?,
         notes: row.try_get("notes").map_err(map_err)?,
         details: Vec::new(),

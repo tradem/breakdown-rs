@@ -24,8 +24,12 @@ utoipa.workspace = true
 # Async traits für Ports (object-safe, mockierbar)
 async-trait.workspace = true
 
+# JSON-Werte für die generische Audit/Journal-Projektion (core::audit)
+serde_json.workspace = true
+
 # Tests
 rstest = "0.26"
 
 [dev-dependencies]
 test_support = { path = "../test_support" }
+serde_json.workspace = true

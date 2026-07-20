@@ -10,13 +10,18 @@ use std::env;
 use std::sync::Arc;
 
 use anyhow::Result;
+use api::auth::authorization::MembershipAuthorizationPolicy;
+use api::auth::{AuthState, AuthorizationState};
 use api::routes::app_router;
-use api::state::{AppState, ProductionPorts};
+use api::state::{AppState, Ports, ProductionPorts};
+use breakdown_core::membership::policy::AuthorizationPolicy;
 use infra::event_store::{
-    CalculationCommandsImpl, CharacterCommandsImpl, CostumeCommandsImpl, SceneCommandsImpl,
+    BlockCommandsImpl, CharacterCommandsImpl, CostumeCommandsImpl, EpisodeCommandsImpl,
+    MembershipCommandsImpl, SceneCommandsImpl, SeasonCommandsImpl,
 };
 use infra::queries::{
-    CalculationRepositoryImpl, CharacterRepositoryImpl, CostumeRepositoryImpl, SceneRepositoryImpl,
+    AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl, CostumeRepositoryImpl,
+    EpisodeRepositoryImpl, MembershipRepositoryImpl, SceneRepositoryImpl, SeasonRepositoryImpl,
 };
 use kameo_es::command_service::CommandService;
 use opentelemetry::trace::TracerProvider as _;
@@ -122,6 +127,12 @@ async fn main() -> Result<()> {
     let cmd_service = CommandService::new(sierra_conn);
 
     // Start one PostgresProcessor per aggregate, each with its own checkpoint stream.
+    let _season_projector =
+        infra::projectors::spawn_season_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _block_projector =
+        infra::projectors::spawn_block_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _episode_projector =
+        infra::projectors::spawn_episode_projector(pool.clone(), Arc::clone(&redis_client)).await?;
     let _scene_projector =
         infra::projectors::spawn_scene_projector(pool.clone(), Arc::clone(&redis_client)).await?;
     let _character_projector =
@@ -129,9 +140,11 @@ async fn main() -> Result<()> {
             .await?;
     let _costume_projector =
         infra::projectors::spawn_costume_projector(pool.clone(), Arc::clone(&redis_client)).await?;
-    let _calculation_projector =
-        infra::projectors::spawn_calculation_projector(pool.clone(), Arc::clone(&redis_client))
+    let _membership_projector =
+        infra::projectors::spawn_membership_projector(pool.clone(), Arc::clone(&redis_client))
             .await?;
+    let _audit_projector =
+        infra::projectors::spawn_audit_projector(pool.clone(), Arc::clone(&redis_client)).await?;
     info!("projectors spawned");
 
     let ports = ProductionPorts::new(
@@ -141,12 +154,36 @@ async fn main() -> Result<()> {
         CharacterRepositoryImpl::new(pool.clone()),
         CostumeCommandsImpl::new(cmd_service.clone()),
         CostumeRepositoryImpl::new(pool.clone()),
-        CalculationCommandsImpl::new(cmd_service.clone()),
-        CalculationRepositoryImpl::new(pool.clone()),
+        SeasonCommandsImpl::new(cmd_service.clone()),
+        SeasonRepositoryImpl::new(pool.clone()),
+        BlockCommandsImpl::new(cmd_service.clone()),
+        BlockRepositoryImpl::new(pool.clone()),
+        EpisodeCommandsImpl::new(cmd_service.clone()),
+        EpisodeRepositoryImpl::new(pool.clone()),
+        MembershipCommandsImpl::new(cmd_service.clone()),
+        MembershipRepositoryImpl::new(pool.clone()),
+        AuditRepositoryImpl::new(pool.clone()),
     );
     let app_state = AppState::new(ports);
 
-    let app = app_router()
+    // --- OIDC authentication + authorization wiring ---
+    let auth = Arc::new(
+        AuthState::from_env_or_dev().map_err(|e| anyhow::anyhow!("auth configuration: {e}"))?,
+    );
+
+    let membership_repo: Arc<MembershipRepositoryImpl> =
+        Arc::new(app_state.ports.membership_repo().clone());
+    let policy: Arc<dyn AuthorizationPolicy> =
+        Arc::new(MembershipAuthorizationPolicy::new(membership_repo));
+    let authz = Arc::new(AuthorizationState::from_env_or_dev(policy));
+
+    info!(
+        "authz enforce={} dev_auth={}",
+        authz.enforce(),
+        auth.is_dev()
+    );
+
+    let app = app_router(auth, authz)
         .with_state(app_state)
         .layer(TraceLayer::new_for_http());
 

@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, ProjectId};
+use crate::shared::{AggregateVersion, EpisodeId};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, utoipa::ToSchema)]
 pub struct SceneDetails {
@@ -20,7 +20,7 @@ pub struct SceneDetails {
 pub enum SceneEvent {
     SceneCreated {
         id: Uuid,
-        project_id: ProjectId,
+        episode_id: EpisodeId,
         details: SceneDetails,
         assigned_characters: Vec<Uuid>,
         version: AggregateVersion,

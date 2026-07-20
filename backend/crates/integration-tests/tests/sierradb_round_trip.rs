@@ -30,7 +30,7 @@ use anyhow::{Result, anyhow, bail};
 use breakdown_core::error::DomainError;
 use breakdown_core::scene::events::{SceneDetails, SceneEvent};
 use breakdown_core::scene::ports::SceneRepository as _;
-use breakdown_core::shared::{AggregateVersion, ProjectId};
+use breakdown_core::shared::{AggregateVersion, EpisodeId};
 use chrono::Utc;
 use infra::queries::SceneRepositoryImpl;
 use uuid::Uuid;
@@ -77,12 +77,12 @@ async fn eappend_scene_created_round_trips_into_projection() -> Result<()> {
     let repo = SceneRepositoryImpl::new(pool);
 
     let scene_id = Uuid::now_v7();
-    let project_id = ProjectId::new();
+    let episode_id = EpisodeId::new();
     let stream_id = format!("scene-{scene_id}");
 
     let created_event = SceneEvent::SceneCreated {
         id: scene_id,
-        project_id,
+        episode_id,
         details: SceneDetails {
             scene_number: Some(7),
             location: Some("Berlin".into()),
@@ -119,7 +119,7 @@ async fn eappend_scene_created_round_trips_into_projection() -> Result<()> {
     let view = await_scene_projection(&repo, scene_id).await?;
 
     assert_eq!(view.id, scene_id);
-    assert_eq!(view.project_id, project_id);
+    assert_eq!(view.episode_id, episode_id);
     assert_eq!(view.scene_number, Some(7));
     assert_eq!(view.location.as_deref(), Some("Berlin"));
     assert_eq!(view.mood.as_deref(), Some("dark"));
@@ -185,14 +185,14 @@ async fn eappend_character_assigned_twice_is_idempotent() -> Result<()> {
     let repo = SceneRepositoryImpl::new(pool);
 
     let scene_id = Uuid::now_v7();
-    let project_id = ProjectId::new();
+    let episode_id = EpisodeId::new();
     let stream_id = format!("scene-{scene_id}");
     let character_id = Uuid::now_v7();
 
     // 1. Create scene via EAPPEND SceneCreated
     let created_event = SceneEvent::SceneCreated {
         id: scene_id,
-        project_id,
+        episode_id,
         details: SceneDetails {
             scene_number: Some(7),
             location: Some("Berlin".into()),
@@ -300,7 +300,7 @@ async fn eappend_character_assigned_twice_is_idempotent() -> Result<()> {
     );
     // All other fields must remain identical.
     assert_eq!(view2.id, view.id);
-    assert_eq!(view2.project_id, view.project_id);
+    assert_eq!(view2.episode_id, view.episode_id);
     assert_eq!(view2.scene_number, view.scene_number);
     assert_eq!(view2.location, view.location);
     assert_eq!(view2.mood, view.mood);

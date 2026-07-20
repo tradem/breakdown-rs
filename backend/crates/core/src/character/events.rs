@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, ProjectId};
+use super::category::CharacterCategory;
+use crate::shared::{AggregateVersion, SeasonId};
 
 /// Payload for measurement fields updated as a God-Command.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, ToSchema)]
@@ -41,10 +42,9 @@ pub struct ContactInfo {
 pub enum CharacterEvent {
     CharacterCreated {
         id: Uuid,
-        project_id: ProjectId,
+        season_id: SeasonId,
         name: String,
-        is_extra: bool,
-        is_main_character: bool,
+        category: CharacterCategory,
         measurements: CharacterMeasurements,
         contact_info: ContactInfo,
         version: AggregateVersion,

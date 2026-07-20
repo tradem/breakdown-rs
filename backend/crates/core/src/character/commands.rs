@@ -5,18 +5,17 @@
 
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, ProjectId};
-
+use super::category::CharacterCategory;
 use super::events::{CharacterMeasurements, ContactInfo};
+use crate::shared::{AggregateVersion, SeasonId};
 
 /// Create a new character role with an externally supplied UUIDv7 id.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct CreateCharacter {
     pub id: Uuid,
-    pub project_id: ProjectId,
+    pub season_id: SeasonId,
     pub name: String,
-    pub is_extra: bool,
-    pub is_main_character: bool,
+    pub category: CharacterCategory,
 }
 
 /// Update physical measurements as a God-Command payload.
