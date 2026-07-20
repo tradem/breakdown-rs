@@ -6,21 +6,21 @@
 //! Each projector has its own checkpoint row set inside `sierradb_event_checkpoints`
 //! and can fail/catch-up independently (ADR-015).
 
+mod audit;
 mod block;
 mod character;
 mod costume;
 mod episode;
-mod audit;
 mod membership;
 mod scene;
 mod season;
 mod supervisor;
 
+pub use audit::AuditProjector;
 pub use block::BlockProjector;
 pub use character::CharacterProjector;
 pub use costume::CostumeProjector;
 pub use episode::EpisodeProjector;
-pub use audit::AuditProjector;
 pub use membership::MembershipProjector;
 pub use scene::SceneProjector;
 pub use season::SeasonProjector;
@@ -243,11 +243,6 @@ pub async fn spawn_audit_projector(
     )
     .await?;
     let actor_ref = AuditProcessor::spawn(processor);
-    run_projection_stream!(
-        BlockMembership,
-        "audit",
-        redis_client,
-        actor_ref.clone()
-    )?;
+    run_projection_stream!(BlockMembership, "audit", redis_client, actor_ref.clone())?;
     Ok(actor_ref)
 }

@@ -6,11 +6,11 @@
 //! `AppState` is generic over a `Ports` implementation so that unit tests can
 //! substitute hand-written fakes without spinning up SierraDB or Postgres.
 
+use breakdown_core::audit::AuditRepository;
 use breakdown_core::block::{BlockCommands, BlockRepository};
 use breakdown_core::character::{CharacterCommands, CharacterRepository};
 use breakdown_core::costume::{CostumeCommands, CostumeRepository};
 use breakdown_core::episode::{EpisodeCommands, EpisodeRepository};
-use breakdown_core::audit::AuditRepository;
 use breakdown_core::membership::{MembershipCommands, MembershipRepository};
 use breakdown_core::scene::{SceneCommands, SceneRepository};
 use breakdown_core::season::{SeasonCommands, SeasonRepository};

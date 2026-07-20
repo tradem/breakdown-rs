@@ -144,8 +144,7 @@ async fn main() -> Result<()> {
         infra::projectors::spawn_membership_projector(pool.clone(), Arc::clone(&redis_client))
             .await?;
     let _audit_projector =
-        infra::projectors::spawn_audit_projector(pool.clone(), Arc::clone(&redis_client))
-            .await?;
+        infra::projectors::spawn_audit_projector(pool.clone(), Arc::clone(&redis_client)).await?;
     info!("projectors spawned");
 
     let ports = ProductionPorts::new(

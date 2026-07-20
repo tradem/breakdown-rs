@@ -9,8 +9,8 @@ use std::time::Duration;
 use anyhow::{Result, anyhow, bail};
 use breakdown_core::audit::ports::AuditRepository as _;
 use breakdown_core::audit::views::AuditEntry;
-use breakdown_core::membership::events::MembershipEvent;
 use breakdown_core::membership::Role;
+use breakdown_core::membership::events::MembershipEvent;
 use breakdown_core::shared::{BlockId, UserId};
 use chrono::Utc;
 use infra::projectors::spawn_audit_projector;
@@ -101,7 +101,14 @@ async fn eappend_owner_bootstrapped_round_trips_into_audit() -> Result<()> {
         role: Role::CostumeAssistant,
     };
 
-    eappend_membership(&redis_client, &stream_id, "OwnerBootstrapped", "EMPTY", &event).await?;
+    eappend_membership(
+        &redis_client,
+        &stream_id,
+        "OwnerBootstrapped",
+        "EMPTY",
+        &event,
+    )
+    .await?;
 
     let entries = await_audit_count(&repo, block_id, 1).await?;
     assert_eq!(entries.len(), 1, "exactly one audit row expected");
@@ -164,13 +171,27 @@ async fn audit_projector_is_idempotent_under_redelivery() -> Result<()> {
     };
 
     // 1. First append (EXPECTED_VERSION EMPTY → version 0→1).
-    eappend_membership(&redis_client, &stream_id, "OwnerBootstrapped", "EMPTY", &bootstrap).await?;
+    eappend_membership(
+        &redis_client,
+        &stream_id,
+        "OwnerBootstrapped",
+        "EMPTY",
+        &bootstrap,
+    )
+    .await?;
     let entries = await_audit_count(&repo, block_id, 1).await?;
     assert_eq!(entries.len(), 1, "first bootstrap projected");
     assert_eq!(entries[0].event_type, "OwnerBootstrapped");
 
     // 2. Redelivery: same logical event, fresh SierraDB append (version 1→2).
-    eappend_membership(&redis_client, &stream_id, "OwnerBootstrapped", "0", &bootstrap).await?;
+    eappend_membership(
+        &redis_client,
+        &stream_id,
+        "OwnerBootstrapped",
+        "0",
+        &bootstrap,
+    )
+    .await?;
 
     // 3. Distinct event to prove the projector processed through the redelivery.
     let invite = MembershipEvent::MemberInvited {

@@ -3,10 +3,10 @@
 
 //! Read port for the audit / journal projection.
 
-use async_trait::async_trait;
 use crate::audit::views::AuditEntry;
 use crate::error::DomainError;
 use crate::shared::{BlockId, UserId};
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
 /// Async read port for the audit / journal projection.

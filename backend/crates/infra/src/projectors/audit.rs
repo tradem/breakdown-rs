@@ -10,12 +10,12 @@
 //! the event store's stable per-event `id` as the primary key
 //! (`ON CONFLICT (id) DO NOTHING`).
 
+use breakdown_core::membership::MembershipMetadata;
 use breakdown_core::membership::aggregate::BlockMembership;
 use breakdown_core::membership::events::MembershipEvent;
-use breakdown_core::membership::MembershipMetadata;
-use kameo_es::event_handler::{EntityEventHandler, EventHandler};
 use kameo_es::Event;
 use kameo_es::EventType;
+use kameo_es::event_handler::{EntityEventHandler, EventHandler};
 use sqlx::{Postgres, Transaction};
 
 /// Idempotent audit projector for the `BlockMembership` aggregate (v1 scope).

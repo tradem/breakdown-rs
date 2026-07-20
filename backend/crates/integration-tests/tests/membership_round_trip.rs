@@ -14,7 +14,7 @@ mod fixtures;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use breakdown_core::membership::events::MembershipEvent;
 use breakdown_core::membership::views::{MembershipStateKind, MembershipView};
 use breakdown_core::membership::{
@@ -78,10 +78,9 @@ async fn await_member_role(
             .find(block_id, user_id.clone())
             .await
             .map_err(|e| anyhow!(e.to_string()))?
+            && m.role == expected
         {
-            if m.role == expected {
-                return Ok(m);
-            }
+            return Ok(m);
         }
         if std::time::Instant::now() < deadline {
             tokio::time::sleep(POLL_INTERVAL).await;
@@ -152,7 +151,10 @@ async fn eappend_membership(
 ) -> Result<()> {
     let mut payload = Vec::new();
     ciborium::into_writer(event, &mut payload).map_err(|e| anyhow!("CBOR encode failed: {e}"))?;
-    let now_ms = chrono::Utc::now().timestamp_millis().try_into().unwrap_or(0u64);
+    let now_ms = chrono::Utc::now()
+        .timestamp_millis()
+        .try_into()
+        .unwrap_or(0u64);
     let mut conn = client.get_multiplexed_tokio_connection().await?;
     let _resp: redis::Value = redis::cmd("EAPPEND")
         .arg(stream_id)
@@ -298,7 +300,8 @@ async fn command_grant_remove_leave_round_trips_into_membership_projection() -> 
         )
         .await?;
 
-    let granted = await_member_role(&repo, block_id, member.clone(), Role::WardrobeSupervisor).await?;
+    let granted =
+        await_member_role(&repo, block_id, member.clone(), Role::WardrobeSupervisor).await?;
     assert_eq!(granted.state, MembershipStateKind::Active);
 
     // Owner removes the member entirely.
@@ -356,13 +359,27 @@ async fn membership_projector_is_idempotent_under_redelivery() -> Result<()> {
         role: Role::CostumeAssistant,
     };
 
-    eappend_membership(&redis_client, &stream_id, "OwnerBootstrapped", "EMPTY", &bootstrap).await?;
+    eappend_membership(
+        &redis_client,
+        &stream_id,
+        "OwnerBootstrapped",
+        "EMPTY",
+        &bootstrap,
+    )
+    .await?;
     let members = await_membership_count(&repo, BlockId::from_uuid(block_id), 1).await?;
     assert_eq!(members.len(), 1, "first bootstrap projected");
     assert_eq!(members[0].state, MembershipStateKind::Active);
 
     // Redelivery of the same logical event (fresh SierraDB append → new event.id).
-    eappend_membership(&redis_client, &stream_id, "OwnerBootstrapped", "0", &bootstrap).await?;
+    eappend_membership(
+        &redis_client,
+        &stream_id,
+        "OwnerBootstrapped",
+        "0",
+        &bootstrap,
+    )
+    .await?;
 
     let invite = MembershipEvent::MemberInvited {
         block_id: BlockId::from_uuid(block_id),

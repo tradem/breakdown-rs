@@ -6,6 +6,7 @@
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::{Json, Router, routing};
+use breakdown_core::audit::{AuditEntry, AuditRepository};
 use breakdown_core::block::commands::{CreateBlock, UpdateBlockTimeSpan};
 use breakdown_core::block::ports::{BlockCommands, BlockRepository};
 use breakdown_core::block::views::BlockView;
@@ -23,12 +24,11 @@ use breakdown_core::episode::commands::{CreateEpisode, RenameEpisode};
 use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::error::DomainError;
+use breakdown_core::membership::views::MembershipView;
 use breakdown_core::membership::{
     AcceptInvitation, BootstrapOwner, GrantRole, InviteMember, LeaveBlock, MembershipCommands,
     MembershipRepository, RemoveMember, Role,
 };
-use breakdown_core::membership::views::MembershipView;
-use breakdown_core::audit::{AuditEntry, AuditRepository};
 use breakdown_core::scene::commands::{
     AssignCharacter, CreateScene, RemoveCharacter, UpdateSceneDetails,
 };
@@ -1251,8 +1251,7 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         )
         .route(
             "/blocks/{id}/members",
-            routing::post(invite_member::<ProductionPorts>)
-                .get(list_members::<ProductionPorts>),
+            routing::post(invite_member::<ProductionPorts>).get(list_members::<ProductionPorts>),
         )
         .route(
             "/blocks/{id}/members/accept",
@@ -1268,8 +1267,7 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         )
         .route(
             "/blocks/{id}/members/{user_id}",
-            routing::get(get_member::<ProductionPorts>)
-                .delete(remove_member::<ProductionPorts>),
+            routing::get(get_member::<ProductionPorts>).delete(remove_member::<ProductionPorts>),
         )
         .route(
             "/blocks/{id}/time-span",
@@ -1380,12 +1378,12 @@ pub(crate) mod test_helpers {
     use uuid::Uuid;
 
     use async_trait::async_trait;
+    use breakdown_core::audit::{AuditEntry, AuditRepository};
     use breakdown_core::membership::commands::{
         AcceptInvitation, BootstrapOwner, GrantRole, InviteMember, LeaveBlock, RemoveMember,
     };
     use breakdown_core::membership::ports::{MembershipCommands, MembershipRepository};
     use breakdown_core::membership::{MembershipStateKind, MembershipView, Role};
-    use breakdown_core::audit::{AuditEntry, AuditRepository};
     use breakdown_core::shared::UserId;
     use chrono::{DateTime, Utc};
     use std::collections::HashSet;
@@ -1556,11 +1554,7 @@ pub(crate) mod test_helpers {
             *self.last_grant.lock().await = Some((actor, cmd));
             Ok(())
         }
-        async fn remove_member(
-            &self,
-            actor: UserId,
-            cmd: RemoveMember,
-        ) -> Result<(), DomainError> {
+        async fn remove_member(&self, actor: UserId, cmd: RemoveMember) -> Result<(), DomainError> {
             *self.last_remove.lock().await = Some((actor, cmd));
             Ok(())
         }
@@ -2060,7 +2054,10 @@ mod authz_tests {
             .route("/seasons", post(|| async { StatusCode::OK }))
             .route("/blocks/{id}", get(|| async { StatusCode::OK }))
             .route("/blocks/{id}/members", get(|| async { StatusCode::OK }))
-            .route("/blocks/{id}/members/accept", post(|| async { StatusCode::OK }))
+            .route(
+                "/blocks/{id}/members/accept",
+                post(|| async { StatusCode::OK }),
+            )
             .route("/scenes", post(|| async { StatusCode::OK }))
             .route("/swagger-ui", get(|| async { StatusCode::OK }))
             .route("/api-docs", get(|| async { StatusCode::OK }))
@@ -2275,14 +2272,13 @@ mod authz_tests {
 
         assert_eq!(status_of(&app, req).await, StatusCode::OK);
     }
-
 }
 
 #[cfg(test)]
 mod audit_tests {
+    use axum::Json;
     use axum::extract::{Path, Query, State};
     use axum::http::StatusCode;
-    use axum::Json;
     use breakdown_core::audit::AuditEntry;
     use breakdown_core::shared::{BlockId, UserId};
     use chrono::Utc;
@@ -2296,24 +2292,19 @@ mod audit_tests {
 
     #[tokio::test]
     async fn get_block_audit_returns_journal_entries_for_block() {
-        let mut ports = FakePorts::default();
+        let ports = FakePorts::default();
         let block_id = BlockId::from_uuid(Uuid::now_v7());
-        ports
-            .audit_repo
-            .entries
-            .lock()
-            .await
-            .push(AuditEntry {
-                id: Uuid::now_v7(),
-                entity_type: "membership".to_string(),
-                entity_id: block_id.0.to_string(),
-                event_type: "OwnerBootstrapped".to_string(),
-                block_id: Some(block_id),
-                series_id: None,
-                actor: Some(UserId::from_sub("user-1")),
-                payload: json!({ "role": "costume_assistant" }),
-                occurred_at: Utc::now(),
-            });
+        ports.audit_repo.entries.lock().await.push(AuditEntry {
+            id: Uuid::now_v7(),
+            entity_type: "membership".to_string(),
+            entity_id: block_id.0.to_string(),
+            event_type: "OwnerBootstrapped".to_string(),
+            block_id: Some(block_id),
+            series_id: None,
+            actor: Some(UserId::from_sub("user-1")),
+            payload: json!({ "role": "costume_assistant" }),
+            occurred_at: Utc::now(),
+        });
 
         let result = get_block_audit::<FakePorts>(
             State(AppState::new(ports)),
@@ -2380,18 +2371,18 @@ mod audit_tests {
 
 #[cfg(test)]
 mod membership_tests {
+    use axum::Json;
     use axum::extract::{Path, Query, State};
     use axum::http::StatusCode;
-    use axum::Json;
     use breakdown_core::membership::Role;
     use breakdown_core::shared::{BlockId, UserId};
     use uuid::Uuid;
 
+    use super::test_helpers::*;
     use super::{
         CurrentUser, GrantRoleRequest, InviteMemberRequest, ListParams, accept_invitation,
         get_member, grant_role, invite_member, leave_block, list_members, remove_member,
     };
-    use super::test_helpers::*;
     use crate::state::AppState;
 
     fn fresh_block() -> Uuid {
