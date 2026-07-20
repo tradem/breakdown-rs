@@ -10,6 +10,7 @@ mod block;
 mod character;
 mod costume;
 mod episode;
+mod audit;
 mod membership;
 mod scene;
 mod season;
@@ -19,6 +20,7 @@ pub use block::BlockProjector;
 pub use character::CharacterProjector;
 pub use costume::CostumeProjector;
 pub use episode::EpisodeProjector;
+pub use audit::AuditProjector;
 pub use membership::MembershipProjector;
 pub use scene::SceneProjector;
 pub use season::SeasonProjector;
@@ -49,6 +51,7 @@ type SeasonProcessor = PostgresProcessor<(SeasonAggregate,), SeasonProjector>;
 type BlockProcessor = PostgresProcessor<(BlockAggregate,), BlockProjector>;
 type EpisodeProcessor = PostgresProcessor<(EpisodeAggregate,), EpisodeProjector>;
 type MembershipProcessor = PostgresProcessor<(BlockMembership,), MembershipProjector>;
+type AuditProcessor = PostgresProcessor<(BlockMembership,), AuditProjector>;
 
 /// Spawn a supervised projector subscription loop.
 ///
@@ -219,6 +222,30 @@ pub async fn spawn_membership_projector(
     run_projection_stream!(
         BlockMembership,
         "membership",
+        redis_client,
+        actor_ref.clone()
+    )?;
+    Ok(actor_ref)
+}
+
+/// Spawn the audit projector actor and start its SierraDB subscription loop.
+pub async fn spawn_audit_projector(
+    pool: PgPool,
+    redis_client: Arc<RedisClient>,
+) -> Result<ActorRef<AuditProcessor>> {
+    let conn = redis_client.get_multiplexed_tokio_connection().await?;
+    let processor = AuditProcessor::new(
+        pool.clone(),
+        conn,
+        CHECKPOINTS_TABLE,
+        "audit",
+        AuditProjector,
+    )
+    .await?;
+    let actor_ref = AuditProcessor::spawn(processor);
+    run_projection_stream!(
+        BlockMembership,
+        "audit",
         redis_client,
         actor_ref.clone()
     )?;

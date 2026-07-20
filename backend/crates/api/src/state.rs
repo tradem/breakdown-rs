@@ -10,6 +10,7 @@ use breakdown_core::block::{BlockCommands, BlockRepository};
 use breakdown_core::character::{CharacterCommands, CharacterRepository};
 use breakdown_core::costume::{CostumeCommands, CostumeRepository};
 use breakdown_core::episode::{EpisodeCommands, EpisodeRepository};
+use breakdown_core::audit::AuditRepository;
 use breakdown_core::membership::{MembershipCommands, MembershipRepository};
 use breakdown_core::scene::{SceneCommands, SceneRepository};
 use breakdown_core::season::{SeasonCommands, SeasonRepository};
@@ -18,8 +19,8 @@ use infra::event_store::{
     MembershipCommandsImpl, SceneCommandsImpl, SeasonCommandsImpl,
 };
 use infra::queries::{
-    BlockRepositoryImpl, CharacterRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl,
-    MembershipRepositoryImpl, SceneRepositoryImpl, SeasonRepositoryImpl,
+    AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl, CostumeRepositoryImpl,
+    EpisodeRepositoryImpl, MembershipRepositoryImpl, SceneRepositoryImpl, SeasonRepositoryImpl,
 };
 
 /// The hexagonal seam surface used by API handlers. Production implements it
@@ -39,6 +40,7 @@ pub trait Ports: Clone + Send + Sync + 'static {
     type EpisodeRepo: EpisodeRepository;
     type MembershipCommands: MembershipCommands;
     type MembershipRepo: MembershipRepository;
+    type AuditRepo: AuditRepository;
 
     fn scene_commands(&self) -> &Self::SceneCommands;
     fn scene_repo(&self) -> &Self::SceneRepo;
@@ -54,6 +56,7 @@ pub trait Ports: Clone + Send + Sync + 'static {
     fn episode_repo(&self) -> &Self::EpisodeRepo;
     fn membership_commands(&self) -> &Self::MembershipCommands;
     fn membership_repo(&self) -> &Self::MembershipRepo;
+    fn audit_repo(&self) -> &Self::AuditRepo;
 }
 
 /// Shared state handed to every Axum handler.
@@ -85,6 +88,7 @@ pub struct ProductionPorts {
     episode_repo: EpisodeRepositoryImpl,
     membership_commands: MembershipCommandsImpl,
     membership_repo: MembershipRepositoryImpl,
+    audit_repo: AuditRepositoryImpl,
 }
 
 impl ProductionPorts {
@@ -104,6 +108,7 @@ impl ProductionPorts {
         episode_repo: EpisodeRepositoryImpl,
         membership_commands: MembershipCommandsImpl,
         membership_repo: MembershipRepositoryImpl,
+        audit_repo: AuditRepositoryImpl,
     ) -> Self {
         Self {
             scene_commands,
@@ -120,6 +125,7 @@ impl ProductionPorts {
             episode_repo,
             membership_commands,
             membership_repo,
+            audit_repo,
         }
     }
 }
@@ -139,6 +145,7 @@ impl Ports for ProductionPorts {
     type EpisodeRepo = EpisodeRepositoryImpl;
     type MembershipCommands = MembershipCommandsImpl;
     type MembershipRepo = MembershipRepositoryImpl;
+    type AuditRepo = AuditRepositoryImpl;
 
     fn scene_commands(&self) -> &Self::SceneCommands {
         &self.scene_commands
@@ -181,5 +188,8 @@ impl Ports for ProductionPorts {
     }
     fn membership_repo(&self) -> &Self::MembershipRepo {
         &self.membership_repo
+    }
+    fn audit_repo(&self) -> &Self::AuditRepo {
+        &self.audit_repo
     }
 }

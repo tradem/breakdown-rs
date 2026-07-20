@@ -20,8 +20,8 @@ use infra::event_store::{
     MembershipCommandsImpl, SceneCommandsImpl, SeasonCommandsImpl,
 };
 use infra::queries::{
-    BlockRepositoryImpl, CharacterRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl,
-    MembershipRepositoryImpl, SceneRepositoryImpl, SeasonRepositoryImpl,
+    AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl, CostumeRepositoryImpl,
+    EpisodeRepositoryImpl, MembershipRepositoryImpl, SceneRepositoryImpl, SeasonRepositoryImpl,
 };
 use kameo_es::command_service::CommandService;
 use opentelemetry::trace::TracerProvider as _;
@@ -143,6 +143,9 @@ async fn main() -> Result<()> {
     let _membership_projector =
         infra::projectors::spawn_membership_projector(pool.clone(), Arc::clone(&redis_client))
             .await?;
+    let _audit_projector =
+        infra::projectors::spawn_audit_projector(pool.clone(), Arc::clone(&redis_client))
+            .await?;
     info!("projectors spawned");
 
     let ports = ProductionPorts::new(
@@ -160,6 +163,7 @@ async fn main() -> Result<()> {
         EpisodeRepositoryImpl::new(pool.clone()),
         MembershipCommandsImpl::new(cmd_service.clone()),
         MembershipRepositoryImpl::new(pool.clone()),
+        AuditRepositoryImpl::new(pool.clone()),
     );
     let app_state = AppState::new(ports);
 

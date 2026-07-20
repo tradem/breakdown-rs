@@ -23,7 +23,12 @@ use breakdown_core::episode::commands::{CreateEpisode, RenameEpisode};
 use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::error::DomainError;
-use breakdown_core::membership::{BootstrapOwner, MembershipCommands, Role};
+use breakdown_core::membership::{
+    AcceptInvitation, BootstrapOwner, GrantRole, InviteMember, LeaveBlock, MembershipCommands,
+    MembershipRepository, RemoveMember, Role,
+};
+use breakdown_core::membership::views::MembershipView;
+use breakdown_core::audit::{AuditEntry, AuditRepository};
 use breakdown_core::scene::commands::{
     AssignCharacter, CreateScene, RemoveCharacter, UpdateSceneDetails,
 };
@@ -33,7 +38,7 @@ use breakdown_core::scene::views::SceneView;
 use breakdown_core::season::commands::{CreateSeason, RenameSeason};
 use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
 use breakdown_core::season::views::SeasonView;
-use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, SeasonId, SeriesId};
+use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, SeasonId, SeriesId, UserId};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
@@ -170,6 +175,20 @@ pub struct AssignCharacterRequest {
 pub struct AssignCostumeRequest {
     pub character_id: Uuid,
     pub version: AggregateVersion,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct InviteMemberRequest {
+    /// OIDC `sub` of the user to invite to the block.
+    pub user_id: String,
+    /// Proposed role for the invited user (pending until they accept).
+    pub role: Role,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct GrantRoleRequest {
+    /// New role for the active member (their prior role is replaced).
+    pub role: Role,
 }
 
 type ApiResult<T> = Result<(StatusCode, Json<T>), (StatusCode, Json<ErrorResponse>)>;
@@ -355,6 +374,34 @@ pub async fn get_block<P: Ports>(
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(view)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/blocks/{id}/audit",
+    params(("id" = Uuid, Path, description = "Block id"), ListParams),
+    responses(
+        (status = 200, body = Vec<AuditEntry>, description = "Audit journal entries for the block, newest first"),
+        (status = 403, body = ErrorResponse, description = "Caller is not an active member of the active block (X-Active-Block header)"),
+        (status = 400, body = ErrorResponse, description = "Missing or malformed X-Active-Block header"),
+    ),
+)]
+pub async fn get_block_audit<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path(id): Path<Uuid>,
+    Query(params): Query<ListParams>,
+) -> ApiResult<Vec<AuditEntry>> {
+    let entries = state
+        .ports
+        .audit_repo()
+        .list_by_block(
+            BlockId::from_uuid(id),
+            params.limit.unwrap_or(50),
+            params.offset.unwrap_or(0),
+        )
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(entries)))
 }
 
 #[utoipa::path(
@@ -947,6 +994,243 @@ pub async fn unassign_costume<P: Ports>(
 // Router
 // ---------------------------------------------------------------------------
 
+/// Invite a user to the block with a proposed role (pending until accepted).
+///
+/// Gated `BlockMember`: the caller must be an active member of the active
+/// block (see `authorize_middleware`). The actor is the authenticated caller.
+#[utoipa::path(
+    post,
+    path = "/blocks/{id}/members",
+    params(("id" = Uuid, Path, description = "Block id")),
+    request_body = InviteMemberRequest,
+    responses(
+        (status = 204, description = "Invitation created (pending until the invitee accepts)"),
+        (status = 400, body = ErrorResponse, description = "Invalid request (e.g., malformed user_id)"),
+        (status = 403, body = ErrorResponse, description = "Caller is not an active member of the active block (X-Active-Block header)"),
+        (status = 409, body = ErrorResponse, description = "Conflicting state (e.g., user is already a member)"),
+    ),
+)]
+pub async fn invite_member<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<Uuid>,
+    Json(req): Json<InviteMemberRequest>,
+) -> ApiResult<()> {
+    let cmd = InviteMember {
+        block_id: BlockId::from_uuid(id),
+        user_id: UserId::from_sub(req.user_id),
+        role: req.role,
+    };
+    state
+        .ports
+        .membership_commands()
+        .invite(current_user.sub.clone(), cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::NO_CONTENT, Json(())))
+}
+
+/// Accept a pending invitation for the authenticated caller.
+///
+/// Self-service: the invitee proves who they are via OIDC and the command
+/// binds `user_id` to the authenticated `sub`, so a caller can only accept
+/// their own invitation. Gated `Authenticated` (not `BlockMember`) because the
+/// invitee is not yet an active member; the domain command enforces that a
+/// pending invitation exists for this block.
+#[utoipa::path(
+    post,
+    path = "/blocks/{id}/members/accept",
+    params(("id" = Uuid, Path, description = "Block id")),
+    responses(
+        (status = 204, description = "Invitation accepted; caller is now an active member"),
+        (status = 400, body = ErrorResponse, description = "No pending invitation for the caller in this block"),
+        (status = 403, body = ErrorResponse, description = "Unauthorized"),
+    ),
+)]
+pub async fn accept_invitation<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<()> {
+    let cmd = AcceptInvitation {
+        block_id: BlockId::from_uuid(id),
+        user_id: current_user.sub.clone(),
+    };
+    state
+        .ports
+        .membership_commands()
+        .accept_invitation(current_user.sub.clone(), cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::NO_CONTENT, Json(())))
+}
+
+/// Change an active member's role (prior role replaced).
+///
+/// Gated `BlockMember`: the caller must be an active member. The targeted
+/// `user_id` is taken from the path.
+#[utoipa::path(
+    post,
+    path = "/blocks/{id}/members/{user_id}/role",
+    params(("id" = Uuid, Path, description = "Block id"), ("user_id" = String, Path, description = "OIDC sub of the member")),
+    request_body = GrantRoleRequest,
+    responses(
+        (status = 204, description = "Role updated"),
+        (status = 400, body = ErrorResponse),
+        (status = 403, body = ErrorResponse, description = "Caller is not an active member of the active block"),
+        (status = 404, body = ErrorResponse, description = "Target user is not a member of the block"),
+    ),
+)]
+pub async fn grant_role<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path((id, user_id)): Path<(Uuid, String)>,
+    Json(req): Json<GrantRoleRequest>,
+) -> ApiResult<()> {
+    let cmd = GrantRole {
+        block_id: BlockId::from_uuid(id),
+        user_id: UserId::from_sub(user_id),
+        role: req.role,
+    };
+    state
+        .ports
+        .membership_commands()
+        .grant_role(current_user.sub.clone(), cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::NO_CONTENT, Json(())))
+}
+
+/// Remove an active member from the block.
+///
+/// Gated `BlockMember`: the caller must be an active member. The targeted
+/// `user_id` is taken from the path.
+#[utoipa::path(
+    delete,
+    path = "/blocks/{id}/members/{user_id}",
+    params(("id" = Uuid, Path, description = "Block id"), ("user_id" = String, Path, description = "OIDC sub of the member to remove")),
+    responses(
+        (status = 204, description = "Member removed"),
+        (status = 400, body = ErrorResponse),
+        (status = 403, body = ErrorResponse, description = "Caller is not an active member of the active block"),
+        (status = 404, body = ErrorResponse, description = "Target user is not a member of the block"),
+    ),
+)]
+pub async fn remove_member<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path((id, user_id)): Path<(Uuid, String)>,
+) -> ApiResult<()> {
+    let cmd = RemoveMember {
+        block_id: BlockId::from_uuid(id),
+        user_id: UserId::from_sub(user_id),
+    };
+    state
+        .ports
+        .membership_commands()
+        .remove_member(current_user.sub.clone(), cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::NO_CONTENT, Json(())))
+}
+
+/// Leave the block (self-service). The authenticated caller removes
+/// themselves; the actor is supplied as command metadata by the adapter.
+///
+/// Gated `BlockMember`: only an active member can leave.
+#[utoipa::path(
+    post,
+    path = "/blocks/{id}/members/leave",
+    params(("id" = Uuid, Path, description = "Block id")),
+    responses(
+        (status = 204, description = "Caller left the block"),
+        (status = 400, body = ErrorResponse),
+        (status = 403, body = ErrorResponse, description = "Caller is not an active member of the active block"),
+    ),
+)]
+pub async fn leave_block<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<()> {
+    let cmd = LeaveBlock {
+        block_id: BlockId::from_uuid(id),
+    };
+    state
+        .ports
+        .membership_commands()
+        .leave_block(current_user.sub.clone(), cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::NO_CONTENT, Json(())))
+}
+
+/// List the members of a block (paginated).
+///
+/// Gated `BlockMember`: the caller must be an active member of the block.
+#[utoipa::path(
+    get,
+    path = "/blocks/{id}/members",
+    params(("id" = Uuid, Path, description = "Block id"), ListParams),
+    responses(
+        (status = 200, body = Vec<MembershipView>, description = "Members of the block (active and pending)"),
+        (status = 400, body = ErrorResponse, description = "Missing or malformed X-Active-Block header"),
+        (status = 403, body = ErrorResponse, description = "Caller is not an active member of the active block"),
+    ),
+)]
+pub async fn list_members<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path(id): Path<Uuid>,
+    Query(params): Query<ListParams>,
+) -> ApiResult<Vec<MembershipView>> {
+    let views = state
+        .ports
+        .membership_repo()
+        .list_by_block(
+            BlockId::from_uuid(id),
+            params.limit.unwrap_or(50),
+            params.offset.unwrap_or(0),
+        )
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(views)))
+}
+
+/// Fetch a single membership (a block member's role and state).
+///
+/// Gated `BlockMember`: the caller must be an active member of the block.
+#[utoipa::path(
+    get,
+    path = "/blocks/{id}/members/{user_id}",
+    params(("id" = Uuid, Path, description = "Block id"), ("user_id" = String, Path, description = "OIDC sub of the member")),
+    responses(
+        (status = 200, body = MembershipView, description = "Membership of the user in the block"),
+        (status = 400, body = ErrorResponse, description = "Missing or malformed X-Active-Block header"),
+        (status = 403, body = ErrorResponse, description = "Caller is not an active member of the active block"),
+        (status = 404, body = ErrorResponse, description = "Membership not found"),
+    ),
+)]
+pub async fn get_member<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path((id, user_id)): Path<(Uuid, String)>,
+) -> ApiResult<MembershipView> {
+    let view = state
+        .ports
+        .membership_repo()
+        .find(BlockId::from_uuid(id), UserId::from_sub(user_id))
+        .await
+        .map_err(map_err)?;
+    match view {
+        Some(v) => Ok((StatusCode::OK, Json(v))),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                message: "membership not found".to_string(),
+            }),
+        )),
+    }
+}
+
 /// Build the full Axum router using the concrete `ProductionPorts` bundle.
 pub fn routes() -> Router<AppState<ProductionPorts>> {
     Router::new()
@@ -961,6 +1245,32 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
             routing::post(create_block::<ProductionPorts>).get(list_blocks::<ProductionPorts>),
         )
         .route("/blocks/{id}", routing::get(get_block::<ProductionPorts>))
+        .route(
+            "/blocks/{id}/audit",
+            routing::get(get_block_audit::<ProductionPorts>),
+        )
+        .route(
+            "/blocks/{id}/members",
+            routing::post(invite_member::<ProductionPorts>)
+                .get(list_members::<ProductionPorts>),
+        )
+        .route(
+            "/blocks/{id}/members/accept",
+            routing::post(accept_invitation::<ProductionPorts>),
+        )
+        .route(
+            "/blocks/{id}/members/leave",
+            routing::post(leave_block::<ProductionPorts>),
+        )
+        .route(
+            "/blocks/{id}/members/{user_id}/role",
+            routing::post(grant_role::<ProductionPorts>),
+        )
+        .route(
+            "/blocks/{id}/members/{user_id}",
+            routing::get(get_member::<ProductionPorts>)
+                .delete(remove_member::<ProductionPorts>),
+        )
         .route(
             "/blocks/{id}/time-span",
             routing::patch(update_block_time_span::<ProductionPorts>),
@@ -1075,8 +1385,9 @@ pub(crate) mod test_helpers {
     };
     use breakdown_core::membership::ports::{MembershipCommands, MembershipRepository};
     use breakdown_core::membership::{MembershipStateKind, MembershipView, Role};
+    use breakdown_core::audit::{AuditEntry, AuditRepository};
     use breakdown_core::shared::UserId;
-    use chrono::Utc;
+    use chrono::{DateTime, Utc};
     use std::collections::HashSet;
 
     use crate::state::Ports;
@@ -1215,39 +1526,54 @@ pub(crate) mod test_helpers {
 
     // ---- Membership fakes (Section 6.4) ----
 
+    /// In-memory membership command adapter that records the last dispatched
+    /// command per method so handler tests can assert actor/target mapping.
     #[derive(Clone, Default)]
-    pub(crate) struct FakeMembershipCommands;
+    pub(crate) struct FakeMembershipCommands {
+        pub(crate) last_invite: Arc<Mutex<Option<(UserId, InviteMember)>>>,
+        pub(crate) last_accept: Arc<Mutex<Option<(UserId, AcceptInvitation)>>>,
+        pub(crate) last_grant: Arc<Mutex<Option<(UserId, GrantRole)>>>,
+        pub(crate) last_remove: Arc<Mutex<Option<(UserId, RemoveMember)>>>,
+        pub(crate) last_leave: Arc<Mutex<Option<(UserId, LeaveBlock)>>>,
+        pub(crate) last_bootstrap: Arc<Mutex<Option<(UserId, BootstrapOwner)>>>,
+    }
 
     #[async_trait]
     impl MembershipCommands for FakeMembershipCommands {
-        async fn invite(&self, _actor: UserId, _cmd: InviteMember) -> Result<(), DomainError> {
+        async fn invite(&self, actor: UserId, cmd: InviteMember) -> Result<(), DomainError> {
+            *self.last_invite.lock().await = Some((actor, cmd));
             Ok(())
         }
         async fn accept_invitation(
             &self,
-            _actor: UserId,
-            _cmd: AcceptInvitation,
+            actor: UserId,
+            cmd: AcceptInvitation,
         ) -> Result<(), DomainError> {
+            *self.last_accept.lock().await = Some((actor, cmd));
             Ok(())
         }
-        async fn grant_role(&self, _actor: UserId, _cmd: GrantRole) -> Result<(), DomainError> {
+        async fn grant_role(&self, actor: UserId, cmd: GrantRole) -> Result<(), DomainError> {
+            *self.last_grant.lock().await = Some((actor, cmd));
             Ok(())
         }
         async fn remove_member(
             &self,
-            _actor: UserId,
-            _cmd: RemoveMember,
+            actor: UserId,
+            cmd: RemoveMember,
         ) -> Result<(), DomainError> {
+            *self.last_remove.lock().await = Some((actor, cmd));
             Ok(())
         }
-        async fn leave_block(&self, _actor: UserId, _cmd: LeaveBlock) -> Result<(), DomainError> {
+        async fn leave_block(&self, actor: UserId, cmd: LeaveBlock) -> Result<(), DomainError> {
+            *self.last_leave.lock().await = Some((actor, cmd));
             Ok(())
         }
         async fn bootstrap_owner(
             &self,
-            _actor: UserId,
-            _cmd: BootstrapOwner,
+            actor: UserId,
+            cmd: BootstrapOwner,
         ) -> Result<(), DomainError> {
+            *self.last_bootstrap.lock().await = Some((actor, cmd));
             Ok(())
         }
     }
@@ -1285,11 +1611,22 @@ pub(crate) mod test_helpers {
         }
         async fn list_by_block(
             &self,
-            _block_id: BlockId,
+            block_id: BlockId,
             _limit: i64,
             _offset: i64,
         ) -> Result<Vec<MembershipView>, DomainError> {
-            Ok(Vec::new())
+            let members = self.members.lock().await;
+            Ok(members
+                .iter()
+                .filter(|(b, _)| *b == block_id)
+                .map(|(b, u)| MembershipView {
+                    block_id: *b,
+                    user_id: u.clone(),
+                    role: Role::CostumeAssistant,
+                    state: MembershipStateKind::Active,
+                    joined_at: Utc::now(),
+                })
+                .collect())
         }
         async fn is_active_member(
             &self,
@@ -1474,6 +1811,56 @@ pub(crate) mod test_helpers {
     }
 
     #[derive(Clone, Default)]
+    pub(crate) struct FakeAuditRepo {
+        pub(crate) entries: Arc<Mutex<Vec<AuditEntry>>>,
+    }
+
+    #[async_trait]
+    impl AuditRepository for FakeAuditRepo {
+        async fn list_by_block(
+            &self,
+            block_id: BlockId,
+            limit: i64,
+            offset: i64,
+        ) -> Result<Vec<AuditEntry>, DomainError> {
+            let all = self.entries.lock().await;
+            Ok(all
+                .iter()
+                .filter(|e| e.block_id == Some(block_id))
+                .skip(offset as usize)
+                .take(limit as usize)
+                .cloned()
+                .collect())
+        }
+        async fn list_by_actor(
+            &self,
+            _actor: UserId,
+            _limit: i64,
+            _offset: i64,
+        ) -> Result<Vec<AuditEntry>, DomainError> {
+            Ok(Vec::new())
+        }
+        async fn list_by_time_range(
+            &self,
+            _from: DateTime<Utc>,
+            _to: DateTime<Utc>,
+            _limit: i64,
+            _offset: i64,
+        ) -> Result<Vec<AuditEntry>, DomainError> {
+            Ok(Vec::new())
+        }
+        async fn list_by_entity(
+            &self,
+            _entity_type: &str,
+            _entity_id: &str,
+            _limit: i64,
+            _offset: i64,
+        ) -> Result<Vec<AuditEntry>, DomainError> {
+            Ok(Vec::new())
+        }
+    }
+
+    #[derive(Clone, Default)]
     pub(crate) struct FakePorts {
         pub(crate) scene_commands: FakeSceneCommands,
         pub(crate) scene_repo: FakeSceneRepo,
@@ -1489,6 +1876,7 @@ pub(crate) mod test_helpers {
         pub(crate) episode_repo: FakeEpisodeRepo,
         pub(crate) membership_commands: FakeMembershipCommands,
         pub(crate) membership_repo: FakeMembershipRepo,
+        pub(crate) audit_repo: FakeAuditRepo,
     }
 
     impl Ports for FakePorts {
@@ -1506,6 +1894,7 @@ pub(crate) mod test_helpers {
         type EpisodeRepo = FakeEpisodeRepo;
         type MembershipCommands = FakeMembershipCommands;
         type MembershipRepo = FakeMembershipRepo;
+        type AuditRepo = FakeAuditRepo;
 
         fn scene_commands(&self) -> &Self::SceneCommands {
             &self.scene_commands
@@ -1548,6 +1937,9 @@ pub(crate) mod test_helpers {
         }
         fn membership_repo(&self) -> &Self::MembershipRepo {
             &self.membership_repo
+        }
+        fn audit_repo(&self) -> &Self::AuditRepo {
+            &self.audit_repo
         }
     }
 }
@@ -1667,6 +2059,8 @@ mod authz_tests {
         Router::new()
             .route("/seasons", post(|| async { StatusCode::OK }))
             .route("/blocks/{id}", get(|| async { StatusCode::OK }))
+            .route("/blocks/{id}/members", get(|| async { StatusCode::OK }))
+            .route("/blocks/{id}/members/accept", post(|| async { StatusCode::OK }))
             .route("/scenes", post(|| async { StatusCode::OK }))
             .route("/swagger-ui", get(|| async { StatusCode::OK }))
             .route("/api-docs", get(|| async { StatusCode::OK }))
@@ -1818,5 +2212,369 @@ mod authz_tests {
                 "doc path {path} must be public even in prod mode"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn block_member_can_list_members() {
+        let auth = Arc::new(AuthState::dev(CurrentUser::dummy(DEV_SUB)));
+        let block = BlockId::new();
+        let repo = Arc::new(FakeMembershipRepo::default());
+        repo.members
+            .lock()
+            .await
+            .insert((block, UserId::from_sub(DEV_SUB)));
+        let policy = Arc::new(MembershipAuthorizationPolicy::new(repo));
+        let authz = Arc::new(AuthorizationState::new(policy, /*enforce=*/ true));
+
+        let app = auth_router(auth, authz);
+        let req = Request::builder()
+            .method("GET")
+            .uri(format!("/blocks/{}/members", block.0))
+            .header("X-Active-Block", block.0.to_string())
+            .body(AxumBody::empty())
+            .unwrap();
+
+        assert_eq!(status_of(&app, req).await, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn non_member_cannot_list_members() {
+        let auth = Arc::new(AuthState::dev(CurrentUser::dummy(DEV_SUB)));
+        let block = BlockId::new();
+        let repo = Arc::new(FakeMembershipRepo::default());
+        let policy = Arc::new(MembershipAuthorizationPolicy::new(repo));
+        let authz = Arc::new(AuthorizationState::new(policy, /*enforce=*/ true));
+
+        let app = auth_router(auth, authz);
+        let req = Request::builder()
+            .method("GET")
+            .uri(format!("/blocks/{}/members", block.0))
+            .header("X-Active-Block", block.0.to_string())
+            .body(AxumBody::empty())
+            .unwrap();
+
+        assert_eq!(status_of(&app, req).await, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn pending_invitee_can_accept_invitation() {
+        // The invitee is not yet an active member; the accept endpoint must be
+        // reachable (gated `Authenticated`, not `BlockMember`).
+        let auth = Arc::new(AuthState::dev(CurrentUser::dummy(DEV_SUB)));
+        let block = BlockId::new();
+        let repo = Arc::new(FakeMembershipRepo::default());
+        let policy = Arc::new(MembershipAuthorizationPolicy::new(repo));
+        let authz = Arc::new(AuthorizationState::new(policy, /*enforce=*/ true));
+
+        let app = auth_router(auth, authz);
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!("/blocks/{}/members/accept", block.0))
+            .body(AxumBody::empty())
+            .unwrap();
+
+        assert_eq!(status_of(&app, req).await, StatusCode::OK);
+    }
+
+}
+
+#[cfg(test)]
+mod audit_tests {
+    use axum::extract::{Path, Query, State};
+    use axum::http::StatusCode;
+    use axum::Json;
+    use breakdown_core::audit::AuditEntry;
+    use breakdown_core::shared::{BlockId, UserId};
+    use chrono::Utc;
+    use serde_json::json;
+    use utoipa::OpenApi;
+    use uuid::Uuid;
+
+    use super::get_block_audit;
+    use super::test_helpers::*;
+    use crate::state::AppState;
+
+    #[tokio::test]
+    async fn get_block_audit_returns_journal_entries_for_block() {
+        let mut ports = FakePorts::default();
+        let block_id = BlockId::from_uuid(Uuid::now_v7());
+        ports
+            .audit_repo
+            .entries
+            .lock()
+            .await
+            .push(AuditEntry {
+                id: Uuid::now_v7(),
+                entity_type: "membership".to_string(),
+                entity_id: block_id.0.to_string(),
+                event_type: "OwnerBootstrapped".to_string(),
+                block_id: Some(block_id),
+                series_id: None,
+                actor: Some(UserId::from_sub("user-1")),
+                payload: json!({ "role": "costume_assistant" }),
+                occurred_at: Utc::now(),
+            });
+
+        let result = get_block_audit::<FakePorts>(
+            State(AppState::new(ports)),
+            Path(block_id.0),
+            Query(super::ListParams {
+                limit: Some(10),
+                offset: Some(0),
+                episode_id: None,
+                season_id: None,
+                series_id: None,
+            }),
+        )
+        .await;
+
+        let (status, Json(entries)) = result.expect("audit query should succeed");
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].entity_type, "membership");
+        assert_eq!(entries[0].event_type, "OwnerBootstrapped");
+        assert_eq!(
+            entries[0].actor.as_ref().map(|u| u.as_str()),
+            Some("user-1")
+        );
+    }
+
+    #[test]
+    fn openapi_doc_includes_block_audit_path_and_schema() {
+        let doc = crate::ApiDoc::openapi();
+        let json = serde_json::to_string(&doc).expect("ApiDoc serializes to JSON");
+        assert!(
+            json.contains("/blocks/{id}/audit"),
+            "GET /blocks/{{id}}/audit must be registered in ApiDoc"
+        );
+        assert!(
+            json.contains("AuditEntry"),
+            "AuditEntry schema must be registered in ApiDoc components"
+        );
+        // §10 membership-management endpoints
+        for path in [
+            "/blocks/{id}/members",
+            "/blocks/{id}/members/accept",
+            "/blocks/{id}/members/leave",
+            "/blocks/{id}/members/{user_id}/role",
+            "/blocks/{id}/members/{user_id}",
+        ] {
+            assert!(
+                json.contains(path),
+                "membership path {path} must be registered in ApiDoc"
+            );
+        }
+        for schema in [
+            "MembershipView",
+            "InviteMemberRequest",
+            "GrantRoleRequest",
+            "Role",
+        ] {
+            assert!(
+                json.contains(schema),
+                "{schema} schema must be registered in ApiDoc components"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod membership_tests {
+    use axum::extract::{Path, Query, State};
+    use axum::http::StatusCode;
+    use axum::Json;
+    use breakdown_core::membership::Role;
+    use breakdown_core::shared::{BlockId, UserId};
+    use uuid::Uuid;
+
+    use super::{
+        CurrentUser, GrantRoleRequest, InviteMemberRequest, ListParams, accept_invitation,
+        get_member, grant_role, invite_member, leave_block, list_members, remove_member,
+    };
+    use super::test_helpers::*;
+    use crate::state::AppState;
+
+    fn fresh_block() -> Uuid {
+        Uuid::now_v7()
+    }
+
+    #[tokio::test]
+    async fn invite_member_dispatches_command_with_actor_and_target() {
+        let ports = FakePorts::default();
+        let block_id = BlockId::from_uuid(fresh_block());
+        let result = invite_member::<FakePorts>(
+            State(AppState::new(ports.clone())),
+            CurrentUser::dummy("owner-1"),
+            Path(block_id.0),
+            Json(InviteMemberRequest {
+                user_id: "invitee-2".to_string(),
+                role: Role::CostumeAssistant,
+            }),
+        )
+        .await;
+        assert_eq!(result.unwrap().0, StatusCode::NO_CONTENT);
+        let last = ports
+            .membership_commands
+            .last_invite
+            .lock()
+            .await
+            .clone()
+            .unwrap();
+        assert_eq!(last.0, UserId::from_sub("owner-1"));
+        assert_eq!(last.1.block_id, block_id);
+        assert_eq!(last.1.user_id, UserId::from_sub("invitee-2"));
+    }
+
+    #[tokio::test]
+    async fn accept_invitation_binds_target_to_authenticated_user() {
+        let ports = FakePorts::default();
+        let block_id = BlockId::from_uuid(fresh_block());
+        let result = accept_invitation::<FakePorts>(
+            State(AppState::new(ports.clone())),
+            CurrentUser::dummy("invitee-2"),
+            Path(block_id.0),
+        )
+        .await;
+        assert_eq!(result.unwrap().0, StatusCode::NO_CONTENT);
+        let last = ports
+            .membership_commands
+            .last_accept
+            .lock()
+            .await
+            .clone()
+            .unwrap();
+        // actor == target == authenticated user (cannot accept on behalf of another)
+        assert_eq!(last.0, UserId::from_sub("invitee-2"));
+        assert_eq!(last.1.user_id, UserId::from_sub("invitee-2"));
+        assert_eq!(last.1.block_id, block_id);
+    }
+
+    #[tokio::test]
+    async fn grant_role_dispatches_with_target_from_path() {
+        let ports = FakePorts::default();
+        let block_id = BlockId::from_uuid(fresh_block());
+        let result = grant_role::<FakePorts>(
+            State(AppState::new(ports.clone())),
+            CurrentUser::dummy("owner-1"),
+            Path((block_id.0, "member-3".to_string())),
+            Json(GrantRoleRequest {
+                role: Role::WardrobeSupervisor,
+            }),
+        )
+        .await;
+        assert_eq!(result.unwrap().0, StatusCode::NO_CONTENT);
+        let last = ports
+            .membership_commands
+            .last_grant
+            .lock()
+            .await
+            .clone()
+            .unwrap();
+        assert_eq!(last.0, UserId::from_sub("owner-1"));
+        assert_eq!(last.1.user_id, UserId::from_sub("member-3"));
+    }
+
+    #[tokio::test]
+    async fn remove_member_dispatches_with_target_from_path() {
+        let ports = FakePorts::default();
+        let block_id = BlockId::from_uuid(fresh_block());
+        let result = remove_member::<FakePorts>(
+            State(AppState::new(ports.clone())),
+            CurrentUser::dummy("owner-1"),
+            Path((block_id.0, "member-3".to_string())),
+        )
+        .await;
+        assert_eq!(result.unwrap().0, StatusCode::NO_CONTENT);
+        let last = ports
+            .membership_commands
+            .last_remove
+            .lock()
+            .await
+            .clone()
+            .unwrap();
+        assert_eq!(last.0, UserId::from_sub("owner-1"));
+        assert_eq!(last.1.user_id, UserId::from_sub("member-3"));
+    }
+
+    #[tokio::test]
+    async fn leave_block_dispatches_with_actor_as_leaver() {
+        let ports = FakePorts::default();
+        let block_id = BlockId::from_uuid(fresh_block());
+        let result = leave_block::<FakePorts>(
+            State(AppState::new(ports.clone())),
+            CurrentUser::dummy("member-3"),
+            Path(block_id.0),
+        )
+        .await;
+        assert_eq!(result.unwrap().0, StatusCode::NO_CONTENT);
+        let last = ports
+            .membership_commands
+            .last_leave
+            .lock()
+            .await
+            .clone()
+            .unwrap();
+        assert_eq!(last.0, UserId::from_sub("member-3"));
+        assert_eq!(last.1.block_id, block_id);
+    }
+
+    #[tokio::test]
+    async fn list_members_returns_projection_views() {
+        let ports = FakePorts::default();
+        let block_id = BlockId::from_uuid(fresh_block());
+        ports
+            .membership_repo
+            .members
+            .lock()
+            .await
+            .insert((block_id, UserId::from_sub("member-3")));
+        let result = list_members::<FakePorts>(
+            State(AppState::new(ports.clone())),
+            Path(block_id.0),
+            Query(ListParams {
+                limit: Some(50),
+                offset: Some(0),
+                episode_id: None,
+                season_id: None,
+                series_id: None,
+            }),
+        )
+        .await;
+        let (status, Json(views)) = result.unwrap();
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(views.len(), 1);
+        assert_eq!(views[0].user_id, UserId::from_sub("member-3"));
+    }
+
+    #[tokio::test]
+    async fn get_member_returns_404_when_absent() {
+        let ports = FakePorts::default();
+        let block_id = BlockId::from_uuid(fresh_block());
+        let result = get_member::<FakePorts>(
+            State(AppState::new(ports.clone())),
+            Path((block_id.0, "ghost".to_string())),
+        )
+        .await;
+        assert_eq!(result.unwrap_err().0, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn get_member_returns_view_when_present() {
+        let ports = FakePorts::default();
+        let block_id = BlockId::from_uuid(fresh_block());
+        ports
+            .membership_repo
+            .members
+            .lock()
+            .await
+            .insert((block_id, UserId::from_sub("member-3")));
+        let result = get_member::<FakePorts>(
+            State(AppState::new(ports.clone())),
+            Path((block_id.0, "member-3".to_string())),
+        )
+        .await;
+        let (status, Json(view)) = result.unwrap();
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(view.user_id, UserId::from_sub("member-3"));
     }
 }

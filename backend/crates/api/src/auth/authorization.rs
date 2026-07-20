@@ -128,6 +128,14 @@ fn requirement_for(path: &str) -> Requirement {
     }
     // Everything else (scenes, characters, costumes, episodes, and
     // block detail / time-span updates) is block-scoped.
+    // Self-service invitation acceptance: the invitee is *not yet* an active
+    // member (they are pending until they accept), so this endpoint cannot
+    // require active-block membership. The domain command enforces that the
+    // caller actually holds a pending invitation for this block.
+    if path.ends_with("/members/accept") {
+        return Requirement::Authenticated;
+    }
+
     Requirement::BlockMember
 }
 
