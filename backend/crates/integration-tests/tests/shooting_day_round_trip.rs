@@ -194,7 +194,7 @@ async fn await_scene_links(
     let deadline = Instant::now() + PROJECTION_DEADLINE;
     loop {
         match repo.find_by_id(scene_id).await {
-            Ok(view) if view.shooting_day_ids.iter().any(|s| *s == sd_id) => return Ok(view),
+            Ok(view) if view.shooting_day_ids.contains(&sd_id) => return Ok(view),
             Ok(_) if Instant::now() < deadline => tokio::time::sleep(POLL_INTERVAL).await,
             Ok(_) => bail!(
                 "projection lag: Scene({scene_id}) did not link ShootingDay({sd_id}) within {PROJECTION_DEADLINE:?}"
