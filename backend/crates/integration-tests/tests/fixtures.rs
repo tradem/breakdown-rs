@@ -226,13 +226,58 @@ async fn garage_exec(container: &ContainerAsync<GarageImage>, args: &[&str]) -> 
 /// and return the S3 credentials.
 pub async fn spawn_garage() -> Result<(GarageCredentials, ContainerAsync<GarageImage>)> {
     let image = GarageImage;
+
+    // Garage requires a config.toml at /etc/garage/config.toml.
+    // We create one on the fly and mount it via a temp directory.
+    let garage_cfg_dir = tempfile::tempdir()?;
+    let config_path = garage_cfg_dir.path().join("config.toml");
+    let config_content = format!(
+        r#"metadata_dir = "/tmp/garage/meta"
+data_dir = "/tmp/garage/data"
+db_engine = "sqlite"
+block_size = 1048576
+replication_mode = "none"
+
+[s3_api]
+s3_region = "garage"
+api_bind_addr = "0.0.0.0:{s3_port}"
+root_domain = ".s3.garage.localhost"
+
+[admin]
+api_bind_addr = "0.0.0.0:{admin_port}"
+admin_token = "$GARAGE_ADMIN_TOKEN"
+metrics_token = "$GARAGE_METRICS_TOKEN"
+
+[rpc]
+rpc_bind_addr = "0.0.0.0:{rpc_port}"
+rpc_public_addr = "127.0.0.1:{rpc_port}"
+rpc_secret = "$GARAGE_RPC_SECRET"
+bootstrap_peers = []
+"#,
+        s3_port = 3900,
+        admin_port = 3902,
+        rpc_port = 3901,
+    );
+    std::fs::write(&config_path, &config_content)?;
+
     let request: ContainerRequest<GarageImage> = if env::var("TESTCONTAINERS_REUSE")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false)
     {
-        image.with_reuse(ReuseDirective::Always).into()
+        image
+            .with_reuse(ReuseDirective::Always)
+            .with_mounted_folder(
+                garage_cfg_dir.path().to_str().unwrap(),
+                "/etc/garage",
+            )
+            .into()
     } else {
-        image.into()
+        image
+            .with_mounted_folder(
+                garage_cfg_dir.path().to_str().unwrap(),
+                "/etc/garage",
+            )
+            .into()
     };
 
     let container = request.start().await?;
