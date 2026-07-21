@@ -63,6 +63,31 @@ End-to-end, black-box integration tests live in the dedicated workspace member `
 - **CI trigger**: The integration-test job runs on pull requests touching `backend/crates/{core,infra,api,integration-tests}/**`. CI starts both the Postgres and SierraDB containers.
 - **Container policy**: Each test gets fresh containers by default. Optional local container reuse is documented in the harness module docs, but CI always uses fresh containers.
 
+### Integration-test Gotchas
+
+When writing Tier-4 integration tests that emit events directly via `eappend`
+instead of through the command pipeline, keep these pitfalls in mind:
+
+1. **Missing projectors cause FK violations.** The `projection_costume` table
+   has `character_id UUID REFERENCES projection_character(id)`. If a test writes
+   a `CharacterCreated` event but does not spawn a character projector, the
+   costume projector's INSERT fails silently (the transaction rolls back, the
+   supervisor restarts, budget is exhausted). Always spawn projectors for every
+   entity type referenced by FK constraints.
+
+2. **Events on the same stream are separate transactions.** A `CostumeCreated`
+   event (0 details) and a subsequent `DetailAdded` event are processed in
+   different worker transactions. A helper like `await_costume_found` that
+   returns on the first successful read may see the row before the detail is
+   projected. Use `await_costume_with_details` or equivalent polling helpers
+   that check the full expected state, not just existence.
+
+3. **`await_costume_detail_category_name` must retry on `NotFound`.** When the
+   costume-category projector hasn't caught up yet, `find_by_id` returns
+   `NotFound`. Propagating this as an immediate failure causes flaky tests.
+   Always retry on `NotFound` within the deadline, matching the pattern used by
+   `await_costume_found`.
+
 ### CI prerequisites
 
 The integration-test workflow (`.github/workflows/integration-tests.yml`, ADR-014 / ADR-016) runs on `ubuntu-latest` and requires:
