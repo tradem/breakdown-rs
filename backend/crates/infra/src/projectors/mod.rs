@@ -18,6 +18,7 @@ mod season;
 mod shooting_day;
 pub(crate) mod supervisor;
 
+pub use crate::photo::projector::PhotoProjector;
 pub use audit::AuditProjector;
 pub use block::BlockProjector;
 pub use character::CharacterProjector;
@@ -28,7 +29,6 @@ pub use membership::MembershipProjector;
 pub use scene::SceneProjector;
 pub use season::SeasonProjector;
 pub use shooting_day::ShootingDayProjector;
-pub use crate::photo::projector::PhotoProjector;
 
 use std::sync::Arc;
 
@@ -322,11 +322,6 @@ pub async fn spawn_photo_projector(
     )
     .await?;
     let actor_ref = PhotoProcessor::spawn(processor);
-    run_projection_stream!(
-        PhotoAggregate,
-        "photo",
-        redis_client,
-        actor_ref.clone()
-    )?;
+    run_projection_stream!(PhotoAggregate, "photo", redis_client, actor_ref.clone())?;
     Ok(actor_ref)
 }

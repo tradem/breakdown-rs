@@ -81,11 +81,10 @@ pub async fn run_gc_sweep(
     let started_at = Utc::now();
 
     // 1. Advisory lock.
-    let lock_acquired: Option<bool> = sqlx::query_scalar(
-        "SELECT pg_try_advisory_lock(0x50484F54_4F5F4743)",
-    )
-    .fetch_one(pool)
-    .await?;
+    let lock_acquired: Option<bool> =
+        sqlx::query_scalar("SELECT pg_try_advisory_lock(0x50484F54_4F5F4743)")
+            .fetch_one(pool)
+            .await?;
 
     if lock_acquired != Some(true) {
         info!("Photo GC advisory lock not acquired — another sweep in progress");
@@ -119,7 +118,10 @@ async fn try_run_sweep(
     let known_set: std::collections::HashSet<_> = known_ids.into_iter().collect();
 
     // 4. Compute orphans.
-    let orphans: Vec<_> = garage_ids.into_iter().filter(|id| !known_set.contains(id)).collect();
+    let orphans: Vec<_> = garage_ids
+        .into_iter()
+        .filter(|id| !known_set.contains(id))
+        .collect();
     let orphans_found = orphans.len() as i64;
 
     info!(
@@ -188,11 +190,7 @@ async fn try_run_sweep(
 /// Reads config from env at startup, loops on the configured interval,
 /// and runs a single sweep per tick. The task exits if the interval is 0
 /// or GC is disabled at startup (env changes mid-flight are ignored in v1).
-pub fn spawn_gc_scheduler(
-    pool: PgPool,
-    storage: OpenDalPhotoStorage,
-    repo: PhotoRepositoryImpl,
-) {
+pub fn spawn_gc_scheduler(pool: PgPool, storage: OpenDalPhotoStorage, repo: PhotoRepositoryImpl) {
     let config = gc_config_from_env();
 
     if !config.enabled {

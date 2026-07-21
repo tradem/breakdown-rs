@@ -20,7 +20,9 @@ use infra::event_store::{
     EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl, SceneCommandsImpl,
     SeasonCommandsImpl, ShootingDayCommandsImpl,
 };
-use infra::photo::{gc::spawn_gc_scheduler, repository::PhotoRepositoryImpl, storage::OpenDalPhotoStorage};
+use infra::photo::{
+    gc::spawn_gc_scheduler, repository::PhotoRepositoryImpl, storage::OpenDalPhotoStorage,
+};
 use infra::queries::{
     AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl,
     CostumeCategoryRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl,

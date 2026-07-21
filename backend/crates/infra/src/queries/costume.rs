@@ -7,7 +7,9 @@ use breakdown_core::costume::ports::CostumeRepository;
 use breakdown_core::costume::views::{CostumeDetailView, CostumePhotoView, CostumeView};
 use breakdown_core::error::DomainError;
 use breakdown_core::photo::views::PhotoVariantView;
-use breakdown_core::shared::{AggregateVersion, CostumeCategoryId, PhotoVariant, SeasonId, VariantStatus};
+use breakdown_core::shared::{
+    AggregateVersion, CostumeCategoryId, PhotoVariant, SeasonId, VariantStatus,
+};
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;

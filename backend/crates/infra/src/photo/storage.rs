@@ -6,9 +6,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use breakdown_core::error::DomainError;
-use breakdown_core::shared::{PhotoId, PhotoVariant};
 use breakdown_core::photo::ports::PhotoStorage;
 use breakdown_core::photo::views::PhotoBytes;
+use breakdown_core::shared::{PhotoId, PhotoVariant};
 use futures::StreamExt;
 use opendal::Operator;
 
@@ -73,7 +73,9 @@ impl OpenDalPhotoStorage {
             .bucket(&bucket);
 
         let op = Operator::new(builder)
-            .map_err(|e| DomainError::ValidationError(format!("Failed to create S3 operator: {e}")))?
+            .map_err(|e| {
+                DomainError::ValidationError(format!("Failed to create S3 operator: {e}"))
+            })?
             .finish();
 
         Ok(Self {
@@ -98,35 +100,24 @@ impl PhotoStorage for OpenDalPhotoStorage {
         content_type: String,
     ) -> Result<(), DomainError> {
         let key = Self::object_key(id, variant);
-        self.op
-            .write(&key, bytes)
-            .await
-            .map_err(|e| DomainError::ValidationError(format!("Failed to store object {key}: {e}")))?;
+        self.op.write(&key, bytes).await.map_err(|e| {
+            DomainError::ValidationError(format!("Failed to store object {key}: {e}"))
+        })?;
         Ok(())
     }
 
-    async fn fetch(
-        &self,
-        id: PhotoId,
-        variant: PhotoVariant,
-    ) -> Result<PhotoBytes, DomainError> {
+    async fn fetch(&self, id: PhotoId, variant: PhotoVariant) -> Result<PhotoBytes, DomainError> {
         let key = Self::object_key(id, variant);
-        let meta = self
-            .op
-            .stat(&key)
-            .await
-            .map_err(|e| {
-                if e.to_string().contains("Not Found") || e.to_string().contains("ObjectNotExist") {
-                    DomainError::NotFound(format!("Photo {id:?} variant {variant:?}"))
-                } else {
-                    DomainError::ValidationError(format!("Failed to stat object {key}: {e}"))
-                }
-            })?;
-        let buf = self
-            .op
-            .read(&key)
-            .await
-            .map_err(|e| DomainError::ValidationError(format!("Failed to read object {key}: {e}")))?;
+        let meta = self.op.stat(&key).await.map_err(|e| {
+            if e.to_string().contains("Not Found") || e.to_string().contains("ObjectNotExist") {
+                DomainError::NotFound(format!("Photo {id:?} variant {variant:?}"))
+            } else {
+                DomainError::ValidationError(format!("Failed to stat object {key}: {e}"))
+            }
+        })?;
+        let buf = self.op.read(&key).await.map_err(|e| {
+            DomainError::ValidationError(format!("Failed to read object {key}: {e}"))
+        })?;
         let content_type = meta
             .content_type()
             .unwrap_or("application/octet-stream")
@@ -142,7 +133,11 @@ impl PhotoStorage for OpenDalPhotoStorage {
 
     async fn delete_all(&self, id: PhotoId) -> Result<(), DomainError> {
         // Delete all three variants individually.
-        for variant in &[PhotoVariant::Original, PhotoVariant::Thumb, PhotoVariant::Medium] {
+        for variant in &[
+            PhotoVariant::Original,
+            PhotoVariant::Thumb,
+            PhotoVariant::Medium,
+        ] {
             let key = Self::object_key(id, *variant);
             let _ = self.op.delete(&key).await; // Ignore errors for already-absent keys
         }
@@ -151,12 +146,10 @@ impl PhotoStorage for OpenDalPhotoStorage {
 
     async fn list(&self) -> Result<Vec<PhotoId>, DomainError> {
         let mut photo_ids = Vec::new();
-        let mut lister = self
-            .op
-            .lister_with("")
-            .limit(1000)
-            .await
-            .map_err(|e| DomainError::ValidationError(format!("Failed to list objects: {e}")))?;
+        let mut lister =
+            self.op.lister_with("").limit(1000).await.map_err(|e| {
+                DomainError::ValidationError(format!("Failed to list objects: {e}"))
+            })?;
 
         while let Some(entry) = lister.next().await {
             let entry = match entry {

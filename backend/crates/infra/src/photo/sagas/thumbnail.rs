@@ -10,10 +10,10 @@ use breakdown_core::photo::commands::{GenerateVariant, NormalizeOriginal};
 use breakdown_core::photo::events::PhotoEvent;
 use breakdown_core::photo::ports::{PhotoCommands, PhotoStorage};
 use breakdown_core::shared::{AggregateVersion, PhotoId, PhotoVariant};
+use kameo_es::event_handler::EventHandlerStreamBuilder;
+use kameo_es::event_handler::{EntityEventHandler, EventHandler};
 use kameo_es::event_handler::{EventHandlerError, EventProcessor};
 use kameo_es::{Entity, Event};
-use kameo_es::event_handler::{EntityEventHandler, EventHandler};
-use kameo_es::event_handler::EventHandlerStreamBuilder;
 use redis::Client as RedisClient;
 use sierradb_client::SierraAsyncClientExt;
 
@@ -89,11 +89,21 @@ impl PhotoThumbnailSaga {
 
         // Store the generated variants.
         self.storage
-            .store(id, PhotoVariant::Thumb, thumb_bytes, "image/jpeg".to_string())
+            .store(
+                id,
+                PhotoVariant::Thumb,
+                thumb_bytes,
+                "image/jpeg".to_string(),
+            )
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))?;
         self.storage
-            .store(id, PhotoVariant::Medium, medium_bytes, "image/jpeg".to_string())
+            .store(
+                id,
+                PhotoVariant::Medium,
+                medium_bytes,
+                "image/jpeg".to_string(),
+            )
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))?;
 
@@ -134,9 +144,7 @@ impl PhotoThumbnailSaga {
 
     /// Decode the image bytes, read EXIF orientation, apply rotation,
     /// re-encode the original and generate thumb/medium variants.
-    fn process_image(
-        bytes: &[u8],
-    ) -> Result<(Vec<u8>, bool, Vec<u8>, Vec<u8>)> {
+    fn process_image(bytes: &[u8]) -> Result<(Vec<u8>, bool, Vec<u8>, Vec<u8>)> {
         use image::GenericImageView;
 
         let img = image::load_from_memory(bytes)
@@ -161,10 +169,8 @@ impl PhotoThumbnailSaga {
         // Re-encode the processed (possibly rotated) original as JPEG with quality ~95.
         let mut re_encoded = Vec::new();
         {
-            let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(
-                &mut re_encoded,
-                95,
-            );
+            let mut encoder =
+                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut re_encoded, 95);
             encoder
                 .encode_image(&img)
                 .map_err(|e| anyhow::anyhow!("Failed to re-encode original: {e}"))?;
@@ -174,10 +180,8 @@ impl PhotoThumbnailSaga {
         let thumb = img.thumbnail(200, 200);
         let mut thumb_bytes = Vec::new();
         {
-            let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(
-                &mut thumb_bytes,
-                80,
-            );
+            let mut encoder =
+                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut thumb_bytes, 80);
             encoder
                 .encode_image(&thumb)
                 .map_err(|e| anyhow::anyhow!("Failed to encode thumbnail: {e}"))?;
@@ -187,10 +191,8 @@ impl PhotoThumbnailSaga {
         let medium = img.thumbnail(800, 800);
         let mut medium_bytes = Vec::new();
         {
-            let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(
-                &mut medium_bytes,
-                85,
-            );
+            let mut encoder =
+                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut medium_bytes, 85);
             encoder
                 .encode_image(&medium)
                 .map_err(|e| anyhow::anyhow!("Failed to encode medium: {e}"))?;
@@ -265,15 +267,24 @@ fn apply_orientation(img: image::DynamicImage, orientation: u32) -> (image::Dyna
     match orientation {
         3 => {
             // Rotated 180°
-            (image::DynamicImage::from(image::imageops::rotate180(&img)), true)
+            (
+                image::DynamicImage::from(image::imageops::rotate180(&img)),
+                true,
+            )
         }
         6 => {
             // Rotated 90° clockwise
-            (image::DynamicImage::from(image::imageops::rotate90(&img)), true)
+            (
+                image::DynamicImage::from(image::imageops::rotate90(&img)),
+                true,
+            )
         }
         8 => {
             // Rotated 270° clockwise
-            (image::DynamicImage::from(image::imageops::rotate270(&img)), true)
+            (
+                image::DynamicImage::from(image::imageops::rotate270(&img)),
+                true,
+            )
         }
         _ => (img, false), // 1 = normal, 2/4/5/7 = mirror-only (skipped in v1)
     }

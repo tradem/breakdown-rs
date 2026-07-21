@@ -26,6 +26,11 @@ use breakdown_core::episode::commands::{CreateEpisode, RenameEpisode};
 use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::error::DomainError;
+use breakdown_core::photo::commands::{
+    DeletePhoto, GenerateVariant, MarkVariantFailed, NormalizeOriginal, UploadPhoto,
+};
+use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
+use breakdown_core::photo::views::{PhotoBytes, PhotoView};
 use breakdown_core::scene::commands::{
     AssignCharacter, CreateScene, RemoveCharacter, ScheduleSceneOnShootingDay,
     UnscheduleSceneFromShootingDay, UpdateSceneDetails,
@@ -35,9 +40,6 @@ use breakdown_core::scene::views::SceneView;
 use breakdown_core::season::commands::{CreateSeason, RenameSeason};
 use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
 use breakdown_core::season::views::SeasonView;
-use breakdown_core::photo::commands::{DeletePhoto, GenerateVariant, MarkVariantFailed, NormalizeOriginal, UploadPhoto};
-use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
-use breakdown_core::photo::views::{PhotoBytes, PhotoView};
 use breakdown_core::shared::{
     AggregateVersion, BlockId, EpisodeId, PhotoId, PhotoVariant, SeasonId, SeriesId, ShootingDayId,
 };
@@ -646,11 +648,7 @@ impl PhotoStorage for FakePhotoStorage {
     ) -> Result<(), DomainError> {
         Ok(())
     }
-    async fn fetch(
-        &self,
-        id: PhotoId,
-        _variant: PhotoVariant,
-    ) -> Result<PhotoBytes, DomainError> {
+    async fn fetch(&self, id: PhotoId, _variant: PhotoVariant) -> Result<PhotoBytes, DomainError> {
         Err(DomainError::NotFound(format!("Photo({id:?})")))
     }
     async fn delete_all(&self, _id: PhotoId) -> Result<(), DomainError> {

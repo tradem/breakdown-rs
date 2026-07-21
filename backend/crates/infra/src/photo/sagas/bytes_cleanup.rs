@@ -7,12 +7,12 @@ use std::sync::Arc;
 use anyhow::Result;
 use breakdown_core::photo::aggregate::PhotoAggregate;
 use breakdown_core::photo::events::PhotoEvent;
-use kameo_es::event_handler::{EventHandlerError, EventProcessor};
-use kameo_es::{Entity, Event};
-use kameo_es::event_handler::EventHandlerStreamBuilder;
 use breakdown_core::photo::ports::PhotoStorage;
 use breakdown_core::shared::PhotoId;
+use kameo_es::event_handler::EventHandlerStreamBuilder;
 use kameo_es::event_handler::{EntityEventHandler, EventHandler};
+use kameo_es::event_handler::{EventHandlerError, EventProcessor};
+use kameo_es::{Entity, Event};
 use redis::Client as RedisClient;
 use sierradb_client::SierraAsyncClientExt;
 

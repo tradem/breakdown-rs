@@ -89,9 +89,7 @@ impl<Repo: MembershipRepository> SeasonPhotoAccessPolicy<Repo> {
 }
 
 #[async_trait::async_trait]
-impl<Repo: MembershipRepository + 'static> AuthorizationPolicy
-    for SeasonPhotoAccessPolicy<Repo>
-{
+impl<Repo: MembershipRepository + 'static> AuthorizationPolicy for SeasonPhotoAccessPolicy<Repo> {
     async fn authorize(&self, _ctx: &AuthContext) -> PolicyDecision {
         // Block-scoped authorization is not applicable to photo access.
         PolicyDecision::Deny

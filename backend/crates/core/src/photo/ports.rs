@@ -27,11 +27,7 @@ pub trait PhotoStorage: Send + Sync {
 
     /// Fetch bytes for a given photo variant. Returns `NotFound` if the
     /// object does not exist in storage.
-    async fn fetch(
-        &self,
-        id: PhotoId,
-        variant: PhotoVariant,
-    ) -> Result<PhotoBytes, DomainError>;
+    async fn fetch(&self, id: PhotoId, variant: PhotoVariant) -> Result<PhotoBytes, DomainError>;
 
     /// Delete all variants for a given photo. Idempotent — returns success
     /// even if some or all objects are already absent.
@@ -50,10 +46,8 @@ pub trait PhotoCommands: Send + Sync {
         &self,
         cmd: NormalizeOriginal,
     ) -> Result<AggregateVersion, DomainError>;
-    async fn generate_variant(
-        &self,
-        cmd: GenerateVariant,
-    ) -> Result<AggregateVersion, DomainError>;
+    async fn generate_variant(&self, cmd: GenerateVariant)
+    -> Result<AggregateVersion, DomainError>;
     async fn mark_variant_failed(
         &self,
         cmd: MarkVariantFailed,

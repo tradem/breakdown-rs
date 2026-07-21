@@ -17,8 +17,8 @@ use breakdown_core::character::events::{CharacterMeasurements, ContactInfo};
 use breakdown_core::character::ports::{CharacterCommands, CharacterRepository};
 use breakdown_core::character::views::CharacterView;
 use breakdown_core::costume::commands::{
-    AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto, UnassignCostume,
-    UnlinkPhoto, UpdateCostumeNotes,
+    AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto, UnassignCostume, UnlinkPhoto,
+    UpdateCostumeNotes,
 };
 use breakdown_core::costume::events::CostumeDetail;
 use breakdown_core::costume::ports::{CostumeCommands, CostumeRepository};
@@ -37,6 +37,9 @@ use breakdown_core::membership::{
     AcceptInvitation, BootstrapOwner, GrantRole, InviteMember, LeaveBlock, MembershipCommands,
     MembershipRepository, RemoveMember, Role,
 };
+use breakdown_core::photo::commands::UploadPhoto as UploadPhotoCmd;
+use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
+use breakdown_core::photo::views::{PhotoVariantView, PhotoView};
 use breakdown_core::scene::commands::{
     AssignCharacter, CreateScene, RemoveCharacter, ScheduleSceneOnShootingDay,
     UnscheduleSceneFromShootingDay, UpdateSceneDetails,
@@ -47,12 +50,9 @@ use breakdown_core::scene::views::SceneView;
 use breakdown_core::season::commands::{CreateSeason, RenameSeason};
 use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
 use breakdown_core::season::views::SeasonView;
-use breakdown_core::photo::commands::UploadPhoto as UploadPhotoCmd;
-use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
-use breakdown_core::photo::views::{PhotoVariantView, PhotoView};
 use breakdown_core::shared::{
-    AggregateVersion, BlockId, EpisodeId, LexicalSortKey, PhotoId, PhotoVariant, SeasonId, SeriesId,
-    ShootingDayId, UserId,
+    AggregateVersion, BlockId, EpisodeId, LexicalSortKey, PhotoId, PhotoVariant, SeasonId,
+    SeriesId, ShootingDayId, UserId,
 };
 use breakdown_core::shooting_day::commands::{
     ArchiveShootingDay, CreateShootingDay, RenameShootingDay, ReorderShootingDay,
@@ -1722,7 +1722,9 @@ pub async fn upload_costume_photo<P: Ports>(
         return Err((
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             Json(ErrorResponse {
-                message: format!("Unsupported content-type: {content_type}. Accepted: image/jpeg, image/png, image/webp"),
+                message: format!(
+                    "Unsupported content-type: {content_type}. Accepted: image/jpeg, image/png, image/webp"
+                ),
             }),
         ));
     }
@@ -1798,7 +1800,12 @@ pub async fn upload_costume_photo<P: Ports>(
     state
         .ports
         .photo_storage()
-        .store(photo_id, PhotoVariant::Original, body.to_vec(), content_type.clone())
+        .store(
+            photo_id,
+            PhotoVariant::Original,
+            body.to_vec(),
+            content_type.clone(),
+        )
         .await
         .map_err(|e| map_err(e))?;
 
@@ -1869,10 +1876,7 @@ pub async fn get_costume_photo_bytes<P: Ports>(
     current_user: CurrentUser,
     Path((costume_id, photo_id)): Path<(Uuid, Uuid)>,
     query: Query<PhotoBytesQuery>,
-) -> Result<
-    (StatusCode, axum::http::HeaderMap, Vec<u8>),
-    (StatusCode, Json<ErrorResponse>),
-> {
+) -> Result<(StatusCode, axum::http::HeaderMap, Vec<u8>), (StatusCode, Json<ErrorResponse>)> {
     // Fetch the costume to get its season_id for authorization.
     let costume = state
         .ports

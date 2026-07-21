@@ -213,14 +213,10 @@ pub struct GarageCredentials {
 const GARAGE_ADMIN_TOKEN: &str = "test_admin_token";
 
 /// Run a `garage` CLI command inside the container and return stdout as a string.
-async fn garage_exec(
-    container: &ContainerAsync<GarageImage>,
-    args: &[&str],
-) -> Result<String> {
+async fn garage_exec(container: &ContainerAsync<GarageImage>, args: &[&str]) -> Result<String> {
     let mut cmd = vec!["garage".to_string()];
     cmd.extend(args.iter().map(|s| s.to_string()));
-    let exec = ExecCommand::new(cmd)
-        .with_env_vars([("GARAGE_ADMIN_TOKEN", GARAGE_ADMIN_TOKEN)]);
+    let exec = ExecCommand::new(cmd).with_env_vars([("GARAGE_ADMIN_TOKEN", GARAGE_ADMIN_TOKEN)]);
     let mut result = container.exec(exec).await?;
     let stdout = result.stdout_to_vec().await?;
     Ok(String::from_utf8_lossy(&stdout).to_string())
@@ -228,10 +224,7 @@ async fn garage_exec(
 
 /// Start an ephemeral Garage container, provision it (layout, key, bucket),
 /// and return the S3 credentials.
-pub async fn spawn_garage() -> Result<(
-    GarageCredentials,
-    ContainerAsync<GarageImage>,
-)> {
+pub async fn spawn_garage() -> Result<(GarageCredentials, ContainerAsync<GarageImage>)> {
     let image = GarageImage;
     let request: ContainerRequest<GarageImage> = if env::var("TESTCONTAINERS_REUSE")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
@@ -262,7 +255,11 @@ pub async fn spawn_garage() -> Result<(
 
     // Configure the cluster layout (single node).
     let hostname = "test_node";
-    let _ = garage_exec(&container, &["layout", "assign", "-z", "dc1", "-c", "1G", hostname]).await;
+    let _ = garage_exec(
+        &container,
+        &["layout", "assign", "-z", "dc1", "-c", "1G", hostname],
+    )
+    .await;
     garage_exec(&container, &["layout", "apply", "--version", "1"]).await?;
 
     // Create an access key.
@@ -286,12 +283,17 @@ pub async fn spawn_garage() -> Result<(
     garage_exec(
         &container,
         &[
-            "bucket", "allow",
-            "--read", "--write", "--owner",
+            "bucket",
+            "allow",
+            "--read",
+            "--write",
+            "--owner",
             &bucket,
-            "--key", &access_key,
+            "--key",
+            &access_key,
         ],
-    ).await?;
+    )
+    .await?;
 
     Ok((
         GarageCredentials {

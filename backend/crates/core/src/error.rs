@@ -176,9 +176,7 @@ impl From<PhotoError> for DomainError {
         match err {
             PhotoError::ValidationError(msg) => DomainError::ValidationError(msg),
             PhotoError::NotFound { id } => DomainError::NotFound(format!("Photo({id})")),
-            PhotoError::AlreadyDeleted => {
-                DomainError::Conflict("Photo is already deleted".into())
-            }
+            PhotoError::AlreadyDeleted => DomainError::Conflict("Photo is already deleted".into()),
             PhotoError::VersionMismatch { expected, actual } => DomainError::VersionConflict {
                 entity: "Photo".into(),
                 expected,

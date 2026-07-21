@@ -90,7 +90,10 @@ impl Apply for PhotoAggregate {
                 ..
             } => {
                 // Update the original variant's size
-                if let Some(original) = self.variants.iter_mut().find(|v| v.kind == PhotoVariant::Original)
+                if let Some(original) = self
+                    .variants
+                    .iter_mut()
+                    .find(|v| v.kind == PhotoVariant::Original)
                 {
                     original.size_bytes = new_size;
                     original.status = VariantStatus::Ready;
@@ -112,19 +115,14 @@ impl Apply for PhotoAggregate {
                 self.version = version;
             }
             PhotoEvent::VariantFailed {
-                variant,
-                version,
-                ..
+                variant, version, ..
             } => {
                 if let Some(rec) = self.variants.iter_mut().find(|v| v.kind == variant) {
                     rec.status = VariantStatus::Failed;
                 }
                 self.version = version;
             }
-            PhotoEvent::PhotoDeleted {
-                version,
-                ..
-            } => {
+            PhotoEvent::PhotoDeleted { version, .. } => {
                 self.deleted_at = Some(Utc::now());
                 self.version = version;
             }
@@ -185,7 +183,11 @@ impl Command<GenerateVariant> for PhotoAggregate {
     ) -> Result<Vec<Self::Event>, Self::Error> {
         self.check_not_deleted()?;
         self.check_version(cmd.version)?;
-        if self.variants.iter().any(|v| v.kind == cmd.variant && v.status == VariantStatus::Ready) {
+        if self
+            .variants
+            .iter()
+            .any(|v| v.kind == cmd.variant && v.status == VariantStatus::Ready)
+        {
             return Err(PhotoError::ValidationError(format!(
                 "Variant {:?} is already ready",
                 cmd.variant

@@ -20,9 +20,9 @@ use fixtures::{GarageCredentials, spawn_garage, spawn_postgres, spawn_sierradb};
 use infra::event_store::PhotoCommandsImpl;
 use infra::photo::repository::PhotoRepositoryImpl;
 use infra::photo::storage::OpenDalPhotoStorage;
+use kameo_es::Entity;
 use kameo_es::command_service::CommandService;
 use kameo_es::event_handler::EventHandlerStreamBuilder;
-use kameo_es::Entity;
 use redis::Client as RedisClient;
 use uuid::Uuid;
 
@@ -94,39 +94,39 @@ async fn photo_upload_then_delete_round_trip() -> Result<()> {
 
     // Spawn the photo projector.
     let redis_client = Arc::clone(&sierra_client);
-    let _photo_projector = infra::projectors::spawn_photo_projector(
-        _pool.clone(),
-        Arc::clone(&redis_client),
-    ).await?;
+    let _photo_projector =
+        infra::projectors::spawn_photo_projector(_pool.clone(), Arc::clone(&redis_client)).await?;
 
     // Spawn photo sagas.
     infra::photo::sagas::spawn_photo_thumbnail_saga(
         storage.clone(),
         photo_commands.clone(),
         Arc::clone(&redis_client),
-    ).await?;
-    infra::photo::sagas::spawn_photo_bytes_cleanup_saga(
-        storage.clone(),
-        Arc::clone(&redis_client),
-    ).await?;
+    )
+    .await?;
+    infra::photo::sagas::spawn_photo_bytes_cleanup_saga(storage.clone(), Arc::clone(&redis_client))
+        .await?;
 
     // Generate a photo ID and store original bytes in Garage.
     let photo_id = PhotoId::new();
     let content_type = "image/jpeg".to_string();
     let image_bytes = vec![
-        0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01,
-        0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xff, 0xdb, 0x00, 0x43,
-        0x00, 0x08, 0x06, 0x06, 0x07, 0x06, 0x05, 0x08, 0x07, 0x07, 0x07, 0x09,
-        0x09, 0x08, 0x0a, 0x0c, 0x14, 0x0d, 0x0c, 0x0b, 0x0b, 0x0c, 0x19, 0x12,
-        0x13, 0x0f, 0x14, 0x1d, 0x1a, 0x1f, 0x1e, 0x1d, 0x1a, 0x1c, 0x1c, 0x20,
-        0x24, 0x2e, 0x27, 0x20, 0x22, 0x2c, 0x23, 0x1c, 0x1c, 0x28, 0x37, 0x29,
-        0x2c, 0x30, 0x31, 0x34, 0x34, 0x34, 0x1f, 0x27, 0x39, 0x3d, 0x38, 0x32,
-        0x3c, 0x2e, 0x33, 0x34, 0x32,
+        0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00,
+        0x01, 0x00, 0x01, 0x00, 0x00, 0xff, 0xdb, 0x00, 0x43, 0x00, 0x08, 0x06, 0x06, 0x07, 0x06,
+        0x05, 0x08, 0x07, 0x07, 0x07, 0x09, 0x09, 0x08, 0x0a, 0x0c, 0x14, 0x0d, 0x0c, 0x0b, 0x0b,
+        0x0c, 0x19, 0x12, 0x13, 0x0f, 0x14, 0x1d, 0x1a, 0x1f, 0x1e, 0x1d, 0x1a, 0x1c, 0x1c, 0x20,
+        0x24, 0x2e, 0x27, 0x20, 0x22, 0x2c, 0x23, 0x1c, 0x1c, 0x28, 0x37, 0x29, 0x2c, 0x30, 0x31,
+        0x34, 0x34, 0x34, 0x1f, 0x27, 0x39, 0x3d, 0x38, 0x32, 0x3c, 0x2e, 0x33, 0x34, 0x32,
     ];
 
     // Store original bytes in Garage first (the saga needs them).
     storage
-        .store(photo_id, PhotoVariant::Original, image_bytes.clone(), content_type.clone())
+        .store(
+            photo_id,
+            PhotoVariant::Original,
+            image_bytes.clone(),
+            content_type.clone(),
+        )
         .await?;
 
     // 1. Dispatch UploadPhoto command.
@@ -147,9 +147,7 @@ async fn photo_upload_then_delete_round_trip() -> Result<()> {
     assert_eq!(photo_view.size_bytes, image_bytes.len() as u64);
 
     // 3. Verify bytes are still fetchable from Garage.
-    let fetched = storage
-        .fetch(photo_id, PhotoVariant::Original)
-        .await?;
+    let fetched = storage.fetch(photo_id, PhotoVariant::Original).await?;
     assert_eq!(fetched.bytes, image_bytes);
 
     // 4. Dispatch DeletePhoto.
