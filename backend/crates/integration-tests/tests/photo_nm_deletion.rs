@@ -75,26 +75,6 @@ async fn await_photo_deleted(
     }
 }
 
-/// Poll `storage.fetch(photo_id, variant)` for existence check (retry on error).
-async fn await_storage_fetch_ok(
-    storage: &impl PhotoStorage,
-    photo_id: PhotoId,
-    variant: PhotoVariant,
-    deadline: tokio::time::Instant,
-) -> Result<()> {
-    loop {
-        match storage.fetch(photo_id, variant).await {
-            Ok(_) => return Ok(()),
-            Err(_) if tokio::time::Instant::now() > deadline => {
-                anyhow::bail!("Timed out waiting for photo bytes to appear in storage");
-            }
-            Err(_) => {
-                tokio::time::sleep(Duration::from_millis(200)).await;
-            }
-        }
-    }
-}
-
 /// Poll `storage.fetch(photo_id, variant)` until it errors (bytes deleted).
 async fn await_storage_fetch_err(
     storage: &impl PhotoStorage,
