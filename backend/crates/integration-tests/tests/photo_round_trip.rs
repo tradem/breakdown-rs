@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use breakdown_core::photo::commands::UploadPhoto;
-use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
+use breakdown_core::photo::ports::{PhotoCommands, PhotoStorage};
 use breakdown_core::shared::{PhotoId, PhotoVariant};
 use fixtures::{await_photo, build_storage, spawn_garage, spawn_postgres, spawn_sierradb};
 use infra::event_store::PhotoCommandsImpl;
