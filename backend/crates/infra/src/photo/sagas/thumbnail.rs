@@ -136,7 +136,9 @@ impl PhotoThumbnailSaga {
 
     /// Decode the image bytes, read EXIF orientation, apply rotation,
     /// re-encode the original and generate thumb/medium variants.
-    fn process_image(bytes: &[u8]) -> Result<(Vec<u8>, bool, Vec<u8>, Vec<u8>)> {
+    // (re_encoded, was_rotated, thumb_bytes, medium_bytes)
+    type ProcessImageResult = (Vec<u8>, bool, Vec<u8>, Vec<u8>);
+    fn process_image(bytes: &[u8]) -> Result<ProcessImageResult> {
         let img = image::load_from_memory(bytes)
             .map_err(|e| anyhow::anyhow!("Failed to decode image: {e}"))?;
 
