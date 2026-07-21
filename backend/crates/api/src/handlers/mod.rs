@@ -5,7 +5,6 @@
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::response::IntoResponse;
 use axum::{Json, Router, routing};
 use breakdown_core::audit::{AuditEntry, AuditRepository};
 use breakdown_core::block::commands::{CreateBlock, UpdateBlockTimeSpan};
@@ -22,7 +21,7 @@ use breakdown_core::costume::commands::{
 };
 use breakdown_core::costume::events::CostumeDetail;
 use breakdown_core::costume::ports::{CostumeCommands, CostumeRepository};
-use breakdown_core::costume::views::{CostumePhotoView, CostumeView};
+use breakdown_core::costume::views::CostumeView;
 use breakdown_core::costume_category::commands::{
     ArchiveCostumeCategory, CreateCostumeCategory, RenameCostumeCategory, ReorderCostumeCategory,
 };
@@ -39,7 +38,7 @@ use breakdown_core::membership::{
 };
 use breakdown_core::photo::commands::UploadPhoto as UploadPhotoCmd;
 use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
-use breakdown_core::photo::views::{PhotoVariantView, PhotoView};
+use breakdown_core::photo::views::PhotoView;
 use breakdown_core::scene::commands::{
     AssignCharacter, CreateScene, RemoveCharacter, ScheduleSceneOnShootingDay,
     UnscheduleSceneFromShootingDay, UpdateSceneDetails,

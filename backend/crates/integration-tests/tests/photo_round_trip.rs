@@ -11,8 +11,7 @@ mod fixtures;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Result, anyhow};
-use breakdown_core::photo::aggregate::PhotoAggregate;
+use anyhow::Result;
 use breakdown_core::photo::commands::UploadPhoto;
 use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
 use breakdown_core::shared::{PhotoId, PhotoVariant};
@@ -20,11 +19,7 @@ use fixtures::{GarageCredentials, spawn_garage, spawn_postgres, spawn_sierradb};
 use infra::event_store::PhotoCommandsImpl;
 use infra::photo::repository::PhotoRepositoryImpl;
 use infra::photo::storage::OpenDalPhotoStorage;
-use kameo_es::Entity;
 use kameo_es::command_service::CommandService;
-use kameo_es::event_handler::EventHandlerStreamBuilder;
-use redis::Client as RedisClient;
-use uuid::Uuid;
 
 /// Build a storage adapter from test Garage credentials.
 fn build_storage(creds: &GarageCredentials) -> OpenDalPhotoStorage {
@@ -39,23 +34,6 @@ fn build_storage(creds: &GarageCredentials) -> OpenDalPhotoStorage {
         .finish();
 
     OpenDalPhotoStorage::new(op)
-}
-
-/// Poll the projection until a condition is met or timeout.
-async fn poll_until<F>(timeout_secs: u64, poll_interval_ms: u64, mut f: F) -> Result<()>
-where
-    F: FnMut() -> Result<bool>,
-{
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(timeout_secs);
-    loop {
-        if f()? {
-            return Ok(());
-        }
-        if tokio::time::Instant::now() > deadline {
-            anyhow::bail!("poll_until timed out after {timeout_secs}s");
-        }
-        tokio::time::sleep(Duration::from_millis(poll_interval_ms)).await;
-    }
 }
 
 /// Await a photo view from the projection (retry on NotFound).

@@ -8,7 +8,6 @@
 //! projection) older than a configurable age gate. Acquires a Postgres
 //! advisory lock at sweep start so at most one sweep runs per cycle.
 
-use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -133,8 +132,8 @@ async fn try_run_sweep(
 
     // 5-6. Filter by age and delete.
     let mut orphans_deleted: i64 = 0;
-    let max_age = chrono::Duration::seconds(config.max_age_secs as i64);
-    let now = Utc::now();
+    let _max_age = chrono::Duration::seconds(config.max_age_secs as i64);
+    let _now = Utc::now();
 
     for photo_id in &orphans {
         // We can't check object age from the PhotoStorage port directly.

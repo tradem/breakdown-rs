@@ -19,7 +19,7 @@ use breakdown_core::error::DomainError;
 use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
 use redis::Client as RedisClient;
 use sqlx::PgPool;
-use testcontainers::core::{ContainerPort, ExecCommand, WaitFor};
+use testcontainers::core::{ContainerPort, ExecCommand, Mount, WaitFor};
 use testcontainers::runners::AsyncRunner;
 use testcontainers::{ContainerAsync, ContainerRequest, Image, ImageExt, ReuseDirective};
 use testcontainers_modules::postgres::Postgres as PostgresImage;
@@ -266,17 +266,17 @@ bootstrap_peers = []
     {
         image
             .with_reuse(ReuseDirective::Always)
-            .with_mounted_folder(
+            .with_mount(Mount::bind_mount(
                 garage_cfg_dir.path().to_str().unwrap(),
                 "/etc/garage",
-            )
+            ))
             .into()
     } else {
         image
-            .with_mounted_folder(
+            .with_mount(Mount::bind_mount(
                 garage_cfg_dir.path().to_str().unwrap(),
                 "/etc/garage",
-            )
+            ))
             .into()
     };
 

@@ -2,9 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 
 use std::fmt;
-use std::sync::Arc;
 
-use async_trait::async_trait;
 use breakdown_core::error::DomainError;
 use breakdown_core::photo::ports::PhotoStorage;
 use breakdown_core::photo::views::PhotoBytes;
@@ -97,7 +95,7 @@ impl PhotoStorage for OpenDalPhotoStorage {
         id: PhotoId,
         variant: PhotoVariant,
         bytes: Vec<u8>,
-        content_type: String,
+        _content_type: String,
     ) -> Result<(), DomainError> {
         let key = Self::object_key(id, variant);
         self.op.write(&key, bytes).await.map_err(|e| {

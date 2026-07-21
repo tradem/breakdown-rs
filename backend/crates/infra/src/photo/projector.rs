@@ -31,9 +31,8 @@ impl<'a> EntityEventHandler<PhotoAggregate, Transaction<'a, Postgres>> for Photo
                 content_type,
                 size_bytes,
                 variant_statuses,
-                version,
+                ..
             } => {
-                let version = version.0 as i64;
                 // Insert the photo row.
                 sqlx::query(
                     r#"
@@ -159,8 +158,7 @@ impl<'a> EntityEventHandler<PhotoAggregate, Transaction<'a, Postgres>> for Photo
 
                 Self::touch_photo(ctx, id, version, updated_at).await?;
             }
-            PhotoEvent::PhotoDeleted { id, version } => {
-                let version = version.0 as i64;
+            PhotoEvent::PhotoDeleted { id, .. } => {
                 // Delete variant rows (ON DELETE CASCADE handles this, but
                 // delete explicitly for clarity).
                 sqlx::query(

@@ -84,10 +84,7 @@ impl Apply for PhotoAggregate {
                 self.version = version;
             }
             PhotoEvent::OriginalNormalized {
-                new_size,
-                rotated,
-                version,
-                ..
+                new_size, version, ..
             } => {
                 // Update the original variant's size
                 if let Some(original) = self

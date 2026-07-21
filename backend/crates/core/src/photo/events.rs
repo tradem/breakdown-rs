@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 
 use crate::shared::{AggregateVersion, PhotoId, PhotoVariant, VariantStatus};
 
