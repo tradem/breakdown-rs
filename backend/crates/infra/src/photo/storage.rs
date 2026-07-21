@@ -95,12 +95,16 @@ impl PhotoStorage for OpenDalPhotoStorage {
         id: PhotoId,
         variant: PhotoVariant,
         bytes: Vec<u8>,
-        _content_type: String,
+        content_type: String,
     ) -> Result<(), DomainError> {
         let key = Self::object_key(id, variant);
-        self.op.write(&key, bytes).await.map_err(|e| {
-            DomainError::ValidationError(format!("Failed to store object {key}: {e}"))
-        })?;
+        self.op
+            .write_with(&key, bytes)
+            .content_type(&content_type)
+            .await
+            .map_err(|e| {
+                DomainError::ValidationError(format!("Failed to store object {key}: {e}"))
+            })?;
         Ok(())
     }
 
