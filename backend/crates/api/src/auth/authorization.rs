@@ -180,6 +180,12 @@ fn requirement_for(path: &str) -> Requirement {
     if path == "/blocks" {
         return Requirement::Authenticated;
     }
+    // Photo endpoints (upload, download, delete) are authenticated but not
+    // block-scoped — they use season-scoped authorization (SeasonPhotoAccessPolicy)
+    // which is checked inside the handler itself, not by this middleware.
+    if path.contains("/photos") {
+        return Requirement::Authenticated;
+    }
     // Everything else (scenes, characters, costumes, episodes, and
     // block detail / time-span updates) is block-scoped.
     // Self-service invitation acceptance: the invitee is *not yet* an active

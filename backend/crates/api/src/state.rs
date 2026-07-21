@@ -13,14 +13,17 @@ use breakdown_core::costume::{CostumeCommands, CostumeRepository};
 use breakdown_core::costume_category::{CostumeCategoryCommands, CostumeCategoryRepository};
 use breakdown_core::episode::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::membership::{MembershipCommands, MembershipRepository};
+use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
 use breakdown_core::scene::{SceneCommands, SceneRepository};
 use breakdown_core::season::{SeasonCommands, SeasonRepository};
 use breakdown_core::shooting_day::{ShootingDayCommands, ShootingDayRepository};
 use infra::event_store::{
     BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl, CostumeCommandsImpl,
-    EpisodeCommandsImpl, MembershipCommandsImpl, SceneCommandsImpl, SeasonCommandsImpl,
-    ShootingDayCommandsImpl,
+    EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl, SceneCommandsImpl,
+    SeasonCommandsImpl, ShootingDayCommandsImpl,
 };
+use infra::photo::repository::PhotoRepositoryImpl;
+use infra::photo::storage::OpenDalPhotoStorage;
 use infra::queries::{
     AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl,
     CostumeCategoryRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl,
@@ -49,6 +52,9 @@ pub trait Ports: Clone + Send + Sync + 'static {
     type MembershipCommands: MembershipCommands;
     type MembershipRepo: MembershipRepository;
     type AuditRepo: AuditRepository;
+    type PhotoStorage: PhotoStorage;
+    type PhotoCommands: PhotoCommands;
+    type PhotoRepo: PhotoRepository;
 
     fn scene_commands(&self) -> &Self::SceneCommands;
     fn scene_repo(&self) -> &Self::SceneRepo;
@@ -69,6 +75,9 @@ pub trait Ports: Clone + Send + Sync + 'static {
     fn membership_commands(&self) -> &Self::MembershipCommands;
     fn membership_repo(&self) -> &Self::MembershipRepo;
     fn audit_repo(&self) -> &Self::AuditRepo;
+    fn photo_storage(&self) -> &Self::PhotoStorage;
+    fn photo_commands(&self) -> &Self::PhotoCommands;
+    fn photo_repo(&self) -> &Self::PhotoRepo;
 }
 
 /// Shared state handed to every Axum handler.
@@ -105,9 +114,13 @@ pub struct ProductionPorts {
     membership_commands: MembershipCommandsImpl,
     membership_repo: MembershipRepositoryImpl,
     audit_repo: AuditRepositoryImpl,
+    photo_storage: OpenDalPhotoStorage,
+    photo_commands: PhotoCommandsImpl,
+    photo_repo: PhotoRepositoryImpl,
 }
 
 impl ProductionPorts {
+    #[allow(clippy::too_many_arguments)]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         scene_commands: SceneCommandsImpl,
@@ -129,6 +142,9 @@ impl ProductionPorts {
         membership_commands: MembershipCommandsImpl,
         membership_repo: MembershipRepositoryImpl,
         audit_repo: AuditRepositoryImpl,
+        photo_storage: OpenDalPhotoStorage,
+        photo_commands: PhotoCommandsImpl,
+        photo_repo: PhotoRepositoryImpl,
     ) -> Self {
         Self {
             scene_commands,
@@ -150,6 +166,9 @@ impl ProductionPorts {
             membership_commands,
             membership_repo,
             audit_repo,
+            photo_storage,
+            photo_commands,
+            photo_repo,
         }
     }
 }
@@ -174,6 +193,9 @@ impl Ports for ProductionPorts {
     type MembershipCommands = MembershipCommandsImpl;
     type MembershipRepo = MembershipRepositoryImpl;
     type AuditRepo = AuditRepositoryImpl;
+    type PhotoStorage = OpenDalPhotoStorage;
+    type PhotoCommands = PhotoCommandsImpl;
+    type PhotoRepo = PhotoRepositoryImpl;
 
     fn scene_commands(&self) -> &Self::SceneCommands {
         &self.scene_commands
@@ -231,5 +253,14 @@ impl Ports for ProductionPorts {
     }
     fn audit_repo(&self) -> &Self::AuditRepo {
         &self.audit_repo
+    }
+    fn photo_storage(&self) -> &Self::PhotoStorage {
+        &self.photo_storage
+    }
+    fn photo_commands(&self) -> &Self::PhotoCommands {
+        &self.photo_commands
+    }
+    fn photo_repo(&self) -> &Self::PhotoRepo {
+        &self.photo_repo
     }
 }

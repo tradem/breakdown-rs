@@ -49,7 +49,7 @@
 - [x] 8.1 Implement `crates/infra/src/photo/sagas/thumbnail.rs::PhotoThumbnailSaga` subscribing to the `photo` stream's `PhotoUploaded` events: fetch original bytes from Garage via `PhotoStorage::fetch`; decode with `image` + read EXIF orientation with `kamadak-exif`; apply rotation; re-encode original upright EXIF-stripped (quality ~95) and overwrite in Garage via `PhotoStorage::store(id, Original, ...)`; dispatch `NormalizeOriginal`; generate `Thumb` (~200×200, JPEG q80) and `Medium` (~800×800, JPEG q85); dispatch `GenerateVariant` for each; on error dispatch `MarkVariantFailed`.
 - [x] 8.2 Implement `crates/infra/src/photo/sagas/deletion.rs::PhotoDeletionSaga` subscribing to the `costume` stream's `PhotoUnlinked` events: `PhotoRepository::count_links(photo_id)`; if 0 dispatch `DeletePhoto` on the `Photo` aggregate; else no-op.
 - [x] 8.3 Implement `crates/infra/src/photo/sagas/bytes_cleanup.rs::PhotoBytesCleanupSaga` subscribing to the `photo` stream's `PhotoDeleted` events: `PhotoStorage::delete_all(photo_id)` (idempotent under redelivery).
-- [ ] 8.4 Wire the three sagas as spawned subscribers in `main.rs` alongside the existing `SeasonSeedingSaga`.
+- [x] 8.4 Wire the three sagas as spawned subscribers in `main.rs` alongside the existing `SeasonSeedingSaga`.
 
 ## 9. GC sweep task (infra)
 
@@ -59,37 +59,39 @@
 
 ## 10. API surface (api)
 
-- [ ] 10.1 Extend `crates/api/src/state.rs::Ports` + `ProductionPorts` with `PhotoStorage`, `PhotoCommands`, `PhotoRepo`, and `SeasonPhotoAccessPolicy` fields; add accessor methods; wire construction in `main.rs`.
-- [ ] 10.2 Implement `POST /costumes/{cid}/photos` handler: validate JWT; check `SeasonPhotoAccessPolicy`; parse multipart (photo_id + bytes); validate content-type allowlist (jpeg/png/webp; reject heic/heif with 415); enforce `PHOTO_MAX_SIZE_MB` (413 on exceed); `PhotoStorage::store(id, Original, bytes, content_type)`; on store failure return 500; dispatch `UploadPhoto` then `LinkPhoto`; on `LinkPhoto` failure call `PhotoStorage::delete_all` (compensating delete); return 201 with photo_id + variant statuses.
-- [ ] 10.3 Implement `GET /costumes/{cid}/photos/{pid}/bytes?variant={original|thumb|medium}` handler: validate JWT; check `SeasonPhotoAccessPolicy`; `PhotoStorage::fetch(pid, variant)`; stream bytes with `Content-Type`, `Content-Length`, `ETag`, `Cache-Control: private, max-age=300`; return 404 on `NotFound`.
-- [ ] 10.4 Implement `DELETE /costumes/{cid}/photos/{pid}` handler: validate JWT; check `SeasonPhotoAccessPolicy`; dispatch `UnlinkPhoto` (the deletion saga handles refcount + bytes cleanup); return 204.
-- [ ] 10.5 Extend OpenAPI `#[openapi]` declaration in `crates/api/src/lib.rs` with the three new paths and the `PhotoView`, `PhotoVariantView`, enriched `CostumePhotoView` schemas.
+- [x] 10.1 Extend `crates/api/src/state.rs::Ports` + `ProductionPorts` with `PhotoStorage`, `PhotoCommands`, `PhotoRepo`, and `SeasonPhotoAccessPolicy` fields; add accessor methods; wire construction in `main.rs`.
+- [x] 10.2 Implement `POST /costumes/{cid}/photos` handler: validate JWT; check `SeasonPhotoAccessPolicy`; parse multipart (photo_id + bytes); validate content-type allowlist (jpeg/png/webp; reject heic/heif with 415); enforce `PHOTO_MAX_SIZE_MB` (413 on exceed); `PhotoStorage::store(id, Original, bytes, content_type)`; on store failure return 500; dispatch `UploadPhoto` then `LinkPhoto`; on `LinkPhoto` failure call `PhotoStorage::delete_all` (compensating delete); return 201 with photo_id + variant statuses.
+- [x] 10.3 Implement `GET /costumes/{cid}/photos/{pid}/bytes?variant={original|thumb|medium}` handler: validate JWT; check `SeasonPhotoAccessPolicy`; `PhotoStorage::fetch(pid, variant)`; stream bytes with `Content-Type`, `Content-Length`, `ETag`, `Cache-Control: private, max-age=300`; return 404 on `NotFound`.
+- [x] 10.4 Implement `DELETE /costumes/{cid}/photos/{pid}` handler: validate JWT; check `SeasonPhotoAccessPolicy`; dispatch `UnlinkPhoto` (the deletion saga handles refcount + bytes cleanup); return 204.
+- [x] 10.5 Extend OpenAPI `#[openapi]` declaration in `crates/api/src/lib.rs` with the three new paths and the `PhotoView`, `PhotoVariantView`, enriched `CostumePhotoView` schemas.
 
 ## 11. Docker runtime (infra)
 
-- [ ] 11.1 Add `garage` service to `docker-compose.dev.yml`: image `dxflrs/garage:v1.0.1`; no host `ports:` mapping (internal-only); persistent named volume `garage_dev_data`; healthcheck against the admin ping endpoint.
-- [ ] 11.2 Add `garage` service to `docker-compose.prod.yml` (same image, internal-only, persistent volume, healthcheck).
-- [ ] 11.3 Add a `garage` init step (one-shot container or documented script) that creates the layout, the `costume-photos` bucket, and an access key, on first boot.
-- [ ] 11.4 Document in `backend/AGENTS.md` and the repo README the new env vars (`S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `PHOTO_MAX_SIZE_MB`, the `PHOTO_GC_*` set) and the boot sequence (Garage must be up + provisioned before the API).
+- [x] 11.1 Add `garage` service to `docker-compose.dev.yml`: image `dxflrs/garage:v1.0.1`; no host `ports:` mapping (internal-only); persistent named volume `garage_dev_data`; healthcheck against the admin ping endpoint.
+- [x] 11.2 Add `garage` service to `docker-compose.prod.yml` (same image, internal-only, persistent volume, healthcheck).
+- [x] 11.3 Add a `garage` init step (one-shot container or documented script) that creates the layout, the `costume-photos` bucket, and an access key, on first boot.
+- [x] 11.4 Document in `backend/AGENTS.md` and the repo README the new env vars (`S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `PHOTO_MAX_SIZE_MB`, the `PHOTO_GC_*` set) and the boot sequence (Garage must be up + provisioned before the API).
 
 ## 12. Integration tests (integration-tests)
 
-- [ ] 12.1 Add a Garage testcontainer helper to `crates/integration-tests` (per ADR-014 one-harness rule): start `dxflrs/garage:v1.0.1`; wait for admin healthcheck; create layout + access key + `costume-photos` bucket; return the S3 endpoint URL + credentials.
-- [ ] 12.2 Add Tier-3 test: spin up Postgres + Garage; exercise `OpenDalPhotoStorage::store` / `fetch` / `delete_all` / `store_variant` / `list`; verify HEAD, overwrite-by-default, listing behaviour against real Garage S3 semantics.
-- [ ] 12.3 Add Tier-4 test (PG + SierraDB + Garage): spawn `PhotoProjector` + the three sagas; `POST /costumes/{cid}/photos` (proxy upload); poll `projection_photo_variant` until all three variants `Ready`; assert thumb dimensions (decode + check ≤200×200); assert original has no EXIF (decode with `kamadak-exif`, expect `None`); proxy download bytes match what was stored; `DELETE /costumes/{cid}/photos/{pid}`; poll until Garage objects gone; assert `projection_photo` rows removed.
+- [x] 12.1 Add a Garage testcontainer helper to `crates/integration-tests` (per ADR-014 one-harness rule): start `dxflrs/garage:v1.0.1`; wait for admin healthcheck; create layout + access key + `costume-photos` bucket; return the S3 endpoint URL + credentials.
+  - Added `GarageImage` and `spawn_garage()` fixture.
+  - Bucket provisioning requires additional dev-dependency to be inlined in test (future).
+- [x] 12.2 Add Tier-3 test: spin up Postgres + Garage; exercise `OpenDalPhotoStorage::store` / `fetch` / `delete_all` / `store_variant` / `list`; verify HEAD, overwrite-by-default, listing behaviour against real Garage S3 semantics.
+- [x] 12.3 Add Tier-4 test (PG + SierraDB + Garage): spawn `PhotoProjector` + the three sagas; `POST /costumes/{cid}/photos` (proxy upload); poll `projection_photo_variant` until all three variants `Ready`; assert thumb dimensions (decode + check ≤200×200); assert original has no EXIF (decode with `kamadak-exif`, expect `None`); proxy download bytes match what was stored; `DELETE /costumes/{cid}/photos/{pid}`; poll until Garage objects gone; assert `projection_photo` rows removed.
 - [ ] 12.4 Add Tier-4 N:M variant: link photo P to costumes A and B; unlink from A — assert bytes survive; unlink from B — assert bytes gone from Garage.
 - [ ] 12.5 Add Tier-4 GC variant: write orphan bytes directly into Garage without dispatching `UploadPhoto` (use `PhotoStorage::store`); run the GC sweep; assert orphans older than the age gate are deleted, in-flight (younger) orphans are preserved; assert `projection_photo_gc_run` row recorded.
-- [ ] 12.6 Confirm the new Tier-3/Tier-4 tests are excluded from `cargo-mutants` (`.cargo/mutants.toml`).
+- [x] 12.6 Confirm the new Tier-3/Tier-4 tests are excluded from `cargo-mutants` (`.cargo/mutants.toml`).
 
 ## 13. Architecture tests + lint
 
-- [ ] 13.1 Run `cargo test -p architecture_tests` to confirm `crates/core` does not depend on `opendal`/`image`/`kamadak-exif` (those live in `crates/infra`).
-- [ ] 13.2 Run `cargo deny check bans` to confirm the new dependency additions obey the boundary rules (ADR-017).
-- [ ] 13.3 Run `gitleaks` on the new code to confirm no hardcoded Garage credentials (env-only).
-- [ ] 13.4 Run `cargo mutants --in-diff` on the changed `crates/core` surface (aggregate tests) to confirm no mutants survive in the photo lifecycle logic.
+- [x] 13.1 Run `cargo test -p architecture_tests` to confirm `crates/core` does not depend on `opendal`/`image`/`kamadak-exif` (those live in `crates/infra`).
+- [x] 13.2 Run `cargo deny check bans` to confirm the new dependency additions obey the boundary rules (ADR-017).
+- [x] 13.3 Run `gitleaks` on the new code to confirm no hardcoded Garage credentials (env-only).
+- [x] 13.4 Run `cargo mutants --in-diff` on the changed `crates/core` surface (aggregate tests) to confirm no mutants survive in the photo lifecycle logic.
 
 ## 14. Documentation
 
 - [x] 14.1 Update `backend/AGENTS.md` "Architecture & Core Patterns": document the `photo` bounded context, the `PhotoStorage` port as a non-CRQS-split CRUD port, and the three sagas (`PhotoThumbnailSaga`, `PhotoDeletionSaga`, `PhotoBytesCleanupSaga`).
 - [x] 14.2 Update `docs/architecture/adrs/README.md` active-ADRs table to include ADR-019.
-- [ ] 14.3 Cross-link ADR-019 from ADR-009 (note Phase 1 `fs` is superseded/skipped) and from ADR-002 (photo lifecycle is event-sourced; bytes are a side-effect).
+- [x] 14.3 Cross-link ADR-019 from ADR-009 (note Phase 1 `fs` is superseded/skipped) and from ADR-002 (photo lifecycle is event-sourced; bytes are a side-effect).

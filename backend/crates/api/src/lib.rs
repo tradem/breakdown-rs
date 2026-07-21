@@ -60,6 +60,9 @@ use utoipa::OpenApi;
         handlers::list_costume_categories,
         handlers::update_costume_category,
         handlers::archive_costume_category,
+        handlers::upload_costume_photo,
+        handlers::get_costume_photo_bytes,
+        handlers::delete_costume_photo,
     ),
     components(schemas(
         handlers::IdVersionResponse,
@@ -80,6 +83,7 @@ use utoipa::OpenApi;
         handlers::VersionRequest,
         handlers::AssignCharacterRequest,
         handlers::AssignCostumeRequest,
+        handlers::PhotoBytesQuery,
         breakdown_core::scene::views::SceneView,
         breakdown_core::character::views::CharacterView,
         breakdown_core::character::category::CharacterCategory,
@@ -113,6 +117,11 @@ use utoipa::OpenApi;
         breakdown_core::shared::BlockId,
         breakdown_core::shared::ShootingDayId,
         breakdown_core::shared::LexicalSortKey,
+        breakdown_core::shared::PhotoId,
+        breakdown_core::shared::PhotoVariant,
+        breakdown_core::shared::VariantStatus,
+        breakdown_core::photo::views::PhotoView,
+        breakdown_core::photo::views::PhotoVariantView,
         breakdown_core::shooting_day::views::ShootingDayView,
         breakdown_core::shooting_day::events::ShootingDaySource,
     )),
@@ -123,6 +132,7 @@ use utoipa::OpenApi;
         (name = "Scenes", description = "Scene read/write endpoints (scoped to an Episode)"),
         (name = "Characters", description = "Character read/write endpoints (scoped to a Season)"),
         (name = "Costumes", description = "Costume read/write endpoints (scope-free; bound to a Character)"),
+        (name = "Photos", description = "Costume photo upload/download/delete endpoints"),
     )
 )]
 pub struct ApiDoc;

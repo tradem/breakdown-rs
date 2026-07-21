@@ -5,6 +5,7 @@
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use axum::response::IntoResponse;
 use axum::{Json, Router, routing};
 use breakdown_core::audit::{AuditEntry, AuditRepository};
 use breakdown_core::block::commands::{CreateBlock, UpdateBlockTimeSpan};
@@ -16,11 +17,12 @@ use breakdown_core::character::events::{CharacterMeasurements, ContactInfo};
 use breakdown_core::character::ports::{CharacterCommands, CharacterRepository};
 use breakdown_core::character::views::CharacterView;
 use breakdown_core::costume::commands::{
-    AddDetail, AssignCostumeToCharacter, CreateCostume, UnassignCostume, UpdateCostumeNotes,
+    AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto, UnassignCostume,
+    UnlinkPhoto, UpdateCostumeNotes,
 };
 use breakdown_core::costume::events::CostumeDetail;
 use breakdown_core::costume::ports::{CostumeCommands, CostumeRepository};
-use breakdown_core::costume::views::CostumeView;
+use breakdown_core::costume::views::{CostumePhotoView, CostumeView};
 use breakdown_core::costume_category::commands::{
     ArchiveCostumeCategory, CreateCostumeCategory, RenameCostumeCategory, ReorderCostumeCategory,
 };
@@ -45,8 +47,12 @@ use breakdown_core::scene::views::SceneView;
 use breakdown_core::season::commands::{CreateSeason, RenameSeason};
 use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
 use breakdown_core::season::views::SeasonView;
+use breakdown_core::photo::commands::UploadPhoto as UploadPhotoCmd;
+use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
+use breakdown_core::photo::views::{PhotoVariantView, PhotoView};
 use breakdown_core::shared::{
-    AggregateVersion, BlockId, EpisodeId, LexicalSortKey, SeasonId, SeriesId, ShootingDayId, UserId,
+    AggregateVersion, BlockId, EpisodeId, LexicalSortKey, PhotoId, PhotoVariant, SeasonId, SeriesId,
+    ShootingDayId, UserId,
 };
 use breakdown_core::shooting_day::commands::{
     ArchiveShootingDay, CreateShootingDay, RenameShootingDay, ReorderShootingDay,
@@ -1667,6 +1673,376 @@ pub async fn get_member<P: Ports>(
     }
 }
 
+/// Upload a photo and link it to a costume.
+///
+/// The request body is raw image bytes; the `Content-Type` header MUST be one of
+/// `image/jpeg`, `image/png`, or `image/webp`. HEIC/HEIF is rejected with 415.
+/// The file size MUST NOT exceed `PHOTO_MAX_SIZE_MB` (default 20 MB).
+/// Authorization is checked per-request via season-scoped membership.
+#[utoipa::path(
+    post,
+    path = "/costumes/{costume_id}/photos",
+    params(("costume_id" = Uuid, Path, description = "Costume id")),
+    request_body(content = String, description = "Raw image bytes (JPEG/PNG/WebP)",
+        content_type = "image/jpeg"),
+    responses(
+        (status = 201, description = "Photo uploaded", body = PhotoView),
+        (status = 400, body = ErrorResponse, description = "Validation error"),
+        (status = 403, body = ErrorResponse, description = "Not authorized"),
+        (status = 413, body = ErrorResponse, description = "Payload too large"),
+        (status = 415, body = ErrorResponse, description = "Unsupported media type"),
+    ),
+)]
+pub async fn upload_costume_photo<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(costume_id): Path<Uuid>,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> ApiResult<PhotoView> {
+    // Validate content-type.
+    let content_type = headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_lowercase();
+
+    if !matches!(
+        content_type.as_str(),
+        "image/jpeg" | "image/png" | "image/webp"
+    ) {
+        if content_type == "image/heic" || content_type == "image/heif" {
+            return Err((
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                Json(ErrorResponse {
+                    message: "HEIC/HEIF not supported. Convert to JPEG before upload.".into(),
+                }),
+            ));
+        }
+        return Err((
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            Json(ErrorResponse {
+                message: format!("Unsupported content-type: {content_type}. Accepted: image/jpeg, image/png, image/webp"),
+            }),
+        ));
+    }
+
+    // Enforce size cap.
+    let max_size_mb: usize = std::env::var("PHOTO_MAX_SIZE_MB")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(20);
+    let max_bytes = max_size_mb * 1024 * 1024;
+    if body.len() > max_bytes {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(ErrorResponse {
+                message: format!(
+                    "File exceeds {max_size_mb} MB limit ({:.1} MB)",
+                    body.len() as f64 / (1024.0 * 1024.0)
+                ),
+            }),
+        ));
+    }
+
+    // Fetch the costume to get its season_id for authorization.
+    let costume = state
+        .ports
+        .costume_repo()
+        .find_by_id(Uuid::from(costume_id))
+        .await
+        .map_err(map_err)?;
+
+    // Resolve season_id from the costume's character.
+    let season_id = match costume.character_id {
+        Some(char_id) => {
+            let character = state
+                .ports
+                .character_repo()
+                .find_by_id(char_id)
+                .await
+                .map_err(map_err)?;
+            character.season_id
+        }
+        None => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    message: "costume has no assigned character — cannot determine season".into(),
+                }),
+            ));
+        }
+    };
+
+    // Season-scoped authorization check.
+    let is_authorized = state
+        .ports
+        .membership_repo()
+        .has_active_costume_role_in_season(season_id, current_user.sub.clone())
+        .await
+        .unwrap_or(false);
+    if !is_authorized {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                message: "not authorized to upload photos in this season".into(),
+            }),
+        ));
+    }
+
+    // Generate a new photo_id (UUIDv7).
+    let photo_id = PhotoId::new();
+    let size_bytes = body.len() as u64;
+
+    // Store the original bytes in Garage.
+    state
+        .ports
+        .photo_storage()
+        .store(photo_id, PhotoVariant::Original, body.to_vec(), content_type.clone())
+        .await
+        .map_err(|e| map_err(e))?;
+
+    // Dispatch UploadPhoto command.
+    state
+        .ports
+        .photo_commands()
+        .upload(UploadPhotoCmd {
+            id: photo_id,
+            content_type: content_type.clone(),
+            size_bytes,
+        })
+        .await
+        .map_err(|e| {
+            // Compensating delete: remove the bytes we just stored.
+            let _ = state.ports.photo_storage().delete_all(photo_id);
+            map_err(e)
+        })?;
+
+    // Dispatch LinkPhoto command on the costume aggregate.
+    let version = costume.version;
+    state
+        .ports
+        .costume_commands()
+        .link_photo(LinkPhoto {
+            id: costume_id,
+            photo_id: photo_id.0,
+            version,
+        })
+        .await
+        .map_err(|e| {
+            // Compensating delete: remove the bytes and photo event.
+            let _ = state.ports.photo_storage().delete_all(photo_id);
+            map_err(e)
+        })?;
+
+    // Read back the projected photo view.
+    let view = state
+        .ports
+        .photo_repo()
+        .find_by_id(photo_id)
+        .await
+        .map_err(map_err)?;
+
+    Ok((StatusCode::CREATED, Json(view)))
+}
+
+/// Download photo bytes (proxy download with per-request authorization).
+///
+/// Authorization is checked on every request via season-scoped membership.
+/// The response includes `Cache-Control: private, max-age=300`.
+#[utoipa::path(
+    get,
+    path = "/costumes/{costume_id}/photos/{photo_id}/bytes",
+    params(
+        ("costume_id" = Uuid, Path, description = "Costume id"),
+        ("photo_id" = Uuid, Path, description = "Photo id"),
+        ("variant" = String, Query, description = "Variant: original, thumb, or medium"),
+    ),
+    responses(
+        (status = 200, description = "Photo bytes", content_type = "image/jpeg"),
+        (status = 403, body = ErrorResponse, description = "Not authorized"),
+        (status = 404, body = ErrorResponse, description = "Photo or costume not found"),
+    ),
+)]
+pub async fn get_costume_photo_bytes<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path((costume_id, photo_id)): Path<(Uuid, Uuid)>,
+    query: Query<PhotoBytesQuery>,
+) -> Result<
+    (StatusCode, axum::http::HeaderMap, Vec<u8>),
+    (StatusCode, Json<ErrorResponse>),
+> {
+    // Fetch the costume to get its season_id for authorization.
+    let costume = state
+        .ports
+        .costume_repo()
+        .find_by_id(Uuid::from(costume_id))
+        .await
+        .map_err(map_err)?;
+
+    // Resolve season_id from the costume's character.
+    let season_id = match costume.character_id {
+        Some(char_id) => {
+            let character = state
+                .ports
+                .character_repo()
+                .find_by_id(char_id)
+                .await
+                .map_err(map_err)?;
+            character.season_id
+        }
+        None => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    message: "costume has no assigned character".into(),
+                }),
+            ));
+        }
+    };
+
+    // Season-scoped authorization check.
+    let is_authorized = state
+        .ports
+        .membership_repo()
+        .has_active_costume_role_in_season(season_id, current_user.sub.clone())
+        .await
+        .unwrap_or(false);
+    if !is_authorized {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                message: "not authorized to download photos in this season".into(),
+            }),
+        ));
+    }
+
+    // Resolve variant.
+    let variant = match query.variant.as_deref().unwrap_or("original") {
+        "thumb" => PhotoVariant::Thumb,
+        "medium" => PhotoVariant::Medium,
+        _ => PhotoVariant::Original,
+    };
+
+    // Fetch bytes from Garage.
+    let photo_bytes = state
+        .ports
+        .photo_storage()
+        .fetch(PhotoId::from_uuid(photo_id), variant)
+        .await
+        .map_err(map_err)?;
+
+    // Build response headers for streaming.
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        photo_bytes.content_type.parse().unwrap(),
+    );
+    headers.insert(
+        axum::http::header::CONTENT_LENGTH,
+        photo_bytes.size_bytes.to_string().parse().unwrap(),
+    );
+    headers.insert(
+        axum::http::header::CACHE_CONTROL,
+        "private, max-age=300".parse().unwrap(),
+    );
+    if let Some(ref etag) = photo_bytes.etag {
+        headers.insert(axum::http::header::ETAG, etag.parse().unwrap());
+    }
+
+    Ok((StatusCode::OK, headers, photo_bytes.bytes))
+}
+
+/// Unlink a photo from a costume (deletion saga handles refcount + bytes cleanup).
+///
+/// Authorization is checked per-request via season-scoped membership.
+/// The photo bytes are only deleted when the refcount reaches zero.
+#[utoipa::path(
+    delete,
+    path = "/costumes/{costume_id}/photos/{photo_id}",
+    params(
+        ("costume_id" = Uuid, Path, description = "Costume id"),
+        ("photo_id" = Uuid, Path, description = "Photo id"),
+    ),
+    responses(
+        (status = 204, description = "Photo unlinked"),
+        (status = 403, body = ErrorResponse, description = "Not authorized"),
+        (status = 404, body = ErrorResponse, description = "Costume not found"),
+    ),
+)]
+pub async fn delete_costume_photo<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path((costume_id, photo_id)): Path<(Uuid, Uuid)>,
+) -> ApiResult<()> {
+    // Fetch the costume to get its season_id for authorization.
+    let costume = state
+        .ports
+        .costume_repo()
+        .find_by_id(Uuid::from(costume_id))
+        .await
+        .map_err(map_err)?;
+
+    // Resolve season_id from the costume's character.
+    let season_id = match costume.character_id {
+        Some(char_id) => {
+            let character = state
+                .ports
+                .character_repo()
+                .find_by_id(char_id)
+                .await
+                .map_err(map_err)?;
+            character.season_id
+        }
+        None => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    message: "costume has no assigned character".into(),
+                }),
+            ));
+        }
+    };
+
+    // Season-scoped authorization check.
+    let is_authorized = state
+        .ports
+        .membership_repo()
+        .has_active_costume_role_in_season(season_id, current_user.sub.clone())
+        .await
+        .unwrap_or(false);
+    if !is_authorized {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                message: "not authorized to delete photos in this season".into(),
+            }),
+        ));
+    }
+
+    // Dispatch UnlinkPhoto on the costume aggregate.
+    state
+        .ports
+        .costume_commands()
+        .unlink_photo(UnlinkPhoto {
+            id: costume_id,
+            photo_id,
+            version: costume.version,
+        })
+        .await
+        .map_err(map_err)?;
+
+    Ok((StatusCode::NO_CONTENT, Json(())))
+}
+
+/// Query parameters for the photo bytes endpoint.
+#[derive(Debug, Clone, Deserialize, Serialize, IntoParams, ToSchema)]
+pub struct PhotoBytesQuery {
+    /// Variant: "original", "thumb", or "medium". Defaults to "original".
+    pub variant: Option<String>,
+}
+
 /// Build the full Axum router using the concrete `ProductionPorts` bundle.
 pub fn routes() -> Router<AppState<ProductionPorts>> {
     Router::new()
@@ -1816,6 +2192,19 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         .route(
             "/costume-categories/{id}/archive",
             routing::post(archive_costume_category::<ProductionPorts>),
+        )
+        // --- Photo endpoints ---
+        .route(
+            "/costumes/{costume_id}/photos",
+            routing::post(upload_costume_photo::<ProductionPorts>),
+        )
+        .route(
+            "/costumes/{costume_id}/photos/{photo_id}/bytes",
+            routing::get(get_costume_photo_bytes::<ProductionPorts>),
+        )
+        .route(
+            "/costumes/{costume_id}/photos/{photo_id}",
+            routing::delete(delete_costume_photo::<ProductionPorts>),
         )
 }
 

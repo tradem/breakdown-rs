@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use anyhow::Result;
 use breakdown_core::photo::aggregate::PhotoAggregate;
@@ -12,9 +13,13 @@ use breakdown_core::shared::{AggregateVersion, PhotoId, PhotoVariant};
 use kameo_es::event_handler::{EventHandlerError, EventProcessor};
 use kameo_es::{Entity, Event};
 use kameo_es::event_handler::{EntityEventHandler, EventHandler};
+use kameo_es::event_handler::EventHandlerStreamBuilder;
+use redis::Client as RedisClient;
+use sierradb_client::SierraAsyncClientExt;
 
 use crate::event_store::PhotoCommandsImpl;
 use crate::photo::storage::OpenDalPhotoStorage;
+use crate::projectors::supervisor;
 
 /// Saga that reacts to `PhotoUploaded` events: fetches original bytes from
 /// storage, decodes them, applies EXIF orientation correction, re-encodes
@@ -226,21 +231,49 @@ impl EventProcessor<(PhotoAggregate,), PhotoThumbnailSaga> for PhotoThumbnailSag
     }
 }
 
+/// Spawn the thumbnail saga subscription loop (supervised, background).
+///
+/// Subscribes to the `photo` stream and processes `PhotoUploaded` events.
+pub async fn spawn_photo_thumbnail_saga(
+    storage: OpenDalPhotoStorage,
+    commands: PhotoCommandsImpl,
+    redis_client: Arc<RedisClient>,
+) -> Result<()> {
+    let saga = PhotoThumbnailSaga::new(storage, commands);
+    let _handle = supervisor::run_with_restart("photo_thumbnail_saga", move || {
+        let mut saga = saga.clone();
+        let client = redis_client.clone();
+        async move {
+            let mut manager = client.subscription_manager().await?;
+            let mut stream =
+                <(PhotoAggregate,)>::event_handler_stream(&mut manager, &mut saga).await?;
+            stream
+                .run(&mut saga)
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            Ok::<_, anyhow::Error>(())
+        }
+    })
+    .await?;
+    drop(_handle);
+    Ok(())
+}
+
 /// Apply EXIF orientation to an image, returning the (possibly rotated) image
 /// and a boolean indicating whether rotation was applied.
 fn apply_orientation(img: image::DynamicImage, orientation: u32) -> (image::DynamicImage, bool) {
     match orientation {
         3 => {
             // Rotated 180°
-            (image::imageops::rotate180(&img), true)
+            (image::DynamicImage::from(image::imageops::rotate180(&img)), true)
         }
         6 => {
             // Rotated 90° clockwise
-            (image::imageops::rotate90(&img), true)
+            (image::DynamicImage::from(image::imageops::rotate90(&img)), true)
         }
         8 => {
             // Rotated 270° clockwise
-            (image::imageops::rotate270(&img), true)
+            (image::DynamicImage::from(image::imageops::rotate270(&img)), true)
         }
         _ => (img, false), // 1 = normal, 2/4/5/7 = mirror-only (skipped in v1)
     }

@@ -9,6 +9,7 @@ use breakdown_core::error::DomainError;
 use breakdown_core::shared::{PhotoId, PhotoVariant};
 use breakdown_core::photo::ports::PhotoStorage;
 use breakdown_core::photo::views::PhotoBytes;
+use futures::StreamExt;
 use opendal::Operator;
 
 /// OpenDAL-backed photo storage adapter configured against an S3-compatible
@@ -65,8 +66,7 @@ impl OpenDalPhotoStorage {
             .map_err(|_| DomainError::ValidationError("S3_SECRET_KEY must be set".into()))?;
         let bucket = std::env::var("S3_BUCKET").unwrap_or_else(|_| "costume-photos".into());
 
-        let mut builder = opendal::services::S3::default();
-        builder
+        let builder = opendal::services::S3::default()
             .endpoint(&endpoint)
             .access_key_id(&access_key)
             .secret_access_key(&secret_key)
@@ -122,7 +122,7 @@ impl PhotoStorage for OpenDalPhotoStorage {
                     DomainError::ValidationError(format!("Failed to stat object {key}: {e}"))
                 }
             })?;
-        let bytes = self
+        let buf = self
             .op
             .read(&key)
             .await
@@ -133,7 +133,7 @@ impl PhotoStorage for OpenDalPhotoStorage {
             .to_string();
         let etag = meta.etag().map(|s| s.to_string());
         Ok(PhotoBytes {
-            bytes,
+            bytes: buf.to_vec(),
             content_type,
             size_bytes: meta.content_length() as u64,
             etag,
@@ -154,14 +154,19 @@ impl PhotoStorage for OpenDalPhotoStorage {
         let mut lister = self
             .op
             .lister_with("")
-            .limit(Some(1000))
+            .limit(1000)
             .await
             .map_err(|e| DomainError::ValidationError(format!("Failed to list objects: {e}")))?;
 
         while let Some(entry) = lister.next().await {
-            let entry = entry.map_err(|e| {
-                DomainError::ValidationError(format!("Failed to list object entry: {e}"))
-            })?;
+            let entry = match entry {
+                Ok(e) => e,
+                Err(e) => {
+                    return Err(DomainError::ValidationError(format!(
+                        "Failed to list object entry: {e}"
+                    )));
+                }
+            };
             let path = entry.path();
             // Key format is "{photo_id}/{variant}". Extract the photo_id prefix.
             if let Some(id_str) = path.split('/').next() {

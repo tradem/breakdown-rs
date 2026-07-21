@@ -35,8 +35,11 @@ use breakdown_core::scene::views::SceneView;
 use breakdown_core::season::commands::{CreateSeason, RenameSeason};
 use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
 use breakdown_core::season::views::SeasonView;
+use breakdown_core::photo::commands::{DeletePhoto, GenerateVariant, MarkVariantFailed, NormalizeOriginal, UploadPhoto};
+use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
+use breakdown_core::photo::views::{PhotoBytes, PhotoView};
 use breakdown_core::shared::{
-    AggregateVersion, BlockId, EpisodeId, SeasonId, SeriesId, ShootingDayId,
+    AggregateVersion, BlockId, EpisodeId, PhotoId, PhotoVariant, SeasonId, SeriesId, ShootingDayId,
 };
 use breakdown_core::shooting_day::commands::{
     ArchiveShootingDay, CreateShootingDay, RenameShootingDay, ReorderShootingDay,
@@ -318,6 +321,16 @@ impl MembershipRepository for FakeMembershipRepo {
         user_id: UserId,
     ) -> Result<bool, DomainError> {
         Ok(self.members.lock().await.contains(&(block_id, user_id)))
+    }
+
+    async fn has_active_costume_role_in_season(
+        &self,
+        season_id: SeasonId,
+        user_id: UserId,
+    ) -> Result<bool, DomainError> {
+        // For test purposes: authorise any user for any season.
+        let _ = (season_id, user_id);
+        Ok(true)
     }
 }
 
@@ -610,6 +623,85 @@ impl ShootingDayRepository for FakeShootingDayRepo {
     }
 }
 
+/// Placeholder photo storage for tests — panics if called.
+#[derive(Clone, Default)]
+pub(crate) struct FakePhotoStorage;
+
+/// Placeholder photo commands for tests — panics if called.
+#[derive(Clone, Default)]
+pub(crate) struct FakePhotoCommands;
+
+/// Placeholder photo repo for tests — panics if called.
+#[derive(Clone, Default)]
+pub(crate) struct FakePhotoRepo;
+
+#[async_trait]
+impl PhotoStorage for FakePhotoStorage {
+    async fn store(
+        &self,
+        _id: PhotoId,
+        _variant: PhotoVariant,
+        _bytes: Vec<u8>,
+        _content_type: String,
+    ) -> Result<(), DomainError> {
+        Ok(())
+    }
+    async fn fetch(
+        &self,
+        id: PhotoId,
+        _variant: PhotoVariant,
+    ) -> Result<PhotoBytes, DomainError> {
+        Err(DomainError::NotFound(format!("Photo({id:?})")))
+    }
+    async fn delete_all(&self, _id: PhotoId) -> Result<(), DomainError> {
+        Ok(())
+    }
+    async fn list(&self) -> Result<Vec<PhotoId>, DomainError> {
+        Ok(Vec::new())
+    }
+}
+
+#[async_trait]
+impl PhotoCommands for FakePhotoCommands {
+    async fn upload(&self, _cmd: UploadPhoto) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL)
+    }
+    async fn normalize_original(
+        &self,
+        _cmd: NormalizeOriginal,
+    ) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL)
+    }
+    async fn generate_variant(
+        &self,
+        _cmd: GenerateVariant,
+    ) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL)
+    }
+    async fn mark_variant_failed(
+        &self,
+        _cmd: MarkVariantFailed,
+    ) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL)
+    }
+    async fn delete(&self, _cmd: DeletePhoto) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL)
+    }
+}
+
+#[async_trait]
+impl PhotoRepository for FakePhotoRepo {
+    async fn find_by_id(&self, id: PhotoId) -> Result<PhotoView, DomainError> {
+        Err(DomainError::NotFound(format!("Photo({id:?})")))
+    }
+    async fn list_known_ids(&self) -> Result<Vec<PhotoId>, DomainError> {
+        Ok(Vec::new())
+    }
+    async fn count_links(&self, _photo_id: PhotoId) -> Result<u64, DomainError> {
+        Ok(0)
+    }
+}
+
 #[derive(Clone, Default)]
 pub(crate) struct FakePorts {
     pub(crate) scene_commands: FakeSceneCommands,
@@ -631,6 +723,12 @@ pub(crate) struct FakePorts {
     pub(crate) audit_repo: FakeAuditRepo,
     pub(crate) shooting_day_commands: FakeShootingDayCommands,
     pub(crate) shooting_day_repo: FakeShootingDayRepo,
+    #[allow(dead_code)]
+    pub(crate) photo_storage: FakePhotoStorage,
+    #[allow(dead_code)]
+    pub(crate) photo_commands: FakePhotoCommands,
+    #[allow(dead_code)]
+    pub(crate) photo_repo: FakePhotoRepo,
 }
 
 impl Ports for FakePorts {
@@ -653,6 +751,9 @@ impl Ports for FakePorts {
     type AuditRepo = FakeAuditRepo;
     type ShootingDayCommands = FakeShootingDayCommands;
     type ShootingDayRepo = FakeShootingDayRepo;
+    type PhotoStorage = FakePhotoStorage;
+    type PhotoCommands = FakePhotoCommands;
+    type PhotoRepo = FakePhotoRepo;
 
     fn scene_commands(&self) -> &Self::SceneCommands {
         &self.scene_commands
@@ -710,5 +811,14 @@ impl Ports for FakePorts {
     }
     fn shooting_day_repo(&self) -> &Self::ShootingDayRepo {
         &self.shooting_day_repo
+    }
+    fn photo_storage(&self) -> &Self::PhotoStorage {
+        &self.photo_storage
+    }
+    fn photo_commands(&self) -> &Self::PhotoCommands {
+        &self.photo_commands
+    }
+    fn photo_repo(&self) -> &Self::PhotoRepo {
+        &self.photo_repo
     }
 }

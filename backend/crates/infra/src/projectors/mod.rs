@@ -28,6 +28,7 @@ pub use membership::MembershipProjector;
 pub use scene::SceneProjector;
 pub use season::SeasonProjector;
 pub use shooting_day::ShootingDayProjector;
+pub use crate::photo::projector::PhotoProjector;
 
 use std::sync::Arc;
 
@@ -38,6 +39,7 @@ use breakdown_core::costume::aggregate::CostumeAggregate;
 use breakdown_core::costume_category::aggregate::CostumeCategoryAggregate;
 use breakdown_core::episode::aggregate::EpisodeAggregate;
 use breakdown_core::membership::aggregate::BlockMembership;
+use breakdown_core::photo::aggregate::PhotoAggregate;
 use breakdown_core::scene::aggregate::SceneAggregate;
 use breakdown_core::season::aggregate::SeasonAggregate;
 use breakdown_core::shooting_day::aggregate::ShootingDayAggregate;
@@ -61,6 +63,7 @@ type EpisodeProcessor = PostgresProcessor<(EpisodeAggregate,), EpisodeProjector>
 type MembershipProcessor = PostgresProcessor<(BlockMembership,), MembershipProjector>;
 type AuditProcessor = PostgresProcessor<(BlockMembership,), AuditProjector>;
 type ShootingDayProcessor = PostgresProcessor<(ShootingDayAggregate,), ShootingDayProjector>;
+type PhotoProcessor = PostgresProcessor<(PhotoAggregate,), PhotoProjector>;
 
 /// Spawn a supervised projector subscription loop.
 ///
@@ -298,6 +301,30 @@ pub async fn spawn_shooting_day_projector(
     run_projection_stream!(
         ShootingDayAggregate,
         "shooting_day",
+        redis_client,
+        actor_ref.clone()
+    )?;
+    Ok(actor_ref)
+}
+
+/// Spawn the photo projector actor and start its SierraDB subscription loop.
+pub async fn spawn_photo_projector(
+    pool: PgPool,
+    redis_client: Arc<RedisClient>,
+) -> Result<ActorRef<PhotoProcessor>> {
+    let conn = redis_client.get_multiplexed_tokio_connection().await?;
+    let processor = PhotoProcessor::new(
+        pool.clone(),
+        conn,
+        CHECKPOINTS_TABLE,
+        "photo",
+        PhotoProjector,
+    )
+    .await?;
+    let actor_ref = PhotoProcessor::spawn(processor);
+    run_projection_stream!(
+        PhotoAggregate,
+        "photo",
         redis_client,
         actor_ref.clone()
     )?;

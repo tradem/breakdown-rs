@@ -19,7 +19,7 @@ use breakdown_core::error::DomainError;
 use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
 use redis::Client as RedisClient;
 use sqlx::PgPool;
-use testcontainers::core::{ContainerPort, WaitFor};
+use testcontainers::core::{ContainerPort, ExecCommand, WaitFor};
 use testcontainers::runners::AsyncRunner;
 use testcontainers::{ContainerAsync, ContainerRequest, Image, ImageExt, ReuseDirective};
 use testcontainers_modules::postgres::Postgres as PostgresImage;
@@ -161,6 +161,148 @@ fn build_sierradb_container_request() -> ContainerRequest<SierraDbImage> {
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
+
+/// Garage container image (dxflrs/garage:v1.0.1, ADR-019).
+#[derive(Debug, Default, Clone, Copy)]
+pub struct GarageImage;
+
+impl Image for GarageImage {
+    fn name(&self) -> &str {
+        "dxflrs/garage"
+    }
+    fn tag(&self) -> &str {
+        "v1.0.1"
+    }
+
+    fn ready_conditions(&self) -> Vec<WaitFor> {
+        vec![WaitFor::message_on_either_std(
+            r"garage\(main\).*listening on",
+        )]
+    }
+
+    fn expose_ports(&self) -> &[ContainerPort] {
+        static PORTS: [ContainerPort; 2] = [ContainerPort::Tcp(3900), ContainerPort::Tcp(3902)];
+        &PORTS
+    }
+
+    fn env_vars(
+        &self,
+    ) -> impl IntoIterator<
+        Item = (
+            impl Into<std::borrow::Cow<'_, str>>,
+            impl Into<std::borrow::Cow<'_, str>>,
+        ),
+    > {
+        HashMap::from([
+            ("GARAGE_ADMIN_TOKEN", "test_admin_token"),
+            ("GARAGE_RPC_SECRET", "test_rpc_secret"),
+            ("GARAGE_METRICS_TOKEN", "test_metrics_token"),
+        ])
+    }
+}
+
+/// Credentials returned by [`spawn_garage`].
+#[derive(Debug, Clone)]
+pub struct GarageCredentials {
+    pub endpoint: String,
+    pub access_key: String,
+    pub secret_key: String,
+    pub bucket: String,
+}
+
+const GARAGE_ADMIN_TOKEN: &str = "test_admin_token";
+
+/// Run a `garage` CLI command inside the container and return stdout as a string.
+async fn garage_exec(
+    container: &ContainerAsync<GarageImage>,
+    args: &[&str],
+) -> Result<String> {
+    let mut cmd = vec!["garage".to_string()];
+    cmd.extend(args.iter().map(|s| s.to_string()));
+    let exec = ExecCommand::new(cmd)
+        .with_env_vars([("GARAGE_ADMIN_TOKEN", GARAGE_ADMIN_TOKEN)]);
+    let mut result = container.exec(exec).await?;
+    let stdout = result.stdout_to_vec().await?;
+    Ok(String::from_utf8_lossy(&stdout).to_string())
+}
+
+/// Start an ephemeral Garage container, provision it (layout, key, bucket),
+/// and return the S3 credentials.
+pub async fn spawn_garage() -> Result<(
+    GarageCredentials,
+    ContainerAsync<GarageImage>,
+)> {
+    let image = GarageImage;
+    let request: ContainerRequest<GarageImage> = if env::var("TESTCONTAINERS_REUSE")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+    {
+        image.with_reuse(ReuseDirective::Always).into()
+    } else {
+        image.into()
+    };
+
+    let container = request.start().await?;
+    let host = container.get_host().await?;
+    let port = container.get_host_port_ipv4(3900).await?;
+    let endpoint = format!("http://{host}:{port}");
+
+    // Wait for Garage to be ready by checking the version command.
+    for i in 0..60 {
+        match garage_exec(&container, &["--version"]).await {
+            Ok(v) if !v.is_empty() => break,
+            _ => {
+                if i == 59 {
+                    anyhow::bail!("Garage did not become ready within 60s");
+                }
+                tokio::time::sleep(Duration::from_millis(1000)).await;
+            }
+        }
+    }
+
+    // Configure the cluster layout (single node).
+    let hostname = "test_node";
+    let _ = garage_exec(&container, &["layout", "assign", "-z", "dc1", "-c", "1G", hostname]).await;
+    garage_exec(&container, &["layout", "apply", "--version", "1"]).await?;
+
+    // Create an access key.
+    let key_out = garage_exec(&container, &["key", "new", "--name", "breakdown-test"]).await?;
+    let access_key = key_out
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("Key ID:"))
+        .map(|s| s.trim().to_string())
+        .ok_or_else(|| anyhow!("Could not parse access key from: {key_out}"))?;
+    let secret_key = key_out
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("Secret key:"))
+        .map(|s| s.trim().to_string())
+        .ok_or_else(|| anyhow!("Could not parse secret key from: {key_out}"))?;
+
+    // Create the bucket.
+    let bucket = "costume-photos-test".to_string();
+    let _ = garage_exec(&container, &["bucket", "create", &bucket]).await;
+
+    // Grant the key read/write/owner permissions on the bucket.
+    garage_exec(
+        &container,
+        &[
+            "bucket", "allow",
+            "--read", "--write", "--owner",
+            &bucket,
+            "--key", &access_key,
+        ],
+    ).await?;
+
+    Ok((
+        GarageCredentials {
+            endpoint,
+            access_key,
+            secret_key,
+            bucket,
+        },
+        container,
+    ))
+}
 
 /// Pre-configured harness: Postgres + SierraDB + Redis client.
 pub struct TestApp {

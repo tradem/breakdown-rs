@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
+use breakdown_core::photo::ports::{PhotoRepository, PhotoStorage};
 use breakdown_core::photo::views::PhotoGcConfig;
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;

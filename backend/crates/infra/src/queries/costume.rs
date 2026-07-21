@@ -130,7 +130,7 @@ impl CostumeRepositoryImpl {
 
         Ok(CostumeView {
             details,
-            photos,
+            photos: enriched_photos,
             ..view
         })
     }
