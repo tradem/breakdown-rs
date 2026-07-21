@@ -16,12 +16,14 @@ use api::routes::app_router;
 use api::state::{AppState, Ports, ProductionPorts};
 use breakdown_core::membership::policy::AuthorizationPolicy;
 use infra::event_store::{
-    BlockCommandsImpl, CharacterCommandsImpl, CostumeCommandsImpl, EpisodeCommandsImpl,
-    MembershipCommandsImpl, SceneCommandsImpl, SeasonCommandsImpl,
+    BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl, CostumeCommandsImpl,
+    EpisodeCommandsImpl, MembershipCommandsImpl, SceneCommandsImpl, SeasonCommandsImpl,
+    ShootingDayCommandsImpl,
 };
 use infra::queries::{
-    AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl, CostumeRepositoryImpl,
-    EpisodeRepositoryImpl, MembershipRepositoryImpl, SceneRepositoryImpl, SeasonRepositoryImpl,
+    AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl,
+    CostumeCategoryRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl,
+    MembershipRepositoryImpl, SceneRepositoryImpl, SeasonRepositoryImpl, ShootingDayRepositoryImpl,
 };
 use kameo_es::command_service::CommandService;
 use opentelemetry::trace::TracerProvider as _;
@@ -145,15 +147,34 @@ async fn main() -> Result<()> {
             .await?;
     let _audit_projector =
         infra::projectors::spawn_audit_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _shooting_day_projector =
+        infra::projectors::spawn_shooting_day_projector(pool.clone(), Arc::clone(&redis_client))
+            .await?;
+    let _costume_category_projector = infra::projectors::spawn_costume_category_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+    )
+    .await?;
+    // Event-reactor saga: seeds default costume categories on SeasonCreated.
+    infra::sagas::spawn_season_seeding_saga(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        cmd_service.clone(),
+    )
+    .await?;
     info!("projectors spawned");
 
     let ports = ProductionPorts::new(
         SceneCommandsImpl::new(cmd_service.clone()),
         SceneRepositoryImpl::new(pool.clone()),
+        ShootingDayCommandsImpl::new(cmd_service.clone()),
+        ShootingDayRepositoryImpl::new(pool.clone()),
         CharacterCommandsImpl::new(cmd_service.clone()),
         CharacterRepositoryImpl::new(pool.clone()),
         CostumeCommandsImpl::new(cmd_service.clone()),
         CostumeRepositoryImpl::new(pool.clone()),
+        CostumeCategoryCommandsImpl::new(cmd_service.clone()),
+        CostumeCategoryRepositoryImpl::new(pool.clone()),
         SeasonCommandsImpl::new(cmd_service.clone()),
         SeasonRepositoryImpl::new(pool.clone()),
         BlockCommandsImpl::new(cmd_service.clone()),

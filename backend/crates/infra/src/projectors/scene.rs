@@ -39,14 +39,15 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                 sqlx::query(
                     r#"
                     INSERT INTO projection_scene
-                        (id, episode_id, scene_number, location, mood, is_schedule_set, version, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                        (id, episode_id, scene_number, location, mood, is_schedule_set, summary, version, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                     ON CONFLICT (id) DO UPDATE SET
                         episode_id = EXCLUDED.episode_id,
                         scene_number = EXCLUDED.scene_number,
                         location = EXCLUDED.location,
                         mood = EXCLUDED.mood,
                         is_schedule_set = EXCLUDED.is_schedule_set,
+                        summary = EXCLUDED.summary,
                         version = EXCLUDED.version,
                         updated_at = EXCLUDED.updated_at
                     "#,
@@ -57,6 +58,7 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                 .bind(details.location)
                 .bind(details.mood)
                 .bind(details.is_schedule_set)
+                .bind(details.summary)
                 .bind(version)
                 .bind(updated_at)
                 .execute(&mut **ctx)
@@ -91,8 +93,9 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                         location = $3,
                         mood = $4,
                         is_schedule_set = $5,
-                        version = $6,
-                        updated_at = $7
+                        summary = $6,
+                        version = $7,
+                        updated_at = $8
                     WHERE id = $1
                     "#,
                 )
@@ -101,6 +104,7 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                 .bind(details.location)
                 .bind(details.mood)
                 .bind(details.is_schedule_set)
+                .bind(details.summary)
                 .bind(version)
                 .bind(updated_at)
                 .execute(&mut **ctx)
@@ -142,6 +146,47 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                 )
                 .bind(id)
                 .bind(character_id)
+                .execute(&mut **ctx)
+                .await?;
+
+                Self::touch_parent(ctx, id, version, updated_at).await?;
+            }
+            SceneEvent::ShootingDayScheduled {
+                id,
+                shooting_day_id,
+                version,
+            } => {
+                let version = version.0 as i64;
+                sqlx::query(
+                    r#"
+                    INSERT INTO projection_scene_shooting_day (scene_id, shooting_day_id, version)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT (scene_id, shooting_day_id) DO UPDATE SET
+                        version = EXCLUDED.version
+                    "#,
+                )
+                .bind(id)
+                .bind(shooting_day_id.0)
+                .bind(version)
+                .execute(&mut **ctx)
+                .await?;
+
+                Self::touch_parent(ctx, id, version, updated_at).await?;
+            }
+            SceneEvent::ShootingDayUnscheduled {
+                id,
+                shooting_day_id,
+                version,
+            } => {
+                let version = version.0 as i64;
+                sqlx::query(
+                    r#"
+                    DELETE FROM projection_scene_shooting_day
+                    WHERE scene_id = $1 AND shooting_day_id = $2
+                    "#,
+                )
+                .bind(id)
+                .bind(shooting_day_id.0)
                 .execute(&mut **ctx)
                 .await?;
 

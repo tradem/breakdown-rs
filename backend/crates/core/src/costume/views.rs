@@ -8,12 +8,19 @@ use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::shared::AggregateVersion;
+use crate::shared::{AggregateVersion, CostumeCategoryId};
 
 /// Detailed costume element (e.g. belt, hat, shoes).
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct CostumeDetailView {
     pub id: Uuid,
+    /// Free-form per-detail micro-title (e.g. "Rote Lederjacke").
+    pub subject: Option<String>,
+    /// Reference to the categorising `CostumeCategory`, if any.
+    pub category_id: Option<CostumeCategoryId>,
+    /// Denormalised category name, resolved by join at projection time.
+    pub category_name: Option<String>,
+    /// The description (unchanged meaning).
     pub text: String,
 }
 

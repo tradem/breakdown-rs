@@ -1,0 +1,12 @@
+# v1 default costume categories, in canonical order (Oberteil … Accessoires).
+#
+# Editable per deployment. Override the entire list via the
+# DEFAULT_COSTUME_CATEGORIES environment variable (comma-separated,
+# e.g. "Hut,Mantel"). The seed source is parsed in `infra`, never in `core`.
+names = [
+  "Oberteil",
+  "Unterteil",
+  "Schuhe",
+  "Jacke",
+  "Accessoires",
+]

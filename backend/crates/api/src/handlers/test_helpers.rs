@@ -17,19 +17,33 @@ use breakdown_core::costume::commands::{
 };
 use breakdown_core::costume::ports::{CostumeCommands, CostumeRepository};
 use breakdown_core::costume::views::CostumeView;
+use breakdown_core::costume_category::commands::{
+    ArchiveCostumeCategory, CreateCostumeCategory, RenameCostumeCategory, ReorderCostumeCategory,
+};
+use breakdown_core::costume_category::ports::{CostumeCategoryCommands, CostumeCategoryRepository};
+use breakdown_core::costume_category::views::CostumeCategoryView;
 use breakdown_core::episode::commands::{CreateEpisode, RenameEpisode};
 use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::error::DomainError;
 use breakdown_core::scene::commands::{
-    AssignCharacter, CreateScene, RemoveCharacter, UpdateSceneDetails,
+    AssignCharacter, CreateScene, RemoveCharacter, ScheduleSceneOnShootingDay,
+    UnscheduleSceneFromShootingDay, UpdateSceneDetails,
 };
 use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
 use breakdown_core::scene::views::SceneView;
 use breakdown_core::season::commands::{CreateSeason, RenameSeason};
 use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
 use breakdown_core::season::views::SeasonView;
-use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, SeasonId, SeriesId};
+use breakdown_core::shared::{
+    AggregateVersion, BlockId, EpisodeId, SeasonId, SeriesId, ShootingDayId,
+};
+use breakdown_core::shooting_day::commands::{
+    ArchiveShootingDay, CreateShootingDay, RenameShootingDay, ReorderShootingDay,
+    RescheduleShootingDay,
+};
+use breakdown_core::shooting_day::ports::{ShootingDayCommands, ShootingDayRepository};
+use breakdown_core::shooting_day::views::ShootingDayView;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -68,6 +82,18 @@ impl SceneCommands for FakeSceneCommands {
     async fn remove_character(
         &self,
         _cmd: RemoveCharacter,
+    ) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL.next())
+    }
+    async fn schedule_on_shooting_day(
+        &self,
+        _cmd: ScheduleSceneOnShootingDay,
+    ) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL.next())
+    }
+    async fn unschedule_from_shooting_day(
+        &self,
+        _cmd: UnscheduleSceneFromShootingDay,
     ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
@@ -126,6 +152,27 @@ impl CostumeCommands for FakeCostumeCommands {
         Ok(AggregateVersion::INITIAL.next())
     }
     async fn unlink_photo(&self, _cmd: UnlinkPhoto) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL.next())
+    }
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct FakeCostumeCategoryCommands;
+
+impl CostumeCategoryCommands for FakeCostumeCategoryCommands {
+    async fn create(
+        &self,
+        cmd: CreateCostumeCategory,
+    ) -> Result<(Uuid, AggregateVersion), DomainError> {
+        Ok((cmd.id, AggregateVersion::INITIAL))
+    }
+    async fn rename(&self, _cmd: RenameCostumeCategory) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL.next())
+    }
+    async fn reorder(&self, _cmd: ReorderCostumeCategory) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL.next())
+    }
+    async fn archive(&self, _cmd: ArchiveCostumeCategory) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
 }
@@ -368,6 +415,24 @@ impl CostumeRepository for FakeCostumeRepo {
 }
 
 #[derive(Clone, Default)]
+pub(crate) struct FakeCostumeCategoryRepo;
+
+impl CostumeCategoryRepository for FakeCostumeCategoryRepo {
+    async fn list_by_season(
+        &self,
+        _season_id: SeasonId,
+    ) -> Result<Vec<CostumeCategoryView>, DomainError> {
+        Ok(Vec::new())
+    }
+    async fn count_for_season(&self, _season_id: SeasonId) -> Result<i64, DomainError> {
+        Ok(0)
+    }
+    async fn find_by_id(&self, id: Uuid) -> Result<CostumeCategoryView, DomainError> {
+        Err(DomainError::NotFound(format!("CostumeCategory({id})")))
+    }
+}
+
+#[derive(Clone, Default)]
 pub(crate) struct FakeSeasonRepo;
 
 impl SeasonRepository for FakeSeasonRepo {
@@ -498,6 +563,54 @@ impl AuditRepository for FakeAuditRepo {
 }
 
 #[derive(Clone, Default)]
+pub(crate) struct FakeShootingDayCommands;
+
+impl ShootingDayCommands for FakeShootingDayCommands {
+    async fn create(
+        &self,
+        cmd: CreateShootingDay,
+    ) -> Result<(ShootingDayId, AggregateVersion), DomainError> {
+        Ok((cmd.id, AggregateVersion::INITIAL))
+    }
+    async fn rename(&self, _cmd: RenameShootingDay) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL.next())
+    }
+    async fn reschedule(
+        &self,
+        _cmd: RescheduleShootingDay,
+    ) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL.next())
+    }
+    async fn reorder(&self, _cmd: ReorderShootingDay) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL.next())
+    }
+    async fn archive(&self, _cmd: ArchiveShootingDay) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL.next())
+    }
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct FakeShootingDayRepo;
+
+impl ShootingDayRepository for FakeShootingDayRepo {
+    async fn find_by_id(&self, id: ShootingDayId) -> Result<ShootingDayView, DomainError> {
+        Err(DomainError::NotFound(format!("ShootingDay({id})")))
+    }
+    async fn list_by_episode(
+        &self,
+        _episode_id: EpisodeId,
+    ) -> Result<Vec<ShootingDayView>, DomainError> {
+        Ok(Vec::new())
+    }
+    async fn scenes_by_shooting_day(
+        &self,
+        _shooting_day_id: ShootingDayId,
+    ) -> Result<Vec<SceneView>, DomainError> {
+        Ok(Vec::new())
+    }
+}
+
+#[derive(Clone, Default)]
 pub(crate) struct FakePorts {
     pub(crate) scene_commands: FakeSceneCommands,
     pub(crate) scene_repo: FakeSceneRepo,
@@ -505,6 +618,8 @@ pub(crate) struct FakePorts {
     pub(crate) character_repo: FakeCharacterRepo,
     pub(crate) costume_commands: FakeCostumeCommands,
     pub(crate) costume_repo: FakeCostumeRepo,
+    pub(crate) costume_category_commands: FakeCostumeCategoryCommands,
+    pub(crate) costume_category_repo: FakeCostumeCategoryRepo,
     pub(crate) season_commands: FakeSeasonCommands,
     pub(crate) season_repo: FakeSeasonRepo,
     pub(crate) block_commands: FakeBlockCommands,
@@ -514,6 +629,8 @@ pub(crate) struct FakePorts {
     pub(crate) membership_commands: FakeMembershipCommands,
     pub(crate) membership_repo: FakeMembershipRepo,
     pub(crate) audit_repo: FakeAuditRepo,
+    pub(crate) shooting_day_commands: FakeShootingDayCommands,
+    pub(crate) shooting_day_repo: FakeShootingDayRepo,
 }
 
 impl Ports for FakePorts {
@@ -523,6 +640,8 @@ impl Ports for FakePorts {
     type CharacterRepo = FakeCharacterRepo;
     type CostumeCommands = FakeCostumeCommands;
     type CostumeRepo = FakeCostumeRepo;
+    type CostumeCategoryCommands = FakeCostumeCategoryCommands;
+    type CostumeCategoryRepo = FakeCostumeCategoryRepo;
     type SeasonCommands = FakeSeasonCommands;
     type SeasonRepo = FakeSeasonRepo;
     type BlockCommands = FakeBlockCommands;
@@ -532,6 +651,8 @@ impl Ports for FakePorts {
     type MembershipCommands = FakeMembershipCommands;
     type MembershipRepo = FakeMembershipRepo;
     type AuditRepo = FakeAuditRepo;
+    type ShootingDayCommands = FakeShootingDayCommands;
+    type ShootingDayRepo = FakeShootingDayRepo;
 
     fn scene_commands(&self) -> &Self::SceneCommands {
         &self.scene_commands
@@ -550,6 +671,12 @@ impl Ports for FakePorts {
     }
     fn costume_repo(&self) -> &Self::CostumeRepo {
         &self.costume_repo
+    }
+    fn costume_category_commands(&self) -> &Self::CostumeCategoryCommands {
+        &self.costume_category_commands
+    }
+    fn costume_category_repo(&self) -> &Self::CostumeCategoryRepo {
+        &self.costume_category_repo
     }
     fn season_commands(&self) -> &Self::SeasonCommands {
         &self.season_commands
@@ -577,5 +704,11 @@ impl Ports for FakePorts {
     }
     fn audit_repo(&self) -> &Self::AuditRepo {
         &self.audit_repo
+    }
+    fn shooting_day_commands(&self) -> &Self::ShootingDayCommands {
+        &self.shooting_day_commands
+    }
+    fn shooting_day_repo(&self) -> &Self::ShootingDayRepo {
+        &self.shooting_day_repo
     }
 }

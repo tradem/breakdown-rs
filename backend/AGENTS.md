@@ -18,9 +18,25 @@ You are the primary coding agent for `breakdown-rs` – a collaborative costume 
 The domain models a four-level production hierarchy:
 `Series` (opaque `SeriesId` only — no aggregate yet) → `Season` → `Block` → `Episode` → `Scene`.
 `Character` and `Costume` are scoped to a `Season` (`Character.season_id`) / scope-free (`Costume` is bound only to a `Character`).
-Core modules: `season`, `block`, `episode`, `scene`, `character`, `costume`, `shared`.
+Core modules: `season`, `block`, `episode`, `scene`, `shooting_day`, `character`, `costume`, `costume_category`, `shared`.
 The `calculation` context was removed; do not reintroduce it.
+`shooting_day` is an Episode-scoped `Drehtag` aggregate. It carries a `label`, a `LexicalSortKey`
+fractional-ordering value (`shared`), an optional `date`, a `ShootingDaySource` provenance
+discriminator (Manual | AiExtracted), and an `archived` flag. Scenes link to ShootingDays via a
+many-to-many join (`Scene.schedule_on_shooting_day`) kept on the Scene aggregate; the read model
+mirrors it in `projection_scene_shooting_day`. Archived days are excluded from the picker query
+`ShootingDayRepository::list_by_episode`.
 `SeriesId` is an opaque UUIDv7 seam for a future additive `Series` aggregate — hierarchy entities reference it but no `Series` aggregate exists yet.
+`costume_category` is a **season-scoped vocabulary** aggregate (`CostumeCategory`, category `"costume_category"`)
+that classifies costume parts (e.g. Oberteil/Unterteil/Schuhe). It carries `season_id`, `name`, a
+`LexicalSortKey` order_key, an `archived` flag, and a version. Seeding is a projector-driven **saga**:
+on every `SeasonCreated` the `SeasonSeedingSaga` dispatches `CreateCostumeCategory` for the season's
+default categories (config `config/default_costume_categories.toml`), guarded by
+`CostumeCategoryRepository::count_for_season` so replays never double-seed. `CostumeDetail` is
+enriched with optional `subject` and `category_id`; the costume projector resolves `category_name`
+from `projection_costume_category` at read time. The command API lives at
+`POST/GET /seasons/{season_id}/costume-categories` (and `PATCH`/`POST .../archive` by id);
+`POST /costumes/{id}/details` now accepts the enriched `CostumeDetail`.
 
 ## 3. Workflow & Best Practices
 - **EventStorming Mapping:** 
@@ -46,6 +62,31 @@ End-to-end, black-box integration tests live in the dedicated workspace member `
 - **Boundary**: The crate consumes only the `pub` API of `core` and `infra`. It is excluded from the `cargo-mutants` surface — only whitebox `#[cfg(test)]` modules are mutated.
 - **CI trigger**: The integration-test job runs on pull requests touching `backend/crates/{core,infra,api,integration-tests}/**`. CI starts both the Postgres and SierraDB containers.
 - **Container policy**: Each test gets fresh containers by default. Optional local container reuse is documented in the harness module docs, but CI always uses fresh containers.
+
+### Integration-test Gotchas
+
+When writing Tier-4 integration tests that emit events directly via `eappend`
+instead of through the command pipeline, keep these pitfalls in mind:
+
+1. **Missing projectors cause FK violations.** The `projection_costume` table
+   has `character_id UUID REFERENCES projection_character(id)`. If a test writes
+   a `CharacterCreated` event but does not spawn a character projector, the
+   costume projector's INSERT fails silently (the transaction rolls back, the
+   supervisor restarts, budget is exhausted). Always spawn projectors for every
+   entity type referenced by FK constraints.
+
+2. **Events on the same stream are separate transactions.** A `CostumeCreated`
+   event (0 details) and a subsequent `DetailAdded` event are processed in
+   different worker transactions. A helper like `await_costume_found` that
+   returns on the first successful read may see the row before the detail is
+   projected. Use `await_costume_with_details` or equivalent polling helpers
+   that check the full expected state, not just existence.
+
+3. **`await_costume_detail_category_name` must retry on `NotFound`.** When the
+   costume-category projector hasn't caught up yet, `find_by_id` returns
+   `NotFound`. Propagating this as an immediate failure causes flaky tests.
+   Always retry on `NotFound` within the deadline, matching the pattern used by
+   `await_costume_found`.
 
 ### CI prerequisites
 

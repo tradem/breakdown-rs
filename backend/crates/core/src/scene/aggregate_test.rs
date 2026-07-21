@@ -11,6 +11,7 @@ fn create_scene() -> SceneAggregate {
         location: Some("Studio A".to_string()),
         mood: Some("IN".to_string()),
         is_schedule_set: false,
+        summary: None,
     };
     let events = SceneAggregate::default().handle(
         CreateScene {
@@ -44,6 +45,7 @@ fn test_create_scene_success() {
         location: Some("Berlin".into()),
         mood: Some("DA".into()),
         is_schedule_set: true,
+        summary: None,
     };
     let result = SceneAggregate::default().handle(
         CreateScene {
@@ -81,6 +83,7 @@ fn test_update_scene_details_success() {
         location: Some("Exterior".into()),
         mood: Some("AT".into()),
         is_schedule_set: true,
+        summary: None,
     };
     let event = agg.handle(
         UpdateSceneDetails {
@@ -227,5 +230,120 @@ fn test_remove_character_not_assigned() {
     assert!(matches!(
         result.unwrap_err(),
         SceneError::ValidationError(ref m) if m.contains("not assigned")
+    ));
+}
+
+#[test]
+fn test_schedule_scene_double_schedule_rejected() {
+    let mut agg = create_scene();
+    let day = ShootingDayId::new();
+    let events = agg
+        .handle(
+            ScheduleSceneOnShootingDay {
+                id: agg.id,
+                shooting_day_id: day,
+                version: agg.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    test_support::replay_events(&mut agg, events);
+    assert_eq!(agg.shooting_day_ids, vec![day]);
+
+    // Second schedule of the same day must be rejected (no duplicate event).
+    let result = agg.handle(
+        ScheduleSceneOnShootingDay {
+            id: agg.id,
+            shooting_day_id: day,
+            version: agg.version,
+        },
+        make_ctx(),
+    );
+    assert!(matches!(
+        result,
+        Err(SceneError::AlreadyScheduled { shooting_day_id }) if shooting_day_id == day
+    ));
+    assert_eq!(agg.shooting_day_ids, vec![day]);
+}
+
+#[test]
+fn test_unschedule_not_scheduled_rejected() {
+    let agg = create_scene();
+    let day = ShootingDayId::new();
+    let result = agg.handle(
+        UnscheduleSceneFromShootingDay {
+            id: agg.id,
+            shooting_day_id: day,
+            version: agg.version,
+        },
+        make_ctx(),
+    );
+    assert!(matches!(
+        result,
+        Err(SceneError::NotScheduled { shooting_day_id }) if shooting_day_id == day
+    ));
+}
+
+#[test]
+fn test_unschedule_removes_link() {
+    let mut agg = create_scene();
+    let day = ShootingDayId::new();
+    let events = agg
+        .handle(
+            ScheduleSceneOnShootingDay {
+                id: agg.id,
+                shooting_day_id: day,
+                version: agg.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    test_support::replay_events(&mut agg, events);
+    let events = agg
+        .handle(
+            UnscheduleSceneFromShootingDay {
+                id: agg.id,
+                shooting_day_id: day,
+                version: agg.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    test_support::replay_events(&mut agg, events);
+    assert!(agg.shooting_day_ids.is_empty());
+}
+
+#[test]
+fn test_summary_round_trips_through_update_guard() {
+    let mut agg = create_scene();
+    let summary = "A tense interrogation scene.".to_string();
+    let events = agg
+        .handle(
+            UpdateSceneDetails {
+                id: agg.id,
+                details: SceneDetails {
+                    summary: Some(summary.clone()),
+                    ..agg.details.clone()
+                },
+                version: agg.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    test_support::replay_events(&mut agg, events);
+    assert_eq!(agg.details.summary.as_deref(), Some(summary.as_str()));
+
+    // Replaying identical details (incl. summary) hits the "unchanged" guard.
+    let unchanged = agg.handle(
+        UpdateSceneDetails {
+            id: agg.id,
+            details: agg.details.clone(),
+            version: agg.version,
+        },
+        make_ctx(),
+    );
+    assert!(matches!(
+        unchanged,
+        Err(SceneError::ValidationError(ref m)) if m.contains("unchanged")
     ));
 }

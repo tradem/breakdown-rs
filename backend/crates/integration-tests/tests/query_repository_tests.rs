@@ -175,6 +175,7 @@ async fn scenes_by_episode_returns_data() -> Result<()> {
             location: Some("A".into()),
             mood: Some("A".into()),
             is_schedule_set: false,
+            summary: None,
         },
     };
     scene_cmd.create(cmd).await?;
@@ -292,6 +293,8 @@ async fn costumes_with_details_returns_data() -> Result<()> {
             id: costume_id,
             detail: CostumeDetail {
                 id: detail_id,
+                subject: None,
+                category_id: None,
                 text: "Sleeve".into(),
             },
             version: ver,

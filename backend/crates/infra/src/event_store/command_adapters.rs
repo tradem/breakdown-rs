@@ -19,6 +19,11 @@ use breakdown_core::costume::commands::{
     UnlinkPhoto, UpdateCostumeNotes,
 };
 use breakdown_core::costume::ports::CostumeCommands;
+use breakdown_core::costume_category::aggregate::CostumeCategoryAggregate;
+use breakdown_core::costume_category::commands::{
+    ArchiveCostumeCategory, CreateCostumeCategory, RenameCostumeCategory, ReorderCostumeCategory,
+};
+use breakdown_core::costume_category::ports::CostumeCategoryCommands;
 use breakdown_core::episode::aggregate::EpisodeAggregate;
 use breakdown_core::episode::commands::{CreateEpisode, RenameEpisode};
 use breakdown_core::episode::ports::EpisodeCommands;
@@ -31,13 +36,20 @@ use breakdown_core::membership::commands::{
 use breakdown_core::membership::ports::MembershipCommands;
 use breakdown_core::scene::aggregate::SceneAggregate;
 use breakdown_core::scene::commands::{
-    AssignCharacter, CreateScene, RemoveCharacter, UpdateSceneDetails,
+    AssignCharacter, CreateScene, RemoveCharacter, ScheduleSceneOnShootingDay,
+    UnscheduleSceneFromShootingDay, UpdateSceneDetails,
 };
 use breakdown_core::scene::ports::SceneCommands;
 use breakdown_core::season::aggregate::SeasonAggregate;
 use breakdown_core::season::commands::{CreateSeason, RenameSeason};
 use breakdown_core::season::ports::SeasonCommands;
-use breakdown_core::shared::{AggregateVersion, UserId};
+use breakdown_core::shared::{AggregateVersion, ShootingDayId, UserId};
+use breakdown_core::shooting_day::aggregate::ShootingDayAggregate;
+use breakdown_core::shooting_day::commands::{
+    ArchiveShootingDay, CreateShootingDay, RenameShootingDay, ReorderShootingDay,
+    RescheduleShootingDay,
+};
+use breakdown_core::shooting_day::ports::ShootingDayCommands;
 use kameo_es::command_service::{CommandService, ExecuteExt, ExecuteResult};
 use kameo_es::error::ExecuteError;
 use sierradb_client::{CurrentVersion, ExpectedVersion};
@@ -100,6 +112,100 @@ impl SceneCommands for SceneCommandsImpl {
         let version = cmd.version;
         check_nonzero_version(version)?;
         let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .await;
+        map_version_only(result)
+    }
+
+    async fn schedule_on_shooting_day(
+        &self,
+        cmd: ScheduleSceneOnShootingDay,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .await;
+        map_version_only(result)
+    }
+
+    async fn unschedule_from_shooting_day(
+        &self,
+        cmd: UnscheduleSceneFromShootingDay,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .await;
+        map_version_only(result)
+    }
+}
+
+/// Command adapter for the `ShootingDay` aggregate.
+#[derive(Clone, Debug)]
+pub struct ShootingDayCommandsImpl {
+    cmd_service: CommandService,
+}
+
+impl ShootingDayCommandsImpl {
+    pub fn new(cmd_service: CommandService) -> Self {
+        Self { cmd_service }
+    }
+}
+
+impl ShootingDayCommands for ShootingDayCommandsImpl {
+    async fn create(
+        &self,
+        cmd: CreateShootingDay,
+    ) -> Result<(ShootingDayId, AggregateVersion), DomainError> {
+        let id = cmd.id;
+        let result = ShootingDayAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Empty)
+            .await;
+        map_executed(id, result)
+    }
+
+    async fn rename(&self, cmd: RenameShootingDay) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let result = ShootingDayAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .await;
+        map_version_only(result)
+    }
+
+    async fn reschedule(
+        &self,
+        cmd: RescheduleShootingDay,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let result = ShootingDayAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .await;
+        map_version_only(result)
+    }
+
+    async fn reorder(&self, cmd: ReorderShootingDay) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let result = ShootingDayAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .await;
+        map_version_only(result)
+    }
+
+    async fn archive(&self, cmd: ArchiveShootingDay) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let result = ShootingDayAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
             .await;
         map_version_only(result)
@@ -425,6 +531,61 @@ impl MembershipCommands for MembershipCommandsImpl {
     }
 }
 
+/// Command adapter for the CostumeCategory aggregate.
+#[derive(Clone, Debug)]
+pub struct CostumeCategoryCommandsImpl {
+    cmd_service: CommandService,
+}
+
+impl CostumeCategoryCommandsImpl {
+    pub fn new(cmd_service: CommandService) -> Self {
+        Self { cmd_service }
+    }
+}
+
+impl CostumeCategoryCommands for CostumeCategoryCommandsImpl {
+    async fn create(
+        &self,
+        cmd: CreateCostumeCategory,
+    ) -> Result<(Uuid, AggregateVersion), DomainError> {
+        let id = cmd.id;
+        let result = CostumeCategoryAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Empty)
+            .await;
+        map_executed(id, result)
+    }
+
+    async fn rename(&self, cmd: RenameCostumeCategory) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let result = CostumeCategoryAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .await;
+        map_version_only(result)
+    }
+
+    async fn reorder(&self, cmd: ReorderCostumeCategory) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let result = CostumeCategoryAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .await;
+        map_version_only(result)
+    }
+
+    async fn archive(&self, cmd: ArchiveCostumeCategory) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let result = CostumeCategoryAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .await;
+        map_version_only(result)
+    }
+}
+
 fn map_version_only<Ent, Err>(
     result: Result<ExecuteResult<Ent>, ExecuteError<Err>>,
 ) -> Result<AggregateVersion, DomainError>
@@ -437,10 +598,10 @@ where
     Ok(version)
 }
 
-fn map_executed<Ent, Err>(
-    id: Uuid,
+fn map_executed<Ent, Err, Id>(
+    id: Id,
     result: Result<ExecuteResult<Ent>, ExecuteError<Err>>,
-) -> Result<(Uuid, AggregateVersion), DomainError>
+) -> Result<(Id, AggregateVersion), DomainError>
 where
     Ent: kameo_es::Entity + kameo_es::Apply + std::fmt::Debug + Send + Sync + 'static,
     Err: Into<DomainError> + std::fmt::Debug + Send + Sync + 'static,
@@ -466,10 +627,10 @@ pub fn domain_to_stream(domain_version: AggregateVersion) -> Option<u64> {
     }
 }
 
-fn map_executed_result<Ent, Err>(
-    id: Uuid,
+fn map_executed_result<Ent, Err, Id>(
+    id: Id,
     result: Result<ExecuteResult<Ent>, ExecuteError<Err>>,
-) -> Result<(Uuid, AggregateVersion), DomainError>
+) -> Result<(Id, AggregateVersion), DomainError>
 where
     Ent: kameo_es::Entity + kameo_es::Apply + std::fmt::Debug + Send + Sync + 'static,
     Err: Into<DomainError> + std::fmt::Debug + Send + Sync + 'static,

@@ -26,6 +26,7 @@ async fn scene_created_event_projects_to_projection_scene() -> Result<()> {
         location: Some("Berlin".into()),
         mood: Some("dark".into()),
         is_schedule_set: true,
+        summary: None,
     };
     let event = SceneEvent::SceneCreated {
         id: scene_id,

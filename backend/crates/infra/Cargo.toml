@@ -27,6 +27,9 @@ chrono.workspace = true
 thiserror.workspace = true
 rust_decimal.workspace = true
 
+# TOML parsing for the configurable default costume-category seed (ADR).
+toml = "0.8"
+
 # Async runtime helpers (background projection streams)
 tokio.workspace = true
 

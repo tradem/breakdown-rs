@@ -8,11 +8,13 @@ use thiserror::Error;
 use crate::block::error::BlockError;
 use crate::character::error::CharacterError;
 use crate::costume::error::CostumeError;
+use crate::costume_category::error::CostumeCategoryError;
 use crate::episode::error::EpisodeError;
 use crate::membership::error::MembershipError;
 use crate::scene::error::SceneError;
 use crate::season::error::SeasonError;
 use crate::shared::AggregateVersion;
+use crate::shooting_day::error::ShootingDayError;
 
 #[derive(Error, Debug, Clone, PartialEq)]
 pub enum DomainError {
@@ -44,6 +46,12 @@ impl From<SceneError> for DomainError {
             SceneError::CharacterAlreadyAssigned => {
                 DomainError::Conflict("Character already assigned to this scene".into())
             }
+            SceneError::AlreadyScheduled { shooting_day_id } => DomainError::Conflict(format!(
+                "Scene is already scheduled on shooting day {shooting_day_id}"
+            )),
+            SceneError::NotScheduled { shooting_day_id } => DomainError::Conflict(format!(
+                "Scene is not scheduled on shooting day {shooting_day_id}"
+            )),
         }
     }
 }
@@ -69,6 +77,30 @@ impl From<CostumeError> for DomainError {
     }
 }
 
+impl From<ShootingDayError> for DomainError {
+    fn from(err: ShootingDayError) -> Self {
+        match err {
+            ShootingDayError::ValidationError(msg) => DomainError::ValidationError(msg),
+            ShootingDayError::NotFound { id } => {
+                DomainError::NotFound(format!("ShootingDay({id})"))
+            }
+            ShootingDayError::ArchivedCannotBeMutated { id } => DomainError::Conflict(format!(
+                "ShootingDay({id}) is archived and cannot be mutated"
+            )),
+            ShootingDayError::DuplicateOrderKey(key) => {
+                DomainError::Conflict(format!("order key {key} already exists for this episode"))
+            }
+            ShootingDayError::VersionMismatch { expected, actual } => {
+                DomainError::VersionConflict {
+                    entity: "ShootingDay".into(),
+                    expected,
+                    current: actual,
+                }
+            }
+        }
+    }
+}
+
 impl From<SeasonError> for DomainError {
     fn from(err: SeasonError) -> Self {
         match err {
@@ -83,6 +115,24 @@ impl From<BlockError> for DomainError {
         match err {
             BlockError::ValidationError(msg) => DomainError::ValidationError(msg),
             BlockError::NotFound { id } => DomainError::NotFound(format!("Block({id})")),
+        }
+    }
+}
+
+impl From<CostumeCategoryError> for DomainError {
+    fn from(err: CostumeCategoryError) -> Self {
+        match err {
+            CostumeCategoryError::ValidationError(msg) => DomainError::ValidationError(msg),
+            CostumeCategoryError::ArchivedCannotBeMutated { id } => DomainError::Conflict(format!(
+                "CostumeCategory({id}) is archived and cannot be mutated"
+            )),
+            CostumeCategoryError::VersionMismatch { expected, actual } => {
+                DomainError::VersionConflict {
+                    entity: "CostumeCategory".into(),
+                    expected,
+                    current: actual,
+                }
+            }
         }
     }
 }

@@ -58,16 +58,25 @@ impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for Cos
                 .await?;
 
                 for detail in details {
+                    let category_name =
+                        Self::resolve_category_name(ctx, detail.category_id.map(|c| c.0)).await?;
                     sqlx::query(
                         r#"
-                        INSERT INTO projection_costume_detail (costume_id, detail_id, text)
-                        VALUES ($1, $2, $3)
+                        INSERT INTO projection_costume_detail
+                            (costume_id, detail_id, subject, category_id, category_name, text)
+                        VALUES ($1, $2, $3, $4, $5, $6)
                         ON CONFLICT (costume_id, detail_id) DO UPDATE SET
+                            subject = EXCLUDED.subject,
+                            category_id = EXCLUDED.category_id,
+                            category_name = EXCLUDED.category_name,
                             text = EXCLUDED.text
                         "#,
                     )
                     .bind(id)
                     .bind(detail.id)
+                    .bind(&detail.subject)
+                    .bind(detail.category_id.map(|c| c.0))
+                    .bind(category_name)
                     .bind(detail.text)
                     .execute(&mut **ctx)
                     .await?;
@@ -143,17 +152,26 @@ impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for Cos
                 detail,
                 version,
             } => {
+                let category_name =
+                    Self::resolve_category_name(ctx, detail.category_id.map(|c| c.0)).await?;
                 let version = version.0 as i64;
                 sqlx::query(
                     r#"
-                    INSERT INTO projection_costume_detail (costume_id, detail_id, text)
-                    VALUES ($1, $2, $3)
+                    INSERT INTO projection_costume_detail
+                        (costume_id, detail_id, subject, category_id, category_name, text)
+                    VALUES ($1, $2, $3, $4, $5, $6)
                     ON CONFLICT (costume_id, detail_id) DO UPDATE SET
+                        subject = EXCLUDED.subject,
+                        category_id = EXCLUDED.category_id,
+                        category_name = EXCLUDED.category_name,
                         text = EXCLUDED.text
                     "#,
                 )
                 .bind(id)
                 .bind(detail.id)
+                .bind(&detail.subject)
+                .bind(detail.category_id.map(|c| c.0))
+                .bind(category_name)
                 .bind(detail.text)
                 .execute(&mut **ctx)
                 .await?;
@@ -225,6 +243,24 @@ impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for Cos
 }
 
 impl CostumeProjector {
+    /// Resolve a `CostumeCategory`'s name for denormalised storage on a detail.
+    /// Returns `None` when the detail has no `category_id` or the category is
+    /// unknown (e.g. not yet projected) — a dangling reference stays `None`.
+    async fn resolve_category_name<'b>(
+        ctx: &mut Transaction<'b, Postgres>,
+        category_id: Option<Uuid>,
+    ) -> Result<Option<String>, sqlx::Error> {
+        let Some(category_id) = category_id else {
+            return Ok(None);
+        };
+        let name: Option<String> =
+            sqlx::query_scalar("SELECT name FROM projection_costume_category WHERE id = $1")
+                .bind(category_id)
+                .fetch_optional(&mut **ctx)
+                .await?;
+        Ok(name)
+    }
+
     async fn touch_parent<'b>(
         ctx: &mut Transaction<'b, Postgres>,
         id: Uuid,

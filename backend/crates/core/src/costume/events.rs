@@ -7,11 +7,19 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::shared::AggregateVersion;
+use crate::shared::{AggregateVersion, CostumeCategoryId};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct CostumeDetail {
     pub id: Uuid,
+    /// Free-form per-detail micro-title (e.g. "Rote Lederjacke"). Optional.
+    #[serde(default)]
+    pub subject: Option<String>,
+    /// Reference to a `CostumeCategory` (season-scoped vocabulary). Optional;
+    /// `None` until the owning Costume is bound to a Season's character.
+    #[serde(default)]
+    pub category_id: Option<CostumeCategoryId>,
+    /// The description (unchanged meaning — never reinterpreted from `subject`).
     pub text: String,
 }
 
