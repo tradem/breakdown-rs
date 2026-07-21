@@ -150,20 +150,18 @@ impl PhotoStorage for OpenDalPhotoStorage {
             })?;
 
         while let Some(entry) = lister.next().await {
-            let entry = match entry {
-                Ok(e) => e,
-                Err(e) => {
-                    return Err(DomainError::ValidationError(format!(
-                        "Failed to list object entry: {e}"
-                    )));
-                }
+            let Ok(entry) = entry else {
+                return Err(DomainError::ValidationError(format!(
+                    "Failed to list object entry: {}",
+                    entry.err().unwrap()
+                )));
             };
             let path = entry.path();
             // Key format is "{photo_id}/{variant}". Extract the photo_id prefix.
-            if let Some(id_str) = path.split('/').next() {
-                if let Ok(u) = uuid::Uuid::parse_str(id_str) {
-                    photo_ids.push(PhotoId::from_uuid(u));
-                }
+            if let Some(id_str) = path.split('/').next()
+                && let Ok(u) = uuid::Uuid::parse_str(id_str)
+            {
+                photo_ids.push(PhotoId::from_uuid(u));
             }
         }
 
