@@ -9,7 +9,11 @@ pub mod costume_category;
 pub mod episode;
 pub mod error;
 pub mod membership;
+pub mod photo;
 pub mod scene;
 pub mod season;
 pub mod shared;
 pub mod shooting_day;
+
+/// Re-export photo shared types for use by infra and api layers.
+pub use shared::{PhotoId, PhotoVariant, VariantStatus};

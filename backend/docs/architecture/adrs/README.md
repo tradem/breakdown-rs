@@ -20,3 +20,4 @@ and their consequences.
 | ADR-016 | [SierraDB Runtime & Round-Trip](ADR-016-sierradb-runtime-and-round-trip.md) | Accepted |
 | ADR-017 | [Architecture Testing Strategy](ADR-017-architecture-testing-strategy.md) | Accepted |
 | ADR-018 | [OIDC JWT Validation & Dev-Auth Toggle](ADR-018-oidc-jwt-validation-and-dev-auth-toggle.md) | Accepted |
+| ADR-019 | [Costume Photo Storage — Aggregate, Garage, Proxy Serving, Derived Auth](ADR-019-costume-photo-storage.md) | Accepted |

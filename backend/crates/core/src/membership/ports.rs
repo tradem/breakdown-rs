@@ -8,7 +8,7 @@
 //! owned by the `kameo_es` adapter in `infra`.
 
 use crate::error::DomainError;
-use crate::shared::{BlockId, UserId};
+use crate::shared::{BlockId, SeasonId, UserId};
 
 use super::commands::{
     AcceptInvitation, BootstrapOwner, GrantRole, InviteMember, LeaveBlock, RemoveMember,
@@ -66,6 +66,17 @@ pub trait MembershipRepository: Send + Sync {
     async fn is_active_member(
         &self,
         block_id: BlockId,
+        user_id: UserId,
+    ) -> Result<bool, DomainError>;
+
+    /// Check whether `user_id` holds any costume-dept role in any active
+    /// block of `season_id` (for season-scoped costume-photo authorization).
+    ///
+    /// Costume-dept roles are `costume_designer`, `wardrobe_supervisor`,
+    /// and `costume_assistant`.
+    async fn has_active_costume_role_in_season(
+        &self,
+        season_id: SeasonId,
         user_id: UserId,
     ) -> Result<bool, DomainError>;
 }

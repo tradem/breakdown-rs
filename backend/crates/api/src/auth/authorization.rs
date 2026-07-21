@@ -18,7 +18,7 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use breakdown_core::membership::MembershipRepository;
 use breakdown_core::membership::policy::{
-    Action, AuthContext, AuthorizationPolicy, PolicyDecision,
+    Action, AuthContext, AuthorizationPolicy, PolicyDecision, SeasonAuthContext,
 };
 
 use crate::auth::{ActiveBlock, AuthError, CurrentUser};
@@ -51,6 +51,60 @@ impl<Repo: MembershipRepository + 'static> AuthorizationPolicy
         {
             Ok(true) => PolicyDecision::Allow,
             // Any error (or non-member) fails closed to Deny.
+            _ => PolicyDecision::Deny,
+        }
+    }
+}
+
+/// Season-scoped costume-photo authorization policy (v1: derived).
+///
+/// Grants access if the user holds any costume-dept role
+/// (`costume_designer`, `wardrobe_supervisor`, `costume_assistant`) in any
+/// `active` block of the target season.
+///
+/// ## Between-blocks gap (v1 limitation)
+///
+/// A costumer between contracts (left Block 3, not yet in Block 5 of the
+/// same season) loses photo access. This is accepted as correct from a
+/// security standpoint — when a user is not on the production, they do not
+/// get confidential photos.
+///
+/// ## v2 evolution (SeasonCrew)
+///
+/// When users hit the between-blocks gap, an additive `SeasonCrew` aggregate
+/// will be introduced. The upgrade path is non-breaking:
+/// `authorized = derived-from-active-block OR season-crew-grant`.
+/// The `SeasonPhotoAccessPolicy` trait method signature is unchanged — only
+/// the impl changes. See ADR-019, D4 for the full evolution plan.
+pub struct SeasonPhotoAccessPolicy<Repo: MembershipRepository> {
+    repo: Arc<Repo>,
+}
+
+impl<Repo: MembershipRepository> SeasonPhotoAccessPolicy<Repo> {
+    /// Build a policy that consults `repo` for season-scoped active
+    /// costume-dept membership.
+    pub fn new(repo: Arc<Repo>) -> Self {
+        Self { repo }
+    }
+}
+
+#[async_trait::async_trait]
+impl<Repo: MembershipRepository + 'static> AuthorizationPolicy
+    for SeasonPhotoAccessPolicy<Repo>
+{
+    async fn authorize(&self, _ctx: &AuthContext) -> PolicyDecision {
+        // Block-scoped authorization is not applicable to photo access.
+        PolicyDecision::Deny
+    }
+
+    async fn authorize_season(&self, ctx: &SeasonAuthContext) -> PolicyDecision {
+        match self
+            .repo
+            .has_active_costume_role_in_season(ctx.season_id, ctx.actor.clone())
+            .await
+        {
+            Ok(true) => PolicyDecision::Allow,
+            // Any error (or non-costume-role) fails closed to Deny.
             _ => PolicyDecision::Deny,
         }
     }

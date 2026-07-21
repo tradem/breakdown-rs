@@ -30,6 +30,15 @@ rust_decimal.workspace = true
 # TOML parsing for the configurable default costume-category seed (ADR).
 toml = "0.8"
 
+# S3-compatible object storage via OpenDAL (Garage adapter).
+opendal = { version = "0.52", features = ["services-s3"] }
+
+# Image decoding, re-encoding, and EXIF-stripping (thumbnailing saga).
+image = { version = "0.25", features = ["jpeg", "png", "webp"] }
+
+# EXIF reading (orientation detection for the thumbnail saga).
+kamadak-exif = "0.6.1"
+
 # Async runtime helpers (background projection streams)
 tokio.workspace = true
 

@@ -11,6 +11,7 @@ use crate::costume::error::CostumeError;
 use crate::costume_category::error::CostumeCategoryError;
 use crate::episode::error::EpisodeError;
 use crate::membership::error::MembershipError;
+use crate::photo::error::PhotoError;
 use crate::scene::error::SceneError;
 use crate::season::error::SeasonError;
 use crate::shared::AggregateVersion;
@@ -166,6 +167,23 @@ impl From<MembershipError> for DomainError {
                 "Block {id:?} already has members; bootstrap is only allowed on an empty block"
             )),
             MembershipError::NotFound { id } => DomainError::NotFound(format!("Block({id:?})")),
+        }
+    }
+}
+
+impl From<PhotoError> for DomainError {
+    fn from(err: PhotoError) -> Self {
+        match err {
+            PhotoError::ValidationError(msg) => DomainError::ValidationError(msg),
+            PhotoError::NotFound { id } => DomainError::NotFound(format!("Photo({id})")),
+            PhotoError::AlreadyDeleted => {
+                DomainError::Conflict("Photo is already deleted".into())
+            }
+            PhotoError::VersionMismatch { expected, actual } => DomainError::VersionConflict {
+                entity: "Photo".into(),
+                expected,
+                current: actual,
+            },
         }
     }
 }

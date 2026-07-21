@@ -230,6 +230,96 @@ impl std::str::FromStr for ShootingDayId {
     }
 }
 
+/// Opaque identifier for a `Photo` aggregate.
+///
+/// A `Photo` is an event-sourced aggregate that tracks the lifecycle
+/// (upload, normalisation, variant generation, deletion) of a costume
+/// photo. Like the other identifiers it is a UUIDv7 opaque value type
+/// never decoded inside `core`. The actual bytes are stored in Garage
+/// via the `PhotoStorage` port.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ToSchema,
+)]
+#[serde(transparent)]
+pub struct PhotoId(pub Uuid);
+
+impl PhotoId {
+    /// Create a new UUIDv7 `PhotoId`.
+    pub fn new() -> Self {
+        Self(Uuid::now_v7())
+    }
+
+    /// Construct from a raw `Uuid`.
+    pub fn from_uuid(id: Uuid) -> Self {
+        Self(id)
+    }
+}
+
+impl Default for PhotoId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl fmt::Display for PhotoId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::str::FromStr for PhotoId {
+    type Err = uuid::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self(Uuid::from_str(s)?))
+    }
+}
+
+/// The three image variants stored for each photo.
+///
+/// `Original` is the re-encoded, upright, EXIF-stripped source image
+/// (quality ~95). `Thumb` is a ~200×200 JPEG (quality 80). `Medium` is
+/// an ~800×800 JPEG (quality 85). Adding a new variant is additive —
+/// only the enum gains a variant and the saga gains a generation step.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ToSchema,
+)]
+pub enum PhotoVariant {
+    /// Re-encoded original, upright, EXIF stripped (quality ~95).
+    Original,
+    /// ~200×200 JPEG thumbnail (quality 80).
+    Thumb,
+    /// ~800×800 JPEG medium (quality 85).
+    Medium,
+}
+
+impl PhotoVariant {
+    /// Return the storage-key suffix as a static string.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Original => "original",
+            Self::Thumb => "thumb",
+            Self::Medium => "medium",
+        }
+    }
+}
+
+/// The generation status of a single photo variant.
+///
+/// Every variant starts as `Pending` on upload. The thumbnail saga
+/// transitions it to `Ready` on success or `Failed` on error.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ToSchema,
+)]
+pub enum VariantStatus {
+    /// Variant generation is in progress (the saga is running).
+    Pending,
+    /// Variant has been generated and stored successfully.
+    Ready,
+    /// Variant generation failed; an error message is recorded.
+    Failed,
+}
+
 /// Aggregate version for optimistic locking.
 ///
 /// The canonical version contract is **1-based**: `AggregateVersion::INITIAL = 1`,

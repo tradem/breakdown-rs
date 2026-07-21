@@ -6,7 +6,8 @@
 use breakdown_core::costume::ports::CostumeRepository;
 use breakdown_core::costume::views::{CostumeDetailView, CostumePhotoView, CostumeView};
 use breakdown_core::error::DomainError;
-use breakdown_core::shared::{AggregateVersion, CostumeCategoryId, SeasonId};
+use breakdown_core::photo::views::PhotoVariantView;
+use breakdown_core::shared::{AggregateVersion, CostumeCategoryId, PhotoVariant, SeasonId, VariantStatus};
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
@@ -55,10 +56,13 @@ impl CostumeRepositoryImpl {
 
         let photos = sqlx::query(
             r#"
-            SELECT photo_id
-            FROM projection_costume_photo
-            WHERE costume_id = $1
-            ORDER BY photo_id
+            SELECT cp.photo_id,
+                   p.content_type,
+                   p.size_bytes
+            FROM projection_costume_photo cp
+            LEFT JOIN projection_photo p ON p.photo_id = cp.photo_id
+            WHERE cp.costume_id = $1
+            ORDER BY cp.photo_id
             "#,
         )
         .bind(view.id)
@@ -82,14 +86,47 @@ impl CostumeRepositoryImpl {
             })
             .collect::<Result<Vec<_>, DomainError>>()?;
 
-        let photos = photos
-            .into_iter()
-            .map(|row| {
-                Ok(CostumePhotoView {
-                    id: row.try_get("photo_id").map_err(map_err)?,
+        let mut enriched_photos = Vec::new();
+        for row in photos {
+            let photo_id: Uuid = row.try_get("photo_id").map_err(map_err)?;
+            let content_type: Option<String> = row.try_get("content_type").map_err(map_err)?;
+            let size_bytes: Option<i64> = row.try_get("size_bytes").map_err(map_err)?;
+
+            // Fetch variants for this photo.
+            let variant_rows = sqlx::query(
+                r#"
+                SELECT variant, status, size_bytes
+                FROM projection_photo_variant
+                WHERE photo_id = $1
+                ORDER BY variant
+                "#,
+            )
+            .bind(photo_id)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| DomainError::Conflict(e.to_string()))?;
+
+            let variants: Vec<PhotoVariantView> = variant_rows
+                .into_iter()
+                .map(|vr| {
+                    let variant_str: String = vr.try_get("variant").map_err(map_err)?;
+                    let status_str: String = vr.try_get("status").map_err(map_err)?;
+                    let vsize: i64 = vr.try_get("size_bytes").map_err(map_err)?;
+                    Ok(PhotoVariantView {
+                        kind: parse_variant(&variant_str)?,
+                        status: parse_status(&status_str)?,
+                        size_bytes: vsize as u64,
+                    })
                 })
-            })
-            .collect::<Result<Vec<_>, DomainError>>()?;
+                .collect::<Result<Vec<_>, DomainError>>()?;
+
+            enriched_photos.push(CostumePhotoView {
+                id: photo_id,
+                content_type: content_type.unwrap_or_default(),
+                size_bytes: size_bytes.unwrap_or(0) as u64,
+                variants,
+            });
+        }
 
         Ok(CostumeView {
             details,
@@ -175,4 +212,26 @@ fn map_costume_row(row: sqlx::postgres::PgRow) -> Result<CostumeView, DomainErro
 
 fn map_err(e: sqlx::Error) -> DomainError {
     DomainError::Conflict(e.to_string())
+}
+
+fn parse_variant(s: &str) -> Result<PhotoVariant, DomainError> {
+    match s {
+        "original" => Ok(PhotoVariant::Original),
+        "thumb" => Ok(PhotoVariant::Thumb),
+        "medium" => Ok(PhotoVariant::Medium),
+        _ => Err(DomainError::ValidationError(format!(
+            "Unknown photo variant: {s}"
+        ))),
+    }
+}
+
+fn parse_status(s: &str) -> Result<VariantStatus, DomainError> {
+    match s {
+        "pending" => Ok(VariantStatus::Pending),
+        "ready" => Ok(VariantStatus::Ready),
+        "failed" => Ok(VariantStatus::Failed),
+        _ => Err(DomainError::ValidationError(format!(
+            "Unknown variant status: {s}"
+        ))),
+    }
 }
