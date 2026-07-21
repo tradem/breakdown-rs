@@ -107,6 +107,26 @@ async fn await_category_list(
     }
 }
 
+/// Wait until a category is excluded from the season list (i.e., archived).
+async fn await_category_excluded_from_list(
+    repo: &CostumeCategoryRepositoryImpl,
+    season_id: SeasonId,
+    excluded_id: Uuid,
+) -> Result<()> {
+    let deadline = Instant::now() + PROJECTION_DEADLINE;
+    loop {
+        match repo.list_by_season(season_id).await {
+            Ok(views) if !views.iter().any(|c| c.id == excluded_id) => return Ok(()),
+            Ok(_) if Instant::now() < deadline => tokio::time::sleep(POLL_INTERVAL).await,
+            Ok(_) => bail!(
+                "projection lag: category {excluded_id} still visible in list_by_season({season_id:?}) \
+                 within {PROJECTION_DEADLINE:?}"
+            ),
+            Err(other) => return Err(anyhow!(other.to_string())),
+        }
+    }
+}
+
 async fn await_costume_found(repo: &CostumeRepositoryImpl, id: Uuid) -> Result<CostumeView> {
     let deadline = Instant::now() + PROJECTION_DEADLINE;
     loop {
@@ -227,7 +247,7 @@ async fn season_created_seeds_exactly_five_categories_and_is_idempotent() -> Res
     )
     .await?;
     // Spawn the saga BEFORE emitting SeasonCreated so it catches the event.
-    let _saga_ref = infra::sagas::spawn_season_seeding_saga(
+    infra::sagas::spawn_season_seeding_saga(
         pool.clone(),
         Arc::clone(&redis_client),
         cmd_service.clone(),
@@ -465,10 +485,10 @@ async fn await_costume_detail_category_name(
     loop {
         match repo.find_by_id(costume_id).await {
             Ok(view) => {
-                if let Some(detail) = view.details.iter().find(|d| d.id == detail_id) {
-                    if detail.category_name.as_deref() == Some(expected) {
-                        return Ok(());
-                    }
+                if let Some(detail) = view.details.iter().find(|d| d.id == detail_id)
+                    && detail.category_name.as_deref() == Some(expected)
+                {
+                    return Ok(());
                 }
             }
             Err(breakdown_core::error::DomainError::NotFound(_)) if Instant::now() < deadline => {
@@ -674,8 +694,10 @@ async fn archive_category_preserves_detail_name_and_hides_from_picker() -> Resul
     )
     .await?;
 
+    // Wait for the archive event to be projected (replaces static sleep)
+    await_category_excluded_from_list(&cat_repo, season_id, cat_id.0).await?;
+    
     // The costume detail still resolves the (now historical) category name.
-    tokio::time::sleep(POLL_INTERVAL * 4).await;
     let view = costume_repo.find_by_id(costume_id).await?;
     let detail = view
         .details
@@ -686,13 +708,6 @@ async fn archive_category_preserves_detail_name_and_hides_from_picker() -> Resul
         detail.category_name.as_deref(),
         Some("Oberteil"),
         "archiving a category must not drop referencing detail names"
-    );
-
-    // The archived category is hidden from the picker list.
-    let list = cat_repo.list_by_season(season_id).await?;
-    assert!(
-        !list.iter().any(|c| c.id == cat_id.0),
-        "archived category must be excluded from list_by_season"
     );
 
     Ok(())

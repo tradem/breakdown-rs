@@ -154,6 +154,7 @@ async fn await_scene_found(repo: &SceneRepositoryImpl, scene_id: Uuid) -> Result
 /// Poll `find_by_id` until the scene projection version reaches at least
 /// `min_version`. Used after `ShootingDayScheduled`/`ShootingDayUnscheduled`,
 /// which bump the scene version via `touch_parent`.
+#[allow(dead_code)]
 async fn await_scene_version(
     repo: &SceneRepositoryImpl,
     scene_id: Uuid,
