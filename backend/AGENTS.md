@@ -18,7 +18,7 @@ You are the primary coding agent for `breakdown-rs` – a collaborative costume 
 The domain models a four-level production hierarchy:
 `Series` (opaque `SeriesId` only — no aggregate yet) → `Season` → `Block` → `Episode` → `Scene`.
 `Character` and `Costume` are scoped to a `Season` (`Character.season_id`) / scope-free (`Costume` is bound only to a `Character`).
-Core modules: `season`, `block`, `episode`, `scene`, `shooting_day`, `character`, `costume`, `shared`.
+Core modules: `season`, `block`, `episode`, `scene`, `shooting_day`, `character`, `costume`, `costume_category`, `shared`.
 The `calculation` context was removed; do not reintroduce it.
 `shooting_day` is an Episode-scoped `Drehtag` aggregate. It carries a `label`, a `LexicalSortKey`
 fractional-ordering value (`shared`), an optional `date`, a `ShootingDaySource` provenance
@@ -27,6 +27,16 @@ many-to-many join (`Scene.schedule_on_shooting_day`) kept on the Scene aggregate
 mirrors it in `projection_scene_shooting_day`. Archived days are excluded from the picker query
 `ShootingDayRepository::list_by_episode`.
 `SeriesId` is an opaque UUIDv7 seam for a future additive `Series` aggregate — hierarchy entities reference it but no `Series` aggregate exists yet.
+`costume_category` is a **season-scoped vocabulary** aggregate (`CostumeCategory`, category `"costume_category"`)
+that classifies costume parts (e.g. Oberteil/Unterteil/Schuhe). It carries `season_id`, `name`, a
+`LexicalSortKey` order_key, an `archived` flag, and a version. Seeding is a projector-driven **saga**:
+on every `SeasonCreated` the `SeasonSeedingSaga` dispatches `CreateCostumeCategory` for the season's
+default categories (config `config/default_costume_categories.toml`), guarded by
+`CostumeCategoryRepository::count_for_season` so replays never double-seed. `CostumeDetail` is
+enriched with optional `subject` and `category_id`; the costume projector resolves `category_name`
+from `projection_costume_category` at read time. The command API lives at
+`POST/GET /seasons/{season_id}/costume-categories` (and `PATCH`/`POST .../archive` by id);
+`POST /costumes/{id}/details` now accepts the enriched `CostumeDetail`.
 
 ## 3. Workflow & Best Practices
 - **EventStorming Mapping:** 

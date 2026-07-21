@@ -5,6 +5,7 @@ pub mod audit;
 pub mod block;
 pub mod character;
 pub mod costume;
+pub mod costume_category;
 pub mod episode;
 pub mod error;
 pub mod membership;

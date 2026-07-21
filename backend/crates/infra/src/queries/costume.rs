@@ -6,7 +6,7 @@
 use breakdown_core::costume::ports::CostumeRepository;
 use breakdown_core::costume::views::{CostumeDetailView, CostumePhotoView, CostumeView};
 use breakdown_core::error::DomainError;
-use breakdown_core::shared::{AggregateVersion, SeasonId};
+use breakdown_core::shared::{AggregateVersion, CostumeCategoryId, SeasonId};
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
@@ -42,7 +42,7 @@ impl CostumeRepositoryImpl {
     async fn enrich(&self, view: CostumeView) -> Result<CostumeView, DomainError> {
         let details = sqlx::query(
             r#"
-            SELECT detail_id, text
+            SELECT detail_id, subject, category_id, category_name, text
             FROM projection_costume_detail
             WHERE costume_id = $1
             ORDER BY detail_id
@@ -71,6 +71,12 @@ impl CostumeRepositoryImpl {
             .map(|row| {
                 Ok(CostumeDetailView {
                     id: row.try_get("detail_id").map_err(map_err)?,
+                    subject: row.try_get("subject").map_err(map_err)?,
+                    category_id: row
+                        .try_get::<Option<Uuid>, _>("category_id")
+                        .map_err(map_err)?
+                        .map(CostumeCategoryId),
+                    category_name: row.try_get("category_name").map_err(map_err)?,
                     text: row.try_get("text").map_err(map_err)?,
                 })
             })

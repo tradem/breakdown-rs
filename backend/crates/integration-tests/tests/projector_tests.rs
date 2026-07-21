@@ -777,6 +777,8 @@ async fn costume_detail_add_remove() -> Result<()> {
             id: costume_id,
             detail: breakdown_core::costume::events::CostumeDetail {
                 id: detail_id,
+                subject: None,
+                category_id: None,
                 text: "Red lining".into(),
             },
             version: AggregateVersion(2),

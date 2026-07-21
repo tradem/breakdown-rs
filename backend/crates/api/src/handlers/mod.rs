@@ -16,10 +16,17 @@ use breakdown_core::character::events::{CharacterMeasurements, ContactInfo};
 use breakdown_core::character::ports::{CharacterCommands, CharacterRepository};
 use breakdown_core::character::views::CharacterView;
 use breakdown_core::costume::commands::{
-    AssignCostumeToCharacter, CreateCostume, UnassignCostume, UpdateCostumeNotes,
+    AddDetail, AssignCostumeToCharacter, CreateCostume, UnassignCostume, UpdateCostumeNotes,
 };
+use breakdown_core::costume::events::CostumeDetail;
 use breakdown_core::costume::ports::{CostumeCommands, CostumeRepository};
 use breakdown_core::costume::views::CostumeView;
+use breakdown_core::costume_category::commands::{
+    ArchiveCostumeCategory, CreateCostumeCategory, ReorderCostumeCategory,
+    RenameCostumeCategory,
+};
+use breakdown_core::costume_category::ports::{CostumeCategoryCommands, CostumeCategoryRepository};
+use breakdown_core::costume_category::views::CostumeCategoryView;
 use breakdown_core::episode::commands::{CreateEpisode, RenameEpisode};
 use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::episode::views::EpisodeView;
@@ -100,6 +107,26 @@ pub struct CreateCharacterRequest {
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct CreateCostumeRequest {}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct CreateCostumeCategoryRequest {
+    pub season_id: SeasonId,
+    pub name: String,
+    pub order_key: LexicalSortKey,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct UpdateCostumeCategoryRequest {
+    pub version: AggregateVersion,
+    pub name: Option<String>,
+    pub order_key: Option<LexicalSortKey>,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct AddCostumeDetailRequest {
+    pub detail: CostumeDetail,
+    pub version: AggregateVersion,
+}
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct CreateSeasonRequest {
@@ -1230,6 +1257,157 @@ pub async fn unassign_costume<P: Ports>(
 }
 
 // ---------------------------------------------------------------------------
+// Costume detail handlers
+// ---------------------------------------------------------------------------
+
+#[utoipa::path(
+    post,
+    path = "/costumes/{id}/details",
+    params(("id" = Uuid, Path, description = "Costume id")),
+    request_body = AddCostumeDetailRequest,
+    responses((status = 200, body = AggregateVersion)),
+)]
+pub async fn add_costume_detail<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<AddCostumeDetailRequest>,
+) -> ApiResult<AggregateVersion> {
+    let version = state
+        .ports
+        .costume_commands()
+        .add_detail(AddDetail {
+            id,
+            detail: req.detail,
+            version: req.version,
+        })
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+// ---------------------------------------------------------------------------
+// CostumeCategory handlers (season-scoped vocabulary)
+// ---------------------------------------------------------------------------
+
+#[utoipa::path(
+    post,
+    path = "/seasons/{season_id}/costume-categories",
+    params(("season_id" = SeasonId, Path, description = "Season id")),
+    request_body = CreateCostumeCategoryRequest,
+    responses((status = 201, description = "Costume category created", body = IdVersionResponse)),
+)]
+pub async fn create_costume_category<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path(season_id): Path<SeasonId>,
+    Json(req): Json<CreateCostumeCategoryRequest>,
+) -> ApiResult<IdVersionResponse> {
+    let id = Uuid::now_v7();
+    let cmd = CreateCostumeCategory {
+        id,
+        season_id,
+        name: req.name,
+        order_key: req.order_key,
+    };
+    let (id, version) = state
+        .ports
+        .costume_category_commands()
+        .create(cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::CREATED, Json(IdVersionResponse { id, version })))
+}
+
+#[utoipa::path(
+    get,
+    path = "/seasons/{season_id}/costume-categories",
+    params(("season_id" = SeasonId, Path, description = "Season id")),
+    responses((status = 200, body = Vec<CostumeCategoryView>)),
+)]
+pub async fn list_costume_categories<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path(season_id): Path<SeasonId>,
+) -> ApiResult<Vec<CostumeCategoryView>> {
+    let views = state
+        .ports
+        .costume_category_repo()
+        .list_by_season(season_id)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(views)))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/costume-categories/{id}",
+    params(("id" = Uuid, Path, description = "Costume category id")),
+    request_body = UpdateCostumeCategoryRequest,
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 400, description = "No update field provided"),
+        (status = 409, body = ErrorResponse),
+    ),
+)]
+pub async fn update_costume_category<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdateCostumeCategoryRequest>,
+) -> ApiResult<AggregateVersion> {
+    let cmds = state.ports.costume_category_commands();
+    if let Some(name) = req.name {
+        let version = cmds
+            .rename(RenameCostumeCategory {
+                id,
+                name,
+                version: req.version,
+            })
+            .await
+            .map_err(map_err)?;
+        return Ok((StatusCode::OK, Json(version)));
+    }
+    if let Some(order_key) = req.order_key {
+        let version = cmds
+            .reorder(ReorderCostumeCategory {
+                id,
+                order_key,
+                version: req.version,
+            })
+            .await
+            .map_err(map_err)?;
+        return Ok((StatusCode::OK, Json(version)));
+    }
+    Err((
+        StatusCode::BAD_REQUEST,
+        Json(ErrorResponse {
+            message: "no update field provided (name or order_key)".into(),
+        }),
+    ))
+}
+
+#[utoipa::path(
+    post,
+    path = "/costume-categories/{id}/archive",
+    params(("id" = Uuid, Path, description = "Costume category id")),
+    request_body = VersionRequest,
+    responses((status = 200, body = AggregateVersion), (status = 409, body = ErrorResponse)),
+)]
+pub async fn archive_costume_category<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<VersionRequest>,
+) -> ApiResult<AggregateVersion> {
+    let version = state
+        .ports
+        .costume_category_commands()
+        .archive(ArchiveCostumeCategory {
+            id,
+            version: req.version,
+        })
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+// ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
 
@@ -1600,8 +1778,25 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
             routing::post(assign_costume::<ProductionPorts>),
         )
         .route(
+            "/costumes/{id}/details",
+            routing::post(add_costume_detail::<ProductionPorts>),
+        )
+        .route(
             "/costumes/{id}/unassign",
             routing::post(unassign_costume::<ProductionPorts>),
+        )
+        .route(
+            "/seasons/{season_id}/costume-categories",
+            routing::post(create_costume_category::<ProductionPorts>)
+                .get(list_costume_categories::<ProductionPorts>),
+        )
+        .route(
+            "/costume-categories/{id}",
+            routing::patch(update_costume_category::<ProductionPorts>),
+        )
+        .route(
+            "/costume-categories/{id}/archive",
+            routing::post(archive_costume_category::<ProductionPorts>),
         )
 }
 

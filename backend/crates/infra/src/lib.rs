@@ -20,3 +20,4 @@
 pub mod event_store;
 pub mod projectors;
 pub mod queries;
+pub mod sagas;

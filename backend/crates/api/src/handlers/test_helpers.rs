@@ -17,6 +17,12 @@ use breakdown_core::costume::commands::{
 };
 use breakdown_core::costume::ports::{CostumeCommands, CostumeRepository};
 use breakdown_core::costume::views::CostumeView;
+use breakdown_core::costume_category::commands::{
+    ArchiveCostumeCategory, CreateCostumeCategory, ReorderCostumeCategory,
+    RenameCostumeCategory,
+};
+use breakdown_core::costume_category::ports::{CostumeCategoryCommands, CostumeCategoryRepository};
+use breakdown_core::costume_category::views::CostumeCategoryView;
 use breakdown_core::episode::commands::{CreateEpisode, RenameEpisode};
 use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::episode::views::EpisodeView;
@@ -145,6 +151,36 @@ impl CostumeCommands for FakeCostumeCommands {
         Ok(AggregateVersion::INITIAL.next())
     }
     async fn unlink_photo(&self, _cmd: UnlinkPhoto) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL.next())
+    }
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct FakeCostumeCategoryCommands;
+
+impl CostumeCategoryCommands for FakeCostumeCategoryCommands {
+    async fn create(
+        &self,
+        cmd: CreateCostumeCategory,
+    ) -> Result<(Uuid, AggregateVersion), DomainError> {
+        Ok((cmd.id, AggregateVersion::INITIAL))
+    }
+    async fn rename(
+        &self,
+        _cmd: RenameCostumeCategory,
+    ) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL.next())
+    }
+    async fn reorder(
+        &self,
+        _cmd: ReorderCostumeCategory,
+    ) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL.next())
+    }
+    async fn archive(
+        &self,
+        _cmd: ArchiveCostumeCategory,
+    ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
 }
@@ -387,6 +423,24 @@ impl CostumeRepository for FakeCostumeRepo {
 }
 
 #[derive(Clone, Default)]
+pub(crate) struct FakeCostumeCategoryRepo;
+
+impl CostumeCategoryRepository for FakeCostumeCategoryRepo {
+    async fn list_by_season(
+        &self,
+        _season_id: SeasonId,
+    ) -> Result<Vec<CostumeCategoryView>, DomainError> {
+        Ok(Vec::new())
+    }
+    async fn count_for_season(&self, _season_id: SeasonId) -> Result<i64, DomainError> {
+        Ok(0)
+    }
+    async fn find_by_id(&self, id: Uuid) -> Result<CostumeCategoryView, DomainError> {
+        Err(DomainError::NotFound(format!("CostumeCategory({id})")))
+    }
+}
+
+#[derive(Clone, Default)]
 pub(crate) struct FakeSeasonRepo;
 
 impl SeasonRepository for FakeSeasonRepo {
@@ -572,6 +626,8 @@ pub(crate) struct FakePorts {
     pub(crate) character_repo: FakeCharacterRepo,
     pub(crate) costume_commands: FakeCostumeCommands,
     pub(crate) costume_repo: FakeCostumeRepo,
+    pub(crate) costume_category_commands: FakeCostumeCategoryCommands,
+    pub(crate) costume_category_repo: FakeCostumeCategoryRepo,
     pub(crate) season_commands: FakeSeasonCommands,
     pub(crate) season_repo: FakeSeasonRepo,
     pub(crate) block_commands: FakeBlockCommands,
@@ -592,6 +648,8 @@ impl Ports for FakePorts {
     type CharacterRepo = FakeCharacterRepo;
     type CostumeCommands = FakeCostumeCommands;
     type CostumeRepo = FakeCostumeRepo;
+    type CostumeCategoryCommands = FakeCostumeCategoryCommands;
+    type CostumeCategoryRepo = FakeCostumeCategoryRepo;
     type SeasonCommands = FakeSeasonCommands;
     type SeasonRepo = FakeSeasonRepo;
     type BlockCommands = FakeBlockCommands;
@@ -621,6 +679,12 @@ impl Ports for FakePorts {
     }
     fn costume_repo(&self) -> &Self::CostumeRepo {
         &self.costume_repo
+    }
+    fn costume_category_commands(&self) -> &Self::CostumeCategoryCommands {
+        &self.costume_category_commands
+    }
+    fn costume_category_repo(&self) -> &Self::CostumeCategoryRepo {
+        &self.costume_category_repo
     }
     fn season_commands(&self) -> &Self::SeasonCommands {
         &self.season_commands

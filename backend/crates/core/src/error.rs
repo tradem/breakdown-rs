@@ -8,6 +8,7 @@ use thiserror::Error;
 use crate::block::error::BlockError;
 use crate::character::error::CharacterError;
 use crate::costume::error::CostumeError;
+use crate::costume_category::error::CostumeCategoryError;
 use crate::episode::error::EpisodeError;
 use crate::membership::error::MembershipError;
 use crate::scene::error::SceneError;
@@ -110,6 +111,24 @@ impl From<BlockError> for DomainError {
         match err {
             BlockError::ValidationError(msg) => DomainError::ValidationError(msg),
             BlockError::NotFound { id } => DomainError::NotFound(format!("Block({id})")),
+        }
+    }
+}
+
+impl From<CostumeCategoryError> for DomainError {
+    fn from(err: CostumeCategoryError) -> Self {
+        match err {
+            CostumeCategoryError::ValidationError(msg) => DomainError::ValidationError(msg),
+            CostumeCategoryError::ArchivedCannotBeMutated { id } => DomainError::Conflict(format!(
+                "CostumeCategory({id}) is archived and cannot be mutated"
+            )),
+            CostumeCategoryError::VersionMismatch { expected, actual } => {
+                DomainError::VersionConflict {
+                    entity: "CostumeCategory".into(),
+                    expected,
+                    current: actual,
+                }
+            }
         }
     }
 }

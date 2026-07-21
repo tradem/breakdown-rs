@@ -151,6 +151,42 @@ impl Default for EpisodeId {
     }
 }
 
+/// Opaque identifier for a `CostumeCategory` aggregate.
+///
+/// A `CostumeCategory` is a season-scoped, user-editable vocabulary of part
+/// types (Oberteil, Schuhe, …) used to categorise `CostumeDetail`s. Like the
+/// other hierarchy ids it is a UUIDv7 opaque value type that is never decoded
+/// inside `core`.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ToSchema,
+)]
+#[serde(transparent)]
+pub struct CostumeCategoryId(pub Uuid);
+
+impl CostumeCategoryId {
+    /// Create a new UUIDv7 `CostumeCategoryId`.
+    pub fn new() -> Self {
+        Self(Uuid::now_v7())
+    }
+
+    /// Construct from a raw `Uuid`.
+    pub fn from_uuid(id: Uuid) -> Self {
+        Self(id)
+    }
+}
+
+impl Default for CostumeCategoryId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl fmt::Display for CostumeCategoryId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 /// Opaque identifier for a `ShootingDay` aggregate.
 ///
 /// A `ShootingDay` is an Episode-scoped scheduling unit (a Drehtag). It is its

@@ -517,6 +517,8 @@ async fn costume_detail_add_remove() -> Result<()> {
             id: costume_id,
             detail: CostumeDetail {
                 id: detail_id,
+                subject: None,
+                category_id: None,
                 text: "Red lining".into(),
             },
             version: ver,

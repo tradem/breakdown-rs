@@ -2,6 +2,8 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 
 use super::*;
+use crate::costume::views::CostumeDetailView;
+use crate::shared::CostumeCategoryId;
 use test_support::make_ctx;
 
 fn make_costume() -> CostumeAggregate {
@@ -189,6 +191,8 @@ fn test_add_detail_success() {
                 id: agg.id,
                 detail: CostumeDetail {
                     id: did,
+                    subject: None,
+                    category_id: None,
                     text: "silk".to_string(),
                 },
                 version: agg.version,
@@ -211,6 +215,8 @@ fn test_remove_detail_success() {
                 id: agg.id,
                 detail: CostumeDetail {
                     id: did,
+                    subject: None,
+                    category_id: None,
                     text: "x".to_string(),
                 },
                 version: agg.version,
@@ -407,4 +413,58 @@ fn test_unlink_photo_uses_negation() {
         result.is_ok(),
         "unlinking a linked photo should succeed (guards ! negation)"
     );
+}
+
+#[test]
+fn test_add_detail_accepts_enriched_detail() {
+    let mut agg = make_costume();
+    let did = Uuid::now_v7();
+    let cat_id = CostumeCategoryId::new();
+    let events = agg
+        .handle(
+            AddDetail {
+                id: agg.id,
+                detail: CostumeDetail {
+                    id: did,
+                    subject: Some("Rote Jacke".into()),
+                    category_id: Some(cat_id),
+                    text: "Knöpfe vorne".into(),
+                },
+                version: agg.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    test_support::replay_events(&mut agg, events);
+    assert_eq!(agg.details.len(), 1);
+    let d = &agg.details[0];
+    assert_eq!(d.subject.as_deref(), Some("Rote Jacke"));
+    assert_eq!(d.category_id, Some(cat_id));
+    assert_eq!(d.text, "Knöpfe vorne");
+}
+
+#[test]
+fn test_costume_detail_view_serialises_new_slots() {
+    let view = CostumeDetailView {
+        id: Uuid::now_v7(),
+        subject: Some("Rote Lederjacke".into()),
+        category_id: Some(CostumeCategoryId::new()),
+        category_name: Some("Jacke".into()),
+        text: "Knöpfe vorne".into(),
+    };
+    let value = serde_json::to_value(&view).expect("CostumeDetailView serializes");
+    assert_eq!(value["subject"], "Rote Lederjacke");
+    assert!(value["category_id"].is_string());
+    assert_eq!(value["category_name"], "Jacke");
+    assert_eq!(value["text"], "Knöpfe vorne");
+}
+
+#[test]
+fn test_legacy_detail_event_deserialises_with_defaults() {
+    // A pre-change DetailAdded payload carrying only id + text.
+    let json = r#"{"id":"11111111-1111-1111-1111-111111111111","text":"old text"}"#;
+    let detail: CostumeDetail = serde_json::from_str(json).expect("legacy detail parses");
+    assert_eq!(detail.subject, None);
+    assert_eq!(detail.category_id, None);
+    assert_eq!(detail.text, "old text");
 }

@@ -293,6 +293,8 @@ async fn costumes_with_details_returns_data() -> Result<()> {
             id: costume_id,
             detail: CostumeDetail {
                 id: detail_id,
+                subject: None,
+                category_id: None,
                 text: "Sleeve".into(),
             },
             version: ver,

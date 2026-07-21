@@ -10,19 +10,21 @@ use breakdown_core::audit::AuditRepository;
 use breakdown_core::block::{BlockCommands, BlockRepository};
 use breakdown_core::character::{CharacterCommands, CharacterRepository};
 use breakdown_core::costume::{CostumeCommands, CostumeRepository};
+use breakdown_core::costume_category::{CostumeCategoryCommands, CostumeCategoryRepository};
 use breakdown_core::episode::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::membership::{MembershipCommands, MembershipRepository};
 use breakdown_core::scene::{SceneCommands, SceneRepository};
 use breakdown_core::season::{SeasonCommands, SeasonRepository};
 use breakdown_core::shooting_day::{ShootingDayCommands, ShootingDayRepository};
 use infra::event_store::{
-    BlockCommandsImpl, CharacterCommandsImpl, CostumeCommandsImpl, EpisodeCommandsImpl,
-    MembershipCommandsImpl, SceneCommandsImpl, SeasonCommandsImpl, ShootingDayCommandsImpl,
+    BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl, CostumeCommandsImpl,
+    EpisodeCommandsImpl, MembershipCommandsImpl, SceneCommandsImpl, SeasonCommandsImpl,
+    ShootingDayCommandsImpl,
 };
 use infra::queries::{
-    AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl, CostumeRepositoryImpl,
-    EpisodeRepositoryImpl, MembershipRepositoryImpl, SceneRepositoryImpl, SeasonRepositoryImpl,
-    ShootingDayRepositoryImpl,
+    AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl, CostumeCategoryRepositoryImpl,
+    CostumeRepositoryImpl, EpisodeRepositoryImpl, MembershipRepositoryImpl, SceneRepositoryImpl,
+    SeasonRepositoryImpl, ShootingDayRepositoryImpl,
 };
 
 /// The hexagonal seam surface used by API handlers. Production implements it
@@ -36,6 +38,8 @@ pub trait Ports: Clone + Send + Sync + 'static {
     type CharacterRepo: CharacterRepository;
     type CostumeCommands: CostumeCommands;
     type CostumeRepo: CostumeRepository;
+    type CostumeCategoryCommands: CostumeCategoryCommands;
+    type CostumeCategoryRepo: CostumeCategoryRepository;
     type SeasonCommands: SeasonCommands;
     type SeasonRepo: SeasonRepository;
     type BlockCommands: BlockCommands;
@@ -54,6 +58,8 @@ pub trait Ports: Clone + Send + Sync + 'static {
     fn character_repo(&self) -> &Self::CharacterRepo;
     fn costume_commands(&self) -> &Self::CostumeCommands;
     fn costume_repo(&self) -> &Self::CostumeRepo;
+    fn costume_category_commands(&self) -> &Self::CostumeCategoryCommands;
+    fn costume_category_repo(&self) -> &Self::CostumeCategoryRepo;
     fn season_commands(&self) -> &Self::SeasonCommands;
     fn season_repo(&self) -> &Self::SeasonRepo;
     fn block_commands(&self) -> &Self::BlockCommands;
@@ -88,6 +94,8 @@ pub struct ProductionPorts {
     character_repo: CharacterRepositoryImpl,
     costume_commands: CostumeCommandsImpl,
     costume_repo: CostumeRepositoryImpl,
+    costume_category_commands: CostumeCategoryCommandsImpl,
+    costume_category_repo: CostumeCategoryRepositoryImpl,
     season_commands: SeasonCommandsImpl,
     season_repo: SeasonRepositoryImpl,
     block_commands: BlockCommandsImpl,
@@ -110,6 +118,8 @@ impl ProductionPorts {
         character_repo: CharacterRepositoryImpl,
         costume_commands: CostumeCommandsImpl,
         costume_repo: CostumeRepositoryImpl,
+        costume_category_commands: CostumeCategoryCommandsImpl,
+        costume_category_repo: CostumeCategoryRepositoryImpl,
         season_commands: SeasonCommandsImpl,
         season_repo: SeasonRepositoryImpl,
         block_commands: BlockCommandsImpl,
@@ -129,6 +139,8 @@ impl ProductionPorts {
             character_repo,
             costume_commands,
             costume_repo,
+            costume_category_commands,
+            costume_category_repo,
             season_commands,
             season_repo,
             block_commands,
@@ -151,6 +163,8 @@ impl Ports for ProductionPorts {
     type CharacterRepo = CharacterRepositoryImpl;
     type CostumeCommands = CostumeCommandsImpl;
     type CostumeRepo = CostumeRepositoryImpl;
+    type CostumeCategoryCommands = CostumeCategoryCommandsImpl;
+    type CostumeCategoryRepo = CostumeCategoryRepositoryImpl;
     type SeasonCommands = SeasonCommandsImpl;
     type SeasonRepo = SeasonRepositoryImpl;
     type BlockCommands = BlockCommandsImpl;
@@ -184,6 +198,12 @@ impl Ports for ProductionPorts {
     }
     fn costume_repo(&self) -> &Self::CostumeRepo {
         &self.costume_repo
+    }
+    fn costume_category_commands(&self) -> &Self::CostumeCategoryCommands {
+        &self.costume_category_commands
+    }
+    fn costume_category_repo(&self) -> &Self::CostumeCategoryRepo {
+        &self.costume_category_repo
     }
     fn season_commands(&self) -> &Self::SeasonCommands {
         &self.season_commands

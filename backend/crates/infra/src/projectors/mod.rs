@@ -10,17 +10,19 @@ mod audit;
 mod block;
 mod character;
 mod costume;
+mod costume_category;
 mod episode;
 mod membership;
 mod scene;
 mod season;
 mod shooting_day;
-mod supervisor;
+pub(crate) mod supervisor;
 
 pub use audit::AuditProjector;
 pub use block::BlockProjector;
 pub use character::CharacterProjector;
 pub use costume::CostumeProjector;
+pub use costume_category::CostumeCategoryProjector;
 pub use episode::EpisodeProjector;
 pub use membership::MembershipProjector;
 pub use scene::SceneProjector;
@@ -33,6 +35,7 @@ use anyhow::{self, Result};
 use breakdown_core::block::aggregate::BlockAggregate;
 use breakdown_core::character::aggregate::CharacterAggregate;
 use breakdown_core::costume::aggregate::CostumeAggregate;
+use breakdown_core::costume_category::aggregate::CostumeCategoryAggregate;
 use breakdown_core::episode::aggregate::EpisodeAggregate;
 use breakdown_core::membership::aggregate::BlockMembership;
 use breakdown_core::scene::aggregate::SceneAggregate;
@@ -50,6 +53,7 @@ const CHECKPOINTS_TABLE: &str = "sierradb_event_checkpoints";
 type SceneProcessor = PostgresProcessor<(SceneAggregate,), SceneProjector>;
 type CharacterProcessor = PostgresProcessor<(CharacterAggregate,), CharacterProjector>;
 type CostumeProcessor = PostgresProcessor<(CostumeAggregate,), CostumeProjector>;
+type CostumeCategoryProcessor = PostgresProcessor<(CostumeCategoryAggregate,), CostumeCategoryProjector>;
 type SeasonProcessor = PostgresProcessor<(SeasonAggregate,), SeasonProjector>;
 type BlockProcessor = PostgresProcessor<(BlockAggregate,), BlockProjector>;
 type EpisodeProcessor = PostgresProcessor<(EpisodeAggregate,), EpisodeProjector>;
@@ -148,6 +152,30 @@ pub async fn spawn_costume_projector(
     .await?;
     let actor_ref = CostumeProcessor::spawn(processor);
     run_projection_stream!(CostumeAggregate, "costume", redis_client, actor_ref.clone())?;
+    Ok(actor_ref)
+}
+
+/// Spawn the costume-category projector actor and start its SierraDB subscription loop.
+pub async fn spawn_costume_category_projector(
+    pool: PgPool,
+    redis_client: Arc<RedisClient>,
+) -> Result<ActorRef<CostumeCategoryProcessor>> {
+    let conn = redis_client.get_multiplexed_tokio_connection().await?;
+    let processor = CostumeCategoryProcessor::new(
+        pool.clone(),
+        conn,
+        CHECKPOINTS_TABLE,
+        "costume_category",
+        CostumeCategoryProjector,
+    )
+    .await?;
+    let actor_ref = CostumeCategoryProcessor::spawn(processor);
+    run_projection_stream!(
+        CostumeCategoryAggregate,
+        "costume_category",
+        redis_client,
+        actor_ref.clone()
+    )?;
     Ok(actor_ref)
 }
 

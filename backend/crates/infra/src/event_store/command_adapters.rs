@@ -19,6 +19,11 @@ use breakdown_core::costume::commands::{
     UnlinkPhoto, UpdateCostumeNotes,
 };
 use breakdown_core::costume::ports::CostumeCommands;
+use breakdown_core::costume_category::aggregate::CostumeCategoryAggregate;
+use breakdown_core::costume_category::commands::{
+    ArchiveCostumeCategory, CreateCostumeCategory, ReorderCostumeCategory, RenameCostumeCategory,
+};
+use breakdown_core::costume_category::ports::CostumeCategoryCommands;
 use breakdown_core::episode::aggregate::EpisodeAggregate;
 use breakdown_core::episode::commands::{CreateEpisode, RenameEpisode};
 use breakdown_core::episode::ports::EpisodeCommands;
@@ -523,6 +528,67 @@ impl MembershipCommands for MembershipCommandsImpl {
             .await;
         let _ = map_executed_result(Uuid::nil(), result)?;
         Ok(())
+    }
+}
+
+/// Command adapter for the CostumeCategory aggregate.
+#[derive(Clone, Debug)]
+pub struct CostumeCategoryCommandsImpl {
+    cmd_service: CommandService,
+}
+
+impl CostumeCategoryCommandsImpl {
+    pub fn new(cmd_service: CommandService) -> Self {
+        Self { cmd_service }
+    }
+}
+
+impl CostumeCategoryCommands for CostumeCategoryCommandsImpl {
+    async fn create(
+        &self,
+        cmd: CreateCostumeCategory,
+    ) -> Result<(Uuid, AggregateVersion), DomainError> {
+        let id = cmd.id;
+        let result = CostumeCategoryAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Empty)
+            .await;
+        map_executed(id, result)
+    }
+
+    async fn rename(&self, cmd: RenameCostumeCategory) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let result = CostumeCategoryAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .await;
+        map_version_only(result)
+    }
+
+    async fn reorder(
+        &self,
+        cmd: ReorderCostumeCategory,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let result = CostumeCategoryAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .await;
+        map_version_only(result)
+    }
+
+    async fn archive(
+        &self,
+        cmd: ArchiveCostumeCategory,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let result = CostumeCategoryAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .await;
+        map_version_only(result)
     }
 }
 
