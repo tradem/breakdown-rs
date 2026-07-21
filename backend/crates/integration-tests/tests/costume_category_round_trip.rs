@@ -696,7 +696,7 @@ async fn archive_category_preserves_detail_name_and_hides_from_picker() -> Resul
 
     // Wait for the archive event to be projected (replaces static sleep)
     await_category_excluded_from_list(&cat_repo, season_id, cat_id.0).await?;
-    
+
     // The costume detail still resolves the (now historical) category name.
     let view = costume_repo.find_by_id(costume_id).await?;
     let detail = view
