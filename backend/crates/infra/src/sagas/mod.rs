@@ -5,4 +5,6 @@
 
 pub mod season_seeding;
 
-pub use season_seeding::{load_default_costume_categories, spawn_season_seeding_saga, SeasonSeedingSaga};
+pub use season_seeding::{
+    SeasonSeedingSaga, load_default_costume_categories, spawn_season_seeding_saga,
+};

@@ -9,7 +9,7 @@ use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use crate::shared::{AggregateVersion, EpisodeId, LexicalSortKey, ShootingDayId};
 
 use super::commands::{
-    ArchiveShootingDay, CreateShootingDay, ReorderShootingDay, RenameShootingDay,
+    ArchiveShootingDay, CreateShootingDay, RenameShootingDay, ReorderShootingDay,
     RescheduleShootingDay,
 };
 use super::error::ShootingDayError;
@@ -87,7 +87,9 @@ impl Apply for ShootingDayAggregate {
                 self.date = date;
                 self.version = version;
             }
-            ShootingDayEvent::ShootingDayReordered { order_key, version, .. } => {
+            ShootingDayEvent::ShootingDayReordered {
+                order_key, version, ..
+            } => {
                 self.order_key = order_key;
                 self.version = version;
             }

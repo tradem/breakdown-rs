@@ -32,10 +32,7 @@ pub enum CostumeCategoryEvent {
         version: AggregateVersion,
     },
     /// Soft-archive (terminal). Historical `CostumeDetail` references survive.
-    CostumeCategoryArchived {
-        id: Uuid,
-        version: AggregateVersion,
-    },
+    CostumeCategoryArchived { id: Uuid, version: AggregateVersion },
 }
 
 impl kameo_es::EventType for CostumeCategoryEvent {

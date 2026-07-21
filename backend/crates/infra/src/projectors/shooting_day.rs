@@ -18,7 +18,9 @@ impl<'a> EventHandler<Transaction<'a, Postgres>> for ShootingDayProjector {
     type Error = sqlx::Error;
 }
 
-impl<'a> EntityEventHandler<ShootingDayAggregate, Transaction<'a, Postgres>> for ShootingDayProjector {
+impl<'a> EntityEventHandler<ShootingDayAggregate, Transaction<'a, Postgres>>
+    for ShootingDayProjector
+{
     async fn handle(
         &mut self,
         ctx: &mut Transaction<'a, Postgres>,
@@ -38,7 +40,8 @@ impl<'a> EntityEventHandler<ShootingDayAggregate, Transaction<'a, Postgres>> for
                 version,
             } => {
                 let version = version.0 as i64;
-                let source_json = serde_json::to_value(&source).expect("ShootingDaySource serializes");
+                let source_json =
+                    serde_json::to_value(&source).expect("ShootingDaySource serializes");
                 sqlx::query(
                     r#"
                     INSERT INTO projection_shooting_day
@@ -97,7 +100,11 @@ impl<'a> EntityEventHandler<ShootingDayAggregate, Transaction<'a, Postgres>> for
                 .execute(&mut **ctx)
                 .await?;
             }
-            ShootingDayEvent::ShootingDayReordered { id, order_key, version } => {
+            ShootingDayEvent::ShootingDayReordered {
+                id,
+                order_key,
+                version,
+            } => {
                 let version = version.0 as i64;
                 sqlx::query(
                     r#"

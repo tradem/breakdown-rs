@@ -8,7 +8,7 @@ use crate::scene::views::SceneView;
 use crate::shared::{AggregateVersion, EpisodeId, ShootingDayId};
 
 use super::commands::{
-    ArchiveShootingDay, CreateShootingDay, ReorderShootingDay, RenameShootingDay,
+    ArchiveShootingDay, CreateShootingDay, RenameShootingDay, ReorderShootingDay,
     RescheduleShootingDay,
 };
 use super::views::ShootingDayView;
@@ -18,13 +18,17 @@ use super::views::ShootingDayView;
 pub trait ShootingDayCommands: Send + Sync {
     /// Create a new shooting-day aggregate. Returns the id and the initial
     /// aggregate version (`AggregateVersion::INITIAL`).
-    async fn create(&self, cmd: CreateShootingDay) -> Result<(ShootingDayId, AggregateVersion), DomainError>;
+    async fn create(
+        &self,
+        cmd: CreateShootingDay,
+    ) -> Result<(ShootingDayId, AggregateVersion), DomainError>;
 
     /// Rename a shooting day.
     async fn rename(&self, cmd: RenameShootingDay) -> Result<AggregateVersion, DomainError>;
 
     /// (Re)schedule a shooting day; `None` unschedules it.
-    async fn reschedule(&self, cmd: RescheduleShootingDay) -> Result<AggregateVersion, DomainError>;
+    async fn reschedule(&self, cmd: RescheduleShootingDay)
+    -> Result<AggregateVersion, DomainError>;
 
     /// Reorder a shooting day to a new `order_key`.
     async fn reorder(&self, cmd: ReorderShootingDay) -> Result<AggregateVersion, DomainError>;
@@ -43,7 +47,10 @@ pub trait ShootingDayRepository: Send + Sync {
     ///
     /// Archived days are intentionally excluded so this query can serve the
     /// scheduling picker without leaking hidden entries.
-    async fn list_by_episode(&self, episode_id: EpisodeId) -> Result<Vec<ShootingDayView>, DomainError>;
+    async fn list_by_episode(
+        &self,
+        episode_id: EpisodeId,
+    ) -> Result<Vec<ShootingDayView>, DomainError>;
 
     /// Reverse query: all scenes filming on a given ShootingDay, joined via
     /// `projection_scene_shooting_day`.

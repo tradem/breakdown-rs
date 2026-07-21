@@ -90,7 +90,11 @@ impl<'a> EntityEventHandler<CostumeCategoryAggregate, Transaction<'a, Postgres>>
                 .execute(&mut **ctx)
                 .await?;
             }
-            CostumeCategoryEvent::CostumeCategoryReordered { id, order_key, version } => {
+            CostumeCategoryEvent::CostumeCategoryReordered {
+                id,
+                order_key,
+                version,
+            } => {
                 let version = version.0 as i64;
                 sqlx::query(
                     r#"

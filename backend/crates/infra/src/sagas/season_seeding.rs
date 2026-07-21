@@ -62,11 +62,16 @@ pub fn load_default_costume_categories() -> Vec<String> {
         }
     }
 
-    const EMBEDDED: &str =
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../config/default_costume_categories.toml"));
+    const EMBEDDED: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/default_costume_categories.toml"
+    ));
     match toml::from_str::<DefaultCostumeCategoriesToml>(EMBEDDED) {
         Ok(cfg) => cfg.names,
-        Err(_) => DEFAULT_SEED_FALLBACK.iter().map(|s| s.to_string()).collect(),
+        Err(_) => DEFAULT_SEED_FALLBACK
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
     }
 }
 
@@ -169,16 +174,16 @@ impl EventProcessor<(SeasonAggregate,), SeasonSeedingSaga> for SeasonSeedingSaga
         if event.stream_id.category() != SeasonAggregate::category() {
             return Ok(());
         }
-        let id = event.entity_id::<SeasonAggregate>().map_err(|_| {
-            EventHandlerError::ParseID(event.stream_id.cardinal_id().to_string())
-        })?;
-        let event = event.as_entity::<SeasonAggregate>().map_err(|(event, err)| {
-            EventHandlerError::DeserializeEvent {
+        let id = event
+            .entity_id::<SeasonAggregate>()
+            .map_err(|_| EventHandlerError::ParseID(event.stream_id.cardinal_id().to_string()))?;
+        let event = event
+            .as_entity::<SeasonAggregate>()
+            .map_err(|(event, err)| EventHandlerError::DeserializeEvent {
                 entity: SeasonAggregate::category(),
                 event: event.name,
                 err,
-            }
-        })?;
+            })?;
         EntityEventHandler::<SeasonAggregate, ()>::handle(self, &mut (), id, event)
             .await
             .map_err(EventHandlerError::Handler)
@@ -222,10 +227,12 @@ mod tests {
     use std::sync::Mutex;
 
     use breakdown_core::costume_category::commands::{
-        ArchiveCostumeCategory, CreateCostumeCategory, ReorderCostumeCategory,
-        RenameCostumeCategory,
+        ArchiveCostumeCategory, CreateCostumeCategory, RenameCostumeCategory,
+        ReorderCostumeCategory,
     };
-    use breakdown_core::costume_category::ports::{CostumeCategoryCommands, CostumeCategoryRepository};
+    use breakdown_core::costume_category::ports::{
+        CostumeCategoryCommands, CostumeCategoryRepository,
+    };
     use breakdown_core::costume_category::views::CostumeCategoryView;
     use breakdown_core::error::DomainError;
     use breakdown_core::shared::{AggregateVersion, SeasonId};

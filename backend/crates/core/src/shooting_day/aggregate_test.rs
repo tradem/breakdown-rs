@@ -45,9 +45,7 @@ fn test_create_shooting_day_success() {
     let events = result.unwrap();
     assert_eq!(events.len(), 1);
     match events.into_iter().next().unwrap() {
-        ShootingDayEvent::ShootingDayCreated {
-            version, ..
-        } => {
+        ShootingDayEvent::ShootingDayCreated { version, .. } => {
             assert_eq!(version, AggregateVersion::INITIAL);
         }
         _ => panic!("Expected ShootingDayCreated"),

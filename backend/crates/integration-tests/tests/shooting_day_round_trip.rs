@@ -32,9 +32,7 @@ use breakdown_core::error::DomainError;
 use breakdown_core::scene::events::{SceneDetails, SceneEvent};
 use breakdown_core::scene::ports::SceneRepository as _;
 use breakdown_core::scene::views::SceneView;
-use breakdown_core::shared::{
-    AggregateVersion, EpisodeId, LexicalSortKey, ShootingDayId,
-};
+use breakdown_core::shared::{AggregateVersion, EpisodeId, LexicalSortKey, ShootingDayId};
 use breakdown_core::shooting_day::events::{ShootingDayEvent, ShootingDaySource};
 use breakdown_core::shooting_day::ports::ShootingDayRepository as _;
 use breakdown_core::shooting_day::views::ShootingDayView;
@@ -135,10 +133,7 @@ async fn await_shooting_day_archived(
     }
 }
 
-async fn await_scene_found(
-    repo: &SceneRepositoryImpl,
-    scene_id: Uuid,
-) -> Result<SceneView> {
+async fn await_scene_found(repo: &SceneRepositoryImpl, scene_id: Uuid) -> Result<SceneView> {
     let deadline = Instant::now() + PROJECTION_DEADLINE;
     loop {
         match repo.find_by_id(scene_id).await {
@@ -198,9 +193,7 @@ async fn await_scene_links(
     let deadline = Instant::now() + PROJECTION_DEADLINE;
     loop {
         match repo.find_by_id(scene_id).await {
-            Ok(view) if view.shooting_day_ids.iter().any(|s| *s == sd_id) => {
-                return Ok(view)
-            }
+            Ok(view) if view.shooting_day_ids.iter().any(|s| *s == sd_id) => return Ok(view),
             Ok(_) if Instant::now() < deadline => tokio::time::sleep(POLL_INTERVAL).await,
             Ok(_) => bail!(
                 "projection lag: Scene({scene_id}) did not link ShootingDay({sd_id}) within {PROJECTION_DEADLINE:?}"
@@ -263,7 +256,14 @@ async fn eappend_shooting_day_created_round_trips_into_list() -> Result<()> {
         version: AggregateVersion::INITIAL,
     };
     let payload = encode_event(&created)?;
-    eappend(&redis_client, &stream_id, "ShootingDayCreated", "EMPTY", &payload).await?;
+    eappend(
+        &redis_client,
+        &stream_id,
+        "ShootingDayCreated",
+        "EMPTY",
+        &payload,
+    )
+    .await?;
 
     // find_by_id resolves.
     let view = await_shooting_day_found(&repo, id).await?;
@@ -310,13 +310,20 @@ async fn eappend_schedule_scene_links_join_and_reverse_query() -> Result<()> {
             location: Some("Berlin".into()),
             mood: Some("dark".into()),
             is_schedule_set: true,
-summary: None,
+            summary: None,
         },
         assigned_characters: vec![],
         version: AggregateVersion::INITIAL,
     };
     let payload = encode_event(&scene_created)?;
-    eappend(&redis_client, &scene_stream, "SceneCreated", "EMPTY", &payload).await?;
+    eappend(
+        &redis_client,
+        &scene_stream,
+        "SceneCreated",
+        "EMPTY",
+        &payload,
+    )
+    .await?;
     let scene = await_scene_found(&scene_repo, scene_id).await?;
     assert!(scene.shooting_day_ids.is_empty());
 
@@ -333,7 +340,14 @@ summary: None,
         version: AggregateVersion::INITIAL,
     };
     let payload = encode_event(&sd_created)?;
-    eappend(&redis_client, &sd_stream, "ShootingDayCreated", "EMPTY", &payload).await?;
+    eappend(
+        &redis_client,
+        &sd_stream,
+        "ShootingDayCreated",
+        "EMPTY",
+        &payload,
+    )
+    .await?;
     await_shooting_day_found(&sd_repo, sd_id).await?;
 
     // Schedule the scene onto the shooting day (ShootingDayScheduled on the SCENE stream).
@@ -343,7 +357,14 @@ summary: None,
         version: AggregateVersion(1),
     };
     let payload = encode_event(&scheduled)?;
-    eappend(&redis_client, &scene_stream, "ShootingDayScheduled", "0", &payload).await?;
+    eappend(
+        &redis_client,
+        &scene_stream,
+        "ShootingDayScheduled",
+        "0",
+        &payload,
+    )
+    .await?;
 
     // Scene view gains the shooting_day_id once the projector applies
     // ShootingDayScheduled. The Scene and ShootingDay projectors run
@@ -392,13 +413,20 @@ async fn eappend_archive_while_referenced_hides_from_picker_keeps_link() -> Resu
             location: Some("Studio".into()),
             mood: Some("neutral".into()),
             is_schedule_set: false,
-summary: None,
+            summary: None,
         },
         assigned_characters: vec![],
         version: AggregateVersion::INITIAL,
     };
     let payload = encode_event(&scene_created)?;
-    eappend(&redis_client, &scene_stream, "SceneCreated", "EMPTY", &payload).await?;
+    eappend(
+        &redis_client,
+        &scene_stream,
+        "SceneCreated",
+        "EMPTY",
+        &payload,
+    )
+    .await?;
     await_scene_found(&scene_repo, scene_id).await?;
 
     let sd_id = ShootingDayId::new();
@@ -413,7 +441,14 @@ summary: None,
         version: AggregateVersion::INITIAL,
     };
     let payload = encode_event(&sd_created)?;
-    eappend(&redis_client, &sd_stream, "ShootingDayCreated", "EMPTY", &payload).await?;
+    eappend(
+        &redis_client,
+        &sd_stream,
+        "ShootingDayCreated",
+        "EMPTY",
+        &payload,
+    )
+    .await?;
     await_shooting_day_found(&sd_repo, sd_id).await?;
 
     // Link the scene to the shooting day (wait for the scheduled event to project).
@@ -423,7 +458,14 @@ summary: None,
         version: AggregateVersion(1),
     };
     let payload = encode_event(&scheduled)?;
-    eappend(&redis_client, &scene_stream, "ShootingDayScheduled", "0", &payload).await?;
+    eappend(
+        &redis_client,
+        &scene_stream,
+        "ShootingDayScheduled",
+        "0",
+        &payload,
+    )
+    .await?;
     let scene = await_scene_links(&scene_repo, scene_id, sd_id).await?;
     assert_eq!(scene.shooting_day_ids, vec![sd_id]);
 
@@ -433,7 +475,14 @@ summary: None,
         version: AggregateVersion(1),
     };
     let payload = encode_event(&archived)?;
-    eappend(&redis_client, &sd_stream, "ShootingDayArchived", "0", &payload).await?;
+    eappend(
+        &redis_client,
+        &sd_stream,
+        "ShootingDayArchived",
+        "0",
+        &payload,
+    )
+    .await?;
 
     // The day becomes archived (still resolvable by id).
     let archived_view = await_shooting_day_archived(&sd_repo, sd_id).await?;
@@ -445,7 +494,10 @@ summary: None,
 
     // The day is hidden from the scheduling picker (archived excluded).
     let list = sd_repo.list_by_episode(episode_id).await?;
-    assert!(!list.iter().any(|v| v.id == sd_id), "archived day must be excluded from list");
+    assert!(
+        !list.iter().any(|v| v.id == sd_id),
+        "archived day must be excluded from list"
+    );
 
     // The reverse query still resolves the linked scene.
     let scenes = sd_repo.scenes_by_shooting_day(sd_id).await?;

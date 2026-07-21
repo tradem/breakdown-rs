@@ -53,7 +53,8 @@ const CHECKPOINTS_TABLE: &str = "sierradb_event_checkpoints";
 type SceneProcessor = PostgresProcessor<(SceneAggregate,), SceneProjector>;
 type CharacterProcessor = PostgresProcessor<(CharacterAggregate,), CharacterProjector>;
 type CostumeProcessor = PostgresProcessor<(CostumeAggregate,), CostumeProjector>;
-type CostumeCategoryProcessor = PostgresProcessor<(CostumeCategoryAggregate,), CostumeCategoryProjector>;
+type CostumeCategoryProcessor =
+    PostgresProcessor<(CostumeCategoryAggregate,), CostumeCategoryProjector>;
 type SeasonProcessor = PostgresProcessor<(SeasonAggregate,), SeasonProjector>;
 type BlockProcessor = PostgresProcessor<(BlockAggregate,), BlockProjector>;
 type EpisodeProcessor = PostgresProcessor<(EpisodeAggregate,), EpisodeProjector>;

@@ -31,7 +31,7 @@ use breakdown_core::shared::{
     AggregateVersion, CostumeCategoryId, LexicalSortKey, SeasonId, SeriesId,
 };
 use chrono::Utc;
-use infra::queries::{CostumeRepositoryImpl, CostumeCategoryRepositoryImpl};
+use infra::queries::{CostumeCategoryRepositoryImpl, CostumeRepositoryImpl};
 use uuid::Uuid;
 
 const PROJECTION_DEADLINE: Duration = Duration::from_secs(15);
@@ -107,10 +107,7 @@ async fn await_category_list(
     }
 }
 
-async fn await_costume_found(
-    repo: &CostumeRepositoryImpl,
-    id: Uuid,
-) -> Result<CostumeView> {
+async fn await_costume_found(repo: &CostumeRepositoryImpl, id: Uuid) -> Result<CostumeView> {
     let deadline = Instant::now() + PROJECTION_DEADLINE;
     loop {
         match repo.find_by_id(id).await {
@@ -119,9 +116,39 @@ async fn await_costume_found(
                 tokio::time::sleep(POLL_INTERVAL).await;
             }
             Err(breakdown_core::error::DomainError::NotFound(_)) => {
+                bail!("projection lag: Costume({id}) not projected within {PROJECTION_DEADLINE:?}");
+            }
+            Err(other) => return Err(anyhow!(other.to_string())),
+        }
+    }
+}
+
+/// Wait until a costume is projected with at least `min_details` detail rows.
+/// This handles the eventual-consistency gap between `CostumeCreated` (0
+/// details) and the subsequent `DetailAdded` events on the same stream.
+async fn await_costume_with_details(
+    repo: &CostumeRepositoryImpl,
+    id: Uuid,
+    min_details: usize,
+) -> Result<CostumeView> {
+    let deadline = Instant::now() + PROJECTION_DEADLINE;
+    loop {
+        match repo.find_by_id(id).await {
+            Ok(view) if view.details.len() >= min_details => return Ok(view),
+            Ok(_) if Instant::now() < deadline => {
+                tokio::time::sleep(POLL_INTERVAL).await;
+            }
+            Ok(view) => {
                 bail!(
-                    "projection lag: Costume({id}) not projected within {PROJECTION_DEADLINE:?}"
+                    "projection lag: Costume({id}) has {} details, expected >= {min_details} within {PROJECTION_DEADLINE:?}",
+                    view.details.len()
                 );
+            }
+            Err(breakdown_core::error::DomainError::NotFound(_)) if Instant::now() < deadline => {
+                tokio::time::sleep(POLL_INTERVAL).await;
+            }
+            Err(breakdown_core::error::DomainError::NotFound(_)) => {
+                bail!("projection lag: Costume({id}) not projected within {PROJECTION_DEADLINE:?}");
             }
             Err(other) => return Err(anyhow!(other.to_string())),
         }
@@ -346,17 +373,14 @@ async fn costume_detail_carries_subject_category_id_and_resolved_name() -> Resul
         version: AggregateVersion(1),
     };
     let payload = encode_event(&detail_added)?;
-    eappend(
-        &redis_client,
-        &costume_stream,
-        "DetailAdded",
-        "0",
-        &payload,
-    )
-    .await?;
+    eappend(&redis_client, &costume_stream, "DetailAdded", "0", &payload).await?;
 
     let view = await_costume_found(&costume_repo, costume_id).await?;
-    assert_eq!(view.details.len(), 1, "costume should have exactly one detail");
+    assert_eq!(
+        view.details.len(),
+        1,
+        "costume should have exactly one detail"
+    );
     let detail = &view.details[0];
     assert_eq!(detail.id, detail_id);
     assert_eq!(detail.subject.as_deref(), Some("Kopf"));
@@ -419,7 +443,10 @@ async fn costume_category_projector_is_idempotent_under_redelivery() -> Result<(
     assert_eq!(list[0].id, id.0);
 
     let count = repo.count_for_season(season_id).await?;
-    assert_eq!(count, 1, "count must reflect exactly one projected category");
+    assert_eq!(
+        count, 1,
+        "count must reflect exactly one projected category"
+    );
 
     Ok(())
 }
@@ -436,11 +463,23 @@ async fn await_costume_detail_category_name(
 ) -> Result<()> {
     let deadline = Instant::now() + PROJECTION_DEADLINE;
     loop {
-        let view = repo.find_by_id(costume_id).await?;
-        if let Some(detail) = view.details.iter().find(|d| d.id == detail_id) {
-            if detail.category_name.as_deref() == Some(expected) {
-                return Ok(());
+        match repo.find_by_id(costume_id).await {
+            Ok(view) => {
+                if let Some(detail) = view.details.iter().find(|d| d.id == detail_id) {
+                    if detail.category_name.as_deref() == Some(expected) {
+                        return Ok(());
+                    }
+                }
             }
+            Err(breakdown_core::error::DomainError::NotFound(_)) if Instant::now() < deadline => {
+                tokio::time::sleep(POLL_INTERVAL).await;
+            }
+            Err(breakdown_core::error::DomainError::NotFound(_)) => {
+                bail!(
+                    "projection lag: Costume({costume_id}) not projected within {PROJECTION_DEADLINE:?}"
+                );
+            }
+            Err(other) => return Err(anyhow!(other.to_string())),
         }
         if Instant::now() < deadline {
             tokio::time::sleep(POLL_INTERVAL).await;
@@ -675,6 +714,11 @@ async fn end_to_end_costume_categorisation_with_character() -> Result<()> {
     .await?;
     let _costume_ref =
         infra::projectors::spawn_costume_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    // The projection_costume table has a FK to projection_character,
+    // so we need the character projector to populate it.
+    let _char_ref =
+        infra::projectors::spawn_character_projector(pool.clone(), Arc::clone(&redis_client))
+            .await?;
 
     let cat_repo = CostumeCategoryRepositoryImpl::new(pool.clone());
     let costume_repo = CostumeRepositoryImpl::new(pool.clone());
@@ -707,15 +751,17 @@ async fn end_to_end_costume_categorisation_with_character() -> Result<()> {
         &char_stream,
         "CharacterCreated",
         "EMPTY",
-        &encode_event(&breakdown_core::character::events::CharacterEvent::CharacterCreated {
-            id: char_id,
-            season_id,
-            name: "Lena".into(),
-            category: breakdown_core::character::category::CharacterCategory::MainCast,
-            measurements: Default::default(),
-            contact_info: Default::default(),
-            version: AggregateVersion::INITIAL,
-        })?,
+        &encode_event(
+            &breakdown_core::character::events::CharacterEvent::CharacterCreated {
+                id: char_id,
+                season_id,
+                name: "Lena".into(),
+                category: breakdown_core::character::category::CharacterCategory::MainCast,
+                measurements: Default::default(),
+                contact_info: Default::default(),
+                version: AggregateVersion::INITIAL,
+            },
+        )?,
     )
     .await?;
 
@@ -769,9 +815,8 @@ async fn end_to_end_costume_categorisation_with_character() -> Result<()> {
     )
     .await?;
 
-    let view = await_costume_found(&costume_repo, costume_id).await?;
+    let view = await_costume_with_details(&costume_repo, costume_id, 1).await?;
     assert_eq!(view.character_id, Some(char_id));
-    assert_eq!(view.details.len(), 1);
     let detail = &view.details[0];
     assert_eq!(detail.category_id, Some(cat_id));
     assert_eq!(detail.category_name.as_deref(), Some("Schuhe"));

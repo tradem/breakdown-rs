@@ -14,7 +14,7 @@ use crate::error::DomainError;
 use crate::shared::{AggregateVersion, SeasonId};
 
 use super::commands::{
-    ArchiveCostumeCategory, CreateCostumeCategory, ReorderCostumeCategory, RenameCostumeCategory,
+    ArchiveCostumeCategory, CreateCostumeCategory, RenameCostumeCategory, ReorderCostumeCategory,
 };
 use super::views::CostumeCategoryView;
 
@@ -29,22 +29,13 @@ pub trait CostumeCategoryCommands: Send + Sync {
     ) -> Result<(Uuid, AggregateVersion), DomainError>;
 
     /// Rename an existing category (name only).
-    async fn rename(
-        &self,
-        cmd: RenameCostumeCategory,
-    ) -> Result<AggregateVersion, DomainError>;
+    async fn rename(&self, cmd: RenameCostumeCategory) -> Result<AggregateVersion, DomainError>;
 
     /// Move a category to a new ordering position (single key).
-    async fn reorder(
-        &self,
-        cmd: ReorderCostumeCategory,
-    ) -> Result<AggregateVersion, DomainError>;
+    async fn reorder(&self, cmd: ReorderCostumeCategory) -> Result<AggregateVersion, DomainError>;
 
     /// Soft-archive a category (terminal).
-    async fn archive(
-        &self,
-        cmd: ArchiveCostumeCategory,
-    ) -> Result<AggregateVersion, DomainError>;
+    async fn archive(&self, cmd: ArchiveCostumeCategory) -> Result<AggregateVersion, DomainError>;
 }
 
 /// Async read port returning flat `CostumeCategoryView` projections.

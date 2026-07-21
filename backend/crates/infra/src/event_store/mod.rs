@@ -6,7 +6,7 @@
 mod command_adapters;
 
 pub use command_adapters::{
-    BlockCommandsImpl, CharacterCommandsImpl, CostumeCommandsImpl, CostumeCategoryCommandsImpl,
+    BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl, CostumeCommandsImpl,
     EpisodeCommandsImpl, MembershipCommandsImpl, SceneCommandsImpl, SeasonCommandsImpl,
     ShootingDayCommandsImpl,
 };

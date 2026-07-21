@@ -3,6 +3,7 @@
 
 use super::*;
 
+#[allow(dead_code)]
 fn assert_between(a: &str, mid: &str, b: &str) {
     let ka = LexicalSortKey::new(a).unwrap();
     let kb = LexicalSortKey::new(b).unwrap();
@@ -20,7 +21,10 @@ fn key(s: &str) -> LexicalSortKey {
 #[test]
 fn midpoint_returns_exact_expected_keys() {
     // Adjacent bytes (no shared prefix): append the alphabet minimum.
-    assert_eq!(LexicalSortKey::midpoint(&key("a"), &key("b")), Ok(key("a!")));
+    assert_eq!(
+        LexicalSortKey::midpoint(&key("a"), &key("b")),
+        Ok(key("a!"))
+    );
     // Gap of >= 2 (no shared prefix): emit lo + 1.
     assert_eq!(LexicalSortKey::midpoint(&key("a"), &key("z")), Ok(key("b")));
     // Adjacent bytes with a shared prefix: append the alphabet minimum to `a`.
@@ -57,11 +61,17 @@ fn lexical_sort_key_display_roundtrip() {
 fn midpoint_rejects_unordered_bounds() {
     let a = LexicalSortKey::new("b").unwrap();
     let b = LexicalSortKey::new("a").unwrap();
-    assert_eq!(LexicalSortKey::midpoint(&a, &b), Err(LexicalSortKeyError::NoRoom));
+    assert_eq!(
+        LexicalSortKey::midpoint(&a, &b),
+        Err(LexicalSortKeyError::NoRoom)
+    );
 
     // Equal bounds have no room between them.
     let same = LexicalSortKey::new("x").unwrap();
-    assert_eq!(LexicalSortKey::midpoint(&same, &same), Err(LexicalSortKeyError::NoRoom));
+    assert_eq!(
+        LexicalSortKey::midpoint(&same, &same),
+        Err(LexicalSortKeyError::NoRoom)
+    );
 }
 
 #[test]
@@ -103,7 +113,9 @@ fn lexical_sort_key_compares_lexicographically() {
 fn shooting_day_id_display_and_parse_roundtrip() {
     let id = ShootingDayId::new();
     let s = id.to_string();
-    let back: ShootingDayId = s.parse().expect("ShootingDayId must parse its Display output");
+    let back: ShootingDayId = s
+        .parse()
+        .expect("ShootingDayId must parse its Display output");
     assert_eq!(id, back);
     assert_eq!(back.0, id.0);
     // Display is the bare UUID string.
@@ -129,7 +141,6 @@ fn midpoint_rejects_empty_bound() {
         Err(LexicalSortKeyError::Empty)
     );
 }
-
 
 #[test]
 fn shooting_day_id_from_uuid_preserves_value() {

@@ -253,12 +253,11 @@ impl CostumeProjector {
         let Some(category_id) = category_id else {
             return Ok(None);
         };
-        let name: Option<String> = sqlx::query_scalar(
-            "SELECT name FROM projection_costume_category WHERE id = $1",
-        )
-        .bind(category_id)
-        .fetch_optional(&mut **ctx)
-        .await?;
+        let name: Option<String> =
+            sqlx::query_scalar("SELECT name FROM projection_costume_category WHERE id = $1")
+                .bind(category_id)
+                .fetch_optional(&mut **ctx)
+                .await?;
         Ok(name)
     }
 

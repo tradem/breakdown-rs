@@ -21,7 +21,7 @@ use breakdown_core::costume::commands::{
 use breakdown_core::costume::ports::CostumeCommands;
 use breakdown_core::costume_category::aggregate::CostumeCategoryAggregate;
 use breakdown_core::costume_category::commands::{
-    ArchiveCostumeCategory, CreateCostumeCategory, ReorderCostumeCategory, RenameCostumeCategory,
+    ArchiveCostumeCategory, CreateCostumeCategory, RenameCostumeCategory, ReorderCostumeCategory,
 };
 use breakdown_core::costume_category::ports::CostumeCategoryCommands;
 use breakdown_core::episode::aggregate::EpisodeAggregate;
@@ -40,16 +40,16 @@ use breakdown_core::scene::commands::{
     UnscheduleSceneFromShootingDay, UpdateSceneDetails,
 };
 use breakdown_core::scene::ports::SceneCommands;
-use breakdown_core::shooting_day::aggregate::ShootingDayAggregate;
-use breakdown_core::shooting_day::commands::{
-    ArchiveShootingDay, CreateShootingDay, ReorderShootingDay, RenameShootingDay,
-    RescheduleShootingDay,
-};
-use breakdown_core::shooting_day::ports::ShootingDayCommands;
 use breakdown_core::season::aggregate::SeasonAggregate;
 use breakdown_core::season::commands::{CreateSeason, RenameSeason};
 use breakdown_core::season::ports::SeasonCommands;
 use breakdown_core::shared::{AggregateVersion, ShootingDayId, UserId};
+use breakdown_core::shooting_day::aggregate::ShootingDayAggregate;
+use breakdown_core::shooting_day::commands::{
+    ArchiveShootingDay, CreateShootingDay, RenameShootingDay, ReorderShootingDay,
+    RescheduleShootingDay,
+};
+use breakdown_core::shooting_day::ports::ShootingDayCommands;
 use kameo_es::command_service::{CommandService, ExecuteExt, ExecuteResult};
 use kameo_es::error::ExecuteError;
 use sierradb_client::{CurrentVersion, ExpectedVersion};
@@ -565,10 +565,7 @@ impl CostumeCategoryCommands for CostumeCategoryCommandsImpl {
         map_version_only(result)
     }
 
-    async fn reorder(
-        &self,
-        cmd: ReorderCostumeCategory,
-    ) -> Result<AggregateVersion, DomainError> {
+    async fn reorder(&self, cmd: ReorderCostumeCategory) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
@@ -578,10 +575,7 @@ impl CostumeCategoryCommands for CostumeCategoryCommandsImpl {
         map_version_only(result)
     }
 
-    async fn archive(
-        &self,
-        cmd: ArchiveCostumeCategory,
-    ) -> Result<AggregateVersion, DomainError> {
+    async fn archive(&self, cmd: ArchiveCostumeCategory) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;

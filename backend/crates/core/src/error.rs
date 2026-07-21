@@ -13,8 +13,8 @@ use crate::episode::error::EpisodeError;
 use crate::membership::error::MembershipError;
 use crate::scene::error::SceneError;
 use crate::season::error::SeasonError;
-use crate::shooting_day::error::ShootingDayError;
 use crate::shared::AggregateVersion;
+use crate::shooting_day::error::ShootingDayError;
 
 #[derive(Error, Debug, Clone, PartialEq)]
 pub enum DomainError {
@@ -81,18 +81,22 @@ impl From<ShootingDayError> for DomainError {
     fn from(err: ShootingDayError) -> Self {
         match err {
             ShootingDayError::ValidationError(msg) => DomainError::ValidationError(msg),
-            ShootingDayError::NotFound { id } => DomainError::NotFound(format!("ShootingDay({id})")),
+            ShootingDayError::NotFound { id } => {
+                DomainError::NotFound(format!("ShootingDay({id})"))
+            }
             ShootingDayError::ArchivedCannotBeMutated { id } => DomainError::Conflict(format!(
                 "ShootingDay({id}) is archived and cannot be mutated"
             )),
             ShootingDayError::DuplicateOrderKey(key) => {
                 DomainError::Conflict(format!("order key {key} already exists for this episode"))
             }
-            ShootingDayError::VersionMismatch { expected, actual } => DomainError::VersionConflict {
-                entity: "ShootingDay".into(),
-                expected,
-                current: actual,
-            },
+            ShootingDayError::VersionMismatch { expected, actual } => {
+                DomainError::VersionConflict {
+                    entity: "ShootingDay".into(),
+                    expected,
+                    current: actual,
+                }
+            }
         }
     }
 }

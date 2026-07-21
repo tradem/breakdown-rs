@@ -165,7 +165,7 @@ async fn scene_create() -> Result<()> {
             location: Some("Berlin".into()),
             mood: Some("dark".into()),
             is_schedule_set: true,
-summary: None,
+            summary: None,
         },
     };
 
@@ -197,7 +197,7 @@ async fn scene_update_details() -> Result<()> {
             location: Some("A".into()),
             mood: Some("A".into()),
             is_schedule_set: false,
-summary: None,
+            summary: None,
         },
     };
     let (_id, ver) = scene_cmd.create(cmd).await?;
@@ -211,7 +211,7 @@ summary: None,
                 location: Some("Updated".into()),
                 mood: Some("bright".into()),
                 is_schedule_set: true,
-summary: None,
+                summary: None,
             },
             version: ver,
         })
@@ -245,7 +245,7 @@ async fn scene_assign_remove_character() -> Result<()> {
             location: None,
             mood: None,
             is_schedule_set: false,
-summary: None,
+            summary: None,
         },
     };
     let (_id, ver) = scene_cmd.create(cmd).await?;

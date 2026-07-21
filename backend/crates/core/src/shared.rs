@@ -272,9 +272,7 @@ impl Default for AggregateVersion {
 /// `ORDER BY order_key ASC` semantics of the read model. To insert an entity
 /// between two existing siblings, use [`LexicalSortKey::midpoint`], which
 /// produces a key strictly between the two in exactly one event.
-#[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ToSchema,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ToSchema)]
 #[serde(transparent)]
 pub struct LexicalSortKey(pub String);
 

@@ -15,7 +15,10 @@ pub mod events;
 pub mod ports;
 pub mod views;
 
-pub use commands::{ArchiveShootingDay, CreateShootingDay, ReorderShootingDay, RenameShootingDay, RescheduleShootingDay};
+pub use commands::{
+    ArchiveShootingDay, CreateShootingDay, RenameShootingDay, ReorderShootingDay,
+    RescheduleShootingDay,
+};
 pub use error::ShootingDayError;
 pub use events::{ShootingDayEvent, ShootingDaySource};
 pub use ports::{ShootingDayCommands, ShootingDayRepository};

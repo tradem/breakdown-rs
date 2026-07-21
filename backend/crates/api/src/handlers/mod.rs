@@ -22,8 +22,7 @@ use breakdown_core::costume::events::CostumeDetail;
 use breakdown_core::costume::ports::{CostumeCommands, CostumeRepository};
 use breakdown_core::costume::views::CostumeView;
 use breakdown_core::costume_category::commands::{
-    ArchiveCostumeCategory, CreateCostumeCategory, ReorderCostumeCategory,
-    RenameCostumeCategory,
+    ArchiveCostumeCategory, CreateCostumeCategory, RenameCostumeCategory, ReorderCostumeCategory,
 };
 use breakdown_core::costume_category::ports::{CostumeCategoryCommands, CostumeCategoryRepository};
 use breakdown_core::costume_category::views::CostumeCategoryView;
@@ -43,17 +42,19 @@ use breakdown_core::scene::commands::{
 use breakdown_core::scene::events::SceneDetails;
 use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
 use breakdown_core::scene::views::SceneView;
+use breakdown_core::season::commands::{CreateSeason, RenameSeason};
+use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
+use breakdown_core::season::views::SeasonView;
+use breakdown_core::shared::{
+    AggregateVersion, BlockId, EpisodeId, LexicalSortKey, SeasonId, SeriesId, ShootingDayId, UserId,
+};
 use breakdown_core::shooting_day::commands::{
-    ArchiveShootingDay, CreateShootingDay, ReorderShootingDay, RenameShootingDay,
+    ArchiveShootingDay, CreateShootingDay, RenameShootingDay, ReorderShootingDay,
     RescheduleShootingDay,
 };
 use breakdown_core::shooting_day::events::ShootingDaySource;
 use breakdown_core::shooting_day::ports::{ShootingDayCommands, ShootingDayRepository};
 use breakdown_core::shooting_day::views::ShootingDayView;
-use breakdown_core::season::commands::{CreateSeason, RenameSeason};
-use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
-use breakdown_core::season::views::SeasonView;
-use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, LexicalSortKey, SeasonId, SeriesId, ShootingDayId, UserId};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
@@ -811,7 +812,10 @@ pub async fn create_shooting_day<P: Ports>(
         .create(cmd)
         .await
         .map_err(map_err)?;
-    Ok((StatusCode::CREATED, Json(IdVersionResponse { id: id.0, version })))
+    Ok((
+        StatusCode::CREATED,
+        Json(IdVersionResponse { id: id.0, version }),
+    ))
 }
 
 #[utoipa::path(
@@ -871,21 +875,33 @@ pub async fn update_shooting_day<P: Ports>(
     let cmds = state.ports.shooting_day_commands();
     if let Some(order_key) = req.order_key {
         let version = cmds
-            .reorder(ReorderShootingDay { id, order_key, version: req.version })
+            .reorder(ReorderShootingDay {
+                id,
+                order_key,
+                version: req.version,
+            })
             .await
             .map_err(map_err)?;
         return Ok((StatusCode::OK, Json(version)));
     }
     if req.date.is_some() {
         let version = cmds
-            .reschedule(RescheduleShootingDay { id, date: req.date, version: req.version })
+            .reschedule(RescheduleShootingDay {
+                id,
+                date: req.date,
+                version: req.version,
+            })
             .await
             .map_err(map_err)?;
         return Ok((StatusCode::OK, Json(version)));
     }
     if req.label.is_some() {
         let version = cmds
-            .rename(RenameShootingDay { id, label: req.label, version: req.version })
+            .rename(RenameShootingDay {
+                id,
+                label: req.label,
+                version: req.version,
+            })
             .await
             .map_err(map_err)?;
         return Ok((StatusCode::OK, Json(version)));
@@ -913,7 +929,10 @@ pub async fn archive_shooting_day<P: Ports>(
     let version = state
         .ports
         .shooting_day_commands()
-        .archive(ArchiveShootingDay { id, version: req.version })
+        .archive(ArchiveShootingDay {
+            id,
+            version: req.version,
+        })
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))

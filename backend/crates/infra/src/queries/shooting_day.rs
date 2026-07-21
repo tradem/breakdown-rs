@@ -109,7 +109,8 @@ fn map_shooting_day_row(row: sqlx::postgres::PgRow) -> Result<ShootingDayView, D
     let version: i64 = row.try_get("version").map_err(map_err)?;
     let updated_at: DateTime<Utc> = row.try_get("updated_at").map_err(map_err)?;
 
-    let order_key = LexicalSortKey::new(order_key).map_err(|e| DomainError::Conflict(e.to_string()))?;
+    let order_key =
+        LexicalSortKey::new(order_key).map_err(|e| DomainError::Conflict(e.to_string()))?;
     let source = serde_json::from_value::<ShootingDaySource>(source_json)
         .map_err(|e| DomainError::Conflict(e.to_string()))?;
 

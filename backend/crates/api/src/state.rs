@@ -22,9 +22,9 @@ use infra::event_store::{
     ShootingDayCommandsImpl,
 };
 use infra::queries::{
-    AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl, CostumeCategoryRepositoryImpl,
-    CostumeRepositoryImpl, EpisodeRepositoryImpl, MembershipRepositoryImpl, SceneRepositoryImpl,
-    SeasonRepositoryImpl, ShootingDayRepositoryImpl,
+    AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl,
+    CostumeCategoryRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl,
+    MembershipRepositoryImpl, SceneRepositoryImpl, SeasonRepositoryImpl, ShootingDayRepositoryImpl,
 };
 
 /// The hexagonal seam surface used by API handlers. Production implements it

@@ -18,8 +18,7 @@ use breakdown_core::costume::commands::{
 use breakdown_core::costume::ports::{CostumeCommands, CostumeRepository};
 use breakdown_core::costume::views::CostumeView;
 use breakdown_core::costume_category::commands::{
-    ArchiveCostumeCategory, CreateCostumeCategory, ReorderCostumeCategory,
-    RenameCostumeCategory,
+    ArchiveCostumeCategory, CreateCostumeCategory, RenameCostumeCategory, ReorderCostumeCategory,
 };
 use breakdown_core::costume_category::ports::{CostumeCategoryCommands, CostumeCategoryRepository};
 use breakdown_core::costume_category::views::CostumeCategoryView;
@@ -33,16 +32,18 @@ use breakdown_core::scene::commands::{
 };
 use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
 use breakdown_core::scene::views::SceneView;
+use breakdown_core::season::commands::{CreateSeason, RenameSeason};
+use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
+use breakdown_core::season::views::SeasonView;
+use breakdown_core::shared::{
+    AggregateVersion, BlockId, EpisodeId, SeasonId, SeriesId, ShootingDayId,
+};
 use breakdown_core::shooting_day::commands::{
-    ArchiveShootingDay, CreateShootingDay, ReorderShootingDay, RenameShootingDay,
+    ArchiveShootingDay, CreateShootingDay, RenameShootingDay, ReorderShootingDay,
     RescheduleShootingDay,
 };
 use breakdown_core::shooting_day::ports::{ShootingDayCommands, ShootingDayRepository};
 use breakdown_core::shooting_day::views::ShootingDayView;
-use breakdown_core::season::commands::{CreateSeason, RenameSeason};
-use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
-use breakdown_core::season::views::SeasonView;
-use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, SeasonId, SeriesId, ShootingDayId};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -165,22 +166,13 @@ impl CostumeCategoryCommands for FakeCostumeCategoryCommands {
     ) -> Result<(Uuid, AggregateVersion), DomainError> {
         Ok((cmd.id, AggregateVersion::INITIAL))
     }
-    async fn rename(
-        &self,
-        _cmd: RenameCostumeCategory,
-    ) -> Result<AggregateVersion, DomainError> {
+    async fn rename(&self, _cmd: RenameCostumeCategory) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
-    async fn reorder(
-        &self,
-        _cmd: ReorderCostumeCategory,
-    ) -> Result<AggregateVersion, DomainError> {
+    async fn reorder(&self, _cmd: ReorderCostumeCategory) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
-    async fn archive(
-        &self,
-        _cmd: ArchiveCostumeCategory,
-    ) -> Result<AggregateVersion, DomainError> {
+    async fn archive(&self, _cmd: ArchiveCostumeCategory) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
 }

@@ -73,7 +73,9 @@ impl Apply for CostumeCategoryAggregate {
                 self.name = name;
                 self.version = version;
             }
-            CostumeCategoryEvent::CostumeCategoryReordered { order_key, version, .. } => {
+            CostumeCategoryEvent::CostumeCategoryReordered {
+                order_key, version, ..
+            } => {
                 self.order_key = order_key;
                 self.version = version;
             }

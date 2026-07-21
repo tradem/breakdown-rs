@@ -21,9 +21,9 @@ use infra::event_store::{
     ShootingDayCommandsImpl,
 };
 use infra::queries::{
-    AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl, CostumeCategoryRepositoryImpl,
-    CostumeRepositoryImpl, EpisodeRepositoryImpl, MembershipRepositoryImpl, SceneRepositoryImpl,
-    SeasonRepositoryImpl, ShootingDayRepositoryImpl,
+    AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl,
+    CostumeCategoryRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl,
+    MembershipRepositoryImpl, SceneRepositoryImpl, SeasonRepositoryImpl, ShootingDayRepositoryImpl,
 };
 use kameo_es::command_service::CommandService;
 use opentelemetry::trace::TracerProvider as _;
@@ -150,9 +150,11 @@ async fn main() -> Result<()> {
     let _shooting_day_projector =
         infra::projectors::spawn_shooting_day_projector(pool.clone(), Arc::clone(&redis_client))
             .await?;
-    let _costume_category_projector =
-        infra::projectors::spawn_costume_category_projector(pool.clone(), Arc::clone(&redis_client))
-            .await?;
+    let _costume_category_projector = infra::projectors::spawn_costume_category_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+    )
+    .await?;
     // Event-reactor saga: seeds default costume categories on SeasonCreated.
     infra::sagas::spawn_season_seeding_saga(
         pool.clone(),
