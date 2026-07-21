@@ -15,7 +15,7 @@ use anyhow::Result;
 use breakdown_core::photo::commands::UploadPhoto;
 use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
 use breakdown_core::shared::{PhotoId, PhotoVariant};
-use fixtures::{build_storage, await_photo, spawn_garage, spawn_postgres, spawn_sierradb};
+use fixtures::{await_photo, build_storage, spawn_garage, spawn_postgres, spawn_sierradb};
 use infra::event_store::PhotoCommandsImpl;
 use infra::photo::repository::PhotoRepositoryImpl;
 use kameo_es::command_service::CommandService;

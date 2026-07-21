@@ -39,20 +39,17 @@ async fn await_photo_refcount(
     deadline: tokio::time::Instant,
 ) -> Result<()> {
     loop {
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM projection_costume_photo WHERE photo_id = $1",
-        )
-        .bind(photo_id.0)
-        .fetch_one(pool)
-        .await?;
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM projection_costume_photo WHERE photo_id = $1")
+                .bind(photo_id.0)
+                .fetch_one(pool)
+                .await?;
 
         if count == expected {
             return Ok(());
         }
         if tokio::time::Instant::now() > deadline {
-            anyhow::bail!(
-                "Timed out waiting for photo refcount {expected} (current: {count})"
-            );
+            anyhow::bail!("Timed out waiting for photo refcount {expected} (current: {count})");
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
@@ -127,11 +124,9 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
     let redis_client = Arc::clone(&sierra_client);
     let _photo_projector =
         infra::projectors::spawn_photo_projector(_pool.clone(), Arc::clone(&redis_client)).await?;
-    let _costume_projector = infra::projectors::spawn_costume_projector(
-        _pool.clone(),
-        Arc::clone(&redis_client),
-    )
-    .await?;
+    let _costume_projector =
+        infra::projectors::spawn_costume_projector(_pool.clone(), Arc::clone(&redis_client))
+            .await?;
 
     // -----------------------------------------------------------------------
     // 4. Sagas (thumbnail, deletion, bytes-cleanup)
@@ -197,9 +192,7 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
     let costume_b_id = Uuid::now_v7();
 
     let (_id_a, ver_a) = costume_commands
-        .create(CreateCostume {
-            id: costume_a_id,
-        })
+        .create(CreateCostume { id: costume_a_id })
         .await?;
     // Wait for costume A projection.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
@@ -216,9 +209,7 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
     }
 
     let (_id_b, ver_b) = costume_commands
-        .create(CreateCostume {
-            id: costume_b_id,
-        })
+        .create(CreateCostume { id: costume_b_id })
         .await?;
     // Wait for costume B projection.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
@@ -299,11 +290,13 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
 
     // Wait for the deletion saga to process: refcount → 0 → DeletePhoto
     // → PhotoBytesCleanupSaga → bytes gone.
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    // Use a generous combined deadline for the full saga chain (two
+    // SierraDB subscription hops + Garage delete_all).
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
     await_photo_refcount(&_pool, photo_id, 0, deadline).await?;
 
     // Wait for bytes to be removed from Garage.
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
     await_storage_fetch_err(&storage, photo_id, PhotoVariant::Original, deadline).await?;
 
     // -----------------------------------------------------------------------

@@ -182,9 +182,7 @@ impl Image for GarageImage {
     }
 
     fn ready_conditions(&self) -> Vec<WaitFor> {
-        vec![WaitFor::message_on_either_std(
-            "S3 API server listening on",
-        )]
+        vec![WaitFor::message_on_either_std("S3 API server listening on")]
     }
 
     fn expose_ports(&self) -> &[ContainerPort] {
@@ -202,7 +200,10 @@ impl Image for GarageImage {
     > {
         HashMap::from([
             ("GARAGE_ADMIN_TOKEN", "test_admin_token"),
-            ("GARAGE_RPC_SECRET", "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2"),
+            (
+                "GARAGE_RPC_SECRET",
+                "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2",
+            ),
             ("GARAGE_METRICS_TOKEN", "test_metrics_token"),
         ])
     }
@@ -221,7 +222,11 @@ const GARAGE_ADMIN_TOKEN: &str = "test_admin_token";
 
 /// Run a `garage` CLI command inside the container and return stdout as a string.
 async fn garage_exec(container: &ContainerAsync<GarageImage>, args: &[&str]) -> Result<String> {
-    let mut cmd = vec!["/garage".to_string(), "-c".to_string(), "/etc/garage/config.toml".to_string()];
+    let mut cmd = vec![
+        "/garage".to_string(),
+        "-c".to_string(),
+        "/etc/garage/config.toml".to_string(),
+    ];
     cmd.extend(args.iter().map(|s| s.to_string()));
     let exec = ExecCommand::new(cmd).with_env_vars([("GARAGE_ADMIN_TOKEN", GARAGE_ADMIN_TOKEN)]);
     let mut result = container.exec(exec).await?;
