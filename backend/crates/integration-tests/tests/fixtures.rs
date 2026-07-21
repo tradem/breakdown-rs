@@ -58,14 +58,15 @@ pub async fn spawn_postgres() -> Result<(PgPool, ContainerAsync<PostgresImage>)>
 fn build_postgres_container_request() -> ContainerRequest<PostgresImage> {
     let image = PostgresImage::default();
 
-    if env::var("TESTCONTAINERS_REUSE")
+    let base = if env::var("TESTCONTAINERS_REUSE")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false)
     {
         image.with_reuse(ReuseDirective::Always)
     } else {
         image.into()
-    }
+    };
+    base.with_startup_timeout(Duration::from_secs(120))
 }
 
 // ---------------------------------------------------------------------------
@@ -153,14 +154,15 @@ pub async fn spawn_sierradb() -> Result<(
 
 fn build_sierradb_container_request() -> ContainerRequest<SierraDbImage> {
     let image = SierraDbImage;
-    if env::var("TESTCONTAINERS_REUSE")
+    let base = if env::var("TESTCONTAINERS_REUSE")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false)
     {
         image.with_reuse(ReuseDirective::Always)
     } else {
         image.into()
-    }
+    };
+    base.with_startup_timeout(Duration::from_secs(120))
 }
 
 // ---------------------------------------------------------------------------
@@ -180,7 +182,7 @@ impl Image for GarageImage {
     }
 
     fn ready_conditions(&self) -> Vec<WaitFor> {
-        vec![WaitFor::message_on_stdout(
+        vec![WaitFor::message_on_either_std(
             "S3 API server listening on",
         )]
     }
@@ -219,7 +221,7 @@ const GARAGE_ADMIN_TOKEN: &str = "test_admin_token";
 
 /// Run a `garage` CLI command inside the container and return stdout as a string.
 async fn garage_exec(container: &ContainerAsync<GarageImage>, args: &[&str]) -> Result<String> {
-    let mut cmd = vec!["garage".to_string()];
+    let mut cmd = vec!["/garage".to_string(), "-c".to_string(), "/etc/garage/config.toml".to_string()];
     cmd.extend(args.iter().map(|s| s.to_string()));
     let exec = ExecCommand::new(cmd).with_env_vars([("GARAGE_ADMIN_TOKEN", GARAGE_ADMIN_TOKEN)]);
     let mut result = container.exec(exec).await?;
@@ -275,6 +277,7 @@ metrics_token = "test_metrics_token"
                 "/etc/garage",
             ))
             .with_cmd(["/garage", "-c", "/etc/garage/config.toml", "server"])
+            .with_startup_timeout(Duration::from_secs(120))
     } else {
         image
             .with_mount(Mount::bind_mount(
@@ -282,6 +285,7 @@ metrics_token = "test_metrics_token"
                 "/etc/garage",
             ))
             .with_cmd(["/garage", "-c", "/etc/garage/config.toml", "server"])
+            .with_startup_timeout(Duration::from_secs(120))
     };
 
     let container = request.start().await?;
@@ -302,17 +306,36 @@ metrics_token = "test_metrics_token"
         }
     }
 
+    // Retrieve the node ID (Garage v1.0.1 requires the actual node hex ID,
+    // not a container hostname, for layout assignment).
+    let status_out = garage_exec(&container, &["status"]).await?;
+    let node_id = status_out
+        .lines()
+        .find_map(|l| {
+            let trimmed = l.trim();
+            // Skip header/separator lines; a data line starts with a 16-char hex node ID.
+            if trimmed.starts_with("====") || trimmed.starts_with("ID") || trimmed.is_empty() {
+                return None;
+            }
+            let first = trimmed.split_whitespace().next()?;
+            if first.len() == 16 && first.chars().all(|c| c.is_ascii_hexdigit()) {
+                Some(first.to_string())
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| anyhow!("Could not parse node ID from garage status:\n{status_out}"))?;
+
     // Configure the cluster layout (single node).
-    let hostname = "test_node";
-    let _ = garage_exec(
+    garage_exec(
         &container,
-        &["layout", "assign", "-z", "dc1", "-c", "1G", hostname],
+        &["layout", "assign", "-z", "dc1", "-c", "1G", &node_id],
     )
-    .await;
+    .await?;
     garage_exec(&container, &["layout", "apply", "--version", "1"]).await?;
 
-    // Create an access key.
-    let key_out = garage_exec(&container, &["key", "new", "--name", "breakdown-test"]).await?;
+    // Create an access key (positional name; Garage v1.0.1 removed the --name flag).
+    let key_out = garage_exec(&container, &["key", "create", "breakdown-test"]).await?;
     let access_key = key_out
         .lines()
         .find_map(|l| l.trim().strip_prefix("Key ID:"))
@@ -337,9 +360,9 @@ metrics_token = "test_metrics_token"
             "--read",
             "--write",
             "--owner",
-            &bucket,
             "--key",
             &access_key,
+            &bucket,
         ],
     )
     .await?;
@@ -365,6 +388,7 @@ pub fn build_storage(creds: &GarageCredentials) -> OpenDalPhotoStorage {
         .endpoint(&creds.endpoint)
         .access_key_id(&creds.access_key)
         .secret_access_key(&creds.secret_key)
+        .region("garage")
         .bucket(&creds.bucket);
 
     let op = opendal::Operator::new(builder)
