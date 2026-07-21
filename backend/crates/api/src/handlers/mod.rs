@@ -1750,7 +1750,7 @@ pub async fn upload_costume_photo<P: Ports>(
     let costume = state
         .ports
         .costume_repo()
-        .find_by_id(Uuid::from(costume_id))
+        .find_by_id(costume_id)
         .await
         .map_err(map_err)?;
 
@@ -1806,7 +1806,7 @@ pub async fn upload_costume_photo<P: Ports>(
             content_type.clone(),
         )
         .await
-        .map_err(|e| map_err(e))?;
+        .map_err(map_err)?;
 
     // Dispatch UploadPhoto command.
     state
@@ -1819,8 +1819,8 @@ pub async fn upload_costume_photo<P: Ports>(
         })
         .await
         .map_err(|e| {
-            // Compensating delete: remove the bytes we just stored.
-            let _ = state.ports.photo_storage().delete_all(photo_id);
+            // Compensating delete: best-effort, cannot await in sync closure.
+            drop(state.ports.photo_storage().delete_all(photo_id));
             map_err(e)
         })?;
 
@@ -1836,8 +1836,8 @@ pub async fn upload_costume_photo<P: Ports>(
         })
         .await
         .map_err(|e| {
-            // Compensating delete: remove the bytes and photo event.
-            let _ = state.ports.photo_storage().delete_all(photo_id);
+            // Compensating delete: best-effort, cannot await in sync closure.
+            drop(state.ports.photo_storage().delete_all(photo_id));
             map_err(e)
         })?;
 
@@ -1880,7 +1880,7 @@ pub async fn get_costume_photo_bytes<P: Ports>(
     let costume = state
         .ports
         .costume_repo()
-        .find_by_id(Uuid::from(costume_id))
+        .find_by_id(costume_id)
         .await
         .map_err(map_err)?;
 
@@ -1983,7 +1983,7 @@ pub async fn delete_costume_photo<P: Ports>(
     let costume = state
         .ports
         .costume_repo()
-        .find_by_id(Uuid::from(costume_id))
+        .find_by_id(costume_id)
         .await
         .map_err(map_err)?;
 

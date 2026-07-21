@@ -270,14 +270,12 @@ bootstrap_peers = []
                 garage_cfg_dir.path().to_str().unwrap(),
                 "/etc/garage",
             ))
-            .into()
     } else {
         image
             .with_mount(Mount::bind_mount(
                 garage_cfg_dir.path().to_str().unwrap(),
                 "/etc/garage",
             ))
-            .into()
     };
 
     let container = request.start().await?;
