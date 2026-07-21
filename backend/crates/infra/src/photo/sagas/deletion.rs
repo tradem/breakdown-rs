@@ -48,38 +48,31 @@ impl EntityEventHandler<CostumeAggregate, ()> for PhotoDeletionSaga {
         _id: Uuid,
         event: Event<CostumeEvent, ()>,
     ) -> Result<(), Self::Error> {
-        match event.data {
-            CostumeEvent::PhotoUnlinked {
-                id: _,
-                photo_id,
-                version: _,
-            } => {
-                let photo_id = PhotoId::from_uuid(photo_id);
-                let refs = self
-                    .repo
-                    .count_links(photo_id)
+        if let CostumeEvent::PhotoUnlinked { photo_id, .. } = event.data {
+            let photo_id = PhotoId::from_uuid(photo_id);
+            let refs = self
+                .repo
+                .count_links(photo_id)
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            if refs == 0 {
+                // Fetch the current version to dispatch delete with the
+                // correct expected version.
+                let version = match self.repo.find_by_id(photo_id).await {
+                    Ok(view) => view.version,
+                    Err(_) => {
+                        // Photo not found in projections — skip.
+                        return Ok(());
+                    }
+                };
+                self.commands
+                    .delete(DeletePhoto {
+                        id: photo_id,
+                        version,
+                    })
                     .await
                     .map_err(|e| anyhow::anyhow!("{e}"))?;
-                if refs == 0 {
-                    // Fetch the current version to dispatch delete with the
-                    // correct expected version.
-                    let version = match self.repo.find_by_id(photo_id).await {
-                        Ok(view) => view.version,
-                        Err(_) => {
-                            // Photo not found in projections — skip.
-                            return Ok(());
-                        }
-                    };
-                    self.commands
-                        .delete(DeletePhoto {
-                            id: photo_id,
-                            version,
-                        })
-                        .await
-                        .map_err(|e| anyhow::anyhow!("{e}"))?;
-                }
             }
-            _ => {}
         }
         Ok(())
     }

@@ -48,16 +48,8 @@ impl EntityEventHandler<PhotoAggregate, ()> for PhotoThumbnailSaga {
         _id: PhotoId,
         event: Event<PhotoEvent, ()>,
     ) -> Result<(), Self::Error> {
-        match event.data {
-            PhotoEvent::PhotoUploaded {
-                id,
-                content_type: _,
-                size_bytes: _,
-                ..
-            } => {
-                self.process_upload(id).await?;
-            }
-            _ => {}
+        if let PhotoEvent::PhotoUploaded { id, .. } = event.data {
+            self.process_upload(id).await?;
         }
         Ok(())
     }

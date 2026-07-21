@@ -82,8 +82,8 @@ impl<'a> EntityEventHandler<PhotoAggregate, Transaction<'a, Postgres>> for Photo
             PhotoEvent::OriginalNormalized {
                 id,
                 new_size,
-                rotated: _,
                 version,
+                ..
             } => {
                 let version = version.0 as i64;
                 // Update the original variant to Ready + new size.
@@ -140,8 +140,8 @@ impl<'a> EntityEventHandler<PhotoAggregate, Transaction<'a, Postgres>> for Photo
             PhotoEvent::VariantFailed {
                 id,
                 variant,
-                error: _,
                 version,
+                ..
             } => {
                 let version = version.0 as i64;
                 sqlx::query(

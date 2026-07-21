@@ -43,14 +43,11 @@ impl EntityEventHandler<PhotoAggregate, ()> for PhotoBytesCleanupSaga {
         _id: PhotoId,
         event: Event<PhotoEvent, ()>,
     ) -> Result<(), Self::Error> {
-        match event.data {
-            PhotoEvent::PhotoDeleted { id, .. } => {
-                self.storage
-                    .delete_all(id)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("{e}"))?;
-            }
-            _ => {}
+        if let PhotoEvent::PhotoDeleted { id, .. } = event.data {
+            self.storage
+                .delete_all(id)
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
         }
         Ok(())
     }
