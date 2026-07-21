@@ -231,6 +231,8 @@ pub async fn spawn_garage() -> Result<(GarageCredentials, ContainerAsync<GarageI
     // We create one on the fly and mount it via a temp directory.
     let garage_cfg_dir = tempfile::tempdir()?;
     let config_path = garage_cfg_dir.path().join("config.toml");
+    // Write config.toml with literal values (no env var references —
+    // Garage v1.0.1 does not expand $VARIABLE in config files).
     let config_content = format!(
         r#"metadata_dir = "/tmp/garage/meta"
 data_dir = "/tmp/garage/data"
@@ -245,13 +247,13 @@ root_domain = ".s3.garage.localhost"
 
 [admin]
 api_bind_addr = "0.0.0.0:{admin_port}"
-admin_token = "$GARAGE_ADMIN_TOKEN"
-metrics_token = "$GARAGE_METRICS_TOKEN"
+admin_token = "test_admin_token"
+metrics_token = "test_metrics_token"
 
 [rpc]
 rpc_bind_addr = "0.0.0.0:{rpc_port}"
 rpc_public_addr = "127.0.0.1:{rpc_port}"
-rpc_secret = "$GARAGE_RPC_SECRET"
+rpc_secret = "test_rpc_secret"
 bootstrap_peers = []
 "#,
         s3_port = 3900,
