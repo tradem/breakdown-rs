@@ -270,11 +270,14 @@ bootstrap_peers = []
                 garage_cfg_dir.path().to_str().unwrap(),
                 "/etc/garage",
             ))
+            .with_cmd(["server", "-c", "/etc/garage/config.toml"])
     } else {
-        image.with_mount(Mount::bind_mount(
-            garage_cfg_dir.path().to_str().unwrap(),
-            "/etc/garage",
-        ))
+        image
+            .with_mount(Mount::bind_mount(
+                garage_cfg_dir.path().to_str().unwrap(),
+                "/etc/garage",
+            ))
+            .with_cmd(["server", "-c", "/etc/garage/config.toml"])
     };
 
     let container = request.start().await?;
