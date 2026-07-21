@@ -45,6 +45,25 @@ services:
       timeout: 3s
       retries: 5
 
+  garage:
+    # Garage is an S3-compatible object store for costume-photo bytes (ADR-019).
+    # Internal-only: no host port mapping; only the API binary reaches it.
+    image: dxflrs/garage:v1.0.1
+    # No ports: external access is never required.
+    environment:
+      GARAGE_ADMIN_TOKEN: ${GARAGE_ADMIN_TOKEN:-garage_admin_dev}
+      GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET:-garage_rpc_dev}
+      GARAGE_METRICS_TOKEN: ${GARAGE_METRICS_TOKEN:-garage_metrics_dev}
+    volumes:
+      - garage_dev_data:/var/lib/garage
+    healthcheck:
+      test: ["CMD-SHELL", "garage -c /etc/garage/config.toml status 2>&1 | head -1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
 volumes:
   postgres_dev_data:
   sierradb_dev_data:
+  garage_dev_data:

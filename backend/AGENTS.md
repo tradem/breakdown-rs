@@ -38,6 +38,21 @@ from `projection_costume_category` at read time. The command API lives at
 `POST/GET /seasons/{season_id}/costume-categories` (and `PATCH`/`POST .../archive` by id);
 `POST /costumes/{id}/details` now accepts the enriched `CostumeDetail`.
 
+`photo` is a bounded context (category `"photo"`) that tracks the lifecycle of costume photos
+(ADR-019). The `Photo` aggregate is event-sourced in SierraDB and stores photo metadata
+(content-type, size, variant statuses). The actual image bytes live in **Garage** (S3-compatible
+object store) accessed via OpenDAL. The `PhotoStorage` port is a **non-CQRS-split CRUD port**
+for byte storage (read and write on the same store), distinct from the command/repository split
+used by other aggregates. Three sagas react to photo events:
+- `PhotoThumbnailSaga` — on `PhotoUploaded`, fetches original bytes, decodes+re-encodes
+  EXIF-stripped, generates Thumb (200×200) and Medium (800×800) variants.
+- `PhotoDeletionSaga` — on `PhotoUnlinked` (costume stream), checks refcount via
+  `COUNT(*)` on `projection_costume_photo`; dispatches `DeletePhoto` when zero.
+- `PhotoBytesCleanupSaga` — on `PhotoDeleted`, removes all variant bytes from Garage.
+
+A periodic `PhotoGcSweepTask` (advisory-locked) reconciles Garage objects against
+`projection_photo` and deletes orphans older than `PHOTO_GC_MAX_AGE_SECS`.
+
 ## 3. Workflow & Best Practices
 - **EventStorming Mapping:** 
   1. **Event** (Past tense, e.g., `SceneCreated`) -> `enum` in `core`
@@ -159,6 +174,22 @@ apply the same migration set automatically.
 - `SIERRADB_URL` – SierraDB RESP3 connection string (default: `redis://127.0.0.1:9090/?protocol=resp3`). SierraDB speaks RESP3 only — keep `?protocol=resp3` (ADR-016).
 - `BIND_ADDR` – HTTP bind address (default: `0.0.0.0:3000`)
 - OpenAPI/Swagger UI is served at `http://localhost:3000/swagger-ui`
+
+#### Photo storage (Garage / S3)
+- `S3_ENDPOINT` – Garage S3 API endpoint (e.g. `http://garage:3900`)
+- `S3_ACCESS_KEY` – Garage access key
+- `S3_SECRET_KEY` – Garage secret key
+- `S3_BUCKET` – S3 bucket name (default: `costume-photos`)
+- `PHOTO_MAX_SIZE_MB` – maximum upload size in MB (default: `20`)
+- `PHOTO_GC_ENABLED` – enable periodic orphan GC (default: `true`)
+- `PHOTO_GC_INTERVAL_SECS` – GC sweep interval (default: `3600`)
+- `PHOTO_GC_MAX_AGE_SECS` – only sweep orphans older than this (default: `86400`)
+- `PHOTO_GC_BATCH_SIZE` – max orphans per run (default: `1000`)
+- `PHOTO_GC_DRY_RUN` – log-only mode (default: `false`; set `true` for first rollout)
+
+> **Boot sequence**: Garage must be up and provisioned (bucket + access key) before the API
+> starts. See `docker-compose.dev.yml` for the internal-only Garage service. During first
+> rollout set `PHOTO_GC_DRY_RUN=true` to observe orphan detection logs before enabling deletion.
 
 #### OIDC / authorization (added by `add-oidc-auth-and-membership`)
 - `OIDC_ISS` – IdP issuer URL (expected `iss` claim). Production-only; when

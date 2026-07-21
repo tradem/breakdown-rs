@@ -9,7 +9,7 @@
 //! [`crate::membership::MembershipRepository`]-backed implementation lives in
 //! `api::auth::authorization`.
 
-use crate::shared::{BlockId, UserId};
+use crate::shared::{BlockId, SeasonId, UserId};
 use async_trait::async_trait;
 
 /// The outcome of an authorization check.
@@ -46,6 +46,23 @@ pub struct AuthContext {
     pub action: Action,
 }
 
+/// Season-scoped authorization context for costume-photo access.
+///
+/// Unlike `AuthContext` (which targets a single block), `SeasonAuthContext`
+/// is used when access must be checked across *all* blocks in a season
+/// — the photo authorization policy (`SeasonPhotoAccessPolicy`) grants
+/// access if the user holds any costume-dept role in any active block of
+/// the season (see ADR-019, D4).
+#[derive(Debug, Clone)]
+pub struct SeasonAuthContext {
+    /// The authenticated actor (`UserId` from the OIDC `sub`).
+    pub actor: UserId,
+    /// The season whose costume photos the caller is trying to access.
+    pub season_id: SeasonId,
+    /// The kind of action being authorized.
+    pub action: Action,
+}
+
 /// The authorization policy port.
 ///
 /// Implementations are infallible: any error (e.g. a read-model failure) maps
@@ -55,4 +72,15 @@ pub struct AuthContext {
 pub trait AuthorizationPolicy: Send + Sync {
     /// Decide whether `ctx.actor` may perform `ctx.action` in `ctx.block_id`.
     async fn authorize(&self, ctx: &AuthContext) -> PolicyDecision;
+
+    /// Decide whether `ctx.actor` may access costume-photo resources in
+    /// `ctx.season_id`.
+    ///
+    /// The default implementation returns [`PolicyDecision::Deny`] so that
+    /// existing block-scoped policies continue to work without changes.
+    /// Season-scoped photo authorization is implemented by
+    /// `SeasonPhotoAccessPolicy`.
+    async fn authorize_season(&self, _ctx: &SeasonAuthContext) -> PolicyDecision {
+        PolicyDecision::Deny
+    }
 }

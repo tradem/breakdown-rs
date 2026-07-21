@@ -8,6 +8,7 @@ use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+use crate::photo::views::PhotoVariantView;
 use crate::shared::{AggregateVersion, CostumeCategoryId};
 
 /// Detailed costume element (e.g. belt, hat, shoes).
@@ -24,10 +25,16 @@ pub struct CostumeDetailView {
     pub text: String,
 }
 
-/// Linked photo reference for a costume.
+/// Linked photo reference for a costume, enriched with variant metadata.
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct CostumePhotoView {
     pub id: Uuid,
+    /// MIME type of the uploaded original (e.g. `image/jpeg`).
+    pub content_type: String,
+    /// Size of the re-encoded original in bytes.
+    pub size_bytes: u64,
+    /// Generation status and size of each variant.
+    pub variants: Vec<PhotoVariantView>,
 }
 
 /// Complete costume read model, optionally populated with child details/photos.

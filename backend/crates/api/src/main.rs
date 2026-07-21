@@ -17,8 +17,11 @@ use api::state::{AppState, Ports, ProductionPorts};
 use breakdown_core::membership::policy::AuthorizationPolicy;
 use infra::event_store::{
     BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl, CostumeCommandsImpl,
-    EpisodeCommandsImpl, MembershipCommandsImpl, SceneCommandsImpl, SeasonCommandsImpl,
-    ShootingDayCommandsImpl,
+    EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl, SceneCommandsImpl,
+    SeasonCommandsImpl, ShootingDayCommandsImpl,
+};
+use infra::photo::{
+    gc::spawn_gc_scheduler, repository::PhotoRepositoryImpl, storage::OpenDalPhotoStorage,
 };
 use infra::queries::{
     AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl,
@@ -164,6 +167,37 @@ async fn main() -> Result<()> {
     .await?;
     info!("projectors spawned");
 
+    // --- Photo storage (Garage / S3) ---
+    let photo_storage = OpenDalPhotoStorage::from_env().map_err(|e| {
+        anyhow::anyhow!("Failed to initialise OpenDalPhotoStorage: {e}. Set S3_ENDPOINT, S3_ACCESS_KEY, S3_SECRET_KEY")
+    })?;
+    let photo_commands = PhotoCommandsImpl::new(cmd_service.clone());
+    let photo_repo = PhotoRepositoryImpl::new(pool.clone());
+
+    // --- Spawn photo sagas (thumbnail, deletion, bytes-cleanup) ---
+    infra::photo::sagas::spawn_photo_thumbnail_saga(
+        photo_storage.clone(),
+        photo_commands.clone(),
+        Arc::clone(&redis_client),
+    )
+    .await?;
+    infra::photo::sagas::spawn_photo_deletion_saga(
+        photo_repo.clone(),
+        photo_commands.clone(),
+        Arc::clone(&redis_client),
+    )
+    .await?;
+    infra::photo::sagas::spawn_photo_bytes_cleanup_saga(
+        photo_storage.clone(),
+        Arc::clone(&redis_client),
+    )
+    .await?;
+    info!("photo sagas spawned");
+
+    // --- Spawn the orphan GC scheduler ---
+    spawn_gc_scheduler(pool.clone(), photo_storage.clone(), photo_repo.clone());
+    info!("photo GC scheduler spawned");
+
     let ports = ProductionPorts::new(
         SceneCommandsImpl::new(cmd_service.clone()),
         SceneRepositoryImpl::new(pool.clone()),
@@ -184,6 +218,9 @@ async fn main() -> Result<()> {
         MembershipCommandsImpl::new(cmd_service.clone()),
         MembershipRepositoryImpl::new(pool.clone()),
         AuditRepositoryImpl::new(pool.clone()),
+        photo_storage,
+        photo_commands,
+        photo_repo,
     );
     let app_state = AppState::new(ports);
 

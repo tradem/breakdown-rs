@@ -46,6 +46,12 @@ serde_json = "1.0"
 # Serialization for EAPPEND events
 serde = { workspace = true }
 
+# S3-compatible object storage via OpenDAL (Garage adapter for tests)
+opendal = { version = "0.52", features = ["services-s3"] }
+
+# Temporary files/directories for test fixture setup
+tempfile = "3"
+
 # Logging / tracing (for SierraDB/kameo_es debug output in CI)
 ciborium = "0.2"
 tracing-subscriber = { workspace = true }

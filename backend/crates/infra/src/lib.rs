@@ -18,6 +18,7 @@
 //! - `queries/`     – sqlx-Read-Queries
 
 pub mod event_store;
+pub mod photo;
 pub mod projectors;
 pub mod queries;
 pub mod sagas;

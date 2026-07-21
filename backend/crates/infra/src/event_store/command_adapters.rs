@@ -34,6 +34,11 @@ use breakdown_core::membership::commands::{
     AcceptInvitation, BootstrapOwner, GrantRole, InviteMember, LeaveBlock, RemoveMember,
 };
 use breakdown_core::membership::ports::MembershipCommands;
+use breakdown_core::photo::aggregate::PhotoAggregate;
+use breakdown_core::photo::commands::{
+    DeletePhoto, GenerateVariant, MarkVariantFailed, NormalizeOriginal, UploadPhoto,
+};
+use breakdown_core::photo::ports::PhotoCommands;
 use breakdown_core::scene::aggregate::SceneAggregate;
 use breakdown_core::scene::commands::{
     AssignCharacter, CreateScene, RemoveCharacter, ScheduleSceneOnShootingDay,
@@ -580,6 +585,78 @@ impl CostumeCategoryCommands for CostumeCategoryCommandsImpl {
         let version = cmd.version;
         check_nonzero_version(version)?;
         let result = CostumeCategoryAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .await;
+        map_version_only(result)
+    }
+}
+
+/// Command adapter for the Photo aggregate.
+#[derive(Clone, Debug)]
+pub struct PhotoCommandsImpl {
+    cmd_service: CommandService,
+}
+
+impl PhotoCommandsImpl {
+    pub fn new(cmd_service: CommandService) -> Self {
+        Self { cmd_service }
+    }
+}
+
+#[async_trait]
+impl PhotoCommands for PhotoCommandsImpl {
+    async fn upload(&self, cmd: UploadPhoto) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let result = PhotoAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Empty)
+            .await;
+        map_version_only(result)
+    }
+
+    async fn normalize_original(
+        &self,
+        cmd: NormalizeOriginal,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let result = PhotoAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .await;
+        map_version_only(result)
+    }
+
+    async fn generate_variant(
+        &self,
+        cmd: GenerateVariant,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let result = PhotoAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .await;
+        map_version_only(result)
+    }
+
+    async fn mark_variant_failed(
+        &self,
+        cmd: MarkVariantFailed,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let result = PhotoAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .await;
+        map_version_only(result)
+    }
+
+    async fn delete(&self, cmd: DeletePhoto) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let result = PhotoAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
             .await;
         map_version_only(result)
