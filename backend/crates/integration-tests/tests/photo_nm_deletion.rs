@@ -55,6 +55,26 @@ async fn await_photo_refcount(
     }
 }
 
+/// Poll the photo projection until `find_by_id` returns NotFound (row deleted).
+/// Confirms that `PhotoDeleted` was emitted and the projector removed the row.
+async fn await_photo_deleted(
+    repo: &PhotoRepositoryImpl,
+    photo_id: PhotoId,
+    deadline: tokio::time::Instant,
+) -> Result<()> {
+    loop {
+        match repo.find_by_id(photo_id).await {
+            Err(_) => return Ok(()),
+            Ok(_) if tokio::time::Instant::now() > deadline => {
+                anyhow::bail!("Timed out waiting for photo projection to be deleted");
+            }
+            Ok(_) => {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+        }
+    }
+}
+
 /// Poll `storage.fetch(photo_id, variant)` for existence check (retry on error).
 async fn await_storage_fetch_ok(
     storage: &impl PhotoStorage,
@@ -288,12 +308,19 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
         .await?;
     assert!(ver_b3.0 > ver_b2.0, "UnlinkPhoto should increase version");
 
-    // Wait for the deletion saga to process: refcount → 0 → DeletePhoto
-    // → PhotoBytesCleanupSaga → bytes gone.
-    // Use a generous combined deadline for the full saga chain (two
-    // SierraDB subscription hops + Garage delete_all).
+    // Wait for the deletion saga chain to complete:
+    //   refcount → 0  (CostumeProjector processes PhotoUnlinked)
+    //   → PhotoDeleted projected  (PhotoProjector processes DeletePhoto)
+    //   → Garage bytes deleted  (PhotoBytesCleanupSaga processes PhotoDeleted)
+    //
+    // Each hop uses its own deadline so a timeout pinpoints the slow link.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
     await_photo_refcount(&_pool, photo_id, 0, deadline).await?;
+
+    // Wait for the photo projection to be deleted (confirms DeletePhoto
+    // was emitted and projected; the bytes saga runs on the same stream).
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    await_photo_deleted(&photo_repo, photo_id, deadline).await?;
 
     // Wait for bytes to be removed from Garage.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(60);

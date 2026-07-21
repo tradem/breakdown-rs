@@ -19,7 +19,7 @@ use breakdown_core::error::DomainError;
 use breakdown_core::photo::ports::PhotoRepository;
 use breakdown_core::photo::views::PhotoView;
 use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
-use breakdown_core::shared::{PhotoId, PhotoVariant};
+use breakdown_core::shared::PhotoId;
 use infra::photo::repository::PhotoRepositoryImpl;
 use infra::photo::storage::OpenDalPhotoStorage;
 use redis::Client as RedisClient;
