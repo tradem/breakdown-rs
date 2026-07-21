@@ -15,45 +15,10 @@ use anyhow::Result;
 use breakdown_core::photo::commands::UploadPhoto;
 use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
 use breakdown_core::shared::{PhotoId, PhotoVariant};
-use fixtures::{GarageCredentials, spawn_garage, spawn_postgres, spawn_sierradb};
+use fixtures::{build_storage, await_photo, spawn_garage, spawn_postgres, spawn_sierradb};
 use infra::event_store::PhotoCommandsImpl;
 use infra::photo::repository::PhotoRepositoryImpl;
-use infra::photo::storage::OpenDalPhotoStorage;
 use kameo_es::command_service::CommandService;
-
-/// Build a storage adapter from test Garage credentials.
-fn build_storage(creds: &GarageCredentials) -> OpenDalPhotoStorage {
-    let builder = opendal::services::S3::default()
-        .endpoint(&creds.endpoint)
-        .access_key_id(&creds.access_key)
-        .secret_access_key(&creds.secret_key)
-        .bucket(&creds.bucket);
-
-    let op = opendal::Operator::new(builder)
-        .expect("Failed to build S3 operator")
-        .finish();
-
-    OpenDalPhotoStorage::new(op)
-}
-
-/// Await a photo view from the projection (retry on NotFound).
-async fn await_photo(
-    repo: &PhotoRepositoryImpl,
-    photo_id: PhotoId,
-    deadline: tokio::time::Instant,
-) -> Result<breakdown_core::photo::views::PhotoView> {
-    loop {
-        match repo.find_by_id(photo_id).await {
-            Ok(view) => return Ok(view),
-            Err(_) if tokio::time::Instant::now() > deadline => {
-                anyhow::bail!("Timed out waiting for photo projection");
-            }
-            Err(_) => {
-                tokio::time::sleep(Duration::from_millis(200)).await;
-            }
-        }
-    }
-}
 
 #[tokio::test]
 async fn photo_upload_then_delete_round_trip() -> Result<()> {

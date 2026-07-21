@@ -16,7 +16,12 @@ use std::time::Duration;
 
 use anyhow::{Result, anyhow};
 use breakdown_core::error::DomainError;
+use breakdown_core::photo::ports::PhotoRepository;
+use breakdown_core::photo::views::PhotoView;
 use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
+use breakdown_core::shared::{PhotoId, PhotoVariant};
+use infra::photo::repository::PhotoRepositoryImpl;
+use infra::photo::storage::OpenDalPhotoStorage;
 use redis::Client as RedisClient;
 use sqlx::PgPool;
 use testcontainers::core::{ContainerPort, ExecCommand, Mount, WaitFor};
@@ -175,8 +180,8 @@ impl Image for GarageImage {
     }
 
     fn ready_conditions(&self) -> Vec<WaitFor> {
-        vec![WaitFor::message_on_either_std(
-            r"garage\(main\).*listening on",
+        vec![WaitFor::message_on_stdout(
+            "S3 API server listening on",
         )]
     }
 
@@ -195,7 +200,7 @@ impl Image for GarageImage {
     > {
         HashMap::from([
             ("GARAGE_ADMIN_TOKEN", "test_admin_token"),
-            ("GARAGE_RPC_SECRET", "test_rpc_secret"),
+            ("GARAGE_RPC_SECRET", "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2"),
             ("GARAGE_METRICS_TOKEN", "test_metrics_token"),
         ])
     }
@@ -243,12 +248,14 @@ replication_mode = "none"
 
 rpc_bind_addr = "0.0.0.0:{rpc_port}"
 rpc_public_addr = "127.0.0.1:{rpc_port}"
-rpc_secret = "test_rpc_secret"
+rpc_secret = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2"
 bootstrap_peers = []
 
-s3_region = "garage"
+[s3_api]
 api_bind_addr = "0.0.0.0:{s3_port}"
+s3_region = "garage"
 
+[admin]
 admin_token = "test_admin_token"
 metrics_token = "test_metrics_token"
 "#,
@@ -346,6 +353,44 @@ metrics_token = "test_metrics_token"
         },
         container,
     ))
+}
+
+// ---------------------------------------------------------------------------
+// Shared photo-test helpers
+// ---------------------------------------------------------------------------
+
+/// Build a storage adapter from test Garage credentials.
+pub fn build_storage(creds: &GarageCredentials) -> OpenDalPhotoStorage {
+    let builder = opendal::services::S3::default()
+        .endpoint(&creds.endpoint)
+        .access_key_id(&creds.access_key)
+        .secret_access_key(&creds.secret_key)
+        .bucket(&creds.bucket);
+
+    let op = opendal::Operator::new(builder)
+        .expect("Failed to build S3 operator")
+        .finish();
+
+    OpenDalPhotoStorage::new(op)
+}
+
+/// Await a photo view from the projection (retry on NotFound).
+pub async fn await_photo(
+    repo: &PhotoRepositoryImpl,
+    photo_id: PhotoId,
+    deadline: tokio::time::Instant,
+) -> Result<PhotoView> {
+    loop {
+        match repo.find_by_id(photo_id).await {
+            Ok(view) => return Ok(view),
+            Err(_) if tokio::time::Instant::now() > deadline => {
+                anyhow::bail!("Timed out waiting for photo projection");
+            }
+            Err(_) => {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+        }
+    }
 }
 
 /// Pre-configured harness: Postgres + SierraDB + Redis client.
