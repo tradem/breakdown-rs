@@ -16,7 +16,12 @@ use std::time::Duration;
 
 use anyhow::{Result, anyhow};
 use breakdown_core::error::DomainError;
+use breakdown_core::photo::ports::PhotoRepository;
+use breakdown_core::photo::views::PhotoView;
 use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
+use breakdown_core::shared::PhotoId;
+use infra::photo::repository::PhotoRepositoryImpl;
+use infra::photo::storage::OpenDalPhotoStorage;
 use redis::Client as RedisClient;
 use sqlx::PgPool;
 use testcontainers::core::{ContainerPort, ExecCommand, Mount, WaitFor};
@@ -53,14 +58,15 @@ pub async fn spawn_postgres() -> Result<(PgPool, ContainerAsync<PostgresImage>)>
 fn build_postgres_container_request() -> ContainerRequest<PostgresImage> {
     let image = PostgresImage::default();
 
-    if env::var("TESTCONTAINERS_REUSE")
+    let base = if env::var("TESTCONTAINERS_REUSE")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false)
     {
         image.with_reuse(ReuseDirective::Always)
     } else {
         image.into()
-    }
+    };
+    base.with_startup_timeout(Duration::from_secs(120))
 }
 
 // ---------------------------------------------------------------------------
@@ -148,14 +154,15 @@ pub async fn spawn_sierradb() -> Result<(
 
 fn build_sierradb_container_request() -> ContainerRequest<SierraDbImage> {
     let image = SierraDbImage;
-    if env::var("TESTCONTAINERS_REUSE")
+    let base = if env::var("TESTCONTAINERS_REUSE")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false)
     {
         image.with_reuse(ReuseDirective::Always)
     } else {
         image.into()
-    }
+    };
+    base.with_startup_timeout(Duration::from_secs(120))
 }
 
 // ---------------------------------------------------------------------------
@@ -175,9 +182,7 @@ impl Image for GarageImage {
     }
 
     fn ready_conditions(&self) -> Vec<WaitFor> {
-        vec![WaitFor::message_on_either_std(
-            r"garage\(main\).*listening on",
-        )]
+        vec![WaitFor::message_on_either_std("S3 API server listening on")]
     }
 
     fn expose_ports(&self) -> &[ContainerPort] {
@@ -195,7 +200,10 @@ impl Image for GarageImage {
     > {
         HashMap::from([
             ("GARAGE_ADMIN_TOKEN", "test_admin_token"),
-            ("GARAGE_RPC_SECRET", "test_rpc_secret"),
+            (
+                "GARAGE_RPC_SECRET",
+                "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2",
+            ),
             ("GARAGE_METRICS_TOKEN", "test_metrics_token"),
         ])
     }
@@ -214,7 +222,11 @@ const GARAGE_ADMIN_TOKEN: &str = "test_admin_token";
 
 /// Run a `garage` CLI command inside the container and return stdout as a string.
 async fn garage_exec(container: &ContainerAsync<GarageImage>, args: &[&str]) -> Result<String> {
-    let mut cmd = vec!["garage".to_string()];
+    let mut cmd = vec![
+        "/garage".to_string(),
+        "-c".to_string(),
+        "/etc/garage/config.toml".to_string(),
+    ];
     cmd.extend(args.iter().map(|s| s.to_string()));
     let exec = ExecCommand::new(cmd).with_env_vars([("GARAGE_ADMIN_TOKEN", GARAGE_ADMIN_TOKEN)]);
     let mut result = container.exec(exec).await?;
@@ -243,12 +255,14 @@ replication_mode = "none"
 
 rpc_bind_addr = "0.0.0.0:{rpc_port}"
 rpc_public_addr = "127.0.0.1:{rpc_port}"
-rpc_secret = "test_rpc_secret"
+rpc_secret = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2"
 bootstrap_peers = []
 
-s3_region = "garage"
+[s3_api]
 api_bind_addr = "0.0.0.0:{s3_port}"
+s3_region = "garage"
 
+[admin]
 admin_token = "test_admin_token"
 metrics_token = "test_metrics_token"
 "#,
@@ -268,6 +282,7 @@ metrics_token = "test_metrics_token"
                 "/etc/garage",
             ))
             .with_cmd(["/garage", "-c", "/etc/garage/config.toml", "server"])
+            .with_startup_timeout(Duration::from_secs(120))
     } else {
         image
             .with_mount(Mount::bind_mount(
@@ -275,6 +290,7 @@ metrics_token = "test_metrics_token"
                 "/etc/garage",
             ))
             .with_cmd(["/garage", "-c", "/etc/garage/config.toml", "server"])
+            .with_startup_timeout(Duration::from_secs(120))
     };
 
     let container = request.start().await?;
@@ -295,17 +311,36 @@ metrics_token = "test_metrics_token"
         }
     }
 
+    // Retrieve the node ID (Garage v1.0.1 requires the actual node hex ID,
+    // not a container hostname, for layout assignment).
+    let status_out = garage_exec(&container, &["status"]).await?;
+    let node_id = status_out
+        .lines()
+        .find_map(|l| {
+            let trimmed = l.trim();
+            // Skip header/separator lines; a data line starts with a 16-char hex node ID.
+            if trimmed.starts_with("====") || trimmed.starts_with("ID") || trimmed.is_empty() {
+                return None;
+            }
+            let first = trimmed.split_whitespace().next()?;
+            if first.len() == 16 && first.chars().all(|c| c.is_ascii_hexdigit()) {
+                Some(first.to_string())
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| anyhow!("Could not parse node ID from garage status:\n{status_out}"))?;
+
     // Configure the cluster layout (single node).
-    let hostname = "test_node";
-    let _ = garage_exec(
+    garage_exec(
         &container,
-        &["layout", "assign", "-z", "dc1", "-c", "1G", hostname],
+        &["layout", "assign", "-z", "dc1", "-c", "1G", &node_id],
     )
-    .await;
+    .await?;
     garage_exec(&container, &["layout", "apply", "--version", "1"]).await?;
 
-    // Create an access key.
-    let key_out = garage_exec(&container, &["key", "new", "--name", "breakdown-test"]).await?;
+    // Create an access key (positional name; Garage v1.0.1 removed the --name flag).
+    let key_out = garage_exec(&container, &["key", "create", "breakdown-test"]).await?;
     let access_key = key_out
         .lines()
         .find_map(|l| l.trim().strip_prefix("Key ID:"))
@@ -330,9 +365,9 @@ metrics_token = "test_metrics_token"
             "--read",
             "--write",
             "--owner",
-            &bucket,
             "--key",
             &access_key,
+            &bucket,
         ],
     )
     .await?;
@@ -346,6 +381,45 @@ metrics_token = "test_metrics_token"
         },
         container,
     ))
+}
+
+// ---------------------------------------------------------------------------
+// Shared photo-test helpers
+// ---------------------------------------------------------------------------
+
+/// Build a storage adapter from test Garage credentials.
+pub fn build_storage(creds: &GarageCredentials) -> OpenDalPhotoStorage {
+    let builder = opendal::services::S3::default()
+        .endpoint(&creds.endpoint)
+        .access_key_id(&creds.access_key)
+        .secret_access_key(&creds.secret_key)
+        .region("garage")
+        .bucket(&creds.bucket);
+
+    let op = opendal::Operator::new(builder)
+        .expect("Failed to build S3 operator")
+        .finish();
+
+    OpenDalPhotoStorage::new(op)
+}
+
+/// Await a photo view from the projection (retry on NotFound).
+pub async fn await_photo(
+    repo: &PhotoRepositoryImpl,
+    photo_id: PhotoId,
+    deadline: tokio::time::Instant,
+) -> Result<PhotoView> {
+    loop {
+        match repo.find_by_id(photo_id).await {
+            Ok(view) => return Ok(view),
+            Err(_) if tokio::time::Instant::now() > deadline => {
+                anyhow::bail!("Timed out waiting for photo projection");
+            }
+            Err(_) => {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+        }
+    }
 }
 
 /// Pre-configured harness: Postgres + SierraDB + Redis client.

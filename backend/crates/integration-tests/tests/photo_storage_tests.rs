@@ -22,6 +22,7 @@ fn build_storage(creds: &GarageCredentials) -> OpenDalPhotoStorage {
         .endpoint(&creds.endpoint)
         .access_key_id(&creds.access_key)
         .secret_access_key(&creds.secret_key)
+        .region("garage")
         .bucket(&creds.bucket);
 
     let op = opendal::Operator::new(builder)
