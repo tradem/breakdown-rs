@@ -35,6 +35,8 @@ jobs:
         with:
           workspaces: "backend"
       - run: cargo install cargo-mutants
+      - name: Fetch main branch for git diff
+        run: git fetch origin main --depth=1
       - name: Run cargo mutants on core crate (in-diff)
         run: cargo mutants -p breakdown_core --in-diff origin/main
         continue-on-error: true
@@ -67,6 +69,8 @@ jobs:
         with:
           workspaces: "backend"
       - run: cargo install cargo-mutants
+      - name: Fetch main branch for git diff
+        run: git fetch origin main --depth=1
       - name: Run cargo mutants on security-critical paths (in-diff)
         run: |
           cargo mutants -p breakdown_core -p api \
