@@ -121,17 +121,14 @@ fn detect_non_reversible_migrations() -> Result<BTreeSet<i64>> {
             _ => continue,
         };
 
-        let content = std::fs::read_to_string(&path)
-            .with_context(|| format!("read {:?}", path))?;
+        let content = std::fs::read_to_string(&path).with_context(|| format!("read {:?}", path))?;
 
         if content.contains("-- no-undo") {
             // Extract version from filename:
             //   "20250623000001_projection_schema.down.sql"
             //   → strip ".down.sql" → "20250623000001_projection_schema"
             //   → split('_').next() → "20250623000001"
-            let stem = filename
-                .strip_suffix(".down.sql")
-                .unwrap_or(filename);
+            let stem = filename.strip_suffix(".down.sql").unwrap_or(filename);
             if let Some(version_str) = stem.split('_').next() {
                 if let Ok(version) = version_str.parse::<i64>() {
                     no_undo.insert(version);
