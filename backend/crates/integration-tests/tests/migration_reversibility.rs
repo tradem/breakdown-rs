@@ -129,10 +129,10 @@ fn detect_non_reversible_migrations() -> Result<BTreeSet<i64>> {
             //   → strip ".down.sql" → "20250623000001_projection_schema"
             //   → split('_').next() → "20250623000001"
             let stem = filename.strip_suffix(".down.sql").unwrap_or(filename);
-            if let Some(version_str) = stem.split('_').next() {
-                if let Ok(version) = version_str.parse::<i64>() {
-                    no_undo.insert(version);
-                }
+            if let Some(version_str) = stem.split('_').next()
+                && let Ok(version) = version_str.parse::<i64>()
+            {
+                no_undo.insert(version);
             }
         }
     }
