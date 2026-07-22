@@ -1,3 +1,5 @@
+# == File-based exclusion ==
+
 # Exclude the `integration-tests` crate from mutation testing: it operates on real external
 # resources (Docker) and exercises the public API, not the whitebox code surface, so only
 # inline `#[cfg(test)]` modules in the other crates are mutated. (This is also cargo-mutants'
@@ -6,7 +8,19 @@ exclude_globs = [
     "crates/integration-tests/**",
 ]
 
-# Accepted surviving mutants.
+# == Security-critical allowlist (documentation) ==
+#
+# The `mutate-security` job in `mutation-testing-pr.yml` uses `-f` glob filters to restrict
+# mutation testing to these security-critical paths and fails on any surviving mutant:
+#
+#   - crates/core/src/membership/**   # Domain membership & authorization policy
+#   - crates/core/src/shared/lex_sort* # LexicalSortKey (fractional ordering safety)
+#   - crates/api/src/auth/**          # OIDC/JWKS, deny-by-default middleware, auth-state
+#
+# These patterns are documented here so they stay in sync between the workflow and the config.
+# The broad `mutate-core` job (continue-on-error) still covers the entire `breakdown_core` crate.
+
+# == Regex-based survivor acceptance (known false-positives) ==
 #
 # Only pure routing/metadata constants (CommandName, EventType, category) and
 # API bootstrap functions are excluded here.  Mutating them produces wrong

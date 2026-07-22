@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024 Breakdown RS Contributors
 
-name: Mutation Testing (PR — core only)
+name: Mutation Testing (PR — core + security-critical paths)
 
 permissions:
   contents: read
@@ -10,6 +10,7 @@ on:
   pull_request:
     paths:
       - "backend/crates/core/**"
+      - "backend/crates/api/src/auth/**"
       - "backend/Cargo.toml"
       - "backend/Cargo.lock"
       - ".github/workflows/mutation-testing-pr.yml"
@@ -23,7 +24,7 @@ defaults:
 
 jobs:
   mutate-core:
-    name: Mutate (core)
+    name: Mutate (core — informational)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -34,8 +35,12 @@ jobs:
         with:
           workspaces: "backend"
       - run: cargo install cargo-mutants
-      - name: Run cargo mutants on core crate (in-diff)
-        run: cargo mutants -p breakdown_core --in-diff origin/main
+      - name: Run cargo mutants on core crate (in-diff against base)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git diff "$BASE_SHA" > /tmp/changes.diff
+          cargo mutants -p breakdown_core --in-diff /tmp/changes.diff
         continue-on-error: true
       - name: Report surviving mutants
         run: |
@@ -52,4 +57,48 @@ jobs:
         if: always()
         with:
           name: mutants-out-pr
+          path: backend/mutants.out/
+
+  mutate-security:
+    name: Mutate (security-critical — blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+        with:
+          workspaces: "backend"
+      - run: cargo install cargo-mutants
+      - name: Run cargo mutants on security-critical paths (in-diff against base)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git diff "$BASE_SHA" > /tmp/changes.diff
+          cargo mutants -p breakdown_core -p api \
+            -f 'crates/core/src/membership/**' \
+            -f 'crates/core/src/shared/lex_sort*' \
+            -f 'crates/api/src/auth/**' \
+            --in-diff /tmp/changes.diff
+      - name: Check for surviving mutants
+        run: |
+          if [ -f mutants.out/missed.txt ] && [ -s mutants.out/missed.txt ]; then
+            echo "::error::Surviving mutants detected in security-critical code"
+            {
+              echo "## ❌ Surviving mutants in security-critical code"
+              echo ""
+              echo "The following mutants survived on security-critical paths and **must be fixed** or reviewed before this PR can merge:"
+              echo '```'
+              cat mutants.out/missed.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          else
+            echo "✅ No surviving mutants in security-critical code." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: mutants-out-security
           path: backend/mutants.out/
