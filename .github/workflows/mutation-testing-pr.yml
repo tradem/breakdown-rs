@@ -35,10 +35,12 @@ jobs:
         with:
           workspaces: "backend"
       - run: cargo install cargo-mutants
-      - name: Fetch main branch for git diff
-        run: git fetch origin main --depth=1
-      - name: Run cargo mutants on core crate (in-diff)
-        run: cargo mutants -p breakdown_core --in-diff origin/main
+      - name: Run cargo mutants on core crate (in-diff against base)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch origin "$BASE_SHA" --depth=1 2>/dev/null || true
+          cargo mutants -p breakdown_core --in-diff "$BASE_SHA"
         continue-on-error: true
       - name: Report surviving mutants
         run: |
@@ -69,15 +71,16 @@ jobs:
         with:
           workspaces: "backend"
       - run: cargo install cargo-mutants
-      - name: Fetch main branch for git diff
-        run: git fetch origin main --depth=1
-      - name: Run cargo mutants on security-critical paths (in-diff)
+      - name: Run cargo mutants on security-critical paths (in-diff against base)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
+          git fetch origin "$BASE_SHA" --depth=1 2>/dev/null || true
           cargo mutants -p breakdown_core -p api \
             -f 'crates/core/src/membership/**' \
             -f 'crates/core/src/shared/lex_sort*' \
             -f 'crates/api/src/auth/**' \
-            --in-diff origin/main
+            --in-diff "$BASE_SHA"
       - name: Check for surviving mutants
         run: |
           if [ -f mutants.out/missed.txt ] && [ -s mutants.out/missed.txt ]; then
