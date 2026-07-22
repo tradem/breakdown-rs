@@ -159,7 +159,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "rand_core 0.6.4",
- "redis",
+ "redis 1.4.1",
  "reqwest",
  "rsa",
  "serde",
@@ -196,6 +196,12 @@ dependencies = [
  "rust_arkitect",
  "toml 1.1.2+spec-1.1.0",
 ]
+
+[[package]]
+name = "arcstr"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "03918c3dbd7701a85c6b9887732e2921175f26c350b4563841d0958c21d57e6d"
 
 [[package]]
 name = "arg_enum_proc_macro"
@@ -2234,7 +2240,7 @@ dependencies = [
  "kameo_es",
  "opendal",
  "rand 0.10.2",
- "redis",
+ "redis 1.4.1",
  "rust_decimal",
  "serde",
  "serde_json",
@@ -2259,7 +2265,7 @@ dependencies = [
  "infra",
  "kameo_es",
  "opendal",
- "redis",
+ "redis 1.4.1",
  "rust_decimal",
  "serde",
  "serde_json",
@@ -2477,7 +2483,7 @@ dependencies = [
  "lru",
  "mongodb",
  "once_cell",
- "redis",
+ "redis 0.32.7",
  "regex",
  "serde",
  "serde_json",
@@ -3890,6 +3896,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "redis"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b0b9503711b03773e43b31668c7b5bd279ee7cd9b7d18cff7c23a42cc1d08e5a"
+dependencies = [
+ "arcstr",
+ "combine",
+ "itoa",
+ "num-bigint",
+ "percent-encoding",
+ "ryu",
+ "sha1_smol",
+ "socket2",
+ "url",
+ "xxhash-rust",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4618,7 +4642,7 @@ dependencies = [
  "clap",
  "futures-util",
  "pin-project-lite",
- "redis",
+ "redis 0.32.7",
  "serde",
  "sierradb-protocol",
  "tokio",
@@ -5084,7 +5108,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.61.2",
@@ -6214,6 +6238,12 @@ dependencies = [
  "libc",
  "rustix 1.1.4",
 ]
+
+[[package]]
+name = "xxhash-rust"
+version = "0.8.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aee1b19627c7c60102ab80d3a9cbe18de90bfe03bfa6c3715447681f0e8c8af6"
 
 [[package]]
 name = "y4m"
