@@ -61,6 +61,13 @@ A periodic `PhotoGcSweepTask` (advisory-locked) reconciles Garage objects agains
 - **Open-Spec / API First:** Define the API in the OpenAPI spec before writing code. Map exact types using `serde`.
 - **ID Generation:** Strictly use **UUIDv7** (`uuid::Uuid::now_v7()`) for all entities and events. No UUIDv4.
 - **Security:** Never hardcode secrets. Your code must pass `gitleaks`.
+- **Security — No string-interpolated SQL (hard rule).** Every SQL statement passed to
+  `sqlx::query(...)`, `sqlx::query_as(...)`, or `sqlx::query_scalar(...)` must be a static
+  `&str` literal (or `r#"..."#`). All dynamic values go through `.bind()`. Identifiers
+  (column/table names, `ORDER BY` column) must come from a hardcoded allowlist, **never**
+  from request input — Postgres cannot bind identifiers. The CI job
+  `no-string-interpolation-sql` in `architecture-checks.yml` enforces this mechanically.
+  See `docs/security/README.md` for detailed safe patterns.
 
 ## 4. Testing & Guardrails
 - **Unit/Integration Tests:** Write deterministic tests for domain logic in `core`.

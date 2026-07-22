@@ -3,11 +3,13 @@ name: Architecture Checks
 permissions:
   contents: read
 
-# Two-layer architecture enforcement (ADR-017):
+# Three-layer enforcement:
 #   Layer 1: cargo-deny — checks advisories, bans, licenses, and sources
 #   Layer 2: rust_arkitect — inspects actual `use` statements for boundary violations
+#   Layer 3: no-string-interpolation-sql — forbids dynamic SQL construction in repository adapters
 #
-# See backend/AGENTS.md § Testing & Guardrails and backend/docs/architecture/adrs/ADR-017-architecture-testing-strategy.md
+# See backend/AGENTS.md § Testing & Guardrails and § Security
+# See backend/docs/architecture/adrs/ADR-017-architecture-testing-strategy.md
 
 on:
   pull_request:
@@ -39,6 +41,35 @@ jobs:
         with:
           command: check bans advisories licenses sources
           manifest-path: backend/Cargo.toml
+
+  no-string-interpolation-sql:
+    name: No string-interpolated SQL
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Forbid dynamic SQL string construction in repository adapters
+        run: |
+          set -e
+          # grep for format!/string-concat inside sqlx::query/query_as/query_scalar calls
+          #   Pattern A: sqlx::query(format!(...)) or sqlx::query(&format!(...))
+          #   Pattern B: sqlx::query("..." + ...) — inline string concatenation
+          PATTERNS='sqlx::(query|query_as|query_scalar)\s*\(\s*format!|sqlx::(query|query_as|query_scalar)\s*\(&?format|sqlx::(query|query_as|query_scalar)\s*\([^)]*\+'
+          DIR=crates/infra/src/queries
+          if grep -rnE "$PATTERNS" "$DIR"; then
+            echo "" >&2
+            echo "ERROR: dynamic SQL string construction detected in $DIR" >&2
+            echo "All sqlx::query(...) / query_as(...) / query_scalar(...) calls must use a static" >&2
+            echo "&str literal with \$1-style placeholders. Use .bind() for all dynamic values." >&2
+            echo "See backend/AGENTS.md § Security for the complete rule." >&2
+            exit 1
+          fi
+          echo "OK: no string-interpolated SQL found in $DIR"
 
   architecture-tests:
     name: rust_arkitect (source-level rules)
