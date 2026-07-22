@@ -39,8 +39,8 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          git fetch origin "$BASE_SHA" --depth=1 2>/dev/null || true
-          cargo mutants -p breakdown_core --in-diff "$BASE_SHA"
+          git diff "$BASE_SHA" > /tmp/changes.diff
+          cargo mutants -p breakdown_core --in-diff /tmp/changes.diff
         continue-on-error: true
       - name: Report surviving mutants
         run: |
@@ -75,12 +75,12 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          git fetch origin "$BASE_SHA" --depth=1 2>/dev/null || true
+          git diff "$BASE_SHA" > /tmp/changes.diff
           cargo mutants -p breakdown_core -p api \
             -f 'crates/core/src/membership/**' \
             -f 'crates/core/src/shared/lex_sort*' \
             -f 'crates/api/src/auth/**' \
-            --in-diff "$BASE_SHA"
+            --in-diff /tmp/changes.diff
       - name: Check for surviving mutants
         run: |
           if [ -f mutants.out/missed.txt ] && [ -s mutants.out/missed.txt ]; then
