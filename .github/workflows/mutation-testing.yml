@@ -22,6 +22,9 @@ jobs:
   mutate:
     name: Mutate
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
@@ -29,7 +32,28 @@ jobs:
         with:
           workspaces: "backend"
       - run: cargo install cargo-mutants
-      - run: cargo mutants --copy-target=true
+      - name: Run cargo mutants (full workspace)
+        id: mutants
+        run: |
+          cargo mutants --copy-target=true
+          # Count missed mutants for downstream step
+          if [ -f mutants.out/missed.txt ] && [ -s mutants.out/missed.txt ]; then
+            echo "missed=$(wc -l < mutants.out/missed.txt)" >> "$GITHUB_OUTPUT"
+          else
+            echo "missed=0" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Open issue for surviving mutants
+        if: ${{ steps.mutants.outputs.missed > 0 }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MISSED: ${{ steps.mutants.outputs.missed }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh issue create \
+            --title "mutation: ${MISSED} surviving mutants (nightly)" \
+            --label security,testing/security \
+            --body-file mutants.out/missed.txt \
+            --repo "${GH_REPO}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
