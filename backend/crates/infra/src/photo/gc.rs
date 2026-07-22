@@ -13,6 +13,7 @@ use std::time::Duration;
 use anyhow::Result;
 use breakdown_core::photo::ports::{PhotoRepository, PhotoStorage};
 use breakdown_core::photo::views::PhotoGcConfig;
+use breakdown_core::shared::PhotoVariant;
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use tracing::{error, info, warn};
@@ -81,7 +82,7 @@ pub async fn run_gc_sweep(
 
     // 1. Advisory lock.
     let lock_acquired: Option<bool> =
-        sqlx::query_scalar("SELECT pg_try_advisory_lock(0x50484F54_4F5F4743)")
+        sqlx::query_scalar("SELECT pg_try_advisory_lock(5784960944884893507)")
             .fetch_one(pool)
             .await?;
 
@@ -93,7 +94,7 @@ pub async fn run_gc_sweep(
     let result = try_run_sweep(pool, storage, repo, config, started_at).await;
 
     // Release the advisory lock.
-    let _: () = sqlx::query_scalar("SELECT pg_advisory_unlock(0x50484F54_4F5F4743)")
+    let _: () = sqlx::query_scalar("SELECT pg_advisory_unlock(5784960944884893507)")
         .fetch_one(pool)
         .await
         .unwrap_or_default();
@@ -130,25 +131,44 @@ async fn try_run_sweep(
         "Photo GC sweep completed listing phase"
     );
 
-    // 5-6. Filter by age and delete.
+    // 5-6. Filter by age gate and batch size, then delete.
     let mut orphans_deleted: i64 = 0;
-    let _max_age = chrono::Duration::seconds(config.max_age_secs as i64);
-    let _now = Utc::now();
+    let max_age = chrono::Duration::seconds(config.max_age_secs as i64);
 
-    for photo_id in &orphans {
-        // We can't check object age from the PhotoStorage port directly.
-        // Instead, we check if the photo_id is in the known set: if it's
-        // NOT in known_ids AND it's been a while since the last sweep,
-        // it's an orphan.
-        // Since we're using the `list` API which returns all objects,
-        // we apply a heuristic: if there's no projection_photo row and
-        // the garage object is older than max_age, it should be removed.
-        // For v1, we use the simple heuristic that any unknown id older
-        // than MAX_AGE is swept.
+    for photo_id in orphans.iter().take(config.batch_size as usize) {
+        // Check the age of the original variant's `stored_at` metadata.
+        match storage
+            .fetch_stored_at(*photo_id, PhotoVariant::Original)
+            .await?
+        {
+            Some(stored_at) => {
+                let age = started_at - stored_at;
+                if age < max_age {
+                    // Too young — skip deletion.
+                    info!(
+                        photo_id = %photo_id.0,
+                        age_secs = ?age.num_seconds(),
+                        max_age_secs = config.max_age_secs,
+                        "Orphan is too young for deletion"
+                    );
+                    continue;
+                }
+            }
+            None => {
+                // No stored_at metadata — treat as too young (pre-existing
+                // objects stored before this feature was added).
+                warn!(
+                    photo_id = %photo_id.0,
+                    "No stored_at metadata for orphan, treating as too young"
+                );
+                continue;
+            }
+        }
+
         if !config.dry_run {
             storage.delete_all(*photo_id).await?;
+            orphans_deleted += 1;
         }
-        orphans_deleted += 1;
     }
 
     // 7. Write history row.

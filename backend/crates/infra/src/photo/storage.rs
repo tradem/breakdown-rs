@@ -7,8 +7,10 @@ use breakdown_core::error::DomainError;
 use breakdown_core::photo::ports::PhotoStorage;
 use breakdown_core::photo::views::PhotoBytes;
 use breakdown_core::shared::{PhotoId, PhotoVariant};
+use chrono::{DateTime, Utc};
 use futures::StreamExt;
 use opendal::Operator;
+use tracing::warn;
 
 /// OpenDAL-backed photo storage adapter configured against an S3-compatible
 /// backend (Garage).
@@ -82,6 +84,49 @@ impl OpenDalPhotoStorage {
         })
     }
 
+    /// Fetch the `stored_at` timestamp from user metadata for a given photo variant.
+    ///
+    /// Returns `Ok(None)` if the object doesn't exist or has no `stored_at` metadata
+    /// (e.g. pre-existing objects stored before this feature was added).
+    /// Logs a warning for existing objects without metadata.
+    pub async fn fetch_stored_at(
+        &self,
+        id: PhotoId,
+        variant: PhotoVariant,
+    ) -> Result<Option<DateTime<Utc>>, DomainError> {
+        let key = Self::object_key(id, variant);
+        match self.op.stat(&key).await {
+            Ok(meta) => {
+                if let Some(metadata_map) = meta.user_metadata() {
+                    if let Some(stored_at_str) = metadata_map.get("stored_at") {
+                        match DateTime::parse_from_rfc3339(stored_at_str) {
+                            Ok(dt) => Ok(Some(dt.with_timezone(&Utc))),
+                            Err(e) => {
+                                warn!("Failed to parse stored_at metadata for {key}: {e}");
+                                Ok(None)
+                            }
+                        }
+                    } else {
+                        warn!("No stored_at metadata on object {key}");
+                        Ok(None)
+                    }
+                } else {
+                    warn!("No user metadata on object {key}");
+                    Ok(None)
+                }
+            }
+            Err(e) => {
+                if e.to_string().contains("Not Found") || e.to_string().contains("ObjectNotExist") {
+                    Ok(None)
+                } else {
+                    Err(DomainError::ValidationError(format!(
+                        "Failed to stat object {key}: {e}"
+                    )))
+                }
+            }
+        }
+    }
+
     /// Build the internal storage key for a photo variant.
     fn object_key(id: PhotoId, variant: PhotoVariant) -> String {
         format!("{}/{}", id.0, variant.as_str())
@@ -101,6 +146,7 @@ impl PhotoStorage for OpenDalPhotoStorage {
         self.op
             .write_with(&key, bytes)
             .content_type(&content_type)
+            .user_metadata([("stored_at".to_string(), Utc::now().to_rfc3339())])
             .await
             .map_err(|e| {
                 DomainError::ValidationError(format!("Failed to store object {key}: {e}"))
