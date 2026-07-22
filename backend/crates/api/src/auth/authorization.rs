@@ -9,7 +9,6 @@
 //! **action-scoped** (the caller's active block, Decision D2) and runs *after*
 //! the [`crate::auth::auth_middleware`].
 
-use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
 use axum::extract::FromRequestParts;
@@ -202,8 +201,9 @@ fn requirement_for(path: &str) -> Requirement {
 /// Runs *after* [`crate::auth::auth_middleware`]. For block-scoped requests it
 /// parses `X-Active-Block` (rejecting a missing/malformed header with `400`),
 /// resolves the caller from extensions, and asks the policy. A panicking
-/// policy MUST yield `403`, never `500`: the async policy call is spawned
-/// behind [`AssertUnwindSafe`] and `.await.unwrap_or(Deny)`.
+/// policy MUST yield `403`, never `500`: the async policy call is isolated via
+/// [`tokio::task::spawn`]; a panic surfaces as a [`tokio::task::JoinError`]
+/// on `.await`, which `.unwrap_or(PolicyDecision::Deny)` maps to `Deny` → `403`.
 pub async fn authorize_middleware(
     state: axum::extract::State<Arc<AuthorizationState>>,
     req: axum::http::Request<axum::body::Body>,
@@ -245,11 +245,11 @@ pub async fn authorize_middleware(
     };
 
     // Panic-resistant evaluation (AC5): a panicking policy yields Deny → 403.
-    let decision = tokio::task::spawn(AssertUnwindSafe({
+    let decision = tokio::task::spawn({
         let policy = state.policy.clone();
         let ctx = ctx.clone();
         async move { policy.authorize(&ctx).await }
-    }))
+    })
     .await
     .unwrap_or(PolicyDecision::Deny);
 
