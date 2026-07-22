@@ -51,3 +51,43 @@ When `list_*` endpoints gain free-text search, dynamic sort, or pagination:
 - [ ] If `ILIKE` is used: is the input escaped via `escape_like_pattern`?
 - [ ] If pagination: is there a `LIMIT` cap?
 - [ ] If `IN (...)` is dynamically sized: is there an upper bound?
+
+## DB Safety Posture
+
+### Migration reversibility
+
+Every database migration **must** have a matching `.down.sql` that cleanly
+reverses the changes made by its `.up.sql`. This ensures production rollbacks
+are safe and deterministic.
+
+The CI test `migrations_are_reversible` in `crates/integration-tests`
+enforces this:
+
+1. Applies all migrations up (via the compile-time embedded migrator).
+2. Undoes them one-by-one in reverse version order, calling `undo(&pool, target)`
+   for each step down to version 0.
+3. Asserts the `public` schema contains no tables other than the internal
+   `_sqlx_migrations` table.
+4. Re-applies all migrations up to confirm idempotency.
+
+The test runs as a Tier-1 (Postgres-only) integration test via `testcontainers`
+on every PR that touches migrations, with no additional container dependency.
+
+### Non-reversible migrations
+
+If a migration is intentionally non-reversible (e.g. a data backfill,
+destructive column conversion), it must be explicitly opted out:
+
+1. Add `-- no-undo` at the top of the `.down.sql` file.
+2. Register the version and a documented reason in the
+   `NON_REVERSIBLE_MIGRATIONS` allowlist inside the test file.
+
+The test will:
+- **Skip** the undo step for that version.
+- **Fail loudly** if a `-- no-undo` marker exists without a matching
+  allowlist entry.
+- **Fail loudly** if an allowlist entry references a non-existent migration
+  (stale entry).
+
+This policy prevents silent additions of irreversible schema changes and
+ensures every opt-out is intentional and documented.
