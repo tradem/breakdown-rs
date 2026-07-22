@@ -14,10 +14,10 @@
 
 use proptest::prelude::*;
 
-use crate::membership::aggregate::BlockMembership;
-use crate::membership::events::MembershipEvent;
-use crate::membership::aggregate::MembershipState;
 use crate::membership::Role;
+use crate::membership::aggregate::BlockMembership;
+use crate::membership::aggregate::MembershipState;
+use crate::membership::events::MembershipEvent;
 use crate::shared::{BlockId, LexicalSortKey, UserId};
 use kameo_es::{Apply, Metadata};
 use uuid::Uuid;
@@ -39,8 +39,7 @@ fn any_user_id() -> impl Strategy<Value = UserId> {
 
 /// Generate a random `BlockId`.
 fn any_block_id() -> impl Strategy<Value = BlockId> {
-    any::<u128>()
-        .prop_map(|v| BlockId::from_uuid(Uuid::from_u128(v)))
+    any::<u128>().prop_map(|v| BlockId::from_uuid(Uuid::from_u128(v)))
 }
 
 /// Generate a random `Role`.
@@ -55,40 +54,36 @@ fn any_role() -> impl Strategy<Value = Role> {
 /// Generate a random [`MembershipEvent`] with arbitrary payloads.
 fn any_event() -> impl Strategy<Value = MembershipEvent> {
     prop_oneof![
-        (any_block_id(), any_user_id(), any_role()).prop_map(
-            |(block_id, user_id, role)| MembershipEvent::MemberInvited {
+        (any_block_id(), any_user_id(), any_role()).prop_map(|(block_id, user_id, role)| {
+            MembershipEvent::MemberInvited {
                 block_id,
                 user_id,
                 role,
-            },
-        ),
-        (any_block_id(), any_user_id(), any_role()).prop_map(
-            |(block_id, user_id, role)| MembershipEvent::InvitationAccepted {
+            }
+        },),
+        (any_block_id(), any_user_id(), any_role()).prop_map(|(block_id, user_id, role)| {
+            MembershipEvent::InvitationAccepted {
                 block_id,
                 user_id,
                 role,
-            },
-        ),
-        (any_block_id(), any_user_id(), any_role()).prop_map(
-            |(block_id, user_id, role)| MembershipEvent::RoleGranted {
+            }
+        },),
+        (any_block_id(), any_user_id(), any_role()).prop_map(|(block_id, user_id, role)| {
+            MembershipEvent::RoleGranted {
                 block_id,
                 user_id,
                 role,
-            },
-        ),
-        (any_block_id(), any_user_id()).prop_map(
-            |(block_id, user_id)| MembershipEvent::MemberRemoved {
-                block_id,
-                user_id,
-            },
-        ),
-        (any_block_id(), any_user_id(), any_role()).prop_map(
-            |(block_id, user_id, role)| MembershipEvent::OwnerBootstrapped {
+            }
+        },),
+        (any_block_id(), any_user_id())
+            .prop_map(|(block_id, user_id)| MembershipEvent::MemberRemoved { block_id, user_id },),
+        (any_block_id(), any_user_id(), any_role()).prop_map(|(block_id, user_id, role)| {
+            MembershipEvent::OwnerBootstrapped {
                 block_id,
                 user_id,
                 role,
-            },
-        ),
+            }
+        },),
     ]
 }
 
