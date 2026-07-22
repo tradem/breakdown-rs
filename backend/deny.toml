@@ -14,3 +14,47 @@ all-features = true
 
 [bans]
 multiple-versions = "warn"
+
+[licenses]
+# Allow-list for common open-source licenses used by the dependency tree.
+# cargo-deny handles SPDX expressions by checking each component — if all
+# components are allowed, the expression is accepted.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "0BSD",
+    "CC0-1.0",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "BSL-1.0",
+    "NCSA",
+    "CDLA-Permissive-2.0",
+    "Unlicense",
+    "MPL-2.0",
+    "AGPL-3.0",
+]
+
+[advisories]
+# unmaintained = "none" preserves the old rustsec/audit-check behaviour
+# which only flagged security vulnerabilities, not "unmaintained" annotations.
+unmaintained = "none"
+# yanked = "deny" ensures fail-closed: any new yanked dependency fails CI.
+yanked = "deny"
+# RUSTSEC-2023-0071 ("Marvin Attack", crate `rsa`): pulled transitively by
+# `jsonwebtoken`, used only for RS256 *verification* with the IdP public key —
+# no private-key operation server-side, so the timing side-channel does not
+# apply. `rsa` 0.9.x has no patched release. Revisit on JWT-lib switch.
+#
+# RUSTSEC-2026-0194 / RUSTSEC-2026-0195 (quick-xml DoS), transitive via
+# `opendal`. Affected API not exposed; trusted S3 endpoints only. Revisit
+# on opendal upgrade.
+ignore = [
+    "RUSTSEC-2023-0071",
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+]

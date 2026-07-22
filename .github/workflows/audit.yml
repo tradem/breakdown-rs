@@ -24,24 +24,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      checks: write
-      issues: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2
+      - uses: EmbarkStudios/cargo-deny-action@b66acf5e9fe20f8aba065be86778a8a4c846f902 # v2
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          working-directory: backend
-          # RUSTSEC-2023-0071 ("Marvin Attack", crate `rsa`) is pulled in
-          # transitively by `jsonwebtoken`, which we use only for RS256
-          # signature *verification* with the IdP public key: no private key is
-          # ever held server-side, so the timing key-recovery side-channel does
-          # not apply. `rsa` 0.9.x has no patched release. Revisit if we switch
-          # JWT libraries or `rsa` publishes a constant-time fix.
-          #
-          # RUSTSEC-2026-0194 / RUSTSEC-2026-0195 (quick-xml DoS advisories) are
-          # pulled in transitively by `opendal` (S3 XML parsing). opendal does
-          # not expose the affected API to callers — we only use the S3 service
-          # with trusted endpoints. A future opendal update will bump
-          # quick-xml past 0.41.0. Revisit when upgrading opendal.
-          ignore: RUSTSEC-2023-0071,RUSTSEC-2026-0194,RUSTSEC-2026-0195
+          command: check advisories
+          manifest-path: backend/Cargo.toml
