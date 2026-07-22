@@ -25,15 +25,29 @@ use crate::projectors::supervisor;
 /// Saga that reacts to `PhotoUnlinked` events on the `costume` stream.
 /// When the refcount reaches zero, dispatches `DeletePhoto` on the `Photo`
 /// aggregate.
+///
+/// Refcounts are tracked **in-memory** (`refcounts` map), NOT by querying the
+/// projection. This avoids a race with the costume projector, which writes to
+/// `projection_costume_photo` asynchronously. Since `start_from()` returns an
+/// empty checkpoint, the saga replays all past events on every start and builds
+/// accurate state from scratch.
 #[derive(Clone, Debug)]
 pub struct PhotoDeletionSaga {
     repo: PhotoRepositoryImpl,
     commands: PhotoCommandsImpl,
+    /// In-memory photo-link refcounts keyed by `PhotoId`.
+    /// Incremented on `PhotoLinked`, decremented on `PhotoUnlinked`.
+    /// When a count reaches 0, `DeletePhoto` is dispatched.
+    refcounts: HashMap<Uuid, u64>,
 }
 
 impl PhotoDeletionSaga {
     pub fn new(repo: PhotoRepositoryImpl, commands: PhotoCommandsImpl) -> Self {
-        Self { repo, commands }
+        Self {
+            repo,
+            commands,
+            refcounts: HashMap::new(),
+        }
     }
 }
 
@@ -48,31 +62,37 @@ impl EntityEventHandler<CostumeAggregate, ()> for PhotoDeletionSaga {
         _id: Uuid,
         event: Event<CostumeEvent, ()>,
     ) -> Result<(), Self::Error> {
-        if let CostumeEvent::PhotoUnlinked { photo_id, .. } = event.data {
-            let photo_id = PhotoId::from_uuid(photo_id);
-            let refs = self
-                .repo
-                .count_links(photo_id)
-                .await
-                .map_err(|e| anyhow::anyhow!("{e}"))?;
-            if refs == 0 {
-                // Fetch the current version to dispatch delete with the
-                // correct expected version.
-                let version = match self.repo.find_by_id(photo_id).await {
-                    Ok(view) => view.version,
-                    Err(_) => {
-                        // Photo not found in projections — skip.
-                        return Ok(());
-                    }
-                };
-                self.commands
-                    .delete(DeletePhoto {
-                        id: photo_id,
-                        version,
-                    })
-                    .await
-                    .map_err(|e| anyhow::anyhow!("{e}"))?;
+        match event.data {
+            CostumeEvent::PhotoLinked { photo_id, .. } => {
+                *self.refcounts.entry(photo_id).or_insert(0) += 1;
             }
+            CostumeEvent::PhotoUnlinked { photo_id, .. } => {
+                let entry = self.refcounts.entry(photo_id).or_insert(0);
+                *entry = entry.saturating_sub(1);
+
+                if *entry == 0 {
+                    self.refcounts.remove(&photo_id);
+
+                    // Fetch the current version to dispatch delete with the
+                    // correct expected version.
+                    let photo_id = PhotoId::from_uuid(photo_id);
+                    let version = match self.repo.find_by_id(photo_id).await {
+                        Ok(view) => view.version,
+                        Err(_) => {
+                            // Photo not found in projections — skip.
+                            return Ok(());
+                        }
+                    };
+                    self.commands
+                        .delete(DeletePhoto {
+                            id: photo_id,
+                            version,
+                        })
+                        .await
+                        .map_err(|e| anyhow::anyhow!("{e}"))?;
+                }
+            }
+            _ => {}
         }
         Ok(())
     }
