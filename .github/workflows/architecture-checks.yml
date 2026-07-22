@@ -4,7 +4,7 @@ permissions:
   contents: read
 
 # Two-layer architecture enforcement (ADR-017):
-#   Layer 1: cargo-deny — bans forbidden crate dependencies from breakdown_core
+#   Layer 1: cargo-deny — checks advisories, bans, licenses, and sources
 #   Layer 2: rust_arkitect — inspects actual `use` statements for boundary violations
 #
 # See backend/AGENTS.md § Testing & Guardrails and backend/docs/architecture/adrs/ADR-017-architecture-testing-strategy.md
@@ -21,7 +21,7 @@ on:
 
 jobs:
   cargo-deny:
-    name: cargo-deny (dependency bans)
+    name: cargo-deny (advisories + bans + licenses + sources)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -37,7 +37,7 @@ jobs:
       - name: Install and run cargo-deny
         uses: EmbarkStudios/cargo-deny-action@b66acf5e9fe20f8aba065be86778a8a4c846f902 # v2
         with:
-          command: check bans
+          command: check bans advisories licenses sources
           manifest-path: backend/Cargo.toml
 
   architecture-tests:
