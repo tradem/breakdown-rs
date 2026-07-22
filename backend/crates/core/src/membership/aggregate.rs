@@ -43,7 +43,7 @@ pub enum MembershipState {
 /// One stream per `BlockId`. Holds only the membership map — never block
 /// metadata (see `block-membership` spec, "Membership does not own block
 /// lifecycle").
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BlockMembership {
     pub block_id: BlockId,
     pub members: HashMap<crate::shared::UserId, MembershipState>,

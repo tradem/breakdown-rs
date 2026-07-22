@@ -17,3 +17,6 @@ pub mod shooting_day;
 
 /// Re-export photo shared types for use by infra and api layers.
 pub use shared::{PhotoId, PhotoVariant, VariantStatus};
+
+#[cfg(test)]
+mod proptest;
