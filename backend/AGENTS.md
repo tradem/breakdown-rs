@@ -111,6 +111,18 @@ The integration-test workflow (`.github/workflows/integration-tests.yml`, ADR-01
 - **Network access to Docker Hub** — the Tier-4 tests pull `tqwewe/sierradb:0.3.1` (in addition to the Postgres image) via `testcontainers`. No manual image preload is required; `testcontainers` pulls automatically.
 - No service containers are declared in the workflow — `testcontainers` provisions both tiers per test, so the only host prerequisite is Docker + Hub connectivity.
 
+### CI hardening: SHA-pinning and script-injection hygiene
+
+All GitHub Actions workflows must follow these rules:
+
+- **SHA-pin third-party actions.** Never use a moving tag (`@v7`, `@v2`, `@stable`)
+  directly. Always pin to a 40-character commit SHA with a trailing `# v7` comment for
+  readability. Dependabot (configured in `.github/dependabot.yml`) opens weekly PRs to
+  bump SHAs automatically.
+- **Script-injection avoidance.** Never interpolate `${{ github.event.* }}` or other
+  expression values directly into a `run:` shell command. Pass them through `env:`
+  injection instead (GitHub docs: *Security hardening for GitHub Actions*).
+
 ## 5. Code Example: kameo_es Aggregate
 ```rust
 #[derive(Actor, Default)]
