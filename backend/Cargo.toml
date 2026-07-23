@@ -7,6 +7,7 @@ members = [
     "crates/integration-tests", # Black-box Integrationstests (dev-only)
     "crates/test_support",      # Shared test helpers (make_ctx)
     "crates/architecture",      # Architekturtests (rust_arkitect + cargo-deny, ADR-017)
+    "crates/fuzz-targets",      # Nightly cargo-fuzz targets for request-body deserialization
 ]
 
 [workspace.package]
