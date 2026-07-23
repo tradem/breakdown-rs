@@ -1,14 +1,14 @@
 # Gitleaks configuration for Breakdown RS
-# Prevents false positives and configures secret detection for Rust projects
+# Prevents false positives and detects real secrets before they land.
 # Documentation: https://gitleaks.io/docs/configuration
 
 [extend]
-# Extend the default gitleaks rules
-# useDefault = true  # Uncomment to use default rules as base
+# Use default gitleaks rules as the base (covers 150+ secret patterns)
+useDefault = true
 
-# Global allowlist - rules here apply to all rules
+# Global allowlist — paths/regexes/keywords that suppress all rule matches
 [allowlist]
-# Paths/Patterns to ignore
+# Paths to ignore entirely (regex patterns matched against relative path)
 paths = [
     # Test files often contain fake secrets
     ".*_test\\.rs$",
@@ -21,9 +21,17 @@ paths = [
     "docs/.*",
     # Build artifacts
     "target/.*",
+    # Cargo configuration (internal paths, no secrets)
+    "backend/\\.cargo/.*",
+    # AST indexing artifacts (binary)
+    "\\.ast-bro/.*",
+    # Vendored patches (upstream test code)
+    "\\.patches/.*",
     # Configuration examples (not actual secrets)
     ".*\\.example\\..*",
     ".*\\.sample\\..*",
+    # Dev-only Docker Compose files (placeholders only)
+    "docker-compose.*\\.yml",
     # Frontend (separate repo or handled separately)
     "frontend/.*",
 ]
@@ -46,42 +54,3 @@ keywords = [
     "test",
     "mock",
 ]
-
-# Environment variables that are OK to commit (no real secrets)
-[allowlist.env]
-# Add environment variable names that are safe (no values)
-# For example, if you have .env.example with PLACEHOLDER values
-
-# Specific rules for Rust projects
-[[rules]]
-id = "rust-allow-api-key-in-tests"
-description = "Allow API keys in Rust test modules"
-regex = '''(?i)(#\[cfg\(test\)\]|#\[test\]|mod tests)'''
-keywords = ["test", "cfg"]
-allowed = true
-
-[[rules]]
-id = "rust-doc-comments"
-description = "Allow code examples in doc comments"
-regex = '''///.*(api_key|secret|password|token)'''
-keywords = ["api_key", "secret", "password", "token"]
-allowed = true
-
-# Custom rules for project-specific patterns
-[[rules]]
-id = "breakdown-placeholder-secrets"
-description = "Allow placeholder secrets in configuration"
-regex = '''(?i)(your_|my_|placeholder_|change_me_)(api_key|secret|password|token)'''
-keywords = ["your_", "my_", "placeholder_", "change_me_"]
-allowed = true
-
-# Severity levels: info, warning, error, critical
-# Set to "warning" to not block commits but log warnings
-[default]
-# Uncomment to change default severity
-# severity = "warning"
-
-# Additional checks
-[extend.default]
-# Uncomment to use default gitleaks rules
-# useDefault = true
