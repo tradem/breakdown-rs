@@ -1,0 +1,4 @@
+# Ignore auto-generated fuzzer artifacts
+*
+!*.json
+!*.gitignore
