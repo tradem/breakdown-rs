@@ -182,6 +182,9 @@ docker compose -f docker-compose.dev.yml up -d
 
 This starts:
 - **Postgres** on `localhost:5432` — user `postgres`, password `postgres`, database `breakdown`.
+  An init script (`scripts/postgres-init-roles.sh`) runs on first boot to
+  create two least-privilege roles: `breakdown_migrator` (DDL, schema owner)
+  and `breakdown_app` (DML only).
 - **SierraDB** on `localhost:9090` (RESP3) — pinned to `tqwewe/sierradb:0.3.1`.
 
 ### Apply migrations and run the API (full boot sequence)
@@ -194,14 +197,24 @@ SIERRADB_URL=redis://127.0.0.1:9090/?protocol=resp3 \
 cargo run -p api
 ```
 
-`main.rs` runs `sqlx::migrate!("../infra/migrations")` at boot, opens a RESP3
-connection to SierraDB, builds a live `CommandService` (write path), and spawns
-the four `PostgresProcessor` projectors that subscribe to SierraDB and update
-the Postgres projections. Tests that use `infra::testing::spawn_postgres()`
-apply the same migration set automatically.
+`main.rs` uses a **two-pool Postgres architecture**:
+1. A short-lived migrator pool (`MIGRATOR_DATABASE_URL`, defaults to `DATABASE_URL`)
+   runs `sqlx::migrate!("../infra/migrations")` at boot (DDL rights).
+2. After migration, it enforces the INSERT-only audit restriction
+   (REVOKE UPDATE/DELETE on `projection_audit` from `breakdown_app`).
+3. The migrator pool is dropped, and a long-lived app pool (`DATABASE_URL`,
+   DML only) serves all runtime queries.
+
+In dev mode (single role, `DATABASE_URL` only), both pools use the same
+connection — the audit REVOKE is skipped gracefully.
+
+`main.rs` then opens a RESP3 connection to SierraDB, builds a live
+`CommandService` (write path), and spawns the four `PostgresProcessor`
+projectors that subscribe to SierraDB and update the Postgres projections.
 
 ### Environment variables used by the API binary
-- `DATABASE_URL` – Postgres connection string (default: `postgres://postgres:postgres@localhost:5432/breakdown`)
+- `DATABASE_URL` – Postgres app-role connection string (DML only). Default: `postgres://postgres:postgres@localhost:5432/breakdown`. In production, connect as `breakdown_app` (least-privilege).
+- `MIGRATOR_DATABASE_URL` – Postgres migrator-role connection string (DDL, schema owner). Used only during boot migration, then dropped. Falls back to `DATABASE_URL` when unset or empty (single-role dev mode). In production, connect as `breakdown_migrator`.
 - `SIERRADB_URL` – SierraDB RESP3 connection string (default: `redis://127.0.0.1:9090/?protocol=resp3`). SierraDB speaks RESP3 only — keep `?protocol=resp3` (ADR-016).
 - `BIND_ADDR` – HTTP bind address (default: `0.0.0.0:3000`)
 - OpenAPI/Swagger UI is served at `http://localhost:3000/swagger-ui`

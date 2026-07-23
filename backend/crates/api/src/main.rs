@@ -119,13 +119,59 @@ async fn main() -> Result<()> {
         "redis://127.0.0.1:9090/?protocol=resp3".into()
     });
 
+    // --- Two-pool Postgres connection (DDL migrator + DML app) ---
+    //
+    // MIGRATOR_DATABASE_URL is used only during boot to apply DDL (migrations),
+    // then dropped. Falls back to DATABASE_URL for dev convenience (single-role
+    // mode). In production, MIGRATOR_DATABASE_URL connects as breakdown_migrator
+    // (schema owner), and DATABASE_URL connects as breakdown_app (DML only).
+    let migrator_database_url = env::var("MIGRATOR_DATABASE_URL")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| {
+            warn!("MIGRATOR_DATABASE_URL not set; falling back to DATABASE_URL");
+            database_url.clone()
+        });
+
+    // Short-lived migrator pool (1 connection, DDL rights).
+    let migrator_pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&migrator_database_url)
+        .await?;
+
+    // Run migrations as the migrator role (schema owner).
+    sqlx::migrate!("../infra/migrations")
+        .run(&migrator_pool)
+        .await?;
+    info!("projection migrations applied");
+
+    // Post-migration: enforce INSERT-only audit logging.
+    // The bootstrap script sets DML default privileges for breakdown_app, so
+    // projection_audit automatically gets SELECT, INSERT, UPDATE, DELETE.
+    // We revoke UPDATE/DELETE here to make the audit log append-only.
+    // Best-effort: in dev mode without role separation the REVOKE may fail
+    // harmlessly (role or table does not exist).
+    if migrator_database_url != database_url {
+        match sqlx::query("REVOKE UPDATE, DELETE ON projection_audit FROM breakdown_app")
+            .execute(&migrator_pool)
+            .await
+        {
+            Ok(_) => info!("audit table set to INSERT-only for breakdown_app"),
+            Err(e) => {
+                warn!("could not revoke UPDATE/DELETE on audit table (roles not separated?): {e}")
+            }
+        }
+    }
+
+    // Release the DDL pool; all subsequent queries use the app pool.
+    drop(migrator_pool);
+
+    // Long-lived app pool (DML only, up to 20 connections).
     let pool = PgPoolOptions::new()
         .max_connections(20)
         .connect(&database_url)
         .await?;
-
-    sqlx::migrate!("../infra/migrations").run(&pool).await?;
-    info!("projection migrations applied");
+    info!("app database pool connected");
 
     let redis_client: Arc<RedisClient> = Arc::new(RedisClient::open(sierradb_url)?);
     let sierra_conn = redis_client.get_multiplexed_tokio_connection().await?;
