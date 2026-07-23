@@ -89,12 +89,11 @@ async fn setup_roles(pool: &sqlx::PgPool) -> Result<()> {
 
 /// Start a Postgres container, set up roles, run migrations, apply the
 /// post-migration audit REVOKE, and return connection pools for both roles.
-async fn spawn_role_separated_postgres(
-) -> Result<(
-    sqlx::PgPool,                                            // super_pool (postgres)
-    sqlx::PgPool,                                            // migrator_pool (breakdown_migrator)
-    sqlx::PgPool,                                            // app_pool (breakdown_app)
-    testcontainers::ContainerAsync<PostgresImage>,           // container guard
+async fn spawn_role_separated_postgres() -> Result<(
+    sqlx::PgPool,                                  // super_pool (postgres)
+    sqlx::PgPool,                                  // migrator_pool (breakdown_migrator)
+    sqlx::PgPool,                                  // app_pool (breakdown_app)
+    testcontainers::ContainerAsync<PostgresImage>, // container guard
 )> {
     // ── 1. Start container and connect as superuser ──
     let image = fixtures::build_postgres_container_request();
@@ -150,23 +149,20 @@ async fn spawn_role_separated_postgres(
 async fn app_role_can_select_from_projection_tables() -> Result<()> {
     let (_super, _migrator, app, _container) = spawn_role_separated_postgres().await?;
 
-    let membership_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM projection_membership")
-            .fetch_one(&app)
-            .await?;
+    let membership_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM projection_membership")
+        .fetch_one(&app)
+        .await?;
     assert_eq!(membership_count, 0);
 
-    let audit_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM projection_audit")
-            .fetch_one(&app)
-            .await?;
+    let audit_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM projection_audit")
+        .fetch_one(&app)
+        .await?;
     assert_eq!(audit_count, 0);
 
     // Also verify the _sqlx_migrations table is visible (sqlx needs it).
-    let migration_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations")
-            .fetch_one(&app)
-            .await?;
+    let migration_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations")
+        .fetch_one(&app)
+        .await?;
     assert!(migration_count > 0);
 
     Ok(())
@@ -204,14 +200,12 @@ async fn app_role_can_insert_update_delete_on_projection_tables() -> Result<()> 
     assert!(found);
 
     // ── UPDATE ──
-    let updated = sqlx::query(
-        "UPDATE projection_membership SET role = $1 WHERE block_id = $2",
-    )
-    .bind("Gewandmeister")
-    .bind(uuid)
-    .execute(&app)
-    .await
-    .context("UPDATE as breakdown_app should succeed")?;
+    let updated = sqlx::query("UPDATE projection_membership SET role = $1 WHERE block_id = $2")
+        .bind("Gewandmeister")
+        .bind(uuid)
+        .execute(&app)
+        .await
+        .context("UPDATE as breakdown_app should succeed")?;
     assert_eq!(updated.rows_affected(), 1);
 
     // ── DELETE ──
@@ -236,14 +230,13 @@ async fn app_role_cannot_create_table() -> Result<()> {
         .await;
 
     match result {
-        Ok(_) => anyhow::bail!(
-            "breakdown_app should NOT be able to CREATE TABLE, but it succeeded"
-        ),
+        Ok(_) => {
+            anyhow::bail!("breakdown_app should NOT be able to CREATE TABLE, but it succeeded")
+        }
         Err(e) => {
             let msg = e.to_string();
             assert!(
-                msg.contains("permission denied")
-                    || msg.contains("insufficient privilege"),
+                msg.contains("permission denied") || msg.contains("insufficient privilege"),
                 "expected permission denied, got: {msg}"
             );
         }
@@ -261,9 +254,7 @@ async fn app_role_cannot_drop_table() -> Result<()> {
         .await;
 
     match result {
-        Ok(_) => anyhow::bail!(
-            "breakdown_app should NOT be able to DROP TABLE, but it succeeded"
-        ),
+        Ok(_) => anyhow::bail!("breakdown_app should NOT be able to DROP TABLE, but it succeeded"),
         Err(e) => {
             let msg = e.to_string();
             assert!(
@@ -299,8 +290,7 @@ async fn audit_table_is_insert_only_for_app_role() -> Result<()> {
     // ── UPDATE should fail ──
     let update_result = app
         .execute(
-            sqlx::query("UPDATE projection_audit SET event_type = 'Hacked' WHERE id = $1")
-                .bind(id),
+            sqlx::query("UPDATE projection_audit SET event_type = 'Hacked' WHERE id = $1").bind(id),
         )
         .await;
 
@@ -343,9 +333,7 @@ async fn app_role_cannot_escalate_to_migrator() -> Result<()> {
         .await;
 
     match result {
-        Ok(_) => anyhow::bail!(
-            "breakdown_app should NOT be able to SET ROLE breakdown_migrator"
-        ),
+        Ok(_) => anyhow::bail!("breakdown_app should NOT be able to SET ROLE breakdown_migrator"),
         Err(e) => {
             let msg = e.to_string();
             assert!(

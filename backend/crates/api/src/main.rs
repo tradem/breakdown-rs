@@ -140,7 +140,9 @@ async fn main() -> Result<()> {
         .await?;
 
     // Run migrations as the migrator role (schema owner).
-    sqlx::migrate!("../infra/migrations").run(&migrator_pool).await?;
+    sqlx::migrate!("../infra/migrations")
+        .run(&migrator_pool)
+        .await?;
     info!("projection migrations applied");
 
     // Post-migration: enforce INSERT-only audit logging.
@@ -150,16 +152,14 @@ async fn main() -> Result<()> {
     // Best-effort: in dev mode without role separation the REVOKE may fail
     // harmlessly (role or table does not exist).
     if migrator_database_url != database_url {
-        match sqlx::query(
-            "REVOKE UPDATE, DELETE ON projection_audit FROM breakdown_app",
-        )
-        .execute(&migrator_pool)
-        .await
+        match sqlx::query("REVOKE UPDATE, DELETE ON projection_audit FROM breakdown_app")
+            .execute(&migrator_pool)
+            .await
         {
             Ok(_) => info!("audit table set to INSERT-only for breakdown_app"),
-            Err(e) => warn!(
-                "could not revoke UPDATE/DELETE on audit table (roles not separated?): {e}"
-            ),
+            Err(e) => {
+                warn!("could not revoke UPDATE/DELETE on audit table (roles not separated?): {e}")
+            }
         }
     }
 
