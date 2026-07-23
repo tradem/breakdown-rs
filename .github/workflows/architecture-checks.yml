@@ -3,10 +3,11 @@ name: Architecture Checks
 permissions:
   contents: read
 
-# Three-layer enforcement:
+# Four-layer enforcement:
 #   Layer 1: cargo-deny — checks advisories, bans, licenses, and sources
 #   Layer 2: rust_arkitect — inspects actual `use` statements for boundary violations
 #   Layer 3: no-string-interpolation-sql — forbids dynamic SQL construction in repository adapters
+#   Layer 4: gitleaks — blocks accidental secret commits against 150+ patterns
 #
 # See backend/AGENTS.md § Testing & Guardrails and § Security
 # See backend/docs/architecture/adrs/ADR-017-architecture-testing-strategy.md
@@ -18,6 +19,7 @@ on:
       - "backend/Cargo.toml"
       - "backend/Cargo.lock"
       - "backend/deny.toml"
+      - ".gitleaks.toml"
       - ".github/workflows/architecture-checks.yml"
   workflow_dispatch:
 
@@ -70,6 +72,21 @@ jobs:
             exit 1
           fi
           echo "OK: no string-interpolated SQL found in $DIR"
+
+  gitleaks:
+    name: Gitleaks (secrets)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Detect secrets with Gitleaks
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
   architecture-tests:
     name: rust_arkitect (source-level rules)
