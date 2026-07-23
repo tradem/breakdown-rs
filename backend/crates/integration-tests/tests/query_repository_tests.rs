@@ -149,7 +149,7 @@ async fn init() -> Result<(
     // the projector subscriptions may not be ready immediately.
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    let cmd_service = CommandService::new(sierra_client.get_multiplexed_tokio_connection().await?);
+    let cmd_service = CommandService::new(sierra_client.get_multiplexed_async_connection().await?);
 
     Ok((pool, cmd_service, pg_guard, sierra_guard))
 }

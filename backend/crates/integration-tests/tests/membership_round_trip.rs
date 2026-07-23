@@ -136,7 +136,7 @@ async fn init_membership() -> Result<(
     // Let the subscription settle before appending events.
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    let cmd_service = CommandService::new(sierra_client.get_multiplexed_tokio_connection().await?);
+    let cmd_service = CommandService::new(sierra_client.get_multiplexed_async_connection().await?);
     Ok((pool, cmd_service, pg_guard, sierra_guard))
 }
 
@@ -155,7 +155,7 @@ async fn eappend_membership(
         .timestamp_millis()
         .try_into()
         .unwrap_or(0u64);
-    let mut conn = client.get_multiplexed_tokio_connection().await?;
+    let mut conn = client.get_multiplexed_async_connection().await?;
     let _resp: redis::Value = redis::cmd("EAPPEND")
         .arg(stream_id)
         .arg(event_name)

@@ -102,7 +102,7 @@ pub async fn spawn_scene_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<SceneProcessor>> {
-    let conn = redis_client.get_multiplexed_tokio_connection().await?;
+    let conn = redis_client.get_multiplexed_async_connection().await?;
     let processor = SceneProcessor::new(
         pool.clone(),
         conn,
@@ -121,7 +121,7 @@ pub async fn spawn_character_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<CharacterProcessor>> {
-    let conn = redis_client.get_multiplexed_tokio_connection().await?;
+    let conn = redis_client.get_multiplexed_async_connection().await?;
     let processor = CharacterProcessor::new(
         pool.clone(),
         conn,
@@ -145,7 +145,7 @@ pub async fn spawn_costume_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<CostumeProcessor>> {
-    let conn = redis_client.get_multiplexed_tokio_connection().await?;
+    let conn = redis_client.get_multiplexed_async_connection().await?;
     let processor = CostumeProcessor::new(
         pool.clone(),
         conn,
@@ -164,7 +164,7 @@ pub async fn spawn_costume_category_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<CostumeCategoryProcessor>> {
-    let conn = redis_client.get_multiplexed_tokio_connection().await?;
+    let conn = redis_client.get_multiplexed_async_connection().await?;
     let processor = CostumeCategoryProcessor::new(
         pool.clone(),
         conn,
@@ -188,7 +188,7 @@ pub async fn spawn_season_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<SeasonProcessor>> {
-    let conn = redis_client.get_multiplexed_tokio_connection().await?;
+    let conn = redis_client.get_multiplexed_async_connection().await?;
     let processor = SeasonProcessor::new(
         pool.clone(),
         conn,
@@ -207,7 +207,7 @@ pub async fn spawn_block_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<BlockProcessor>> {
-    let conn = redis_client.get_multiplexed_tokio_connection().await?;
+    let conn = redis_client.get_multiplexed_async_connection().await?;
     let processor = BlockProcessor::new(
         pool.clone(),
         conn,
@@ -226,7 +226,7 @@ pub async fn spawn_episode_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<EpisodeProcessor>> {
-    let conn = redis_client.get_multiplexed_tokio_connection().await?;
+    let conn = redis_client.get_multiplexed_async_connection().await?;
     let processor = EpisodeProcessor::new(
         pool.clone(),
         conn,
@@ -245,7 +245,7 @@ pub async fn spawn_membership_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<MembershipProcessor>> {
-    let conn = redis_client.get_multiplexed_tokio_connection().await?;
+    let conn = redis_client.get_multiplexed_async_connection().await?;
     let processor = MembershipProcessor::new(
         pool.clone(),
         conn,
@@ -269,7 +269,7 @@ pub async fn spawn_audit_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<AuditProcessor>> {
-    let conn = redis_client.get_multiplexed_tokio_connection().await?;
+    let conn = redis_client.get_multiplexed_async_connection().await?;
     let processor = AuditProcessor::new(
         pool.clone(),
         conn,
@@ -288,7 +288,7 @@ pub async fn spawn_shooting_day_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<ShootingDayProcessor>> {
-    let conn = redis_client.get_multiplexed_tokio_connection().await?;
+    let conn = redis_client.get_multiplexed_async_connection().await?;
     let processor = ShootingDayProcessor::new(
         pool.clone(),
         conn,
@@ -312,7 +312,7 @@ pub async fn spawn_photo_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<PhotoProcessor>> {
-    let conn = redis_client.get_multiplexed_tokio_connection().await?;
+    let conn = redis_client.get_multiplexed_async_connection().await?;
     let processor = PhotoProcessor::new(
         pool.clone(),
         conn,

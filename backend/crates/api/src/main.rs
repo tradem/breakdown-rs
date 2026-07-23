@@ -174,7 +174,7 @@ async fn main() -> Result<()> {
     info!("app database pool connected");
 
     let redis_client: Arc<RedisClient> = Arc::new(RedisClient::open(sierradb_url)?);
-    let sierra_conn = redis_client.get_multiplexed_tokio_connection().await?;
+    let sierra_conn = redis_client.get_multiplexed_async_connection().await?;
     let cmd_service = CommandService::new(sierra_conn);
 
     // Start one PostgresProcessor per aggregate, each with its own checkpoint stream.

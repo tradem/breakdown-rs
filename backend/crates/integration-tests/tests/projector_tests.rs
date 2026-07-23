@@ -99,7 +99,7 @@ async fn eappend_event<T: serde::Serialize>(
     expected_version: &str,
     payload: &T,
 ) -> Result<(redis::aio::MultiplexedConnection, u64)> {
-    let mut conn = client.get_multiplexed_tokio_connection().await?;
+    let mut conn = client.get_multiplexed_async_connection().await?;
 
     let mut encoded = Vec::new();
     ciborium::into_writer(payload, &mut encoded).map_err(|e| anyhow!("CBOR encode failed: {e}"))?;
