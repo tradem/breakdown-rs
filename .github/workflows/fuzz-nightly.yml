@@ -50,26 +50,28 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TARGET: create_scene
         run: |
+          {
+            echo '## Fuzz crash report'
+            echo ''
+            echo "Target: \`${TARGET}\`"
+            echo "Timestamp: $(date --utc +%Y-%m-%dT%H:%M:%SZ)"
+            echo ''
+            echo 'The fuzzer detected a crash (panic) during the nightly run.'
+            echo ''
+            echo '### Artifacts'
+            echo ''
+            echo 'Crash reproducer artifacts are attached to the failed workflow run.'
+            echo ''
+            echo '### Acceptance'
+            echo ''
+            echo "- [ ] Reproduce locally: \`cargo +nightly fuzz run --fuzz-dir crates/fuzz-targets ${TARGET} <artifact>\`"
+            echo '- [ ] Fix the panic'
+            echo '- [ ] Add regression test'
+          } > /tmp/issue-body.md
           gh issue create \
             --title "fuzz crash: ${TARGET} (nightly)" \
             --label security,testing/security \
-            --body "## Fuzz crash report
-
-Target: \`${TARGET}\`
-Timestamp: $(date --utc +%Y-%m-%dT%H:%M:%SZ)
-
-The fuzzer detected a crash (panic) during the nightly run.
-
-### Artifacts
-
-Crash reproducer artifacts are attached to the failed workflow run.
-
-### Acceptance
-
-- [ ] Reproduce locally: \`cargo +nightly fuzz run --fuzz-dir crates/fuzz-targets ${TARGET} <artifact>\`
-- [ ] Fix the panic
-- [ ] Add regression test
-" \
+            --body-file /tmp/issue-body.md \
             --repo "${GH_REPO}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
@@ -106,26 +108,28 @@ Crash reproducer artifacts are attached to the failed workflow run.
           GH_REPO: ${{ github.repository }}
           TARGET: create_character
         run: |
+          {
+            echo '## Fuzz crash report'
+            echo ''
+            echo "Target: \`${TARGET}\`"
+            echo "Timestamp: $(date --utc +%Y-%m-%dT%H:%M:%SZ)"
+            echo ''
+            echo 'The fuzzer detected a crash (panic) during the nightly run.'
+            echo ''
+            echo '### Artifacts'
+            echo ''
+            echo 'Crash reproducer artifacts are attached to the failed workflow run.'
+            echo ''
+            echo '### Acceptance'
+            echo ''
+            echo "- [ ] Reproduce locally: \`cargo +nightly fuzz run --fuzz-dir crates/fuzz-targets ${TARGET} <artifact>\`"
+            echo '- [ ] Fix the panic'
+            echo '- [ ] Add regression test'
+          } > /tmp/issue-body.md
           gh issue create \
             --title "fuzz crash: ${TARGET} (nightly)" \
             --label security,testing/security \
-            --body "## Fuzz crash report
-
-Target: \`${TARGET}\`
-Timestamp: $(date --utc +%Y-%m-%dT%H:%M:%SZ)
-
-The fuzzer detected a crash (panic) during the nightly run.
-
-### Artifacts
-
-Crash reproducer artifacts are attached to the failed workflow run.
-
-### Acceptance
-
-- [ ] Reproduce locally: \`cargo +nightly fuzz run --fuzz-dir crates/fuzz-targets ${TARGET} <artifact>\`
-- [ ] Fix the panic
-- [ ] Add regression test
-" \
+            --body-file /tmp/issue-body.md \
             --repo "${GH_REPO}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
@@ -162,26 +166,28 @@ Crash reproducer artifacts are attached to the failed workflow run.
           GH_REPO: ${{ github.repository }}
           TARGET: hierarchy_requests
         run: |
+          {
+            echo '## Fuzz crash report'
+            echo ''
+            echo "Target: \`${TARGET}\`"
+            echo "Timestamp: $(date --utc +%Y-%m-%dT%H:%M:%SZ)"
+            echo ''
+            echo 'The fuzzer detected a crash (panic) during the nightly run.'
+            echo ''
+            echo '### Artifacts'
+            echo ''
+            echo 'Crash reproducer artifacts are attached to the failed workflow run.'
+            echo ''
+            echo '### Acceptance'
+            echo ''
+            echo "- [ ] Reproduce locally: \`cargo +nightly fuzz run --fuzz-dir crates/fuzz-targets ${TARGET} <artifact>\`"
+            echo '- [ ] Fix the panic'
+            echo '- [ ] Add regression test'
+          } > /tmp/issue-body.md
           gh issue create \
             --title "fuzz crash: ${TARGET} (nightly)" \
             --label security,testing/security \
-            --body "## Fuzz crash report
-
-Target: \`${TARGET}\`
-Timestamp: $(date --utc +%Y-%m-%dT%H:%M:%SZ)
-
-The fuzzer detected a crash (panic) during the nightly run.
-
-### Artifacts
-
-Crash reproducer artifacts are attached to the failed workflow run.
-
-### Acceptance
-
-- [ ] Reproduce locally: \`cargo +nightly fuzz run --fuzz-dir crates/fuzz-targets ${TARGET} <artifact>\`
-- [ ] Fix the panic
-- [ ] Add regression test
-" \
+            --body-file /tmp/issue-body.md \
             --repo "${GH_REPO}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
@@ -218,26 +224,28 @@ Crash reproducer artifacts are attached to the failed workflow run.
           GH_REPO: ${{ github.repository }}
           TARGET: shooting_day_member
         run: |
+          {
+            echo '## Fuzz crash report'
+            echo ''
+            echo "Target: \`${TARGET}\`"
+            echo "Timestamp: $(date --utc +%Y-%m-%dT%H:%M:%SZ)"
+            echo ''
+            echo 'The fuzzer detected a crash (panic) during the nightly run.'
+            echo ''
+            echo '### Artifacts'
+            echo ''
+            echo 'Crash reproducer artifacts are attached to the failed workflow run.'
+            echo ''
+            echo '### Acceptance'
+            echo ''
+            echo "- [ ] Reproduce locally: \`cargo +nightly fuzz run --fuzz-dir crates/fuzz-targets ${TARGET} <artifact>\`"
+            echo '- [ ] Fix the panic'
+            echo '- [ ] Add regression test'
+          } > /tmp/issue-body.md
           gh issue create \
             --title "fuzz crash: ${TARGET} (nightly)" \
             --label security,testing/security \
-            --body "## Fuzz crash report
-
-Target: \`${TARGET}\`
-Timestamp: $(date --utc +%Y-%m-%dT%H:%M:%SZ)
-
-The fuzzer detected a crash (panic) during the nightly run.
-
-### Artifacts
-
-Crash reproducer artifacts are attached to the failed workflow run.
-
-### Acceptance
-
-- [ ] Reproduce locally: \`cargo +nightly fuzz run --fuzz-dir crates/fuzz-targets ${TARGET} <artifact>\`
-- [ ] Fix the panic
-- [ ] Add regression test
-" \
+            --body-file /tmp/issue-body.md \
             --repo "${GH_REPO}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
@@ -274,26 +282,28 @@ Crash reproducer artifacts are attached to the failed workflow run.
           GH_REPO: ${{ github.repository }}
           TARGET: update_requests
         run: |
+          {
+            echo '## Fuzz crash report'
+            echo ''
+            echo "Target: \`${TARGET}\`"
+            echo "Timestamp: $(date --utc +%Y-%m-%dT%H:%M:%SZ)"
+            echo ''
+            echo 'The fuzzer detected a crash (panic) during the nightly run.'
+            echo ''
+            echo '### Artifacts'
+            echo ''
+            echo 'Crash reproducer artifacts are attached to the failed workflow run.'
+            echo ''
+            echo '### Acceptance'
+            echo ''
+            echo "- [ ] Reproduce locally: \`cargo +nightly fuzz run --fuzz-dir crates/fuzz-targets ${TARGET} <artifact>\`"
+            echo '- [ ] Fix the panic'
+            echo '- [ ] Add regression test'
+          } > /tmp/issue-body.md
           gh issue create \
             --title "fuzz crash: ${TARGET} (nightly)" \
             --label security,testing/security \
-            --body "## Fuzz crash report
-
-Target: \`${TARGET}\`
-Timestamp: $(date --utc +%Y-%m-%dT%H:%M:%SZ)
-
-The fuzzer detected a crash (panic) during the nightly run.
-
-### Artifacts
-
-Crash reproducer artifacts are attached to the failed workflow run.
-
-### Acceptance
-
-- [ ] Reproduce locally: \`cargo +nightly fuzz run --fuzz-dir crates/fuzz-targets ${TARGET} <artifact>\`
-- [ ] Fix the panic
-- [ ] Add regression test
-" \
+            --body-file /tmp/issue-body.md \
             --repo "${GH_REPO}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()

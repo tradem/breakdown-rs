@@ -10,6 +10,7 @@
 - [![Architecture Checks](https://github.com/tradem/breakdown-rs/actions/workflows/architecture-checks.yml/badge.svg)](https://github.com/tradem/breakdown-rs/actions/workflows/architecture-checks.yml)
 - [![Security Audit](https://github.com/tradem/breakdown-rs/actions/workflows/audit.yml/badge.svg)](https://github.com/tradem/breakdown-rs/actions/workflows/audit.yml)
 - [![Mutation Testing](https://github.com/tradem/breakdown-rs/actions/workflows/mutation-testing.yml/badge.svg)](https://github.com/tradem/breakdown-rs/actions/workflows/mutation-testing.yml)
+- [![Fuzz (nightly)](https://github.com/tradem/breakdown-rs/actions/workflows/fuzz-nightly.yml/badge.svg)](https://github.com/tradem/breakdown-rs/actions/workflows/fuzz-nightly.yml)
 
 ## Development
 
