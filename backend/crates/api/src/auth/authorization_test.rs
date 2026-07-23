@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use super::{AuthorizationState, authorize_middleware};
+use super::{AuthorizationState, Requirement, authorize_middleware};
 use async_trait::async_trait;
 use axum::Router;
 use axum::body::Body as AxumBody;
@@ -100,6 +100,92 @@ struct PanickingPolicy;
 impl AuthorizationPolicy for PanickingPolicy {
     async fn authorize(&self, _ctx: &AuthContext) -> PolicyDecision {
         panic!("intentional policy panic");
+    }
+}
+
+/// All known block-scoped paths (i.e. every route not on the allowlist) MUST
+/// resolve to `Requirement::BlockMember` — this is the Deny-by-Default
+/// guarantee.
+///
+/// Keep this list in sync with the route definitions in `handlers/mod.rs`.
+#[test]
+fn block_scoped_paths_default_to_block_member() {
+    let block_scoped: &[&str] = &[
+        // Blocks (detail + sub-resources except /members/accept)
+        "/blocks/00000000-0000-7000-8000-000000000000",
+        "/blocks/00000000-0000-7000-8000-000000000000/audit",
+        "/blocks/00000000-0000-7000-8000-000000000000/members",
+        "/blocks/00000000-0000-7000-8000-000000000000/members/leave",
+        "/blocks/00000000-0000-7000-8000-000000000000/members/some-user-id",
+        "/blocks/00000000-0000-7000-8000-000000000000/members/some-user-id/role",
+        "/blocks/00000000-0000-7000-8000-000000000000/time-span",
+        // Episodes
+        "/episodes",
+        "/episodes/00000000-0000-7000-8000-000000000000",
+        "/episodes/00000000-0000-7000-8000-000000000000/name",
+        "/episodes/00000000-0000-7000-8000-000000000000/shooting-days",
+        // Scenes
+        "/scenes",
+        "/scenes/00000000-0000-7000-8000-000000000000",
+        "/scenes/00000000-0000-7000-8000-000000000000/details",
+        "/scenes/00000000-0000-7000-8000-000000000000/characters",
+        "/scenes/00000000-0000-7000-8000-000000000000/characters/00000000-0000-7000-8000-000000000000",
+        "/scenes/00000000-0000-7000-8000-000000000000/shooting-days",
+        "/scenes/00000000-0000-7000-8000-000000000000/shooting-days/00000000-0000-7000-8000-000000000000",
+        // Shooting days
+        "/shooting-days/00000000-0000-7000-8000-000000000000",
+        "/shooting-days/00000000-0000-7000-8000-000000000000/archive",
+        // Characters
+        "/characters",
+        "/characters/00000000-0000-7000-8000-000000000000",
+        "/characters/00000000-0000-7000-8000-000000000000/measurements",
+        "/characters/00000000-0000-7000-8000-000000000000/contact",
+        // Costumes (non-photo)
+        "/costumes",
+        "/costumes/00000000-0000-7000-8000-000000000000",
+        "/costumes/00000000-0000-7000-8000-000000000000/notes",
+        "/costumes/00000000-0000-7000-8000-000000000000/assign",
+        "/costumes/00000000-0000-7000-8000-000000000000/details",
+        "/costumes/00000000-0000-7000-8000-000000000000/unassign",
+        // Costume categories (non-season-scoped)
+        "/costume-categories/00000000-0000-7000-8000-000000000000",
+        "/costume-categories/00000000-0000-7000-8000-000000000000/archive",
+    ];
+
+    for path in block_scoped {
+        assert!(
+            matches!(super::requirement_for(path), Requirement::BlockMember),
+            "expected BlockMember for block-scoped path: {path}"
+        );
+    }
+}
+
+/// All known allowlist paths MUST resolve to `Requirement::Authenticated`.
+///
+/// Keep this list in sync with the arms in `requirement_for()`.
+#[test]
+fn allowlist_paths_map_to_authenticated_only() {
+    let allowlist: &[&str] = &[
+        // Seasons (everything under /seasons)
+        "/seasons",
+        "/seasons/00000000-0000-7000-8000-000000000000",
+        "/seasons/00000000-0000-7000-8000-000000000000/costume-categories",
+        "/seasons/00000000-0000-7000-8000-000000000000/name",
+        // Block listing/creation (exact /blocks only)
+        "/blocks",
+        // Photo paths (contain "/photos")
+        "/costumes/00000000-0000-7000-8000-000000000000/photos",
+        "/costumes/00000000-0000-7000-8000-000000000000/photos/00000000-0000-7000-8000-000000000000/bytes",
+        "/costumes/00000000-0000-7000-8000-000000000000/photos/00000000-0000-7000-8000-000000000000",
+        // Accept invitation
+        "/blocks/00000000-0000-7000-8000-000000000000/members/accept",
+    ];
+
+    for path in allowlist {
+        assert!(
+            matches!(super::requirement_for(path), Requirement::Authenticated),
+            "expected Authenticated for allowlist path: {path}"
+        );
     }
 }
 
