@@ -63,7 +63,7 @@ async fn eappend_membership(
     let mut payload = Vec::new();
     ciborium::into_writer(event, &mut payload).map_err(|e| anyhow!("CBOR encode failed: {e}"))?;
     let now_ms = Utc::now().timestamp_millis().try_into().unwrap_or(0u64);
-    let mut conn = client.get_multiplexed_tokio_connection().await?;
+    let mut conn = client.get_multiplexed_async_connection().await?;
     let _resp: redis::Value = redis::cmd("EAPPEND")
         .arg(stream_id)
         .arg(event_name)

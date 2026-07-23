@@ -106,7 +106,7 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
 
     let storage = build_storage(&creds);
     let cmd_service = {
-        let conn = sierra_client.get_multiplexed_tokio_connection().await?;
+        let conn = sierra_client.get_multiplexed_async_connection().await?;
         CommandService::new(conn)
     };
 

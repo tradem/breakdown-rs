@@ -29,7 +29,7 @@ async fn photo_upload_then_delete_round_trip() -> Result<()> {
 
     let storage = build_storage(&creds);
     let cmd_service = {
-        let conn = sierra_client.get_multiplexed_tokio_connection().await?;
+        let conn = sierra_client.get_multiplexed_async_connection().await?;
         CommandService::new(conn)
     };
     let photo_commands = PhotoCommandsImpl::new(cmd_service.clone());

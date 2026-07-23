@@ -128,7 +128,7 @@ pub async fn spawn_sierradb() -> Result<(
     // Retry loop: SierraDB may need a few hundred milliseconds to fully initialise.
     let mut last_err = None;
     for _ in 0..60 {
-        match client.get_multiplexed_tokio_connection().await {
+        match client.get_multiplexed_async_connection().await {
             Ok(conn) => {
                 match redis::cmd("ESVER")
                     .arg("__sierradb_probe__")
@@ -460,7 +460,7 @@ impl TestScene {
     /// The passed-in `app.pool` is cloned so the caller retains it for spawning projectors.
     pub async fn new(mut app: TestApp) -> Result<Self> {
         let pool_clone = app.pool.clone();
-        let conn_for_cmd_service = app.sierra_client.get_multiplexed_tokio_connection().await?;
+        let conn_for_cmd_service = app.sierra_client.get_multiplexed_async_connection().await?;
         let conn_guard = SierraConnGuard {
             conn: conn_for_cmd_service,
             _container: app

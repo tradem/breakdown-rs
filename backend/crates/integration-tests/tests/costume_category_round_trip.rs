@@ -50,7 +50,7 @@ async fn eappend(
     expected_version: &str,
     payload: &[u8],
 ) -> Result<()> {
-    let mut conn = redis_client.get_multiplexed_tokio_connection().await?;
+    let mut conn = redis_client.get_multiplexed_async_connection().await?;
     let now_ms = Utc::now().timestamp_millis().try_into().unwrap_or(0u64);
     let _: redis::Value = redis::cmd("EAPPEND")
         .arg(stream_id)
@@ -238,7 +238,7 @@ async fn season_created_seeds_exactly_five_categories_and_is_idempotent() -> Res
 
     // CommandService drives the saga's category creation (NEW aggregates only
     // write via ECREATE/EAPPEND — no broken ESCAN path is touched).
-    let sierra_conn = redis_client.get_multiplexed_tokio_connection().await?;
+    let sierra_conn = redis_client.get_multiplexed_async_connection().await?;
     let cmd_service = kameo_es::command_service::CommandService::new(sierra_conn);
 
     let _cat_ref = infra::projectors::spawn_costume_category_projector(

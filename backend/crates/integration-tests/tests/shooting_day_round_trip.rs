@@ -59,7 +59,7 @@ async fn eappend(
     expected_version: &str,
     payload: &[u8],
 ) -> Result<()> {
-    let mut conn = redis_client.get_multiplexed_tokio_connection().await?;
+    let mut conn = redis_client.get_multiplexed_async_connection().await?;
     let now_ms = Utc::now().timestamp_millis().try_into().unwrap_or(0u64);
     let _: redis::Value = redis::cmd("EAPPEND")
         .arg(stream_id)

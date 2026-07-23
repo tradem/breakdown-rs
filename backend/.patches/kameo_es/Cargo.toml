@@ -22,11 +22,11 @@ futures = "0.3"
 kameo = "0.22"
 lru = "0.16"
 once_cell = "1.21"
-redis = { version = "0.32", features = ["tokio-comp"] }
+redis = { version = "1.4", features = ["tokio-comp"] }
 regex = "1.11"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "*"
-sierradb-client = { version = "0.1.0", features = ["tokio-comp"] }
+sierradb-client = { version = "0.3", features = ["tokio-comp"] }
 thiserror = "2.0"
 tokio = { version = "1.37", features = ["fs", "sync", "io-util"] }
 tokio-util = "0.7.11"

@@ -102,7 +102,7 @@ async fn eappend_scene_created_round_trips_into_projection() -> Result<()> {
     let now_ms = Utc::now().timestamp_millis().try_into().unwrap_or(0u64);
 
     // Append directly via EAPPEND, bypassing the broken ESCAN path.
-    let mut conn = redis_client.get_multiplexed_tokio_connection().await?;
+    let mut conn = redis_client.get_multiplexed_async_connection().await?;
     let _resp: redis::Value = redis::cmd("EAPPEND")
         .arg(&stream_id)
         .arg("SceneCreated")
@@ -211,7 +211,7 @@ async fn eappend_character_assigned_twice_is_idempotent() -> Result<()> {
 
     let now_ms = Utc::now().timestamp_millis().try_into().unwrap_or(0u64);
 
-    let mut conn = redis_client.get_multiplexed_tokio_connection().await?;
+    let mut conn = redis_client.get_multiplexed_async_connection().await?;
     let _resp: redis::Value = redis::cmd("EAPPEND")
         .arg(&stream_id)
         .arg("SceneCreated")
