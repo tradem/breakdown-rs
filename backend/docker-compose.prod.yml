@@ -81,7 +81,12 @@ services:
       garage:
         condition: service_healthy
     environment:
+      # App role (DML only) – connects as breakdown_app in production.
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-breakdown}
+      # Migrator role (DDL) – connects as breakdown_migrator; used only during
+      # boot migration, then the pool is dropped. Falls back to DATABASE_URL.
+      # In production, set MIGRATOR_DATABASE_URL as a separate secret.
+      MIGRATOR_DATABASE_URL: ${MIGRATOR_DATABASE_URL:-}
       SIERRADB_URL: redis://sierradb:9090/?protocol=resp3
       BIND_ADDR: "0.0.0.0:3000"
       # --- Photo storage (Garage / S3) ---

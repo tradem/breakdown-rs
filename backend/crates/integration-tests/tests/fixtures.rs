@@ -55,7 +55,7 @@ pub async fn spawn_postgres() -> Result<(PgPool, ContainerAsync<PostgresImage>)>
     Ok((pool, container))
 }
 
-fn build_postgres_container_request() -> ContainerRequest<PostgresImage> {
+pub fn build_postgres_container_request() -> ContainerRequest<PostgresImage> {
     let image = PostgresImage::default();
 
     let base = if env::var("TESTCONTAINERS_REUSE")
