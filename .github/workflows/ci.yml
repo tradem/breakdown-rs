@@ -28,7 +28,7 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: "backend"
-      - run: cargo build --all-targets --all-features
+      - run: cargo build --workspace --all-targets --all-features --exclude breakdown-fuzz-targets
 
   test:
     name: Test
@@ -39,7 +39,7 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: "backend"
-      - run: cargo test --workspace --exclude integration-tests
+      - run: cargo test --workspace --exclude integration-tests --exclude breakdown-fuzz-targets
 
   clippy:
     name: Clippy
@@ -52,7 +52,7 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: "backend"
-      - run: cargo clippy --all-targets --all-features -- -D warnings
+      - run: cargo clippy --workspace --all-targets --all-features --exclude breakdown-fuzz-targets -- -D warnings
 
   fmt:
     name: Format
@@ -67,6 +67,9 @@ jobs:
           workspaces: "backend"
       - run: cargo fmt --all -- --check
 
+  # Fuzz targets are built by cargo-fuzz on nightly only; they need cfg(fuzzing)
+  # to provide a main function, so they are excluded from the CI build above.
+
   check:
     name: Check
     runs-on: ubuntu-latest
@@ -76,6 +79,6 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: "backend"
-      - run: cargo check --all-targets --all-features
+      - run: cargo check --workspace --all-targets --all-features --exclude breakdown-fuzz-targets
 
 

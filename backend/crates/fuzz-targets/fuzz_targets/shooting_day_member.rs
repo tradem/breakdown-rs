@@ -8,6 +8,10 @@
 
 #![cfg_attr(fuzzing, no_main)]
 
+/// Stub main for non-fuzzing builds (CI runs `--all-targets`).
+#[cfg(not(fuzzing))]
+fn main() {}
+
 use libfuzzer_sys::fuzz_target;
 
 use chrono::NaiveDate;
