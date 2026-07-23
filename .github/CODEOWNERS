@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024 Breakdown RS Contributors
+#
+# CODEOWNERS — auto-request review on matching paths.
+# Learn more: https://docs.github.com/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner for everything
+* @tradem
+
+# CI/CD and repo-configuration (only maintainer)
+/.github/               @tradem
+/.gitleaks.toml         @tradem
+
+# Core domain logic (event-sourced aggregates, commands, events)
+/backend/crates/core/src/block/       @tradem
+/backend/crates/core/src/season/      @tradem
+/backend/crates/core/src/episode/     @tradem
+/backend/crates/core/src/scene/       @tradem
+/backend/crates/core/src/character/   @tradem
+/backend/crates/core/src/costume/     @tradem
+/backend/crates/core/src/costume_category/  @tradem
+/backend/crates/core/src/photo/       @tradem
+/backend/crates/core/src/shooting_day/       @tradem
+/backend/crates/core/src/membership/  @tradem
+/backend/crates/core/src/shared/      @tradem
+/backend/crates/core/src/lib.rs       @tradem
+
+# Infrastructure (projectors, repositories, event store)
+/backend/crates/infra/                @tradem
+
+# API layer (handlers, routes, auth, middleware)
+/backend/crates/api/src/auth/         @tradem
+/backend/crates/api/src/handlers/     @tradem
+/backend/crates/api/src/middleware/   @tradem
+/backend/crates/api/src/routes/       @tradem
+
+# Integration tests
+/backend/crates/integration-tests/    @tradem
+
+# Architecture tests
+/backend/crates/architecture_tests/   @tradem
+
+# Database migrations
+/backend/crates/infra/migrations/     @tradem
+
+# OpenAPI specification
+/backend/spec/                        @tradem
+
+# Docker and deployment configs
+/docker-compose*.yml                  @tradem
+/backend/Dockerfile                   @tradem
+/backend/scripts/                     @tradem
