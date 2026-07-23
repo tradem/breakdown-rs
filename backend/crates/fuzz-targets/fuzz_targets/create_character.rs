@@ -41,9 +41,7 @@ fuzz_target!(|data: &[u8]| {
     let _ = req.season_id.0;
     let _ = req.name.len();
     match req.category {
-        CharacterCategory::MainCast
-        | CharacterCategory::Guest
-        | CharacterCategory::Extra => {}
+        CharacterCategory::MainCast | CharacterCategory::Guest | CharacterCategory::Extra => {}
     }
 
     // B1: construct the actual command (CreateCharacter has no measurements/contact_info fields)
