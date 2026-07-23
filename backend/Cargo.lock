@@ -602,6 +602,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "breakdown-fuzz-targets"
+version = "0.1.0"
+dependencies = [
+ "breakdown_core",
+ "chrono",
+ "libfuzzer-sys",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "breakdown_core"
 version = "0.1.0"
 dependencies = [

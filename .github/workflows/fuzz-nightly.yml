@@ -1,0 +1,302 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024 Breakdown RS Contributors
+
+name: Fuzz (nightly)
+
+on:
+  schedule:
+    # nightly, after the mutation-testing run (02:00 UTC on Sundays) and
+    # before the standard CI daily runs.
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    working-directory: backend
+
+jobs:
+  fuzz-create-scene:
+    name: Fuzz create_scene
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # nightly
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: "backend"
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+      - name: Run fuzz target (max 30 min)
+        id: fuzz
+        continue-on-error: true
+        run: |
+          cargo +nightly fuzz run \
+            --fuzz-dir crates/fuzz-targets \
+            create_scene \
+            -- -max_total_time=1800
+      - name: Open issue on crash
+        if: steps.fuzz.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TARGET: create_scene
+        run: |
+          gh issue create \
+            --title "fuzz crash: ${TARGET} (nightly)" \
+            --label security,testing/security \
+            --body "## Fuzz crash report
+
+Target: \`${TARGET}\`
+Timestamp: $(date --utc +%Y-%m-%dT%H:%M:%SZ)
+
+The fuzzer detected a crash (panic) during the nightly run.
+
+### Artifacts
+
+Crash reproducer artifacts are attached to the failed workflow run.
+
+### Acceptance
+
+- [ ] Reproduce locally: \`cargo +nightly fuzz run --fuzz-dir crates/fuzz-targets ${TARGET} <artifact>\`
+- [ ] Fix the panic
+- [ ] Add regression test
+" \
+            --repo "${GH_REPO}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: fuzz-artifacts-create-scene
+          path: backend/crates/fuzz-targets/corpus/**/*
+
+  fuzz-create-character:
+    name: Fuzz create_character
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # nightly
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: "backend"
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+      - name: Run fuzz target (max 30 min)
+        id: fuzz
+        continue-on-error: true
+        run: |
+          cargo +nightly fuzz run \
+            --fuzz-dir crates/fuzz-targets \
+            create_character \
+            -- -max_total_time=1800
+      - name: Open issue on crash
+        if: steps.fuzz.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TARGET: create_character
+        run: |
+          gh issue create \
+            --title "fuzz crash: ${TARGET} (nightly)" \
+            --label security,testing/security \
+            --body "## Fuzz crash report
+
+Target: \`${TARGET}\`
+Timestamp: $(date --utc +%Y-%m-%dT%H:%M:%SZ)
+
+The fuzzer detected a crash (panic) during the nightly run.
+
+### Artifacts
+
+Crash reproducer artifacts are attached to the failed workflow run.
+
+### Acceptance
+
+- [ ] Reproduce locally: \`cargo +nightly fuzz run --fuzz-dir crates/fuzz-targets ${TARGET} <artifact>\`
+- [ ] Fix the panic
+- [ ] Add regression test
+" \
+            --repo "${GH_REPO}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: fuzz-artifacts-create-character
+          path: backend/crates/fuzz-targets/corpus/**/*
+
+  fuzz-hierarchy:
+    name: Fuzz hierarchy_requests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # nightly
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: "backend"
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+      - name: Run fuzz target (max 30 min)
+        id: fuzz
+        continue-on-error: true
+        run: |
+          cargo +nightly fuzz run \
+            --fuzz-dir crates/fuzz-targets \
+            hierarchy_requests \
+            -- -max_total_time=1800
+      - name: Open issue on crash
+        if: steps.fuzz.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TARGET: hierarchy_requests
+        run: |
+          gh issue create \
+            --title "fuzz crash: ${TARGET} (nightly)" \
+            --label security,testing/security \
+            --body "## Fuzz crash report
+
+Target: \`${TARGET}\`
+Timestamp: $(date --utc +%Y-%m-%dT%H:%M:%SZ)
+
+The fuzzer detected a crash (panic) during the nightly run.
+
+### Artifacts
+
+Crash reproducer artifacts are attached to the failed workflow run.
+
+### Acceptance
+
+- [ ] Reproduce locally: \`cargo +nightly fuzz run --fuzz-dir crates/fuzz-targets ${TARGET} <artifact>\`
+- [ ] Fix the panic
+- [ ] Add regression test
+" \
+            --repo "${GH_REPO}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: fuzz-artifacts-hierarchy
+          path: backend/crates/fuzz-targets/corpus/**/*
+
+  fuzz-shooting-day-member:
+    name: Fuzz shooting_day_member
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # nightly
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: "backend"
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+      - name: Run fuzz target (max 30 min)
+        id: fuzz
+        continue-on-error: true
+        run: |
+          cargo +nightly fuzz run \
+            --fuzz-dir crates/fuzz-targets \
+            shooting_day_member \
+            -- -max_total_time=1800
+      - name: Open issue on crash
+        if: steps.fuzz.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TARGET: shooting_day_member
+        run: |
+          gh issue create \
+            --title "fuzz crash: ${TARGET} (nightly)" \
+            --label security,testing/security \
+            --body "## Fuzz crash report
+
+Target: \`${TARGET}\`
+Timestamp: $(date --utc +%Y-%m-%dT%H:%M:%SZ)
+
+The fuzzer detected a crash (panic) during the nightly run.
+
+### Artifacts
+
+Crash reproducer artifacts are attached to the failed workflow run.
+
+### Acceptance
+
+- [ ] Reproduce locally: \`cargo +nightly fuzz run --fuzz-dir crates/fuzz-targets ${TARGET} <artifact>\`
+- [ ] Fix the panic
+- [ ] Add regression test
+" \
+            --repo "${GH_REPO}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: fuzz-artifacts-shooting-day-member
+          path: backend/crates/fuzz-targets/corpus/**/*
+
+  fuzz-update-requests:
+    name: Fuzz update_requests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # nightly
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: "backend"
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+      - name: Run fuzz target (max 30 min)
+        id: fuzz
+        continue-on-error: true
+        run: |
+          cargo +nightly fuzz run \
+            --fuzz-dir crates/fuzz-targets \
+            update_requests \
+            -- -max_total_time=1800
+      - name: Open issue on crash
+        if: steps.fuzz.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TARGET: update_requests
+        run: |
+          gh issue create \
+            --title "fuzz crash: ${TARGET} (nightly)" \
+            --label security,testing/security \
+            --body "## Fuzz crash report
+
+Target: \`${TARGET}\`
+Timestamp: $(date --utc +%Y-%m-%dT%H:%M:%SZ)
+
+The fuzzer detected a crash (panic) during the nightly run.
+
+### Artifacts
+
+Crash reproducer artifacts are attached to the failed workflow run.
+
+### Acceptance
+
+- [ ] Reproduce locally: \`cargo +nightly fuzz run --fuzz-dir crates/fuzz-targets ${TARGET} <artifact>\`
+- [ ] Fix the panic
+- [ ] Add regression test
+" \
+            --repo "${GH_REPO}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: fuzz-artifacts-update-requests
+          path: backend/crates/fuzz-targets/corpus/**/*

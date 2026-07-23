@@ -1,0 +1,60 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024 Breakdown RS Contributors
+
+[package]
+name = "breakdown-fuzz-targets"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+publish = false
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+breakdown_core = { path = "../core" }
+libfuzzer-sys = "0.4"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+[[bin]]
+name = "create_scene"
+path = "fuzz_targets/create_scene.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "create_character"
+path = "fuzz_targets/create_character.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "hierarchy_requests"
+path = "fuzz_targets/hierarchy_requests.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "shooting_day_member"
+path = "fuzz_targets/shooting_day_member.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "update_requests"
+path = "fuzz_targets/update_requests.rs"
+test = false
+doc = false
+bench = false
+
