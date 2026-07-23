@@ -68,6 +68,18 @@ A periodic `PhotoGcSweepTask` (advisory-locked) reconciles Garage objects agains
   from request input — Postgres cannot bind identifiers. The CI job
   `no-string-interpolation-sql` in `architecture-checks.yml` enforces this mechanically.
   See `docs/security/README.md` for detailed safe patterns.
+- **Authorization — Handler-internal auth gates (photo handlers).** Handlers gated only by
+  `Requirement::Authenticated` (e.g. photo endpoints under `/costumes/*/photos*`) do **not**
+  receive block-scoped membership enforcement from the middleware. Every such handler MUST
+  call the relevant `AuthorizationPolicy` method (e.g. `has_active_costume_role_in_season`)
+  *inside the handler body* and return `403` on denial.
+  
+  All three photo handlers (`upload_costume_photo`, `get_costume_photo_bytes`,
+  `delete_costume_photo`) are annotated with `// AUTHZ-GATE:` comments marking their
+  handler-internal authorization check. Any new handler under an `Authenticated`-only route
+  that performs a privileged action MUST follow the same pattern — add a `// AUTHZ-GATE:`
+  comment and call the appropriate policy method. Reviewers `grep` for `AUTHZ-GATE` to
+  verify no handler has missed its gate.
 
 ## 4. Testing & Guardrails
 - **Unit/Integration Tests:** Write deterministic tests for domain logic in `core`.

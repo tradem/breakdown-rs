@@ -1775,7 +1775,7 @@ pub async fn upload_costume_photo<P: Ports>(
         }
     };
 
-    // Season-scoped authorization check.
+    // AUTHZ-GATE: authorize_season — handler-internal auth gate (see AGENTS.md)
     let is_authorized = state
         .ports
         .membership_repo()
@@ -1905,7 +1905,7 @@ pub async fn get_costume_photo_bytes<P: Ports>(
         }
     };
 
-    // Season-scoped authorization check.
+    // AUTHZ-GATE: authorize_season — handler-internal auth gate (see AGENTS.md)
     let is_authorized = state
         .ports
         .membership_repo()
@@ -2008,7 +2008,7 @@ pub async fn delete_costume_photo<P: Ports>(
         }
     };
 
-    // Season-scoped authorization check.
+    // AUTHZ-GATE: authorize_season — handler-internal auth gate (see AGENTS.md)
     let is_authorized = state
         .ports
         .membership_repo()
