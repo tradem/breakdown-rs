@@ -26,6 +26,9 @@ pub struct SceneView {
     pub mood: Option<String>,
     pub is_schedule_set: bool,
     pub summary: Option<String>,
+    /// Fictional script-chronology day (e.g. "1. Spieltag"), distinct
+    /// from the calendar `ShootingDay.date`.
+    pub script_day: Option<String>,
     /// Shooting days this scene is scheduled on.
     pub shooting_day_ids: Vec<ShootingDayId>,
     pub assigned_characters: Vec<Uuid>,

@@ -42,6 +42,7 @@ async fn get_scene_returns_view_from_repo() {
         mood: None,
         is_schedule_set: false,
         summary: None,
+        script_day: None,
         shooting_day_ids: Vec::new(),
         assigned_characters: Vec::new(),
         version: AggregateVersion::INITIAL,

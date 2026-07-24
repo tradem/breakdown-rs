@@ -136,6 +136,7 @@ fn map_err(e: sqlx::Error) -> DomainError {
 fn map_scene_view_row(row: sqlx::postgres::PgRow) -> Result<SceneView, DomainError> {
     let scene_number: Option<i32> = row.try_get("scene_number").map_err(map_err)?;
     let summary: Option<String> = row.try_get("summary").map_err(map_err)?;
+    let script_day: Option<String> = row.try_get("script_day").map_err(map_err)?;
     let shooting_day_ids: Vec<Uuid> = row.try_get("shooting_day_ids").map_err(map_err)?;
     Ok(SceneView {
         id: row.try_get("id").map_err(map_err)?,
@@ -145,6 +146,7 @@ fn map_scene_view_row(row: sqlx::postgres::PgRow) -> Result<SceneView, DomainErr
         mood: row.try_get("mood").map_err(map_err)?,
         is_schedule_set: row.try_get("is_schedule_set").map_err(map_err)?,
         summary,
+        script_day,
         shooting_day_ids: shooting_day_ids.into_iter().map(ShootingDayId).collect(),
         assigned_characters: row.try_get("assigned_characters").map_err(map_err)?,
         version: AggregateVersion(row.try_get::<i64, _>("version").map_err(map_err)? as u64),

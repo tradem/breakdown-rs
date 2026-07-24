@@ -6,10 +6,10 @@
 
 ## 1. Shared types & scene script_day (core, additive)
 
-- [ ] 1.1 Add `SceneShootId` newtype to `crates/core/src/shared`
-- [ ] 1.2 Add `SceneShootStatus` enum (`Planned | Scheduled | InProgress | Shot | Skipped`) with serde/ToSchema
-- [ ] 1.3 Add `script_day: Option<String>` to `SceneDetails` (core); update `SceneDetailsUpdated` test fixtures; existing event carries it
-- [ ] 1.4 Add unit tests: `SceneDetails` round-trips `script_day`
+- [x] 1.1 Add `SceneShootId` newtype to `crates/core/src/shared`
+- [x] 1.2 Add `SceneShootStatus` enum (`Planned | Scheduled | InProgress | Shot | Skipped`) with serde/ToSchema
+- [x] 1.3 Add `script_day: Option<String>` to `SceneDetails` (core); update `SceneDetailsUpdated` test fixtures; existing event carries it
+- [x] 1.4 Add unit tests: `SceneDetails` round-trips `script_day`
 
 ## 2. SceneShoot aggregate (core)
 
