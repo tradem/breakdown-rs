@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: moonshotai/kimi-k3 (openrouter)
 
 //! Tier-3 (Postgres-only) repository tests for the SceneShoot read model.
 //!
@@ -30,6 +30,39 @@ async fn init() -> Result<(PgPool, testcontainers::ContainerAsync<testcontainers
     Ok((pool, pg_guard))
 }
 
+/// Seed the parent `projection_scene` and `projection_shooting_day` rows that
+/// the `projection_scene_shoot` FK constraints require (see AGENTS.md gotcha).
+async fn seed_parents(pool: &PgPool, scene_id: Uuid, day_id: ShootingDayId) -> Result<()> {
+    let episode_id = Uuid::now_v7();
+    sqlx::query(
+        r#"
+        INSERT INTO projection_scene
+            (id, episode_id, scene_number, location, mood, is_schedule_set, summary, script_day, version, updated_at)
+        VALUES ($1, $2, 1, 'loc', 'mood', false, NULL, NULL, 1, now())
+        ON CONFLICT (id) DO NOTHING
+        "#,
+    )
+    .bind(scene_id)
+    .bind(episode_id)
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO projection_shooting_day
+            (id, episode_id, label, order_key, date, source, archived, wrapped_at, version, updated_at)
+        VALUES ($1, $2, 'Day 1', 'a', NULL, '{"Manual":null}'::jsonb, false, NULL, 1, now())
+        ON CONFLICT (id) DO NOTHING
+        "#,
+    )
+    .bind(day_id.0)
+    .bind(episode_id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
 /// Seed a single row in `projection_scene_shoot` with the given fields.
 async fn seed_scene_shoot(
     pool: &PgPool,
@@ -40,6 +73,8 @@ async fn seed_scene_shoot(
     actual_order: Option<&str>,
     status: &str,
 ) -> Result<()> {
+    seed_parents(pool, scene_id, shooting_day_id).await?;
+
     let notes = json!([{"id": Uuid::now_v7().to_string(), "body": "test note"}]);
     let continuity_ids: Vec<Uuid> = vec![];
 
@@ -94,7 +129,7 @@ async fn find_by_id_returns_row() -> Result<()> {
     assert_eq!(view.scene_id, scene_id);
     assert_eq!(view.shooting_day_id, day_id);
     assert_eq!(view.status.as_str(), "Planned");
-    assert_eq!(view.planned_order, LexicalSortKey::new("001".into()).unwrap());
+    assert_eq!(view.planned_order, LexicalSortKey::new("001").unwrap());
     assert!(view.actual_order.is_none());
     assert_eq!(view.notes.len(), 1);
     assert_eq!(view.notes[0].body, "test note");

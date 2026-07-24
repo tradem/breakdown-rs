@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: moonshotai/kimi-k3 (openrouter)
 
 //! SceneShoot projection handler: `SceneShootEvent` -> `projection_scene_shoot`.
 
@@ -52,6 +52,7 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                         status = EXCLUDED.status,
                         version = EXCLUDED.version,
                         updated_at = EXCLUDED.updated_at
+                    WHERE projection_scene_shoot.version < EXCLUDED.version
                     "#,
                 )
                 .bind(id.0)
@@ -74,7 +75,7 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                     r#"
                     UPDATE projection_scene_shoot
                     SET planned_order = $2, version = $3, updated_at = $4
-                    WHERE id = $1
+                    WHERE id = $1 AND version < $3
                     "#,
                 )
                 .bind(id.0)
@@ -92,7 +93,7 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                     r#"
                     UPDATE projection_scene_shoot
                     SET start_dt = $2, status = 'InProgress', version = $3, updated_at = $4
-                    WHERE id = $1
+                    WHERE id = $1 AND version < $3
                     "#,
                 )
                 .bind(id.0)
@@ -116,7 +117,7 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                             THEN 'InProgress' ELSE status END,
                         version = $3,
                         updated_at = $4
-                    WHERE id = $1
+                    WHERE id = $1 AND version < $3
                     "#,
                 )
                 .bind(id.0)
@@ -134,7 +135,7 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                     r#"
                     UPDATE projection_scene_shoot
                     SET end_dt = $2, status = 'Shot', version = $3, updated_at = $4
-                    WHERE id = $1
+                    WHERE id = $1 AND version < $3
                     "#,
                 )
                 .bind(id.0)
@@ -150,7 +151,7 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                     r#"
                     UPDATE projection_scene_shoot
                     SET status = 'Skipped', version = $2, updated_at = $3
-                    WHERE id = $1
+                    WHERE id = $1 AND version < $2
                     "#,
                 )
                 .bind(id.0)
@@ -168,13 +169,14 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
             } => {
                 let version = version.0 as i64;
                 // Append the note to the JSONB notes array.
+                // Idempotent: the version guard skips re-delivery (same version).
                 sqlx::query(
                     r#"
                     UPDATE projection_scene_shoot
                     SET notes = notes || $2::jsonb,
                         version = $3,
                         updated_at = $4
-                    WHERE id = $1
+                    WHERE id = $1 AND version < $3
                     "#,
                 )
                 .bind(id.0)
@@ -208,7 +210,7 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                     ),
                     version = $4,
                     updated_at = $5
-                    WHERE id = $1
+                    WHERE id = $1 AND version < $4
                     "#,
                 )
                 .bind(id.0)
@@ -231,7 +233,7 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                     ),
                     version = $3,
                     updated_at = $4
-                    WHERE id = $1
+                    WHERE id = $1 AND version < $3
                     "#,
                 )
                 .bind(id.0)
@@ -246,6 +248,7 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
             } => {
                 let version = version.0 as i64;
                 // Append photo_id to the continuity_photo_ids array.
+                // Idempotent: the version guard skips re-delivery (same version).
                 sqlx::query(
                     r#"
                     UPDATE projection_scene_shoot
@@ -255,7 +258,7 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                         ),
                         version = $3,
                         updated_at = $4
-                    WHERE id = $1
+                    WHERE id = $1 AND version < $3
                     "#,
                 )
                 .bind(id.0)
@@ -278,7 +281,7 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                         ),
                         version = $3,
                         updated_at = $4
-                    WHERE id = $1
+                    WHERE id = $1 AND version < $3
                     "#,
                 )
                 .bind(id.0)

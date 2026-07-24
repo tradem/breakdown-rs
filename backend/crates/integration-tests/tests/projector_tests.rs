@@ -149,6 +149,7 @@ async fn scene_created_projects_scene_details() -> Result<()> {
             mood: Some("dark".into()),
             is_schedule_set: true,
             summary: None,
+            script_day: None,
         },
         assigned_characters: vec![],
         version: AggregateVersion::INITIAL,
@@ -205,6 +206,7 @@ async fn scene_details_updated_projects_changes() -> Result<()> {
             mood: Some("A".into()),
             is_schedule_set: false,
             summary: None,
+            script_day: None,
         },
         assigned_characters: vec![],
         version: AggregateVersion::INITIAL,
@@ -227,6 +229,7 @@ async fn scene_details_updated_projects_changes() -> Result<()> {
             mood: Some("bright".into()),
             is_schedule_set: true,
             summary: None,
+            script_day: None,
         },
         version: AggregateVersion(2),
     };

@@ -55,7 +55,7 @@
 - [x] 6.2 Extend `ShootingDayProjector` for `ShootingDayWrapped`
 - [x] 6.3 Extend `SceneProjector` for `script_day` (already handled in existing code)
 - [x] 6.4 Extend `PhotoProjector` to write `projection_continuity_photo` on Continuity upload
-- [ ] 6.5 Projector idempotency tests (redelivery)
+- [x] 6.5 Projector idempotency tests (redelivery)
 
 ## 7. Infra — ports, sagas, reports
 
