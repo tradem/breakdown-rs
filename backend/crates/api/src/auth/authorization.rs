@@ -155,7 +155,8 @@ impl AuthorizationState {
 }
 
 /// How strongly a given route is gated.
-pub(crate) enum Requirement {
+#[derive(Debug, PartialEq)]
+pub enum Requirement {
     /// Authentication only (no active-block membership required).
     Authenticated,
     /// Requires the caller to be an active member of the active block.
@@ -168,7 +169,7 @@ pub(crate) enum Requirement {
 /// every other (block-scoped) read or write requires active membership in the
 /// active block conveyed by `X-Active-Block` (Decision D2). The active block is
 /// not derived from the data being mutated (action-scoped, not data-scoped).
-pub(crate) fn requirement_for(path: &str) -> Requirement {
+pub fn requirement_for(path: &str) -> Requirement {
     if path.starts_with("/seasons") {
         return Requirement::Authenticated;
     }
