@@ -1,8 +1,8 @@
 # ADR-004: Use UUIDv7 for all Entities and Events
 
 **Status**: Accepted  
-**Date**: 2024-01-16  
-**Author**: Initial Architecture Decision
+**Date**: 2026-06-16  
+**Author**: Tobias Rademacher (@tradem)
 
 ---
 

@@ -1,9 +1,12 @@
 # ADR-014: Testcontainers-based integration testing
 
-- **Status:** Accepted
-- **Date:** 2026-06-21
-- **Related:** ADR-002 (event-sourcing / CQRS), ADR-003 (PostgreSQL), ADR-015 (SierraDB event store), ADR-016 (SierraDB runtime & round-trip)
-- **Source change:** `openspec/changes/archive/2026-06-21-testcontainers-integration-tests`
+**Status**: Accepted
+**Date**: 2026-06-21
+**Author**: Tobias Rademacher (@tradem)
+**Related**: ADR-002 (event-sourcing / CQRS), ADR-003 (PostgreSQL), ADR-015 (SierraDB event store), ADR-016 (SierraDB runtime & round-trip)
+**Source change**: `openspec/changes/archive/2026-06-21-testcontainers-integration-tests`
+
+---
 
 ## Context
 

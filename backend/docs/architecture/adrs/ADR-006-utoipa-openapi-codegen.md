@@ -2,7 +2,7 @@
 
 **Status**: Proposed
 **Date**: 2026-06-17
-**Author**: Architecture Decision
+**Author**: Tobias Rademacher (@tradem)
 
 ---
 

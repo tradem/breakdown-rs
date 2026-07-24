@@ -1,12 +1,15 @@
 # ADR-018: OIDC JWT Validation & Dev-Auth Toggle
 
-- **Status:** Accepted
-- **Date:** 2026-07-20
-- **Supersedes:** —
-- **Related:** ADR-010 (IdP selection: Logto-first, IdP-agnostic RSA/JWKS
+**Status**: Accepted
+**Date**: 2026-07-20
+**Author**: Tobias Rademacher (@tradem)
+**Supersedes**: —
+**Related**: ADR-010 (IdP selection: Logto-first, IdP-agnostic RSA/JWKS
   validation), ADR-017 (Architecture Testing Strategy — `core` must stay free
   of HTTP/OIDC dependencies), ADR-001 (Hexagonal Architecture)
-- **Source change:** `openspec/changes/add-oidc-auth-and-membership`
+**Source change**: `openspec/changes/add-oidc-auth-and-membership`
+
+---
 
 ## Context
 

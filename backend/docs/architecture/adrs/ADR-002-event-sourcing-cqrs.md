@@ -1,8 +1,8 @@
 # ADR-002: Use Event Sourcing and CQRS
 
 **Status**: Accepted  
-**Date**: 2024-01-16  
-**Author**: Initial Architecture Decision
+**Date**: 2026-06-16  
+**Author**: Tobias Rademacher (@tradem)
 
 ---
 

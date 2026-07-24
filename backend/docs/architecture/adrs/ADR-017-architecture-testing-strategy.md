@@ -1,10 +1,13 @@
 # ADR-017: Architecture Testing Strategy
 
-- **Status:** Accepted
-- **Date:** 2026-06-30
-- **Supersedes:** the defunct `arch_test`-based guardrail (never functional, Issue #27)
-- **Related:** ADR-001 (Hexagonal Architecture), Issue #27
-- **Source change:** `openspec/changes/enable-architecture-guardrails`
+**Status**: Accepted
+**Date**: 2026-06-30
+**Author**: Tobias Rademacher (@tradem)
+**Supersedes**: the defunct `arch_test`-based guardrail (never functional, Issue #27)
+**Related**: ADR-001 (Hexagonal Architecture), Issue #27
+**Source change**: `openspec/changes/enable-architecture-guardrails`
+
+---
 
 ## Context
 

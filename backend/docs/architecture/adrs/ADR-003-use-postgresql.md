@@ -1,9 +1,9 @@
 # ADR-003: Use PostgreSQL as Primary Database
 
 **Status**: Superseded by [ADR-015](./ADR-015-sierradb-event-store-postgres-projections.md)  
-**Date**: 2024-01-16  
+**Date**: 2026-06-16  
 **Superseded**: 2026-06-23 by ADR-015  
-**Author**: Initial Architecture Decision
+**Author**: Tobias Rademacher (@tradem)
 
 > **Supersession notice (2026-06-23).** This ADR was accepted under the incorrect
 > assumption that PostgreSQL would serve as the *single* database for both the

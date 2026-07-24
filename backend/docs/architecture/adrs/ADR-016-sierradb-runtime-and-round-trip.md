@@ -1,10 +1,13 @@
 # ADR-016: SierraDB runtime & round-trip (image path, dev/prod runtime, Tier-4 tests)
 
-- **Status:** Accepted
-- **Date:** 2026-06-26
-- **Supersedes:** the "SierraDB container image availability unknown" note in ADR-015
-- **Related:** ADR-011 (observability / OpenTelemetry), ADR-014 (Testcontainers), ADR-015 (SierraDB event store + Postgres projections)
-- **Source change:** `openspec/changes/sierradb-runtime-and-round-trip`
+**Status**: Accepted
+**Date**: 2026-06-26
+**Author**: Tobias Rademacher (@tradem)
+**Supersedes**: the "SierraDB container image availability unknown" note in ADR-015
+**Related**: ADR-011 (observability / OpenTelemetry), ADR-014 (Testcontainers), ADR-015 (SierraDB event store + Postgres projections)
+**Source change**: `openspec/changes/sierradb-runtime-and-round-trip`
+
+---
 
 ## Context
 
