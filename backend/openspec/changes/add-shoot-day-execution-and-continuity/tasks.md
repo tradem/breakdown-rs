@@ -64,7 +64,7 @@
 - [x] 7.3 Add `ContinuityDeletionSaga` for continuity photo refcount + deletion
 - [x] 7.4 `ShootingDayRepository` gains `wrapped_at` in view
 - [ ] 7.5 Report queries: Dispo (`ORDER BY planned_order`), Shoot Day (`ORDER BY actual_order NULLS LAST`), Soll-Ist diff (moved/missing/skipped/reshot flags + `final` from wrapped_at)
-- [ ] 7.6 Repository tests (Tier-3) for each query
+- [x] 7.6 Repository tests (Tier-3) for each query
 
 ## 8. API
 
@@ -76,7 +76,7 @@
 - [ ] 8.6 Report endpoints: `GET /shooting-days/{id}/report/{dispo|shoot-day|soll-ist}`
 - [x] 8.7 `WrapShootingDay` endpoint: `POST /shooting-days/{id}/wrap`
 - [ ] 8.8 `SceneDetails` API type gains `script_day`; create/update accept it
-- [ ] 8.9 Wire composition root (`main.rs`) for new actor + projector spawns
+- [x] 8.9 Wire composition root (`main.rs`) for new actor + projector spawns
 
 ## 9. Tests
 

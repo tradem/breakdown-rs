@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: kwaipilot/kat-coder-air-v2.5 (openrouter)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! Axum-Handler (Request → Command / Query)
 
@@ -2080,6 +2080,12 @@ pub struct StartSceneShootRequest {
     pub version: AggregateVersion,
 }
 
+impl StartSceneShootRequest {
+    fn resolve_start_dt(&self) -> chrono::DateTime<chrono::Utc> {
+        self.start_dt.map(|d| d.and_utc()).unwrap_or_else(chrono::Utc::now)
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct SetActualOrderRequest {
     pub actual_order: LexicalSortKey,
@@ -2090,6 +2096,12 @@ pub struct SetActualOrderRequest {
 pub struct FinishSceneShootRequest {
     pub end_dt: Option<chrono::NaiveDateTime>,
     pub version: AggregateVersion,
+}
+
+impl FinishSceneShootRequest {
+    fn resolve_end_dt(&self) -> chrono::DateTime<chrono::Utc> {
+        self.end_dt.map(|d| d.and_utc()).unwrap_or_else(chrono::Utc::now)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -2191,10 +2203,9 @@ pub async fn start_scene_shoot<P: Ports>(
     Path((day_id, scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<StartSceneShootRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let dt = req.start_dt.map(|d| d.and_utc());
     let cmd = StartSceneShoot {
         id: shoot_id,
-        start_dt: dt,
+        start_dt: req.resolve_start_dt(),
         version: req.version,
     };
     let version = state
@@ -2242,10 +2253,9 @@ pub async fn finish_scene_shoot<P: Ports>(
     Path((day_id, scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<FinishSceneShootRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let dt = req.end_dt.map(|d| d.and_utc());
     let cmd = FinishSceneShoot {
         id: shoot_id,
-        end_dt: dt,
+        end_dt: req.resolve_end_dt(),
         version: req.version,
     };
     let version = state
@@ -2382,10 +2392,12 @@ pub async fn update_scene_shoot_note<P: Ports>(
 pub async fn remove_scene_shoot_note<P: Ports>(
     State(state): State<AppState<P>>,
     Path((day_id, scene_id, shoot_id, note_id)): Path<(ShootingDayId, Uuid, SceneShootId, Uuid)>,
+    Json(req): Json<VersionRequest>,
 ) -> ApiResult<AggregateVersion> {
     let cmd = RemoveSceneShootNote {
         id: shoot_id,
         note_id,
+        version: req.version,
     };
     let version = state
         .ports
@@ -2423,15 +2435,16 @@ pub async fn link_continuity_photo<P: Ports>(
     let episode = state
         .ports
         .episode_repo()
-        .find_by_id(shooting_day.episode_id)
+        .find_by_id(shooting_day.episode_id.0)
         .await
         .map_err(map_err)?;
     let block = state
         .ports
         .block_repo()
-        .find_by_id(episode.block_id)
+        .find_by_id(episode.block_id.0)
         .await
         .map_err(map_err)?;
+    // block.season_id is a SeasonId — extract inner Uuid
     let season_id = block.season_id;
 
     let is_authorized = state
@@ -2490,6 +2503,7 @@ pub async fn unlink_continuity_photo<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
     Path((day_id, scene_id, shoot_id, photo_id)): Path<(ShootingDayId, Uuid, SceneShootId, PhotoId)>,
+    Query(version_req): Query<VersionRequest>,
 ) -> ApiResult<AggregateVersion> {
     // AUTHZ-GATE: handler-internal auth gate for authenticated-only routes
     // Resolve season_id from the shoot_day's episode → block → season chain.
@@ -2502,13 +2516,13 @@ pub async fn unlink_continuity_photo<P: Ports>(
     let episode = state
         .ports
         .episode_repo()
-        .find_by_id(shooting_day.episode_id)
+        .find_by_id(shooting_day.episode_id.0)
         .await
         .map_err(map_err)?;
     let block = state
         .ports
         .block_repo()
-        .find_by_id(episode.block_id)
+        .find_by_id(episode.block_id.0)
         .await
         .map_err(map_err)?;
     let season_id = block.season_id;
@@ -2531,6 +2545,7 @@ pub async fn unlink_continuity_photo<P: Ports>(
     let cmd = UnlinkContinuityPhoto {
         id: shoot_id,
         photo_id,
+        version: version_req.version,
     };
     let version = state
         .ports
