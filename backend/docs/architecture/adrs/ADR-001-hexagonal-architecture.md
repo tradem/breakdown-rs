@@ -1,8 +1,11 @@
 # ADR-001: Hexagonal Architecture
 
-- **Status:** Accepted
-- **Date:** 2026-06-18
-- **Related:** ADR-017 (Architecture Testing Strategy)
+**Status**: Accepted
+**Date**: 2026-06-16
+**Author**: Tobias Rademacher (@tradem)
+**Related**: ADR-017 (Architecture Testing Strategy)
+
+---
 
 ## Context
 

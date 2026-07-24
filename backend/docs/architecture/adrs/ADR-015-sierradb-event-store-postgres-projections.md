@@ -1,10 +1,13 @@
 # ADR-015: SierraDB event store + PostgreSQL projections (CQRS split)
 
-- **Status:** Accepted (the "container image unknown" note is superseded by ADR-016)
-- **Date:** 2026-06-23
-- **Supersedes:** ADR-003 (PostgreSQL as the sole persistence tier)
-- **Related:** ADR-002 (event-sourcing / CQRS), ADR-004 (UUIDv7), ADR-014 (Testcontainers), ADR-016 (SierraDB runtime & round-trip)
-- **Source change:** `openspec/changes/archive/2026-06-23-persistence-layer-v1`
+**Status**: Accepted (the "container image unknown" note is superseded by ADR-016)
+**Date**: 2026-06-23
+**Author**: Tobias Rademacher (@tradem)
+**Supersedes**: ADR-003 (PostgreSQL as the sole persistence tier)
+**Related**: ADR-002 (event-sourcing / CQRS), ADR-004 (UUIDv7), ADR-014 (Testcontainers), ADR-016 (SierraDB runtime & round-trip)
+**Source change**: `openspec/changes/archive/2026-06-23-persistence-layer-v1`
+
+---
 
 ## Context
 

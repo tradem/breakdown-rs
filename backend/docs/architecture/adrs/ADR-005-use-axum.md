@@ -1,8 +1,8 @@
 # ADR-005: Use Axum as Web Framework
 
 **Status**: Accepted  
-**Date**: 2024-01-16  
-**Author**: Initial Architecture Decision
+**Date**: 2026-06-16  
+**Author**: Tobias Rademacher (@tradem)
 
 ---
 

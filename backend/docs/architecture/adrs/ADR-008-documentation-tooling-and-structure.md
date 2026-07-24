@@ -1,8 +1,8 @@
 # ADR-008: Documentation Tooling and Structure
 
 **Status**: Accepted
-**Date**: 2024-06-17
-**Author**: Architecture Decision
+**Date**: 2026-06-17
+**Author**: Tobias Rademacher (@tradem)
 
 ---
 

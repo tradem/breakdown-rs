@@ -1,14 +1,17 @@
 # ADR-019: Costume Photo Storage — Aggregate, Garage, Proxy Serving, Derived Auth
 
-- **Status:** Accepted
-- **Date:** 2026-07-21
-- **Supersedes:** ADR-009 Phase 1 (`fs` service plan is superseded / skipped)
-- **Related:** ADR-009 (S3-compatible storage abstraction — Phase 1 `fs` skipped
+**Status**: Accepted
+**Date**: 2026-07-21
+**Author**: Tobias Rademacher (@tradem)
+**Supersedes**: ADR-009 Phase 1 (`fs` service plan is superseded / skipped)
+**Related**: ADR-009 (S3-compatible storage abstraction — Phase 1 `fs` skipped
   in favour of direct Garage), ADR-002 (CQRS/ES patterns — photo lifecycle is
   event-sourced; bytes are a side-effect), ADR-001 (Hexagonal Architecture),
   ADR-014 (Testcontainers Integration Testing), ADR-015 (SierraDB + Postgres
   projections), ADR-016 (SierraDB runtime and round-trip)
-- **Source change:** `openspec/changes/add-costume-photo-storage`
+**Source change**: `openspec/changes/add-costume-photo-storage`
+
+---
 
 ## Context
 
