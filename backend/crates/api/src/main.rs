@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: kwaipilot/kat-coder-air-v2.5 (openrouter)
 
 //! # Breakdown RS – API-Server
 //!
@@ -18,7 +19,7 @@ use breakdown_core::membership::policy::AuthorizationPolicy;
 use infra::event_store::{
     BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl, CostumeCommandsImpl,
     EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl, SceneCommandsImpl,
-    SeasonCommandsImpl, ShootingDayCommandsImpl,
+    SeasonCommandsImpl, ShootingDayCommandsImpl, SceneShootCommandsImpl,
 };
 use infra::photo::{
     gc::spawn_gc_scheduler, repository::PhotoRepositoryImpl, storage::OpenDalPhotoStorage,
@@ -27,6 +28,7 @@ use infra::queries::{
     AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl,
     CostumeCategoryRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl,
     MembershipRepositoryImpl, SceneRepositoryImpl, SeasonRepositoryImpl, ShootingDayRepositoryImpl,
+    SceneShootRepositoryImpl,
 };
 use kameo_es::command_service::CommandService;
 use opentelemetry::trace::TracerProvider as _;
@@ -204,6 +206,11 @@ async fn main() -> Result<()> {
         Arc::clone(&redis_client),
     )
     .await?;
+    let _scene_shoot_projector = infra::projectors::spawn_scene_shoot_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+    )
+    .await?;
     // Event-reactor saga: seeds default costume categories on SeasonCreated.
     infra::sagas::spawn_season_seeding_saga(
         pool.clone(),
@@ -219,6 +226,8 @@ async fn main() -> Result<()> {
     })?;
     let photo_commands = PhotoCommandsImpl::new(cmd_service.clone());
     let photo_repo = PhotoRepositoryImpl::new(pool.clone());
+    let scene_shoot_commands = SceneShootCommandsImpl::new(cmd_service.clone());
+    let scene_shoot_repo = SceneShootRepositoryImpl::new(pool.clone());
 
     // --- Spawn photo sagas (thumbnail, deletion, bytes-cleanup) ---
     infra::photo::sagas::spawn_photo_thumbnail_saga(
@@ -235,6 +244,12 @@ async fn main() -> Result<()> {
     .await?;
     infra::photo::sagas::spawn_photo_bytes_cleanup_saga(
         photo_storage.clone(),
+        Arc::clone(&redis_client),
+    )
+    .await?;
+    infra::photo::sagas::spawn_continuity_deletion_saga(
+        photo_repo.clone(),
+        photo_commands.clone(),
         Arc::clone(&redis_client),
     )
     .await?;
@@ -267,6 +282,8 @@ async fn main() -> Result<()> {
         photo_storage,
         photo_commands,
         photo_repo,
+        scene_shoot_commands,
+        scene_shoot_repo,
     );
     let app_state = AppState::new(ports);
 

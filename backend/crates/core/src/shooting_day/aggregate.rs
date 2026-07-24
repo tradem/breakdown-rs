@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: kwaipilot/kat-coder-air-v2.5 (openrouter)
 
 //! The `ShootingDay` event-sourced aggregate.
 
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, Utc};
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
 
 use crate::shared::{AggregateVersion, EpisodeId, LexicalSortKey, ShootingDayId};
 
 use super::commands::{
     ArchiveShootingDay, CreateShootingDay, RenameShootingDay, ReorderShootingDay,
-    RescheduleShootingDay,
+    RescheduleShootingDay, WrapShootingDay,
 };
 use super::error::ShootingDayError;
 use super::events::{ShootingDayEvent, ShootingDaySource};
@@ -30,6 +31,8 @@ pub struct ShootingDayAggregate {
     pub date: Option<NaiveDate>,
     pub source: ShootingDaySource,
     pub archived: bool,
+    /// When this shooting day was wrapped (finalised). `None` means open.
+    pub wrapped_at: Option<DateTime<Utc>>,
     pub version: AggregateVersion,
 }
 
@@ -43,6 +46,7 @@ impl Default for ShootingDayAggregate {
             date: None,
             source: ShootingDaySource::Manual,
             archived: false,
+            wrapped_at: None,
             version: AggregateVersion::default(),
         }
     }
@@ -95,6 +99,10 @@ impl Apply for ShootingDayAggregate {
             }
             ShootingDayEvent::ShootingDayArchived { version, .. } => {
                 self.archived = true;
+                self.version = version;
+            }
+            ShootingDayEvent::ShootingDayWrapped { wrapped_at, version, .. } => {
+                self.wrapped_at = Some(wrapped_at);
                 self.version = version;
             }
         }
@@ -216,6 +224,35 @@ impl Command<ArchiveShootingDay> for ShootingDayAggregate {
         let new_version = self.version.next();
         Ok(vec![ShootingDayEvent::ShootingDayArchived {
             id: self.id,
+            version: new_version,
+        }])
+    }
+}
+
+impl Command<WrapShootingDay> for ShootingDayAggregate {
+    type Error = ShootingDayError;
+
+    fn handle(
+        &self,
+        cmd: WrapShootingDay,
+        _ctx: Context<'_, Self>,
+    ) -> Result<Vec<Self::Event>, Self::Error> {
+        // Idempotent: already-wrapped → no-op, emit nothing.
+        if self.wrapped_at.is_some() {
+            return Ok(vec![]);
+        }
+        // Wrapping does NOT require the day to be non-archived (spec D5:
+        // "wrap-does-not-block-archive").
+        if cmd.version != self.version {
+            return Err(ShootingDayError::VersionMismatch {
+                expected: cmd.version,
+                actual: self.version,
+            });
+        }
+        let new_version = self.version.next();
+        Ok(vec![ShootingDayEvent::ShootingDayWrapped {
+            id: self.id,
+            wrapped_at: Utc::now(),
             version: new_version,
         }])
     }

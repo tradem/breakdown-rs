@@ -1,16 +1,29 @@
+// Co-authored-by: kwaipilot/kat-coder-air-v2.5 (openrouter)
 use serde::{Deserialize, Serialize};
 
+use crate::photo::binding::PhotoBinding;
 use crate::shared::{AggregateVersion, PhotoId, PhotoVariant, VariantStatus};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PhotoEvent {
     /// A photo has been uploaded. All three variants are initially `Pending`.
+    ///
+    /// The `binding` field discriminates Costume (Anprobe) from Continuity
+    /// (Anschluss) photos. Pre-existing (historical) events that lack a
+    /// `binding` field deserialise as `PhotoBinding::Costume` via the
+    /// `serde(default)` annotation on the type.
     PhotoUploaded {
         id: PhotoId,
         content_type: String,
         size_bytes: u64,
         /// Original is pending; Thumb and Medium are pending.
         variant_statuses: Vec<(PhotoVariant, VariantStatus)>,
+        /// What this photo is attached to (Costume or Continuity).
+        ///
+        /// Defaults to `PhotoBinding::Costume` for backward-compat
+        /// deserialisation of historical events.
+        #[serde(default)]
+        binding: PhotoBinding,
         version: AggregateVersion,
     },
     /// The original has been re-encoded upright and EXIF-stripped.

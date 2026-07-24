@@ -39,6 +39,15 @@ use breakdown_core::photo::commands::{
     DeletePhoto, GenerateVariant, MarkVariantFailed, NormalizeOriginal, UploadPhoto,
 };
 use breakdown_core::photo::ports::PhotoCommands;
+use breakdown_core::scene_shoot::aggregate::SceneShootAggregate;
+use breakdown_core::scene_shoot::commands::{
+    AddSceneShootNote, FinishSceneShoot, LinkContinuityPhoto, PlanSceneShoot, RemoveSceneShootNote,
+    ReplanSceneShoot, SetActualOrder, SkipSceneShoot, StartSceneShoot, UnlinkContinuityPhoto,
+    UpdateSceneShootNote,
+};
+use breakdown_core::scene_shoot::ports::SceneShootCommands;
+use breakdown_core::shared::SceneShootId;
+
 use breakdown_core::scene::aggregate::SceneAggregate;
 use breakdown_core::scene::commands::{
     AssignCharacter, CreateScene, RemoveCharacter, ScheduleSceneOnShootingDay,
@@ -52,7 +61,7 @@ use breakdown_core::shared::{AggregateVersion, ShootingDayId, UserId};
 use breakdown_core::shooting_day::aggregate::ShootingDayAggregate;
 use breakdown_core::shooting_day::commands::{
     ArchiveShootingDay, CreateShootingDay, RenameShootingDay, ReorderShootingDay,
-    RescheduleShootingDay,
+    RescheduleShootingDay, WrapShootingDay,
 };
 use breakdown_core::shooting_day::ports::ShootingDayCommands;
 use kameo_es::command_service::{CommandService, ExecuteExt, ExecuteResult};
@@ -207,6 +216,16 @@ impl ShootingDayCommands for ShootingDayCommandsImpl {
     }
 
     async fn archive(&self, cmd: ArchiveShootingDay) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let result = ShootingDayAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .await;
+        map_version_only(result)
+    }
+
+    async fn wrap(&self, cmd: WrapShootingDay) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
@@ -662,6 +681,148 @@ impl PhotoCommands for PhotoCommandsImpl {
         map_version_only(result)
     }
 }
+/// Command adapter for the SceneShoot aggregate.
+#[derive(Clone, Debug)]
+pub struct SceneShootCommandsImpl {
+    cmd_service: CommandService,
+}
+
+impl SceneShootCommandsImpl {
+    pub fn new(cmd_service: CommandService) -> Self {
+        Self { cmd_service }
+    }
+}
+
+impl SceneShootCommands for SceneShootCommandsImpl {
+    async fn plan(
+        &self,
+        cmd: PlanSceneShoot,
+    ) -> Result<(SceneShootId, AggregateVersion), DomainError> {
+        let id = cmd.id;
+        let result =
+            SceneShootAggregate::execute(&self.cmd_service, id, cmd)
+                .expected_version(ExpectedVersion::Empty)
+                .await;
+        map_executed(id, result)
+    }
+
+    async fn replan(&self, cmd: ReplanSceneShoot) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .await;
+        map_version_only(result)
+    }
+
+    async fn start(&self, cmd: StartSceneShoot) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .await;
+        map_version_only(result)
+    }
+
+    async fn set_actual_order(
+        &self,
+        cmd: SetActualOrder,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .await;
+        map_version_only(result)
+    }
+
+    async fn finish(&self, cmd: FinishSceneShoot) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .await;
+        map_version_only(result)
+    }
+
+    async fn skip(&self, cmd: SkipSceneShoot) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .await;
+        map_version_only(result)
+    }
+
+    async fn add_note(
+        &self,
+        cmd: AddSceneShootNote,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Any)
+            .await;
+        map_version_only(result)
+    }
+
+    async fn update_note(
+        &self,
+        cmd: UpdateSceneShootNote,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .await;
+        map_version_only(result)
+    }
+
+    async fn remove_note(
+        &self,
+        cmd: RemoveSceneShootNote,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .await;
+        map_version_only(result)
+    }
+
+    async fn link_continuity_photo(
+        &self,
+        cmd: LinkContinuityPhoto,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .await;
+        map_version_only(result)
+    }
+
+    async fn unlink_continuity_photo(
+        &self,
+        cmd: UnlinkContinuityPhoto,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .await;
+        map_version_only(result)
+    }
+}
+
 
 fn map_version_only<Ent, Err>(
     result: Result<ExecuteResult<Ent>, ExecuteError<Err>>,

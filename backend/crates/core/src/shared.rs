@@ -372,6 +372,19 @@ pub enum SceneShootStatus {
     Skipped,
 }
 
+impl SceneShootStatus {
+    /// Return a static string representation for use in SQL projection columns.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Planned => "Planned",
+            Self::Scheduled => "Scheduled",
+            Self::InProgress => "InProgress",
+            Self::Shot => "Shot",
+            Self::Skipped => "Skipped",
+        }
+    }
+}
+
 /// The generation status of a single photo variant.
 ///
 /// Every variant starts as `Pending` on upload. The thumbnail saga

@@ -1,3 +1,5 @@
+// Co-authored-by: kwaipilot/kat-coder-air-v2.5 (openrouter)
+use super::binding::PhotoBinding;
 use serde::Deserialize;
 use utoipa::ToSchema;
 
@@ -10,6 +12,10 @@ pub struct UploadPhoto {
     pub id: PhotoId,
     pub content_type: String,
     pub size_bytes: u64,
+    /// What this photo is attached to (Costume or Continuity).
+    /// Defaults to `Costume` for backward compat.
+    #[serde(default)]
+    pub binding: PhotoBinding,
 }
 
 /// Signal that the original has been re-encoded upright and EXIF-stripped.

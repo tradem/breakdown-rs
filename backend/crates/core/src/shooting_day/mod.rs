@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: kwaipilot/kat-coder-air-v2.5 (openrouter)
 
 //! `ShootingDay` aggregate – an Episode-scoped scheduling unit (a Drehtag).
 //!
@@ -17,7 +18,7 @@ pub mod views;
 
 pub use commands::{
     ArchiveShootingDay, CreateShootingDay, RenameShootingDay, ReorderShootingDay,
-    RescheduleShootingDay,
+    RescheduleShootingDay, WrapShootingDay,
 };
 pub use error::ShootingDayError;
 pub use events::{ShootingDayEvent, ShootingDaySource};

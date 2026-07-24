@@ -4,6 +4,7 @@
 use async_trait::async_trait;
 use breakdown_core::error::DomainError;
 use breakdown_core::photo::ports::PhotoRepository;
+use breakdown_core::photo::binding::PhotoBinding;
 use breakdown_core::photo::views::{PhotoVariantView, PhotoView};
 use breakdown_core::shared::{AggregateVersion, PhotoId, PhotoVariant, VariantStatus};
 use chrono::{DateTime, Utc};
@@ -76,6 +77,7 @@ impl PhotoRepository for PhotoRepositoryImpl {
             size_bytes: row.try_get::<i64, _>("size_bytes").map_err(map_err)? as u64,
             variants,
             exif_stripped_at,
+            binding: PhotoBinding::default(),
             version: AggregateVersion(version as u64),
         })
     }

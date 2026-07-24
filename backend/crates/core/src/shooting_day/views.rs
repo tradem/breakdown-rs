@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: kwaipilot/kat-coder-air-v2.5 (openrouter)
 
 //! Read-model view for a `ShootingDay`.
 
@@ -24,6 +25,8 @@ pub struct ShootingDayView {
     pub date: Option<chrono::NaiveDate>,
     pub source: ShootingDaySource,
     pub archived: bool,
+    /// When this shooting day was wrapped (finalised). `None` means open.
+    pub wrapped_at: Option<DateTime<Utc>>,
     /// Aggregate version of the last applied event; echo back in optimistic-locking commands.
     pub version: AggregateVersion,
     pub updated_at: DateTime<Utc>,

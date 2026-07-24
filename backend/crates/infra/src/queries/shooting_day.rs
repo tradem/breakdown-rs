@@ -29,7 +29,7 @@ impl ShootingDayRepository for ShootingDayRepositoryImpl {
     async fn find_by_id(&self, id: ShootingDayId) -> Result<ShootingDayView, DomainError> {
         let row = sqlx::query(
             r#"
-            SELECT id, episode_id, label, order_key, date, source, archived, version, updated_at
+            SELECT id, episode_id, label, order_key, date, source, archived, wrapped_at, version, updated_at
             FROM projection_shooting_day
             WHERE id = $1
             "#,
@@ -49,7 +49,7 @@ impl ShootingDayRepository for ShootingDayRepositoryImpl {
     ) -> Result<Vec<ShootingDayView>, DomainError> {
         let rows = sqlx::query(
             r#"
-            SELECT id, episode_id, label, order_key, date, source, archived, version, updated_at
+            SELECT id, episode_id, label, order_key, date, source, archived, wrapped_at, version, updated_at
             FROM projection_shooting_day
             WHERE episode_id = $1 AND archived = false
             ORDER BY order_key ASC
@@ -106,6 +106,7 @@ fn map_shooting_day_row(row: sqlx::postgres::PgRow) -> Result<ShootingDayView, D
     let date: Option<chrono::NaiveDate> = row.try_get("date").map_err(map_err)?;
     let source_json: serde_json::Value = row.try_get("source").map_err(map_err)?;
     let archived: bool = row.try_get("archived").map_err(map_err)?;
+    let wrapped_at: Option<DateTime<Utc>> = row.try_get("wrapped_at").map_err(map_err)?;
     let version: i64 = row.try_get("version").map_err(map_err)?;
     let updated_at: DateTime<Utc> = row.try_get("updated_at").map_err(map_err)?;
 
@@ -122,6 +123,7 @@ fn map_shooting_day_row(row: sqlx::postgres::PgRow) -> Result<ShootingDayView, D
         date,
         source,
         archived,
+        wrapped_at,
         version: AggregateVersion(version as u64),
         updated_at,
     })

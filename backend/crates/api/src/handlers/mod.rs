@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: kwaipilot/kat-coder-air-v2.5 (openrouter)
 
 //! Axum-Handler (Request → Command / Query)
 
@@ -46,12 +47,20 @@ use breakdown_core::scene::commands::{
 use breakdown_core::scene::events::SceneDetails;
 use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
 use breakdown_core::scene::views::SceneView;
+use breakdown_core::scene_shoot::commands::{
+    AddSceneShootNote, FinishSceneShoot, LinkContinuityPhoto, PlanSceneShoot,
+    RemoveSceneShootNote, ReplanSceneShoot, SetActualOrder, SkipSceneShoot, StartSceneShoot,
+    UnlinkContinuityPhoto, UpdateSceneShootNote,
+};
+use breakdown_core::scene_shoot::ports::{SceneShootCommands, SceneShootRepository};
+use breakdown_core::scene_shoot::views::{SceneShootView, SerializedNote};
+use breakdown_core::photo::binding::PhotoBinding;
 use breakdown_core::season::commands::{CreateSeason, RenameSeason};
 use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
 use breakdown_core::season::views::SeasonView;
 use breakdown_core::shared::{
     AggregateVersion, BlockId, EpisodeId, LexicalSortKey, PhotoId, PhotoVariant, SeasonId,
-    SeriesId, ShootingDayId, UserId,
+    SeriesId, SceneShootId, ShootingDayId, UserId,
 };
 use breakdown_core::shooting_day::commands::{
     ArchiveShootingDay, CreateShootingDay, RenameShootingDay, ReorderShootingDay,
@@ -66,6 +75,7 @@ use uuid::Uuid;
 
 use crate::auth::CurrentUser;
 use crate::state::{AppState, Ports, ProductionPorts};
+use breakdown_core::membership::policy::AuthorizationPolicy;
 
 /// JSON error body returned on command/query failures.
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -1816,6 +1826,7 @@ pub async fn upload_costume_photo<P: Ports>(
             id: photo_id,
             content_type: content_type.clone(),
             size_bytes,
+            binding: breakdown_core::photo::PhotoBinding::Costume { costume_id },
         })
         .await
         .map_err(|e| {
@@ -2046,6 +2057,519 @@ pub struct PhotoBytesQuery {
     pub variant: Option<String>,
 }
 
+// ---------------------------------------------------------------------------
+// SceneShoot handlers
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct PlanSceneShootRequest {
+    pub scene_id: Uuid,
+    pub shooting_day_id: ShootingDayId,
+    pub planned_order: LexicalSortKey,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct ReplanSceneShootRequest {
+    pub planned_order: LexicalSortKey,
+    pub version: AggregateVersion,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct StartSceneShootRequest {
+    pub start_dt: Option<chrono::NaiveDateTime>,
+    pub version: AggregateVersion,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct SetActualOrderRequest {
+    pub actual_order: LexicalSortKey,
+    pub version: AggregateVersion,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct FinishSceneShootRequest {
+    pub end_dt: Option<chrono::NaiveDateTime>,
+    pub version: AggregateVersion,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct SkipSceneShootRequest {
+    pub version: AggregateVersion,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct AddNoteRequest {
+    pub body: String,
+    pub note_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct UpdateNoteRequest {
+    pub body: String,
+    pub version: AggregateVersion,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct LinkContinuityPhotoRequest {
+    pub photo_id: PhotoId,
+    pub version: AggregateVersion,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct WrapShootingDayRequest {
+    pub version: AggregateVersion,
+}
+
+#[utoipa::path(
+    post,
+    path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots",
+    request_body = PlanSceneShootRequest,
+    responses((status = 201, body = IdVersionResponse)),
+)]
+pub async fn plan_scene_shoot<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path((day_id, scene_id)): Path<(ShootingDayId, Uuid)>,
+    Json(req): Json<PlanSceneShootRequest>,
+) -> ApiResult<IdVersionResponse> {
+    if req.shooting_day_id != day_id {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                message: "shooting_day_id in body must match path parameter".into(),
+            }),
+        ));
+    }
+    let id = SceneShootId::new();
+    let cmd = PlanSceneShoot {
+        id,
+        scene_id,
+        shooting_day_id: day_id,
+        planned_order: req.planned_order,
+    };
+    let (id, version) = state
+        .ports
+        .scene_shoot_commands()
+        .plan(cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::CREATED, Json(IdVersionResponse { id: id.0, version })))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}",
+    request_body = ReplanSceneShootRequest,
+    responses((status = 200, body = AggregateVersion)),
+)]
+pub async fn replan_scene_shoot<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path((day_id, scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
+    Json(req): Json<ReplanSceneShootRequest>,
+) -> ApiResult<AggregateVersion> {
+    let cmd = ReplanSceneShoot {
+        id: shoot_id,
+        planned_order: req.planned_order,
+        version: req.version,
+    };
+    let version = state
+        .ports
+        .scene_shoot_commands()
+        .replan(cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+#[utoipa::path(
+    post,
+    path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/start",
+    request_body = StartSceneShootRequest,
+    responses((status = 200, body = AggregateVersion)),
+)]
+pub async fn start_scene_shoot<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path((day_id, scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
+    Json(req): Json<StartSceneShootRequest>,
+) -> ApiResult<AggregateVersion> {
+    let dt = req.start_dt.map(|d| d.and_utc());
+    let cmd = StartSceneShoot {
+        id: shoot_id,
+        start_dt: dt,
+        version: req.version,
+    };
+    let version = state
+        .ports
+        .scene_shoot_commands()
+        .start(cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/actual-order",
+    request_body = SetActualOrderRequest,
+    responses((status = 200, body = AggregateVersion)),
+)]
+pub async fn set_actual_order<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path((day_id, scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
+    Json(req): Json<SetActualOrderRequest>,
+) -> ApiResult<AggregateVersion> {
+    let cmd = SetActualOrder {
+        id: shoot_id,
+        actual_order: req.actual_order,
+        version: req.version,
+    };
+    let version = state
+        .ports
+        .scene_shoot_commands()
+        .set_actual_order(cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+#[utoipa::path(
+    post,
+    path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/finish",
+    request_body = FinishSceneShootRequest,
+    responses((status = 200, body = AggregateVersion)),
+)]
+pub async fn finish_scene_shoot<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path((day_id, scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
+    Json(req): Json<FinishSceneShootRequest>,
+) -> ApiResult<AggregateVersion> {
+    let dt = req.end_dt.map(|d| d.and_utc());
+    let cmd = FinishSceneShoot {
+        id: shoot_id,
+        end_dt: dt,
+        version: req.version,
+    };
+    let version = state
+        .ports
+        .scene_shoot_commands()
+        .finish(cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+#[utoipa::path(
+    post,
+    path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/skip",
+    request_body = SkipSceneShootRequest,
+    responses((status = 200, body = AggregateVersion)),
+)]
+pub async fn skip_scene_shoot<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path((day_id, scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
+    Json(req): Json<SkipSceneShootRequest>,
+) -> ApiResult<AggregateVersion> {
+    let cmd = SkipSceneShoot {
+        id: shoot_id,
+        version: req.version,
+    };
+    let version = state
+        .ports
+        .scene_shoot_commands()
+        .skip(cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}",
+    responses((status = 200, body = SceneShootView)),
+)]
+pub async fn get_scene_shoot<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path((day_id, scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
+) -> ApiResult<SceneShootView> {
+    let view = state
+        .ports
+        .scene_shoot_repo()
+        .find_by_id(shoot_id)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(view)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots",
+    responses((status = 200, body = Vec<SceneShootView>)),
+)]
+pub async fn list_scene_shoots<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path(day_id): Path<ShootingDayId>,
+) -> ApiResult<Vec<SceneShootView>> {
+    let views = state
+        .ports
+        .scene_shoot_repo()
+        .list_by_shooting_day(day_id)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(views)))
+}
+
+// ---------------------------------------------------------------------------
+// SceneShoot Note handlers
+// ---------------------------------------------------------------------------
+
+#[utoipa::path(
+    post,
+    path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/notes",
+    request_body = AddNoteRequest,
+    responses((status = 200, body = AggregateVersion)),
+)]
+pub async fn add_scene_shoot_note<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path((day_id, scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
+    Json(req): Json<AddNoteRequest>,
+) -> ApiResult<AggregateVersion> {
+    let note_id = req.note_id.unwrap_or_else(Uuid::now_v7);
+    let cmd = AddSceneShootNote {
+        id: shoot_id,
+        note_id,
+        body: req.body,
+        author: None,
+    };
+    let version = state
+        .ports
+        .scene_shoot_commands()
+        .add_note(cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+#[utoipa::path(
+    put,
+    path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/notes/{note_id}",
+    request_body = UpdateNoteRequest,
+    responses((status = 200, body = AggregateVersion)),
+)]
+pub async fn update_scene_shoot_note<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path((day_id, scene_id, shoot_id, note_id)): Path<(ShootingDayId, Uuid, SceneShootId, Uuid)>,
+    Json(req): Json<UpdateNoteRequest>,
+) -> ApiResult<AggregateVersion> {
+    let cmd = UpdateSceneShootNote {
+        id: shoot_id,
+        note_id,
+        body: req.body,
+        version: req.version,
+    };
+    let version = state
+        .ports
+        .scene_shoot_commands()
+        .update_note(cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/notes/{note_id}",
+    responses((status = 200, body = AggregateVersion)),
+)]
+pub async fn remove_scene_shoot_note<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path((day_id, scene_id, shoot_id, note_id)): Path<(ShootingDayId, Uuid, SceneShootId, Uuid)>,
+) -> ApiResult<AggregateVersion> {
+    let cmd = RemoveSceneShootNote {
+        id: shoot_id,
+        note_id,
+    };
+    let version = state
+        .ports
+        .scene_shoot_commands()
+        .remove_note(cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+// ---------------------------------------------------------------------------
+// Continuity Photo handlers
+// ---------------------------------------------------------------------------
+
+#[utoipa::path(
+    post,
+    path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/continuity-photos",
+    request_body = LinkContinuityPhotoRequest,
+    responses((status = 200, body = AggregateVersion)),
+)]
+pub async fn link_continuity_photo<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path((day_id, scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
+    Json(req): Json<LinkContinuityPhotoRequest>,
+) -> ApiResult<AggregateVersion> {
+    // AUTHZ-GATE: handler-internal auth gate for authenticated-only routes
+    // Resolve season_id from the shoot_day's episode → block → season chain.
+    let shooting_day = state
+        .ports
+        .shooting_day_repo()
+        .find_by_id(day_id)
+        .await
+        .map_err(map_err)?;
+    let episode = state
+        .ports
+        .episode_repo()
+        .find_by_id(shooting_day.episode_id)
+        .await
+        .map_err(map_err)?;
+    let block = state
+        .ports
+        .block_repo()
+        .find_by_id(episode.block_id)
+        .await
+        .map_err(map_err)?;
+    let season_id = block.season_id;
+
+    let is_authorized = state
+        .ports
+        .membership_repo()
+        .has_active_costume_role_in_season(season_id, current_user.sub.clone())
+        .await
+        .unwrap_or(false);
+    if !is_authorized {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                message: "not authorized to link continuity photos".into(),
+            }),
+        ));
+    }
+
+    let cmd = LinkContinuityPhoto {
+        id: shoot_id,
+        photo_id: req.photo_id,
+        version: req.version,
+    };
+    let version = state
+        .ports
+        .scene_shoot_commands()
+        .link_continuity_photo(cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/continuity-photos",
+    responses((status = 200, body = Vec<PhotoId>)),
+)]
+pub async fn list_continuity_photos<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path((day_id, scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
+) -> ApiResult<Vec<PhotoId>> {
+    let view = state
+        .ports
+        .scene_shoot_repo()
+        .find_by_id(shoot_id)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(view.continuity_photo_ids)))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/continuity-photos/{photo_id}",
+    responses((status = 200, body = AggregateVersion)),
+)]
+pub async fn unlink_continuity_photo<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path((day_id, scene_id, shoot_id, photo_id)): Path<(ShootingDayId, Uuid, SceneShootId, PhotoId)>,
+) -> ApiResult<AggregateVersion> {
+    // AUTHZ-GATE: handler-internal auth gate for authenticated-only routes
+    // Resolve season_id from the shoot_day's episode → block → season chain.
+    let shooting_day = state
+        .ports
+        .shooting_day_repo()
+        .find_by_id(day_id)
+        .await
+        .map_err(map_err)?;
+    let episode = state
+        .ports
+        .episode_repo()
+        .find_by_id(shooting_day.episode_id)
+        .await
+        .map_err(map_err)?;
+    let block = state
+        .ports
+        .block_repo()
+        .find_by_id(episode.block_id)
+        .await
+        .map_err(map_err)?;
+    let season_id = block.season_id;
+
+    let is_authorized = state
+        .ports
+        .membership_repo()
+        .has_active_costume_role_in_season(season_id, current_user.sub.clone())
+        .await
+        .unwrap_or(false);
+    if !is_authorized {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                message: "not authorized to unlink continuity photos".into(),
+            }),
+        ));
+    }
+
+    let cmd = UnlinkContinuityPhoto {
+        id: shoot_id,
+        photo_id,
+    };
+    let version = state
+        .ports
+        .scene_shoot_commands()
+        .unlink_continuity_photo(cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+// ---------------------------------------------------------------------------
+// ShootingDay wrap handler
+// ---------------------------------------------------------------------------
+
+#[utoipa::path(
+    post,
+    path = "/shooting-days/{id}/wrap",
+    request_body = WrapShootingDayRequest,
+    responses((status = 200, body = AggregateVersion)),
+)]
+pub async fn wrap_shooting_day<P: Ports>(
+    State(state): State<AppState<P>>,
+    Path(id): Path<ShootingDayId>,
+    Json(req): Json<WrapShootingDayRequest>,
+) -> ApiResult<AggregateVersion> {
+    use breakdown_core::shooting_day::commands::WrapShootingDay;
+    let cmd = WrapShootingDay {
+        id,
+        version: req.version,
+    };
+    let version = state
+        .ports
+        .shooting_day_commands()
+        .wrap(cmd)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
 /// Build the full Axum router using the concrete `ProductionPorts` bundle.
 pub fn routes() -> Router<AppState<ProductionPorts>> {
     Router::new()
@@ -2208,6 +2732,57 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         .route(
             "/costumes/{costume_id}/photos/{photo_id}",
             routing::delete(delete_costume_photo::<ProductionPorts>),
+        )
+        // --- SceneShoot execution endpoints ---
+        .route(
+            "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots",
+            routing::post(plan_scene_shoot::<ProductionPorts>),
+        )
+        .route(
+            "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}",
+            routing::patch(replan_scene_shoot::<ProductionPorts>)
+                .get(get_scene_shoot::<ProductionPorts>),
+        )
+        .route(
+            "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/start",
+            routing::post(start_scene_shoot::<ProductionPorts>),
+        )
+        .route(
+            "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/actual-order",
+            routing::patch(set_actual_order::<ProductionPorts>),
+        )
+        .route(
+            "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/finish",
+            routing::post(finish_scene_shoot::<ProductionPorts>),
+        )
+        .route(
+            "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/skip",
+            routing::post(skip_scene_shoot::<ProductionPorts>),
+        )
+        // --- SceneShoot note endpoints ---
+        .route(
+            "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/notes",
+            routing::post(add_scene_shoot_note::<ProductionPorts>),
+        )
+        .route(
+            "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/notes/{note_id}",
+            routing::put(update_scene_shoot_note::<ProductionPorts>)
+                .delete(remove_scene_shoot_note::<ProductionPorts>),
+        )
+        // --- Continuity photo endpoints ---
+        .route(
+            "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/continuity-photos",
+            routing::post(link_continuity_photo::<ProductionPorts>)
+                .get(list_continuity_photos::<ProductionPorts>),
+        )
+        .route(
+            "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/continuity-photos/{photo_id}",
+            routing::delete(unlink_continuity_photo::<ProductionPorts>),
+        )
+        // --- ShootingDay lifecycle endpoints ---
+        .route(
+            "/shooting-days/{id}/wrap",
+            routing::post(wrap_shooting_day::<ProductionPorts>),
         )
 }
 

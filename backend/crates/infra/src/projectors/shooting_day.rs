@@ -135,6 +135,26 @@ impl<'a> EntityEventHandler<ShootingDayAggregate, Transaction<'a, Postgres>>
                 .execute(&mut **ctx)
                 .await?;
             }
+            ShootingDayEvent::ShootingDayWrapped {
+                id,
+                wrapped_at,
+                version,
+            } => {
+                let version = version.0 as i64;
+                sqlx::query(
+                    r#"
+                    UPDATE projection_shooting_day
+                    SET wrapped_at = $2, version = $3, updated_at = $4
+                    WHERE id = $1
+                    "#,
+                )
+                .bind(id.0)
+                .bind(wrapped_at)
+                .bind(version)
+                .bind(updated_at)
+                .execute(&mut **ctx)
+                .await?;
+            }
         }
 
         Ok(())
