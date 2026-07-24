@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: kwaipilot/kat-coder-air-v2.5 (openrouter)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! # Breakdown RS – API-Server
 //!
@@ -28,7 +28,7 @@ use infra::queries::{
     AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl,
     CostumeCategoryRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl,
     MembershipRepositoryImpl, SceneRepositoryImpl, SeasonRepositoryImpl, ShootingDayRepositoryImpl,
-    SceneShootRepositoryImpl,
+    SceneShootRepositoryImpl, SceneShootReportRepositoryImpl,
 };
 use kameo_es::command_service::CommandService;
 use opentelemetry::trace::TracerProvider as _;
@@ -228,6 +228,7 @@ async fn main() -> Result<()> {
     let photo_repo = PhotoRepositoryImpl::new(pool.clone());
     let scene_shoot_commands = SceneShootCommandsImpl::new(cmd_service.clone());
     let scene_shoot_repo = SceneShootRepositoryImpl::new(pool.clone());
+    let scene_shoot_report_repo = SceneShootReportRepositoryImpl::new(pool.clone());
 
     // --- Spawn photo sagas (thumbnail, deletion, bytes-cleanup) ---
     infra::photo::sagas::spawn_photo_thumbnail_saga(
@@ -284,6 +285,7 @@ async fn main() -> Result<()> {
         photo_repo,
         scene_shoot_commands,
         scene_shoot_repo,
+        scene_shoot_report_repo,
     );
     let app_state = AppState::new(ports);
 

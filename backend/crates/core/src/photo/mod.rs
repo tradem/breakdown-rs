@@ -1,4 +1,4 @@
-// Co-authored-by: kwaipilot/kat-coder-air-v2.5 (openrouter)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 pub mod aggregate;
 pub mod binding;
 pub mod commands;

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: kwaipilot/kat-coder-air-v2.5 (openrouter)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! Read-model view for a `ShootingDay`.
 

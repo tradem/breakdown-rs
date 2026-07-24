@@ -1,4 +1,4 @@
-// Co-authored-by: kwaipilot/kat-coder-air-v2.5 (openrouter)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 use serde::{Deserialize, Serialize};
 
 use crate::photo::binding::PhotoBinding;

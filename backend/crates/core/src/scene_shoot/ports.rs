@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: kwaipilot/kat-coder-air-v2.5 (openrouter)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! Hexagonal ports for the SceneShoot context.
 //!
@@ -19,7 +19,9 @@ use super::commands::{
     ReplanSceneShoot, SetActualOrder, SkipSceneShoot, StartSceneShoot, UnlinkContinuityPhoto,
     UpdateSceneShootNote,
 };
-use super::views::SceneShootView;
+use super::views::{
+    DispoRow, SceneShootView, ShootDayRow, SollIstReport,
+};
 
 /// Async write port for the `SceneShootAggregate`. Mockable seam used by API handlers.
 #[allow(async_fn_in_trait)]
@@ -91,4 +93,26 @@ pub trait SceneShootRepository: Send + Sync {
 
     /// List all scene shoots (across all days) for a given scene.
     async fn list_by_scene(&self, scene_id: Uuid) -> Result<Vec<SceneShootView>, DomainError>;
+}
+
+/// Read port for the three shoot-day reports.
+#[allow(async_fn_in_trait)]
+pub trait SceneShootReportRepository: Send + Sync {
+    /// Dispo (planned / Soll): scenes ordered by `planned_order ASC`.
+    async fn dispo_report(
+        &self,
+        shooting_day_id: ShootingDayId,
+    ) -> Result<Vec<DispoRow>, DomainError>;
+
+    /// Shoot Day (actual / Ist): scenes ordered by `actual_order ASC NULLS LAST`.
+    async fn shoot_day_report(
+        &self,
+        shooting_day_id: ShootingDayId,
+    ) -> Result<Vec<ShootDayRow>, DomainError>;
+
+    /// Soll-Ist-Vergleich: planned vs actual diff with flags.
+    async fn soll_ist_report(
+        &self,
+        shooting_day_id: ShootingDayId,
+    ) -> Result<SollIstReport, DomainError>;
 }

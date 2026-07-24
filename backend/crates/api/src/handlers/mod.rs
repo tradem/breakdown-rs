@@ -52,8 +52,8 @@ use breakdown_core::scene_shoot::commands::{
     RemoveSceneShootNote, ReplanSceneShoot, SetActualOrder, SkipSceneShoot, StartSceneShoot,
     UnlinkContinuityPhoto, UpdateSceneShootNote,
 };
-use breakdown_core::scene_shoot::ports::{SceneShootCommands, SceneShootRepository};
-use breakdown_core::scene_shoot::views::{SceneShootView, SerializedNote};
+use breakdown_core::scene_shoot::ports::{SceneShootCommands, SceneShootReportRepository, SceneShootRepository};
+use breakdown_core::scene_shoot::views::{SceneShootView, SerializedNote, DispoRow, ShootDayRow, SollIstReport};
 use breakdown_core::photo::binding::PhotoBinding;
 use breakdown_core::season::commands::{CreateSeason, RenameSeason};
 use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
@@ -2585,6 +2585,169 @@ pub async fn wrap_shooting_day<P: Ports>(
     Ok((StatusCode::OK, Json(version)))
 }
 
+// ---------------------------------------------------------------------------
+// Report handlers
+// ---------------------------------------------------------------------------
+
+#[utoipa::path(
+    get,
+    path = "/shooting-days/{id}/report/dispo",
+    responses((status = 200, body = Vec<DispoRow>)),
+)]
+pub async fn dispo_report<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<ShootingDayId>,
+) -> ApiResult<Vec<DispoRow>> {
+    // AUTHZ-GATE: handler-internal auth gate
+    let shooting_day = state
+        .ports
+        .shooting_day_repo()
+        .find_by_id(id)
+        .await
+        .map_err(map_err)?;
+    let episode = state
+        .ports
+        .episode_repo()
+        .find_by_id(shooting_day.episode_id.0)
+        .await
+        .map_err(map_err)?;
+    let block = state
+        .ports
+        .block_repo()
+        .find_by_id(episode.block_id.0)
+        .await
+        .map_err(map_err)?;
+    let is_authorized = state
+        .ports
+        .membership_repo()
+        .has_active_costume_role_in_season(block.season_id, current_user.sub.clone())
+        .await
+        .unwrap_or(false);
+    if !is_authorized {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                message: "not authorized to view reports".into(),
+            }),
+        ));
+    }
+
+    let rows = state
+        .ports
+        .scene_shoot_report_repo()
+        .dispo_report(id)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(rows)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/shooting-days/{id}/report/shoot-day",
+    responses((status = 200, body = Vec<ShootDayRow>)),
+)]
+pub async fn shoot_day_report<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<ShootingDayId>,
+) -> ApiResult<Vec<ShootDayRow>> {
+    // AUTHZ-GATE: handler-internal auth gate
+    let shooting_day = state
+        .ports
+        .shooting_day_repo()
+        .find_by_id(id)
+        .await
+        .map_err(map_err)?;
+    let episode = state
+        .ports
+        .episode_repo()
+        .find_by_id(shooting_day.episode_id.0)
+        .await
+        .map_err(map_err)?;
+    let block = state
+        .ports
+        .block_repo()
+        .find_by_id(episode.block_id.0)
+        .await
+        .map_err(map_err)?;
+    let is_authorized = state
+        .ports
+        .membership_repo()
+        .has_active_costume_role_in_season(block.season_id, current_user.sub.clone())
+        .await
+        .unwrap_or(false);
+    if !is_authorized {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                message: "not authorized to view reports".into(),
+            }),
+        ));
+    }
+
+    let rows = state
+        .ports
+        .scene_shoot_report_repo()
+        .shoot_day_report(id)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(rows)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/shooting-days/{id}/report/soll-ist",
+    responses((status = 200, body = SollIstReport)),
+)]
+pub async fn soll_ist_report<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<ShootingDayId>,
+) -> ApiResult<SollIstReport> {
+    // AUTHZ-GATE: handler-internal auth gate
+    let shooting_day = state
+        .ports
+        .shooting_day_repo()
+        .find_by_id(id)
+        .await
+        .map_err(map_err)?;
+    let episode = state
+        .ports
+        .episode_repo()
+        .find_by_id(shooting_day.episode_id.0)
+        .await
+        .map_err(map_err)?;
+    let block = state
+        .ports
+        .block_repo()
+        .find_by_id(episode.block_id.0)
+        .await
+        .map_err(map_err)?;
+    let is_authorized = state
+        .ports
+        .membership_repo()
+        .has_active_costume_role_in_season(block.season_id, current_user.sub.clone())
+        .await
+        .unwrap_or(false);
+    if !is_authorized {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                message: "not authorized to view reports".into(),
+            }),
+        ));
+    }
+
+    let report = state
+        .ports
+        .scene_shoot_report_repo()
+        .soll_ist_report(id)
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(report)))
+}
+
 /// Build the full Axum router using the concrete `ProductionPorts` bundle.
 pub fn routes() -> Router<AppState<ProductionPorts>> {
     Router::new()
@@ -2798,6 +2961,19 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         .route(
             "/shooting-days/{id}/wrap",
             routing::post(wrap_shooting_day::<ProductionPorts>),
+        )
+        // --- Report endpoints ---
+        .route(
+            "/shooting-days/{id}/report/dispo",
+            routing::get(dispo_report::<ProductionPorts>),
+        )
+        .route(
+            "/shooting-days/{id}/report/shoot-day",
+            routing::get(shoot_day_report::<ProductionPorts>),
+        )
+        .route(
+            "/shooting-days/{id}/report/soll-ist",
+            routing::get(soll_ist_report::<ProductionPorts>),
         )
 }
 

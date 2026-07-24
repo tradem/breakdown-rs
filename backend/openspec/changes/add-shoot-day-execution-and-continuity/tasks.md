@@ -63,7 +63,7 @@
 - [x] 7.2 `SqlxSceneShootRepository` adapter: find_by_id, list_by_shooting_day, find_by_scene_and_day, list_by_scene
 - [x] 7.3 Add `ContinuityDeletionSaga` for continuity photo refcount + deletion
 - [x] 7.4 `ShootingDayRepository` gains `wrapped_at` in view
-- [ ] 7.5 Report queries: Dispo (`ORDER BY planned_order`), Shoot Day (`ORDER BY actual_order NULLS LAST`), Soll-Ist diff (moved/missing/skipped/reshot flags + `final` from wrapped_at)
+- [x] 7.5 Report queries: Dispo (`ORDER BY planned_order`), Shoot Day (`ORDER BY actual_order NULLS LAST`), Soll-Ist diff (moved/missing/skipped/reshot flags + `final` from wrapped_at)
 - [x] 7.6 Repository tests (Tier-3) for each query
 
 ## 8. API
@@ -73,9 +73,9 @@
 - [x] 8.3 Execution endpoints: `POST .../start`, `.../actual-order`, `.../finish`, `.../skip`
 - [x] 8.4 Notes endpoints: `POST/PUT/DELETE .../notes`
 - [x] 8.5 Continuity photo endpoints: `POST/GET/DELETE ...` with `// AUTHZ-GATE:` comments + policy checks
-- [ ] 8.6 Report endpoints: `GET /shooting-days/{id}/report/{dispo|shoot-day|soll-ist}`
+- [x] 8.6 Report endpoints: `GET /shooting-days/{id}/report/{dispo|shoot-day|soll-ist}`
 - [x] 8.7 `WrapShootingDay` endpoint: `POST /shooting-days/{id}/wrap`
-- [ ] 8.8 `SceneDetails` API type gains `script_day`; create/update accept it
+- [x] 8.8 `SceneDetails` API type gains `script_day`; create/update accept it
 - [x] 8.9 Wire composition root (`main.rs`) for new actor + projector spawns
 
 ## 9. Tests
