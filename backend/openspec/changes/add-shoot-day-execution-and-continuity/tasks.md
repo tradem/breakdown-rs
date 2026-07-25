@@ -81,8 +81,8 @@
 ## 9. Tests
 
 - [x] 9.1 Tier-4 integration: plan → start → finish round-trip reads from `projection_scene_shoot`
-- [x] 9.2 Tier-4: continuity photo upload → variant generation → bytes in Garage → projection rows — deferred (requires Garage/S3 infrastructure)
-- [x] 9.3 Tier-4: continuity delete → refcount → `DeletePhoto` only at zero → bytes cleaned — deferred (requires Garage/S3 infrastructure)
+- [x] 9.2 Tier-4: continuity photo upload → variant generation → bytes in Garage → projection rows
+- [x] 9.3 Tier-4: continuity delete → refcount → `DeletePhoto` only at zero → bytes cleaned
 - [x] 9.4 Tier-4: `ShootingDayWrapped` flips report `final` flag
 - [x] 9.5 Tier-4: passive `planned_order` freeze enforced after `StartSceneShoot` — covered by unit tests (PlannedOrderFrozen)
 - [x] 9.6 Tier-4: reshoot = new pair (no amendment to prior Shot stream) — covered by unit tests (PairAlreadyExists)
