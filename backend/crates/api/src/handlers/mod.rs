@@ -37,6 +37,7 @@ use breakdown_core::membership::{
     AcceptInvitation, BootstrapOwner, GrantRole, InviteMember, LeaveBlock, MembershipCommands,
     MembershipRepository, RemoveMember, Role,
 };
+use breakdown_core::photo::binding::PhotoBinding;
 use breakdown_core::photo::commands::UploadPhoto as UploadPhotoCmd;
 use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
 use breakdown_core::photo::views::PhotoView;
@@ -48,19 +49,22 @@ use breakdown_core::scene::events::SceneDetails;
 use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
 use breakdown_core::scene::views::SceneView;
 use breakdown_core::scene_shoot::commands::{
-    AddSceneShootNote, FinishSceneShoot, LinkContinuityPhoto, PlanSceneShoot,
-    RemoveSceneShootNote, ReplanSceneShoot, SetActualOrder, SkipSceneShoot, StartSceneShoot,
-    UnlinkContinuityPhoto, UpdateSceneShootNote,
+    AddSceneShootNote, FinishSceneShoot, LinkContinuityPhoto, PlanSceneShoot, RemoveSceneShootNote,
+    ReplanSceneShoot, SetActualOrder, SkipSceneShoot, StartSceneShoot, UnlinkContinuityPhoto,
+    UpdateSceneShootNote,
 };
-use breakdown_core::scene_shoot::ports::{SceneShootCommands, SceneShootReportRepository, SceneShootRepository};
-use breakdown_core::scene_shoot::views::{SceneShootView, SerializedNote, DispoRow, ShootDayRow, SollIstReport};
-use breakdown_core::photo::binding::PhotoBinding;
+use breakdown_core::scene_shoot::ports::{
+    SceneShootCommands, SceneShootReportRepository, SceneShootRepository,
+};
+use breakdown_core::scene_shoot::views::{
+    DispoRow, SceneShootView, SerializedNote, ShootDayRow, SollIstReport,
+};
 use breakdown_core::season::commands::{CreateSeason, RenameSeason};
 use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
 use breakdown_core::season::views::SeasonView;
 use breakdown_core::shared::{
-    AggregateVersion, BlockId, EpisodeId, LexicalSortKey, PhotoId, PhotoVariant, SeasonId,
-    SeriesId, SceneShootId, ShootingDayId, UserId,
+    AggregateVersion, BlockId, EpisodeId, LexicalSortKey, PhotoId, PhotoVariant, SceneShootId,
+    SeasonId, SeriesId, ShootingDayId, UserId,
 };
 use breakdown_core::shooting_day::commands::{
     ArchiveShootingDay, CreateShootingDay, RenameShootingDay, ReorderShootingDay,
@@ -2082,7 +2086,9 @@ pub struct StartSceneShootRequest {
 
 impl StartSceneShootRequest {
     fn resolve_start_dt(&self) -> chrono::DateTime<chrono::Utc> {
-        self.start_dt.map(|d| d.and_utc()).unwrap_or_else(chrono::Utc::now)
+        self.start_dt
+            .map(|d| d.and_utc())
+            .unwrap_or_else(chrono::Utc::now)
     }
 }
 
@@ -2100,7 +2106,9 @@ pub struct FinishSceneShootRequest {
 
 impl FinishSceneShootRequest {
     fn resolve_end_dt(&self) -> chrono::DateTime<chrono::Utc> {
-        self.end_dt.map(|d| d.and_utc()).unwrap_or_else(chrono::Utc::now)
+        self.end_dt
+            .map(|d| d.and_utc())
+            .unwrap_or_else(chrono::Utc::now)
     }
 }
 
@@ -2164,7 +2172,10 @@ pub async fn plan_scene_shoot<P: Ports>(
         .plan(cmd)
         .await
         .map_err(map_err)?;
-    Ok((StatusCode::CREATED, Json(IdVersionResponse { id: id.0, version })))
+    Ok((
+        StatusCode::CREATED,
+        Json(IdVersionResponse { id: id.0, version }),
+    ))
 }
 
 #[utoipa::path(
@@ -2502,7 +2513,12 @@ pub async fn list_continuity_photos<P: Ports>(
 pub async fn unlink_continuity_photo<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
-    Path((day_id, scene_id, shoot_id, photo_id)): Path<(ShootingDayId, Uuid, SceneShootId, PhotoId)>,
+    Path((day_id, scene_id, shoot_id, photo_id)): Path<(
+        ShootingDayId,
+        Uuid,
+        SceneShootId,
+        PhotoId,
+    )>,
     Query(version_req): Query<VersionRequest>,
 ) -> ApiResult<AggregateVersion> {
     // AUTHZ-GATE: handler-internal auth gate for authenticated-only routes

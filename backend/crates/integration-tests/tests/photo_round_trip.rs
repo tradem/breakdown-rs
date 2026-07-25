@@ -9,8 +9,8 @@
 mod fixtures;
 
 use std::sync::Arc;
-use uuid::Uuid;
 use std::time::Duration;
+use uuid::Uuid;
 
 use anyhow::Result;
 use breakdown_core::photo::commands::UploadPhoto;

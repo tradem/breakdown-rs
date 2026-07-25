@@ -86,7 +86,9 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                 .await?;
             }
             SceneShootEvent::SceneShootStarted {
-                id, start_dt, version,
+                id,
+                start_dt,
+                version,
             } => {
                 let version = version.0 as i64;
                 sqlx::query(
@@ -128,7 +130,9 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                 .await?;
             }
             SceneShootEvent::SceneShootFinished {
-                id, end_dt, version,
+                id,
+                end_dt,
+                version,
             } => {
                 let version = version.0 as i64;
                 sqlx::query(
@@ -180,9 +184,7 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                     "#,
                 )
                 .bind(id.0)
-                .bind(
-                    serde_json::json!([{"id": note_id, "body": body}]).to_string(),
-                )
+                .bind(serde_json::json!([{"id": note_id, "body": body}]).to_string())
                 .bind(version)
                 .bind(updated_at)
                 .execute(&mut **ctx)
@@ -221,7 +223,11 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                 .execute(&mut **ctx)
                 .await?;
             }
-            SceneShootEvent::ShootDayNoteRemoved { id, note_id, version } => {
+            SceneShootEvent::ShootDayNoteRemoved {
+                id,
+                note_id,
+                version,
+            } => {
                 let version = version.0 as i64;
                 sqlx::query(
                     r#"
@@ -244,7 +250,9 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                 .await?;
             }
             SceneShootEvent::ContinuityPhotoLinked {
-                id, photo_id, version,
+                id,
+                photo_id,
+                version,
             } => {
                 let version = version.0 as i64;
                 // Append photo_id to the continuity_photo_ids array.
@@ -269,7 +277,9 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                 .await?;
             }
             SceneShootEvent::ContinuityPhotoUnlinked {
-                id, photo_id, version,
+                id,
+                photo_id,
+                version,
             } => {
                 let version = version.0 as i64;
                 sqlx::query(

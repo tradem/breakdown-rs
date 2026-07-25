@@ -18,9 +18,9 @@ pub mod ports;
 pub mod views;
 
 pub use commands::{
-    AddSceneShootNote, LinkContinuityPhoto, PlanSceneShoot, RemoveSceneShootNote,
+    AddSceneShootNote, FinishSceneShoot, LinkContinuityPhoto, PlanSceneShoot, RemoveSceneShootNote,
     ReplanSceneShoot, SetActualOrder, SkipSceneShoot, StartSceneShoot, UnlinkContinuityPhoto,
-    UpdateSceneShootNote, FinishSceneShoot,
+    UpdateSceneShootNote,
 };
 pub use error::SceneShootError;
 pub use events::{SceneShootEvent, SceneShootNote};

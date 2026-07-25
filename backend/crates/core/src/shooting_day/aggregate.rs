@@ -101,7 +101,11 @@ impl Apply for ShootingDayAggregate {
                 self.archived = true;
                 self.version = version;
             }
-            ShootingDayEvent::ShootingDayWrapped { wrapped_at, version, .. } => {
+            ShootingDayEvent::ShootingDayWrapped {
+                wrapped_at,
+                version,
+                ..
+            } => {
                 self.wrapped_at = Some(wrapped_at);
                 self.version = version;
             }

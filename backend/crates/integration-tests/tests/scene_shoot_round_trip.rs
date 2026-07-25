@@ -17,14 +17,16 @@ use anyhow::{Result, anyhow, bail};
 use breakdown_core::error::DomainError;
 use breakdown_core::scene_shoot::events::SceneShootEvent;
 use breakdown_core::scene_shoot::ports::{SceneShootReportRepository, SceneShootRepository as _};
-use breakdown_core::shooting_day::ports::ShootingDayRepository as _;
 use breakdown_core::scene_shoot::views::SceneShootView;
 use breakdown_core::shared::{
     AggregateVersion, LexicalSortKey, PhotoId, SceneShootId, SceneShootStatus, ShootingDayId,
 };
 use breakdown_core::shooting_day::events::{ShootingDayEvent, ShootingDaySource};
+use breakdown_core::shooting_day::ports::ShootingDayRepository as _;
 use chrono::Utc;
-use infra::projectors::{spawn_scene_projector, spawn_scene_shoot_projector, spawn_shooting_day_projector};
+use infra::projectors::{
+    spawn_scene_projector, spawn_scene_shoot_projector, spawn_shooting_day_projector,
+};
 use infra::queries::{SceneShootReportRepositoryImpl, SceneShootRepositoryImpl};
 use uuid::Uuid;
 
@@ -81,11 +83,7 @@ async fn await_version(
 }
 
 /// Seed the FK-required parent rows for a scene and shooting_day.
-async fn seed_parents(
-    pool: &sqlx::PgPool,
-    scene_id: Uuid,
-    day_id: ShootingDayId,
-) -> Result<()> {
+async fn seed_parents(pool: &sqlx::PgPool, scene_id: Uuid, day_id: ShootingDayId) -> Result<()> {
     let ep = Uuid::now_v7();
     sqlx::query(
         r#"INSERT INTO projection_scene
@@ -142,7 +140,14 @@ async fn scene_shoot_lifecycle_round_trip() -> Result<()> {
         status: SceneShootStatus::Planned,
         version: AggregateVersion(1),
     };
-    eappend(&client, &stream, "SceneShootPlanned", "EMPTY", &encode(&planned)?).await?;
+    eappend(
+        &client,
+        &stream,
+        "SceneShootPlanned",
+        "EMPTY",
+        &encode(&planned)?,
+    )
+    .await?;
     let v = await_version(&repo, shoot_id, 1).await?;
     assert_eq!(v.status, SceneShootStatus::Planned);
 
@@ -152,7 +157,14 @@ async fn scene_shoot_lifecycle_round_trip() -> Result<()> {
         start_dt: Utc::now(),
         version: AggregateVersion(2),
     };
-    eappend(&client, &stream, "SceneShootStarted", "0", &encode(&started)?).await?;
+    eappend(
+        &client,
+        &stream,
+        "SceneShootStarted",
+        "0",
+        &encode(&started)?,
+    )
+    .await?;
     let v = await_version(&repo, shoot_id, 2).await?;
     assert_eq!(v.status, SceneShootStatus::InProgress);
     assert!(v.start_dt.is_some());
@@ -163,7 +175,14 @@ async fn scene_shoot_lifecycle_round_trip() -> Result<()> {
         end_dt: Utc::now(),
         version: AggregateVersion(3),
     };
-    eappend(&client, &stream, "SceneShootFinished", "1", &encode(&finished)?).await?;
+    eappend(
+        &client,
+        &stream,
+        "SceneShootFinished",
+        "1",
+        &encode(&finished)?,
+    )
+    .await?;
     let v = await_version(&repo, shoot_id, 3).await?;
     assert_eq!(v.status, SceneShootStatus::Shot);
     assert!(v.end_dt.is_some());
@@ -203,7 +222,14 @@ async fn scene_shoot_notes_and_continuity_round_trip() -> Result<()> {
         status: SceneShootStatus::Planned,
         version: AggregateVersion(1),
     };
-    eappend(&client, &stream, "SceneShootPlanned", "EMPTY", &encode(&planned)?).await?;
+    eappend(
+        &client,
+        &stream,
+        "SceneShootPlanned",
+        "EMPTY",
+        &encode(&planned)?,
+    )
+    .await?;
     await_version(&repo, shoot_id, 1).await?;
 
     // Add note
@@ -215,7 +241,14 @@ async fn scene_shoot_notes_and_continuity_round_trip() -> Result<()> {
         author: None,
         version: AggregateVersion(2),
     };
-    eappend(&client, &stream, "ShootDayNoteAdded", "0", &encode(&note_added)?).await?;
+    eappend(
+        &client,
+        &stream,
+        "ShootDayNoteAdded",
+        "0",
+        &encode(&note_added)?,
+    )
+    .await?;
     let v = await_version(&repo, shoot_id, 2).await?;
     assert_eq!(v.notes.len(), 1);
     assert_eq!(v.notes[0].body, "hello");
@@ -227,7 +260,14 @@ async fn scene_shoot_notes_and_continuity_round_trip() -> Result<()> {
         photo_id,
         version: AggregateVersion(3),
     };
-    eappend(&client, &stream, "ContinuityPhotoLinked", "1", &encode(&linked)?).await?;
+    eappend(
+        &client,
+        &stream,
+        "ContinuityPhotoLinked",
+        "1",
+        &encode(&linked)?,
+    )
+    .await?;
     let v = await_version(&repo, shoot_id, 3).await?;
     assert_eq!(v.continuity_photo_ids.len(), 1);
     assert_eq!(v.continuity_photo_ids[0], photo_id);
@@ -268,12 +308,23 @@ async fn wrapped_shooting_day_flips_report_final() -> Result<()> {
         source: ShootingDaySource::Manual,
         version: AggregateVersion::INITIAL,
     };
-    eappend(&client, &sd_stream, "ShootingDayCreated", "EMPTY", &encode(&sd_created)?).await?;
+    eappend(
+        &client,
+        &sd_stream,
+        "ShootingDayCreated",
+        "EMPTY",
+        &encode(&sd_created)?,
+    )
+    .await?;
     // Wait for projection
     let dl = Instant::now() + DEADLINE;
     loop {
-        if sd_repo.find_by_id(day_id).await.is_ok() { break; }
-        if Instant::now() > dl { bail!("shooting_day not projected"); }
+        if sd_repo.find_by_id(day_id).await.is_ok() {
+            break;
+        }
+        if Instant::now() > dl {
+            bail!("shooting_day not projected");
+        }
         tokio::time::sleep(POLL).await;
     }
 
@@ -293,15 +344,28 @@ async fn wrapped_shooting_day_flips_report_final() -> Result<()> {
         assigned_characters: vec![],
         version: AggregateVersion::INITIAL,
     };
-    eappend(&client, &scene_stream, "SceneCreated", "EMPTY", &encode(&scene_created)?).await?;
+    eappend(
+        &client,
+        &scene_stream,
+        "SceneCreated",
+        "EMPTY",
+        &encode(&scene_created)?,
+    )
+    .await?;
     let dl = Instant::now() + DEADLINE;
     loop {
-        if sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM projection_scene WHERE id = $1)")
-            .bind(scene_id)
-            .fetch_one(&pool)
-            .await?
-        { break; }
-        if Instant::now() > dl { bail!("scene not projected"); }
+        if sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM projection_scene WHERE id = $1)",
+        )
+        .bind(scene_id)
+        .fetch_one(&pool)
+        .await?
+        {
+            break;
+        }
+        if Instant::now() > dl {
+            bail!("scene not projected");
+        }
         tokio::time::sleep(POLL).await;
     }
 
@@ -316,7 +380,14 @@ async fn wrapped_shooting_day_flips_report_final() -> Result<()> {
         status: SceneShootStatus::Planned,
         version: AggregateVersion(1),
     };
-    eappend(&client, &ss_stream, "SceneShootPlanned", "EMPTY", &encode(&planned)?).await?;
+    eappend(
+        &client,
+        &ss_stream,
+        "SceneShootPlanned",
+        "EMPTY",
+        &encode(&planned)?,
+    )
+    .await?;
     await_version(&ss_repo, shoot_id, 1).await?;
 
     // Before wrap: report is NOT final
@@ -330,14 +401,25 @@ async fn wrapped_shooting_day_flips_report_final() -> Result<()> {
         wrapped_at: Utc::now(),
         version: AggregateVersion(1),
     };
-    eappend(&client, &sd_stream, "ShootingDayWrapped", "0", &encode(&wrapped)?).await?;
+    eappend(
+        &client,
+        &sd_stream,
+        "ShootingDayWrapped",
+        "0",
+        &encode(&wrapped)?,
+    )
+    .await?;
     // Wait for projection
     let dl = Instant::now() + DEADLINE;
     loop {
         if let Ok(v) = sd_repo.find_by_id(day_id).await {
-            if v.wrapped_at.is_some() { break; }
+            if v.wrapped_at.is_some() {
+                break;
+            }
         }
-        if Instant::now() > dl { bail!("wrapped_at not projected"); }
+        if Instant::now() > dl {
+            bail!("wrapped_at not projected");
+        }
         tokio::time::sleep(POLL).await;
     }
 

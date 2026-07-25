@@ -78,7 +78,10 @@ impl SceneShootAggregate {
 
     /// Returns `true` if the scene shoot is in a terminal state (Shot or Skipped).
     fn is_terminal(&self) -> bool {
-        matches!(self.status, SceneShootStatus::Shot | SceneShootStatus::Skipped)
+        matches!(
+            self.status,
+            SceneShootStatus::Shot | SceneShootStatus::Skipped
+        )
     }
 
     fn check_not_terminal(&self) -> Result<(), SceneShootError> {
@@ -144,24 +147,32 @@ impl Apply for SceneShootAggregate {
                 self.version = version;
             }
             SceneShootEvent::SceneShootReplanned {
-                planned_order, version, ..
+                planned_order,
+                version,
+                ..
             } => {
                 self.planned_order = planned_order;
                 self.version = version;
             }
-            SceneShootEvent::SceneShootStarted { start_dt, version, .. } => {
+            SceneShootEvent::SceneShootStarted {
+                start_dt, version, ..
+            } => {
                 self.start_dt = Some(start_dt);
                 self.status = self.transition_on_execution();
                 self.version = version;
             }
             SceneShootEvent::SceneShootActualOrderSet {
-                actual_order, version, ..
+                actual_order,
+                version,
+                ..
             } => {
                 self.actual_order = Some(actual_order);
                 self.status = self.transition_on_execution();
                 self.version = version;
             }
-            SceneShootEvent::SceneShootFinished { end_dt, version, .. } => {
+            SceneShootEvent::SceneShootFinished {
+                end_dt, version, ..
+            } => {
                 self.end_dt = Some(end_dt);
                 self.status = SceneShootStatus::Shot;
                 self.version = version;
@@ -185,22 +196,31 @@ impl Apply for SceneShootAggregate {
                 self.version = version;
             }
             SceneShootEvent::ShootDayNoteUpdated {
-                note_id, body, version, ..
+                note_id,
+                body,
+                version,
+                ..
             } => {
                 if let Some(note) = self.notes.iter_mut().find(|n| n.id == note_id) {
                     note.body = body;
                 }
                 self.version = version;
             }
-            SceneShootEvent::ShootDayNoteRemoved { note_id, version, .. } => {
+            SceneShootEvent::ShootDayNoteRemoved {
+                note_id, version, ..
+            } => {
                 self.notes.retain(|n| n.id != note_id);
                 self.version = version;
             }
-            SceneShootEvent::ContinuityPhotoLinked { photo_id, version, .. } => {
+            SceneShootEvent::ContinuityPhotoLinked {
+                photo_id, version, ..
+            } => {
                 self.continuity_photos.push(photo_id);
                 self.version = version;
             }
-            SceneShootEvent::ContinuityPhotoUnlinked { photo_id, version, .. } => {
+            SceneShootEvent::ContinuityPhotoUnlinked {
+                photo_id, version, ..
+            } => {
                 self.continuity_photos.retain(|p| *p != photo_id);
                 self.version = version;
             }

@@ -699,10 +699,9 @@ impl SceneShootCommands for SceneShootCommandsImpl {
         cmd: PlanSceneShoot,
     ) -> Result<(SceneShootId, AggregateVersion), DomainError> {
         let id = cmd.id;
-        let result =
-            SceneShootAggregate::execute(&self.cmd_service, id, cmd)
-                .expected_version(ExpectedVersion::Empty)
-                .await;
+        let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Empty)
+            .await;
         map_executed(id, result)
     }
 
@@ -726,10 +725,7 @@ impl SceneShootCommands for SceneShootCommandsImpl {
         map_version_only(result)
     }
 
-    async fn set_actual_order(
-        &self,
-        cmd: SetActualOrder,
-    ) -> Result<AggregateVersion, DomainError> {
+    async fn set_actual_order(&self, cmd: SetActualOrder) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
@@ -759,10 +755,7 @@ impl SceneShootCommands for SceneShootCommandsImpl {
         map_version_only(result)
     }
 
-    async fn add_note(
-        &self,
-        cmd: AddSceneShootNote,
-    ) -> Result<AggregateVersion, DomainError> {
+    async fn add_note(&self, cmd: AddSceneShootNote) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Any)
@@ -822,7 +815,6 @@ impl SceneShootCommands for SceneShootCommandsImpl {
         map_version_only(result)
     }
 }
-
 
 fn map_version_only<Ent, Err>(
     result: Result<ExecuteResult<Ent>, ExecuteError<Err>>,

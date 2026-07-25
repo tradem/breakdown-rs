@@ -9,5 +9,5 @@ mod command_adapters;
 pub use command_adapters::{
     BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl, CostumeCommandsImpl,
     EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl, SceneCommandsImpl,
-    SeasonCommandsImpl, ShootingDayCommandsImpl, SceneShootCommandsImpl,
+    SceneShootCommandsImpl, SeasonCommandsImpl, ShootingDayCommandsImpl,
 };

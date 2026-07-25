@@ -37,12 +37,23 @@ use breakdown_core::scene::commands::{
 };
 use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
 use breakdown_core::scene::views::SceneView;
+use breakdown_core::scene_shoot::commands::{
+    AddSceneShootNote, FinishSceneShoot, LinkContinuityPhoto, PlanSceneShoot, RemoveSceneShootNote,
+    ReplanSceneShoot, SetActualOrder, SkipSceneShoot, StartSceneShoot, UnlinkContinuityPhoto,
+    UpdateSceneShootNote,
+};
+use breakdown_core::scene_shoot::ports::{
+    SceneShootCommands, SceneShootReportRepository, SceneShootRepository,
+};
+use breakdown_core::scene_shoot::views::{DispoRow, SceneShootView, ShootDayRow, SollIstReport};
 use breakdown_core::season::commands::{CreateSeason, RenameSeason};
 use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
 use breakdown_core::season::views::SeasonView;
 use breakdown_core::shared::{
-    AggregateVersion, BlockId, EpisodeId, PhotoId, PhotoVariant, SeasonId, SeriesId, ShootingDayId,
+    AggregateVersion, BlockId, EpisodeId, PhotoId, PhotoVariant, SceneShootId, SeasonId, SeriesId,
+    ShootingDayId,
 };
+use breakdown_core::shooting_day::commands::WrapShootingDay;
 use breakdown_core::shooting_day::commands::{
     ArchiveShootingDay, CreateShootingDay, RenameShootingDay, ReorderShootingDay,
     RescheduleShootingDay,
@@ -602,6 +613,10 @@ impl ShootingDayCommands for FakeShootingDayCommands {
     async fn archive(&self, _cmd: ArchiveShootingDay) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
+
+    async fn wrap(&self, _cmd: WrapShootingDay) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL.next())
+    }
 }
 
 #[derive(Clone, Default)]
@@ -700,6 +715,118 @@ impl PhotoRepository for FakePhotoRepo {
     }
 }
 
+// ─── Fake SceneShootCommands ───────────────────────────────────────
+
+#[derive(Clone, Default)]
+pub(crate) struct FakeSceneShootCommands;
+
+impl SceneShootCommands for FakeSceneShootCommands {
+    async fn plan(
+        &self,
+        _cmd: PlanSceneShoot,
+    ) -> Result<(SceneShootId, AggregateVersion), DomainError> {
+        unreachable!("not used in authz tests")
+    }
+    async fn replan(&self, _cmd: ReplanSceneShoot) -> Result<AggregateVersion, DomainError> {
+        unreachable!("not used in authz tests")
+    }
+    async fn start(&self, _cmd: StartSceneShoot) -> Result<AggregateVersion, DomainError> {
+        unreachable!("not used in authz tests")
+    }
+    async fn set_actual_order(
+        &self,
+        _cmd: SetActualOrder,
+    ) -> Result<AggregateVersion, DomainError> {
+        unreachable!("not used in authz tests")
+    }
+    async fn finish(&self, _cmd: FinishSceneShoot) -> Result<AggregateVersion, DomainError> {
+        unreachable!("not used in authz tests")
+    }
+    async fn skip(&self, _cmd: SkipSceneShoot) -> Result<AggregateVersion, DomainError> {
+        unreachable!("not used in authz tests")
+    }
+    async fn add_note(&self, _cmd: AddSceneShootNote) -> Result<AggregateVersion, DomainError> {
+        unreachable!("not used in authz tests")
+    }
+    async fn update_note(
+        &self,
+        _cmd: UpdateSceneShootNote,
+    ) -> Result<AggregateVersion, DomainError> {
+        unreachable!("not used in authz tests")
+    }
+    async fn remove_note(
+        &self,
+        _cmd: RemoveSceneShootNote,
+    ) -> Result<AggregateVersion, DomainError> {
+        unreachable!("not used in authz tests")
+    }
+    async fn link_continuity_photo(
+        &self,
+        _cmd: LinkContinuityPhoto,
+    ) -> Result<AggregateVersion, DomainError> {
+        unreachable!("not used in authz tests")
+    }
+    async fn unlink_continuity_photo(
+        &self,
+        _cmd: UnlinkContinuityPhoto,
+    ) -> Result<AggregateVersion, DomainError> {
+        unreachable!("not used in authz tests")
+    }
+}
+
+// ─── Fake SceneShootRepository ─────────────────────────────────────
+
+#[derive(Clone, Default)]
+pub(crate) struct FakeSceneShootRepo;
+
+impl SceneShootRepository for FakeSceneShootRepo {
+    async fn find_by_id(&self, _id: SceneShootId) -> Result<SceneShootView, DomainError> {
+        unreachable!("not used in authz tests")
+    }
+    async fn list_by_shooting_day(
+        &self,
+        _shooting_day_id: ShootingDayId,
+    ) -> Result<Vec<SceneShootView>, DomainError> {
+        unreachable!("not used in authz tests")
+    }
+    async fn find_by_scene_and_day(
+        &self,
+        _scene_id: Uuid,
+        _shooting_day_id: ShootingDayId,
+    ) -> Result<SceneShootView, DomainError> {
+        unreachable!("not used in authz tests")
+    }
+    async fn list_by_scene(&self, _scene_id: Uuid) -> Result<Vec<SceneShootView>, DomainError> {
+        unreachable!("not used in authz tests")
+    }
+}
+
+// ─── Fake SceneShootReportRepository ───────────────────────────────
+
+#[derive(Clone, Default)]
+pub(crate) struct FakeSceneShootReportRepo;
+
+impl SceneShootReportRepository for FakeSceneShootReportRepo {
+    async fn dispo_report(
+        &self,
+        _shooting_day_id: ShootingDayId,
+    ) -> Result<Vec<DispoRow>, DomainError> {
+        unreachable!("not used in authz tests")
+    }
+    async fn shoot_day_report(
+        &self,
+        _shooting_day_id: ShootingDayId,
+    ) -> Result<Vec<ShootDayRow>, DomainError> {
+        unreachable!("not used in authz tests")
+    }
+    async fn soll_ist_report(
+        &self,
+        _shooting_day_id: ShootingDayId,
+    ) -> Result<SollIstReport, DomainError> {
+        unreachable!("not used in authz tests")
+    }
+}
+
 #[derive(Clone, Default)]
 pub(crate) struct FakePorts {
     pub(crate) scene_commands: FakeSceneCommands,
@@ -724,6 +851,9 @@ pub(crate) struct FakePorts {
     #[allow(dead_code)]
     pub(crate) photo_storage: FakePhotoStorage,
     #[allow(dead_code)]
+    pub(crate) scene_shoot_commands: FakeSceneShootCommands,
+    pub(crate) scene_shoot_repo: FakeSceneShootRepo,
+    pub(crate) scene_shoot_report_repo: FakeSceneShootReportRepo,
     pub(crate) photo_commands: FakePhotoCommands,
     #[allow(dead_code)]
     pub(crate) photo_repo: FakePhotoRepo,
@@ -752,6 +882,9 @@ impl Ports for FakePorts {
     type PhotoStorage = FakePhotoStorage;
     type PhotoCommands = FakePhotoCommands;
     type PhotoRepo = FakePhotoRepo;
+    type SceneShootCommands = FakeSceneShootCommands;
+    type SceneShootRepo = FakeSceneShootRepo;
+    type SceneShootReportRepo = FakeSceneShootReportRepo;
 
     fn scene_commands(&self) -> &Self::SceneCommands {
         &self.scene_commands
@@ -818,5 +951,14 @@ impl Ports for FakePorts {
     }
     fn photo_repo(&self) -> &Self::PhotoRepo {
         &self.photo_repo
+    }
+    fn scene_shoot_commands(&self) -> &Self::SceneShootCommands {
+        &self.scene_shoot_commands
+    }
+    fn scene_shoot_repo(&self) -> &Self::SceneShootRepo {
+        &self.scene_shoot_repo
+    }
+    fn scene_shoot_report_repo(&self) -> &Self::SceneShootReportRepo {
+        &self.scene_shoot_report_repo
     }
 }

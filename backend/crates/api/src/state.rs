@@ -16,21 +16,23 @@ use breakdown_core::episode::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::membership::{MembershipCommands, MembershipRepository};
 use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
 use breakdown_core::scene::{SceneCommands, SceneRepository};
-use breakdown_core::scene_shoot::{SceneShootCommands, SceneShootReportRepository, SceneShootRepository};
+use breakdown_core::scene_shoot::{
+    SceneShootCommands, SceneShootReportRepository, SceneShootRepository,
+};
 use breakdown_core::season::{SeasonCommands, SeasonRepository};
 use breakdown_core::shooting_day::{ShootingDayCommands, ShootingDayRepository};
 use infra::event_store::{
     BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl, CostumeCommandsImpl,
     EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl, SceneCommandsImpl,
-    SeasonCommandsImpl, ShootingDayCommandsImpl, SceneShootCommandsImpl,
+    SceneShootCommandsImpl, SeasonCommandsImpl, ShootingDayCommandsImpl,
 };
 use infra::photo::repository::PhotoRepositoryImpl;
 use infra::photo::storage::OpenDalPhotoStorage;
 use infra::queries::{
     AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl,
     CostumeCategoryRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl,
-    MembershipRepositoryImpl, SceneRepositoryImpl, SeasonRepositoryImpl, ShootingDayRepositoryImpl,
-    SceneShootRepositoryImpl, SceneShootReportRepositoryImpl,
+    MembershipRepositoryImpl, SceneRepositoryImpl, SceneShootReportRepositoryImpl,
+    SceneShootRepositoryImpl, SeasonRepositoryImpl, ShootingDayRepositoryImpl,
 };
 
 /// The hexagonal seam surface used by API handlers. Production implements it

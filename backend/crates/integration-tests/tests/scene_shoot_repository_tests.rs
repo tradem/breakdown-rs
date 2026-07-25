@@ -22,11 +22,12 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 /// Spin up Postgres, apply migrations.
-async fn init() -> Result<(PgPool, testcontainers::ContainerAsync<testcontainers_modules::postgres::Postgres>)> {
+async fn init() -> Result<(
+    PgPool,
+    testcontainers::ContainerAsync<testcontainers_modules::postgres::Postgres>,
+)> {
     let (pool, pg_guard) = fixtures::spawn_postgres().await?;
-    sqlx::migrate!("../infra/migrations")
-        .run(&pool)
-        .await?;
+    sqlx::migrate!("../infra/migrations").run(&pool).await?;
     Ok((pool, pg_guard))
 }
 
@@ -184,8 +185,26 @@ async fn list_by_shooting_day_filters_by_day() -> Result<()> {
     let day_b = ShootingDayId::new();
     let scene = Uuid::now_v7();
 
-    seed_scene_shoot(&pool, SceneShootId::new(), scene, day_a, "001", None, "Planned").await?;
-    seed_scene_shoot(&pool, SceneShootId::new(), scene, day_b, "001", None, "Planned").await?;
+    seed_scene_shoot(
+        &pool,
+        SceneShootId::new(),
+        scene,
+        day_a,
+        "001",
+        None,
+        "Planned",
+    )
+    .await?;
+    seed_scene_shoot(
+        &pool,
+        SceneShootId::new(),
+        scene,
+        day_b,
+        "001",
+        None,
+        "Planned",
+    )
+    .await?;
 
     let repo = SceneShootRepositoryImpl::new(pool.clone());
     let views = repo.list_by_shooting_day(day_a).await?;
@@ -202,10 +221,28 @@ async fn find_by_scene_and_day_returns_correct() -> Result<()> {
     let scene_id = Uuid::now_v7();
     let day_id = ShootingDayId::new();
 
-    seed_scene_shoot(&pool, SceneShootId::new(), scene_id, day_id, "001", None, "Planned").await?;
+    seed_scene_shoot(
+        &pool,
+        SceneShootId::new(),
+        scene_id,
+        day_id,
+        "001",
+        None,
+        "Planned",
+    )
+    .await?;
     // Another shoot on a different day for the same scene.
     let other_day = ShootingDayId::new();
-    seed_scene_shoot(&pool, SceneShootId::new(), scene_id, other_day, "001", None, "Planned").await?;
+    seed_scene_shoot(
+        &pool,
+        SceneShootId::new(),
+        scene_id,
+        other_day,
+        "001",
+        None,
+        "Planned",
+    )
+    .await?;
 
     let repo = SceneShootRepositoryImpl::new(pool.clone());
     let view = repo.find_by_scene_and_day(scene_id, day_id).await?;
@@ -221,7 +258,9 @@ async fn find_by_scene_and_day_not_found() -> Result<()> {
     let (pool, _pg_guard) = init().await?;
     let repo = SceneShootRepositoryImpl::new(pool.clone());
 
-    let result = repo.find_by_scene_and_day(Uuid::now_v7(), ShootingDayId::new()).await;
+    let result = repo
+        .find_by_scene_and_day(Uuid::now_v7(), ShootingDayId::new())
+        .await;
     assert!(result.is_err());
 
     Ok(())
@@ -235,8 +274,26 @@ async fn list_by_scene_returns_all() -> Result<()> {
     let day_a = ShootingDayId::new();
     let day_b = ShootingDayId::new();
 
-    seed_scene_shoot(&pool, SceneShootId::new(), scene_id, day_a, "001", None, "Planned").await?;
-    seed_scene_shoot(&pool, SceneShootId::new(), scene_id, day_b, "002", None, "Planned").await?;
+    seed_scene_shoot(
+        &pool,
+        SceneShootId::new(),
+        scene_id,
+        day_a,
+        "001",
+        None,
+        "Planned",
+    )
+    .await?;
+    seed_scene_shoot(
+        &pool,
+        SceneShootId::new(),
+        scene_id,
+        day_b,
+        "002",
+        None,
+        "Planned",
+    )
+    .await?;
 
     let repo = SceneShootRepositoryImpl::new(pool.clone());
     let views = repo.list_by_scene(scene_id).await?;
@@ -252,7 +309,16 @@ async fn list_by_scene_empty_for_unknown_scene() -> Result<()> {
 
     let scene_id = Uuid::now_v7();
     let day_id = ShootingDayId::new();
-    seed_scene_shoot(&pool, SceneShootId::new(), Uuid::now_v7(), day_id, "001", None, "Planned").await?;
+    seed_scene_shoot(
+        &pool,
+        SceneShootId::new(),
+        Uuid::now_v7(),
+        day_id,
+        "001",
+        None,
+        "Planned",
+    )
+    .await?;
 
     let repo = SceneShootRepositoryImpl::new(pool.clone());
     let views = repo.list_by_scene(scene_id).await?;

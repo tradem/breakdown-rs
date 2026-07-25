@@ -369,10 +369,7 @@ fn test_script_day_round_trips_through_update_guard() {
         )
         .unwrap();
     test_support::replay_events(&mut agg, events);
-    assert_eq!(
-        agg.details.script_day.as_deref(),
-        Some(script_day.as_str())
-    );
+    assert_eq!(agg.details.script_day.as_deref(), Some(script_day.as_str()));
 
     // Replaying identical details (incl. script_day) hits the "unchanged" guard.
     let unchanged = agg.handle(

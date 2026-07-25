@@ -85,15 +85,16 @@ impl SceneShootRepository for SceneShootRepositoryImpl {
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| DomainError::Conflict(e.to_string()))?
-        .ok_or_else(|| DomainError::NotFound(format!("SceneShoot(scene={scene_id}, day={shooting_day_id})")))?;
+        .ok_or_else(|| {
+            DomainError::NotFound(format!(
+                "SceneShoot(scene={scene_id}, day={shooting_day_id})"
+            ))
+        })?;
 
         map_scene_shoot_row(row)
     }
 
-    async fn list_by_scene(
-        &self,
-        scene_id: Uuid,
-    ) -> Result<Vec<SceneShootView>, DomainError> {
+    async fn list_by_scene(&self, scene_id: Uuid) -> Result<Vec<SceneShootView>, DomainError> {
         let rows = sqlx::query(
             r#"
             SELECT id, scene_id, shooting_day_id, planned_order, actual_order,
@@ -127,15 +128,14 @@ fn map_scene_shoot_row(row: sqlx::postgres::PgRow) -> Result<SceneShootView, Dom
     let version: i64 = row.try_get("version").map_err(map_err)?;
     let updated_at: DateTime<Utc> = row.try_get("updated_at").map_err(map_err)?;
 
-    let planned_order = LexicalSortKey::new(planned_order_str)
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+    let planned_order =
+        LexicalSortKey::new(planned_order_str).map_err(|e| DomainError::Conflict(e.to_string()))?;
     let actual_order = actual_order_str
         .map(|s| LexicalSortKey::new(s))
         .transpose()
         .map_err(|e| DomainError::Conflict(e.to_string()))?;
 
-    let notes: Vec<SerializedNote> = serde_json::from_value(notes_json)
-        .unwrap_or_default();
+    let notes: Vec<SerializedNote> = serde_json::from_value(notes_json).unwrap_or_default();
 
     let status_enum = match status.as_str() {
         "Planned" => breakdown_core::shared::SceneShootStatus::Planned,

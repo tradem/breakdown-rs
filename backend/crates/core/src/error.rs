@@ -202,9 +202,9 @@ impl From<SceneShootError> for DomainError {
             SceneShootError::AlreadyStarted => {
                 DomainError::Conflict("SceneShoot is already started".into())
             }
-            SceneShootError::TerminalState { status } => DomainError::Conflict(format!(
-                "SceneShoot is in terminal state {status:?}"
-            )),
+            SceneShootError::TerminalState { status } => {
+                DomainError::Conflict(format!("SceneShoot is in terminal state {status:?}"))
+            }
         }
     }
 }

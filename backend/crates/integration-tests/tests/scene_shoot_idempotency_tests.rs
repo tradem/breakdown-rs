@@ -19,13 +19,13 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow, bail};
+use breakdown_core::error::DomainError;
 use breakdown_core::scene_shoot::events::SceneShootEvent;
 use breakdown_core::scene_shoot::ports::SceneShootRepository as _;
 use breakdown_core::scene_shoot::views::SceneShootView;
 use breakdown_core::shared::{
     AggregateVersion, LexicalSortKey, SceneShootId, SceneShootStatus, ShootingDayId,
 };
-use breakdown_core::error::DomainError;
 use chrono::Utc;
 use infra::projectors::spawn_scene_shoot_projector;
 use infra::queries::SceneShootRepositoryImpl;
@@ -66,11 +66,7 @@ async fn eappend(
 
 /// Seed the parent `projection_scene` and `projection_shooting_day` rows that
 /// the `projection_scene_shoot` FK constraints require (see AGENTS.md gotcha).
-async fn seed_parents(
-    pool: &sqlx::PgPool,
-    scene_id: Uuid,
-    day_id: ShootingDayId,
-) -> Result<()> {
+async fn seed_parents(pool: &sqlx::PgPool, scene_id: Uuid, day_id: ShootingDayId) -> Result<()> {
     let episode_id = Uuid::now_v7();
     sqlx::query(
         r#"
@@ -163,7 +159,14 @@ async fn scene_shoot_projector_is_idempotent_under_redelivery() -> Result<()> {
 
     // 1. First append (stream EMPTY → version 0).
     let payload = encode_event(&planned)?;
-    eappend(&redis_client, &stream_id, "SceneShootPlanned", "EMPTY", &payload).await?;
+    eappend(
+        &redis_client,
+        &stream_id,
+        "SceneShootPlanned",
+        "EMPTY",
+        &payload,
+    )
+    .await?;
     let view = await_scene_shoot_version(&repo, shoot_id, 1).await?;
     assert_eq!(view.version.0, 1, "first append projected at version 1");
     assert_eq!(view.status, SceneShootStatus::Planned);
@@ -171,7 +174,14 @@ async fn scene_shoot_projector_is_idempotent_under_redelivery() -> Result<()> {
     // 2. Redelivery: same logical event, fresh SierraDB append (stream 0 → 1).
     //    The payload still carries aggregate version 1; the version guard must
     //    skip the write.
-    eappend(&redis_client, &stream_id, "SceneShootPlanned", "0", &payload).await?;
+    eappend(
+        &redis_client,
+        &stream_id,
+        "SceneShootPlanned",
+        "0",
+        &payload,
+    )
+    .await?;
 
     // 3. Distinct event to prove the projector processed through the redelivery.
     let note_id = Uuid::now_v7();
@@ -183,14 +193,28 @@ async fn scene_shoot_projector_is_idempotent_under_redelivery() -> Result<()> {
         version: AggregateVersion(2),
     };
     let note_payload = encode_event(&note_added)?;
-    eappend(&redis_client, &stream_id, "ShootDayNoteAdded", "1", &note_payload).await?;
+    eappend(
+        &redis_client,
+        &stream_id,
+        "ShootDayNoteAdded",
+        "1",
+        &note_payload,
+    )
+    .await?;
     let view = await_scene_shoot_version(&repo, shoot_id, 2).await?;
     assert_eq!(view.notes.len(), 1, "note projected");
     assert_eq!(view.notes[0].body, "first note");
 
     // 4. Redeliver the note event (stream 2 → 3, payload version still 2).
     //    Without the version guard this would append a duplicate note.
-    eappend(&redis_client, &stream_id, "ShootDayNoteAdded", "2", &note_payload).await?;
+    eappend(
+        &redis_client,
+        &stream_id,
+        "ShootDayNoteAdded",
+        "2",
+        &note_payload,
+    )
+    .await?;
 
     // 5. Distinct event to prove the projector processed through the note redelivery.
     let started = SceneShootEvent::SceneShootStarted {
@@ -199,7 +223,14 @@ async fn scene_shoot_projector_is_idempotent_under_redelivery() -> Result<()> {
         version: AggregateVersion(3),
     };
     let started_payload = encode_event(&started)?;
-    eappend(&redis_client, &stream_id, "SceneShootStarted", "3", &started_payload).await?;
+    eappend(
+        &redis_client,
+        &stream_id,
+        "SceneShootStarted",
+        "3",
+        &started_payload,
+    )
+    .await?;
 
     let view = await_scene_shoot_version(&repo, shoot_id, 3).await?;
     assert_eq!(view.status, SceneShootStatus::InProgress);
@@ -245,7 +276,14 @@ async fn continuity_photo_link_is_idempotent_under_redelivery() -> Result<()> {
         version: AggregateVersion(1),
     };
     let payload = encode_event(&planned)?;
-    eappend(&redis_client, &stream_id, "SceneShootPlanned", "EMPTY", &payload).await?;
+    eappend(
+        &redis_client,
+        &stream_id,
+        "SceneShootPlanned",
+        "EMPTY",
+        &payload,
+    )
+    .await?;
     await_scene_shoot_version(&repo, shoot_id, 1).await?;
 
     // Link a continuity photo (version 2).
@@ -256,12 +294,26 @@ async fn continuity_photo_link_is_idempotent_under_redelivery() -> Result<()> {
         version: AggregateVersion(2),
     };
     let link_payload = encode_event(&link)?;
-    eappend(&redis_client, &stream_id, "ContinuityPhotoLinked", "0", &link_payload).await?;
+    eappend(
+        &redis_client,
+        &stream_id,
+        "ContinuityPhotoLinked",
+        "0",
+        &link_payload,
+    )
+    .await?;
     let view = await_scene_shoot_version(&repo, shoot_id, 2).await?;
     assert_eq!(view.continuity_photo_ids.len(), 1);
 
     // Redeliver the link event (stream 1 → 2, payload version still 2).
-    eappend(&redis_client, &stream_id, "ContinuityPhotoLinked", "1", &link_payload).await?;
+    eappend(
+        &redis_client,
+        &stream_id,
+        "ContinuityPhotoLinked",
+        "1",
+        &link_payload,
+    )
+    .await?;
 
     // Distinct event proves the projector processed through.
     let skipped = SceneShootEvent::SceneShootSkipped {
@@ -269,7 +321,14 @@ async fn continuity_photo_link_is_idempotent_under_redelivery() -> Result<()> {
         version: AggregateVersion(3),
     };
     let skipped_payload = encode_event(&skipped)?;
-    eappend(&redis_client, &stream_id, "SceneShootSkipped", "2", &skipped_payload).await?;
+    eappend(
+        &redis_client,
+        &stream_id,
+        "SceneShootSkipped",
+        "2",
+        &skipped_payload,
+    )
+    .await?;
 
     let view = await_scene_shoot_version(&repo, shoot_id, 3).await?;
     assert_eq!(view.status, SceneShootStatus::Skipped);

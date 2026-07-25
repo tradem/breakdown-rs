@@ -130,13 +130,12 @@ async fn seed_parents(pool: &sqlx::PgPool, scene_id: Uuid, day_id: ShootingDayId
 /// Minimal JPEG header bytes for testing.
 fn jpeg_bytes() -> Vec<u8> {
     vec![
-        0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00,
-        0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xff, 0xdb, 0x00, 0x43, 0x00, 0x08, 0x06, 0x06,
-        0x07, 0x06, 0x05, 0x08, 0x07, 0x07, 0x07, 0x09, 0x09, 0x08, 0x0a, 0x0c, 0x14, 0x0d,
-        0x0c, 0x0b, 0x0b, 0x0c, 0x19, 0x12, 0x13, 0x0f, 0x14, 0x1d, 0x1a, 0x1f, 0x1e, 0x1d,
-        0x1a, 0x1c, 0x1c, 0x20, 0x24, 0x2e, 0x27, 0x20, 0x22, 0x2c, 0x23, 0x1c, 0x1c, 0x28,
-        0x37, 0x29, 0x2c, 0x30, 0x31, 0x34, 0x34, 0x34, 0x1f, 0x27, 0x39, 0x3d, 0x38, 0x32,
-        0x3c, 0x2e, 0x33, 0x34, 0x32,
+        0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00,
+        0x01, 0x00, 0x01, 0x00, 0x00, 0xff, 0xdb, 0x00, 0x43, 0x00, 0x08, 0x06, 0x06, 0x07, 0x06,
+        0x05, 0x08, 0x07, 0x07, 0x07, 0x09, 0x09, 0x08, 0x0a, 0x0c, 0x14, 0x0d, 0x0c, 0x0b, 0x0b,
+        0x0c, 0x19, 0x12, 0x13, 0x0f, 0x14, 0x1d, 0x1a, 0x1f, 0x1e, 0x1d, 0x1a, 0x1c, 0x1c, 0x20,
+        0x24, 0x2e, 0x27, 0x20, 0x22, 0x2c, 0x23, 0x1c, 0x1c, 0x28, 0x37, 0x29, 0x2c, 0x30, 0x31,
+        0x34, 0x34, 0x34, 0x1f, 0x27, 0x39, 0x3d, 0x38, 0x32, 0x3c, 0x2e, 0x33, 0x34, 0x32,
     ]
 }
 
@@ -196,7 +195,14 @@ async fn continuity_photo_upload_projection() -> Result<()> {
         status: SceneShootStatus::Planned,
         version: AggregateVersion(1),
     };
-    eappend(&client, &ss_stream, "SceneShootPlanned", "EMPTY", &encode(&planned)?).await?;
+    eappend(
+        &client,
+        &ss_stream,
+        "SceneShootPlanned",
+        "EMPTY",
+        &encode(&planned)?,
+    )
+    .await?;
 
     // Wait for scene_shoot projection.
     let ss_repo = infra::queries::SceneShootRepositoryImpl::new(pool.clone());
@@ -291,7 +297,8 @@ async fn continuity_photo_delete_on_zero_refcount() -> Result<()> {
         Arc::clone(&client),
     )
     .await?;
-    infra::photo::sagas::spawn_photo_bytes_cleanup_saga(storage.clone(), Arc::clone(&client)).await?;
+    infra::photo::sagas::spawn_photo_bytes_cleanup_saga(storage.clone(), Arc::clone(&client))
+        .await?;
 
     let shoot_id = SceneShootId::new();
     let scene_id = Uuid::now_v7();
@@ -309,7 +316,14 @@ async fn continuity_photo_delete_on_zero_refcount() -> Result<()> {
         status: SceneShootStatus::Planned,
         version: AggregateVersion(1),
     };
-    eappend(&client, &ss_stream, "SceneShootPlanned", "EMPTY", &encode(&planned)?).await?;
+    eappend(
+        &client,
+        &ss_stream,
+        "SceneShootPlanned",
+        "EMPTY",
+        &encode(&planned)?,
+    )
+    .await?;
 
     let ss_repo = infra::queries::SceneShootRepositoryImpl::new(pool.clone());
     let dl = Instant::now() + DEADLINE;
@@ -350,7 +364,14 @@ async fn continuity_photo_delete_on_zero_refcount() -> Result<()> {
         photo_id,
         version: AggregateVersion(2),
     };
-    eappend(&client, &ss_stream, "ContinuityPhotoLinked", "0", &encode(&link)?).await?;
+    eappend(
+        &client,
+        &ss_stream,
+        "ContinuityPhotoLinked",
+        "0",
+        &encode(&link)?,
+    )
+    .await?;
 
     // Verify projection_scene_shoot has the photo linked.
     let dl = Instant::now() + DEADLINE;
@@ -375,7 +396,14 @@ async fn continuity_photo_delete_on_zero_refcount() -> Result<()> {
         photo_id,
         version: AggregateVersion(3),
     };
-    eappend(&client, &ss_stream, "ContinuityPhotoUnlinked", "1", &encode(&unlink)?).await?;
+    eappend(
+        &client,
+        &ss_stream,
+        "ContinuityPhotoUnlinked",
+        "1",
+        &encode(&unlink)?,
+    )
+    .await?;
 
     // Wait for ContinuityDeletionSaga to dispatch DeletePhoto.
     // The saga sees refcount 0 (no costume-side links) and dispatches DeletePhoto.
@@ -395,12 +423,11 @@ async fn continuity_photo_delete_on_zero_refcount() -> Result<()> {
     // Verify projection_photo row is gone (PhotoDeleted → projector deletes row).
     let dl = Instant::now() + DEADLINE;
     loop {
-        let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM projection_photo WHERE photo_id = $1)",
-        )
-        .bind(photo_id.0)
-        .fetch_one(&pool)
-        .await?;
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM projection_photo WHERE photo_id = $1)")
+                .bind(photo_id.0)
+                .fetch_one(&pool)
+                .await?;
         if !exists {
             break;
         }

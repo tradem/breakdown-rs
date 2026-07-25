@@ -19,15 +19,16 @@ use super::commands::{
     ReplanSceneShoot, SetActualOrder, SkipSceneShoot, StartSceneShoot, UnlinkContinuityPhoto,
     UpdateSceneShootNote,
 };
-use super::views::{
-    DispoRow, SceneShootView, ShootDayRow, SollIstReport,
-};
+use super::views::{DispoRow, SceneShootView, ShootDayRow, SollIstReport};
 
 /// Async write port for the `SceneShootAggregate`. Mockable seam used by API handlers.
 #[allow(async_fn_in_trait)]
 pub trait SceneShootCommands: Send + Sync {
     /// Plan a new scene shoot. Returns the id and the initial aggregate version.
-    async fn plan(&self, cmd: PlanSceneShoot) -> Result<(SceneShootId, AggregateVersion), DomainError>;
+    async fn plan(
+        &self,
+        cmd: PlanSceneShoot,
+    ) -> Result<(SceneShootId, AggregateVersion), DomainError>;
 
     /// Replan (reorder) an existing scene shoot's planned order.
     async fn replan(&self, cmd: ReplanSceneShoot) -> Result<AggregateVersion, DomainError>;
@@ -48,16 +49,12 @@ pub trait SceneShootCommands: Send + Sync {
     async fn add_note(&self, cmd: AddSceneShootNote) -> Result<AggregateVersion, DomainError>;
 
     /// Update the body of an existing note.
-    async fn update_note(
-        &self,
-        cmd: UpdateSceneShootNote,
-    ) -> Result<AggregateVersion, DomainError>;
+    async fn update_note(&self, cmd: UpdateSceneShootNote)
+    -> Result<AggregateVersion, DomainError>;
 
     /// Remove a note from this scene shoot.
-    async fn remove_note(
-        &self,
-        cmd: RemoveSceneShootNote,
-    ) -> Result<AggregateVersion, DomainError>;
+    async fn remove_note(&self, cmd: RemoveSceneShootNote)
+    -> Result<AggregateVersion, DomainError>;
 
     /// Link a continuity photo to this scene shoot.
     async fn link_continuity_photo(

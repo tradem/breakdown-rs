@@ -19,7 +19,7 @@ use breakdown_core::membership::policy::AuthorizationPolicy;
 use infra::event_store::{
     BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl, CostumeCommandsImpl,
     EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl, SceneCommandsImpl,
-    SeasonCommandsImpl, ShootingDayCommandsImpl, SceneShootCommandsImpl,
+    SceneShootCommandsImpl, SeasonCommandsImpl, ShootingDayCommandsImpl,
 };
 use infra::photo::{
     gc::spawn_gc_scheduler, repository::PhotoRepositoryImpl, storage::OpenDalPhotoStorage,
@@ -27,8 +27,8 @@ use infra::photo::{
 use infra::queries::{
     AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl,
     CostumeCategoryRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl,
-    MembershipRepositoryImpl, SceneRepositoryImpl, SeasonRepositoryImpl, ShootingDayRepositoryImpl,
-    SceneShootRepositoryImpl, SceneShootReportRepositoryImpl,
+    MembershipRepositoryImpl, SceneRepositoryImpl, SceneShootReportRepositoryImpl,
+    SceneShootRepositoryImpl, SeasonRepositoryImpl, ShootingDayRepositoryImpl,
 };
 use kameo_es::command_service::CommandService;
 use opentelemetry::trace::TracerProvider as _;
@@ -206,11 +206,9 @@ async fn main() -> Result<()> {
         Arc::clone(&redis_client),
     )
     .await?;
-    let _scene_shoot_projector = infra::projectors::spawn_scene_shoot_projector(
-        pool.clone(),
-        Arc::clone(&redis_client),
-    )
-    .await?;
+    let _scene_shoot_projector =
+        infra::projectors::spawn_scene_shoot_projector(pool.clone(), Arc::clone(&redis_client))
+            .await?;
     // Event-reactor saga: seeds default costume categories on SeasonCreated.
     infra::sagas::spawn_season_seeding_saga(
         pool.clone(),

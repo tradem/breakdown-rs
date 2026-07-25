@@ -53,7 +53,10 @@ impl SceneShootReportRepository for SceneShootReportRepositoryImpl {
                     planned_order: LexicalSortKey::new(order_str)
                         .map_err(|e| DomainError::Conflict(e.to_string()))?,
                     scene_id: row.try_get("scene_id").map_err(map_err)?,
-                    scene_number: row.try_get::<Option<i32>, _>("scene_number").map_err(map_err)?.map(|v| v as u32),
+                    scene_number: row
+                        .try_get::<Option<i32>, _>("scene_number")
+                        .map_err(map_err)?
+                        .map(|v| v as u32),
                     script_day: row.try_get("script_day").map_err(map_err)?,
                     location: row.try_get("location").map_err(map_err)?,
                     mood: row.try_get("mood").map_err(map_err)?,
@@ -83,9 +86,7 @@ impl SceneShootReportRepository for SceneShootReportRepositoryImpl {
         .await
         .map_err(|e| DomainError::Conflict(e.to_string()))?;
 
-        rows.into_iter()
-            .map(|row| map_shoot_day_row(row))
-            .collect()
+        rows.into_iter().map(|row| map_shoot_day_row(row)).collect()
     }
 
     async fn soll_ist_report(
@@ -126,7 +127,10 @@ impl SceneShootReportRepository for SceneShootReportRepositoryImpl {
         .map_err(|e| DomainError::Conflict(e.to_string()))?;
 
         // Collect scene_ids for reshoot candidate check.
-        let scene_ids: Vec<Uuid> = rows.iter().map(|r| r.try_get::<Uuid, _>("scene_id").unwrap()).collect();
+        let scene_ids: Vec<Uuid> = rows
+            .iter()
+            .map(|r| r.try_get::<Uuid, _>("scene_id").unwrap())
+            .collect();
 
         // For each scene, check if it has a Shot record on a *different* day.
         let reshot_scenes: Vec<Uuid> = if !scene_ids.is_empty() {
@@ -169,7 +173,9 @@ impl SceneShootReportRepository for SceneShootReportRepositoryImpl {
 
                 let status = parse_status(&status_str)?;
                 let is_skipped = status == SceneShootStatus::Skipped;
-                let missing = actual_order.is_none() && start_dt.is_none() && status != SceneShootStatus::Shot;
+                let missing = actual_order.is_none()
+                    && start_dt.is_none()
+                    && status != SceneShootStatus::Shot;
                 let moved = match (&planned_order, &actual_order) {
                     (Some(p), Some(a)) => p != a,
                     _ => false,
@@ -178,7 +184,10 @@ impl SceneShootReportRepository for SceneShootReportRepositoryImpl {
 
                 Ok(SollIstDiffRow {
                     scene_id,
-                    scene_number: row.try_get::<Option<i32>, _>("scene_number").map_err(map_err)?.map(|v| v as u32),
+                    scene_number: row
+                        .try_get::<Option<i32>, _>("scene_number")
+                        .map_err(map_err)?
+                        .map(|v| v as u32),
                     script_day: row.try_get("script_day").map_err(map_err)?,
                     location: row.try_get("location").map_err(map_err)?,
                     planned_order,
@@ -224,7 +233,10 @@ fn map_shoot_day_row(row: sqlx::postgres::PgRow) -> Result<ShootDayRow, DomainEr
     Ok(ShootDayRow {
         actual_order,
         scene_id: row.try_get("scene_id").map_err(map_err)?,
-        scene_number: row.try_get::<Option<i32>, _>("scene_number").map_err(map_err)?.map(|v| v as u32),
+        scene_number: row
+            .try_get::<Option<i32>, _>("scene_number")
+            .map_err(map_err)?
+            .map(|v| v as u32),
         script_day: row.try_get("script_day").map_err(map_err)?,
         location: row.try_get("location").map_err(map_err)?,
         status,
