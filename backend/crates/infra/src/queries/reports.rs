@@ -10,7 +10,7 @@ use breakdown_core::scene_shoot::views::{
     DispoRow, SerializedNote, ShootDayRow, SollIstDiffRow, SollIstReport,
 };
 use breakdown_core::shared::SceneShootStatus;
-use breakdown_core::shared::{LexicalSortKey, PhotoId, SceneShootId, ShootingDayId};
+use breakdown_core::shared::{LexicalSortKey, PhotoId, ShootingDayId};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
@@ -86,7 +86,7 @@ impl SceneShootReportRepository for SceneShootReportRepositoryImpl {
         .await
         .map_err(|e| DomainError::Conflict(e.to_string()))?;
 
-        rows.into_iter().map(|row| map_shoot_day_row(row)).collect()
+        rows.into_iter().map(map_shoot_day_row).collect()
     }
 
     async fn soll_ist_report(
@@ -167,7 +167,7 @@ impl SceneShootReportRepository for SceneShootReportRepositoryImpl {
                         .map_err(|e| DomainError::Conflict(e.to_string()))?,
                 );
                 let actual_order = actual_str
-                    .map(|s| LexicalSortKey::new(s))
+                    .map(LexicalSortKey::new)
                     .transpose()
                     .map_err(|e| DomainError::Conflict(e.to_string()))?;
 
@@ -221,7 +221,7 @@ fn parse_status(s: &str) -> Result<SceneShootStatus, DomainError> {
 fn map_shoot_day_row(row: sqlx::postgres::PgRow) -> Result<ShootDayRow, DomainError> {
     let actual_str: Option<String> = row.try_get("actual_order").map_err(map_err)?;
     let actual_order = actual_str
-        .map(|s| LexicalSortKey::new(s))
+        .map(LexicalSortKey::new)
         .transpose()
         .map_err(|e| DomainError::Conflict(e.to_string()))?;
     let status_str: String = row.try_get("status").map_err(map_err)?;

@@ -14,7 +14,6 @@ use breakdown_core::photo::commands::DeletePhoto;
 use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository};
 use breakdown_core::scene_shoot::aggregate::SceneShootAggregate;
 use breakdown_core::scene_shoot::events::SceneShootEvent;
-use breakdown_core::shared::PhotoId;
 use kameo_es::event_handler::EventHandlerStreamBuilder;
 use kameo_es::event_handler::{
     EntityEventHandler, EventHandler, EventHandlerError, EventProcessor,

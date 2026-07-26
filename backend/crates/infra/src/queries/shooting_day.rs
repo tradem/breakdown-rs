@@ -77,6 +77,7 @@ impl ShootingDayRepository for ShootingDayRepositoryImpl {
                 s.mood,
                 s.is_schedule_set,
                 s.summary,
+                s.script_day,
                 s.version,
                 s.updated_at,
                 COALESCE(array_agg(sc.character_id) FILTER (WHERE sc.character_id IS NOT NULL), ARRAY[]::uuid[]) AS assigned_characters,

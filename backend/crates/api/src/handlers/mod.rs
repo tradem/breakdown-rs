@@ -37,7 +37,6 @@ use breakdown_core::membership::{
     AcceptInvitation, BootstrapOwner, GrantRole, InviteMember, LeaveBlock, MembershipCommands,
     MembershipRepository, RemoveMember, Role,
 };
-use breakdown_core::photo::binding::PhotoBinding;
 use breakdown_core::photo::commands::UploadPhoto as UploadPhotoCmd;
 use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
 use breakdown_core::photo::views::PhotoView;
@@ -56,9 +55,7 @@ use breakdown_core::scene_shoot::commands::{
 use breakdown_core::scene_shoot::ports::{
     SceneShootCommands, SceneShootReportRepository, SceneShootRepository,
 };
-use breakdown_core::scene_shoot::views::{
-    DispoRow, SceneShootView, SerializedNote, ShootDayRow, SollIstReport,
-};
+use breakdown_core::scene_shoot::views::{DispoRow, SceneShootView, ShootDayRow, SollIstReport};
 use breakdown_core::season::commands::{CreateSeason, RenameSeason};
 use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
 use breakdown_core::season::views::SeasonView;
@@ -79,7 +76,6 @@ use uuid::Uuid;
 
 use crate::auth::CurrentUser;
 use crate::state::{AppState, Ports, ProductionPorts};
-use breakdown_core::membership::policy::AuthorizationPolicy;
 
 /// JSON error body returned on command/query failures.
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -2186,7 +2182,7 @@ pub async fn plan_scene_shoot<P: Ports>(
 )]
 pub async fn replan_scene_shoot<P: Ports>(
     State(state): State<AppState<P>>,
-    Path((day_id, scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
+    Path((_day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<ReplanSceneShootRequest>,
 ) -> ApiResult<AggregateVersion> {
     let cmd = ReplanSceneShoot {
@@ -2211,7 +2207,7 @@ pub async fn replan_scene_shoot<P: Ports>(
 )]
 pub async fn start_scene_shoot<P: Ports>(
     State(state): State<AppState<P>>,
-    Path((day_id, scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
+    Path((_day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<StartSceneShootRequest>,
 ) -> ApiResult<AggregateVersion> {
     let cmd = StartSceneShoot {
@@ -2236,7 +2232,7 @@ pub async fn start_scene_shoot<P: Ports>(
 )]
 pub async fn set_actual_order<P: Ports>(
     State(state): State<AppState<P>>,
-    Path((day_id, scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
+    Path((_day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<SetActualOrderRequest>,
 ) -> ApiResult<AggregateVersion> {
     let cmd = SetActualOrder {
@@ -2261,7 +2257,7 @@ pub async fn set_actual_order<P: Ports>(
 )]
 pub async fn finish_scene_shoot<P: Ports>(
     State(state): State<AppState<P>>,
-    Path((day_id, scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
+    Path((_day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<FinishSceneShootRequest>,
 ) -> ApiResult<AggregateVersion> {
     let cmd = FinishSceneShoot {
@@ -2286,7 +2282,7 @@ pub async fn finish_scene_shoot<P: Ports>(
 )]
 pub async fn skip_scene_shoot<P: Ports>(
     State(state): State<AppState<P>>,
-    Path((day_id, scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
+    Path((_day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<SkipSceneShootRequest>,
 ) -> ApiResult<AggregateVersion> {
     let cmd = SkipSceneShoot {
@@ -2309,7 +2305,7 @@ pub async fn skip_scene_shoot<P: Ports>(
 )]
 pub async fn get_scene_shoot<P: Ports>(
     State(state): State<AppState<P>>,
-    Path((day_id, scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
+    Path((_day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
 ) -> ApiResult<SceneShootView> {
     let view = state
         .ports
@@ -2350,7 +2346,7 @@ pub async fn list_scene_shoots<P: Ports>(
 )]
 pub async fn add_scene_shoot_note<P: Ports>(
     State(state): State<AppState<P>>,
-    Path((day_id, scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
+    Path((_day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<AddNoteRequest>,
 ) -> ApiResult<AggregateVersion> {
     let note_id = req.note_id.unwrap_or_else(Uuid::now_v7);
@@ -2377,7 +2373,7 @@ pub async fn add_scene_shoot_note<P: Ports>(
 )]
 pub async fn update_scene_shoot_note<P: Ports>(
     State(state): State<AppState<P>>,
-    Path((day_id, scene_id, shoot_id, note_id)): Path<(ShootingDayId, Uuid, SceneShootId, Uuid)>,
+    Path((_day_id, _scene_id, shoot_id, note_id)): Path<(ShootingDayId, Uuid, SceneShootId, Uuid)>,
     Json(req): Json<UpdateNoteRequest>,
 ) -> ApiResult<AggregateVersion> {
     let cmd = UpdateSceneShootNote {
@@ -2402,7 +2398,7 @@ pub async fn update_scene_shoot_note<P: Ports>(
 )]
 pub async fn remove_scene_shoot_note<P: Ports>(
     State(state): State<AppState<P>>,
-    Path((day_id, scene_id, shoot_id, note_id)): Path<(ShootingDayId, Uuid, SceneShootId, Uuid)>,
+    Path((_day_id, _scene_id, shoot_id, note_id)): Path<(ShootingDayId, Uuid, SceneShootId, Uuid)>,
     Json(req): Json<VersionRequest>,
 ) -> ApiResult<AggregateVersion> {
     let cmd = RemoveSceneShootNote {
@@ -2432,7 +2428,7 @@ pub async fn remove_scene_shoot_note<P: Ports>(
 pub async fn link_continuity_photo<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
-    Path((day_id, scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
+    Path((day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<LinkContinuityPhotoRequest>,
 ) -> ApiResult<AggregateVersion> {
     // AUTHZ-GATE: handler-internal auth gate for authenticated-only routes
@@ -2494,7 +2490,7 @@ pub async fn link_continuity_photo<P: Ports>(
 )]
 pub async fn list_continuity_photos<P: Ports>(
     State(state): State<AppState<P>>,
-    Path((day_id, scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
+    Path((_day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
 ) -> ApiResult<Vec<PhotoId>> {
     let view = state
         .ports
@@ -2513,7 +2509,7 @@ pub async fn list_continuity_photos<P: Ports>(
 pub async fn unlink_continuity_photo<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
-    Path((day_id, scene_id, shoot_id, photo_id)): Path<(
+    Path((day_id, _scene_id, shoot_id, photo_id)): Path<(
         ShootingDayId,
         Uuid,
         SceneShootId,

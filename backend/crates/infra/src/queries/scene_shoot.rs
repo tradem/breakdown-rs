@@ -131,7 +131,7 @@ fn map_scene_shoot_row(row: sqlx::postgres::PgRow) -> Result<SceneShootView, Dom
     let planned_order =
         LexicalSortKey::new(planned_order_str).map_err(|e| DomainError::Conflict(e.to_string()))?;
     let actual_order = actual_order_str
-        .map(|s| LexicalSortKey::new(s))
+        .map(LexicalSortKey::new)
         .transpose()
         .map_err(|e| DomainError::Conflict(e.to_string()))?;
 
