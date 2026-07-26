@@ -17,9 +17,8 @@ use std::time::Duration;
 use tokio::time::Instant;
 
 use anyhow::{Result, anyhow, bail};
-use breakdown_core::error::DomainError;
-use breakdown_core::photo::commands::{DeletePhoto, UploadPhoto};
-use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
+use breakdown_core::photo::commands::UploadPhoto;
+use breakdown_core::photo::ports::{PhotoCommands, PhotoStorage};
 use breakdown_core::scene_shoot::events::SceneShootEvent;
 use breakdown_core::scene_shoot::ports::SceneShootRepository as _;
 use breakdown_core::shared::{
@@ -376,10 +375,10 @@ async fn continuity_photo_delete_on_zero_refcount() -> Result<()> {
     // Verify projection_scene_shoot has the photo linked.
     let dl = Instant::now() + DEADLINE;
     loop {
-        if let Ok(view) = ss_repo.find_by_id(shoot_id).await {
-            if view.continuity_photo_ids.contains(&photo_id) {
-                break;
-            }
+        if let Ok(view) = ss_repo.find_by_id(shoot_id).await
+            && view.continuity_photo_ids.contains(&photo_id)
+        {
+            break;
         }
         if Instant::now() > dl {
             bail!("continuity photo not linked in projection");

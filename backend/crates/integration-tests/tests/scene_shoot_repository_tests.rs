@@ -103,6 +103,7 @@ async fn seed_scene_shoot(
 }
 
 /// Strip version and timestamp fields for comparison.
+#[allow(dead_code)]
 fn strip_volatile(mut v: SceneShootView) -> SceneShootView {
     v.version = AggregateVersion(0);
     v.updated_at = chrono::DateTime::UNIX_EPOCH;
