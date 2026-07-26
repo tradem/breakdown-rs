@@ -412,10 +412,10 @@ async fn wrapped_shooting_day_flips_report_final() -> Result<()> {
     // Wait for projection
     let dl = Instant::now() + DEADLINE;
     loop {
-        if let Ok(v) = sd_repo.find_by_id(day_id).await {
-            if v.wrapped_at.is_some() {
-                break;
-            }
+        if let Ok(v) = sd_repo.find_by_id(day_id).await
+            && v.wrapped_at.is_some()
+        {
+            break;
         }
         if Instant::now() > dl {
             bail!("wrapped_at not projected");

@@ -9,8 +9,6 @@
 
 mod fixtures;
 
-use std::time::Duration;
-
 use anyhow::Result;
 use breakdown_core::scene_shoot::ports::SceneShootRepository;
 use breakdown_core::scene_shoot::views::SceneShootView;
