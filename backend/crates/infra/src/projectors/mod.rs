@@ -14,6 +14,7 @@ mod costume_category;
 mod episode;
 mod membership;
 mod scene;
+mod scene_shoot;
 mod season;
 mod shooting_day;
 pub(crate) mod supervisor;
@@ -27,6 +28,7 @@ pub use costume_category::CostumeCategoryProjector;
 pub use episode::EpisodeProjector;
 pub use membership::MembershipProjector;
 pub use scene::SceneProjector;
+pub use scene_shoot::SceneShootProjector;
 pub use season::SeasonProjector;
 pub use shooting_day::ShootingDayProjector;
 
@@ -41,6 +43,7 @@ use breakdown_core::episode::aggregate::EpisodeAggregate;
 use breakdown_core::membership::aggregate::BlockMembership;
 use breakdown_core::photo::aggregate::PhotoAggregate;
 use breakdown_core::scene::aggregate::SceneAggregate;
+use breakdown_core::scene_shoot::aggregate::SceneShootAggregate;
 use breakdown_core::season::aggregate::SeasonAggregate;
 use breakdown_core::shooting_day::aggregate::ShootingDayAggregate;
 use kameo::actor::{ActorRef, Spawn};
@@ -53,6 +56,7 @@ use sqlx::PgPool;
 const CHECKPOINTS_TABLE: &str = "sierradb_event_checkpoints";
 
 type SceneProcessor = PostgresProcessor<(SceneAggregate,), SceneProjector>;
+type SceneShootProcessor = PostgresProcessor<(SceneShootAggregate,), SceneShootProjector>;
 type CharacterProcessor = PostgresProcessor<(CharacterAggregate,), CharacterProjector>;
 type CostumeProcessor = PostgresProcessor<(CostumeAggregate,), CostumeProjector>;
 type CostumeCategoryProcessor =
@@ -323,5 +327,29 @@ pub async fn spawn_photo_projector(
     .await?;
     let actor_ref = PhotoProcessor::spawn(processor);
     run_projection_stream!(PhotoAggregate, "photo", redis_client, actor_ref.clone())?;
+    Ok(actor_ref)
+}
+
+/// Spawn the scene-shoot projector actor and start its SierraDB subscription loop.
+pub async fn spawn_scene_shoot_projector(
+    pool: PgPool,
+    redis_client: Arc<RedisClient>,
+) -> Result<ActorRef<SceneShootProcessor>> {
+    let conn = redis_client.get_multiplexed_async_connection().await?;
+    let processor = SceneShootProcessor::new(
+        pool.clone(),
+        conn,
+        CHECKPOINTS_TABLE,
+        "scene_shoot",
+        SceneShootProjector,
+    )
+    .await?;
+    let actor_ref = SceneShootProcessor::spawn(processor);
+    run_projection_stream!(
+        SceneShootAggregate,
+        "scene_shoot",
+        redis_client,
+        actor_ref.clone()
+    )?;
     Ok(actor_ref)
 }

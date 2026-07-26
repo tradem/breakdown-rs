@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! Commands for the `ShootingDay` aggregate.
 
@@ -73,5 +74,21 @@ impl kameo_es::CommandName for ReorderShootingDay {
 impl kameo_es::CommandName for ArchiveShootingDay {
     fn command_name() -> &'static str {
         "ArchiveShootingDay"
+    }
+}
+
+/// Wrap (finalise) a shooting day.
+///
+/// Idempotent: re-dispatching on an already-wrapped day emits no event.
+/// Wrapping does not prevent archiving.
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
+pub struct WrapShootingDay {
+    pub id: ShootingDayId,
+    pub version: AggregateVersion,
+}
+
+impl kameo_es::CommandName for WrapShootingDay {
+    fn command_name() -> &'static str {
+        "WrapShootingDay"
     }
 }

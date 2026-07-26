@@ -35,6 +35,7 @@ impl SceneRepository for SceneRepositoryImpl {
                 s.mood,
                 s.is_schedule_set,
                 s.summary,
+                s.script_day,
                 s.version,
                 s.updated_at,
                 COALESCE(array_agg(sc.character_id) FILTER (WHERE sc.character_id IS NOT NULL), ARRAY[]::uuid[]) AS assigned_characters,
@@ -71,6 +72,7 @@ impl SceneRepository for SceneRepositoryImpl {
                 s.mood,
                 s.is_schedule_set,
                 s.summary,
+                s.script_day,
                 s.version,
                 s.updated_at,
                 COALESCE(array_agg(sc.character_id) FILTER (WHERE sc.character_id IS NOT NULL), ARRAY[]::uuid[]) AS assigned_characters,
@@ -105,6 +107,7 @@ impl SceneRepository for SceneRepositoryImpl {
                 s.mood,
                 s.is_schedule_set,
                 s.summary,
+                s.script_day,
                 s.version,
                 s.updated_at,
                 COALESCE(array_agg(sc2.character_id) FILTER (WHERE sc2.character_id IS NOT NULL), ARRAY[]::uuid[]) AS assigned_characters,
@@ -129,6 +132,7 @@ impl SceneRepository for SceneRepositoryImpl {
 fn map_scene_row(row: sqlx::postgres::PgRow) -> Result<SceneView, DomainError> {
     let scene_number: Option<i32> = row.try_get("scene_number").map_err(map_err)?;
     let summary: Option<String> = row.try_get("summary").map_err(map_err)?;
+    let script_day: Option<String> = row.try_get("script_day").map_err(map_err)?;
     let shooting_day_ids: Vec<Uuid> = row.try_get("shooting_day_ids").map_err(map_err)?;
     Ok(SceneView {
         id: row.try_get("id").map_err(map_err)?,
@@ -138,6 +142,7 @@ fn map_scene_row(row: sqlx::postgres::PgRow) -> Result<SceneView, DomainError> {
         mood: row.try_get("mood").map_err(map_err)?,
         is_schedule_set: row.try_get("is_schedule_set").map_err(map_err)?,
         summary,
+        script_day,
         shooting_day_ids: shooting_day_ids.into_iter().map(ShootingDayId).collect(),
         assigned_characters: row.try_get("assigned_characters").map_err(map_err)?,
         version: AggregateVersion(row.try_get::<i64, _>("version").map_err(map_err)? as u64),

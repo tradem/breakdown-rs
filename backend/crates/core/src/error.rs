@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! Zentrale Domain-Fehler
 
@@ -13,6 +14,7 @@ use crate::episode::error::EpisodeError;
 use crate::membership::error::MembershipError;
 use crate::photo::error::PhotoError;
 use crate::scene::error::SceneError;
+use crate::scene_shoot::error::SceneShootError;
 use crate::season::error::SeasonError;
 use crate::shared::AggregateVersion;
 use crate::shooting_day::error::ShootingDayError;
@@ -167,6 +169,42 @@ impl From<MembershipError> for DomainError {
                 "Block {id:?} already has members; bootstrap is only allowed on an empty block"
             )),
             MembershipError::NotFound { id } => DomainError::NotFound(format!("Block({id:?})")),
+        }
+    }
+}
+
+impl From<SceneShootError> for DomainError {
+    fn from(err: SceneShootError) -> Self {
+        match err {
+            SceneShootError::ValidationError(msg) => DomainError::ValidationError(msg),
+            SceneShootError::NotFound { id } => DomainError::NotFound(format!("SceneShoot({id})")),
+            SceneShootError::PairAlreadyExists => DomainError::Conflict(
+                "A SceneShoot already exists for this (scene, shooting_day) pair".into(),
+            ),
+            SceneShootError::VersionMismatch {
+                entity,
+                expected,
+                actual,
+            } => DomainError::VersionConflict {
+                entity,
+                expected,
+                current: actual,
+            },
+            SceneShootError::PlannedOrderFrozen => {
+                DomainError::Conflict("Planned order is frozen".into())
+            }
+            SceneShootError::NoteNotFound { note_id } => {
+                DomainError::NotFound(format!("Note({note_id})"))
+            }
+            SceneShootError::AlreadyLinked { photo_id } => DomainError::Conflict(format!(
+                "Continuity photo {photo_id} is already linked to this SceneShoot"
+            )),
+            SceneShootError::AlreadyStarted => {
+                DomainError::Conflict("SceneShoot is already started".into())
+            }
+            SceneShootError::TerminalState { status } => {
+                DomainError::Conflict(format!("SceneShoot is in terminal state {status:?}"))
+            }
         }
     }
 }

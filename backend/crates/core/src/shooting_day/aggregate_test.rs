@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 use super::*;
 use crate::shared::LexicalSortKey;
@@ -223,6 +224,7 @@ fn test_view_shape_round_trips_source() {
         date: None,
         source: ShootingDaySource::Manual,
         archived: false,
+        wrapped_at: None,
         version: AggregateVersion::INITIAL,
         updated_at: chrono::Utc::now(),
     };
@@ -239,4 +241,118 @@ fn test_view_shape_round_trips_source() {
     };
     let json = serde_json::to_string(&ai).unwrap();
     assert!(json.contains("AiExtracted"));
+}
+
+// ─── 3.4: Wrap tests ────────────────────────────────────────────────────────
+
+#[test]
+fn test_wrap_sets_wrapped_at() {
+    let mut state = create_day("a");
+    let version = state.version;
+
+    let events = state
+        .handle(
+            WrapShootingDay {
+                id: state.id,
+                version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    test_support::replay_events(&mut state, events.clone());
+
+    assert_eq!(events.len(), 1);
+    assert!(state.wrapped_at.is_some());
+    match &events[0] {
+        ShootingDayEvent::ShootingDayWrapped { wrapped_at, .. } => {
+            // wrapped_at should be set to a recent timestamp
+            assert!(*wrapped_at > chrono::Utc::now() - chrono::TimeDelta::try_seconds(10).unwrap());
+        }
+        other => panic!("expected ShootingDayWrapped, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_wrap_is_idempotent() {
+    let mut state = create_day("a");
+
+    // First wrap
+    let events = state
+        .handle(
+            WrapShootingDay {
+                id: state.id,
+                version: state.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    test_support::replay_events(&mut state, events);
+    assert!(state.wrapped_at.is_some());
+    let first_wrapped = state.wrapped_at;
+
+    // Second wrap — idempotent, no new events
+    let events = state
+        .handle(
+            WrapShootingDay {
+                id: state.id,
+                version: state.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    assert_eq!(events.len(), 0);
+    assert_eq!(state.wrapped_at, first_wrapped);
+}
+
+#[test]
+fn test_wrap_does_not_block_archive() {
+    let mut state = create_day("a");
+
+    // Wrap first
+    let events = state
+        .handle(
+            WrapShootingDay {
+                id: state.id,
+                version: state.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    test_support::replay_events(&mut state, events);
+    assert!(state.wrapped_at.is_some());
+
+    // Then archive
+    let events = state
+        .handle(
+            ArchiveShootingDay {
+                id: state.id,
+                version: state.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    test_support::replay_events(&mut state, events);
+    assert!(state.archived);
+    assert!(state.wrapped_at.is_some()); // wrapped_at preserved
+}
+
+#[test]
+fn test_wrap_rejects_version_mismatch() {
+    let state = create_day("a");
+    let wrong_version = AggregateVersion::INITIAL.next();
+
+    let err = state
+        .handle(
+            WrapShootingDay {
+                id: state.id,
+                version: wrong_version,
+            },
+            make_ctx(),
+        )
+        .unwrap_err();
+
+    assert!(
+        matches!(err, ShootingDayError::VersionMismatch { .. }),
+        "expected VersionMismatch, got {err:?}"
+    );
 }

@@ -29,7 +29,7 @@ impl ShootingDayRepository for ShootingDayRepositoryImpl {
     async fn find_by_id(&self, id: ShootingDayId) -> Result<ShootingDayView, DomainError> {
         let row = sqlx::query(
             r#"
-            SELECT id, episode_id, label, order_key, date, source, archived, version, updated_at
+            SELECT id, episode_id, label, order_key, date, source, archived, wrapped_at, version, updated_at
             FROM projection_shooting_day
             WHERE id = $1
             "#,
@@ -49,7 +49,7 @@ impl ShootingDayRepository for ShootingDayRepositoryImpl {
     ) -> Result<Vec<ShootingDayView>, DomainError> {
         let rows = sqlx::query(
             r#"
-            SELECT id, episode_id, label, order_key, date, source, archived, version, updated_at
+            SELECT id, episode_id, label, order_key, date, source, archived, wrapped_at, version, updated_at
             FROM projection_shooting_day
             WHERE episode_id = $1 AND archived = false
             ORDER BY order_key ASC
@@ -77,6 +77,7 @@ impl ShootingDayRepository for ShootingDayRepositoryImpl {
                 s.mood,
                 s.is_schedule_set,
                 s.summary,
+                s.script_day,
                 s.version,
                 s.updated_at,
                 COALESCE(array_agg(sc.character_id) FILTER (WHERE sc.character_id IS NOT NULL), ARRAY[]::uuid[]) AS assigned_characters,
@@ -106,6 +107,7 @@ fn map_shooting_day_row(row: sqlx::postgres::PgRow) -> Result<ShootingDayView, D
     let date: Option<chrono::NaiveDate> = row.try_get("date").map_err(map_err)?;
     let source_json: serde_json::Value = row.try_get("source").map_err(map_err)?;
     let archived: bool = row.try_get("archived").map_err(map_err)?;
+    let wrapped_at: Option<DateTime<Utc>> = row.try_get("wrapped_at").map_err(map_err)?;
     let version: i64 = row.try_get("version").map_err(map_err)?;
     let updated_at: DateTime<Utc> = row.try_get("updated_at").map_err(map_err)?;
 
@@ -122,6 +124,7 @@ fn map_shooting_day_row(row: sqlx::postgres::PgRow) -> Result<ShootingDayView, D
         date,
         source,
         archived,
+        wrapped_at,
         version: AggregateVersion(version as u64),
         updated_at,
     })
@@ -136,6 +139,7 @@ fn map_err(e: sqlx::Error) -> DomainError {
 fn map_scene_view_row(row: sqlx::postgres::PgRow) -> Result<SceneView, DomainError> {
     let scene_number: Option<i32> = row.try_get("scene_number").map_err(map_err)?;
     let summary: Option<String> = row.try_get("summary").map_err(map_err)?;
+    let script_day: Option<String> = row.try_get("script_day").map_err(map_err)?;
     let shooting_day_ids: Vec<Uuid> = row.try_get("shooting_day_ids").map_err(map_err)?;
     Ok(SceneView {
         id: row.try_get("id").map_err(map_err)?,
@@ -145,6 +149,7 @@ fn map_scene_view_row(row: sqlx::postgres::PgRow) -> Result<SceneView, DomainErr
         mood: row.try_get("mood").map_err(map_err)?,
         is_schedule_set: row.try_get("is_schedule_set").map_err(map_err)?,
         summary,
+        script_day,
         shooting_day_ids: shooting_day_ids.into_iter().map(ShootingDayId).collect(),
         assigned_characters: row.try_get("assigned_characters").map_err(map_err)?,
         version: AggregateVersion(row.try_get::<i64, _>("version").map_err(map_err)? as u64),

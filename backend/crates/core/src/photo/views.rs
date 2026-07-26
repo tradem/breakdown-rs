@@ -1,7 +1,9 @@
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use utoipa::ToSchema;
 
+use crate::photo::binding::PhotoBinding;
 use crate::shared::{AggregateVersion, PhotoId, PhotoVariant, VariantStatus};
 
 /// A single variant's public view.
@@ -20,6 +22,8 @@ pub struct PhotoView {
     pub size_bytes: u64,
     pub variants: Vec<PhotoVariantView>,
     pub exif_stripped_at: Option<DateTime<Utc>>,
+    /// What this photo is attached to (Costume or Continuity).
+    pub binding: PhotoBinding,
     pub version: AggregateVersion,
 }
 

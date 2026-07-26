@@ -230,6 +230,51 @@ impl std::str::FromStr for ShootingDayId {
     }
 }
 
+/// Opaque identifier for a `SceneShoot` aggregate.
+///
+/// A `SceneShoot` models the association between a `Scene` and a
+/// `ShootingDay`, carrying both planned and actual execution data.
+/// Each `(scene_id, shooting_day_id)` pair gets its own stream.
+/// Like the other identifiers it is a UUIDv7 opaque value type
+/// never decoded inside `core`.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ToSchema,
+)]
+#[serde(transparent)]
+pub struct SceneShootId(pub Uuid);
+
+impl SceneShootId {
+    /// Create a new UUIDv7 `SceneShootId`.
+    pub fn new() -> Self {
+        Self(Uuid::now_v7())
+    }
+
+    /// Construct from a raw `Uuid`.
+    pub fn from_uuid(id: Uuid) -> Self {
+        Self(id)
+    }
+}
+
+impl Default for SceneShootId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl fmt::Display for SceneShootId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::str::FromStr for SceneShootId {
+    type Err = uuid::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self(Uuid::from_str(s)?))
+    }
+}
+
 /// Opaque identifier for a `Photo` aggregate.
 ///
 /// A `Photo` is an event-sourced aggregate that tracks the lifecycle
@@ -300,6 +345,42 @@ impl PhotoVariant {
             Self::Original => "original",
             Self::Thumb => "thumb",
             Self::Medium => "medium",
+        }
+    }
+}
+
+/// The shoot status lifecycle of a `SceneShoot`.
+///
+/// `Planned` — the scene is planned (Dispo), no execution data yet.
+/// `Scheduled` — the scene is scheduled but not yet in progress.
+/// `InProgress` — execution has started (`start_dt` or `actual_order` set).
+/// `Shot` — the scene shoot is finished (terminal for this pair).
+/// `Skipped` — the scene was skipped on this shooting day.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ToSchema,
+)]
+pub enum SceneShootStatus {
+    /// The scene is planned (Dispo), no execution data yet.
+    Planned,
+    /// The scene is scheduled but not yet in progress.
+    Scheduled,
+    /// Execution has started (`start_dt` or `actual_order` set).
+    InProgress,
+    /// The scene shoot is finished (terminal for this pair).
+    Shot,
+    /// The scene was skipped on this shooting day.
+    Skipped,
+}
+
+impl SceneShootStatus {
+    /// Return a static string representation for use in SQL projection columns.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Planned => "Planned",
+            Self::Scheduled => "Scheduled",
+            Self::InProgress => "InProgress",
+            Self::Shot => "Shot",
+            Self::Skipped => "Skipped",
         }
     }
 }

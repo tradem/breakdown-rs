@@ -39,8 +39,8 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                 sqlx::query(
                     r#"
                     INSERT INTO projection_scene
-                        (id, episode_id, scene_number, location, mood, is_schedule_set, summary, version, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                        (id, episode_id, scene_number, location, mood, is_schedule_set, summary, script_day, version, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                     ON CONFLICT (id) DO UPDATE SET
                         episode_id = EXCLUDED.episode_id,
                         scene_number = EXCLUDED.scene_number,
@@ -48,6 +48,7 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                         mood = EXCLUDED.mood,
                         is_schedule_set = EXCLUDED.is_schedule_set,
                         summary = EXCLUDED.summary,
+                        script_day = EXCLUDED.script_day,
                         version = EXCLUDED.version,
                         updated_at = EXCLUDED.updated_at
                     "#,
@@ -59,6 +60,7 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                 .bind(details.mood)
                 .bind(details.is_schedule_set)
                 .bind(details.summary)
+                .bind(details.script_day)
                 .bind(version)
                 .bind(updated_at)
                 .execute(&mut **ctx)
@@ -94,8 +96,9 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                         mood = $4,
                         is_schedule_set = $5,
                         summary = $6,
-                        version = $7,
-                        updated_at = $8
+                        script_day = $7,
+                        version = $8,
+                        updated_at = $9
                     WHERE id = $1
                     "#,
                 )
@@ -105,6 +108,7 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                 .bind(details.mood)
                 .bind(details.is_schedule_set)
                 .bind(details.summary)
+                .bind(details.script_day)
                 .bind(version)
                 .bind(updated_at)
                 .execute(&mut **ctx)

@@ -1,6 +1,8 @@
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 use chrono::{DateTime, Utc};
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
 
+use crate::photo::binding::PhotoBinding;
 use crate::shared::{AggregateVersion, PhotoId, PhotoVariant, VariantStatus};
 
 use super::commands::*;
@@ -28,6 +30,8 @@ pub struct PhotoAggregate {
     pub exif_stripped_at: Option<DateTime<Utc>>,
     /// When the photo was soft-deleted. `None` means active.
     pub deleted_at: Option<DateTime<Utc>>,
+    /// What this photo is attached to (Costume or Continuity).
+    pub binding: PhotoBinding,
     pub version: AggregateVersion,
 }
 
@@ -68,6 +72,7 @@ impl Apply for PhotoAggregate {
                 content_type,
                 size_bytes,
                 variant_statuses,
+                binding,
                 version,
             } => {
                 self.id = id;
@@ -81,6 +86,7 @@ impl Apply for PhotoAggregate {
                         size_bytes: 0,
                     })
                     .collect();
+                self.binding = binding;
                 self.version = version;
             }
             PhotoEvent::OriginalNormalized {
@@ -146,6 +152,7 @@ impl Command<UploadPhoto> for PhotoAggregate {
                 (PhotoVariant::Thumb, VariantStatus::Pending),
                 (PhotoVariant::Medium, VariantStatus::Pending),
             ],
+            binding: cmd.binding,
             version: AggregateVersion::INITIAL,
         }])
     }

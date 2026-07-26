@@ -12,6 +12,7 @@ fn create_scene() -> SceneAggregate {
         mood: Some("IN".to_string()),
         is_schedule_set: false,
         summary: None,
+        script_day: None,
     };
     let events = SceneAggregate::default().handle(
         CreateScene {
@@ -46,6 +47,7 @@ fn test_create_scene_success() {
         mood: Some("DA".into()),
         is_schedule_set: true,
         summary: None,
+        script_day: None,
     };
     let result = SceneAggregate::default().handle(
         CreateScene {
@@ -84,6 +86,7 @@ fn test_update_scene_details_success() {
         mood: Some("AT".into()),
         is_schedule_set: true,
         summary: None,
+        script_day: None,
     };
     let event = agg.handle(
         UpdateSceneDetails {
@@ -334,6 +337,41 @@ fn test_summary_round_trips_through_update_guard() {
     assert_eq!(agg.details.summary.as_deref(), Some(summary.as_str()));
 
     // Replaying identical details (incl. summary) hits the "unchanged" guard.
+    let unchanged = agg.handle(
+        UpdateSceneDetails {
+            id: agg.id,
+            details: agg.details.clone(),
+            version: agg.version,
+        },
+        make_ctx(),
+    );
+    assert!(matches!(
+        unchanged,
+        Err(SceneError::ValidationError(ref m)) if m.contains("unchanged")
+    ));
+}
+
+#[test]
+fn test_script_day_round_trips_through_update_guard() {
+    let mut agg = create_scene();
+    let script_day = "1. Spieltag".to_string();
+    let events = agg
+        .handle(
+            UpdateSceneDetails {
+                id: agg.id,
+                details: SceneDetails {
+                    script_day: Some(script_day.clone()),
+                    ..agg.details.clone()
+                },
+                version: agg.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    test_support::replay_events(&mut agg, events);
+    assert_eq!(agg.details.script_day.as_deref(), Some(script_day.as_str()));
+
+    // Replaying identical details (incl. script_day) hits the "unchanged" guard.
     let unchanged = agg.handle(
         UpdateSceneDetails {
             id: agg.id,

@@ -1,10 +1,13 @@
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 pub mod aggregate;
+pub mod binding;
 pub mod commands;
 pub mod error;
 pub mod events;
 pub mod ports;
 pub mod views;
 
+pub use binding::PhotoBinding;
 pub use commands::{
     DeletePhoto, GenerateVariant, MarkVariantFailed, NormalizeOriginal, UploadPhoto,
 };

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! AppState – Composition-Root (manuelles DI)
 //!
@@ -15,19 +16,23 @@ use breakdown_core::episode::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::membership::{MembershipCommands, MembershipRepository};
 use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
 use breakdown_core::scene::{SceneCommands, SceneRepository};
+use breakdown_core::scene_shoot::{
+    SceneShootCommands, SceneShootReportRepository, SceneShootRepository,
+};
 use breakdown_core::season::{SeasonCommands, SeasonRepository};
 use breakdown_core::shooting_day::{ShootingDayCommands, ShootingDayRepository};
 use infra::event_store::{
     BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl, CostumeCommandsImpl,
     EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl, SceneCommandsImpl,
-    SeasonCommandsImpl, ShootingDayCommandsImpl,
+    SceneShootCommandsImpl, SeasonCommandsImpl, ShootingDayCommandsImpl,
 };
 use infra::photo::repository::PhotoRepositoryImpl;
 use infra::photo::storage::OpenDalPhotoStorage;
 use infra::queries::{
     AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl,
     CostumeCategoryRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl,
-    MembershipRepositoryImpl, SceneRepositoryImpl, SeasonRepositoryImpl, ShootingDayRepositoryImpl,
+    MembershipRepositoryImpl, SceneRepositoryImpl, SceneShootReportRepositoryImpl,
+    SceneShootRepositoryImpl, SeasonRepositoryImpl, ShootingDayRepositoryImpl,
 };
 
 /// The hexagonal seam surface used by API handlers. Production implements it
@@ -55,11 +60,17 @@ pub trait Ports: Clone + Send + Sync + 'static {
     type PhotoStorage: PhotoStorage;
     type PhotoCommands: PhotoCommands;
     type PhotoRepo: PhotoRepository;
+    type SceneShootCommands: SceneShootCommands;
+    type SceneShootRepo: SceneShootRepository;
+    type SceneShootReportRepo: SceneShootReportRepository;
 
     fn scene_commands(&self) -> &Self::SceneCommands;
     fn scene_repo(&self) -> &Self::SceneRepo;
     fn shooting_day_commands(&self) -> &Self::ShootingDayCommands;
     fn shooting_day_repo(&self) -> &Self::ShootingDayRepo;
+    fn scene_shoot_commands(&self) -> &Self::SceneShootCommands;
+    fn scene_shoot_repo(&self) -> &Self::SceneShootRepo;
+    fn scene_shoot_report_repo(&self) -> &Self::SceneShootReportRepo;
     fn character_commands(&self) -> &Self::CharacterCommands;
     fn character_repo(&self) -> &Self::CharacterRepo;
     fn costume_commands(&self) -> &Self::CostumeCommands;
@@ -117,6 +128,9 @@ pub struct ProductionPorts {
     photo_storage: OpenDalPhotoStorage,
     photo_commands: PhotoCommandsImpl,
     photo_repo: PhotoRepositoryImpl,
+    scene_shoot_commands: SceneShootCommandsImpl,
+    scene_shoot_repo: SceneShootRepositoryImpl,
+    scene_shoot_report_repo: SceneShootReportRepositoryImpl,
 }
 
 impl ProductionPorts {
@@ -145,6 +159,9 @@ impl ProductionPorts {
         photo_storage: OpenDalPhotoStorage,
         photo_commands: PhotoCommandsImpl,
         photo_repo: PhotoRepositoryImpl,
+        scene_shoot_commands: SceneShootCommandsImpl,
+        scene_shoot_repo: SceneShootRepositoryImpl,
+        scene_shoot_report_repo: SceneShootReportRepositoryImpl,
     ) -> Self {
         Self {
             scene_commands,
@@ -169,6 +186,9 @@ impl ProductionPorts {
             photo_storage,
             photo_commands,
             photo_repo,
+            scene_shoot_commands,
+            scene_shoot_repo,
+            scene_shoot_report_repo,
         }
     }
 }
@@ -196,6 +216,9 @@ impl Ports for ProductionPorts {
     type PhotoStorage = OpenDalPhotoStorage;
     type PhotoCommands = PhotoCommandsImpl;
     type PhotoRepo = PhotoRepositoryImpl;
+    type SceneShootCommands = SceneShootCommandsImpl;
+    type SceneShootRepo = SceneShootRepositoryImpl;
+    type SceneShootReportRepo = SceneShootReportRepositoryImpl;
 
     fn scene_commands(&self) -> &Self::SceneCommands {
         &self.scene_commands
@@ -262,5 +285,14 @@ impl Ports for ProductionPorts {
     }
     fn photo_repo(&self) -> &Self::PhotoRepo {
         &self.photo_repo
+    }
+    fn scene_shoot_commands(&self) -> &Self::SceneShootCommands {
+        &self.scene_shoot_commands
+    }
+    fn scene_shoot_repo(&self) -> &Self::SceneShootRepo {
+        &self.scene_shoot_repo
+    }
+    fn scene_shoot_report_repo(&self) -> &Self::SceneShootReportRepo {
+        &self.scene_shoot_report_repo
     }
 }

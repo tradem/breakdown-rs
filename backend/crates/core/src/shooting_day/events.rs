@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! Events and the import-provenance source discriminator for `ShootingDay`.
 
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -63,6 +64,15 @@ pub enum ShootingDayEvent {
         id: ShootingDayId,
         version: AggregateVersion,
     },
+    /// The shooting day has been wrapped (finalised).
+    ///
+    /// Once wrapped, the Soll-Ist-Vergleich report is considered authoritative.
+    /// Wrapping is idempotent and does not prevent archiving.
+    ShootingDayWrapped {
+        id: ShootingDayId,
+        wrapped_at: DateTime<Utc>,
+        version: AggregateVersion,
+    },
 }
 
 impl kameo_es::EventType for ShootingDayEvent {
@@ -73,6 +83,7 @@ impl kameo_es::EventType for ShootingDayEvent {
             Self::ShootingDayRescheduled { .. } => "ShootingDayRescheduled",
             Self::ShootingDayReordered { .. } => "ShootingDayReordered",
             Self::ShootingDayArchived { .. } => "ShootingDayArchived",
+            Self::ShootingDayWrapped { .. } => "ShootingDayWrapped",
         }
     }
 }

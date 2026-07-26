@@ -10,6 +10,7 @@ mod fixtures;
 
 use std::sync::Arc;
 use std::time::Duration;
+use uuid::Uuid;
 
 use anyhow::Result;
 use breakdown_core::photo::commands::UploadPhoto;
@@ -78,6 +79,9 @@ async fn photo_upload_then_delete_round_trip() -> Result<()> {
             id: photo_id,
             content_type: content_type.clone(),
             size_bytes: image_bytes.len() as u64,
+            binding: breakdown_core::photo::binding::PhotoBinding::Costume {
+                costume_id: Uuid::now_v7(),
+            },
         })
         .await?;
     assert!(version.0 > 0, "UploadPhoto should return version > 0");

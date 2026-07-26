@@ -10,7 +10,9 @@ mod costume;
 mod costume_category;
 mod episode;
 mod membership;
+mod reports;
 mod scene;
+mod scene_shoot;
 mod season;
 mod shooting_day;
 
@@ -21,6 +23,8 @@ pub use costume::CostumeRepositoryImpl;
 pub use costume_category::CostumeCategoryRepositoryImpl;
 pub use episode::EpisodeRepositoryImpl;
 pub use membership::MembershipRepositoryImpl;
+pub use reports::SceneShootReportRepositoryImpl;
 pub use scene::SceneRepositoryImpl;
+pub use scene_shoot::SceneShootRepositoryImpl;
 pub use season::SeasonRepositoryImpl;
 pub use shooting_day::ShootingDayRepositoryImpl;

@@ -16,6 +16,9 @@ pub struct SceneDetails {
     pub is_schedule_set: bool,
     /// Free-form scene description/prose summary.
     pub summary: Option<String>,
+    /// Fictional script-chronology day (e.g. "1. Spieltag"), distinct
+    /// from the calendar `ShootingDay.date`. Free-form search index.
+    pub script_day: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

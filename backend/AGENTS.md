@@ -18,14 +18,26 @@ You are the primary coding agent for `breakdown-rs` – a collaborative costume 
 The domain models a four-level production hierarchy:
 `Series` (opaque `SeriesId` only — no aggregate yet) → `Season` → `Block` → `Episode` → `Scene`.
 `Character` and `Costume` are scoped to a `Season` (`Character.season_id`) / scope-free (`Costume` is bound only to a `Character`).
-Core modules: `season`, `block`, `episode`, `scene`, `shooting_day`, `character`, `costume`, `costume_category`, `shared`.
+Core modules: `season`, `block`, `episode`, `scene`, `scene_shoot`, `shooting_day`, `character`, `costume`, `costume_category`, `shared`.
 The `calculation` context was removed; do not reintroduce it.
 `shooting_day` is an Episode-scoped `Drehtag` aggregate. It carries a `label`, a `LexicalSortKey`
 fractional-ordering value (`shared`), an optional `date`, a `ShootingDaySource` provenance
-discriminator (Manual | AiExtracted), and an `archived` flag. Scenes link to ShootingDays via a
-many-to-many join (`Scene.schedule_on_shooting_day`) kept on the Scene aggregate; the read model
-mirrors it in `projection_scene_shooting_day`. Archived days are excluded from the picker query
-`ShootingDayRepository::list_by_episode`.
+discriminator (Manual | AiExtracted), an `archived` flag, and an optional `wrapped_at: Option<DateTime<Utc>>`.
+`wrapped_at` is set idempotently by the `WrapShootingDay` command and indicates the day has been
+"closed" for planning — the Soll-Ist report exposes this as the `final` flag. Scenes link to
+ShootingDays via a many-to-many join (`Scene.schedule_on_shooting_day`) kept on the Scene
+aggregate; the read model mirrors it in `projection_scene_shooting_day`. Archived days are
+excluded from the picker query `ShootingDayRepository::list_by_episode`.
+`scene_shoot` is a Scene-scoped execution-tracking aggregate (category `"scene_shoot"`).
+Each `SceneShoot` represents one planned execution of a Scene on a ShootingDay, tracked
+by `planned_order` (Soll) and `actual_order` (Ist). Lifecycle: `Planned` → `Scheduled` →
+`InProgress` → `Shot` or `Skipped`. Key invariants: pair-uniqueness `(scene_id, shooting_day_id)`,
+`planned_order` freezes after execution data is recorded (`PlannedOrderFrozen`), notes are
+append-only with mutable bodies (`SceneShootNote`), and continuity photos link via
+`ContinuityPhotoLinked/Unlinked` events. Three idempotent read-side reports are served from
+`SceneShootReportRepository`: Dispo (planned_order ASC), Shoot Day (actual_order NULLS LAST),
+and Soll-Ist (diff with moved/missing/skipped/reshot flags + `final` from `wrapped_at`).
+The projector uses version guards (`WHERE version < $N`) to ensure event-redelivery idempotency.
 `SeriesId` is an opaque UUIDv7 seam for a future additive `Series` aggregate — hierarchy entities reference it but no `Series` aggregate exists yet.
 `costume_category` is a **season-scoped vocabulary** aggregate (`CostumeCategory`, category `"costume_category"`)
 that classifies costume parts (e.g. Oberteil/Unterteil/Schuhe). It carries `season_id`, `name`, a
@@ -38,20 +50,29 @@ from `projection_costume_category` at read time. The command API lives at
 `POST/GET /seasons/{season_id}/costume-categories` (and `PATCH`/`POST .../archive` by id);
 `POST /costumes/{id}/details` now accepts the enriched `CostumeDetail`.
 
-`photo` is a bounded context (category `"photo"`) that tracks the lifecycle of costume photos
-(ADR-019). The `Photo` aggregate is event-sourced in SierraDB and stores photo metadata
-(content-type, size, variant statuses). The actual image bytes live in **Garage** (S3-compatible
-object store) accessed via OpenDAL. The `PhotoStorage` port is a **non-CQRS-split CRUD port**
-for byte storage (read and write on the same store), distinct from the command/repository split
-used by other aggregates. Three sagas react to photo events:
+`photo` is a bounded context (category `"photo"`) that tracks the lifecycle of costume and
+continuity photos (ADR-019). The `Photo` aggregate is event-sourced in SierraDB and stores photo
+metadata (content-type, size, variant statuses, `binding`). `binding: PhotoBinding` discriminates
+between `Costume { costume_id }` (default for historical events) and `Continuity { scene_shoot_id, costume_id? }`.
+The actual image bytes live in **Garage** (S3-compatible object store) accessed via OpenDAL. The
+`PhotoStorage` port is a **non-CQRS-split CRUD port** for byte storage (read and write on the
+same store), distinct from the command/repository split used by other aggregates. Three sagas
+react to photo events:
 - `PhotoThumbnailSaga` — on `PhotoUploaded`, fetches original bytes, decodes+re-encodes
   EXIF-stripped, generates Thumb (200×200) and Medium (800×800) variants.
 - `PhotoDeletionSaga` — on `PhotoUnlinked` (costume stream), checks refcount via
   `COUNT(*)` on `projection_costume_photo`; dispatches `DeletePhoto` when zero.
+- `ContinuityDeletionSaga` — on `ContinuityPhotoUnlinked` (scene_shoot stream), tracks
+  in-memory refcounts; checks costume-side refs before dispatching `DeletePhoto` at zero.
 - `PhotoBytesCleanupSaga` — on `PhotoDeleted`, removes all variant bytes from Garage.
 
 A periodic `PhotoGcSweepTask` (advisory-locked) reconciles Garage objects against
 `projection_photo` and deletes orphans older than `PHOTO_GC_MAX_AGE_SECS`.
+
+**Continuity photo authz:** Handlers under `/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/continuity-photos`
+are gated only by `Requirement::Authenticated` and use handler-internal authz (season-scoped
+membership check via the shooting_day → episode → block → season chain). They follow the same
+`// AUTHZ-GATE:` pattern as the costume photo handlers.
 
 ## 3. Workflow & Best Practices
 - **EventStorming Mapping:** 

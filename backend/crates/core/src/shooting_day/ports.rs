@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! Ports for the `ShootingDay` aggregate (command dispatch + read model).
 
@@ -9,7 +10,7 @@ use crate::shared::{AggregateVersion, EpisodeId, ShootingDayId};
 
 use super::commands::{
     ArchiveShootingDay, CreateShootingDay, RenameShootingDay, ReorderShootingDay,
-    RescheduleShootingDay,
+    RescheduleShootingDay, WrapShootingDay,
 };
 use super::views::ShootingDayView;
 
@@ -35,6 +36,9 @@ pub trait ShootingDayCommands: Send + Sync {
 
     /// Soft-archive a shooting day (terminal).
     async fn archive(&self, cmd: ArchiveShootingDay) -> Result<AggregateVersion, DomainError>;
+
+    /// Wrap (finalise) a shooting day. Idempotent.
+    async fn wrap(&self, cmd: WrapShootingDay) -> Result<AggregateVersion, DomainError>;
 }
 
 /// Async read port returning flat `ShootingDayView` projections.

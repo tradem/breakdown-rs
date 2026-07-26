@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 pub mod audit;
 pub mod block;
@@ -11,12 +12,13 @@ pub mod error;
 pub mod membership;
 pub mod photo;
 pub mod scene;
+pub mod scene_shoot;
 pub mod season;
 pub mod shared;
 pub mod shooting_day;
 
 /// Re-export photo shared types for use by infra and api layers.
-pub use shared::{PhotoId, PhotoVariant, VariantStatus};
+pub use shared::{PhotoId, PhotoVariant, SceneShootId, SceneShootStatus, VariantStatus};
 
 #[cfg(test)]
 mod proptest;

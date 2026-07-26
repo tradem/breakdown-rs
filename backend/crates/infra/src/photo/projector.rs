@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 
 use breakdown_core::photo::aggregate::PhotoAggregate;
+use breakdown_core::photo::binding::PhotoBinding;
 use breakdown_core::photo::events::PhotoEvent;
 use breakdown_core::shared::{PhotoId, PhotoVariant, VariantStatus};
 use kameo_es::Event;
@@ -31,6 +32,7 @@ impl<'a> EntityEventHandler<PhotoAggregate, Transaction<'a, Postgres>> for Photo
                 content_type,
                 size_bytes,
                 variant_statuses,
+                binding,
                 ..
             } => {
                 // Insert the photo row.
@@ -75,6 +77,28 @@ impl<'a> EntityEventHandler<PhotoAggregate, Transaction<'a, Postgres>> for Photo
                     .bind(status_as_str(status))
                     .bind(size)
                     .bind(updated_at)
+                    .execute(&mut **ctx)
+                    .await?;
+                }
+
+                // Handle continuity binding: populate projection_continuity_photo.
+                if let PhotoBinding::Continuity {
+                    scene_shoot_id,
+                    costume_id,
+                } = binding
+                {
+                    sqlx::query(
+                        r#"
+                        INSERT INTO projection_continuity_photo
+                            (photo_id, scene_shoot_id, costume_id)
+                        VALUES ($1, $2, $3)
+                        ON CONFLICT (photo_id, scene_shoot_id) DO UPDATE SET
+                            costume_id = EXCLUDED.costume_id
+                        "#,
+                    )
+                    .bind(id.0)
+                    .bind(scene_shoot_id.0)
+                    .bind(costume_id)
                     .execute(&mut **ctx)
                     .await?;
                 }
