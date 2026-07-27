@@ -4,8 +4,21 @@
 
 //! Renderer-neutral reporting module.
 //!
-//! This module owns pure domain types for PDF report rendering.
+//! This module owns pure domain types for PDF report rendering and the
+//! report-archival CRUD / enqueue ports.
 //! It has **no** dependency on Typst, ICU4X, Fluent, OpenDAL, sqlx, or Axum.
+
+pub mod archival;
+pub mod storage;
+
+pub use archival::{
+    ArchivalTrigger, EnqueueArchivalRequest, EnqueueArchivalResult, ReportArchivalError,
+    ReportArchivalQueue, ReportJobId, ReportJobStatus, SnapshotIdentity,
+};
+pub use storage::{
+    ContentDigest, ReportArchiveStorage, ReportArtifact, ReportArtifactKey, ReportStorageError,
+    TEMPLATE_VERSION,
+};
 
 use serde::{Deserialize, Serialize};
 use std::fmt;

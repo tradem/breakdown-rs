@@ -111,6 +111,34 @@ impl MembershipRepository for MembershipRepositoryImpl {
 
         Ok(row.is_some())
     }
+
+    async fn has_active_report_archive_role_in_season(
+        &self,
+        season_id: SeasonId,
+        user_id: UserId,
+    ) -> Result<bool, DomainError> {
+        // Static role allowlist — CostumeDesigner + WardrobeSupervisor only.
+        // CostumeAssistant is deliberately excluded (manual archive remediation).
+        let row: Option<(String,)> = sqlx::query_as(
+            r#"
+            SELECT m.role
+            FROM projection_membership m
+            JOIN projection_block b ON b.id = m.block_id
+            WHERE m.user_id = $1
+              AND b.season_id = $2
+              AND m.role IN ('costume_designer', 'wardrobe_supervisor')
+              AND m.state = 'active'
+            LIMIT 1
+            "#,
+        )
+        .bind(user_id.as_str())
+        .bind(season_id.0)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+
+        Ok(row.is_some())
+    }
 }
 
 fn map_membership_row(row: sqlx::postgres::PgRow) -> Result<MembershipView, DomainError> {

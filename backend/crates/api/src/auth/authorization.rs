@@ -190,6 +190,11 @@ pub fn requirement_for(path: &str) -> Requirement {
     if path.ends_with(".pdf") && path.contains("/report/") {
         return Requirement::Authenticated;
     }
+
+    // Manual "archive now" uses handler-internal AUTHZ-GATE (designer/supervisor).
+    if path.ends_with("/report/archive") {
+        return Requirement::Authenticated;
+    }
     // Everything else (scenes, characters, costumes, episodes, and
     // block detail / time-span updates) is block-scoped.
     // Self-service invitation acceptance: the invitee is *not yet* an active

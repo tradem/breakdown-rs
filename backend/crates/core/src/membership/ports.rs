@@ -79,4 +79,15 @@ pub trait MembershipRepository: Send + Sync {
         season_id: SeasonId,
         user_id: UserId,
     ) -> Result<bool, DomainError>;
+
+    /// Check whether `user_id` holds a role permitted to manually enqueue
+    /// report archival (`costume_designer` or `wardrobe_supervisor` only).
+    ///
+    /// `costume_assistant` is intentionally excluded — manual archival is a
+    /// deliberate remediation action, not for every season assistant.
+    async fn has_active_report_archive_role_in_season(
+        &self,
+        season_id: SeasonId,
+        user_id: UserId,
+    ) -> Result<bool, DomainError>;
 }

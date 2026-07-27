@@ -62,3 +62,18 @@ jobs:
 
       # If the job becomes too slow for PRs, move this step to a nightly
       # workflow and document the cutoff in backend/AGENTS.md.
+
+      - name: GDrive archival provider contract test
+        if: ${{ secrets.GDRIVE_CLIENT_ID != '' }}
+        env:
+          REPORT_BACKUP_PROVIDER: gdrive
+          REPORT_BACKUP_GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+          REPORT_BACKUP_GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+          REPORT_BACKUP_GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+          REPORT_BACKUP_GDRIVE_ROOT: ${{ secrets.GDRIVE_ROOT }}
+          REPORT_BACKUP_PREFIX: ci/
+        run: cargo test -p infra -- reporting::storage_contract_test::gdrive_contract -- --nocapture
+
+      - name: GDrive archival provider contract test (skipped)
+        if: ${{ secrets.GDRIVE_CLIENT_ID == '' }}
+        run: echo "SKIP: GDrive contract test — set GDRIVE_CLIENT_ID secret to enable"

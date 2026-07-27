@@ -15,6 +15,7 @@ use breakdown_core::costume_category::{CostumeCategoryCommands, CostumeCategoryR
 use breakdown_core::episode::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::membership::{MembershipCommands, MembershipRepository};
 use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
+use breakdown_core::reporting::ReportArchivalQueue;
 use breakdown_core::scene::{SceneCommands, SceneRepository};
 use breakdown_core::scene_shoot::{
     SceneShootCommands, SceneShootReportRepository, SceneShootRepository,
@@ -34,6 +35,7 @@ use infra::queries::{
     MembershipRepositoryImpl, SceneRepositoryImpl, SceneShootReportRepositoryImpl,
     SceneShootRepositoryImpl, SeasonRepositoryImpl, ShootingDayRepositoryImpl,
 };
+use infra::reporting::PgReportArchivalQueue;
 
 /// The hexagonal seam surface used by API handlers. Production implements it
 /// with the concrete `kameo_es` write adapters and `sqlx` read adapters.
@@ -63,6 +65,7 @@ pub trait Ports: Clone + Send + Sync + 'static {
     type SceneShootCommands: SceneShootCommands;
     type SceneShootRepo: SceneShootRepository;
     type SceneShootReportRepo: SceneShootReportRepository;
+    type ReportArchivalQueue: ReportArchivalQueue;
 
     fn scene_commands(&self) -> &Self::SceneCommands;
     fn scene_repo(&self) -> &Self::SceneRepo;
@@ -89,6 +92,7 @@ pub trait Ports: Clone + Send + Sync + 'static {
     fn photo_storage(&self) -> &Self::PhotoStorage;
     fn photo_commands(&self) -> &Self::PhotoCommands;
     fn photo_repo(&self) -> &Self::PhotoRepo;
+    fn report_archival_queue(&self) -> &Self::ReportArchivalQueue;
 }
 
 /// Shared state handed to every Axum handler.
@@ -131,6 +135,7 @@ pub struct ProductionPorts {
     scene_shoot_commands: SceneShootCommandsImpl,
     scene_shoot_repo: SceneShootRepositoryImpl,
     scene_shoot_report_repo: SceneShootReportRepositoryImpl,
+    report_archival_queue: PgReportArchivalQueue,
 }
 
 impl ProductionPorts {
@@ -162,6 +167,7 @@ impl ProductionPorts {
         scene_shoot_commands: SceneShootCommandsImpl,
         scene_shoot_repo: SceneShootRepositoryImpl,
         scene_shoot_report_repo: SceneShootReportRepositoryImpl,
+        report_archival_queue: PgReportArchivalQueue,
     ) -> Self {
         Self {
             scene_commands,
@@ -189,6 +195,7 @@ impl ProductionPorts {
             scene_shoot_commands,
             scene_shoot_repo,
             scene_shoot_report_repo,
+            report_archival_queue,
         }
     }
 }
@@ -219,6 +226,7 @@ impl Ports for ProductionPorts {
     type SceneShootCommands = SceneShootCommandsImpl;
     type SceneShootRepo = SceneShootRepositoryImpl;
     type SceneShootReportRepo = SceneShootReportRepositoryImpl;
+    type ReportArchivalQueue = PgReportArchivalQueue;
 
     fn scene_commands(&self) -> &Self::SceneCommands {
         &self.scene_commands
@@ -294,5 +302,8 @@ impl Ports for ProductionPorts {
     }
     fn scene_shoot_report_repo(&self) -> &Self::SceneShootReportRepo {
         &self.scene_shoot_report_repo
+    }
+    fn report_archival_queue(&self) -> &Self::ReportArchivalQueue {
+        &self.report_archival_queue
     }
 }

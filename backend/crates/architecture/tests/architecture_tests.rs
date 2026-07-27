@@ -45,6 +45,8 @@ const FORBIDDEN_CORE_DEPS: &[&str] = &[
     // Reporting engine / locale crates — must stay in infra only
     "typst", "typst-pdf", "icu", "icu_decimal", "icu_datetime",
     "fluent-bundle", "fluent-syntax",
+    // Report archival storage / provider SDKs — must stay in infra only
+    "opendal", "sha2", "google-drive3", "yup-oauth2",
 ];
 
 /// Path to the `breakdown_core` manifest, relative to the workspace root.
@@ -114,6 +116,10 @@ fn core_must_not_depend_on_infrastructure_crates() {
             "icu_datetime",
             "fluent_bundle",
             "fluent_syntax",
+            // Report archival providers
+            "opendal",
+            "google_drive3",
+            "yup_oauth2",
         ])
         .build();
 

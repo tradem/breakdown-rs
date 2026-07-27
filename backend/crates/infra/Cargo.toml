@@ -31,7 +31,11 @@ rust_decimal.workspace = true
 toml = "1.1"
 
 # S3-compatible object storage via OpenDAL (Garage adapter).
-opendal = { version = "0.52", features = ["services-s3"] }
+# services-gdrive: report archival external provider (ADR-022 D6 spike).
+opendal = { version = "0.52", features = ["services-s3", "services-gdrive"] }
+
+# SHA-256 content digests for report archival staging/retry verification.
+sha2 = "0.10"
 
 # Image decoding, re-encoding, and EXIF-stripping (thumbnailing saga).
 image = { version = "0.25", features = ["jpeg", "png", "webp"] }

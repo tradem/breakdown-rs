@@ -67,10 +67,13 @@ use utoipa::OpenApi;
         handlers::dispo_report_pdf,
         handlers::shoot_day_report_pdf,
         handlers::planned_vs_actual_report_pdf,
+        handlers::manual_archive_reports,
     ),
     components(schemas(
         handlers::IdVersionResponse,
         handlers::ErrorResponse,
+        handlers::ManualArchiveResponse,
+        handlers::ManualArchiveJobResult,
         handlers::CreateSceneRequest,
         handlers::CreateCharacterRequest,
         handlers::CreateCostumeRequest,

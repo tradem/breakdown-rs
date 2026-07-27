@@ -31,6 +31,10 @@ use breakdown_core::photo::commands::{
 };
 use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
 use breakdown_core::photo::views::{PhotoBytes, PhotoView};
+use breakdown_core::reporting::{
+    EnqueueArchivalRequest, EnqueueArchivalResult, ReportArchivalError, ReportArchivalQueue,
+    ReportJobId, ReportJobStatus,
+};
 use breakdown_core::scene::commands::{
     AssignCharacter, CreateScene, RemoveCharacter, ScheduleSceneOnShootingDay,
     UnscheduleSceneFromShootingDay, UpdateSceneDetails,
@@ -342,6 +346,16 @@ impl MembershipRepository for FakeMembershipRepo {
         user_id: UserId,
     ) -> Result<bool, DomainError> {
         // For test purposes: authorise any user for any season.
+        let _ = (season_id, user_id);
+        Ok(true)
+    }
+
+    async fn has_active_report_archive_role_in_season(
+        &self,
+        season_id: SeasonId,
+        user_id: UserId,
+    ) -> Result<bool, DomainError> {
+        // Default test fake admits archive roles (designer/supervisor).
         let _ = (season_id, user_id);
         Ok(true)
     }
@@ -827,6 +841,45 @@ impl SceneShootReportRepository for FakeSceneShootReportRepo {
     }
 }
 
+/// In-memory archival queue for handler tests (dedup by key).
+#[derive(Clone, Default)]
+pub(crate) struct FakeReportArchivalQueue {
+    pub(crate) jobs: Arc<tokio::sync::Mutex<HashMap<String, EnqueueArchivalResult>>>,
+}
+
+#[async_trait::async_trait]
+impl ReportArchivalQueue for FakeReportArchivalQueue {
+    async fn enqueue(
+        &self,
+        req: EnqueueArchivalRequest,
+    ) -> Result<EnqueueArchivalResult, ReportArchivalError> {
+        let key = req.dedup_key();
+        let mut guard = self.jobs.lock().await;
+        if let Some(existing) = guard.get(&key) {
+            return Ok(EnqueueArchivalResult {
+                job_id: existing.job_id,
+                already_enqueued: true,
+                status: existing.status,
+            });
+        }
+        let result = EnqueueArchivalResult {
+            job_id: ReportJobId::new(),
+            already_enqueued: false,
+            status: ReportJobStatus::Pending,
+        };
+        guard.insert(key, result.clone());
+        Ok(result)
+    }
+
+    async fn get(
+        &self,
+        job_id: ReportJobId,
+    ) -> Result<Option<EnqueueArchivalResult>, ReportArchivalError> {
+        let guard = self.jobs.lock().await;
+        Ok(guard.values().find(|r| r.job_id == job_id).cloned())
+    }
+}
+
 #[derive(Clone, Default)]
 pub(crate) struct FakePorts {
     pub(crate) scene_commands: FakeSceneCommands,
@@ -857,6 +910,7 @@ pub(crate) struct FakePorts {
     pub(crate) photo_commands: FakePhotoCommands,
     #[allow(dead_code)]
     pub(crate) photo_repo: FakePhotoRepo,
+    pub(crate) report_archival_queue: FakeReportArchivalQueue,
 }
 
 impl Ports for FakePorts {
@@ -885,6 +939,7 @@ impl Ports for FakePorts {
     type SceneShootCommands = FakeSceneShootCommands;
     type SceneShootRepo = FakeSceneShootRepo;
     type SceneShootReportRepo = FakeSceneShootReportRepo;
+    type ReportArchivalQueue = FakeReportArchivalQueue;
 
     fn scene_commands(&self) -> &Self::SceneCommands {
         &self.scene_commands
@@ -960,5 +1015,8 @@ impl Ports for FakePorts {
     }
     fn scene_shoot_report_repo(&self) -> &Self::SceneShootReportRepo {
         &self.scene_shoot_report_repo
+    }
+    fn report_archival_queue(&self) -> &Self::ReportArchivalQueue {
+        &self.report_archival_queue
     }
 }
