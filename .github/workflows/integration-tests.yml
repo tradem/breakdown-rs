@@ -12,15 +12,6 @@ permissions:
 
 on:
   pull_request:
-    paths:
-      - "backend/crates/core/**"
-      - "backend/crates/infra/**"
-      - "backend/crates/api/**"
-      - "backend/crates/test_support/**"
-      - "backend/crates/integration-tests/**"
-      - "backend/Cargo.toml"
-      - "backend/Cargo.lock"
-      - ".github/workflows/integration-tests.yml"
   workflow_dispatch:
 
 jobs:
