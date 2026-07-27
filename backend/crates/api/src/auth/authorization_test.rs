@@ -14,6 +14,8 @@ use breakdown_core::membership::policy::{AuthContext, AuthorizationPolicy, Polic
 use breakdown_core::shared::BlockId;
 use tower::ServiceExt;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use crate::auth::{AuthState, CurrentUser, auth_middleware};
 
 struct AllowAll;
@@ -216,5 +218,190 @@ async fn panicking_policy_yields_403_never_500() {
         resp.status(),
         StatusCode::FORBIDDEN,
         "panicking policy must yield 403 (fail-closed), never 500"
+    );
+}
+
+// ─── SeasonPhotoAccessPolicy::authorize_season ────────────────────
+
+use super::SeasonPhotoAccessPolicy;
+use breakdown_core::error::DomainError;
+use breakdown_core::membership::policy::{Action, SeasonAuthContext};
+use breakdown_core::membership::{MembershipRepository, MembershipView};
+use breakdown_core::shared::{SeasonId, UserId};
+
+/// A MembershipRepository whose `has_active_costume_role_in_season` returns
+/// a configurable value — used to test each branch of the authorize_season
+/// match expression.
+struct MockSeasonMembershipRepo {
+    ok: AtomicBool,
+    result: AtomicBool,
+    err: Option<String>,
+}
+
+impl MockSeasonMembershipRepo {
+    fn allow() -> Self {
+        Self {
+            ok: AtomicBool::new(true),
+            result: AtomicBool::new(true),
+            err: None,
+        }
+    }
+    fn deny() -> Self {
+        Self {
+            ok: AtomicBool::new(true),
+            result: AtomicBool::new(false),
+            err: None,
+        }
+    }
+    fn err_msg(msg: &str) -> Self {
+        Self {
+            ok: AtomicBool::new(false),
+            result: AtomicBool::new(false),
+            err: Some(msg.into()),
+        }
+    }
+}
+
+#[async_trait]
+impl MembershipRepository for MockSeasonMembershipRepo {
+    async fn find(
+        &self,
+        _block_id: BlockId,
+        _user_id: UserId,
+    ) -> Result<Option<MembershipView>, DomainError> {
+        Ok(None)
+    }
+    async fn list_by_block(
+        &self,
+        _block_id: BlockId,
+        _limit: i64,
+        _offset: i64,
+    ) -> Result<Vec<MembershipView>, DomainError> {
+        Ok(Vec::new())
+    }
+    async fn is_active_member(
+        &self,
+        _block_id: BlockId,
+        _user_id: UserId,
+    ) -> Result<bool, DomainError> {
+        Ok(false)
+    }
+    async fn has_active_costume_role_in_season(
+        &self,
+        _season_id: SeasonId,
+        _user_id: UserId,
+    ) -> Result<bool, DomainError> {
+        if !self.ok.load(Ordering::Relaxed) {
+            return Err(DomainError::ValidationError(
+                self.err.clone().unwrap_or_else(|| "mock error".into()),
+            ));
+        }
+        Ok(self.result.load(Ordering::Relaxed))
+    }
+}
+
+#[tokio::test]
+async fn season_photo_policy_allows_when_repo_returns_ok_true() {
+    let policy = SeasonPhotoAccessPolicy::new(Arc::new(MockSeasonMembershipRepo::allow()));
+    let ctx = SeasonAuthContext {
+        actor: UserId::from_sub("test-user".to_string()),
+        season_id: SeasonId::new(),
+        action: Action::Write,
+    };
+    assert_eq!(policy.authorize_season(&ctx).await, PolicyDecision::Allow);
+}
+
+#[tokio::test]
+async fn season_photo_policy_denies_when_repo_returns_ok_false() {
+    let policy = SeasonPhotoAccessPolicy::new(Arc::new(MockSeasonMembershipRepo::deny()));
+    let ctx = SeasonAuthContext {
+        actor: UserId::from_sub("test-user".to_string()),
+        season_id: SeasonId::new(),
+        action: Action::Write,
+    };
+    assert_eq!(policy.authorize_season(&ctx).await, PolicyDecision::Deny);
+}
+
+#[tokio::test]
+async fn season_photo_policy_denies_when_repo_returns_err() {
+    let policy = SeasonPhotoAccessPolicy::new(Arc::new(MockSeasonMembershipRepo::err_msg("db down")));
+    let ctx = SeasonAuthContext {
+        actor: UserId::from_sub("test-user".to_string()),
+        season_id: SeasonId::new(),
+        action: Action::Write,
+    };
+    assert_eq!(policy.authorize_season(&ctx).await, PolicyDecision::Deny);
+}
+
+// ─── authorize_middleware: GET → Read, POST → Write ───────────────
+
+/// Policy that allows GET (Read) but denies POST (Write) — used to verify
+/// the `req.method() == Method::GET` branch in `authorize_middleware`.
+struct ReadOnlyPolicy;
+#[async_trait]
+impl AuthorizationPolicy for ReadOnlyPolicy {
+    async fn authorize(&self, ctx: &AuthContext) -> PolicyDecision {
+        match ctx.action {
+            Action::Read => PolicyDecision::Allow,
+            Action::Write => PolicyDecision::Deny,
+        }
+    }
+}
+
+#[tokio::test]
+async fn authorize_middleware_maps_get_to_read_action() {
+    use axum::routing::get;
+
+    let auth = Arc::new(AuthState::dev(CurrentUser::dummy("get-test")));
+    let policy = Arc::new(ReadOnlyPolicy);
+    let authz = Arc::new(AuthorizationState::new(policy, /*enforce=*/ true));
+
+    let app = Router::new()
+        .route("/scenes", get(|| async { StatusCode::OK }))
+        .layer(from_fn_with_state(authz, authorize_middleware))
+        .layer(from_fn_with_state(auth, auth_middleware))
+        .with_state(());
+
+    let block_id = BlockId::new();
+    let req = Request::builder()
+        .method("GET")
+        .uri("/scenes")
+        .header("X-Active-Block", block_id.0.to_string())
+        .body(AxumBody::empty())
+        .unwrap();
+
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "GET request should be allowed by ReadOnlyPolicy (Action::Read)"
+    );
+}
+
+#[tokio::test]
+async fn authorize_middleware_maps_post_to_write_action() {
+    let auth = Arc::new(AuthState::dev(CurrentUser::dummy("post-test")));
+    let policy = Arc::new(ReadOnlyPolicy);
+    let authz = Arc::new(AuthorizationState::new(policy, /*enforce=*/ true));
+
+    let app = Router::new()
+        .route("/scenes", post(|| async { StatusCode::OK }))
+        .layer(from_fn_with_state(authz, authorize_middleware))
+        .layer(from_fn_with_state(auth, auth_middleware))
+        .with_state(());
+
+    let block_id = BlockId::new();
+    let req = Request::builder()
+        .method("POST")
+        .uri("/scenes")
+        .header("X-Active-Block", block_id.0.to_string())
+        .body(AxumBody::empty())
+        .unwrap();
+
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::FORBIDDEN,
+        "POST request should be denied by ReadOnlyPolicy (Action::Write)"
     );
 }
