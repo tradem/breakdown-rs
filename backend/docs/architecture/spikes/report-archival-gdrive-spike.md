@@ -1,6 +1,7 @@
 <!--
   Authors: Tobias Rademacher (@tradem) — domain stakeholder & spec author
   Co-authored-by: deepseek-v4-flash (opencode-go)
+  Co-authored-by: grok-4.5 (opencode-go)
 -->
 
 # Spike: OpenDAL `services-gdrive` for report archival (ADR-022 D6)
