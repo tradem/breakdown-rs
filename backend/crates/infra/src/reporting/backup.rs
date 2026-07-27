@@ -162,21 +162,21 @@ impl ReportDataLoader for EmptyReportDataLoader {
 }
 
 /// Backup worker holding staging + external storage and the shared renderer.
-pub struct ReportBackupWorker<R: ReportRenderer, L: ReportDataLoader> {
+pub struct ReportBackupWorker<L: ReportDataLoader> {
     queue: PgReportArchivalQueue,
     staging: Arc<dyn ReportArchiveStorage>,
     external: Arc<dyn ReportArchiveStorage>,
-    renderer: Arc<R>,
+    renderer: Arc<dyn ReportRenderer>,
     loader: Arc<L>,
     config: BackupWorkerConfig,
 }
 
-impl<R: ReportRenderer + 'static, L: ReportDataLoader + 'static> ReportBackupWorker<R, L> {
+impl<L: ReportDataLoader + 'static> ReportBackupWorker<L> {
     pub fn new(
         queue: PgReportArchivalQueue,
         staging: Arc<dyn ReportArchiveStorage>,
         external: Arc<dyn ReportArchiveStorage>,
-        renderer: Arc<R>,
+        renderer: Arc<dyn ReportRenderer>,
         loader: Arc<L>,
         config: BackupWorkerConfig,
     ) -> Self {
@@ -437,9 +437,8 @@ fn render_error_summary(err: &ReportRenderError) -> String {
 }
 
 /// Spawn the backup worker loop + reconciliation loop.
-pub fn spawn_backup_worker<R, L>(worker: Arc<ReportBackupWorker<R, L>>)
+pub fn spawn_backup_worker<L>(worker: Arc<ReportBackupWorker<L>>)
 where
-    R: ReportRenderer + 'static,
     L: ReportDataLoader + 'static,
 {
     let poll = worker.clone();
@@ -467,6 +466,7 @@ pub mod test_support {
     use super::*;
 
     /// A fake renderer that returns fixed PDF bytes and counts calls.
+    #[derive(Debug)]
     pub struct CountingRenderer {
         pub pdf: Vec<u8>,
         pub calls: std::sync::atomic::AtomicU64,

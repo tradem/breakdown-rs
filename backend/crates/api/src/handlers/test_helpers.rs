@@ -841,6 +841,30 @@ impl SceneShootReportRepository for FakeSceneShootReportRepo {
     }
 }
 
+/// A fake renderer that returns empty PDF bytes for handler tests.
+#[derive(Debug)]
+pub(crate) struct FakeReportRenderer;
+
+#[async_trait::async_trait]
+impl breakdown_core::reporting::ReportRenderer for FakeReportRenderer {
+    async fn render(
+        &self,
+        _req: breakdown_core::reporting::ReportRenderRequest,
+    ) -> std::result::Result<
+        breakdown_core::reporting::ReportBytes,
+        breakdown_core::reporting::ReportRenderError,
+    > {
+        Ok(breakdown_core::reporting::ReportBytes {
+            kind: _req.kind,
+            locale: _req.context.locale,
+            pdf_bytes: Vec::new(),
+            page_count: 0,
+            content_type: "application/pdf",
+            filename: format!("{}.pdf", _req.kind),
+        })
+    }
+}
+
 /// In-memory archival queue for handler tests (dedup by key).
 #[derive(Clone, Default)]
 pub(crate) struct FakeReportArchivalQueue {
@@ -880,7 +904,7 @@ impl ReportArchivalQueue for FakeReportArchivalQueue {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub(crate) struct FakePorts {
     pub(crate) scene_commands: FakeSceneCommands,
     pub(crate) scene_repo: FakeSceneRepo,
@@ -911,6 +935,42 @@ pub(crate) struct FakePorts {
     #[allow(dead_code)]
     pub(crate) photo_repo: FakePhotoRepo,
     pub(crate) report_archival_queue: FakeReportArchivalQueue,
+    #[allow(dead_code)]
+    pub(crate) report_renderer: Arc<dyn breakdown_core::reporting::ReportRenderer>,
+}
+
+impl Default for FakePorts {
+    fn default() -> Self {
+        Self {
+            scene_commands: Default::default(),
+            scene_repo: Default::default(),
+            character_commands: Default::default(),
+            character_repo: Default::default(),
+            costume_commands: Default::default(),
+            costume_repo: Default::default(),
+            costume_category_commands: Default::default(),
+            costume_category_repo: Default::default(),
+            season_commands: Default::default(),
+            season_repo: Default::default(),
+            block_commands: Default::default(),
+            block_repo: Default::default(),
+            episode_commands: Default::default(),
+            episode_repo: Default::default(),
+            membership_commands: Default::default(),
+            membership_repo: Default::default(),
+            audit_repo: Default::default(),
+            shooting_day_commands: Default::default(),
+            shooting_day_repo: Default::default(),
+            photo_storage: Default::default(),
+            scene_shoot_commands: Default::default(),
+            scene_shoot_repo: Default::default(),
+            scene_shoot_report_repo: Default::default(),
+            photo_commands: Default::default(),
+            photo_repo: Default::default(),
+            report_archival_queue: Default::default(),
+            report_renderer: Arc::new(FakeReportRenderer),
+        }
+    }
 }
 
 impl Ports for FakePorts {
@@ -940,6 +1000,7 @@ impl Ports for FakePorts {
     type SceneShootRepo = FakeSceneShootRepo;
     type SceneShootReportRepo = FakeSceneShootReportRepo;
     type ReportArchivalQueue = FakeReportArchivalQueue;
+    type ReportRenderer = Arc<dyn breakdown_core::reporting::ReportRenderer>;
 
     fn scene_commands(&self) -> &Self::SceneCommands {
         &self.scene_commands
@@ -1018,5 +1079,11 @@ impl Ports for FakePorts {
     }
     fn report_archival_queue(&self) -> &Self::ReportArchivalQueue {
         &self.report_archival_queue
+    }
+    fn report_renderer(&self) -> &Self::ReportRenderer {
+        &self.report_renderer
+    }
+    fn report_renderer_ref(&self) -> &dyn breakdown_core::reporting::ReportRenderer {
+        &*self.report_renderer
     }
 }

@@ -9,6 +9,7 @@
 //! access are denied.
 
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::Arc;
 
 use breakdown_core::reporting::{
@@ -171,6 +172,17 @@ pub struct TypstReportRenderer {
     semaphore: Arc<tokio::sync::Semaphore>,
     /// Render configuration.
     config: RenderConfig,
+}
+
+impl fmt::Debug for TypstReportRenderer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TypstReportRenderer")
+            .field("templates", &self.templates.len())
+            .field("fonts", &self.fonts.len())
+            .field("semaphore", &self.semaphore)
+            .field("config", &self.config)
+            .finish_non_exhaustive()
+    }
 }
 
 impl TypstReportRenderer {

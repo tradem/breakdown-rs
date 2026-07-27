@@ -41,8 +41,9 @@ use breakdown_core::photo::commands::UploadPhoto as UploadPhotoCmd;
 use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
 use breakdown_core::photo::views::PhotoView;
 use breakdown_core::reporting::{
-    ArchivalTrigger, EnqueueArchivalRequest, EnqueueArchivalResult, ReportArchivalQueue,
-    ReportKind, ReportLocale, SnapshotIdentity, TEMPLATE_VERSION,
+    ArchivalTrigger, EnqueueArchivalRequest, EnqueueArchivalResult, RenderPresentationContext,
+    ReportArchivalQueue, ReportKind, ReportLocale, ReportRenderRequest, SnapshotIdentity,
+    TEMPLATE_VERSION,
 };
 use breakdown_core::scene::commands::{
     AssignCharacter, CreateScene, RemoveCharacter, ScheduleSceneOnShootingDay,
@@ -2856,21 +2857,48 @@ pub async fn dispo_report_pdf<P: Ports>(
     }
 
     // Query report data
-    let _rows = state
+    let rows = state
         .ports
         .scene_shoot_report_repo()
         .dispo_report(id)
         .await
         .map_err(map_err)?;
 
-    // Render PDF (placeholder - actual rendering requires ReportRenderer injection)
-    // For now, return a 501 Not Implemented
-    Err((
-        StatusCode::NOT_IMPLEMENTED,
-        Json(ErrorResponse {
-            message: "PDF rendering not yet implemented".into(),
-        }),
-    ))
+    // Render PDF via shared renderer
+    let req = ReportRenderRequest {
+        kind: ReportKind::Dispo,
+        context: RenderPresentationContext {
+            locale: ReportLocale::de_de(),
+            timezone: "Europe/Berlin".into(),
+            template_version: TEMPLATE_VERSION.to_string(),
+        },
+        data: serde_json::to_value(rows).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    message: format!("serialization error: {e}"),
+                }),
+            )
+        })?,
+    };
+    let renderer = state.ports.report_renderer_ref();
+    let rendered = renderer.render(req).await.map_err(map_render_error)?;
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        rendered.content_type.parse().unwrap(),
+    );
+    headers.insert(
+        axum::http::header::CONTENT_DISPOSITION,
+        format!(
+            r#"inline; filename="{}""#,
+            sanitize_pdf_filename("dispo", "de-DE")
+        )
+        .parse()
+        .unwrap(),
+    );
+    Ok((StatusCode::OK, headers, rendered.pdf_bytes))
 }
 
 #[utoipa::path(
@@ -2918,20 +2946,48 @@ pub async fn shoot_day_report_pdf<P: Ports>(
     }
 
     // Query report data
-    let _rows = state
+    let rows = state
         .ports
         .scene_shoot_report_repo()
         .shoot_day_report(id)
         .await
         .map_err(map_err)?;
 
-    // Render PDF (placeholder)
-    Err((
-        StatusCode::NOT_IMPLEMENTED,
-        Json(ErrorResponse {
-            message: "PDF rendering not yet implemented".into(),
-        }),
-    ))
+    // Render PDF via shared renderer
+    let req = ReportRenderRequest {
+        kind: ReportKind::ShootDay,
+        context: RenderPresentationContext {
+            locale: ReportLocale::de_de(),
+            timezone: "Europe/Berlin".into(),
+            template_version: TEMPLATE_VERSION.to_string(),
+        },
+        data: serde_json::to_value(rows).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    message: format!("serialization error: {e}"),
+                }),
+            )
+        })?,
+    };
+    let renderer = state.ports.report_renderer_ref();
+    let rendered = renderer.render(req).await.map_err(map_render_error)?;
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        rendered.content_type.parse().unwrap(),
+    );
+    headers.insert(
+        axum::http::header::CONTENT_DISPOSITION,
+        format!(
+            r#"inline; filename="{}""#,
+            sanitize_pdf_filename("shoot-day", "de-DE")
+        )
+        .parse()
+        .unwrap(),
+    );
+    Ok((StatusCode::OK, headers, rendered.pdf_bytes))
 }
 
 #[utoipa::path(
@@ -2979,20 +3035,48 @@ pub async fn planned_vs_actual_report_pdf<P: Ports>(
     }
 
     // Query report data
-    let _report = state
+    let report = state
         .ports
         .scene_shoot_report_repo()
         .soll_ist_report(id)
         .await
         .map_err(map_err)?;
 
-    // Render PDF (placeholder)
-    Err((
-        StatusCode::NOT_IMPLEMENTED,
-        Json(ErrorResponse {
-            message: "PDF rendering not yet implemented".into(),
-        }),
-    ))
+    // Render PDF via shared renderer
+    let req = ReportRenderRequest {
+        kind: ReportKind::PlannedVsActual,
+        context: RenderPresentationContext {
+            locale: ReportLocale::de_de(),
+            timezone: "Europe/Berlin".into(),
+            template_version: TEMPLATE_VERSION.to_string(),
+        },
+        data: serde_json::to_value(report).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    message: format!("serialization error: {e}"),
+                }),
+            )
+        })?,
+    };
+    let renderer = state.ports.report_renderer_ref();
+    let rendered = renderer.render(req).await.map_err(map_render_error)?;
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        rendered.content_type.parse().unwrap(),
+    );
+    headers.insert(
+        axum::http::header::CONTENT_DISPOSITION,
+        format!(
+            r#"inline; filename="{}""#,
+            sanitize_pdf_filename("planned-vs-actual", "de-DE")
+        )
+        .parse()
+        .unwrap(),
+    );
+    Ok((StatusCode::OK, headers, rendered.pdf_bytes))
 }
 
 /// Response body for a manual "archive now" request.

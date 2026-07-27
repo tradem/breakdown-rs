@@ -288,7 +288,7 @@ async fn main() -> Result<()> {
             }
         };
     // Shared renderer (process-wide semaphore budget for HTTP + backup).
-    let report_renderer =
+    let report_renderer: std::sync::Arc<dyn breakdown_core::reporting::ReportRenderer> =
         std::sync::Arc::new(TypstReportRenderer::with_defaults().unwrap_or_else(|e| {
             warn!(error = %e, "TypstReportRenderer defaults failed — empty renderer");
             use std::collections::HashMap;
@@ -301,7 +301,7 @@ async fn main() -> Result<()> {
         report_archival_queue.clone(),
         report_staging,
         report_external,
-        report_renderer,
+        report_renderer.clone(),
         report_loader,
         BackupWorkerConfig::default(),
     ));
@@ -346,6 +346,7 @@ async fn main() -> Result<()> {
         scene_shoot_repo,
         scene_shoot_report_repo,
         report_archival_queue,
+        report_renderer,
     );
     let app_state = AppState::new(ports);
 

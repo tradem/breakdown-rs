@@ -245,7 +245,7 @@ impl Default for RenderBounds {
 ///
 /// Implementations live in `infra`; `core` never depends on the concrete engine.
 #[async_trait::async_trait]
-pub trait ReportRenderer: Send + Sync {
+pub trait ReportRenderer: Send + Sync + std::fmt::Debug {
     /// Render a report from the given request.
     ///
     /// Returns `ReportBytes` on success or a typed `ReportRenderError` on failure.
