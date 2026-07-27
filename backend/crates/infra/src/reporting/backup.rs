@@ -20,8 +20,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use breakdown_core::reporting::{
-    ContentDigest, ReportArchiveStorage, ReportArtifactKey, ReportJobStatus, ReportKind,
-    ReportRenderError, ReportRenderRequest, ReportRenderer, RenderPresentationContext,
+    ContentDigest, RenderPresentationContext, ReportArchiveStorage, ReportArtifactKey,
+    ReportJobStatus, ReportKind, ReportRenderError, ReportRenderRequest, ReportRenderer,
 };
 use breakdown_core::scene_shoot::ports::SceneShootReportRepository;
 use breakdown_core::shared::ShootingDayId;
@@ -56,27 +56,16 @@ pub struct BackupWorkerConfig {
 impl Default for BackupWorkerConfig {
     fn default() -> Self {
         Self {
-            poll_interval: Duration::from_secs(
-                env_u64("REPORT_BACKUP_POLL_SECS", 5),
-            ),
-            backoff_base: Duration::from_secs(
-                env_u64("REPORT_BACKUP_BACKOFF_BASE_SECS", 30),
-            ),
-            backoff_max: Duration::from_secs(
-                env_u64("REPORT_BACKUP_BACKOFF_MAX_SECS", 900),
-            ),
-            claim_stale_after: Duration::from_secs(
-                env_u64("REPORT_BACKUP_CLAIM_STALE_SECS", 900),
-            ),
-            recon_interval: Duration::from_secs(
-                env_u64("REPORT_BACKUP_RECON_SECS", 300),
-            ),
+            poll_interval: Duration::from_secs(env_u64("REPORT_BACKUP_POLL_SECS", 5)),
+            backoff_base: Duration::from_secs(env_u64("REPORT_BACKUP_BACKOFF_BASE_SECS", 30)),
+            backoff_max: Duration::from_secs(env_u64("REPORT_BACKUP_BACKOFF_MAX_SECS", 900)),
+            claim_stale_after: Duration::from_secs(env_u64("REPORT_BACKUP_CLAIM_STALE_SECS", 900)),
+            recon_interval: Duration::from_secs(env_u64("REPORT_BACKUP_RECON_SECS", 300)),
             retain_staging_after_success: env_bool("REPORT_BACKUP_RETAIN_STAGING", false),
             default_timezone: std::env::var("REPORT_BACKUP_TIMEZONE")
                 .unwrap_or_else(|_| "Europe/Berlin".into()),
-            worker_id: std::env::var("REPORT_BACKUP_WORKER_ID").unwrap_or_else(|_| {
-                format!("worker-{}", Uuid::now_v7())
-            }),
+            worker_id: std::env::var("REPORT_BACKUP_WORKER_ID")
+                .unwrap_or_else(|_| format!("worker-{}", Uuid::now_v7())),
         }
     }
 }
@@ -291,12 +280,7 @@ impl<R: ReportRenderer + 'static, L: ReportDataLoader + 'static> ReportBackupWor
                 .map_err(|e| e.to_string())?;
 
                 self.staging
-                    .put(
-                        &key,
-                        &rendered.pdf_bytes,
-                        rendered.content_type,
-                        &digest,
-                    )
+                    .put(&key, &rendered.pdf_bytes, rendered.content_type, &digest)
                     .await
                     .map_err(|e| {
                         // Staging failure is retryable.
@@ -348,12 +332,7 @@ impl<R: ReportRenderer + 'static, L: ReportDataLoader + 'static> ReportBackupWor
 
         if let Err(e) = self
             .external
-            .put(
-                &dest,
-                &staged.bytes,
-                &staged.content_type,
-                &digest,
-            )
+            .put(&dest, &staged.bytes, &staged.content_type, &digest)
             .await
         {
             self.fail_retryable(&job, &e.to_string()).await;
@@ -404,7 +383,11 @@ impl<R: ReportRenderer + 'static, L: ReportDataLoader + 'static> ReportBackupWor
 
     /// Reconciliation: release stale claims; delete orphaned staging for succeeded jobs.
     pub async fn reconcile(&self) {
-        match self.queue.list_stale_claims(self.config.claim_stale_after).await {
+        match self
+            .queue
+            .list_stale_claims(self.config.claim_stale_after)
+            .await
+        {
             Ok(stale) => {
                 for job in stale {
                     info!(job_id = %job.id, "releasing stale claim");
@@ -509,8 +492,7 @@ pub mod test_support {
             &self,
             req: ReportRenderRequest,
         ) -> Result<breakdown_core::reporting::ReportBytes, ReportRenderError> {
-            self.calls
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if self.fail.load(std::sync::atomic::Ordering::SeqCst) {
                 return Err(ReportRenderError::CompilerFailure {
                     detail: "injected".into(),
@@ -530,12 +512,12 @@ pub mod test_support {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::test_support::CountingRenderer;
+    use super::*;
     use crate::reporting::storage::MemoryReportArchiveStorage;
     use breakdown_core::reporting::{
-        ArchivalTrigger, EnqueueArchivalRequest, ReportArchivalQueue, ReportLocale, SnapshotIdentity,
-        TEMPLATE_VERSION,
+        ArchivalTrigger, EnqueueArchivalRequest, ReportArchivalQueue, ReportLocale,
+        SnapshotIdentity, TEMPLATE_VERSION,
     };
 
     fn exp_backoff_is_bounded() {

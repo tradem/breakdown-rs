@@ -31,9 +31,9 @@ use infra::queries::{
     SceneShootRepositoryImpl, SeasonRepositoryImpl, ShootingDayRepositoryImpl,
 };
 use infra::reporting::{
-    spawn_backup_worker, spawn_schedule_ticker, spawn_wrap_archival_saga, BackupWorkerConfig,
-    MemoryReportArchiveStorage, OpenDalReportArchiveStorage, PgReportArchivalQueue,
-    ScheduleConfig, SceneShootReportDataLoader, TypstReportRenderer,
+    BackupWorkerConfig, MemoryReportArchiveStorage, OpenDalReportArchiveStorage,
+    PgReportArchivalQueue, SceneShootReportDataLoader, ScheduleConfig, TypstReportRenderer,
+    spawn_backup_worker, spawn_schedule_ticker, spawn_wrap_archival_saga,
 };
 use kameo_es::command_service::CommandService;
 use opentelemetry::trace::TracerProvider as _;
@@ -288,13 +288,12 @@ async fn main() -> Result<()> {
             }
         };
     // Shared renderer (process-wide semaphore budget for HTTP + backup).
-    let report_renderer = std::sync::Arc::new(
-        TypstReportRenderer::with_defaults().unwrap_or_else(|e| {
+    let report_renderer =
+        std::sync::Arc::new(TypstReportRenderer::with_defaults().unwrap_or_else(|e| {
             warn!(error = %e, "TypstReportRenderer defaults failed — empty renderer");
             use std::collections::HashMap;
             TypstReportRenderer::new(HashMap::new(), vec![])
-        }),
-    );
+        }));
     let report_loader = std::sync::Arc::new(SceneShootReportDataLoader::new(
         scene_shoot_report_repo.clone(),
     ));

@@ -230,7 +230,7 @@ impl Default for RenderBounds {
             max_json_bytes: 5 * 1024 * 1024, // 5 MB
             max_string_len: 100_000,
             max_asset_count: 100,
-            max_asset_bytes: 50 * 1024 * 1024, // 50 MB
+            max_asset_bytes: 50 * 1024 * 1024,   // 50 MB
             max_output_bytes: 100 * 1024 * 1024, // 100 MB
             max_pages: 50,
         }
@@ -470,14 +470,28 @@ mod tests {
     #[test]
     fn report_render_error_variants() {
         let errors = vec![
-            ReportRenderError::PageLimitExceeded { max: 50, actual: 51 },
-            ReportRenderError::InputBoundsExceeded { limit: 1000, field: "rows".into() },
-            ReportRenderError::CompilerFailure { detail: "bad".into() },
+            ReportRenderError::PageLimitExceeded {
+                max: 50,
+                actual: 51,
+            },
+            ReportRenderError::InputBoundsExceeded {
+                limit: 1000,
+                field: "rows".into(),
+            },
+            ReportRenderError::CompilerFailure {
+                detail: "bad".into(),
+            },
             ReportRenderError::RenderTimeout,
-            ReportRenderError::LocaleUnsupported { locale: "xx".into() },
+            ReportRenderError::LocaleUnsupported {
+                locale: "xx".into(),
+            },
             ReportRenderError::TemplateNotFound { kind: "foo".into() },
-            ReportRenderError::AssetRejected { detail: "no".into() },
-            ReportRenderError::UnknownTimezone { timezone: "bad/tz".into() },
+            ReportRenderError::AssetRejected {
+                detail: "no".into(),
+            },
+            ReportRenderError::UnknownTimezone {
+                timezone: "bad/tz".into(),
+            },
             ReportRenderError::Internal("oops".into()),
         ];
 
@@ -489,11 +503,16 @@ mod tests {
 
     #[test]
     fn report_render_error_display() {
-        let err = ReportRenderError::PageLimitExceeded { max: 50, actual: 51 };
+        let err = ReportRenderError::PageLimitExceeded {
+            max: 50,
+            actual: 51,
+        };
         assert!(err.to_string().contains("50"));
         assert!(err.to_string().contains("51"));
 
-        let err = ReportRenderError::LocaleUnsupported { locale: "xx".into() };
+        let err = ReportRenderError::LocaleUnsupported {
+            locale: "xx".into(),
+        };
         assert!(err.to_string().contains("xx"));
 
         let err = ReportRenderError::RenderTimeout;

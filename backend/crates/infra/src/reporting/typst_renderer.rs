@@ -12,8 +12,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use breakdown_core::reporting::{
-    ReportBytes, ReportKind, ReportRenderError, ReportRenderRequest,
-    ReportRenderer,
+    ReportBytes, ReportKind, ReportRenderError, ReportRenderRequest, ReportRenderer,
 };
 use typst::diag::FileError;
 use typst::foundations::Bytes;
@@ -54,12 +53,10 @@ struct RestrictedWorld {
 impl RestrictedWorld {
     /// Create a new restricted world with the given template and data.
     fn new(template_source: &str, report_json: &[u8], fonts: Vec<Font>) -> Self {
-        let file_id = FileId::new(
-            typst::syntax::RootedPath::new(
-                typst::syntax::VirtualRoot::Project,
-                VirtualPath::new("main.typ").unwrap(),
-            ),
-        );
+        let file_id = FileId::new(typst::syntax::RootedPath::new(
+            typst::syntax::VirtualRoot::Project,
+            VirtualPath::new("main.typ").unwrap(),
+        ));
         let source = Source::new(file_id, template_source.to_string());
 
         let mut font_book = typst::text::FontBook::new();
@@ -80,12 +77,10 @@ impl RestrictedWorld {
 impl RestrictedWorld {
     /// Return the FileId for the virtual `report.json`.
     fn report_json_id(&self) -> FileId {
-        FileId::new(
-            typst::syntax::RootedPath::new(
-                typst::syntax::VirtualRoot::Project,
-                VirtualPath::new("report.json").unwrap(),
-            ),
-        )
+        FileId::new(typst::syntax::RootedPath::new(
+            typst::syntax::VirtualRoot::Project,
+            VirtualPath::new("report.json").unwrap(),
+        ))
     }
 }
 
@@ -124,7 +119,10 @@ impl World for RestrictedWorld {
         self.fonts.get(index).cloned()
     }
 
-    fn today(&self, _offset: Option<typst::foundations::Duration>) -> Option<typst::foundations::Datetime> {
+    fn today(
+        &self,
+        _offset: Option<typst::foundations::Duration>,
+    ) -> Option<typst::foundations::Datetime> {
         // Pin to a fixed date for deterministic rendering
         Some(typst::foundations::Datetime::from_ymd(2024, 6, 15).unwrap())
     }
@@ -153,7 +151,7 @@ impl Default for RenderConfig {
             concurrency_limit: 4,
             deadline_secs: 30,
             max_rows: 10_000,
-            max_json_bytes: 5 * 1024 * 1024, // 5 MB
+            max_json_bytes: 5 * 1024 * 1024,     // 5 MB
             max_output_bytes: 100 * 1024 * 1024, // 100 MB
             max_pages: 50,
         }
@@ -237,10 +235,7 @@ impl TypstReportRenderer {
 
 #[async_trait::async_trait]
 impl ReportRenderer for TypstReportRenderer {
-    async fn render(
-        &self,
-        req: ReportRenderRequest,
-    ) -> Result<ReportBytes, ReportRenderError> {
+    async fn render(&self, req: ReportRenderRequest) -> Result<ReportBytes, ReportRenderError> {
         // Acquire semaphore permit
         let _permit = self
             .semaphore
@@ -249,11 +244,12 @@ impl ReportRenderer for TypstReportRenderer {
             .map_err(|_| ReportRenderError::Internal("Semaphore closed".into()))?;
 
         // Look up template
-        let template_source = self.templates.get(&req.kind).ok_or_else(|| {
-            ReportRenderError::TemplateNotFound {
-                kind: req.kind.to_string(),
-            }
-        })?;
+        let template_source =
+            self.templates
+                .get(&req.kind)
+                .ok_or_else(|| ReportRenderError::TemplateNotFound {
+                    kind: req.kind.to_string(),
+                })?;
 
         // Serialize report data
         let report_json_vec = serde_json::to_vec(&req.data)
@@ -276,7 +272,8 @@ impl ReportRenderer for TypstReportRenderer {
             tokio::task::spawn_blocking(move || {
                 let warned = typst::compile::<PagedDocument>(&world);
                 warned.output.map_err(|diagnostics| {
-                    let details: Vec<String> = diagnostics.iter().map(|d| d.message.to_string()).collect();
+                    let details: Vec<String> =
+                        diagnostics.iter().map(|d| d.message.to_string()).collect();
                     ReportRenderError::CompilerFailure {
                         detail: details.join("; "),
                     }
@@ -300,9 +297,10 @@ impl ReportRenderer for TypstReportRenderer {
         }
 
         // Export to PDF
-        let pdf_bytes = typst_pdf::pdf(&document, &PdfOptions::default())
-            .map_err(|diagnostics| {
-                let details: Vec<String> = diagnostics.iter().map(|d| d.message.to_string()).collect();
+        let pdf_bytes =
+            typst_pdf::pdf(&document, &PdfOptions::default()).map_err(|diagnostics| {
+                let details: Vec<String> =
+                    diagnostics.iter().map(|d| d.message.to_string()).collect();
                 ReportRenderError::CompilerFailure {
                     detail: format!("PDF export failed: {}", details.join("; ")),
                 }
@@ -389,12 +387,10 @@ mod tests {
         let world = RestrictedWorld::new("test", b"{}", vec![]);
 
         // Unknown file should fail
-        let unknown_id = FileId::new(
-            typst::syntax::RootedPath::new(
-                typst::syntax::VirtualRoot::Project,
-                VirtualPath::new("unknown.typ").unwrap(),
-            ),
-        );
+        let unknown_id = FileId::new(typst::syntax::RootedPath::new(
+            typst::syntax::VirtualRoot::Project,
+            VirtualPath::new("unknown.typ").unwrap(),
+        ));
         assert!(world.source(unknown_id).is_err());
     }
 
@@ -419,12 +415,10 @@ mod tests {
         let world = RestrictedWorld::new("test", b"{}", vec![]);
 
         // Network access should fail (no implementation)
-        let network_id = FileId::new(
-            typst::syntax::RootedPath::new(
-                typst::syntax::VirtualRoot::Project,
-                VirtualPath::new("http://example.com/data.json").unwrap(),
-            ),
-        );
+        let network_id = FileId::new(typst::syntax::RootedPath::new(
+            typst::syntax::VirtualRoot::Project,
+            VirtualPath::new("http://example.com/data.json").unwrap(),
+        ));
         assert!(world.file(network_id).is_err());
     }
 
@@ -433,12 +427,10 @@ mod tests {
         let world = RestrictedWorld::new("test", b"{}", vec![]);
 
         // Package paths contain @version, e.g. "@preview/example/0.1.0/main.typ"
-        let pkg_id = FileId::new(
-            typst::syntax::RootedPath::new(
-                typst::syntax::VirtualRoot::Project,
-                VirtualPath::new("@preview/fontawesome/0.1.0/lib.typ").unwrap(),
-            ),
-        );
+        let pkg_id = FileId::new(typst::syntax::RootedPath::new(
+            typst::syntax::VirtualRoot::Project,
+            VirtualPath::new("@preview/fontawesome/0.1.0/lib.typ").unwrap(),
+        ));
         assert!(world.source(pkg_id).is_err());
         assert!(world.file(pkg_id).is_err());
     }
@@ -448,12 +440,10 @@ mod tests {
         let world = RestrictedWorld::new("test", b"{}", vec![]);
 
         // Absolute host FS paths should be denied
-        let fs_id = FileId::new(
-            typst::syntax::RootedPath::new(
-                typst::syntax::VirtualRoot::Project,
-                VirtualPath::new("/etc/passwd").unwrap(),
-            ),
-        );
+        let fs_id = FileId::new(typst::syntax::RootedPath::new(
+            typst::syntax::VirtualRoot::Project,
+            VirtualPath::new("/etc/passwd").unwrap(),
+        ));
         assert!(world.source(fs_id).is_err());
         assert!(world.file(fs_id).is_err());
     }
@@ -464,7 +454,10 @@ mod tests {
 
         let dt = world.today(None).unwrap();
         // Should return the fixed date (2024-06-15) as set in the implementation
-        assert_eq!(dt, typst::foundations::Datetime::from_ymd(2024, 6, 15).unwrap());
+        assert_eq!(
+            dt,
+            typst::foundations::Datetime::from_ymd(2024, 6, 15).unwrap()
+        );
     }
 
     // ------------------------------------------------------------------
@@ -514,7 +507,10 @@ mod tests {
 
         let rt = tokio::runtime::Runtime::new().unwrap();
         let result = rt.block_on(renderer.render(req));
-        assert!(matches!(result, Err(ReportRenderError::TemplateNotFound { .. })));
+        assert!(matches!(
+            result,
+            Err(ReportRenderError::TemplateNotFound { .. })
+        ));
     }
 
     // ------------------------------------------------------------------
@@ -543,7 +539,10 @@ mod tests {
 
         let rt = tokio::runtime::Runtime::new().unwrap();
         let result = rt.block_on(renderer.render(req));
-        assert!(matches!(result, Err(ReportRenderError::InputBoundsExceeded { .. })));
+        assert!(matches!(
+            result,
+            Err(ReportRenderError::InputBoundsExceeded { .. })
+        ));
     }
 
     // ------------------------------------------------------------------

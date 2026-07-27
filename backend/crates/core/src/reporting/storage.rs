@@ -189,7 +189,10 @@ fn sanitize_error_detail(mut detail: String) -> String {
     }
     // Redact common credential-ish tokens if a caller accidentally included them.
     for needle in ["secret", "password", "token", "Bearer ", "AKIA"] {
-        if detail.to_ascii_lowercase().contains(&needle.to_ascii_lowercase()) {
+        if detail
+            .to_ascii_lowercase()
+            .contains(&needle.to_ascii_lowercase())
+        {
             return "redacted provider error".into();
         }
     }
@@ -258,14 +261,15 @@ mod tests {
     #[test]
     fn storage_error_redacts_credentialish_detail() {
         let err = ReportStorageError::provider_failure("token=super-secret-value");
-        assert_eq!(err.to_string(), "report storage provider failure: redacted provider error");
+        assert_eq!(
+            err.to_string(),
+            "report storage provider failure: redacted provider error"
+        );
     }
 
     #[test]
     fn storage_error_serialization_roundtrip() {
-        let err = ReportStorageError::NotFound {
-            key: "k".into(),
-        };
+        let err = ReportStorageError::NotFound { key: "k".into() };
         let json = serde_json::to_string(&err).unwrap();
         let back: ReportStorageError = serde_json::from_str(&json).unwrap();
         assert_eq!(err, back);
@@ -301,7 +305,10 @@ mod tests {
         // Only check lines that aren't doc-comments or in #[cfg(test)].
         for line in src.lines() {
             // Skip comments and doc-comments
-            if line.trim().starts_with("//") || line.trim().starts_with("///") || line.trim().starts_with("//!") {
+            if line.trim().starts_with("//")
+                || line.trim().starts_with("///")
+                || line.trim().starts_with("//!")
+            {
                 continue;
             }
             // Skip test module

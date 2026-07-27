@@ -41,12 +41,24 @@ fn workspace_root() -> String {
 /// Forbidden crate names that must never appear as dependencies of
 /// `breakdown_core` in its `Cargo.toml`.
 const FORBIDDEN_CORE_DEPS: &[&str] = &[
-    "sqlx", "axum", "redis", "sierradb-client", "tokio",
+    "sqlx",
+    "axum",
+    "redis",
+    "sierradb-client",
+    "tokio",
     // Reporting engine / locale crates — must stay in infra only
-    "typst", "typst-pdf", "icu", "icu_decimal", "icu_datetime",
-    "fluent-bundle", "fluent-syntax",
+    "typst",
+    "typst-pdf",
+    "icu",
+    "icu_decimal",
+    "icu_datetime",
+    "fluent-bundle",
+    "fluent-syntax",
     // Report archival storage / provider SDKs — must stay in infra only
-    "opendal", "sha2", "google-drive3", "yup-oauth2",
+    "opendal",
+    "sha2",
+    "google-drive3",
+    "yup-oauth2",
 ];
 
 /// Path to the `breakdown_core` manifest, relative to the workspace root.

@@ -150,7 +150,9 @@ mod tests {
     #[test]
     fn test_convert_to_timezone_previous_year_eve() {
         // 2023-12-31 22:00:00 UTC -> 2023-12-31 23:00:00 CET
-        let utc_dt = chrono::Utc.with_ymd_and_hms(2023, 12, 31, 22, 0, 0).unwrap();
+        let utc_dt = chrono::Utc
+            .with_ymd_and_hms(2023, 12, 31, 22, 0, 0)
+            .unwrap();
         let (year, month, day, hour, minute) = convert_to_timezone(&utc_dt, "Europe/Berlin");
         assert_eq!(year, 2023);
         assert_eq!(month, 12);

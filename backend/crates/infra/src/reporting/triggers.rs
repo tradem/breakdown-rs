@@ -210,7 +210,9 @@ impl EntityEventHandler<ShootingDayAggregate, ()> for ReportArchivalOnWrapSaga {
     }
 }
 
-impl EventProcessor<(ShootingDayAggregate,), ReportArchivalOnWrapSaga> for ReportArchivalOnWrapSaga {
+impl EventProcessor<(ShootingDayAggregate,), ReportArchivalOnWrapSaga>
+    for ReportArchivalOnWrapSaga
+{
     type Context = ();
     type Error = anyhow::Error;
 

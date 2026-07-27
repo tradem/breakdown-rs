@@ -2771,28 +2771,42 @@ pub async fn soll_ist_report<P: Ports>(
 /// Generate a sanitized filename for the PDF response.
 #[allow(dead_code)]
 pub(crate) fn sanitize_pdf_filename(kind: &str, locale: &str) -> String {
-    let safe_kind: String = kind.chars().filter(|c| c.is_alphanumeric() || *c == '-').collect();
-    let safe_locale: String = locale.chars().filter(|c| c.is_alphanumeric() || *c == '-').collect();
+    let safe_kind: String = kind
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-')
+        .collect();
+    let safe_locale: String = locale
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-')
+        .collect();
     format!("report-{}-{}.pdf", safe_kind, safe_locale)
 }
 
 /// Map a `ReportRenderError` to an HTTP status code and error response.
 #[allow(dead_code)]
-pub(crate) fn map_render_error(err: breakdown_core::reporting::ReportRenderError) -> (StatusCode, Json<ErrorResponse>) {
+pub(crate) fn map_render_error(
+    err: breakdown_core::reporting::ReportRenderError,
+) -> (StatusCode, Json<ErrorResponse>) {
     use breakdown_core::reporting::ReportRenderError;
     match err {
         ReportRenderError::PageLimitExceeded { .. }
         | ReportRenderError::InputBoundsExceeded { .. } => (
             StatusCode::UNPROCESSABLE_ENTITY,
-            Json(ErrorResponse { message: err.to_string() }),
+            Json(ErrorResponse {
+                message: err.to_string(),
+            }),
         ),
         ReportRenderError::RenderTimeout => (
             StatusCode::REQUEST_TIMEOUT,
-            Json(ErrorResponse { message: err.to_string() }),
+            Json(ErrorResponse {
+                message: err.to_string(),
+            }),
         ),
         _ => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse { message: err.to_string() }),
+            Json(ErrorResponse {
+                message: err.to_string(),
+            }),
         ),
     }
 }
@@ -3321,7 +3335,7 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
             "/shooting-days/{id}/report/soll-ist",
             routing::get(soll_ist_report::<ProductionPorts>),
         )
-        
+
         // PDF report routes
         .route(
             "/shooting-days/{id}/report/dispo.pdf",
