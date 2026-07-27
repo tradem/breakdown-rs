@@ -11,6 +11,7 @@ pub mod episode;
 pub mod error;
 pub mod membership;
 pub mod photo;
+pub mod reporting;
 pub mod scene;
 pub mod scene_shoot;
 pub mod season;

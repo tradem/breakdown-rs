@@ -5,7 +5,7 @@
 //! Axum-Handler (Request → Command / Query)
 
 use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::{Json, Router, routing};
 use breakdown_core::audit::{AuditEntry, AuditRepository};
 use breakdown_core::block::commands::{CreateBlock, UpdateBlockTimeSpan};
@@ -2760,6 +2760,221 @@ pub async fn soll_ist_report<P: Ports>(
     Ok((StatusCode::OK, Json(report)))
 }
 
+// ---------------------------------------------------------------------------
+// PDF Report Handlers
+// ---------------------------------------------------------------------------
+
+/// Generate a sanitized filename for the PDF response.
+fn sanitize_pdf_filename(kind: &str, locale: &str) -> String {
+    let safe_kind: String = kind.chars().filter(|c| c.is_alphanumeric() || *c == '-').collect();
+    let safe_locale: String = locale.chars().filter(|c| c.is_alphanumeric() || *c == '-').collect();
+    format!("report-{}-{}.pdf", safe_kind, safe_locale)
+}
+
+/// Map a `ReportRenderError` to an HTTP status code and error response.
+fn map_render_error(err: breakdown_core::reporting::ReportRenderError) -> (StatusCode, Json<ErrorResponse>) {
+    use breakdown_core::reporting::ReportRenderError;
+    match err {
+        ReportRenderError::PageLimitExceeded { .. }
+        | ReportRenderError::InputBoundsExceeded { .. } => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(ErrorResponse { message: err.to_string() }),
+        ),
+        ReportRenderError::RenderTimeout => (
+            StatusCode::REQUEST_TIMEOUT,
+            Json(ErrorResponse { message: err.to_string() }),
+        ),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { message: err.to_string() }),
+        ),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/shooting-days/{id}/report/dispo.pdf",
+    responses((status = 200, description = "PDF report")),
+)]
+pub async fn dispo_report_pdf<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<ShootingDayId>,
+) -> Result<(StatusCode, HeaderMap, Vec<u8>), (StatusCode, Json<ErrorResponse>)> {
+    // AUTHZ-GATE: handler-internal auth gate
+    let shooting_day = state
+        .ports
+        .shooting_day_repo()
+        .find_by_id(id)
+        .await
+        .map_err(map_err)?;
+    let episode = state
+        .ports
+        .episode_repo()
+        .find_by_id(shooting_day.episode_id.0)
+        .await
+        .map_err(map_err)?;
+    let block = state
+        .ports
+        .block_repo()
+        .find_by_id(episode.block_id.0)
+        .await
+        .map_err(map_err)?;
+    let is_authorized = state
+        .ports
+        .membership_repo()
+        .has_active_costume_role_in_season(block.season_id, current_user.sub.clone())
+        .await
+        .unwrap_or(false);
+    if !is_authorized {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                message: "not authorized to view reports".into(),
+            }),
+        ));
+    }
+
+    // Query report data
+    let rows = state
+        .ports
+        .scene_shoot_report_repo()
+        .dispo_report(id)
+        .await
+        .map_err(map_err)?;
+
+    // Render PDF (placeholder - actual rendering requires ReportRenderer injection)
+    // For now, return a 501 Not Implemented
+    Err((
+        StatusCode::NOT_IMPLEMENTED,
+        Json(ErrorResponse {
+            message: "PDF rendering not yet implemented".into(),
+        }),
+    ))
+}
+
+#[utoipa::path(
+    get,
+    path = "/shooting-days/{id}/report/shoot-day.pdf",
+    responses((status = 200, description = "PDF report")),
+)]
+pub async fn shoot_day_report_pdf<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<ShootingDayId>,
+) -> Result<(StatusCode, HeaderMap, Vec<u8>), (StatusCode, Json<ErrorResponse>)> {
+    // AUTHZ-GATE: handler-internal auth gate
+    let shooting_day = state
+        .ports
+        .shooting_day_repo()
+        .find_by_id(id)
+        .await
+        .map_err(map_err)?;
+    let episode = state
+        .ports
+        .episode_repo()
+        .find_by_id(shooting_day.episode_id.0)
+        .await
+        .map_err(map_err)?;
+    let block = state
+        .ports
+        .block_repo()
+        .find_by_id(episode.block_id.0)
+        .await
+        .map_err(map_err)?;
+    let is_authorized = state
+        .ports
+        .membership_repo()
+        .has_active_costume_role_in_season(block.season_id, current_user.sub.clone())
+        .await
+        .unwrap_or(false);
+    if !is_authorized {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                message: "not authorized to view reports".into(),
+            }),
+        ));
+    }
+
+    // Query report data
+    let rows = state
+        .ports
+        .scene_shoot_report_repo()
+        .shoot_day_report(id)
+        .await
+        .map_err(map_err)?;
+
+    // Render PDF (placeholder)
+    Err((
+        StatusCode::NOT_IMPLEMENTED,
+        Json(ErrorResponse {
+            message: "PDF rendering not yet implemented".into(),
+        }),
+    ))
+}
+
+#[utoipa::path(
+    get,
+    path = "/shooting-days/{id}/report/planned-vs-actual.pdf",
+    responses((status = 200, description = "PDF report")),
+)]
+pub async fn planned_vs_actual_report_pdf<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<ShootingDayId>,
+) -> Result<(StatusCode, HeaderMap, Vec<u8>), (StatusCode, Json<ErrorResponse>)> {
+    // AUTHZ-GATE: handler-internal auth gate
+    let shooting_day = state
+        .ports
+        .shooting_day_repo()
+        .find_by_id(id)
+        .await
+        .map_err(map_err)?;
+    let episode = state
+        .ports
+        .episode_repo()
+        .find_by_id(shooting_day.episode_id.0)
+        .await
+        .map_err(map_err)?;
+    let block = state
+        .ports
+        .block_repo()
+        .find_by_id(episode.block_id.0)
+        .await
+        .map_err(map_err)?;
+    let is_authorized = state
+        .ports
+        .membership_repo()
+        .has_active_costume_role_in_season(block.season_id, current_user.sub.clone())
+        .await
+        .unwrap_or(false);
+    if !is_authorized {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                message: "not authorized to view reports".into(),
+            }),
+        ));
+    }
+
+    // Query report data
+    let report = state
+        .ports
+        .scene_shoot_report_repo()
+        .soll_ist_report(id)
+        .await
+        .map_err(map_err)?;
+
+    // Render PDF (placeholder)
+    Err((
+        StatusCode::NOT_IMPLEMENTED,
+        Json(ErrorResponse {
+            message: "PDF rendering not yet implemented".into(),
+        }),
+    ))
+}
+
 /// Build the full Axum router using the concrete `ProductionPorts` bundle.
 pub fn routes() -> Router<AppState<ProductionPorts>> {
     Router::new()
@@ -2986,6 +3201,20 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         .route(
             "/shooting-days/{id}/report/soll-ist",
             routing::get(soll_ist_report::<ProductionPorts>),
+        )
+        
+        // PDF report routes
+        .route(
+            "/shooting-days/{id}/report/dispo.pdf",
+            routing::get(dispo_report_pdf::<ProductionPorts>),
+        )
+        .route(
+            "/shooting-days/{id}/report/shoot-day.pdf",
+            routing::get(shoot_day_report_pdf::<ProductionPorts>),
+        )
+        .route(
+            "/shooting-days/{id}/report/planned-vs-actual.pdf",
+            routing::get(planned_vs_actual_report_pdf::<ProductionPorts>),
         )
 }
 
