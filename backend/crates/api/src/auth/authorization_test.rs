@@ -324,7 +324,8 @@ async fn season_photo_policy_denies_when_repo_returns_ok_false() {
 
 #[tokio::test]
 async fn season_photo_policy_denies_when_repo_returns_err() {
-    let policy = SeasonPhotoAccessPolicy::new(Arc::new(MockSeasonMembershipRepo::err_msg("db down")));
+    let policy =
+        SeasonPhotoAccessPolicy::new(Arc::new(MockSeasonMembershipRepo::err_msg("db down")));
     let ctx = SeasonAuthContext {
         actor: UserId::from_sub("test-user".to_string()),
         season_id: SeasonId::new(),

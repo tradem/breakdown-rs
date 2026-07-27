@@ -32,9 +32,7 @@ async fn caching_provider_returns_empty_on_empty_jwks() {
     // (exercises the `if keys.is_empty()` return path).
     let jwks = serde_json::json!({ "keys": [] });
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let url = format!("http://{addr}/.well-known/jwks");
 
@@ -71,11 +69,8 @@ fn normalize_b64_converts_base64url_to_standard() {
     let result = super::normalize_b64(url_safe);
     // Decoding should succeed and produce the original bytes, which when
     // re-encoded as standard base64 gives the expected standard string.
-    let decoded = base64::Engine::decode(
-        &base64::engine::general_purpose::STANDARD,
-        &result,
-    )
-    .expect("normalize_b64 output must be valid standard base64");
+    let decoded = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &result)
+        .expect("normalize_b64 output must be valid standard base64");
     assert_eq!(
         std::str::from_utf8(&decoded).unwrap(),
         "Hello-_!?",

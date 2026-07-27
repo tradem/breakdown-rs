@@ -263,9 +263,7 @@ fn photo_id_from_uuid_preserves_value() {
 fn photo_id_display_and_parse_roundtrip() {
     let id = PhotoId::new();
     let s = id.to_string();
-    let back: PhotoId = s
-        .parse()
-        .expect("PhotoId must parse its Display output");
+    let back: PhotoId = s.parse().expect("PhotoId must parse its Display output");
     assert_eq!(id, back);
     assert_eq!(back.0, id.0);
     assert_eq!(s, id.0.to_string());
