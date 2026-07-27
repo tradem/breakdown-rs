@@ -2765,14 +2765,16 @@ pub async fn soll_ist_report<P: Ports>(
 // ---------------------------------------------------------------------------
 
 /// Generate a sanitized filename for the PDF response.
-fn sanitize_pdf_filename(kind: &str, locale: &str) -> String {
+#[allow(dead_code)]
+pub(crate) fn sanitize_pdf_filename(kind: &str, locale: &str) -> String {
     let safe_kind: String = kind.chars().filter(|c| c.is_alphanumeric() || *c == '-').collect();
     let safe_locale: String = locale.chars().filter(|c| c.is_alphanumeric() || *c == '-').collect();
     format!("report-{}-{}.pdf", safe_kind, safe_locale)
 }
 
 /// Map a `ReportRenderError` to an HTTP status code and error response.
-fn map_render_error(err: breakdown_core::reporting::ReportRenderError) -> (StatusCode, Json<ErrorResponse>) {
+#[allow(dead_code)]
+pub(crate) fn map_render_error(err: breakdown_core::reporting::ReportRenderError) -> (StatusCode, Json<ErrorResponse>) {
     use breakdown_core::reporting::ReportRenderError;
     match err {
         ReportRenderError::PageLimitExceeded { .. }
@@ -2836,7 +2838,7 @@ pub async fn dispo_report_pdf<P: Ports>(
     }
 
     // Query report data
-    let rows = state
+    let _rows = state
         .ports
         .scene_shoot_report_repo()
         .dispo_report(id)
@@ -2898,7 +2900,7 @@ pub async fn shoot_day_report_pdf<P: Ports>(
     }
 
     // Query report data
-    let rows = state
+    let _rows = state
         .ports
         .scene_shoot_report_repo()
         .shoot_day_report(id)
@@ -2959,7 +2961,7 @@ pub async fn planned_vs_actual_report_pdf<P: Ports>(
     }
 
     // Query report data
-    let report = state
+    let _report = state
         .ports
         .scene_shoot_report_repo()
         .soll_ist_report(id)
@@ -3245,3 +3247,7 @@ mod audit_tests;
 #[cfg(test)]
 #[path = "membership_tests.rs"]
 mod membership_tests;
+
+#[cfg(test)]
+#[path = "report_tests.rs"]
+mod report_tests;

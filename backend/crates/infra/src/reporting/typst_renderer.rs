@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use breakdown_core::reporting::{
-    ReportBytes, ReportKind, ReportLocale, ReportRenderError, ReportRenderRequest,
+    ReportBytes, ReportKind, ReportRenderError, ReportRenderRequest,
     ReportRenderer,
 };
 use typst::diag::FileError;
@@ -24,6 +24,7 @@ use typst_layout::PagedDocument;
 use typst_pdf::PdfOptions;
 
 /// Template content embedded at compile time.
+#[allow(dead_code)]
 struct EmbeddedTemplate {
     source: String,
 }
@@ -44,6 +45,7 @@ struct RestrictedWorld {
     /// Embedded fonts.
     fonts: Vec<Font>,
     /// Font book metadata.
+    #[allow(dead_code)]
     font_book: typst::utils::LazyHash<typst::text::FontBook>,
     /// The standard library.
     library: typst::utils::LazyHash<typst::Library>,
@@ -72,6 +74,18 @@ impl RestrictedWorld {
             font_book: typst::utils::LazyHash::new(font_book),
             library: typst::utils::LazyHash::new(typst::Library::default()),
         }
+    }
+}
+
+impl RestrictedWorld {
+    /// Return the FileId for the virtual `report.json`.
+    fn report_json_id(&self) -> FileId {
+        FileId::new(
+            typst::syntax::RootedPath::new(
+                typst::syntax::VirtualRoot::Project,
+                VirtualPath::new("report.json").unwrap(),
+            ),
+        )
     }
 }
 
@@ -111,19 +125,8 @@ impl World for RestrictedWorld {
     }
 
     fn today(&self, _offset: Option<typst::foundations::Duration>) -> Option<typst::foundations::Datetime> {
-        // Return a fixed date for deterministic output
-        typst::foundations::Datetime::from_ymd(2024, 1, 1)
-    }
-}
-
-impl RestrictedWorld {
-    fn report_json_id(&self) -> FileId {
-        FileId::new(
-            typst::syntax::RootedPath::new(
-                typst::syntax::VirtualRoot::Project,
-                VirtualPath::new("report.json").unwrap(),
-            ),
-        )
+        // Pin to a fixed date for deterministic rendering
+        Some(typst::foundations::Datetime::from_ymd(2024, 6, 15).unwrap())
     }
 }
 
@@ -164,6 +167,7 @@ pub struct TypstReportRenderer {
     /// Embedded fonts for deterministic Latin text rendering.
     fonts: Vec<Font>,
     /// Font book metadata.
+    #[allow(dead_code)]
     font_book: typst::utils::LazyHash<typst::text::FontBook>,
     /// Semaphore for concurrency control.
     semaphore: Arc<tokio::sync::Semaphore>,
@@ -210,7 +214,7 @@ impl TypstReportRenderer {
     pub fn with_defaults() -> Result<Self, ReportRenderError> {
         let mut templates = HashMap::new();
 
-        // Embed minimal placeholder templates
+        // Embed templates at compile time via include_str!
         templates.insert(
             ReportKind::Dispo,
             include_str!("../../templates/reports/dispo.typ").to_string(),
@@ -224,7 +228,7 @@ impl TypstReportRenderer {
             include_str!("../../templates/reports/planned-vs-actual.typ").to_string(),
         );
 
-        // Load system fonts (fallback for development)
+        // Load system fonts
         let fonts = load_system_fonts().map_err(|e| ReportRenderError::Internal(e))?;
 
         Ok(Self::new(templates, fonts))
@@ -237,25 +241,25 @@ impl ReportRenderer for TypstReportRenderer {
         &self,
         req: ReportRenderRequest,
     ) -> Result<ReportBytes, ReportRenderError> {
-        // Acquire semaphore permit for concurrency control
+        // Acquire semaphore permit
         let _permit = self
             .semaphore
             .acquire()
             .await
             .map_err(|_| ReportRenderError::Internal("Semaphore closed".into()))?;
 
-        // Get the template for this report kind
+        // Look up template
         let template_source = self.templates.get(&req.kind).ok_or_else(|| {
             ReportRenderError::TemplateNotFound {
                 kind: req.kind.to_string(),
             }
         })?;
 
-        // Serialize the report data to JSON
+        // Serialize report data
         let report_json_vec = serde_json::to_vec(&req.data)
             .map_err(|e| ReportRenderError::Internal(format!("JSON serialization failed: {e}")))?;
 
-        // Check JSON size bounds
+        // Check input bounds: JSON size
         if report_json_vec.len() > self.config.max_json_bytes as usize {
             return Err(ReportRenderError::InputBoundsExceeded {
                 limit: self.config.max_json_bytes,
@@ -263,7 +267,7 @@ impl ReportRenderer for TypstReportRenderer {
             });
         }
 
-        // Create the restricted world
+        // Create restricted world
         let world = RestrictedWorld::new(template_source, &report_json_vec, self.fonts.clone());
 
         // Compile with deadline
@@ -286,7 +290,7 @@ impl ReportRenderer for TypstReportRenderer {
 
         let document = compile_result?;
 
-        // Check page count limit
+        // Check page limit
         let page_count = document.pages().len() as u32;
         if page_count > self.config.max_pages {
             return Err(ReportRenderError::PageLimitExceeded {
@@ -304,7 +308,7 @@ impl ReportRenderer for TypstReportRenderer {
                 }
             })?;
 
-        // Check output size bounds
+        // Check output size bound
         if pdf_bytes.len() > self.config.max_output_bytes as usize {
             return Err(ReportRenderError::InputBoundsExceeded {
                 limit: self.config.max_output_bytes,
@@ -312,7 +316,7 @@ impl ReportRenderer for TypstReportRenderer {
             });
         }
 
-        // Generate a safe filename
+        // Build safe filename
         let filename = format!(
             "report-{}-{}.pdf",
             req.kind,
@@ -336,7 +340,7 @@ impl ReportRenderer for TypstReportRenderer {
 fn load_system_fonts() -> Result<Vec<Font>, String> {
     let mut fonts = Vec::new();
 
-    // Try to load from system font directories
+    // Common system font directories
     let font_dirs = [
         "/usr/share/fonts",
         "/usr/local/share/fonts",
@@ -374,6 +378,11 @@ fn load_system_fonts() -> Result<Vec<Font>, String> {
 mod tests {
     use super::*;
     use breakdown_core::reporting::RenderPresentationContext;
+    use breakdown_core::reporting::ReportLocale;
+
+    // ------------------------------------------------------------------
+    // RestrictedWorld isolation tests
+    // ------------------------------------------------------------------
 
     #[test]
     fn restricted_world_denies_unknown_files() {
@@ -417,5 +426,138 @@ mod tests {
             ),
         );
         assert!(world.file(network_id).is_err());
+    }
+
+    #[test]
+    fn restricted_world_denies_package_lookup() {
+        let world = RestrictedWorld::new("test", b"{}", vec![]);
+
+        // Package paths contain @version, e.g. "@preview/example/0.1.0/main.typ"
+        let pkg_id = FileId::new(
+            typst::syntax::RootedPath::new(
+                typst::syntax::VirtualRoot::Project,
+                VirtualPath::new("@preview/fontawesome/0.1.0/lib.typ").unwrap(),
+            ),
+        );
+        assert!(world.source(pkg_id).is_err());
+        assert!(world.file(pkg_id).is_err());
+    }
+
+    #[test]
+    fn restricted_world_denies_host_fs_absolute_path() {
+        let world = RestrictedWorld::new("test", b"{}", vec![]);
+
+        // Absolute host FS paths should be denied
+        let fs_id = FileId::new(
+            typst::syntax::RootedPath::new(
+                typst::syntax::VirtualRoot::Project,
+                VirtualPath::new("/etc/passwd").unwrap(),
+            ),
+        );
+        assert!(world.source(fs_id).is_err());
+        assert!(world.file(fs_id).is_err());
+    }
+
+    #[test]
+    fn restricted_world_fixed_today() {
+        let world = RestrictedWorld::new("test", b"{}", vec![]);
+
+        let dt = world.today(None).unwrap();
+        // Should return the fixed date (2024-06-15) as set in the implementation
+        assert_eq!(dt, typst::foundations::Datetime::from_ymd(2024, 6, 15).unwrap());
+    }
+
+    // ------------------------------------------------------------------
+    // TypstReportRenderer construction tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn typst_report_renderer_new() {
+        let mut templates = HashMap::new();
+        templates.insert(ReportKind::Dispo, "= Test".to_string());
+        let renderer = TypstReportRenderer::new(templates.clone(), vec![]);
+        assert_eq!(renderer.config.max_pages, 50);
+        assert_eq!(renderer.config.concurrency_limit, 4);
+        assert!(renderer.templates.contains_key(&ReportKind::Dispo));
+    }
+
+    #[test]
+    fn typst_report_renderer_with_config() {
+        let mut templates = HashMap::new();
+        templates.insert(ReportKind::ShootDay, "= Test".to_string());
+        let config = RenderConfig {
+            max_pages: 10,
+            concurrency_limit: 2,
+            deadline_secs: 5,
+            ..Default::default()
+        };
+        let renderer = TypstReportRenderer::with_config(templates, vec![], config.clone());
+        assert_eq!(renderer.config.max_pages, 10);
+        assert_eq!(renderer.config.concurrency_limit, 2);
+        assert_eq!(renderer.config.deadline_secs, 5);
+    }
+
+    #[test]
+    fn typst_report_renderer_template_not_found() {
+        // No templates registered at all
+        let renderer = TypstReportRenderer::new(HashMap::new(), vec![]);
+
+        let req = ReportRenderRequest {
+            kind: ReportKind::Dispo,
+            context: RenderPresentationContext {
+                locale: ReportLocale::de_de(),
+                timezone: "Europe/Berlin".into(),
+                template_version: "1.0.0".into(),
+            },
+            data: serde_json::json!({}),
+        };
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(renderer.render(req));
+        assert!(matches!(result, Err(ReportRenderError::TemplateNotFound { .. })));
+    }
+
+    // ------------------------------------------------------------------
+    // Input bounds tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn typst_report_renderer_rejects_oversized_json() {
+        let mut templates = HashMap::new();
+        templates.insert(ReportKind::Dispo, "= Test".to_string());
+        let config = RenderConfig {
+            max_json_bytes: 10, // Very small limit
+            ..Default::default()
+        };
+        let renderer = TypstReportRenderer::with_config(templates, vec![], config);
+
+        let req = ReportRenderRequest {
+            kind: ReportKind::Dispo,
+            context: RenderPresentationContext {
+                locale: ReportLocale::de_de(),
+                timezone: "Europe/Berlin".into(),
+                template_version: "1.0.0".into(),
+            },
+            data: serde_json::json!({"data": "this is way more than 10 bytes of JSON data"}),
+        };
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(renderer.render(req));
+        assert!(matches!(result, Err(ReportRenderError::InputBoundsExceeded { .. })));
+    }
+
+    // ------------------------------------------------------------------
+    // RenderConfig defaults
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn render_config_defaults() {
+        let config = RenderConfig::default();
+        assert_eq!(config.concurrency_limit, 4);
+        assert_eq!(config.deadline_secs, 30);
+        assert_eq!(config.max_rows, 10_000);
+        assert_eq!(config.max_json_bytes, 5 * 1024 * 1024);
+        assert_eq!(config.max_output_bytes, 100 * 1024 * 1024);
+        assert_eq!(config.max_pages, 50);
     }
 }

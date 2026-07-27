@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! Route-coverage tests: enumerate every API route from the OpenAPI spec and
 //! verify it has a deliberate authentication + authorization requirement.
@@ -74,7 +75,7 @@ fn api_routes_are_behind_auth_middleware() {
     //  patterns, not method-verb pairs.)
     assert_eq!(
         api.len(),
-        41,
+        44,
         "number of API route path patterns has changed — \
          see doc comment above for update instructions"
     );
@@ -168,6 +169,19 @@ fn api_routes_have_deliberate_authorization_requirement() {
         ),
         (
             "/costumes/{costume_id}/photos/{photo_id}/bytes",
+            Requirement::Authenticated,
+        ),
+        // PDF report endpoints — handler-internal season-scoped auth gates
+        (
+            "/shooting-days/{id}/report/dispo.pdf",
+            Requirement::Authenticated,
+        ),
+        (
+            "/shooting-days/{id}/report/shoot-day.pdf",
+            Requirement::Authenticated,
+        ),
+        (
+            "/shooting-days/{id}/report/planned-vs-actual.pdf",
             Requirement::Authenticated,
         ),
     ];

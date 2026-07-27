@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! Authorization policy for the API layer (Section 5, Decision D2/D5).
 //!
@@ -182,6 +183,11 @@ pub fn requirement_for(path: &str) -> Requirement {
     // block-scoped — they use season-scoped authorization (SeasonPhotoAccessPolicy)
     // which is checked inside the handler itself, not by this middleware.
     if path.contains("/photos") {
+        return Requirement::Authenticated;
+    }
+    // PDF report endpoints use handler-internal season-scoped auth gates
+    // (// AUTHZ-GATE:), just like photo endpoints.
+    if path.ends_with(".pdf") && path.contains("/report/") {
         return Requirement::Authenticated;
     }
     // Everything else (scenes, characters, costumes, episodes, and
