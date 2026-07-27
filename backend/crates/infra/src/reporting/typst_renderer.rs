@@ -239,7 +239,7 @@ impl TypstReportRenderer {
         );
 
         // Load system fonts
-        let fonts = load_system_fonts().map_err(|e| ReportRenderError::Internal(e))?;
+        let fonts = load_system_fonts().map_err(ReportRenderError::Internal)?;
 
         Ok(Self::new(templates, fonts))
     }

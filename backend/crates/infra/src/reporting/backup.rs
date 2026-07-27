@@ -286,8 +286,7 @@ impl<L: ReportDataLoader + 'static> ReportBackupWorker<L> {
                     .map_err(|e| {
                         // Staging failure is retryable.
                         e.to_string()
-                    })
-                    .map_err(|e| e)?;
+                    })?;
 
                 if let Err(e) = self
                     .queue
@@ -404,11 +403,11 @@ impl<L: ReportDataLoader + 'static> ReportBackupWorker<L> {
             match self.queue.list_succeeded_with_staging().await {
                 Ok(rows) => {
                     for job in rows {
-                        if let Some(handle) = &job.staged_handle {
-                            if let Ok(key) = ReportArtifactKey::new(handle.clone()) {
-                                let _ = self.staging.delete(&key).await;
-                                let _ = self.queue.clear_staged_handle(job.id).await;
-                            }
+                        if let Some(handle) = &job.staged_handle
+                            && let Ok(key) = ReportArtifactKey::new(handle.clone())
+                        {
+                            let _ = self.staging.delete(&key).await;
+                            let _ = self.queue.clear_staged_handle(job.id).await;
                         }
                     }
                 }

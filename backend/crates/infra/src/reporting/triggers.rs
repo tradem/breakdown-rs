@@ -259,10 +259,7 @@ pub async fn spawn_wrap_archival_saga(
             let mut manager = client.subscription_manager().await?;
             let mut stream =
                 <(ShootingDayAggregate,)>::event_handler_stream(&mut manager, &mut saga).await?;
-            stream
-                .run(&mut saga)
-                .await
-                .map_err(|e| anyhow::Error::from(e))
+            stream.run(&mut saga).await.map_err(anyhow::Error::from)
         }
     })
     .await?;

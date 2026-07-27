@@ -328,10 +328,10 @@ fn build_s3_operator(
 
 fn env_first(keys: &[&str]) -> Option<String> {
     for k in keys {
-        if let Ok(v) = std::env::var(k) {
-            if !v.is_empty() {
-                return Some(v);
-            }
+        if let Ok(v) = std::env::var(k)
+            && !v.is_empty()
+        {
+            return Some(v);
         }
     }
     None

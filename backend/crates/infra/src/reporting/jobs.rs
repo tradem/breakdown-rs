@@ -118,7 +118,7 @@ impl PgReportArchivalQueue {
         .bind(now)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| map_sqlx_err(e))?;
+        .map_err(map_sqlx_err)?;
 
         if let Some(row) = inserted {
             let job_id = ReportJobId(row.get::<Uuid, _>("id"));
