@@ -361,17 +361,17 @@ fn load_system_fonts() -> Result<Vec<Font>, String> {
 
     for dir in &font_dirs {
         let path = std::path::Path::new(dir);
-        if path.exists() {
-            if let Ok(entries) = std::fs::read_dir(path) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.extension().and_then(|e| e.to_str()) == Some("ttf") {
-                        if let Ok(data) = std::fs::read(&path) {
-                            let bytes = typst::foundations::Bytes::new(data);
-                            let fonts_iter = Font::iter(bytes);
-                            fonts.extend(fonts_iter);
-                        }
-                    }
+        if path.exists()
+            && let Ok(entries) = std::fs::read_dir(path)
+        {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("ttf")
+                    && let Ok(data) = std::fs::read(&path)
+                {
+                    let bytes = typst::foundations::Bytes::new(data);
+                    let fonts_iter = Font::iter(bytes);
+                    fonts.extend(fonts_iter);
                 }
             }
         }
