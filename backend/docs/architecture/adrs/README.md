@@ -8,7 +8,7 @@ and their consequences.
 
 - Read the relevant ADRs before making changes to the architecture.
 - Follow the template in `templates/ADR-template.md` when proposing a new ADR.
-- New ADRs are numbered sequentially (ADR-022, ADR-023, ...).
+- New ADRs are numbered sequentially (ADR-023, ADR-024, ...).
 - Every ADR carries an **Author** field. Retrospective ADRs (ADR-001 … ADR-019)
   are attributed to `Tobias Rademacher (@tradem)`; ADR-020 and ADR-021 were
   co-authored with `GLM-5.2 (Zhipu, hosted by neuralwatt)`.
@@ -39,6 +39,7 @@ and their consequences.
 | [019](ADR-019-costume-photo-storage.md) | Costume Photo Storage — Aggregate, Garage, Proxy Serving, Derived Auth | Accepted | 2026-07-21 | Tobias Rademacher (@tradem) |
 | [020](ADR-020-rust-component-versioning.md) | Rust Component Versioning & Release Mechanics | Proposed | 2026-07-21 | Tobias Rademacher (@tradem); GLM-5.2 (Zhipu, hosted by neuralwatt) |
 | [021](ADR-021-api-versioning.md) | HTTP API Path Versioning & Deprecation Lifecycle | Proposed | 2026-07-21 | Tobias Rademacher (@tradem); GLM-5.2 (Zhipu, hosted by neuralwatt) |
+| [022](ADR-022-pdf-reporting-and-archival.md) | In-Process Typst for PDF Reporting and Report Archival | Proposed | 2026-07-27 | Tobias Rademacher (@tradem); gpt-5.6-sol (opencode) |
 
 ## Creating a New ADR
 
