@@ -31,6 +31,10 @@ use breakdown_core::photo::commands::{
 };
 use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
 use breakdown_core::photo::views::{PhotoBytes, PhotoView};
+use breakdown_core::reporting::{
+    EnqueueArchivalRequest, EnqueueArchivalResult, ReportArchivalError, ReportArchivalQueue,
+    ReportJobId, ReportJobStatus,
+};
 use breakdown_core::scene::commands::{
     AssignCharacter, CreateScene, RemoveCharacter, ScheduleSceneOnShootingDay,
     UnscheduleSceneFromShootingDay, UpdateSceneDetails,
@@ -342,6 +346,16 @@ impl MembershipRepository for FakeMembershipRepo {
         user_id: UserId,
     ) -> Result<bool, DomainError> {
         // For test purposes: authorise any user for any season.
+        let _ = (season_id, user_id);
+        Ok(true)
+    }
+
+    async fn has_active_report_archive_role_in_season(
+        &self,
+        season_id: SeasonId,
+        user_id: UserId,
+    ) -> Result<bool, DomainError> {
+        // Default test fake admits archive roles (designer/supervisor).
         let _ = (season_id, user_id);
         Ok(true)
     }
@@ -827,7 +841,70 @@ impl SceneShootReportRepository for FakeSceneShootReportRepo {
     }
 }
 
+/// A fake renderer that returns empty PDF bytes for handler tests.
+#[derive(Debug)]
+pub(crate) struct FakeReportRenderer;
+
+#[async_trait::async_trait]
+impl breakdown_core::reporting::ReportRenderer for FakeReportRenderer {
+    async fn render(
+        &self,
+        _req: breakdown_core::reporting::ReportRenderRequest,
+    ) -> std::result::Result<
+        breakdown_core::reporting::ReportBytes,
+        breakdown_core::reporting::ReportRenderError,
+    > {
+        Ok(breakdown_core::reporting::ReportBytes {
+            kind: _req.kind,
+            locale: _req.context.locale,
+            pdf_bytes: Vec::new(),
+            page_count: 0,
+            content_type: "application/pdf",
+            filename: format!("{}.pdf", _req.kind),
+        })
+    }
+}
+
+/// In-memory archival queue for handler tests (dedup by key).
 #[derive(Clone, Default)]
+pub(crate) struct FakeReportArchivalQueue {
+    pub(crate) jobs: Arc<tokio::sync::Mutex<HashMap<String, EnqueueArchivalResult>>>,
+}
+
+#[async_trait::async_trait]
+impl ReportArchivalQueue for FakeReportArchivalQueue {
+    async fn enqueue(
+        &self,
+        req: EnqueueArchivalRequest,
+    ) -> Result<EnqueueArchivalResult, ReportArchivalError> {
+        let key = req.dedup_key();
+        let mut guard = self.jobs.lock().await;
+        if let Some(existing) = guard.get(&key) {
+            return Ok(EnqueueArchivalResult {
+                job_id: existing.job_id,
+                already_enqueued: true,
+                status: existing.status,
+            });
+        }
+        let result = EnqueueArchivalResult {
+            job_id: ReportJobId::new(),
+            already_enqueued: false,
+            status: ReportJobStatus::Pending,
+        };
+        guard.insert(key, result.clone());
+        Ok(result)
+    }
+
+    async fn get(
+        &self,
+        job_id: ReportJobId,
+    ) -> Result<Option<EnqueueArchivalResult>, ReportArchivalError> {
+        let guard = self.jobs.lock().await;
+        Ok(guard.values().find(|r| r.job_id == job_id).cloned())
+    }
+}
+
+#[derive(Clone)]
 pub(crate) struct FakePorts {
     pub(crate) scene_commands: FakeSceneCommands,
     pub(crate) scene_repo: FakeSceneRepo,
@@ -857,6 +934,43 @@ pub(crate) struct FakePorts {
     pub(crate) photo_commands: FakePhotoCommands,
     #[allow(dead_code)]
     pub(crate) photo_repo: FakePhotoRepo,
+    pub(crate) report_archival_queue: FakeReportArchivalQueue,
+    #[allow(dead_code)]
+    pub(crate) report_renderer: Arc<dyn breakdown_core::reporting::ReportRenderer>,
+}
+
+impl Default for FakePorts {
+    fn default() -> Self {
+        Self {
+            scene_commands: Default::default(),
+            scene_repo: Default::default(),
+            character_commands: Default::default(),
+            character_repo: Default::default(),
+            costume_commands: Default::default(),
+            costume_repo: Default::default(),
+            costume_category_commands: Default::default(),
+            costume_category_repo: Default::default(),
+            season_commands: Default::default(),
+            season_repo: Default::default(),
+            block_commands: Default::default(),
+            block_repo: Default::default(),
+            episode_commands: Default::default(),
+            episode_repo: Default::default(),
+            membership_commands: Default::default(),
+            membership_repo: Default::default(),
+            audit_repo: Default::default(),
+            shooting_day_commands: Default::default(),
+            shooting_day_repo: Default::default(),
+            photo_storage: Default::default(),
+            scene_shoot_commands: Default::default(),
+            scene_shoot_repo: Default::default(),
+            scene_shoot_report_repo: Default::default(),
+            photo_commands: Default::default(),
+            photo_repo: Default::default(),
+            report_archival_queue: Default::default(),
+            report_renderer: Arc::new(FakeReportRenderer),
+        }
+    }
 }
 
 impl Ports for FakePorts {
@@ -885,6 +999,8 @@ impl Ports for FakePorts {
     type SceneShootCommands = FakeSceneShootCommands;
     type SceneShootRepo = FakeSceneShootRepo;
     type SceneShootReportRepo = FakeSceneShootReportRepo;
+    type ReportArchivalQueue = FakeReportArchivalQueue;
+    type ReportRenderer = Arc<dyn breakdown_core::reporting::ReportRenderer>;
 
     fn scene_commands(&self) -> &Self::SceneCommands {
         &self.scene_commands
@@ -960,5 +1076,14 @@ impl Ports for FakePorts {
     }
     fn scene_shoot_report_repo(&self) -> &Self::SceneShootReportRepo {
         &self.scene_shoot_report_repo
+    }
+    fn report_archival_queue(&self) -> &Self::ReportArchivalQueue {
+        &self.report_archival_queue
+    }
+    fn report_renderer(&self) -> &Self::ReportRenderer {
+        &self.report_renderer
+    }
+    fn report_renderer_ref(&self) -> &dyn breakdown_core::reporting::ReportRenderer {
+        &*self.report_renderer
     }
 }

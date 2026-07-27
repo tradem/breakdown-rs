@@ -298,6 +298,16 @@ impl MembershipRepository for MockSeasonMembershipRepo {
         }
         Ok(self.result.load(Ordering::Relaxed))
     }
+
+    async fn has_active_report_archive_role_in_season(
+        &self,
+        season_id: SeasonId,
+        user_id: UserId,
+    ) -> Result<bool, DomainError> {
+        // Mirror costume-role mock behaviour for archive-role checks.
+        self.has_active_costume_role_in_season(season_id, user_id)
+            .await
+    }
 }
 
 #[tokio::test]

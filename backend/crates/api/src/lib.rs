@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 pub mod auth;
 pub mod handlers;
@@ -63,10 +64,16 @@ use utoipa::OpenApi;
         handlers::upload_costume_photo,
         handlers::get_costume_photo_bytes,
         handlers::delete_costume_photo,
+        handlers::dispo_report_pdf,
+        handlers::shoot_day_report_pdf,
+        handlers::planned_vs_actual_report_pdf,
+        handlers::manual_archive_reports,
     ),
     components(schemas(
         handlers::IdVersionResponse,
         handlers::ErrorResponse,
+        handlers::ManualArchiveResponse,
+        handlers::ManualArchiveJobResult,
         handlers::CreateSceneRequest,
         handlers::CreateCharacterRequest,
         handlers::CreateCostumeRequest,

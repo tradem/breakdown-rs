@@ -7,6 +7,8 @@
 //! `AppState` is generic over a `Ports` implementation so that unit tests can
 //! substitute hand-written fakes without spinning up SierraDB or Postgres.
 
+use std::sync::Arc;
+
 use breakdown_core::audit::AuditRepository;
 use breakdown_core::block::{BlockCommands, BlockRepository};
 use breakdown_core::character::{CharacterCommands, CharacterRepository};
@@ -15,6 +17,7 @@ use breakdown_core::costume_category::{CostumeCategoryCommands, CostumeCategoryR
 use breakdown_core::episode::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::membership::{MembershipCommands, MembershipRepository};
 use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
+use breakdown_core::reporting::{ReportArchivalQueue, ReportRenderer};
 use breakdown_core::scene::{SceneCommands, SceneRepository};
 use breakdown_core::scene_shoot::{
     SceneShootCommands, SceneShootReportRepository, SceneShootRepository,
@@ -34,6 +37,7 @@ use infra::queries::{
     MembershipRepositoryImpl, SceneRepositoryImpl, SceneShootReportRepositoryImpl,
     SceneShootRepositoryImpl, SeasonRepositoryImpl, ShootingDayRepositoryImpl,
 };
+use infra::reporting::PgReportArchivalQueue;
 
 /// The hexagonal seam surface used by API handlers. Production implements it
 /// with the concrete `kameo_es` write adapters and `sqlx` read adapters.
@@ -63,6 +67,8 @@ pub trait Ports: Clone + Send + Sync + 'static {
     type SceneShootCommands: SceneShootCommands;
     type SceneShootRepo: SceneShootRepository;
     type SceneShootReportRepo: SceneShootReportRepository;
+    type ReportArchivalQueue: ReportArchivalQueue;
+    type ReportRenderer: Send + Sync;
 
     fn scene_commands(&self) -> &Self::SceneCommands;
     fn scene_repo(&self) -> &Self::SceneRepo;
@@ -89,6 +95,9 @@ pub trait Ports: Clone + Send + Sync + 'static {
     fn photo_storage(&self) -> &Self::PhotoStorage;
     fn photo_commands(&self) -> &Self::PhotoCommands;
     fn photo_repo(&self) -> &Self::PhotoRepo;
+    fn report_archival_queue(&self) -> &Self::ReportArchivalQueue;
+    fn report_renderer(&self) -> &Self::ReportRenderer;
+    fn report_renderer_ref(&self) -> &dyn ReportRenderer;
 }
 
 /// Shared state handed to every Axum handler.
@@ -131,6 +140,8 @@ pub struct ProductionPorts {
     scene_shoot_commands: SceneShootCommandsImpl,
     scene_shoot_repo: SceneShootRepositoryImpl,
     scene_shoot_report_repo: SceneShootReportRepositoryImpl,
+    report_archival_queue: PgReportArchivalQueue,
+    report_renderer: Arc<dyn ReportRenderer>,
 }
 
 impl ProductionPorts {
@@ -162,6 +173,8 @@ impl ProductionPorts {
         scene_shoot_commands: SceneShootCommandsImpl,
         scene_shoot_repo: SceneShootRepositoryImpl,
         scene_shoot_report_repo: SceneShootReportRepositoryImpl,
+        report_archival_queue: PgReportArchivalQueue,
+        report_renderer: Arc<dyn ReportRenderer>,
     ) -> Self {
         Self {
             scene_commands,
@@ -189,6 +202,8 @@ impl ProductionPorts {
             scene_shoot_commands,
             scene_shoot_repo,
             scene_shoot_report_repo,
+            report_archival_queue,
+            report_renderer,
         }
     }
 }
@@ -219,6 +234,8 @@ impl Ports for ProductionPorts {
     type SceneShootCommands = SceneShootCommandsImpl;
     type SceneShootRepo = SceneShootRepositoryImpl;
     type SceneShootReportRepo = SceneShootReportRepositoryImpl;
+    type ReportArchivalQueue = PgReportArchivalQueue;
+    type ReportRenderer = Arc<dyn ReportRenderer>;
 
     fn scene_commands(&self) -> &Self::SceneCommands {
         &self.scene_commands
@@ -294,5 +311,14 @@ impl Ports for ProductionPorts {
     }
     fn scene_shoot_report_repo(&self) -> &Self::SceneShootReportRepo {
         &self.scene_shoot_report_repo
+    }
+    fn report_archival_queue(&self) -> &Self::ReportArchivalQueue {
+        &self.report_archival_queue
+    }
+    fn report_renderer(&self) -> &Self::ReportRenderer {
+        &self.report_renderer
+    }
+    fn report_renderer_ref(&self) -> &dyn ReportRenderer {
+        &*self.report_renderer
     }
 }

@@ -5,7 +5,7 @@
 //! Axum-Handler (Request → Command / Query)
 
 use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::{Json, Router, routing};
 use breakdown_core::audit::{AuditEntry, AuditRepository};
 use breakdown_core::block::commands::{CreateBlock, UpdateBlockTimeSpan};
@@ -40,6 +40,11 @@ use breakdown_core::membership::{
 use breakdown_core::photo::commands::UploadPhoto as UploadPhotoCmd;
 use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
 use breakdown_core::photo::views::PhotoView;
+use breakdown_core::reporting::{
+    ArchivalTrigger, EnqueueArchivalRequest, EnqueueArchivalResult, RenderPresentationContext,
+    ReportArchivalQueue, ReportKind, ReportLocale, ReportRenderRequest, SnapshotIdentity,
+    TEMPLATE_VERSION,
+};
 use breakdown_core::scene::commands::{
     AssignCharacter, CreateScene, RemoveCharacter, ScheduleSceneOnShootingDay,
     UnscheduleSceneFromShootingDay, UpdateSceneDetails,
@@ -2760,6 +2765,433 @@ pub async fn soll_ist_report<P: Ports>(
     Ok((StatusCode::OK, Json(report)))
 }
 
+// ---------------------------------------------------------------------------
+// PDF Report Handlers
+// ---------------------------------------------------------------------------
+
+/// Generate a sanitized filename for the PDF response.
+#[allow(dead_code)]
+pub(crate) fn sanitize_pdf_filename(kind: &str, locale: &str) -> String {
+    let safe_kind: String = kind
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-')
+        .collect();
+    let safe_locale: String = locale
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-')
+        .collect();
+    format!("report-{}-{}.pdf", safe_kind, safe_locale)
+}
+
+/// Map a `ReportRenderError` to an HTTP status code and error response.
+#[allow(dead_code)]
+pub(crate) fn map_render_error(
+    err: breakdown_core::reporting::ReportRenderError,
+) -> (StatusCode, Json<ErrorResponse>) {
+    use breakdown_core::reporting::ReportRenderError;
+    match err {
+        ReportRenderError::PageLimitExceeded { .. }
+        | ReportRenderError::InputBoundsExceeded { .. } => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(ErrorResponse {
+                message: err.to_string(),
+            }),
+        ),
+        ReportRenderError::RenderTimeout => (
+            StatusCode::REQUEST_TIMEOUT,
+            Json(ErrorResponse {
+                message: err.to_string(),
+            }),
+        ),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                message: err.to_string(),
+            }),
+        ),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/shooting-days/{id}/report/dispo.pdf",
+    responses((status = 200, description = "PDF report")),
+)]
+pub async fn dispo_report_pdf<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<ShootingDayId>,
+) -> Result<(StatusCode, HeaderMap, Vec<u8>), (StatusCode, Json<ErrorResponse>)> {
+    // AUTHZ-GATE: handler-internal auth gate
+    let shooting_day = state
+        .ports
+        .shooting_day_repo()
+        .find_by_id(id)
+        .await
+        .map_err(map_err)?;
+    let episode = state
+        .ports
+        .episode_repo()
+        .find_by_id(shooting_day.episode_id.0)
+        .await
+        .map_err(map_err)?;
+    let block = state
+        .ports
+        .block_repo()
+        .find_by_id(episode.block_id.0)
+        .await
+        .map_err(map_err)?;
+    let is_authorized = state
+        .ports
+        .membership_repo()
+        .has_active_costume_role_in_season(block.season_id, current_user.sub.clone())
+        .await
+        .unwrap_or(false);
+    if !is_authorized {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                message: "not authorized to view reports".into(),
+            }),
+        ));
+    }
+
+    // Query report data
+    let rows = state
+        .ports
+        .scene_shoot_report_repo()
+        .dispo_report(id)
+        .await
+        .map_err(map_err)?;
+
+    // Render PDF via shared renderer
+    let req = ReportRenderRequest {
+        kind: ReportKind::Dispo,
+        context: RenderPresentationContext {
+            locale: ReportLocale::de_de(),
+            timezone: "Europe/Berlin".into(),
+            template_version: TEMPLATE_VERSION.to_string(),
+        },
+        data: serde_json::to_value(rows).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    message: format!("serialization error: {e}"),
+                }),
+            )
+        })?,
+    };
+    let renderer = state.ports.report_renderer_ref();
+    let rendered = renderer.render(req).await.map_err(map_render_error)?;
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        rendered.content_type.parse().unwrap(),
+    );
+    headers.insert(
+        axum::http::header::CONTENT_DISPOSITION,
+        format!(
+            r#"inline; filename="{}""#,
+            sanitize_pdf_filename("dispo", "de-DE")
+        )
+        .parse()
+        .unwrap(),
+    );
+    Ok((StatusCode::OK, headers, rendered.pdf_bytes))
+}
+
+#[utoipa::path(
+    get,
+    path = "/shooting-days/{id}/report/shoot-day.pdf",
+    responses((status = 200, description = "PDF report")),
+)]
+pub async fn shoot_day_report_pdf<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<ShootingDayId>,
+) -> Result<(StatusCode, HeaderMap, Vec<u8>), (StatusCode, Json<ErrorResponse>)> {
+    // AUTHZ-GATE: handler-internal auth gate
+    let shooting_day = state
+        .ports
+        .shooting_day_repo()
+        .find_by_id(id)
+        .await
+        .map_err(map_err)?;
+    let episode = state
+        .ports
+        .episode_repo()
+        .find_by_id(shooting_day.episode_id.0)
+        .await
+        .map_err(map_err)?;
+    let block = state
+        .ports
+        .block_repo()
+        .find_by_id(episode.block_id.0)
+        .await
+        .map_err(map_err)?;
+    let is_authorized = state
+        .ports
+        .membership_repo()
+        .has_active_costume_role_in_season(block.season_id, current_user.sub.clone())
+        .await
+        .unwrap_or(false);
+    if !is_authorized {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                message: "not authorized to view reports".into(),
+            }),
+        ));
+    }
+
+    // Query report data
+    let rows = state
+        .ports
+        .scene_shoot_report_repo()
+        .shoot_day_report(id)
+        .await
+        .map_err(map_err)?;
+
+    // Render PDF via shared renderer
+    let req = ReportRenderRequest {
+        kind: ReportKind::ShootDay,
+        context: RenderPresentationContext {
+            locale: ReportLocale::de_de(),
+            timezone: "Europe/Berlin".into(),
+            template_version: TEMPLATE_VERSION.to_string(),
+        },
+        data: serde_json::to_value(rows).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    message: format!("serialization error: {e}"),
+                }),
+            )
+        })?,
+    };
+    let renderer = state.ports.report_renderer_ref();
+    let rendered = renderer.render(req).await.map_err(map_render_error)?;
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        rendered.content_type.parse().unwrap(),
+    );
+    headers.insert(
+        axum::http::header::CONTENT_DISPOSITION,
+        format!(
+            r#"inline; filename="{}""#,
+            sanitize_pdf_filename("shoot-day", "de-DE")
+        )
+        .parse()
+        .unwrap(),
+    );
+    Ok((StatusCode::OK, headers, rendered.pdf_bytes))
+}
+
+#[utoipa::path(
+    get,
+    path = "/shooting-days/{id}/report/planned-vs-actual.pdf",
+    responses((status = 200, description = "PDF report")),
+)]
+pub async fn planned_vs_actual_report_pdf<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<ShootingDayId>,
+) -> Result<(StatusCode, HeaderMap, Vec<u8>), (StatusCode, Json<ErrorResponse>)> {
+    // AUTHZ-GATE: handler-internal auth gate
+    let shooting_day = state
+        .ports
+        .shooting_day_repo()
+        .find_by_id(id)
+        .await
+        .map_err(map_err)?;
+    let episode = state
+        .ports
+        .episode_repo()
+        .find_by_id(shooting_day.episode_id.0)
+        .await
+        .map_err(map_err)?;
+    let block = state
+        .ports
+        .block_repo()
+        .find_by_id(episode.block_id.0)
+        .await
+        .map_err(map_err)?;
+    let is_authorized = state
+        .ports
+        .membership_repo()
+        .has_active_costume_role_in_season(block.season_id, current_user.sub.clone())
+        .await
+        .unwrap_or(false);
+    if !is_authorized {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                message: "not authorized to view reports".into(),
+            }),
+        ));
+    }
+
+    // Query report data
+    let report = state
+        .ports
+        .scene_shoot_report_repo()
+        .soll_ist_report(id)
+        .await
+        .map_err(map_err)?;
+
+    // Render PDF via shared renderer
+    let req = ReportRenderRequest {
+        kind: ReportKind::PlannedVsActual,
+        context: RenderPresentationContext {
+            locale: ReportLocale::de_de(),
+            timezone: "Europe/Berlin".into(),
+            template_version: TEMPLATE_VERSION.to_string(),
+        },
+        data: serde_json::to_value(report).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    message: format!("serialization error: {e}"),
+                }),
+            )
+        })?,
+    };
+    let renderer = state.ports.report_renderer_ref();
+    let rendered = renderer.render(req).await.map_err(map_render_error)?;
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        rendered.content_type.parse().unwrap(),
+    );
+    headers.insert(
+        axum::http::header::CONTENT_DISPOSITION,
+        format!(
+            r#"inline; filename="{}""#,
+            sanitize_pdf_filename("planned-vs-actual", "de-DE")
+        )
+        .parse()
+        .unwrap(),
+    );
+    Ok((StatusCode::OK, headers, rendered.pdf_bytes))
+}
+
+/// Response body for a manual "archive now" request.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ManualArchiveResponse {
+    /// Per-kind enqueue results (dedup-aware).
+    pub jobs: Vec<ManualArchiveJobResult>,
+}
+
+/// One job enqueue outcome.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ManualArchiveJobResult {
+    pub kind: String,
+    pub job_id: Uuid,
+    pub already_enqueued: bool,
+    pub status: String,
+}
+
+/// Manual "archive now" remediation endpoint.
+///
+/// Setting-gerechte fallback when automation fails or is delayed. Uses the
+/// **same** dedup key and pipeline as schedule / wrap triggers — never a
+/// parallel pipeline. Gated stricter than PDF routes: only `CostumeDesigner`
+/// and `WardrobeSupervisor` (excludes `CostumeAssistant`).
+#[utoipa::path(
+    post,
+    path = "/shooting-days/{id}/report/archive",
+    responses(
+        (status = 202, description = "Archival job(s) enqueued"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Shooting day not found"),
+    ),
+)]
+pub async fn manual_archive_reports<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<ShootingDayId>,
+) -> Result<(StatusCode, Json<ManualArchiveResponse>), (StatusCode, Json<ErrorResponse>)> {
+    // Resolve shooting day → episode → block → season (fail closed).
+    let shooting_day = state
+        .ports
+        .shooting_day_repo()
+        .find_by_id(id)
+        .await
+        .map_err(map_err)?;
+    let episode = state
+        .ports
+        .episode_repo()
+        .find_by_id(shooting_day.episode_id.0)
+        .await
+        .map_err(map_err)?;
+    let block = state
+        .ports
+        .block_repo()
+        .find_by_id(episode.block_id.0)
+        .await
+        .map_err(map_err)?;
+
+    // AUTHZ-GATE: manual archive — CostumeDesigner + WardrobeSupervisor only
+    // (stricter than PDF routes; CostumeAssistant is excluded). Fail closed.
+    let is_authorized = state
+        .ports
+        .membership_repo()
+        .has_active_report_archive_role_in_season(block.season_id, current_user.sub.clone())
+        .await
+        .unwrap_or(false);
+    if !is_authorized {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                message: "not authorized to enqueue report archival".into(),
+            }),
+        ));
+    }
+
+    // Enqueue all three kinds via the shared dedup key + pipeline.
+    let kinds = [
+        ReportKind::Dispo,
+        ReportKind::ShootDay,
+        ReportKind::PlannedVsActual,
+    ];
+    let mut jobs = Vec::with_capacity(kinds.len());
+    for kind in kinds {
+        let req = EnqueueArchivalRequest {
+            kind,
+            shooting_day_id: id,
+            locale: ReportLocale::de_de(),
+            template_version: TEMPLATE_VERSION.to_string(),
+            snapshot_identity: SnapshotIdentity::current(),
+            trigger: ArchivalTrigger::Manual,
+        };
+        let res: EnqueueArchivalResult = state
+            .ports
+            .report_archival_queue()
+            .enqueue(req)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        message: e.to_string(),
+                    }),
+                )
+            })?;
+        jobs.push(ManualArchiveJobResult {
+            kind: kind.to_string(),
+            job_id: res.job_id.0,
+            already_enqueued: res.already_enqueued,
+            status: res.status.as_str().to_string(),
+        });
+    }
+
+    Ok((StatusCode::ACCEPTED, Json(ManualArchiveResponse { jobs })))
+}
+
 /// Build the full Axum router using the concrete `ProductionPorts` bundle.
 pub fn routes() -> Router<AppState<ProductionPorts>> {
     Router::new()
@@ -2987,6 +3419,25 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
             "/shooting-days/{id}/report/soll-ist",
             routing::get(soll_ist_report::<ProductionPorts>),
         )
+
+        // PDF report routes
+        .route(
+            "/shooting-days/{id}/report/dispo.pdf",
+            routing::get(dispo_report_pdf::<ProductionPorts>),
+        )
+        .route(
+            "/shooting-days/{id}/report/shoot-day.pdf",
+            routing::get(shoot_day_report_pdf::<ProductionPorts>),
+        )
+        .route(
+            "/shooting-days/{id}/report/planned-vs-actual.pdf",
+            routing::get(planned_vs_actual_report_pdf::<ProductionPorts>),
+        )
+        // Manual "archive now" remediation (CostumeDesigner + WardrobeSupervisor).
+        .route(
+            "/shooting-days/{id}/report/archive",
+            routing::post(manual_archive_reports::<ProductionPorts>),
+        )
 }
 
 #[cfg(test)]
@@ -3016,3 +3467,7 @@ mod audit_tests;
 #[cfg(test)]
 #[path = "membership_tests.rs"]
 mod membership_tests;
+
+#[cfg(test)]
+#[path = "report_tests.rs"]
+mod report_tests;

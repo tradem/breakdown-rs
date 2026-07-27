@@ -30,6 +30,11 @@ use infra::queries::{
     MembershipRepositoryImpl, SceneRepositoryImpl, SceneShootReportRepositoryImpl,
     SceneShootRepositoryImpl, SeasonRepositoryImpl, ShootingDayRepositoryImpl,
 };
+use infra::reporting::{
+    BackupWorkerConfig, MemoryReportArchiveStorage, OpenDalReportArchiveStorage,
+    PgReportArchivalQueue, SceneShootReportDataLoader, ScheduleConfig, TypstReportRenderer,
+    spawn_backup_worker, spawn_schedule_ticker, spawn_wrap_archival_saga,
+};
 use kameo_es::command_service::CommandService;
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry_otlp::WithExportConfig;
@@ -258,6 +263,62 @@ async fn main() -> Result<()> {
     spawn_gc_scheduler(pool.clone(), photo_storage.clone(), photo_repo.clone());
     info!("photo GC scheduler spawned");
 
+    // --- Report archival (staging + external + worker + triggers) ---
+    let report_archival_queue = PgReportArchivalQueue::new(pool.clone());
+    let report_staging: std::sync::Arc<dyn breakdown_core::reporting::ReportArchiveStorage> =
+        match OpenDalReportArchiveStorage::staging_from_env() {
+            Ok(s) => std::sync::Arc::new(s),
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    "report staging storage unavailable — using in-memory staging (dev only)"
+                );
+                std::sync::Arc::new(MemoryReportArchiveStorage::new())
+            }
+        };
+    let report_external: std::sync::Arc<dyn breakdown_core::reporting::ReportArchiveStorage> =
+        match OpenDalReportArchiveStorage::external_from_env() {
+            Ok(s) => std::sync::Arc::new(s),
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    "report external storage unavailable — using in-memory external (dev only)"
+                );
+                std::sync::Arc::new(MemoryReportArchiveStorage::new())
+            }
+        };
+    // Shared renderer (process-wide semaphore budget for HTTP + backup).
+    let report_renderer: std::sync::Arc<dyn breakdown_core::reporting::ReportRenderer> =
+        std::sync::Arc::new(TypstReportRenderer::with_defaults().unwrap_or_else(|e| {
+            warn!(error = %e, "TypstReportRenderer defaults failed — empty renderer");
+            use std::collections::HashMap;
+            TypstReportRenderer::new(HashMap::new(), vec![])
+        }));
+    let report_loader = std::sync::Arc::new(SceneShootReportDataLoader::new(
+        scene_shoot_report_repo.clone(),
+    ));
+    let backup_worker = std::sync::Arc::new(infra::reporting::ReportBackupWorker::new(
+        report_archival_queue.clone(),
+        report_staging,
+        report_external,
+        report_renderer.clone(),
+        report_loader,
+        BackupWorkerConfig::default(),
+    ));
+    spawn_backup_worker(backup_worker);
+    spawn_schedule_ticker(
+        pool.clone(),
+        report_archival_queue.clone(),
+        ScheduleConfig::from_env(),
+    );
+    if let Err(e) =
+        spawn_wrap_archival_saga(report_archival_queue.clone(), Arc::clone(&redis_client)).await
+    {
+        warn!(error = %e, "failed to spawn wrap archival saga");
+    } else {
+        info!("report archival worker + triggers spawned");
+    }
+
     let ports = ProductionPorts::new(
         SceneCommandsImpl::new(cmd_service.clone()),
         SceneRepositoryImpl::new(pool.clone()),
@@ -284,6 +345,8 @@ async fn main() -> Result<()> {
         scene_shoot_commands,
         scene_shoot_repo,
         scene_shoot_report_repo,
+        report_archival_queue,
+        report_renderer,
     );
     let app_state = AppState::new(ports);
 

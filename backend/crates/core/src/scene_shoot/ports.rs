@@ -93,23 +93,26 @@ pub trait SceneShootRepository: Send + Sync {
 }
 
 /// Read port for the three shoot-day reports.
-#[allow(async_fn_in_trait)]
+///
+/// Futures are explicitly `Send` so background workers (report archival) can
+/// await them on multi-threaded runtimes. RPITIT `async fn` alone does not
+/// imply `Send`.
 pub trait SceneShootReportRepository: Send + Sync {
     /// Dispo (planned / Soll): scenes ordered by `planned_order ASC`.
-    async fn dispo_report(
+    fn dispo_report(
         &self,
         shooting_day_id: ShootingDayId,
-    ) -> Result<Vec<DispoRow>, DomainError>;
+    ) -> impl std::future::Future<Output = Result<Vec<DispoRow>, DomainError>> + Send;
 
     /// Shoot Day (actual / Ist): scenes ordered by `actual_order ASC NULLS LAST`.
-    async fn shoot_day_report(
+    fn shoot_day_report(
         &self,
         shooting_day_id: ShootingDayId,
-    ) -> Result<Vec<ShootDayRow>, DomainError>;
+    ) -> impl std::future::Future<Output = Result<Vec<ShootDayRow>, DomainError>> + Send;
 
     /// Soll-Ist-Vergleich: planned vs actual diff with flags.
-    async fn soll_ist_report(
+    fn soll_ist_report(
         &self,
         shooting_day_id: ShootingDayId,
-    ) -> Result<SollIstReport, DomainError>;
+    ) -> impl std::future::Future<Output = Result<SollIstReport, DomainError>> + Send;
 }

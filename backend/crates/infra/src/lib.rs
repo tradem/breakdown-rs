@@ -21,4 +21,5 @@ pub mod event_store;
 pub mod photo;
 pub mod projectors;
 pub mod queries;
+pub mod reporting;
 pub mod sagas;
