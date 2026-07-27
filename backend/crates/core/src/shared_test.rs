@@ -234,3 +234,49 @@ fn user_id_preserves_opaque_sub_through_clone() {
     assert_eq!(id, cloned);
     assert_eq!(format!("{id}"), "auth0|abc123");
 }
+
+#[test]
+fn episode_id_from_uuid_preserves_value() {
+    let raw = Uuid::now_v7();
+    assert_eq!(EpisodeId::from_uuid(raw).0, raw);
+}
+
+#[test]
+fn costume_category_id_from_uuid_preserves_value() {
+    let raw = Uuid::now_v7();
+    assert_eq!(CostumeCategoryId::from_uuid(raw).0, raw);
+}
+
+#[test]
+fn costume_category_id_display_roundtrip() {
+    let id = CostumeCategoryId::new();
+    assert_eq!(format!("{id}"), id.0.to_string());
+}
+
+#[test]
+fn photo_id_from_uuid_preserves_value() {
+    let raw = Uuid::now_v7();
+    assert_eq!(PhotoId::from_uuid(raw).0, raw);
+}
+
+#[test]
+fn photo_id_display_and_parse_roundtrip() {
+    let id = PhotoId::new();
+    let s = id.to_string();
+    let back: PhotoId = s.parse().expect("PhotoId must parse its Display output");
+    assert_eq!(id, back);
+    assert_eq!(back.0, id.0);
+    assert_eq!(s, id.0.to_string());
+}
+
+#[test]
+fn photo_id_rejects_non_uuid() {
+    assert!("not-a-uuid".parse::<PhotoId>().is_err());
+}
+
+#[test]
+fn photo_variant_as_str_returns_expected_values() {
+    assert_eq!(PhotoVariant::Original.as_str(), "original");
+    assert_eq!(PhotoVariant::Thumb.as_str(), "thumb");
+    assert_eq!(PhotoVariant::Medium.as_str(), "medium");
+}
