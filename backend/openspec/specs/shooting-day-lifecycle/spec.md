@@ -1,8 +1,8 @@
 <!--
   Authors: Tobias Rademacher (@tradem) — domain stakeholder & spec author
            deepseek-v4-flash (opencode-go) — coding agent / co-author
-           grok-4.5 (opencode-go) — coding agent / co-author
 
+           grok-4.5 (opencode-go) — coding agent / co-author
   Synced from change: add-report-archival-backup
 -->
 
