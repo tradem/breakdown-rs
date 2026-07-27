@@ -88,11 +88,12 @@ impl OpenDalReportArchiveStorage {
 
     /// Staging instance from env (`REPORT_BACKUP_STAGING_*`, falling back to `S3_*`).
     pub fn staging_from_env() -> Result<Self, ReportStorageError> {
-        let endpoint = env_first(&["REPORT_BACKUP_STAGING_ENDPOINT", "S3_ENDPOINT"]).ok_or_else(
-            || ReportStorageError::CredentialMissing {
-                detail: "REPORT_BACKUP_STAGING_ENDPOINT or S3_ENDPOINT must be set".into(),
-            },
-        )?;
+        let endpoint =
+            env_first(&["REPORT_BACKUP_STAGING_ENDPOINT", "S3_ENDPOINT"]).ok_or_else(|| {
+                ReportStorageError::CredentialMissing {
+                    detail: "REPORT_BACKUP_STAGING_ENDPOINT or S3_ENDPOINT must be set".into(),
+                }
+            })?;
         let access_key = env_first(&["REPORT_BACKUP_STAGING_ACCESS_KEY", "S3_ACCESS_KEY"])
             .ok_or_else(|| ReportStorageError::CredentialMissing {
                 detail: "REPORT_BACKUP_STAGING_ACCESS_KEY or S3_ACCESS_KEY must be set".into(),
@@ -103,8 +104,8 @@ impl OpenDalReportArchiveStorage {
             })?;
         let bucket = env_first(&["REPORT_BACKUP_STAGING_BUCKET", "S3_BUCKET"])
             .unwrap_or_else(|| "report-staging".into());
-        let prefix =
-            std::env::var("REPORT_BACKUP_STAGING_PREFIX").unwrap_or_else(|_| "report-staging/".into());
+        let prefix = std::env::var("REPORT_BACKUP_STAGING_PREFIX")
+            .unwrap_or_else(|_| "report-staging/".into());
 
         let op = build_s3_operator(&endpoint, &access_key, &secret_key, &bucket)?;
         Ok(Self::with_prefix(op, StorageRole::Staging, prefix))
@@ -136,16 +137,18 @@ impl OpenDalReportArchiveStorage {
                 detail: "REPORT_BACKUP_ENDPOINT or S3_ENDPOINT must be set".into(),
             }
         })?;
-        let access_key = env_first(&["REPORT_BACKUP_ACCESS_KEY", "S3_ACCESS_KEY"]).ok_or_else(
-            || ReportStorageError::CredentialMissing {
-                detail: "REPORT_BACKUP_ACCESS_KEY or S3_ACCESS_KEY must be set".into(),
-            },
-        )?;
-        let secret_key = env_first(&["REPORT_BACKUP_SECRET_KEY", "S3_SECRET_KEY"]).ok_or_else(
-            || ReportStorageError::CredentialMissing {
-                detail: "REPORT_BACKUP_SECRET_KEY or S3_SECRET_KEY must be set".into(),
-            },
-        )?;
+        let access_key =
+            env_first(&["REPORT_BACKUP_ACCESS_KEY", "S3_ACCESS_KEY"]).ok_or_else(|| {
+                ReportStorageError::CredentialMissing {
+                    detail: "REPORT_BACKUP_ACCESS_KEY or S3_ACCESS_KEY must be set".into(),
+                }
+            })?;
+        let secret_key =
+            env_first(&["REPORT_BACKUP_SECRET_KEY", "S3_SECRET_KEY"]).ok_or_else(|| {
+                ReportStorageError::CredentialMissing {
+                    detail: "REPORT_BACKUP_SECRET_KEY or S3_SECRET_KEY must be set".into(),
+                }
+            })?;
         let bucket = env_first(&["REPORT_BACKUP_BUCKET"]).unwrap_or_else(|| "report-backup".into());
         let prefix =
             std::env::var("REPORT_BACKUP_PREFIX").unwrap_or_else(|_| "report-backup/".into());

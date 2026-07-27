@@ -11,7 +11,7 @@
 
 use breakdown_core::reporting::{ReportArchiveStorage, ReportArtifactKey};
 
-use super::storage::{sha256_hex, MemoryReportArchiveStorage, OpenDalReportArchiveStorage};
+use super::storage::{MemoryReportArchiveStorage, OpenDalReportArchiveStorage, sha256_hex};
 
 async fn contract_upload_overwrite_fetch_delete<S: ReportArchiveStorage>(store: &S) {
     let key = ReportArtifactKey::new("contract/test-report.pdf").unwrap();
