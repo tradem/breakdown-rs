@@ -12,7 +12,7 @@
 
 ## Context
 
-The three shooting-day reports — `dispo`, `shoot-day`, and `soll-ist` — are
+The three shooting-day reports — `dispo`, `shoot-day`, and `planned-vs-actual` — are
 currently read-side JSON responses backed by PostgreSQL projections. They now
 need deterministic PDF output in two modes: an on-demand HTTP response and an
 automated asynchronous backup uploaded to configurable external storage. PDF
@@ -124,7 +124,7 @@ unreviewed implicit dependency.
 ### D2: Define renderer and artifact-storage ports in `core`
 
 A new pure module under `crates/core/src/reporting/` owns renderer-neutral
-request/response DTOs, `ReportKind` (`Dispo`, `ShootDay`, `SollIst`), the
+request/response DTOs, `ReportKind` (`Dispo`, `ShootDay`, `PlannedVsActual`), the
 supported locale identifier, `ReportRenderer`, `ReportArchiveStorage`, and
 typed `ReportRenderError`/`ReportStorageError` values. The render request holds
 pure report data and presentation context, not a database pool, Typst value,
@@ -145,7 +145,7 @@ Implementations and resources are placed as follows:
 - `crates/infra/src/reporting/storage.rs`: OpenDAL-backed report artifact
   storage;
 - `crates/infra/src/reporting/backup.rs`: durable job orchestration and retry;
-- `crates/infra/templates/reports/{dispo,shoot-day,soll-ist}.typ`: trusted,
+- `crates/infra/templates/reports/{dispo,shoot-day,planned-vs-actual}.typ`: trusted,
   compile-time-embedded templates;
 - `crates/infra/templates/reports/i18n/de-DE.ftl`: report messages;
 - `crates/infra/assets/reporting/`: reviewed fonts and future logos.
@@ -171,7 +171,7 @@ The template receives already localized display values and stable raw values
 only where layout needs them. For `de-DE`, missing optional values render as an
 em dash, an empty row set renders a valid report with localized “Keine Daten
 vorhanden”, and empty notes/photo lists render their localized empty state. The
-`SollIstReport.final` value derived from `wrapped_at` is preserved and rendered
+`PlannedVsActualReport.final` value derived from `wrapped_at` is preserved and rendered
 as a localized final/preliminary state. This is defined behavior, not a
 template exception. Future locales add a catalog and locale-formatting tests
 without copying report query logic.
@@ -188,7 +188,7 @@ The first rollout augments rather than silently changes the existing JSON
 contract. The API-first change adds explicit PDF resources for each report
 under the active ADR-021 API prefix, for example
 `/v1/shooting-days/{id}/report/dispo.pdf`; equivalent `shoot-day.pdf` and
-`soll-ist.pdf` routes follow the same rule. Existing JSON routes remain during
+`planned-vs-actual.pdf` routes follow the same rule. Existing JSON routes remain during
 the migration and may be deprecated separately under ADR-021.
 
 Every PDF handler retains the existing handler-internal authorization pattern:
@@ -390,7 +390,7 @@ remote-ID semantics required by retries. Typst's current tagged-PDF/PDF-UA and
 complex RTL behavior are also unproven, but are not first-release requirements.
 
 Before implementation is accepted, a spike must render worst-case
-`dispo`, `shoot-day`, and `soll-ist` fixtures (empty, all optional values absent,
+`dispo`, `shoot-day`, and `planned-vs-actual` fixtures (empty, all optional values absent,
 Unicode, 50 and 51 pages), benchmark concurrent CPU/memory/tail latency, test
 malicious strings and denied file/network/package access, exercise deterministic
 font/layout output in CI and the production image, and run an OpenDAL Google
