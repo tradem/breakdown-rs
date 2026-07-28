@@ -1,12 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: mimo-v2.5 (opencode-go)
 
-use super::*;
+use breakdown_core::scene::aggregate::SceneAggregate;
 use breakdown_core::scene::error::SceneError;
 use breakdown_core::scene::events::{SceneDetails, SceneEvent};
-use breakdown_core::shared::EpisodeId;
+use breakdown_core::shared::{AggregateVersion, EpisodeId};
+use infra::event_store::{
+    map_executed, map_executed_result, map_version_only, version_from_expected,
+};
 use chrono::Utc;
-use kameo_es::command_service::AppendedEvent;
+use kameo_es::command_service::{AppendedEvent, ExecuteResult};
+use kameo_es::error::ExecuteError;
+use uuid::Uuid;
 
 /// Build a single appended event carrying the given SierraDB (0-based) stream version.
 fn appended_event(stream_version: u64) -> AppendedEvent<SceneEvent> {
@@ -48,7 +54,7 @@ fn map_executed_result_uses_last_event_stream_version() {
 fn map_executed_result_idempotent_current() {
     let id = Uuid::now_v7();
     let result: ExecResult = Ok(ExecuteResult::Idempotent {
-        current_version: CurrentVersion::Current(2),
+        current_version: sierradb_client::CurrentVersion::Current(2),
     });
     let (rid, version) = map_executed_result(id, result).unwrap();
     assert_eq!(rid, id);
@@ -59,7 +65,7 @@ fn map_executed_result_idempotent_current() {
 fn map_executed_result_idempotent_empty() {
     let id = Uuid::now_v7();
     let result: ExecResult = Ok(ExecuteResult::Idempotent {
-        current_version: CurrentVersion::Empty,
+        current_version: sierradb_client::CurrentVersion::Empty,
     });
     let (rid, version) = map_executed_result(id, result).unwrap();
     assert_eq!(rid, id);
@@ -73,7 +79,7 @@ fn map_executed_result_handle_error_is_domain_error() {
         "boom".into(),
     )));
     let err = map_executed_result(id, result).unwrap_err();
-    assert!(matches!(err, DomainError::ValidationError(_)));
+    assert!(matches!(err, breakdown_core::error::DomainError::ValidationError(_)));
 }
 
 #[test]
@@ -99,16 +105,16 @@ fn map_executed_preserves_id_and_returns_version() {
 fn version_from_expected_maps_exact_and_empty() {
     // `Exact(v)` maps to the literal domain version `v`.
     assert_eq!(
-        version_from_expected(ExpectedVersion::Exact(5)),
+        version_from_expected(sierradb_client::ExpectedVersion::Exact(5)),
         AggregateVersion(5)
     );
     // `Empty` and any other variant map to the initial domain version.
     assert_eq!(
-        version_from_expected(ExpectedVersion::Empty),
+        version_from_expected(sierradb_client::ExpectedVersion::Empty),
         AggregateVersion::INITIAL
     );
     assert_eq!(
-        version_from_expected(ExpectedVersion::Any),
+        version_from_expected(sierradb_client::ExpectedVersion::Any),
         AggregateVersion::INITIAL
     );
 }

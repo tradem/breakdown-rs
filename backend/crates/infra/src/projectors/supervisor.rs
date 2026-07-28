@@ -29,7 +29,7 @@ pub const RESET_WINDOW_SECS: u64 = 300;
 
 /// Compute the delay for a given attempt (0-indexed) with exponential
 /// backoff, cap, and random jitter.
-pub(super) fn compute_backoff(attempt: usize, max: Duration) -> Duration {
+pub fn compute_backoff(attempt: usize, max: Duration) -> Duration {
     let base = std::cmp::min(
         BACKOFF_BASE_MS * 2_u64.saturating_pow(attempt as u32),
         max.as_millis() as u64,
@@ -159,7 +159,3 @@ where
         }
     }
 }
-
-#[cfg(test)]
-#[path = "supervisor_test.rs"]
-mod tests;

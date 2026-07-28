@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: mimo-v2.5 (opencode-go)
 
-use super::*;
+use breakdown_core::shared::AggregateVersion;
+use infra::event_store::{
+    check_nonzero_version, domain_to_stream, stream_to_domain, version_from_current,
+};
 
 #[test]
 fn stream_to_domain_basic() {
@@ -25,11 +29,11 @@ fn domain_to_stream_zero_returns_none() {
 #[test]
 fn version_from_current_current() {
     assert_eq!(
-        version_from_current(CurrentVersion::Current(0)),
+        version_from_current(sierradb_client::CurrentVersion::Current(0)),
         AggregateVersion(1)
     );
     assert_eq!(
-        version_from_current(CurrentVersion::Current(5)),
+        version_from_current(sierradb_client::CurrentVersion::Current(5)),
         AggregateVersion(6)
     );
 }
@@ -37,7 +41,7 @@ fn version_from_current_current() {
 #[test]
 fn version_from_current_empty() {
     assert_eq!(
-        version_from_current(CurrentVersion::Empty),
+        version_from_current(sierradb_client::CurrentVersion::Empty),
         AggregateVersion(0)
     );
 }
