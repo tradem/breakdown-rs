@@ -40,7 +40,7 @@ use crate::projectors::supervisor;
 use crate::reporting::jobs::PgReportArchivalQueue;
 
 /// All report kinds archived per trigger.
-const ALL_KINDS: [ReportKind; 3] = [
+pub const ALL_KINDS: [ReportKind; 3] = [
     ReportKind::Dispo,
     ReportKind::ShootDay,
     ReportKind::PlannedVsActual,
@@ -265,23 +265,4 @@ pub async fn spawn_wrap_archival_saga(
     .await?;
     drop(_handle);
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn all_kinds_covers_three_reports() {
-        assert_eq!(ALL_KINDS.len(), 3);
-    }
-
-    #[test]
-    fn schedule_config_defaults() {
-        let cfg = ScheduleConfig {
-            enabled: true,
-            interval: Duration::from_secs(1),
-        };
-        assert!(cfg.enabled);
-    }
 }

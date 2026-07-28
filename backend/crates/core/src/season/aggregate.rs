@@ -108,9 +108,3 @@ impl Command<RenameSeason> for SeasonAggregate {
         }])
     }
 }
-
-// ── Tests ──────────────────────────────────────────────────────────
-
-#[cfg(test)]
-#[path = "aggregate_test.rs"]
-mod tests;

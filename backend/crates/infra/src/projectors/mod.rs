@@ -17,7 +17,7 @@ mod scene;
 mod scene_shoot;
 mod season;
 mod shooting_day;
-pub(crate) mod supervisor;
+pub mod supervisor;
 
 pub use crate::photo::projector::PhotoProjector;
 pub use audit::AuditProjector;

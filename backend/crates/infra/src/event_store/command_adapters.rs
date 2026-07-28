@@ -816,7 +816,7 @@ impl SceneShootCommands for SceneShootCommandsImpl {
     }
 }
 
-fn map_version_only<Ent, Err>(
+pub fn map_version_only<Ent, Err>(
     result: Result<ExecuteResult<Ent>, ExecuteError<Err>>,
 ) -> Result<AggregateVersion, DomainError>
 where
@@ -828,7 +828,7 @@ where
     Ok(version)
 }
 
-fn map_executed<Ent, Err, Id>(
+pub fn map_executed<Ent, Err, Id>(
     id: Id,
     result: Result<ExecuteResult<Ent>, ExecuteError<Err>>,
 ) -> Result<(Id, AggregateVersion), DomainError>
@@ -857,7 +857,7 @@ pub fn domain_to_stream(domain_version: AggregateVersion) -> Option<u64> {
     }
 }
 
-fn map_executed_result<Ent, Err, Id>(
+pub fn map_executed_result<Ent, Err, Id>(
     id: Id,
     result: Result<ExecuteResult<Ent>, ExecuteError<Err>>,
 ) -> Result<(Id, AggregateVersion), DomainError>
@@ -894,7 +894,7 @@ where
 /// Map `CurrentVersion` to the canonical domain version.
 /// `Empty` (no events) → `AggregateVersion(0)` — no domain version yet.
 /// `Current(v)` (SierraDB reports version `v`) → `AggregateVersion(v + 1)`.
-fn version_from_current(current: CurrentVersion) -> AggregateVersion {
+pub fn version_from_current(current: CurrentVersion) -> AggregateVersion {
     match current {
         CurrentVersion::Current(v) => stream_to_domain(v),
         CurrentVersion::Empty => AggregateVersion(0),
@@ -904,7 +904,7 @@ fn version_from_current(current: CurrentVersion) -> AggregateVersion {
 /// Map `ExpectedVersion` to the canonical domain version.
 /// Only used in error context to inform the caller what they supplied.
 #[allow(dead_code)] // reserved for future error reporting
-fn version_from_expected(expected: ExpectedVersion) -> AggregateVersion {
+pub fn version_from_expected(expected: ExpectedVersion) -> AggregateVersion {
     match expected {
         ExpectedVersion::Exact(v) => AggregateVersion(v),
         ExpectedVersion::Empty => AggregateVersion::INITIAL,
@@ -914,7 +914,7 @@ fn version_from_expected(expected: ExpectedVersion) -> AggregateVersion {
 
 /// Check that a domain version is non-zero (valid for update operations).
 /// Returns `DomainError::VersionConflict` when `version.0 == 0`.
-fn check_nonzero_version(version: AggregateVersion) -> Result<(), DomainError> {
+pub fn check_nonzero_version(version: AggregateVersion) -> Result<(), DomainError> {
     if version.0 == 0 {
         Err(DomainError::VersionConflict {
             entity: String::new(),
@@ -925,9 +925,3 @@ fn check_nonzero_version(version: AggregateVersion) -> Result<(), DomainError> {
         Ok(())
     }
 }
-#[cfg(test)]
-#[path = "adapter_mapping_tests.rs"]
-mod adapter_mapping_tests;
-#[cfg(test)]
-#[path = "translation_tests.rs"]
-mod translation_tests;

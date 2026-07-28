@@ -10,6 +10,12 @@ pub mod events;
 pub mod ports;
 pub mod views;
 
-pub use events::CostumeDetail;
+pub use aggregate::CostumeAggregate;
+pub use commands::{
+    AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto, RemoveDetail, UnassignCostume,
+    UnlinkPhoto, UpdateCostumeNotes,
+};
+pub use error::CostumeError;
+pub use events::{CostumeDetail, CostumeEvent};
 pub use ports::{CostumeCommands, CostumeRepository};
 pub use views::{CostumeDetailView, CostumePhotoView, CostumeView};

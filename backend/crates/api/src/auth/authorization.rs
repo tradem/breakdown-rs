@@ -291,7 +291,3 @@ pub async fn authorize_middleware(
 
     next.run(req).await
 }
-
-#[cfg(test)]
-#[path = "authorization_test.rs"]
-mod env_tests;

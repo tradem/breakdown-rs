@@ -11,6 +11,11 @@ pub mod events;
 pub mod ports;
 pub mod views;
 
+pub use aggregate::CostumeCategoryAggregate;
+pub use commands::{
+    ArchiveCostumeCategory, CreateCostumeCategory, RenameCostumeCategory, ReorderCostumeCategory,
+};
+pub use error::CostumeCategoryError;
 pub use events::CostumeCategoryEvent;
 pub use ports::{CostumeCategoryCommands, CostumeCategoryRepository};
 pub use views::CostumeCategoryView;

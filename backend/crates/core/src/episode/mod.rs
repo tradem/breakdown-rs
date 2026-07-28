@@ -10,6 +10,9 @@ pub mod events;
 pub mod ports;
 pub mod views;
 
+pub use aggregate::EpisodeAggregate;
+pub use commands::{CreateEpisode, RenameEpisode};
+pub use error::EpisodeError;
 pub use events::EpisodeEvent;
 pub use ports::{EpisodeCommands, EpisodeRepository};
 pub use views::EpisodeView;

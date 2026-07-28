@@ -37,7 +37,7 @@ struct EmbeddedTemplate {
 /// - Embedded fonts
 ///
 /// Denies all host FS, network, and package access.
-struct RestrictedWorld {
+pub struct RestrictedWorld {
     /// The main template source code.
     template_source: Source,
     /// The report data as JSON bytes.
@@ -53,7 +53,7 @@ struct RestrictedWorld {
 
 impl RestrictedWorld {
     /// Create a new restricted world with the given template and data.
-    fn new(template_source: &str, report_json: &[u8], fonts: Vec<Font>) -> Self {
+    pub fn new(template_source: &str, report_json: &[u8], fonts: Vec<Font>) -> Self {
         let file_id = FileId::new(typst::syntax::RootedPath::new(
             typst::syntax::VirtualRoot::Project,
             VirtualPath::new("main.typ").unwrap(),
@@ -162,7 +162,7 @@ impl Default for RenderConfig {
 /// In-process Typst renderer for PDF reports.
 pub struct TypstReportRenderer {
     /// Embedded templates keyed by report kind.
-    templates: HashMap<ReportKind, String>,
+    pub templates: HashMap<ReportKind, String>,
     /// Embedded fonts for deterministic Latin text rendering.
     fonts: Vec<Font>,
     /// Font book metadata.
@@ -171,7 +171,7 @@ pub struct TypstReportRenderer {
     /// Semaphore for concurrency control.
     semaphore: Arc<tokio::sync::Semaphore>,
     /// Render configuration.
-    config: RenderConfig,
+    pub config: RenderConfig,
 }
 
 impl fmt::Debug for TypstReportRenderer {
@@ -382,193 +382,4 @@ fn load_system_fonts() -> Result<Vec<Font>, String> {
     }
 
     Ok(fonts)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use breakdown_core::reporting::RenderPresentationContext;
-    use breakdown_core::reporting::ReportLocale;
-
-    // ------------------------------------------------------------------
-    // RestrictedWorld isolation tests
-    // ------------------------------------------------------------------
-
-    #[test]
-    fn restricted_world_denies_unknown_files() {
-        let world = RestrictedWorld::new("test", b"{}", vec![]);
-
-        // Unknown file should fail
-        let unknown_id = FileId::new(typst::syntax::RootedPath::new(
-            typst::syntax::VirtualRoot::Project,
-            VirtualPath::new("unknown.typ").unwrap(),
-        ));
-        assert!(world.source(unknown_id).is_err());
-    }
-
-    #[test]
-    fn restricted_world_serves_main_template() {
-        let world = RestrictedWorld::new("= Hello", b"{}", vec![]);
-
-        // Main template should work
-        assert!(world.source(world.main()).is_ok());
-    }
-
-    #[test]
-    fn restricted_world_serves_report_json() {
-        let world = RestrictedWorld::new("test", b"{\"key\": \"value\"}", vec![]);
-
-        // report.json should work
-        assert!(world.file(world.report_json_id()).is_ok());
-    }
-
-    #[test]
-    fn restricted_world_denies_network() {
-        let world = RestrictedWorld::new("test", b"{}", vec![]);
-
-        // Network access should fail (no implementation)
-        let network_id = FileId::new(typst::syntax::RootedPath::new(
-            typst::syntax::VirtualRoot::Project,
-            VirtualPath::new("http://example.com/data.json").unwrap(),
-        ));
-        assert!(world.file(network_id).is_err());
-    }
-
-    #[test]
-    fn restricted_world_denies_package_lookup() {
-        let world = RestrictedWorld::new("test", b"{}", vec![]);
-
-        // Package paths contain @version, e.g. "@preview/example/0.1.0/main.typ"
-        let pkg_id = FileId::new(typst::syntax::RootedPath::new(
-            typst::syntax::VirtualRoot::Project,
-            VirtualPath::new("@preview/fontawesome/0.1.0/lib.typ").unwrap(),
-        ));
-        assert!(world.source(pkg_id).is_err());
-        assert!(world.file(pkg_id).is_err());
-    }
-
-    #[test]
-    fn restricted_world_denies_host_fs_absolute_path() {
-        let world = RestrictedWorld::new("test", b"{}", vec![]);
-
-        // Absolute host FS paths should be denied
-        let fs_id = FileId::new(typst::syntax::RootedPath::new(
-            typst::syntax::VirtualRoot::Project,
-            VirtualPath::new("/etc/passwd").unwrap(),
-        ));
-        assert!(world.source(fs_id).is_err());
-        assert!(world.file(fs_id).is_err());
-    }
-
-    #[test]
-    fn restricted_world_fixed_today() {
-        let world = RestrictedWorld::new("test", b"{}", vec![]);
-
-        let dt = world.today(None).unwrap();
-        // Should return the fixed date (2024-06-15) as set in the implementation
-        assert_eq!(
-            dt,
-            typst::foundations::Datetime::from_ymd(2024, 6, 15).unwrap()
-        );
-    }
-
-    // ------------------------------------------------------------------
-    // TypstReportRenderer construction tests
-    // ------------------------------------------------------------------
-
-    #[test]
-    fn typst_report_renderer_new() {
-        let mut templates = HashMap::new();
-        templates.insert(ReportKind::Dispo, "= Test".to_string());
-        let renderer = TypstReportRenderer::new(templates.clone(), vec![]);
-        assert_eq!(renderer.config.max_pages, 50);
-        assert_eq!(renderer.config.concurrency_limit, 4);
-        assert!(renderer.templates.contains_key(&ReportKind::Dispo));
-    }
-
-    #[test]
-    fn typst_report_renderer_with_config() {
-        let mut templates = HashMap::new();
-        templates.insert(ReportKind::ShootDay, "= Test".to_string());
-        let config = RenderConfig {
-            max_pages: 10,
-            concurrency_limit: 2,
-            deadline_secs: 5,
-            ..Default::default()
-        };
-        let renderer = TypstReportRenderer::with_config(templates, vec![], config.clone());
-        assert_eq!(renderer.config.max_pages, 10);
-        assert_eq!(renderer.config.concurrency_limit, 2);
-        assert_eq!(renderer.config.deadline_secs, 5);
-    }
-
-    #[test]
-    fn typst_report_renderer_template_not_found() {
-        // No templates registered at all
-        let renderer = TypstReportRenderer::new(HashMap::new(), vec![]);
-
-        let req = ReportRenderRequest {
-            kind: ReportKind::Dispo,
-            context: RenderPresentationContext {
-                locale: ReportLocale::de_de(),
-                timezone: "Europe/Berlin".into(),
-                template_version: "1.0.0".into(),
-            },
-            data: serde_json::json!({}),
-        };
-
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let result = rt.block_on(renderer.render(req));
-        assert!(matches!(
-            result,
-            Err(ReportRenderError::TemplateNotFound { .. })
-        ));
-    }
-
-    // ------------------------------------------------------------------
-    // Input bounds tests
-    // ------------------------------------------------------------------
-
-    #[test]
-    fn typst_report_renderer_rejects_oversized_json() {
-        let mut templates = HashMap::new();
-        templates.insert(ReportKind::Dispo, "= Test".to_string());
-        let config = RenderConfig {
-            max_json_bytes: 10, // Very small limit
-            ..Default::default()
-        };
-        let renderer = TypstReportRenderer::with_config(templates, vec![], config);
-
-        let req = ReportRenderRequest {
-            kind: ReportKind::Dispo,
-            context: RenderPresentationContext {
-                locale: ReportLocale::de_de(),
-                timezone: "Europe/Berlin".into(),
-                template_version: "1.0.0".into(),
-            },
-            data: serde_json::json!({"data": "this is way more than 10 bytes of JSON data"}),
-        };
-
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let result = rt.block_on(renderer.render(req));
-        assert!(matches!(
-            result,
-            Err(ReportRenderError::InputBoundsExceeded { .. })
-        ));
-    }
-
-    // ------------------------------------------------------------------
-    // RenderConfig defaults
-    // ------------------------------------------------------------------
-
-    #[test]
-    fn render_config_defaults() {
-        let config = RenderConfig::default();
-        assert_eq!(config.concurrency_limit, 4);
-        assert_eq!(config.deadline_secs, 30);
-        assert_eq!(config.max_rows, 10_000);
-        assert_eq!(config.max_json_bytes, 5 * 1024 * 1024);
-        assert_eq!(config.max_output_bytes, 100 * 1024 * 1024);
-        assert_eq!(config.max_pages, 50);
-    }
 }

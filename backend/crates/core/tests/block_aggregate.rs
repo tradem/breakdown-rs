@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0
-// Copyright (C) 2024-2026 Breakdown RS Contributors
+// Copyright (C) 2024 Breakdown RS Contributors
+// Co-authored-by: mimo-v2.5 (opencode-go)
 
-use super::*;
+use breakdown_core::block::*;
+use breakdown_core::shared::{AggregateVersion, SeasonId, SeriesId};
 use chrono::NaiveDate;
+use kameo_es::{Apply, Command};
 use test_support::make_ctx;
+use uuid::Uuid;
 
 fn make_block() -> BlockAggregate {
     let cmd = CreateBlock {

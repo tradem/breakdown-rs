@@ -10,6 +10,12 @@ pub mod events;
 pub mod ports;
 pub mod views;
 
-pub use events::SceneDetails;
+pub use aggregate::SceneAggregate;
+pub use commands::{
+    AssignCharacter, CreateScene, RemoveCharacter, ScheduleSceneOnShootingDay,
+    UnscheduleSceneFromShootingDay, UpdateSceneDetails,
+};
+pub use error::SceneError;
+pub use events::{SceneDetails, SceneEvent};
 pub use ports::{SceneCommands, SceneRepository};
 pub use views::SceneView;

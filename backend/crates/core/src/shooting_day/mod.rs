@@ -16,6 +16,7 @@ pub mod events;
 pub mod ports;
 pub mod views;
 
+pub use aggregate::ShootingDayAggregate;
 pub use commands::{
     ArchiveShootingDay, CreateShootingDay, RenameShootingDay, ReorderShootingDay,
     RescheduleShootingDay, WrapShootingDay,

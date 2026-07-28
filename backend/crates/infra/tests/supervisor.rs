@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: mimo-v2.5 (opencode-go)
 
-use super::*;
+use infra::projectors::supervisor::{
+    BACKOFF_BASE_MS, BACKOFF_MAX_DELAY_MS, MAX_ATTEMPTS, compute_backoff, run_with_restart,
+};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 #[test]
 fn backoff_non_decreasing_and_capped() {

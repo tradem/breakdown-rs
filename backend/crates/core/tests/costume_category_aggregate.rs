@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: mimo-v2.5 (opencode-go)
 
-use super::*;
-use crate::shared::{LexicalSortKey, SeasonId};
+use breakdown_core::costume_category::*;
+use breakdown_core::shared::{AggregateVersion, LexicalSortKey, SeasonId};
+use kameo_es::Command;
 use test_support::make_ctx;
+use uuid::Uuid;
 
 fn create_category() -> CostumeCategoryAggregate {
     let season_id = SeasonId::new();

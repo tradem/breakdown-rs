@@ -157,9 +157,3 @@ impl Command<UpdateContactInfo> for CharacterAggregate {
         }])
     }
 }
-
-// ── Tests ──────────────────────────────────────────────────────────
-
-#[cfg(test)]
-#[path = "aggregate_test.rs"]
-mod tests;

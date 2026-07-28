@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: mimo-v2.5 (opencode-go)
 
-use super::*;
-use crate::costume::views::CostumeDetailView;
-use crate::shared::CostumeCategoryId;
+use breakdown_core::costume::*;
+use breakdown_core::shared::{AggregateVersion, CostumeCategoryId};
+use kameo_es::{Apply, Command};
 use test_support::make_ctx;
+use uuid::Uuid;
 
 fn make_costume() -> CostumeAggregate {
     let agg = CostumeAggregate::default();

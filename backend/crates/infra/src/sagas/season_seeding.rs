@@ -41,8 +41,8 @@ const SEED_ORDER_KEYS: &[&str] = &["a", "b", "c", "d", "e"];
 const DEFAULT_SEED_FALLBACK: &[&str] = &["Oberteil", "Unterteil", "Schuhe", "Jacke", "Accessoires"];
 
 #[derive(Debug, Clone, serde::Deserialize)]
-struct DefaultCostumeCategoriesToml {
-    names: Vec<String>,
+pub struct DefaultCostumeCategoriesToml {
+    pub names: Vec<String>,
 }
 
 /// Load the configurable default costume-category seed.
@@ -218,119 +218,4 @@ pub async fn spawn_season_seeding_saga(
     .await?;
     drop(_handle);
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Arc;
-    use std::sync::Mutex;
-
-    use breakdown_core::costume_category::commands::{
-        ArchiveCostumeCategory, CreateCostumeCategory, RenameCostumeCategory,
-        ReorderCostumeCategory,
-    };
-    use breakdown_core::costume_category::ports::{
-        CostumeCategoryCommands, CostumeCategoryRepository,
-    };
-    use breakdown_core::costume_category::views::CostumeCategoryView;
-    use breakdown_core::error::DomainError;
-    use breakdown_core::shared::{AggregateVersion, SeasonId};
-
-    #[derive(Clone, Default)]
-    struct FakeCategoryRepo {
-        count: Arc<Mutex<i64>>,
-    }
-
-    impl CostumeCategoryRepository for FakeCategoryRepo {
-        async fn list_by_season(
-            &self,
-            _season_id: SeasonId,
-        ) -> Result<Vec<CostumeCategoryView>, DomainError> {
-            Ok(Vec::new())
-        }
-        async fn count_for_season(&self, _season_id: SeasonId) -> Result<i64, DomainError> {
-            Ok(*self.count.lock().unwrap())
-        }
-        async fn find_by_id(&self, _id: Uuid) -> Result<CostumeCategoryView, DomainError> {
-            Err(DomainError::NotFound("nope".into()))
-        }
-    }
-
-    #[derive(Clone, Default)]
-    struct FakeCategoryCommands {
-        created: Arc<Mutex<Vec<String>>>,
-    }
-
-    impl CostumeCategoryCommands for FakeCategoryCommands {
-        async fn create(
-            &self,
-            cmd: CreateCostumeCategory,
-        ) -> Result<(Uuid, AggregateVersion), DomainError> {
-            self.created.lock().unwrap().push(cmd.name);
-            Ok((cmd.id, AggregateVersion::INITIAL))
-        }
-        async fn rename(
-            &self,
-            _cmd: RenameCostumeCategory,
-        ) -> Result<AggregateVersion, DomainError> {
-            Ok(AggregateVersion::INITIAL)
-        }
-        async fn reorder(
-            &self,
-            _cmd: ReorderCostumeCategory,
-        ) -> Result<AggregateVersion, DomainError> {
-            Ok(AggregateVersion::INITIAL)
-        }
-        async fn archive(
-            &self,
-            _cmd: ArchiveCostumeCategory,
-        ) -> Result<AggregateVersion, DomainError> {
-            Ok(AggregateVersion::INITIAL)
-        }
-    }
-
-    #[tokio::test]
-    async fn test_seed_creates_one_per_entry() {
-        let repo = FakeCategoryRepo::default();
-        let cmds = FakeCategoryCommands::default();
-        let seed = vec!["Oberteil".into(), "Schuhe".into()];
-        seed_season(&cmds, &repo, &seed, SeasonId::new())
-            .await
-            .unwrap();
-        assert_eq!(cmds.created.lock().unwrap().len(), 2);
-    }
-
-    #[tokio::test]
-    async fn test_replayed_season_does_not_double_seed() {
-        let repo = FakeCategoryRepo {
-            count: Arc::new(Mutex::new(0)),
-        };
-        let cmds = FakeCategoryCommands::default();
-        let seed = vec!["Oberteil".into(), "Schuhe".into()];
-        let sid = SeasonId::new();
-
-        seed_season(&cmds, &repo, &seed, sid).await.unwrap();
-        assert_eq!(cmds.created.lock().unwrap().len(), 2);
-
-        // Simulate the season now having categories: bump the count guard.
-        *repo.count.lock().unwrap() = 2;
-        seed_season(&cmds, &repo, &seed, sid).await.unwrap();
-
-        // Still only the original two — replay produced zero new commands.
-        assert_eq!(cmds.created.lock().unwrap().len(), 2);
-    }
-
-    #[test]
-    fn test_embedded_seed_toml_parses_to_five_names() {
-        let content = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../config/default_costume_categories.toml"
-        ));
-        let cfg: DefaultCostumeCategoriesToml =
-            toml::from_str(content).expect("embedded seed TOML must parse");
-        assert_eq!(cfg.names.len(), 5);
-        assert_eq!(cfg.names[0], "Oberteil");
-        assert_eq!(cfg.names[4], "Accessoires");
-    }
 }

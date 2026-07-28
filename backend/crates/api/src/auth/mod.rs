@@ -318,7 +318,7 @@ pub async fn auth_middleware(
 }
 
 /// Extract a non-empty bearer token from an `Authorization` header value.
-fn bearer_token(header: Option<&axum::http::HeaderValue>) -> Option<String> {
+pub fn bearer_token(header: Option<&axum::http::HeaderValue>) -> Option<String> {
     let value = header?.to_str().ok()?;
     let token = value.strip_prefix("Bearer ")?;
     if token.is_empty() {
@@ -326,7 +326,3 @@ fn bearer_token(header: Option<&axum::http::HeaderValue>) -> Option<String> {
     }
     Some(token.to_string())
 }
-
-#[cfg(test)]
-#[path = "mod_test.rs"]
-mod tests;
