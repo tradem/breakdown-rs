@@ -103,9 +103,6 @@ jobs:
       - name: Run integration tests
         env:
           RUST_LOG: info,sierradb=debug,kameo_es=debug
-          # Enable testcontainers image reuse to speed up parallel tests
-          # within the same CI run.
-          TESTCONTAINERS_REUSE: "1"
         run: cargo test -p integration-tests -- --nocapture
 
       # GDrive archival provider contract test.

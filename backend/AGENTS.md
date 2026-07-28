@@ -117,7 +117,7 @@ End-to-end, black-box integration tests live in the dedicated workspace member `
 - **Boundary**: The crate consumes only the `pub` API of `core` and `infra`. It is excluded from the `cargo-mutants` surface — only whitebox `#[cfg(test)]` modules are mutated.
 - **CI trigger**: The integration-test job runs on pull requests and pushes to main. CI starts both the Postgres and SierraDB containers.
 - **Container policy**: Each test gets fresh containers by default. Optional local container reuse is documented in the harness module docs, but CI always uses fresh containers.
-- **Flaky-test mitigation**: Container startup uses automatic retries (3 attempts with exponential backoff) to handle transient Docker image pull failures. CI pre-pulls images before tests run.
+- **Flaky-test mitigation**: CI pre-pulls Docker images with retries before running tests to handle transient network failures.
 
 ### Local development (integration tests)
 
