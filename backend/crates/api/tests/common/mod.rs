@@ -81,7 +81,7 @@ use std::collections::HashSet;
 use api::state::Ports;
 
 #[derive(Clone, Default)]
-pub(crate) struct FakeSceneCommands;
+pub struct FakeSceneCommands;
 
 impl SceneCommands for FakeSceneCommands {
     async fn create(&self, cmd: CreateScene) -> Result<(Uuid, AggregateVersion), DomainError> {
@@ -120,7 +120,7 @@ impl SceneCommands for FakeSceneCommands {
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct FakeCharacterCommands;
+pub struct FakeCharacterCommands;
 
 impl CharacterCommands for FakeCharacterCommands {
     async fn create(&self, cmd: CreateCharacter) -> Result<(Uuid, AggregateVersion), DomainError> {
@@ -141,7 +141,7 @@ impl CharacterCommands for FakeCharacterCommands {
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct FakeCostumeCommands;
+pub struct FakeCostumeCommands;
 
 impl CostumeCommands for FakeCostumeCommands {
     async fn create(&self, cmd: CreateCostume) -> Result<(Uuid, AggregateVersion), DomainError> {
@@ -177,7 +177,7 @@ impl CostumeCommands for FakeCostumeCommands {
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct FakeCostumeCategoryCommands;
+pub struct FakeCostumeCategoryCommands;
 
 impl CostumeCategoryCommands for FakeCostumeCategoryCommands {
     async fn create(
@@ -198,7 +198,7 @@ impl CostumeCategoryCommands for FakeCostumeCategoryCommands {
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct FakeSeasonCommands;
+pub struct FakeSeasonCommands;
 
 impl SeasonCommands for FakeSeasonCommands {
     async fn create(&self, cmd: CreateSeason) -> Result<(Uuid, AggregateVersion), DomainError> {
@@ -210,7 +210,7 @@ impl SeasonCommands for FakeSeasonCommands {
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct FakeBlockCommands;
+pub struct FakeBlockCommands;
 
 impl BlockCommands for FakeBlockCommands {
     async fn create(&self, cmd: CreateBlock) -> Result<(Uuid, AggregateVersion), DomainError> {
@@ -225,7 +225,7 @@ impl BlockCommands for FakeBlockCommands {
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct FakeEpisodeCommands;
+pub struct FakeEpisodeCommands;
 
 impl EpisodeCommands for FakeEpisodeCommands {
     async fn create(&self, cmd: CreateEpisode) -> Result<(Uuid, AggregateVersion), DomainError> {
@@ -241,13 +241,13 @@ impl EpisodeCommands for FakeEpisodeCommands {
 /// In-memory membership command adapter that records the last dispatched
 /// command per method so handler tests can assert actor/target mapping.
 #[derive(Clone, Default)]
-pub(crate) struct FakeMembershipCommands {
-    pub(crate) last_invite: Arc<Mutex<Option<(UserId, InviteMember)>>>,
-    pub(crate) last_accept: Arc<Mutex<Option<(UserId, AcceptInvitation)>>>,
-    pub(crate) last_grant: Arc<Mutex<Option<(UserId, GrantRole)>>>,
-    pub(crate) last_remove: Arc<Mutex<Option<(UserId, RemoveMember)>>>,
-    pub(crate) last_leave: Arc<Mutex<Option<(UserId, LeaveBlock)>>>,
-    pub(crate) last_bootstrap: Arc<Mutex<Option<(UserId, BootstrapOwner)>>>,
+pub struct FakeMembershipCommands {
+    pub last_invite: Arc<Mutex<Option<(UserId, InviteMember)>>>,
+    pub last_accept: Arc<Mutex<Option<(UserId, AcceptInvitation)>>>,
+    pub last_grant: Arc<Mutex<Option<(UserId, GrantRole)>>>,
+    pub last_remove: Arc<Mutex<Option<(UserId, RemoveMember)>>>,
+    pub last_leave: Arc<Mutex<Option<(UserId, LeaveBlock)>>>,
+    pub last_bootstrap: Arc<Mutex<Option<(UserId, BootstrapOwner)>>>,
 }
 
 #[async_trait]
@@ -285,8 +285,8 @@ impl MembershipCommands for FakeMembershipCommands {
 /// In-memory membership repository whose active-membership is driven by a
 /// controllable set of `(block_id, user_id)` pairs.
 #[derive(Clone, Default)]
-pub(crate) struct FakeMembershipRepo {
-    pub(crate) members: Arc<Mutex<HashSet<(BlockId, UserId)>>>,
+pub struct FakeMembershipRepo {
+    pub members: Arc<Mutex<HashSet<(BlockId, UserId)>>>,
 }
 
 #[async_trait]
@@ -362,8 +362,8 @@ impl MembershipRepository for FakeMembershipRepo {
 }
 
 #[derive(Clone)]
-pub(crate) struct FakeSceneRepo {
-    pub(crate) scenes: Arc<Mutex<HashMap<Uuid, SceneView>>>,
+pub struct FakeSceneRepo {
+    pub scenes: Arc<Mutex<HashMap<Uuid, SceneView>>>,
 }
 
 impl Default for FakeSceneRepo {
@@ -400,7 +400,7 @@ impl SceneRepository for FakeSceneRepo {
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct FakeCharacterRepo;
+pub struct FakeCharacterRepo;
 
 impl CharacterRepository for FakeCharacterRepo {
     async fn find_by_id(&self, id: Uuid) -> Result<CharacterView, DomainError> {
@@ -429,7 +429,7 @@ impl CharacterRepository for FakeCharacterRepo {
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct FakeCostumeRepo;
+pub struct FakeCostumeRepo;
 
 impl CostumeRepository for FakeCostumeRepo {
     async fn find_by_id(&self, id: Uuid) -> Result<CostumeView, DomainError> {
@@ -455,7 +455,7 @@ impl CostumeRepository for FakeCostumeRepo {
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct FakeCostumeCategoryRepo;
+pub struct FakeCostumeCategoryRepo;
 
 impl CostumeCategoryRepository for FakeCostumeCategoryRepo {
     async fn list_by_season(
@@ -473,7 +473,7 @@ impl CostumeCategoryRepository for FakeCostumeCategoryRepo {
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct FakeSeasonRepo;
+pub struct FakeSeasonRepo;
 
 impl SeasonRepository for FakeSeasonRepo {
     async fn find_by_id(&self, id: Uuid) -> Result<SeasonView, DomainError> {
@@ -497,7 +497,7 @@ impl SeasonRepository for FakeSeasonRepo {
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct FakeBlockRepo;
+pub struct FakeBlockRepo;
 
 impl BlockRepository for FakeBlockRepo {
     async fn find_by_id(&self, id: Uuid) -> Result<BlockView, DomainError> {
@@ -521,7 +521,7 @@ impl BlockRepository for FakeBlockRepo {
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct FakeEpisodeRepo;
+pub struct FakeEpisodeRepo;
 
 impl EpisodeRepository for FakeEpisodeRepo {
     async fn find_by_id(&self, id: Uuid) -> Result<EpisodeView, DomainError> {
@@ -553,8 +553,8 @@ impl EpisodeRepository for FakeEpisodeRepo {
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct FakeAuditRepo {
-    pub(crate) entries: Arc<Mutex<Vec<AuditEntry>>>,
+pub struct FakeAuditRepo {
+    pub entries: Arc<Mutex<Vec<AuditEntry>>>,
 }
 
 #[async_trait]
@@ -603,7 +603,7 @@ impl AuditRepository for FakeAuditRepo {
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct FakeShootingDayCommands;
+pub struct FakeShootingDayCommands;
 
 impl ShootingDayCommands for FakeShootingDayCommands {
     async fn create(
@@ -634,7 +634,7 @@ impl ShootingDayCommands for FakeShootingDayCommands {
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct FakeShootingDayRepo;
+pub struct FakeShootingDayRepo;
 
 impl ShootingDayRepository for FakeShootingDayRepo {
     async fn find_by_id(&self, id: ShootingDayId) -> Result<ShootingDayView, DomainError> {
@@ -656,15 +656,15 @@ impl ShootingDayRepository for FakeShootingDayRepo {
 
 /// Placeholder photo storage for tests — panics if called.
 #[derive(Clone, Default)]
-pub(crate) struct FakePhotoStorage;
+pub struct FakePhotoStorage;
 
 /// Placeholder photo commands for tests — panics if called.
 #[derive(Clone, Default)]
-pub(crate) struct FakePhotoCommands;
+pub struct FakePhotoCommands;
 
 /// Placeholder photo repo for tests — panics if called.
 #[derive(Clone, Default)]
-pub(crate) struct FakePhotoRepo;
+pub struct FakePhotoRepo;
 
 #[async_trait]
 impl PhotoStorage for FakePhotoStorage {
@@ -732,7 +732,7 @@ impl PhotoRepository for FakePhotoRepo {
 // ─── Fake SceneShootCommands ───────────────────────────────────────
 
 #[derive(Clone, Default)]
-pub(crate) struct FakeSceneShootCommands;
+pub struct FakeSceneShootCommands;
 
 impl SceneShootCommands for FakeSceneShootCommands {
     async fn plan(
@@ -791,7 +791,7 @@ impl SceneShootCommands for FakeSceneShootCommands {
 // ─── Fake SceneShootRepository ─────────────────────────────────────
 
 #[derive(Clone, Default)]
-pub(crate) struct FakeSceneShootRepo;
+pub struct FakeSceneShootRepo;
 
 impl SceneShootRepository for FakeSceneShootRepo {
     async fn find_by_id(&self, _id: SceneShootId) -> Result<SceneShootView, DomainError> {
@@ -818,7 +818,7 @@ impl SceneShootRepository for FakeSceneShootRepo {
 // ─── Fake SceneShootReportRepository ───────────────────────────────
 
 #[derive(Clone, Default)]
-pub(crate) struct FakeSceneShootReportRepo;
+pub struct FakeSceneShootReportRepo;
 
 impl SceneShootReportRepository for FakeSceneShootReportRepo {
     async fn dispo_report(
@@ -843,7 +843,7 @@ impl SceneShootReportRepository for FakeSceneShootReportRepo {
 
 /// A fake renderer that returns empty PDF bytes for handler tests.
 #[derive(Debug)]
-pub(crate) struct FakeReportRenderer;
+pub struct FakeReportRenderer;
 
 #[async_trait::async_trait]
 impl breakdown_core::reporting::ReportRenderer for FakeReportRenderer {
@@ -867,8 +867,8 @@ impl breakdown_core::reporting::ReportRenderer for FakeReportRenderer {
 
 /// In-memory archival queue for handler tests (dedup by key).
 #[derive(Clone, Default)]
-pub(crate) struct FakeReportArchivalQueue {
-    pub(crate) jobs: Arc<tokio::sync::Mutex<HashMap<String, EnqueueArchivalResult>>>,
+pub struct FakeReportArchivalQueue {
+    pub jobs: Arc<tokio::sync::Mutex<HashMap<String, EnqueueArchivalResult>>>,
 }
 
 #[async_trait::async_trait]
@@ -905,38 +905,38 @@ impl ReportArchivalQueue for FakeReportArchivalQueue {
 }
 
 #[derive(Clone)]
-pub(crate) struct FakePorts {
-    pub(crate) scene_commands: FakeSceneCommands,
-    pub(crate) scene_repo: FakeSceneRepo,
-    pub(crate) character_commands: FakeCharacterCommands,
-    pub(crate) character_repo: FakeCharacterRepo,
-    pub(crate) costume_commands: FakeCostumeCommands,
-    pub(crate) costume_repo: FakeCostumeRepo,
-    pub(crate) costume_category_commands: FakeCostumeCategoryCommands,
-    pub(crate) costume_category_repo: FakeCostumeCategoryRepo,
-    pub(crate) season_commands: FakeSeasonCommands,
-    pub(crate) season_repo: FakeSeasonRepo,
-    pub(crate) block_commands: FakeBlockCommands,
-    pub(crate) block_repo: FakeBlockRepo,
-    pub(crate) episode_commands: FakeEpisodeCommands,
-    pub(crate) episode_repo: FakeEpisodeRepo,
-    pub(crate) membership_commands: FakeMembershipCommands,
-    pub(crate) membership_repo: FakeMembershipRepo,
-    pub(crate) audit_repo: FakeAuditRepo,
-    pub(crate) shooting_day_commands: FakeShootingDayCommands,
-    pub(crate) shooting_day_repo: FakeShootingDayRepo,
+pub struct FakePorts {
+    pub scene_commands: FakeSceneCommands,
+    pub scene_repo: FakeSceneRepo,
+    pub character_commands: FakeCharacterCommands,
+    pub character_repo: FakeCharacterRepo,
+    pub costume_commands: FakeCostumeCommands,
+    pub costume_repo: FakeCostumeRepo,
+    pub costume_category_commands: FakeCostumeCategoryCommands,
+    pub costume_category_repo: FakeCostumeCategoryRepo,
+    pub season_commands: FakeSeasonCommands,
+    pub season_repo: FakeSeasonRepo,
+    pub block_commands: FakeBlockCommands,
+    pub block_repo: FakeBlockRepo,
+    pub episode_commands: FakeEpisodeCommands,
+    pub episode_repo: FakeEpisodeRepo,
+    pub membership_commands: FakeMembershipCommands,
+    pub membership_repo: FakeMembershipRepo,
+    pub audit_repo: FakeAuditRepo,
+    pub shooting_day_commands: FakeShootingDayCommands,
+    pub shooting_day_repo: FakeShootingDayRepo,
     #[allow(dead_code)]
-    pub(crate) photo_storage: FakePhotoStorage,
+    pub photo_storage: FakePhotoStorage,
     #[allow(dead_code)]
-    pub(crate) scene_shoot_commands: FakeSceneShootCommands,
-    pub(crate) scene_shoot_repo: FakeSceneShootRepo,
-    pub(crate) scene_shoot_report_repo: FakeSceneShootReportRepo,
-    pub(crate) photo_commands: FakePhotoCommands,
+    pub scene_shoot_commands: FakeSceneShootCommands,
+    pub scene_shoot_repo: FakeSceneShootRepo,
+    pub scene_shoot_report_repo: FakeSceneShootReportRepo,
+    pub photo_commands: FakePhotoCommands,
     #[allow(dead_code)]
-    pub(crate) photo_repo: FakePhotoRepo,
-    pub(crate) report_archival_queue: FakeReportArchivalQueue,
+    pub photo_repo: FakePhotoRepo,
+    pub report_archival_queue: FakeReportArchivalQueue,
     #[allow(dead_code)]
-    pub(crate) report_renderer: Arc<dyn breakdown_core::reporting::ReportRenderer>,
+    pub report_renderer: Arc<dyn breakdown_core::reporting::ReportRenderer>,
 }
 
 impl Default for FakePorts {
