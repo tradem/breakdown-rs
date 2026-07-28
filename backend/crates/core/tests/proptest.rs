@@ -14,11 +14,11 @@
 
 use proptest::prelude::*;
 
-use crate::membership::Role;
-use crate::membership::aggregate::BlockMembership;
-use crate::membership::aggregate::MembershipState;
-use crate::membership::events::MembershipEvent;
-use crate::shared::{BlockId, LexicalSortKey, UserId};
+use breakdown_core::membership::Role;
+use breakdown_core::membership::aggregate::BlockMembership;
+use breakdown_core::membership::aggregate::MembershipState;
+use breakdown_core::membership::events::MembershipEvent;
+use breakdown_core::shared::{BlockId, LexicalSortKey, UserId};
 use kameo_es::{Apply, Metadata};
 use uuid::Uuid;
 

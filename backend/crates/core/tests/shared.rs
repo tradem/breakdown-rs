@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 
-use super::*;
+use breakdown_core::shared::*;
 
 #[allow(dead_code)]
 fn assert_between(a: &str, mid: &str, b: &str) {
@@ -144,14 +144,14 @@ fn midpoint_rejects_empty_bound() {
 
 #[test]
 fn shooting_day_id_from_uuid_preserves_value() {
-    let raw = Uuid::now_v7();
+    let raw = uuid::Uuid::now_v7();
     assert_eq!(ShootingDayId::from_uuid(raw).0, raw);
 }
 
 #[test]
 fn shooting_day_id_is_uuidv7() {
     let id = ShootingDayId::new();
-    assert_ne!(id.0, Uuid::nil());
+    assert_ne!(id.0, uuid::Uuid::nil());
 }
 
 #[test]
@@ -177,42 +177,42 @@ fn default_is_initial() {
 #[test]
 fn series_id_is_uuidv7() {
     let id = SeriesId::new();
-    assert_ne!(id.0, Uuid::nil());
+    assert_ne!(id.0, uuid::Uuid::nil());
 }
 
 #[test]
 fn season_id_is_uuidv7() {
     let id = SeasonId::new();
-    assert_ne!(id.0, Uuid::nil());
+    assert_ne!(id.0, uuid::Uuid::nil());
 }
 
 #[test]
 fn block_id_is_uuidv7() {
     let id = BlockId::new();
-    assert_ne!(id.0, Uuid::nil());
+    assert_ne!(id.0, uuid::Uuid::nil());
 }
 
 #[test]
 fn episode_id_is_uuidv7() {
     let id = EpisodeId::new();
-    assert_ne!(id.0, Uuid::nil());
+    assert_ne!(id.0, uuid::Uuid::nil());
 }
 
 #[test]
 fn series_id_from_uuid_preserves_value() {
-    let raw = Uuid::now_v7();
+    let raw = uuid::Uuid::now_v7();
     assert_eq!(SeriesId::from_uuid(raw).0, raw);
 }
 
 #[test]
 fn season_id_from_uuid_preserves_value() {
-    let raw = Uuid::now_v7();
+    let raw = uuid::Uuid::now_v7();
     assert_eq!(SeasonId::from_uuid(raw).0, raw);
 }
 
 #[test]
 fn block_id_from_uuid_preserves_value() {
-    let raw = Uuid::now_v7();
+    let raw = uuid::Uuid::now_v7();
     assert_eq!(BlockId::from_uuid(raw).0, raw);
 }
 
@@ -237,13 +237,13 @@ fn user_id_preserves_opaque_sub_through_clone() {
 
 #[test]
 fn episode_id_from_uuid_preserves_value() {
-    let raw = Uuid::now_v7();
+    let raw = uuid::Uuid::now_v7();
     assert_eq!(EpisodeId::from_uuid(raw).0, raw);
 }
 
 #[test]
 fn costume_category_id_from_uuid_preserves_value() {
-    let raw = Uuid::now_v7();
+    let raw = uuid::Uuid::now_v7();
     assert_eq!(CostumeCategoryId::from_uuid(raw).0, raw);
 }
 
@@ -255,7 +255,7 @@ fn costume_category_id_display_roundtrip() {
 
 #[test]
 fn photo_id_from_uuid_preserves_value() {
-    let raw = Uuid::now_v7();
+    let raw = uuid::Uuid::now_v7();
     assert_eq!(PhotoId::from_uuid(raw).0, raw);
 }
 

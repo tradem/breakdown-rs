@@ -197,9 +197,3 @@ impl Command<ArchiveCostumeCategory> for CostumeCategoryAggregate {
         }])
     }
 }
-
-// ── Tests ──────────────────────────────────────────────────────────
-
-#[cfg(test)]
-#[path = "aggregate_test.rs"]
-mod tests;

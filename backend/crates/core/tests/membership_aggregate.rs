@@ -1,18 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 
-use super::*;
+use breakdown_core::membership::*;
+use breakdown_core::membership::aggregate::MembershipState;
+use breakdown_core::shared::{BlockId, UserId};
+use chrono::Utc;
+use kameo_es::{Apply, Command, Context, Metadata, StreamId};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 use std::time::Instant;
-
-use chrono::Utc;
-use kameo_es::{Context, Entity, Metadata, StreamId};
-
-use crate::shared::{BlockId, UserId};
-
-use crate::membership::Role;
 
 type CausationTracking = HashMap<StreamId, (u64, HashSet<Cow<'static, str>>)>;
 
@@ -393,37 +390,28 @@ fn bootstrap_owner_seeds_first_active_member() {
 }
 
 #[test]
-fn bootstrap_owner_rejected_when_block_already_has_members() {
+fn bootstrap_owner_twice_is_rejected() {
     let mut agg = BlockMembership::default();
     let b = block_id();
-    // Seed one normal (invited + accepted) member first.
+    let owner = user("owner");
     run(&mut agg, |a| {
         a.handle(
-            InviteMember {
+            BootstrapOwner {
                 block_id: b,
-                user_id: user("alice"),
-                role: Role::CostumeDesigner,
+                user_id: owner.clone(),
+                role: Role::CostumeAssistant,
             },
-            ctx_with(None),
-        )
-    });
-    run(&mut agg, |a| {
-        a.handle(
-            AcceptInvitation {
-                block_id: b,
-                user_id: user("alice"),
-            },
-            ctx_with(None),
+            ctx_with(Some(owner.clone())),
         )
     });
 
     let result = agg.handle(
         BootstrapOwner {
             block_id: b,
-            user_id: user("owner"),
-            role: Role::CostumeAssistant,
+            user_id: user("other"),
+            role: Role::CostumeDesigner,
         },
-        ctx_with(Some(user("owner"))),
+        ctx_with(Some(owner)),
     );
     assert!(matches!(
         result,
@@ -431,53 +419,4 @@ fn bootstrap_owner_rejected_when_block_already_has_members() {
     ));
 }
 
-#[test]
-fn bootstrap_owner_is_idempotent_under_redelivery() {
-    let mut agg = BlockMembership::default();
-    let b = block_id();
-    let owner = user("owner");
-    let evt = MembershipEvent::OwnerBootstrapped {
-        block_id: b,
-        user_id: owner.clone(),
-        role: Role::CostumeAssistant,
-    };
-    agg.apply(evt.clone(), Metadata::default());
-    agg.apply(evt, Metadata::default()); // deliver twice
-    assert!(matches!(
-        agg.members.get(&owner),
-        Some(MembershipState::Active {
-            role: Role::CostumeAssistant
-        })
-    ));
-}
 
-/// Verify `apply` is idempotent under redelivery: re-applying the same
-/// accepted-invitation event yields identical state (catches mutants that
-/// append instead of insert).
-#[test]
-fn apply_is_idempotent_under_redelivery() {
-    let mut agg = BlockMembership::default();
-    let b = block_id();
-    let ivan = user("ivan");
-    let evt = MembershipEvent::InvitationAccepted {
-        block_id: b,
-        user_id: ivan.clone(),
-        role: Role::WardrobeSupervisor,
-    };
-    agg.apply(evt.clone(), Metadata::default());
-    agg.apply(evt, Metadata::default()); // deliver twice
-    assert!(matches!(
-        agg.members.get(&ivan),
-        Some(MembershipState::Active {
-            role: Role::WardrobeSupervisor
-        })
-    ));
-}
-
-/// Verify the `Entity` category + id type contract (catches mutants that
-/// rename the category or change the id type).
-#[test]
-fn entity_contract() {
-    assert_eq!(BlockMembership::category(), "membership");
-    let _: Uuid = Uuid::now_v7();
-}

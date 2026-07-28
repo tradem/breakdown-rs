@@ -118,9 +118,3 @@ impl Command<UpdateBlockTimeSpan> for BlockAggregate {
         }])
     }
 }
-
-// ── Tests ──────────────────────────────────────────────────────────
-
-#[cfg(test)]
-#[path = "aggregate_test.rs"]
-mod tests;

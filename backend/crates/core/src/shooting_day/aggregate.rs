@@ -261,7 +261,3 @@ impl Command<WrapShootingDay> for ShootingDayAggregate {
         }])
     }
 }
-
-#[cfg(test)]
-#[path = "aggregate_test.rs"]
-mod tests;

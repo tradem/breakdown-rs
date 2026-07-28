@@ -256,9 +256,3 @@ impl Command<UnscheduleSceneFromShootingDay> for SceneAggregate {
         }])
     }
 }
-
-// ── Tests ──────────────────────────────────────────────────────────
-
-#[cfg(test)]
-#[path = "aggregate_test.rs"]
-mod tests;

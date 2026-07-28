@@ -111,9 +111,3 @@ impl Command<RenameEpisode> for EpisodeAggregate {
         }])
     }
 }
-
-// ── Tests ──────────────────────────────────────────────────────────
-
-#[cfg(test)]
-#[path = "aggregate_test.rs"]
-mod tests;

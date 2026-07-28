@@ -237,9 +237,3 @@ impl Command<BootstrapOwner> for BlockMembership {
         }])
     }
 }
-
-// ── Tests ──────────────────────────────────────────────────────────
-
-#[cfg(test)]
-#[path = "aggregate_test.rs"]
-mod tests;

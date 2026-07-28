@@ -494,7 +494,3 @@ impl Command<UnlinkContinuityPhoto> for SceneShootAggregate {
         }])
     }
 }
-
-#[cfg(test)]
-#[path = "aggregate_test.rs"]
-mod tests;

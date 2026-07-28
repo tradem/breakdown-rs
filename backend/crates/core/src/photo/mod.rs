@@ -7,10 +7,12 @@ pub mod events;
 pub mod ports;
 pub mod views;
 
+pub use aggregate::PhotoAggregate;
 pub use binding::PhotoBinding;
 pub use commands::{
     DeletePhoto, GenerateVariant, MarkVariantFailed, NormalizeOriginal, UploadPhoto,
 };
+pub use error::PhotoError;
 pub use events::PhotoEvent;
 pub use ports::{PhotoCommands, PhotoRepository, PhotoStorage};
 pub use views::{PhotoBytes, PhotoGcConfig, PhotoMetadata, PhotoVariantView, PhotoView};

@@ -17,6 +17,7 @@ pub mod events;
 pub mod ports;
 pub mod views;
 
+pub use aggregate::SceneShootAggregate;
 pub use commands::{
     AddSceneShootNote, FinishSceneShoot, LinkContinuityPhoto, PlanSceneShoot, RemoveSceneShootNote,
     ReplanSceneShoot, SetActualOrder, SkipSceneShoot, StartSceneShoot, UnlinkContinuityPhoto,

@@ -558,7 +558,3 @@ impl std::fmt::Display for LexicalSortKey {
         f.write_str(&self.0)
     }
 }
-
-#[cfg(test)]
-#[path = "shared_test.rs"]
-mod tests;

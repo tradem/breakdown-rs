@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: deepseek-v4-flash (opencode-go)
 
-use super::*;
-use crate::shared::LexicalSortKey;
-use crate::shooting_day::views::ShootingDayView;
+use breakdown_core::shooting_day::*;
+use breakdown_core::shared::{AggregateVersion, EpisodeId, LexicalSortKey, ShootingDayId};
+use kameo_es::Command;
 use test_support::make_ctx;
 
 fn create_day(order_key: &str) -> ShootingDayAggregate {

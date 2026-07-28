@@ -10,6 +10,9 @@ pub mod events;
 pub mod ports;
 pub mod views;
 
+pub use aggregate::BlockAggregate;
+pub use commands::{CreateBlock, UpdateBlockTimeSpan};
+pub use error::BlockError;
 pub use events::BlockEvent;
 pub use ports::{BlockCommands, BlockRepository};
 pub use views::BlockView;

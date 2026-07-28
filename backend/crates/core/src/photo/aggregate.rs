@@ -241,7 +241,3 @@ impl Command<DeletePhoto> for PhotoAggregate {
         }])
     }
 }
-
-#[cfg(test)]
-#[path = "aggregate_test.rs"]
-mod tests;
