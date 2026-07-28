@@ -4,70 +4,70 @@
 
 ### Phase 1: Aggregate-Tests verschieben
 
-- [ ] `crates/core/src/block/aggregate_test.rs` → `tests/block_aggregate.rs`
+- [x] `crates/core/src/block/aggregate_test.rs` → `tests/block_aggregate.rs`
   - `use super::*;` → `use breakdown_core::block::*;`
   - `#[cfg(test)] mod tests;` in `aggregate.rs` entfernen
   - `cargo test -p breakdown_core --test block_aggregate` prüfen
 
-- [ ] `crates/core/src/character/aggregate_test.rs` → `tests/character_aggregate.rs`
+- [x] `crates/core/src/character/aggregate_test.rs` → `tests/character_aggregate.rs`
   - Importe anpassen
   - `#[cfg(test)] mod tests;` entfernen
 
-- [ ] `crates/core/src/costume/aggregate_test.rs` → `tests/costume_aggregate.rs`
+- [x] `crates/core/src/costume/aggregate_test.rs` → `tests/costume_aggregate.rs`
   - Importe anpassen
   - `#[cfg(test)] mod tests;` entfernen
 
-- [ ] `crates/core/src/costume_category/aggregate_test.rs` → `tests/costume_category_aggregate.rs`
+- [x] `crates/core/src/costume_category/aggregate_test.rs` → `tests/costume_category_aggregate.rs`
   - Importe anpassen
   - `#[cfg(test)] mod tests;` entfernen
 
-- [ ] `crates/core/src/episode/aggregate_test.rs` → `tests/episode_aggregate.rs`
+- [x] `crates/core/src/episode/aggregate_test.rs` → `tests/episode_aggregate.rs`
   - Importe anpassen
   - `#[cfg(test)] mod tests;` entfernen
 
-- [ ] `crates/core/src/membership/aggregate_test.rs` → `tests/membership_aggregate.rs`
+- [x] `crates/core/src/membership/aggregate_test.rs` → `tests/membership_aggregate.rs`
   - Importe anpassen
   - `#[cfg(test)] mod tests;` entfernen
 
-- [ ] `crates/core/src/photo/aggregate_test.rs` → `tests/photo_aggregate.rs`
+- [x] `crates/core/src/photo/aggregate_test.rs` → `tests/photo_aggregate.rs`
   - Importe anpassen
   - `#[cfg(test)] mod tests;` entfernen
 
-- [ ] `crates/core/src/scene/aggregate_test.rs` → `tests/scene_aggregate.rs`
+- [x] `crates/core/src/scene/aggregate_test.rs` → `tests/scene_aggregate.rs`
   - Importe anpassen
   - `#[cfg(test)] mod tests;` entfernen
 
-- [ ] `crates/core/src/scene_shoot/aggregate_test.rs` → `tests/scene_shoot_aggregate.rs`
+- [x] `crates/core/src/scene_shoot/aggregate_test.rs` → `tests/scene_shoot_aggregate.rs`
   - Importe anpassen
   - `#[cfg(test)] mod tests;` entfernen
 
-- [ ] `crates/core/src/season/aggregate_test.rs` → `tests/season_aggregate.rs`
+- [x] `crates/core/src/season/aggregate_test.rs` → `tests/season_aggregate.rs`
   - Importe anpassen
   - `#[cfg(test)] mod tests;` entfernen
 
-- [ ] `crates/core/src/shooting_day/aggregate_test.rs` → `tests/shooting_day_aggregate.rs`
+- [x] `crates/core/src/shooting_day/aggregate_test.rs` → `tests/shooting_day_aggregate.rs`
   - Importe anpassen
   - `#[cfg(test)] mod tests;` entfernen
 
-- [ ] `crates/core/src/shared_test.rs` → `tests/shared.rs`
+- [x] `crates/core/src/shared_test.rs` → `tests/shared.rs`
   - Importe anpassen
   - `#[cfg(test)] mod tests;` in `shared.rs` entfernen
 
-- [ ] `crates/core/src/proptest.rs` → `tests/proptest.rs`
+- [x] `crates/core/src/proptest.rs` → `tests/proptest.rs`
   - `mod proptest;` in `lib.rs` entfernen
 
 ### Phase 2: Reporting-Tests extrahieren
 
-- [ ] `crates/core/src/reporting/mod.rs` inline Tests → `tests/reporting_mod.rs`
+- [x] `crates/core/src/reporting/mod.rs` inline Tests → `tests/reporting_mod.rs`
   - `#[cfg(test)] mod tests { ... }` Block entfernen
   - Testfunktionen nach `tests/reporting_mod.rs` extrahieren
   - Importe: `use breakdown_core::reporting::*;`
 
-- [ ] `crates/core/src/reporting/storage.rs` inline Tests → `tests/reporting_storage.rs`
+- [x] `crates/core/src/reporting/storage.rs` inline Tests → `tests/reporting_storage.rs`
   - `#[cfg(test)] mod tests { ... }` Block entfernen
   - Testfunktionen extrahieren
 
-- [ ] `crates/core/src/reporting/archival.rs` inline Tests → `tests/reporting_archival.rs`
+- [x] `crates/core/src/reporting/archival.rs` inline Tests → `tests/reporting_archival.rs`
   - `#[cfg(test)] mod tests { ... }` Block entfernen
   - Testfunktionen extrahieren
 
