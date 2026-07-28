@@ -3,12 +3,12 @@ name: Integration Tests
 permissions:
   contents: read
 
-# Tier 1–3: Postgres-only projector/repository tests.
-# Tier 4 (ADR-016): full `command → SierraDB → projector → Postgres` round-trip.
+# Tier 1-3: Postgres-only projector/repository tests.
+# Tier 4 (ADR-016): full `command -> SierraDB -> projector -> Postgres` round-trip.
 # The Tier-4 tests pull `tqwewe/sierradb:0.3.1` via testcontainers in addition to
 # the Postgres image, so the only host prerequisite is Docker (or a compatible
 # container runtime) with network access to Docker Hub. See
-# `backend/AGENTS.md` § Integration tests and `backend/docs/operations/runbooks.md`.
+# `backend/AGENTS.md` Sec. Integration tests and `backend/docs/operations/runbooks.md`.
 
 on:
   pull_request:
@@ -67,4 +67,4 @@ jobs:
 
       - name: GDrive archival provider contract test (skipped)
         if: ${{ secrets.GDRIVE_CLIENT_ID == '' }}
-        run: echo "SKIP: GDrive contract test — set GDRIVE_CLIENT_ID secret to enable"
+        run: echo "SKIP: GDrive contract test - set GDRIVE_CLIENT_ID secret to enable"

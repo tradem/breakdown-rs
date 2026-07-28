@@ -3,9 +3,8 @@
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
 use breakdown_core::costume_category::commands::{
-    ArchiveCostumeCategory, CreateCostumeCategory, ReorderCostumeCategory, RenameCostumeCategory,
+    ArchiveCostumeCategory, CreateCostumeCategory, RenameCostumeCategory, ReorderCostumeCategory,
 };
-use breakdown_core::costume_category::error::CostumeCategoryError;
 use breakdown_core::costume_category::ports::{CostumeCategoryCommands, CostumeCategoryRepository};
 use breakdown_core::error::DomainError;
 use breakdown_core::shared::{AggregateVersion, SeasonId};
@@ -24,10 +23,17 @@ impl CostumeCategoryRepository for FakeCategoryRepo {
     async fn count_for_season(&self, _season_id: SeasonId) -> Result<i64, DomainError> {
         Ok(*self.count.lock().unwrap())
     }
-    async fn list_by_season(&self, _season_id: SeasonId) -> Result<Vec<breakdown_core::costume_category::views::CostumeCategoryView>, DomainError> {
+    async fn list_by_season(
+        &self,
+        _season_id: SeasonId,
+    ) -> Result<Vec<breakdown_core::costume_category::views::CostumeCategoryView>, DomainError>
+    {
         Ok(Vec::new())
     }
-    async fn find_by_id(&self, _id: uuid::Uuid) -> Result<breakdown_core::costume_category::views::CostumeCategoryView, DomainError> {
+    async fn find_by_id(
+        &self,
+        _id: uuid::Uuid,
+    ) -> Result<breakdown_core::costume_category::views::CostumeCategoryView, DomainError> {
         Err(DomainError::NotFound("nope".into()))
     }
 }
@@ -47,22 +53,13 @@ impl CostumeCategoryCommands for FakeCategoryCommands {
         self.created.lock().unwrap().push(cmd);
         Ok((uuid::Uuid::now_v7(), AggregateVersion::INITIAL))
     }
-    async fn rename(
-        &self,
-        _cmd: RenameCostumeCategory,
-    ) -> Result<AggregateVersion, DomainError> {
+    async fn rename(&self, _cmd: RenameCostumeCategory) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL)
     }
-    async fn reorder(
-        &self,
-        _cmd: ReorderCostumeCategory,
-    ) -> Result<AggregateVersion, DomainError> {
+    async fn reorder(&self, _cmd: ReorderCostumeCategory) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL)
     }
-    async fn archive(
-        &self,
-        _cmd: ArchiveCostumeCategory,
-    ) -> Result<AggregateVersion, DomainError> {
+    async fn archive(&self, _cmd: ArchiveCostumeCategory) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL)
     }
 }
