@@ -2771,7 +2771,7 @@ pub async fn soll_ist_report<P: Ports>(
 
 /// Generate a sanitized filename for the PDF response.
 #[allow(dead_code)]
-pub(crate) fn sanitize_pdf_filename(kind: &str, locale: &str) -> String {
+pub fn sanitize_pdf_filename(kind: &str, locale: &str) -> String {
     let safe_kind: String = kind
         .chars()
         .filter(|c| c.is_alphanumeric() || *c == '-')
@@ -2785,7 +2785,7 @@ pub(crate) fn sanitize_pdf_filename(kind: &str, locale: &str) -> String {
 
 /// Map a `ReportRenderError` to an HTTP status code and error response.
 #[allow(dead_code)]
-pub(crate) fn map_render_error(
+pub fn map_render_error(
     err: breakdown_core::reporting::ReportRenderError,
 ) -> (StatusCode, Json<ErrorResponse>) {
     use breakdown_core::reporting::ReportRenderError;
