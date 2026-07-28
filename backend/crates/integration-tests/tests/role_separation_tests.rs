@@ -34,7 +34,7 @@ async fn setup_roles(pool: &sqlx::PgPool) -> Result<()> {
         DO $$
         BEGIN
             IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'breakdown_migrator') THEN
-                CREATE ROLE breakdown_migrator WITH LOGIN PASSWORD 'breakdown_migrator';
+                CREATE ROLE breakdown_migrator WITH LOGIN PASSWORD 'breakdown_migrator' CREATEDB;
             END IF;
             IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'breakdown_app') THEN
                 CREATE ROLE breakdown_app WITH LOGIN PASSWORD 'breakdown_app';
