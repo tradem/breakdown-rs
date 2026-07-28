@@ -35,10 +35,59 @@ use kameo_es::command_service::CommandService;
 // Container helpers
 // ---------------------------------------------------------------------------
 
+/// Maximum number of retries for container startup (handles transient Docker
+/// image pull failures and network timeouts).
+const CONTAINER_START_MAX_RETRIES: u32 = 3;
+/// Delay between container start retries.
+const CONTAINER_START_RETRY_DELAY: Duration = Duration::from_secs(5);
+
+/// Start a container with retries to handle transient Docker failures.
+///
+/// Docker image pulls can fail due to:
+/// - Network timeouts during image layer downloads
+/// - Docker Hub rate limiting
+/// - Transient Docker daemon issues
+///
+/// This wrapper retries the container start up to `CONTAINER_START_MAX_RETRIES`
+/// times with exponential backoff. Takes a factory function that builds the
+/// container request on each attempt (since ContainerRequest is consumed by start).
+async fn start_container_with_retries<I: Image, F: Fn() -> ContainerRequest<I>>(
+    build_request: F,
+) -> Result<ContainerAsync<I>> {
+    let mut last_err = None;
+    
+    for attempt in 0..CONTAINER_START_MAX_RETRIES {
+        let request = build_request();
+        match request.start().await {
+            Ok(container) => return Ok(container),
+            Err(err) => {
+                last_err = Some(err);
+                if attempt < CONTAINER_START_MAX_RETRIES - 1 {
+                    let delay = CONTAINER_START_RETRY_DELAY * (attempt as u32 + 1);
+                    eprintln!(
+                        "Container start failed (attempt {}/{}), retrying in {:?}...",
+                        attempt + 1,
+                        CONTAINER_START_MAX_RETRIES,
+                        delay
+                    );
+                    tokio::time::sleep(delay).await;
+                }
+            }
+        }
+    }
+    
+    Err(anyhow!(
+        "Failed to start container after {} attempts: {}",
+        CONTAINER_START_MAX_RETRIES,
+        last_err
+            .map(|e| e.to_string())
+            .unwrap_or_else(|| "unknown error".into())
+    ))
+}
+
 /// Starts an ephemeral Postgres container and returns a configured pool.
 pub async fn spawn_postgres() -> Result<(PgPool, ContainerAsync<PostgresImage>)> {
-    let request = build_postgres_container_request();
-    let container = request.start().await?;
+    let container = start_container_with_retries(build_postgres_container_request).await?;
 
     let host = container.get_host().await?;
     let port = container.get_host_port_ipv4(5432).await?;
@@ -116,8 +165,7 @@ pub async fn spawn_sierradb() -> Result<(
     redis::aio::MultiplexedConnection,
     ContainerAsync<SierraDbImage>,
 )> {
-    let request = build_sierradb_container_request();
-    let container = request.start().await?;
+    let container = start_container_with_retries(build_sierradb_container_request).await?;
 
     let host = container.get_host().await?;
     let port = container.get_host_port_ipv4(9090).await?;

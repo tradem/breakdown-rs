@@ -9,6 +9,16 @@ permissions:
 # the Postgres image, so the only host prerequisite is Docker (or a compatible
 # container runtime) with network access to Docker Hub. See
 # `backend/AGENTS.md` Sec. Integration tests and `backend/docs/operations/runbooks.md`.
+#
+# Flaky-test prevention:
+# - Docker images are pre-pulled with retries to handle transient network failures.
+# - Rust dependency caching reduces build time on repeat runs.
+# - Concurrency control prevents parallel runs on the same branch.
+# - Job timeout prevents runaway tests from blocking the queue.
+#
+# Recommended: Run CI (build, test, clippy, fmt) first. If CI passes,
+# integration tests are more likely to succeed. However, we don't use
+# workflow_call dependency here because ci.yml doesn't support it yet.
 
 on:
   push:
@@ -16,13 +26,23 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Prevent concurrent runs on the same branch to avoid Docker resource contention.
+concurrency:
+  group: integration-tests-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   integration-tests:
     name: Testcontainers integration tests (Postgres + SierraDB)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: backend
+
+    env:
+      SIERRADB_IMAGE: tqwewe/sierradb:0.3.1
+      POSTGRES_IMAGE: docker.io/postgres:16-alpine
 
     steps:
       - name: Checkout repository
@@ -38,6 +58,38 @@ jobs:
           # pass; missing Docker masks test failures. The Tier-4 tests also
           # pull `tqwewe/sierradb:0.3.1`, so Docker Hub connectivity is required.
 
+      # Pre-pull Docker images with retries to avoid flaky failures from
+      # transient network issues during test execution.
+      - name: Pre-pull Docker images (with retries)
+        run: |
+          pull_with_retry() {
+            local image=$1
+            local max_attempts=3
+            local attempt=1
+            
+            while [ $attempt -le $max_attempts ]; do
+              echo "Pulling $image (attempt $attempt/$max_attempts)..."
+              if docker pull "$image"; then
+                echo "Successfully pulled $image"
+                return 0
+              fi
+              echo "Pull failed, retrying in 5s..."
+              sleep 5
+              attempt=$((attempt + 1))
+            done
+            
+            echo "ERROR: Failed to pull $image after $max_attempts attempts" >&2
+            return 1
+          }
+          
+          pull_with_retry "$SIERRADB_IMAGE"
+          pull_with_retry "$POSTGRES_IMAGE"
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: "backend"
+
       - name: Check production crates do not depend on integration-tests
         run: |
           for pkg in breakdown_core infra api; do
@@ -51,11 +103,13 @@ jobs:
       - name: Run integration tests
         env:
           RUST_LOG: info,sierradb=debug,kameo_es=debug
+          # Enable testcontainers image reuse to speed up parallel tests
+          # within the same CI run.
+          TESTCONTAINERS_REUSE: "1"
         run: cargo test -p integration-tests -- --nocapture
 
-      # If the job becomes too slow for PRs, move this step to a nightly
-      # workflow and document the cutoff in backend/AGENTS.md.
-
+      # GDrive archival provider contract test.
+      # Only runs when the GDRIVE_CLIENT_ID secret is configured.
       - name: GDrive archival provider contract test
         if: env.REPORT_BACKUP_GDRIVE_CLIENT_ID != ''
         env:
