@@ -11,6 +11,8 @@ permissions:
 # `backend/AGENTS.md` Sec. Integration tests and `backend/docs/operations/runbooks.md`.
 
 on:
+  push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
