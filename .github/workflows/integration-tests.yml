@@ -67,4 +67,4 @@ jobs:
 
       - name: GDrive archival provider contract test (skipped)
         if: ${{ secrets.GDRIVE_CLIENT_ID == '' }}
-        run: echo "SKIP: GDrive contract test - set GDRIVE_CLIENT_ID secret to enable"
+        run: echo SKIP - GDrive contract test - set GDRIVE_CLIENT_ID secret to enable
