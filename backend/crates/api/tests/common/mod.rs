@@ -82,8 +82,6 @@ use api::state::Ports;
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-#[allow(dead_code)]
-#[allow(dead_code)]
 pub struct FakeSceneCommands;
 
 impl SceneCommands for FakeSceneCommands {
@@ -124,8 +122,6 @@ impl SceneCommands for FakeSceneCommands {
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-#[allow(dead_code)]
-#[allow(dead_code)]
 pub struct FakeCharacterCommands;
 
 impl CharacterCommands for FakeCharacterCommands {
@@ -147,8 +143,6 @@ impl CharacterCommands for FakeCharacterCommands {
 }
 
 #[derive(Clone, Default)]
-#[allow(dead_code)]
-#[allow(dead_code)]
 #[allow(dead_code)]
 pub struct FakeCostumeCommands;
 
@@ -187,8 +181,6 @@ impl CostumeCommands for FakeCostumeCommands {
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-#[allow(dead_code)]
-#[allow(dead_code)]
 pub struct FakeCostumeCategoryCommands;
 
 impl CostumeCategoryCommands for FakeCostumeCategoryCommands {
@@ -211,8 +203,6 @@ impl CostumeCategoryCommands for FakeCostumeCategoryCommands {
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-#[allow(dead_code)]
-#[allow(dead_code)]
 pub struct FakeSeasonCommands;
 
 impl SeasonCommands for FakeSeasonCommands {
@@ -225,8 +215,6 @@ impl SeasonCommands for FakeSeasonCommands {
 }
 
 #[derive(Clone, Default)]
-#[allow(dead_code)]
-#[allow(dead_code)]
 #[allow(dead_code)]
 pub struct FakeBlockCommands;
 
@@ -244,8 +232,6 @@ impl BlockCommands for FakeBlockCommands {
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-#[allow(dead_code)]
-#[allow(dead_code)]
 pub struct FakeEpisodeCommands;
 
 impl EpisodeCommands for FakeEpisodeCommands {
@@ -262,8 +248,6 @@ impl EpisodeCommands for FakeEpisodeCommands {
 /// In-memory membership command adapter that records the last dispatched
 /// command per method so handler tests can assert actor/target mapping.
 #[derive(Clone, Default)]
-#[allow(dead_code)]
-#[allow(dead_code)]
 #[allow(dead_code)]
 pub struct FakeMembershipCommands {
     pub last_invite: Arc<Mutex<Option<(UserId, InviteMember)>>>,
@@ -309,8 +293,6 @@ impl MembershipCommands for FakeMembershipCommands {
 /// In-memory membership repository whose active-membership is driven by a
 /// controllable set of `(block_id, user_id)` pairs.
 #[derive(Clone, Default)]
-#[allow(dead_code)]
-#[allow(dead_code)]
 #[allow(dead_code)]
 pub struct FakeMembershipRepo {
     pub members: Arc<Mutex<HashSet<(BlockId, UserId)>>>,
@@ -390,8 +372,6 @@ impl MembershipRepository for FakeMembershipRepo {
 
 #[derive(Clone)]
 #[allow(dead_code)]
-#[allow(dead_code)]
-#[allow(dead_code)]
 pub struct FakeSceneRepo {
     pub scenes: Arc<Mutex<HashMap<Uuid, SceneView>>>,
 }
@@ -431,8 +411,6 @@ impl SceneRepository for FakeSceneRepo {
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-#[allow(dead_code)]
-#[allow(dead_code)]
 pub struct FakeCharacterRepo;
 
 impl CharacterRepository for FakeCharacterRepo {
@@ -463,8 +441,6 @@ impl CharacterRepository for FakeCharacterRepo {
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-#[allow(dead_code)]
-#[allow(dead_code)]
 pub struct FakeCostumeRepo;
 
 impl CostumeRepository for FakeCostumeRepo {
@@ -492,8 +468,6 @@ impl CostumeRepository for FakeCostumeRepo {
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-#[allow(dead_code)]
-#[allow(dead_code)]
 pub struct FakeCostumeCategoryRepo;
 
 impl CostumeCategoryRepository for FakeCostumeCategoryRepo {
@@ -512,8 +486,6 @@ impl CostumeCategoryRepository for FakeCostumeCategoryRepo {
 }
 
 #[derive(Clone, Default)]
-#[allow(dead_code)]
-#[allow(dead_code)]
 #[allow(dead_code)]
 pub struct FakeSeasonRepo;
 
@@ -540,8 +512,6 @@ impl SeasonRepository for FakeSeasonRepo {
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-#[allow(dead_code)]
-#[allow(dead_code)]
 pub struct FakeBlockRepo;
 
 impl BlockRepository for FakeBlockRepo {
@@ -566,8 +536,6 @@ impl BlockRepository for FakeBlockRepo {
 }
 
 #[derive(Clone, Default)]
-#[allow(dead_code)]
-#[allow(dead_code)]
 #[allow(dead_code)]
 pub struct FakeEpisodeRepo;
 
@@ -601,8 +569,6 @@ impl EpisodeRepository for FakeEpisodeRepo {
 }
 
 #[derive(Clone, Default)]
-#[allow(dead_code)]
-#[allow(dead_code)]
 #[allow(dead_code)]
 pub struct FakeAuditRepo {
     pub entries: Arc<Mutex<Vec<AuditEntry>>>,
@@ -655,8 +621,6 @@ impl AuditRepository for FakeAuditRepo {
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-#[allow(dead_code)]
-#[allow(dead_code)]
 pub struct FakeShootingDayCommands;
 
 impl ShootingDayCommands for FakeShootingDayCommands {
@@ -689,8 +653,6 @@ impl ShootingDayCommands for FakeShootingDayCommands {
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-#[allow(dead_code)]
-#[allow(dead_code)]
 pub struct FakeShootingDayRepo;
 
 impl ShootingDayRepository for FakeShootingDayRepo {
@@ -714,21 +676,15 @@ impl ShootingDayRepository for FakeShootingDayRepo {
 /// Placeholder photo storage for tests — panics if called.
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-#[allow(dead_code)]
-#[allow(dead_code)]
 pub struct FakePhotoStorage;
 
 /// Placeholder photo commands for tests — panics if called.
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-#[allow(dead_code)]
-#[allow(dead_code)]
 pub struct FakePhotoCommands;
 
 /// Placeholder photo repo for tests — panics if called.
 #[derive(Clone, Default)]
-#[allow(dead_code)]
-#[allow(dead_code)]
 #[allow(dead_code)]
 pub struct FakePhotoRepo;
 
@@ -799,8 +755,6 @@ impl PhotoRepository for FakePhotoRepo {
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-#[allow(dead_code)]
-#[allow(dead_code)]
 pub struct FakeSceneShootCommands;
 
 impl SceneShootCommands for FakeSceneShootCommands {
@@ -861,8 +815,6 @@ impl SceneShootCommands for FakeSceneShootCommands {
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-#[allow(dead_code)]
-#[allow(dead_code)]
 pub struct FakeSceneShootRepo;
 
 impl SceneShootRepository for FakeSceneShootRepo {
@@ -891,8 +843,6 @@ impl SceneShootRepository for FakeSceneShootRepo {
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-#[allow(dead_code)]
-#[allow(dead_code)]
 pub struct FakeSceneShootReportRepo;
 
 impl SceneShootReportRepository for FakeSceneShootReportRepo {
@@ -919,8 +869,6 @@ impl SceneShootReportRepository for FakeSceneShootReportRepo {
 /// A fake renderer that returns empty PDF bytes for handler tests.
 #[derive(Debug)]
 #[allow(dead_code)]
-#[allow(dead_code)]
-#[allow(dead_code)]
 pub struct FakeReportRenderer;
 
 #[async_trait::async_trait]
@@ -945,8 +893,6 @@ impl breakdown_core::reporting::ReportRenderer for FakeReportRenderer {
 
 /// In-memory archival queue for handler tests (dedup by key).
 #[derive(Clone, Default)]
-#[allow(dead_code)]
-#[allow(dead_code)]
 #[allow(dead_code)]
 pub struct FakeReportArchivalQueue {
     pub jobs: Arc<tokio::sync::Mutex<HashMap<String, EnqueueArchivalResult>>>,
@@ -986,8 +932,6 @@ impl ReportArchivalQueue for FakeReportArchivalQueue {
 }
 
 #[derive(Clone)]
-#[allow(dead_code)]
-#[allow(dead_code)]
 #[allow(dead_code)]
 pub struct FakePorts {
     pub scene_commands: FakeSceneCommands,

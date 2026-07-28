@@ -14,7 +14,6 @@ use uuid::Uuid;
 
 use api::handlers::get_block_audit;
 use api::state::AppState;
-use common::*;
 
 #[tokio::test]
 async fn get_block_audit_returns_journal_entries_for_block() {
