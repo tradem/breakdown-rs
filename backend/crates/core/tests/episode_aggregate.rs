@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: mimo-v2.5 (opencode-go)
 
 use breakdown_core::episode::*;
 use breakdown_core::shared::{AggregateVersion, BlockId, SeriesId};
