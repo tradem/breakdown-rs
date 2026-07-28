@@ -3,20 +3,19 @@ mod common;
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
-
 use axum::http::StatusCode;
 use axum::{Json, extract::State};
 
 use breakdown_core::reporting::ReportRenderError;
 use breakdown_core::shared::ShootingDayId;
 
-use common::*;
+use api::auth::CurrentUser;
 use api::handlers::{
     dispo_report_pdf, map_render_error, planned_vs_actual_report_pdf, sanitize_pdf_filename,
     shoot_day_report_pdf,
 };
-use api::auth::CurrentUser;
 use api::state::AppState;
+use common::*;
 
 // ---------------------------------------------------------------------------
 // sanitize_pdf_filename

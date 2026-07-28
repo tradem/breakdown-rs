@@ -156,7 +156,10 @@ fn block_scoped_paths_default_to_block_member() {
 
     for path in block_scoped {
         assert!(
-            matches!(api::auth::authorization::requirement_for(path), Requirement::BlockMember),
+            matches!(
+                api::auth::authorization::requirement_for(path),
+                Requirement::BlockMember
+            ),
             "expected BlockMember for block-scoped path: {path}"
         );
     }
@@ -185,7 +188,10 @@ fn allowlist_paths_map_to_authenticated_only() {
 
     for path in allowlist {
         assert!(
-            matches!(api::auth::authorization::requirement_for(path), Requirement::Authenticated),
+            matches!(
+                api::auth::authorization::requirement_for(path),
+                Requirement::Authenticated
+            ),
             "expected Authenticated for allowlist path: {path}"
         );
     }

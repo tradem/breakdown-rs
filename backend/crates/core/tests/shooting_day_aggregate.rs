@@ -2,8 +2,8 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
-use breakdown_core::shooting_day::*;
 use breakdown_core::shared::{AggregateVersion, EpisodeId, LexicalSortKey, ShootingDayId};
+use breakdown_core::shooting_day::*;
 use kameo_es::Command;
 use test_support::make_ctx;
 

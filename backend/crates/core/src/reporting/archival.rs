@@ -231,4 +231,3 @@ pub trait ReportArchivalQueue: Send + Sync {
         job_id: ReportJobId,
     ) -> Result<Option<EnqueueArchivalResult>, ReportArchivalError>;
 }
-

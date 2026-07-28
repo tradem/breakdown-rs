@@ -3,7 +3,9 @@
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
 use breakdown_core::reporting::storage::*;
-use infra::reporting::storage::{external_key, sha256_hex, staging_key, MemoryReportArchiveStorage};
+use infra::reporting::storage::{
+    MemoryReportArchiveStorage, external_key, sha256_hex, staging_key,
+};
 use uuid::Uuid;
 
 #[tokio::test]

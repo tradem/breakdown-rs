@@ -629,4 +629,3 @@ fn truncate_error(s: &str) -> String {
     }
     out
 }
-

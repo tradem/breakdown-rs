@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use axum::http::HeaderValue;
 
-use api::auth::{AuthState, CurrentUser, OidcConfig, bearer_token};
 use api::auth::jwks::StaticJwksProvider;
+use api::auth::{AuthState, CurrentUser, OidcConfig, bearer_token};
 
 #[test]
 fn is_dev_reflects_override() {

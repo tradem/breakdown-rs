@@ -145,28 +145,51 @@ fn render_bounds_serialization_roundtrip() {
 
 #[test]
 fn report_render_error_display() {
-    let err = ReportRenderError::PageLimitExceeded { max: 50, actual: 51 };
+    let err = ReportRenderError::PageLimitExceeded {
+        max: 50,
+        actual: 51,
+    };
     assert!(err.to_string().contains("50"));
     assert!(err.to_string().contains("51"));
 
-    let err = ReportRenderError::LocaleUnsupported { locale: "fr-FR".into() };
+    let err = ReportRenderError::LocaleUnsupported {
+        locale: "fr-FR".into(),
+    };
     assert!(err.to_string().contains("fr-FR"));
 
-    let err = ReportRenderError::TemplateNotFound { kind: "dispo".into() };
+    let err = ReportRenderError::TemplateNotFound {
+        kind: "dispo".into(),
+    };
     assert!(err.to_string().contains("dispo"));
 }
 
 #[test]
 fn report_render_error_serialization_roundtrip() {
     let errors = vec![
-        ReportRenderError::PageLimitExceeded { max: 50, actual: 51 },
-        ReportRenderError::InputBoundsExceeded { limit: 1000, field: "rows".into() },
-        ReportRenderError::CompilerFailure { detail: "test".into() },
+        ReportRenderError::PageLimitExceeded {
+            max: 50,
+            actual: 51,
+        },
+        ReportRenderError::InputBoundsExceeded {
+            limit: 1000,
+            field: "rows".into(),
+        },
+        ReportRenderError::CompilerFailure {
+            detail: "test".into(),
+        },
         ReportRenderError::RenderTimeout,
-        ReportRenderError::LocaleUnsupported { locale: "fr-FR".into() },
-        ReportRenderError::TemplateNotFound { kind: "dispo".into() },
-        ReportRenderError::AssetRejected { detail: "test".into() },
-        ReportRenderError::UnknownTimezone { timezone: "Invalid".into() },
+        ReportRenderError::LocaleUnsupported {
+            locale: "fr-FR".into(),
+        },
+        ReportRenderError::TemplateNotFound {
+            kind: "dispo".into(),
+        },
+        ReportRenderError::AssetRejected {
+            detail: "test".into(),
+        },
+        ReportRenderError::UnknownTimezone {
+            timezone: "Invalid".into(),
+        },
         ReportRenderError::Internal("test".into()),
     ];
     for err in &errors {

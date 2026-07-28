@@ -57,4 +57,3 @@ pub fn convert_to_timezone(
         local.minute() as u8,
     )
 }
-

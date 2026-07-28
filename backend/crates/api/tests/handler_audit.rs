@@ -3,18 +3,18 @@ use utoipa::OpenApi;
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 
 use axum::Json;
-use common::FakePorts;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use breakdown_core::audit::AuditEntry;
 use breakdown_core::shared::{BlockId, UserId};
 use chrono::Utc;
+use common::FakePorts;
 use serde_json::json;
 use uuid::Uuid;
 
 use api::handlers::get_block_audit;
-use common::*;
 use api::state::AppState;
+use common::*;
 
 #[tokio::test]
 async fn get_block_audit_returns_journal_entries_for_block() {

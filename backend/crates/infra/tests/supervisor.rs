@@ -3,7 +3,7 @@
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
 use infra::projectors::supervisor::{
-    compute_backoff, run_with_restart, BACKOFF_BASE_MS, BACKOFF_MAX_DELAY_MS, MAX_ATTEMPTS,
+    BACKOFF_BASE_MS, BACKOFF_MAX_DELAY_MS, MAX_ATTEMPTS, compute_backoff, run_with_restart,
 };
 use std::future::Future;
 use std::pin::Pin;

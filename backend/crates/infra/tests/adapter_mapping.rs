@@ -6,10 +6,10 @@ use breakdown_core::scene::aggregate::SceneAggregate;
 use breakdown_core::scene::error::SceneError;
 use breakdown_core::scene::events::{SceneDetails, SceneEvent};
 use breakdown_core::shared::{AggregateVersion, EpisodeId};
+use chrono::Utc;
 use infra::event_store::{
     map_executed, map_executed_result, map_version_only, version_from_expected,
 };
-use chrono::Utc;
 use kameo_es::command_service::{AppendedEvent, ExecuteResult};
 use kameo_es::error::ExecuteError;
 use uuid::Uuid;
@@ -79,7 +79,10 @@ fn map_executed_result_handle_error_is_domain_error() {
         "boom".into(),
     )));
     let err = map_executed_result(id, result).unwrap_err();
-    assert!(matches!(err, breakdown_core::error::DomainError::ValidationError(_)));
+    assert!(matches!(
+        err,
+        breakdown_core::error::DomainError::ValidationError(_)
+    ));
 }
 
 #[test]

@@ -9,7 +9,9 @@
 //! required credentials are present (`#[ignore]` by default).
 
 use breakdown_core::reporting::{ReportArchiveStorage, ReportArtifactKey, ReportStorageError};
-use infra::reporting::storage::{sha256_hex, MemoryReportArchiveStorage, OpenDalReportArchiveStorage};
+use infra::reporting::storage::{
+    MemoryReportArchiveStorage, OpenDalReportArchiveStorage, sha256_hex,
+};
 
 async fn contract_upload_overwrite_fetch_delete<S: ReportArchiveStorage>(store: &S) {
     let key = ReportArtifactKey::new("contract/test-report.pdf").unwrap();

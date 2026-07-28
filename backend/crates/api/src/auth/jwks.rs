@@ -181,4 +181,3 @@ struct Jwk {
 pub fn static_provider(keys: HashMap<String, DecodingKey>) -> Arc<dyn JwksProvider> {
     Arc::new(StaticJwksProvider::new(keys))
 }
-

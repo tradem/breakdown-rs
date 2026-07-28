@@ -15,8 +15,8 @@ use axum::routing::{get, post};
 use jsonwebtoken::Algorithm;
 use tower::ServiceExt;
 
-use common::FakeMembershipRepo;
 use breakdown_core::shared::{BlockId, UserId};
+use common::FakeMembershipRepo;
 
 use api::auth::AuthState;
 use api::auth::authorization::{AuthorizationState, MembershipAuthorizationPolicy};

@@ -5,7 +5,9 @@
 use breakdown_core::reporting::*;
 use breakdown_core::shared::ShootingDayId;
 use infra::reporting::backup::compute_backoff;
-use infra::reporting::storage::{external_key, sha256_hex, staging_key, MemoryReportArchiveStorage};
+use infra::reporting::storage::{
+    MemoryReportArchiveStorage, external_key, sha256_hex, staging_key,
+};
 use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;

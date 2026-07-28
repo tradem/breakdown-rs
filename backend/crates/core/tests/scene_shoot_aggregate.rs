@@ -435,8 +435,6 @@ fn duplicate_plan_same_scene_and_day_is_rejected() {
     ));
 }
 
-
-
 // ─── 2.9: Photo linking ─────────────────────────────────────────────────────
 
 #[test]
@@ -530,5 +528,3 @@ fn unlink_continuity_photo_removes_from_set() {
     assert!(!state.continuity_photos.contains(&photo_id));
     assert_eq!(events.len(), 1);
 }
-
-

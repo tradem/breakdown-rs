@@ -228,4 +228,3 @@ pub trait ReportArchiveStorage: Send + Sync {
     /// Return whether an object exists at `key`.
     async fn exists(&self, key: &ReportArtifactKey) -> Result<bool, ReportStorageError>;
 }
-

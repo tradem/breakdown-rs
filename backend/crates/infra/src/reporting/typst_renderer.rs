@@ -53,7 +53,7 @@ pub struct RestrictedWorld {
 
 impl RestrictedWorld {
     /// Create a new restricted world with the given template and data.
-pub fn new(template_source: &str, report_json: &[u8], fonts: Vec<Font>) -> Self {
+    pub fn new(template_source: &str, report_json: &[u8], fonts: Vec<Font>) -> Self {
         let file_id = FileId::new(typst::syntax::RootedPath::new(
             typst::syntax::VirtualRoot::Project,
             VirtualPath::new("main.typ").unwrap(),
@@ -383,4 +383,3 @@ fn load_system_fonts() -> Result<Vec<Font>, String> {
 
     Ok(fonts)
 }
-

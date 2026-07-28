@@ -291,4 +291,3 @@ pub async fn authorize_middleware(
 
     next.run(req).await
 }
-

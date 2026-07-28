@@ -326,4 +326,3 @@ pub fn bearer_token(header: Option<&axum::http::HeaderValue>) -> Option<String> 
     }
     Some(token.to_string())
 }
-

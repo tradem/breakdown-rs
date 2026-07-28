@@ -266,4 +266,3 @@ pub async fn spawn_wrap_archival_saga(
     drop(_handle);
     Ok(())
 }
-

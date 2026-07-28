@@ -2,20 +2,20 @@ mod common;
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 
-use axum::Json;
 use api::auth::CurrentUser;
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use breakdown_core::membership::Role;
 use breakdown_core::shared::{BlockId, UserId};
 use uuid::Uuid;
 
-use common::*;
 use api::handlers::{
-    GrantRoleRequest, InviteMemberRequest, ListParams, accept_invitation, get_member,
-    grant_role, invite_member, leave_block, list_members, remove_member,
+    GrantRoleRequest, InviteMemberRequest, ListParams, accept_invitation, get_member, grant_role,
+    invite_member, leave_block, list_members, remove_member,
 };
 use api::state::AppState;
+use common::*;
 
 fn fresh_block() -> Uuid {
     Uuid::now_v7()

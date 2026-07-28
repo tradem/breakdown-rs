@@ -466,4 +466,3 @@ pub fn external_key(
         "{shooting_day_id}/{kind}/{locale}/v{template_version}.pdf"
     ))
 }
-

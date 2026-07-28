@@ -2,8 +2,8 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
-use breakdown_core::membership::*;
 use breakdown_core::membership::aggregate::MembershipState;
+use breakdown_core::membership::*;
 use breakdown_core::shared::{BlockId, UserId};
 use chrono::Utc;
 use kameo_es::{Apply, Command, Context, Metadata, StreamId};
@@ -419,5 +419,3 @@ fn bootstrap_owner_twice_is_rejected() {
         Err(MembershipError::BootstrapNotAllowed { .. })
     ));
 }
-
-

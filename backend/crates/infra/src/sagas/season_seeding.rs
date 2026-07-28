@@ -219,4 +219,3 @@ pub async fn spawn_season_seeding_saga(
     drop(_handle);
     Ok(())
 }
-

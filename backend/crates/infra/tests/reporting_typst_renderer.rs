@@ -4,12 +4,10 @@
 
 use breakdown_core::reporting::*;
 use infra::reporting::locale::validate_timezone;
-use infra::reporting::typst_renderer::{
-    RenderConfig, RestrictedWorld, TypstReportRenderer,
-};
+use infra::reporting::typst_renderer::{RenderConfig, RestrictedWorld, TypstReportRenderer};
 use std::collections::HashMap;
-use typst::syntax::{FileId, RootedPath, VirtualPath, VirtualRoot};
 use typst::World;
+use typst::syntax::{FileId, RootedPath, VirtualPath, VirtualRoot};
 
 // ------------------------------------------------------------------
 // validate_timezone
