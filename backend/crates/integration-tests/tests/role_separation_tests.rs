@@ -46,6 +46,12 @@ async fn setup_roles(pool: &sqlx::PgPool) -> Result<()> {
     .execute(pool)
     .await?;
 
+    // Grant CREATE on database to breakdown_migrator so it can
+    // run DDL migrations including schema creation.
+    sqlx::query("GRANT CREATE ON DATABASE postgres TO breakdown_migrator")
+        .execute(pool)
+        .await?;
+
     // Transfer schema ownership to migrator.
     sqlx::query("ALTER SCHEMA public OWNER TO breakdown_migrator")
         .execute(pool)
