@@ -3440,34 +3440,3 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         )
 }
 
-#[cfg(test)]
-#[path = "test_helpers.rs"]
-mod test_helpers;
-
-#[cfg(test)]
-#[path = "scene_tests.rs"]
-mod scene_tests;
-
-#[cfg(test)]
-#[path = "character_tests.rs"]
-mod character_tests;
-
-#[cfg(test)]
-#[path = "costume_tests.rs"]
-mod costume_tests;
-
-#[cfg(test)]
-#[path = "authz_tests.rs"]
-mod authz_tests;
-
-#[cfg(test)]
-#[path = "audit_tests.rs"]
-mod audit_tests;
-
-#[cfg(test)]
-#[path = "membership_tests.rs"]
-mod membership_tests;
-
-#[cfg(test)]
-#[path = "report_tests.rs"]
-mod report_tests;

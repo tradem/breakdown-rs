@@ -16,3 +16,11 @@ pub mod storage;
 pub mod triggers;
 pub mod typst_renderer;
 
+pub use backup::{
+    BackupWorkerConfig, ReportBackupWorker, SceneShootReportDataLoader, spawn_backup_worker,
+};
+pub use jobs::PgReportArchivalQueue;
+pub use storage::{MemoryReportArchiveStorage, OpenDalReportArchiveStorage};
+pub use triggers::{ScheduleConfig, spawn_schedule_ticker, spawn_wrap_archival_saga};
+pub use typst_renderer::TypstReportRenderer;
+
