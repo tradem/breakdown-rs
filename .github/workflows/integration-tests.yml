@@ -57,7 +57,7 @@ jobs:
       # workflow and document the cutoff in backend/AGENTS.md.
 
       - name: GDrive archival provider contract test
-        if: ${{ secrets.GDRIVE_CLIENT_ID != '' }}
+        if: env.REPORT_BACKUP_GDRIVE_CLIENT_ID != ''
         env:
           REPORT_BACKUP_PROVIDER: gdrive
           REPORT_BACKUP_GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
@@ -68,5 +68,7 @@ jobs:
         run: cargo test -p infra -- reporting::storage_contract_test::gdrive_contract -- --nocapture
 
       - name: GDrive archival provider contract test (skipped)
-        if: ${{ secrets.GDRIVE_CLIENT_ID == '' }}
+        if: env.REPORT_BACKUP_GDRIVE_CLIENT_ID == ''
+        env:
+          REPORT_BACKUP_GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
         run: echo SKIP - GDrive contract test - set GDRIVE_CLIENT_ID secret to enable
