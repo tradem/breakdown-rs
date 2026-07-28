@@ -150,7 +150,7 @@ impl JwksProvider for CachingJwksProvider {
 
 /// Decode a base64url (or standard) string and re-encode it as standard
 /// base64, so it can be consumed by `DecodingKey::from_rsa_components`.
-fn normalize_b64(s: &str) -> String {
+pub fn normalize_b64(s: &str) -> String {
     let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(s)
         .or_else(|_| base64::engine::general_purpose::STANDARD.decode(s))
@@ -182,6 +182,3 @@ pub fn static_provider(keys: HashMap<String, DecodingKey>) -> Arc<dyn JwksProvid
     Arc::new(StaticJwksProvider::new(keys))
 }
 
-#[cfg(test)]
-#[path = "jwks_test.rs"]
-mod tests;
