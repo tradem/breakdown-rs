@@ -162,12 +162,12 @@ async fn init() -> Result<(
 async fn scenes_by_episode_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let episode_id = EpisodeId::new();
-    let _scene_repo = SceneRepositoryImpl::new(pool.clone());
-    let _scene_repo = SceneRepositoryImpl::new(pool.clone());
-    let _episode_repo = EpisodeRepositoryImpl::new(pool.compile());
+    let scene_repo = SceneRepositoryImpl::new(pool.clone());
+    let scene_repo = SceneRepositoryImpl::new(pool.clone());
+    let episode_repo = EpisodeRepositoryImpl::new(pool.clone());
     let shooting_day_repo = ShootingDayRepositoryImpl::new(pool.clone());
-    let _scene_repo = SceneRepositoryImpl::new(pool.clone());
-    let _episode_repo = EpisodeRepositoryImpl::new(pool.compile());
+    let scene_repo = SceneRepositoryImpl::new(pool.clone());
+    let episode_repo = EpisodeRepositoryImpl::new(pool.clone());
     let shooting_day_repo = ShootingDayRepositoryImpl::new(pool.clone());
     let scene_cmd =
         SceneCommandsImpl::new(cmd_svc, scene_repo.clone(), episode_repo, shooting_day_repo);
@@ -207,11 +207,11 @@ async fn scenes_by_episode_returns_data() -> Result<()> {
 async fn characters_by_season_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let season_id = SeasonId::new();
-    let _char_repo = CharacterRepositoryImpl::new(pool.clone());
-    let _char_repo = CharacterRepositoryImpl::new(pool.clone());
-    let _season_repo = SeasonRepositoryImpl::new(pool.clone());
-    let _char_repo = CharacterRepositoryImpl::new(pool.clone());
-    let _season_repo = SeasonRepositoryImpl::new(pool.clone());
+    let char_repo = CharacterRepositoryImpl::new(pool.clone());
+    let char_repo = CharacterRepositoryImpl::new(pool.clone());
+    let season_repo = SeasonRepositoryImpl::new(pool.clone());
+    let char_repo = CharacterRepositoryImpl::new(pool.clone());
+    let season_repo = SeasonRepositoryImpl::new(pool.clone());
     let char_cmd = CharacterCommandsImpl::new(cmd_svc, char_repo.clone(), season_repo);
 
     let char_id = Uuid::now_v7();
@@ -243,12 +243,12 @@ async fn characters_by_season_returns_data() -> Result<()> {
 async fn costumes_by_season_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let season_id = SeasonId::new();
-    let _char_repo = CharacterRepositoryImpl::new(pool.clone());
-    let _season_repo = SeasonRepositoryImpl::new(pool.clone());
+    let char_repo = CharacterRepositoryImpl::new(pool.clone());
+    let season_repo = SeasonRepositoryImpl::new(pool.clone());
     let char_cmd = CharacterCommandsImpl::new(cmd_svc.clone(), char_repo, season_repo);
     let costume_repo = CostumeRepositoryImpl::new(pool.clone());
-    let _char_repo = CharacterRepositoryImpl::new(pool.clone());
-    let _season_repo = SeasonRepositoryImpl::new(pool.clone());
+    let char_repo = CharacterRepositoryImpl::new(pool.clone());
+    let season_repo = SeasonRepositoryImpl::new(pool.clone());
     let costume_cmd = CostumeCommandsImpl::new(cmd_svc, costume_repo, char_repo, season_repo);
     let costume_repo = CostumeRepositoryImpl::new(pool.clone());
 
@@ -301,10 +301,10 @@ async fn costumes_by_season_returns_data() -> Result<()> {
 #[tokio::test]
 async fn costumes_with_details_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
-    let _costume_repo = CostumeRepositoryImpl::new(pool.clone());
     let costume_repo = CostumeRepositoryImpl::new(pool.clone());
-    let _char_repo = CharacterRepositoryImpl::new(pool.clone());
-    let _season_repo = SeasonRepositoryImpl::new(pool.clone());
+    let costume_repo = CostumeRepositoryImpl::new(pool.clone());
+    let char_repo = CharacterRepositoryImpl::new(pool.clone());
+    let season_repo = SeasonRepositoryImpl::new(pool.clone());
     let costume_cmd = CostumeCommandsImpl::new(cmd_svc, costume_repo, char_repo, season_repo);
 
     let costume_id = Uuid::now_v7();
@@ -342,8 +342,8 @@ async fn costumes_with_details_returns_data() -> Result<()> {
 async fn seasons_by_series_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let series_id = SeriesId::new();
-    let _season_repo = SeasonRepositoryImpl::new(pool.clone());
-    let _season_repo = SeasonRepositoryImpl::new(pool.clone());
+    let season_repo = SeasonRepositoryImpl::new(pool.clone());
+    let season_repo = SeasonRepositoryImpl::new(pool.clone());
     let season_cmd = SeasonCommandsImpl::new(cmd_svc, season_repo.clone());
 
     let season_id = Uuid::now_v7();
@@ -373,8 +373,8 @@ async fn blocks_by_season_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let season_id = SeasonId::new();
     let series_id = SeriesId::new();
-    let _block_repo = BlockRepositoryImpl::new(pool.clone());
-    let _block_repo = BlockRepositoryImpl::new(pool.clone());
+    let block_repo = BlockRepositoryImpl::new(pool.clone());
+    let block_repo = BlockRepositoryImpl::new(pool.clone());
     let block_cmd = BlockCommandsImpl::new(cmd_svc, block_repo.clone());
 
     let block_id = Uuid::now_v7();
@@ -403,8 +403,8 @@ async fn episodes_by_series_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let block_id = BlockId::new();
     let series_id = SeriesId::new();
-    let _episode_repo = EpisodeRepositoryImpl::new(pool.compile());
-    let _episode_repo = EpisodeRepositoryImpl::new(pool.compile());
+    let episode_repo = EpisodeRepositoryImpl::new(pool.clone());
+    let episode_repo = EpisodeRepositoryImpl::new(pool.clone());
     let episode_cmd = EpisodeCommandsImpl::new(cmd_svc, episode_repo.clone());
 
     let episode_id = Uuid::now_v7();
@@ -434,12 +434,12 @@ async fn episodes_by_series_returns_data() -> Result<()> {
 async fn character_measurements_persist() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let season_id = SeasonId::new();
-    let _char_repo = CharacterRepositoryImpl::new(pool.clone());
-    let _season_repo = SeasonRepositoryImpl::new(pool.clone());
-    let _char_repo = CharacterRepositoryImpl::new(pool.clone());
-    let _season_repo = SeasonRepositoryImpl::new(pool.clone());
+    let char_repo = CharacterRepositoryImpl::new(pool.clone());
+    let season_repo = SeasonRepositoryImpl::new(pool.clone());
+    let char_repo = CharacterRepositoryImpl::new(pool.clone());
+    let season_repo = SeasonRepositoryImpl::new(pool.clone());
     let char_cmd = CharacterCommandsImpl::new(cmd_svc, char_repo.clone(), season_repo);
-    let _char_repo = CharacterRepositoryImpl::new(pool.clone());
+    let char_repo = CharacterRepositoryImpl::new(pool.clone());
 
     let char_id = Uuid::now_v7();
     let (_id, ver) = char_cmd

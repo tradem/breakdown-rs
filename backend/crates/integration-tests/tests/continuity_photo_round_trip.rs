@@ -189,7 +189,7 @@ async fn continuity_photo_upload_projection() -> Result<()> {
         scene_repo.clone(),
         episode_repo.clone(),
     );
-    let  _photo_repo_saga = photo_repo.clone();
+    let _photo_repo_saga = photo_repo.clone();
 
     let _scene_proj = spawn_scene_projector(pool.clone(), Arc::clone(&client)).await?;
     let _sd_proj = spawn_shooting_day_projector(pool.clone(), Arc::clone(&client)).await?;
@@ -319,7 +319,7 @@ async fn continuity_photo_delete_on_zero_refcount() -> Result<()> {
         scene_repo.clone(),
         episode_repo.clone(),
     );
-    let  _photo_repo_saga = photo_repo.clone();
+    let _photo_repo_saga = photo_repo.clone();
 
     let _scene_proj = spawn_scene_projector(pool.clone(), Arc::clone(&client)).await?;
     let _sd_proj = spawn_shooting_day_projector(pool.clone(), Arc::clone(&client)).await?;
