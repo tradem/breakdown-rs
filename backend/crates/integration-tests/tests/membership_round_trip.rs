@@ -11,6 +11,10 @@
 
 mod fixtures;
 
+fn test_user() -> breakdown_core::shared::UserId {
+    crate::fixtures::test_user_id()
+}
+
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -178,7 +182,8 @@ async fn eappend_membership(
 #[tokio::test]
 async fn command_invite_accept_round_trips_into_membership_projection() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init_membership().await?;
-    let membership = MembershipCommandsImpl::new(cmd_svc);
+    let block_repo = infra::queries::BlockRepositoryImpl::new(pool.clone());
+    let membership = MembershipCommandsImpl::new(cmd_svc, block_repo);
     let repo = MembershipRepositoryImpl::new(pool.clone());
 
     let block_id = BlockId::from_uuid(Uuid::now_v7());
@@ -251,7 +256,8 @@ async fn command_invite_accept_round_trips_into_membership_projection() -> Resul
 #[tokio::test]
 async fn command_grant_remove_leave_round_trips_into_membership_projection() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init_membership().await?;
-    let membership = MembershipCommandsImpl::new(cmd_svc);
+    let block_repo = infra::queries::BlockRepositoryImpl::new(pool.clone());
+    let membership = MembershipCommandsImpl::new(cmd_svc, block_repo);
     let repo = MembershipRepositoryImpl::new(pool.clone());
 
     let block_id = BlockId::from_uuid(Uuid::now_v7());

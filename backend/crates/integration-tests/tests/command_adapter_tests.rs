@@ -8,6 +8,10 @@
 
 mod fixtures;
 
+fn test_user() -> breakdown_core::shared::UserId {
+    crate::fixtures::test_user_id()
+}
+
 use std::time::Duration;
 
 use anyhow::Result;
@@ -151,7 +155,12 @@ async fn init() -> Result<(
 #[tokio::test]
 async fn scene_create() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let scene_cmd = infra::event_store::SceneCommandsImpl::new(cmd_svc);
+    let scene_cmd = infra::event_store::SceneCommandsImpl::new(
+        cmd_svc,
+        infra::queries::SceneRepositoryImpl::new(pool.clone()),
+        infra::queries::EpisodeRepositoryImpl::new(pool.clone()),
+        infra::queries::ShootingDayRepositoryImpl::new(pool.clone()),
+    );
     let scene_repo = infra::queries::SceneRepositoryImpl::new(pool.clone());
 
     let scene_id = Uuid::now_v7();
@@ -170,7 +179,7 @@ async fn scene_create() -> Result<()> {
         },
     };
 
-    let (rid, rv) = scene_cmd.create(cmd).await?;
+    let (rid, rv) = scene_cmd.create(test_user(), cmd).await?;
     assert_ne!(rid, Uuid::nil());
     assert_eq!(rid, scene_id);
     assert!(rv.0 >= 1, "version {}", rv.0);
@@ -185,7 +194,12 @@ async fn scene_create() -> Result<()> {
 #[tokio::test]
 async fn scene_update_details() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let scene_cmd = infra::event_store::SceneCommandsImpl::new(cmd_svc);
+    let scene_cmd = infra::event_store::SceneCommandsImpl::new(
+        cmd_svc,
+        infra::queries::SceneRepositoryImpl::new(pool.clone()),
+        infra::queries::EpisodeRepositoryImpl::new(pool.clone()),
+        infra::queries::ShootingDayRepositoryImpl::new(pool.clone()),
+    );
     let scene_repo = infra::queries::SceneRepositoryImpl::new(pool.clone());
 
     let scene_id = Uuid::now_v7();
@@ -202,22 +216,25 @@ async fn scene_update_details() -> Result<()> {
             script_day: None,
         },
     };
-    let (_id, ver) = scene_cmd.create(cmd).await?;
+    let (_id, ver) = scene_cmd.create(test_user(), cmd).await?;
     await_proj(&pool, "projection_scene", scene_id).await;
 
     let ver2 = scene_cmd
-        .update_details(breakdown_core::scene::commands::UpdateSceneDetails {
-            id: scene_id,
-            details: SceneDetails {
-                scene_number: Some(99),
-                location: Some("Updated".into()),
-                mood: Some("bright".into()),
-                is_schedule_set: true,
-                summary: None,
-                script_day: None,
+        .update_details(
+            test_user(),
+            breakdown_core::scene::commands::UpdateSceneDetails {
+                id: scene_id,
+                details: SceneDetails {
+                    scene_number: Some(99),
+                    location: Some("Updated".into()),
+                    mood: Some("bright".into()),
+                    is_schedule_set: true,
+                    summary: None,
+                    script_day: None,
+                },
+                version: ver,
             },
-            version: ver,
-        })
+        )
         .await?;
     assert!(ver2.0 > ver.0);
 
@@ -234,7 +251,12 @@ async fn scene_update_details() -> Result<()> {
 #[tokio::test]
 async fn scene_assign_remove_character() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let scene_cmd = infra::event_store::SceneCommandsImpl::new(cmd_svc);
+    let scene_cmd = infra::event_store::SceneCommandsImpl::new(
+        cmd_svc,
+        infra::queries::SceneRepositoryImpl::new(pool.clone()),
+        infra::queries::EpisodeRepositoryImpl::new(pool.clone()),
+        infra::queries::ShootingDayRepositoryImpl::new(pool.clone()),
+    );
     let scene_repo = infra::queries::SceneRepositoryImpl::new(pool.clone());
 
     let scene_id = Uuid::now_v7();
@@ -252,15 +274,18 @@ async fn scene_assign_remove_character() -> Result<()> {
             script_day: None,
         },
     };
-    let (_id, ver) = scene_cmd.create(cmd).await?;
+    let (_id, ver) = scene_cmd.create(test_user(), cmd).await?;
     await_proj(&pool, "projection_scene", scene_id).await;
 
     let ver2 = scene_cmd
-        .assign_character(AssignCharacter {
-            id: scene_id,
-            character_id: char_id,
-            version: ver,
-        })
+        .assign_character(
+            test_user(),
+            AssignCharacter {
+                id: scene_id,
+                character_id: char_id,
+                version: ver,
+            },
+        )
         .await?;
     assert!(ver2.0 > ver.0);
 
@@ -270,11 +295,14 @@ async fn scene_assign_remove_character() -> Result<()> {
     assert_eq!(v.assigned_characters.len(), 1);
 
     let ver3 = scene_cmd
-        .remove_character(breakdown_core::scene::commands::RemoveCharacter {
-            id: scene_id,
-            character_id: char_id,
-            version: ver2,
-        })
+        .remove_character(
+            test_user(),
+            breakdown_core::scene::commands::RemoveCharacter {
+                id: scene_id,
+                character_id: char_id,
+                version: ver2,
+            },
+        )
         .await?;
     assert!(ver3.0 > ver2.0);
 
@@ -291,7 +319,11 @@ async fn scene_assign_remove_character() -> Result<()> {
 #[tokio::test]
 async fn character_create() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let char_cmd = infra::event_store::CharacterCommandsImpl::new(cmd_svc);
+    let char_cmd = infra::event_store::CharacterCommandsImpl::new(
+        cmd_svc,
+        infra::queries::CharacterRepositoryImpl::new(pool.clone()),
+        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
+    );
     let char_repo = infra::queries::CharacterRepositoryImpl::new(pool.clone());
 
     let char_id = Uuid::now_v7();
@@ -303,7 +335,7 @@ async fn character_create() -> Result<()> {
         category: CharacterCategory::MainCast,
     };
 
-    let (rid, rv) = char_cmd.create(cmd).await?;
+    let (rid, rv) = char_cmd.create(test_user(), cmd).await?;
     assert_ne!(rid, Uuid::nil());
     assert_eq!(rid, char_id);
     assert!(rv.0 >= 1);
@@ -317,7 +349,11 @@ async fn character_create() -> Result<()> {
 #[tokio::test]
 async fn character_update_measurements() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let char_cmd = infra::event_store::CharacterCommandsImpl::new(cmd_svc);
+    let char_cmd = infra::event_store::CharacterCommandsImpl::new(
+        cmd_svc,
+        infra::queries::CharacterRepositoryImpl::new(pool.clone()),
+        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
+    );
     let char_repo = infra::queries::CharacterRepositoryImpl::new(pool.clone());
 
     let char_id = Uuid::now_v7();
@@ -328,19 +364,22 @@ async fn character_update_measurements() -> Result<()> {
         name: "Test".into(),
         category: CharacterCategory::Guest,
     };
-    let (_id, ver) = char_cmd.create(cmd).await?;
+    let (_id, ver) = char_cmd.create(test_user(), cmd).await?;
     await_proj(&pool, "projection_character", char_id).await;
 
     let ver2 = char_cmd
-        .update_measurements(UpdateMeasurements {
-            id: char_id,
-            measurements: CharacterMeasurements {
-                height: Some(Decimal::from(180)),
-                weight: Some(Decimal::from(75)),
-                ..Default::default()
+        .update_measurements(
+            test_user(),
+            UpdateMeasurements {
+                id: char_id,
+                measurements: CharacterMeasurements {
+                    height: Some(Decimal::from(180)),
+                    weight: Some(Decimal::from(75)),
+                    ..Default::default()
+                },
+                version: ver,
             },
-            version: ver,
-        })
+        )
         .await?;
     assert!(ver2.0 > ver.0);
 
@@ -353,7 +392,11 @@ async fn character_update_measurements() -> Result<()> {
 #[tokio::test]
 async fn character_update_contact_info() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let char_cmd = infra::event_store::CharacterCommandsImpl::new(cmd_svc);
+    let char_cmd = infra::event_store::CharacterCommandsImpl::new(
+        cmd_svc,
+        infra::queries::CharacterRepositoryImpl::new(pool.clone()),
+        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
+    );
     let char_repo = infra::queries::CharacterRepositoryImpl::new(pool.clone());
 
     let char_id = Uuid::now_v7();
@@ -364,18 +407,21 @@ async fn character_update_contact_info() -> Result<()> {
         name: "Test".into(),
         category: CharacterCategory::Guest,
     };
-    let (_id, ver) = char_cmd.create(cmd).await?;
+    let (_id, ver) = char_cmd.create(test_user(), cmd).await?;
     await_proj(&pool, "projection_character", char_id).await;
 
     let ver2 = char_cmd
-        .update_contact_info(UpdateContactInfo {
-            id: char_id,
-            contact_info: ContactInfo {
-                email: Some("test@example.com".into()),
-                phone: Some("+49-123".into()),
+        .update_contact_info(
+            test_user(),
+            UpdateContactInfo {
+                id: char_id,
+                contact_info: ContactInfo {
+                    email: Some("test@example.com".into()),
+                    phone: Some("+49-123".into()),
+                },
+                version: ver,
             },
-            version: ver,
-        })
+        )
         .await?;
 
     await_proj_version(&pool, "projection_character", char_id, ver2.0 as u64).await;
@@ -391,14 +437,19 @@ async fn character_update_contact_info() -> Result<()> {
 #[tokio::test]
 async fn costume_create() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(cmd_svc);
+    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(
+        cmd_svc,
+        infra::queries::CostumeRepositoryImpl::new(pool.clone()),
+        infra::queries::CharacterRepositoryImpl::new(pool.clone()),
+        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
+    );
     let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
 
     let costume_id = Uuid::now_v7();
 
     let cmd = CreateCostume { id: costume_id };
 
-    let (rid, rv) = costume_cmd.create(cmd).await?;
+    let (rid, rv) = costume_cmd.create(test_user(), cmd).await?;
     assert_ne!(rid, Uuid::nil());
     assert_eq!(rid, costume_id);
     assert!(rv.0 >= 1);
@@ -413,21 +464,29 @@ async fn costume_create() -> Result<()> {
 #[tokio::test]
 async fn costume_notes() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(cmd_svc);
+    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(
+        cmd_svc,
+        infra::queries::CostumeRepositoryImpl::new(pool.clone()),
+        infra::queries::CharacterRepositoryImpl::new(pool.clone()),
+        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
+    );
     let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
 
     let costume_id = Uuid::now_v7();
 
     let cmd = CreateCostume { id: costume_id };
-    let (_id, ver) = costume_cmd.create(cmd).await?;
+    let (_id, ver) = costume_cmd.create(test_user(), cmd).await?;
     await_proj(&pool, "projection_costume", costume_id).await;
 
     let ver2 = costume_cmd
-        .update_notes(breakdown_core::costume::commands::UpdateCostumeNotes {
-            id: costume_id,
-            notes: "Blue dress".into(),
-            version: ver,
-        })
+        .update_notes(
+            test_user(),
+            breakdown_core::costume::commands::UpdateCostumeNotes {
+                id: costume_id,
+                notes: "Blue dress".into(),
+                version: ver,
+            },
+        )
         .await?;
     assert!(ver2.0 > ver.0);
 
@@ -442,8 +501,17 @@ async fn costume_notes() -> Result<()> {
 #[tokio::test]
 async fn costume_assign_unassign() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(cmd_svc.clone());
-    let char_cmd = infra::event_store::CharacterCommandsImpl::new(cmd_svc);
+    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(
+        cmd_svc.clone(),
+        infra::queries::CostumeRepositoryImpl::new(pool.clone()),
+        infra::queries::CharacterRepositoryImpl::new(pool.clone()),
+        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
+    );
+    let char_cmd = infra::event_store::CharacterCommandsImpl::new(
+        cmd_svc,
+        infra::queries::CharacterRepositoryImpl::new(pool.clone()),
+        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
+    );
     let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
 
     let costume_id = Uuid::now_v7();
@@ -456,25 +524,31 @@ async fn costume_assign_unassign() -> Result<()> {
     // in a loop — the projection never advances past the create. Create the
     // character first and wait for its projection so the FK is satisfied.
     char_cmd
-        .create(CreateCharacter {
-            id: char_id,
-            season_id: SeasonId::new(),
-            name: "Wearer".into(),
-            category: CharacterCategory::Guest,
-        })
+        .create(
+            test_user(),
+            CreateCharacter {
+                id: char_id,
+                season_id: SeasonId::new(),
+                name: "Wearer".into(),
+                category: CharacterCategory::Guest,
+            },
+        )
         .await?;
     await_proj(&pool, "projection_character", char_id).await;
 
     let cmd = CreateCostume { id: costume_id };
-    let (_id, ver) = costume_cmd.create(cmd).await?;
+    let (_id, ver) = costume_cmd.create(test_user(), cmd).await?;
     await_proj(&pool, "projection_costume", costume_id).await;
 
     let ver2 = costume_cmd
-        .assign_to_character(AssignCostumeToCharacter {
-            id: costume_id,
-            character_id: char_id,
-            version: ver,
-        })
+        .assign_to_character(
+            test_user(),
+            AssignCostumeToCharacter {
+                id: costume_id,
+                character_id: char_id,
+                version: ver,
+            },
+        )
         .await?;
     assert!(ver2.0 > ver.0);
 
@@ -485,10 +559,13 @@ async fn costume_assign_unassign() -> Result<()> {
     );
 
     let ver3 = costume_cmd
-        .unassign(breakdown_core::costume::commands::UnassignCostume {
-            id: costume_id,
-            version: ver2,
-        })
+        .unassign(
+            test_user(),
+            breakdown_core::costume::commands::UnassignCostume {
+                id: costume_id,
+                version: ver2,
+            },
+        )
         .await?;
     assert!(ver3.0 > ver2.0);
 
@@ -506,27 +583,35 @@ async fn costume_assign_unassign() -> Result<()> {
 #[tokio::test]
 async fn costume_detail_add_remove() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(cmd_svc);
+    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(
+        cmd_svc,
+        infra::queries::CostumeRepositoryImpl::new(pool.clone()),
+        infra::queries::CharacterRepositoryImpl::new(pool.clone()),
+        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
+    );
     let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
 
     let costume_id = Uuid::now_v7();
     let detail_id = Uuid::now_v7();
 
     let cmd = CreateCostume { id: costume_id };
-    let (_id, ver) = costume_cmd.create(cmd).await?;
+    let (_id, ver) = costume_cmd.create(test_user(), cmd).await?;
     await_proj(&pool, "projection_costume", costume_id).await;
 
     let ver2 = costume_cmd
-        .add_detail(breakdown_core::costume::commands::AddDetail {
-            id: costume_id,
-            detail: CostumeDetail {
-                id: detail_id,
-                subject: None,
-                category_id: None,
-                text: "Red lining".into(),
+        .add_detail(
+            test_user(),
+            breakdown_core::costume::commands::AddDetail {
+                id: costume_id,
+                detail: CostumeDetail {
+                    id: detail_id,
+                    subject: None,
+                    category_id: None,
+                    text: "Red lining".into(),
+                },
+                version: ver,
             },
-            version: ver,
-        })
+        )
         .await?;
     assert!(ver2.0 > ver.0);
 
@@ -535,11 +620,14 @@ async fn costume_detail_add_remove() -> Result<()> {
     assert_eq!(costume_repo.find_by_id(costume_id).await?.details.len(), 1);
 
     let ver3 = costume_cmd
-        .remove_detail(breakdown_core::costume::commands::RemoveDetail {
-            id: costume_id,
-            detail_id,
-            version: ver2,
-        })
+        .remove_detail(
+            test_user(),
+            breakdown_core::costume::commands::RemoveDetail {
+                id: costume_id,
+                detail_id,
+                version: ver2,
+            },
+        )
         .await?;
     assert!(ver3.0 > ver2.0);
 
@@ -557,22 +645,30 @@ async fn costume_detail_add_remove() -> Result<()> {
 #[tokio::test]
 async fn costume_photo_link_unlink() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(cmd_svc);
+    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(
+        cmd_svc,
+        infra::queries::CostumeRepositoryImpl::new(pool.clone()),
+        infra::queries::CharacterRepositoryImpl::new(pool.clone()),
+        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
+    );
     let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
 
     let costume_id = Uuid::now_v7();
     let photo_id = Uuid::now_v7();
 
     let cmd = CreateCostume { id: costume_id };
-    let (_id, ver) = costume_cmd.create(cmd).await?;
+    let (_id, ver) = costume_cmd.create(test_user(), cmd).await?;
     await_proj(&pool, "projection_costume", costume_id).await;
 
     let ver2 = costume_cmd
-        .link_photo(breakdown_core::costume::commands::LinkPhoto {
-            id: costume_id,
-            photo_id,
-            version: ver,
-        })
+        .link_photo(
+            test_user(),
+            breakdown_core::costume::commands::LinkPhoto {
+                id: costume_id,
+                photo_id,
+                version: ver,
+            },
+        )
         .await?;
     assert!(ver2.0 > ver.0);
 
@@ -581,11 +677,14 @@ async fn costume_photo_link_unlink() -> Result<()> {
     assert_eq!(costume_repo.find_by_id(costume_id).await?.photos.len(), 1);
 
     let ver3 = costume_cmd
-        .unlink_photo(breakdown_core::costume::commands::UnlinkPhoto {
-            id: costume_id,
-            photo_id,
-            version: ver2,
-        })
+        .unlink_photo(
+            test_user(),
+            breakdown_core::costume::commands::UnlinkPhoto {
+                id: costume_id,
+                photo_id,
+                version: ver2,
+            },
+        )
         .await?;
     assert!(ver3.0 > ver2.0);
 
@@ -601,7 +700,10 @@ async fn costume_photo_link_unlink() -> Result<()> {
 #[tokio::test]
 async fn season_create() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let season_cmd = infra::event_store::SeasonCommandsImpl::new(cmd_svc);
+    let season_cmd = infra::event_store::SeasonCommandsImpl::new(
+        cmd_svc,
+        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
+    );
     let season_repo = infra::queries::SeasonRepositoryImpl::new(pool.clone());
 
     let season_id = Uuid::now_v7();
@@ -613,7 +715,7 @@ async fn season_create() -> Result<()> {
         title: Some("Season One".into()),
     };
 
-    let (rid, rv) = season_cmd.create(cmd).await?;
+    let (rid, rv) = season_cmd.create(test_user(), cmd).await?;
     assert_ne!(rid, Uuid::nil());
     assert_eq!(rid, season_id);
     assert!(rv.0 >= 1);
@@ -628,7 +730,10 @@ async fn season_create() -> Result<()> {
 #[tokio::test]
 async fn block_create() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let block_cmd = infra::event_store::BlockCommandsImpl::new(cmd_svc);
+    let block_cmd = infra::event_store::BlockCommandsImpl::new(
+        cmd_svc,
+        infra::queries::BlockRepositoryImpl::new(pool.clone()),
+    );
     let block_repo = infra::queries::BlockRepositoryImpl::new(pool.clone());
 
     let block_id = Uuid::now_v7();
@@ -643,7 +748,7 @@ async fn block_create() -> Result<()> {
         end_date: None,
     };
 
-    let (rid, rv) = block_cmd.create(cmd).await?;
+    let (rid, rv) = block_cmd.create(test_user(), cmd).await?;
     assert_eq!(rid, block_id);
     assert!(rv.0 >= 1);
 
@@ -656,7 +761,10 @@ async fn block_create() -> Result<()> {
 #[tokio::test]
 async fn episode_create() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let episode_cmd = infra::event_store::EpisodeCommandsImpl::new(cmd_svc);
+    let episode_cmd = infra::event_store::EpisodeCommandsImpl::new(
+        cmd_svc,
+        infra::queries::EpisodeRepositoryImpl::new(pool.clone()),
+    );
     let episode_repo = infra::queries::EpisodeRepositoryImpl::new(pool.clone());
 
     let episode_id = Uuid::now_v7();
@@ -670,7 +778,7 @@ async fn episode_create() -> Result<()> {
         name: Some("Pilot".into()),
     };
 
-    let (rid, rv) = episode_cmd.create(cmd).await?;
+    let (rid, rv) = episode_cmd.create(test_user(), cmd).await?;
     assert_eq!(rid, episode_id);
     assert!(rv.0 >= 1);
 

@@ -14,6 +14,10 @@
 
 mod fixtures;
 
+fn test_user() -> breakdown_core::shared::UserId {
+    crate::fixtures::test_user_id()
+}
+
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -24,7 +28,7 @@ use breakdown_core::photo::commands::UploadPhoto;
 use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
 use breakdown_core::shared::{PhotoId, PhotoVariant};
 use fixtures::{await_photo, build_storage, spawn_garage, spawn_postgres, spawn_sierradb};
-use infra::event_store::{CostumeCommandsImpl, PhotoCommandsImpl};
+
 use infra::photo::repository::PhotoRepositoryImpl;
 use infra::queries::CostumeRepositoryImpl;
 use kameo_es::command_service::CommandService;
@@ -113,10 +117,29 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
     // -----------------------------------------------------------------------
     // 2. Adapters
     // -----------------------------------------------------------------------
-    let photo_commands = PhotoCommandsImpl::new(cmd_service.clone());
-    let costume_commands = CostumeCommandsImpl::new(cmd_service.clone());
     let photo_repo = PhotoRepositoryImpl::new(_pool.clone());
-    let _costume_repo = CostumeRepositoryImpl::new(_pool.clone());
+    let costume_repo = CostumeRepositoryImpl::new(_pool.clone());
+    let character_repo = infra::queries::CharacterRepositoryImpl::new(_pool.clone());
+    let season_repo = infra::queries::SeasonRepositoryImpl::new(_pool.clone());
+    let scene_shoot_repo = infra::queries::SceneShootRepositoryImpl::new(_pool.clone());
+    let scene_repo = infra::queries::SceneRepositoryImpl::new(_pool.clone());
+    let episode_repo = infra::queries::EpisodeRepositoryImpl::new(_pool.clone());
+    let photo_commands = infra::event_store::PhotoCommandsImpl::new(
+        cmd_service.clone(),
+        photo_repo.clone(),
+        costume_repo.clone(),
+        character_repo.clone(),
+        season_repo.clone(),
+        scene_shoot_repo.clone(),
+        scene_repo.clone(),
+        episode_repo.clone(),
+    );
+    let costume_commands = infra::event_store::CostumeCommandsImpl::new(
+        cmd_service.clone(),
+        costume_repo.clone(),
+        character_repo.clone(),
+        season_repo.clone(),
+    );
 
     // -----------------------------------------------------------------------
     // 3. Projectors (photo + costume — both needed for FK refs)
@@ -132,14 +155,27 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
     // 4. Sagas (thumbnail, deletion, bytes-cleanup)
     // -----------------------------------------------------------------------
     infra::photo::sagas::spawn_photo_thumbnail_saga(
+        cmd_service.clone(),
         storage.clone(),
-        photo_commands.clone(),
+        photo_repo.clone(),
+        costume_repo.clone(),
+        character_repo.clone(),
+        season_repo.clone(),
+        scene_shoot_repo.clone(),
+        scene_repo.clone(),
+        episode_repo.clone(),
         Arc::clone(&redis_client),
     )
     .await?;
     infra::photo::sagas::spawn_photo_deletion_saga(
+        cmd_service.clone(),
         photo_repo.clone(),
-        photo_commands.clone(),
+        costume_repo.clone(),
+        character_repo.clone(),
+        season_repo.clone(),
+        scene_shoot_repo.clone(),
+        scene_repo.clone(),
+        episode_repo.clone(),
         Arc::clone(&redis_client),
     )
     .await?;
@@ -172,14 +208,17 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
 
     // Dispatch UploadPhoto.
     let photo_version = photo_commands
-        .upload(UploadPhoto {
-            id: photo_id,
-            content_type: content_type.clone(),
-            size_bytes: image_bytes.len() as u64,
-            binding: breakdown_core::photo::binding::PhotoBinding::Costume {
-                costume_id: Uuid::now_v7(),
+        .upload(
+            test_user(),
+            UploadPhoto {
+                id: photo_id,
+                content_type: content_type.clone(),
+                size_bytes: image_bytes.len() as u64,
+                binding: breakdown_core::photo::binding::PhotoBinding::Costume {
+                    costume_id: Uuid::now_v7(),
+                },
             },
-        })
+        )
         .await?;
     assert!(photo_version.0 > 0, "UploadPhoto should return version > 0");
 
@@ -195,12 +234,12 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
     let costume_b_id = Uuid::now_v7();
 
     let (_id_a, ver_a) = costume_commands
-        .create(CreateCostume { id: costume_a_id })
+        .create(test_user(), CreateCostume { id: costume_a_id })
         .await?;
     // Wait for costume A projection.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
     loop {
-        match _costume_repo.find_by_id(costume_a_id).await {
+        match costume_repo.find_by_id(costume_a_id).await {
             Ok(_) => break,
             Err(_) if tokio::time::Instant::now() > deadline => {
                 anyhow::bail!("Timed out waiting for costume A projection");
@@ -212,12 +251,12 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
     }
 
     let (_id_b, ver_b) = costume_commands
-        .create(CreateCostume { id: costume_b_id })
+        .create(test_user(), CreateCostume { id: costume_b_id })
         .await?;
     // Wait for costume B projection.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
     loop {
-        match _costume_repo.find_by_id(costume_b_id).await {
+        match costume_repo.find_by_id(costume_b_id).await {
             Ok(_) => break,
             Err(_) if tokio::time::Instant::now() > deadline => {
                 anyhow::bail!("Timed out waiting for costume B projection");
@@ -232,20 +271,26 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
     // 7. Link photo P to both costumes
     // -----------------------------------------------------------------------
     let ver_a2 = costume_commands
-        .link_photo(LinkPhoto {
-            id: costume_a_id,
-            photo_id: photo_id.0,
-            version: ver_a,
-        })
+        .link_photo(
+            test_user(),
+            LinkPhoto {
+                id: costume_a_id,
+                photo_id: photo_id.0,
+                version: ver_a,
+            },
+        )
         .await?;
     assert!(ver_a2.0 > ver_a.0, "LinkPhoto should increase version");
 
     let ver_b2 = costume_commands
-        .link_photo(LinkPhoto {
-            id: costume_b_id,
-            photo_id: photo_id.0,
-            version: ver_b,
-        })
+        .link_photo(
+            test_user(),
+            LinkPhoto {
+                id: costume_b_id,
+                photo_id: photo_id.0,
+                version: ver_b,
+            },
+        )
         .await?;
     assert!(ver_b2.0 > ver_b.0, "LinkPhoto should increase version");
 
@@ -257,11 +302,14 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
     // 8. Unlink from costume A — refcount drops to 1, bytes should survive
     // -----------------------------------------------------------------------
     let ver_a3 = costume_commands
-        .unlink_photo(UnlinkPhoto {
-            id: costume_a_id,
-            photo_id: photo_id.0,
-            version: ver_a2,
-        })
+        .unlink_photo(
+            test_user(),
+            UnlinkPhoto {
+                id: costume_a_id,
+                photo_id: photo_id.0,
+                version: ver_a2,
+            },
+        )
         .await?;
     assert!(ver_a3.0 > ver_a2.0, "UnlinkPhoto should increase version");
 
@@ -283,11 +331,14 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
     // 9. Unlink from costume B — refcount drops to 0, bytes must be deleted
     // -----------------------------------------------------------------------
     let ver_b3 = costume_commands
-        .unlink_photo(UnlinkPhoto {
-            id: costume_b_id,
-            photo_id: photo_id.0,
-            version: ver_b2,
-        })
+        .unlink_photo(
+            test_user(),
+            UnlinkPhoto {
+                id: costume_b_id,
+                photo_id: photo_id.0,
+                version: ver_b2,
+            },
+        )
         .await?;
     assert!(ver_b3.0 > ver_b2.0, "UnlinkPhoto should increase version");
 

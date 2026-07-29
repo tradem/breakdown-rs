@@ -38,7 +38,7 @@ use infra::projectors::{
 };
 use infra::queries::{
     BlockRepositoryImpl, CharacterRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl,
-    SceneRepositoryImpl, SeasonRepositoryImpl,
+    SceneRepositoryImpl, SeasonRepositoryImpl, ShootingDayRepositoryImpl,
 };
 use kameo_es::command_service::CommandService;
 use rust_decimal::Decimal;
@@ -162,8 +162,15 @@ async fn init() -> Result<(
 async fn scenes_by_episode_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let episode_id = EpisodeId::new();
-    let scene_repo = SceneRepositoryImpl::new(pool.clone());
-    let scene_cmd = SceneCommandsImpl::new(cmd_svc);
+    let _scene_repo = SceneRepositoryImpl::new(pool.clone());
+    let _scene_repo = SceneRepositoryImpl::new(pool.clone());
+    let _episode_repo = EpisodeRepositoryImpl::new(pool.compile());
+    let shooting_day_repo = ShootingDayRepositoryImpl::new(pool.clone());
+    let _scene_repo = SceneRepositoryImpl::new(pool.clone());
+    let _episode_repo = EpisodeRepositoryImpl::new(pool.compile());
+    let shooting_day_repo = ShootingDayRepositoryImpl::new(pool.clone());
+    let scene_cmd =
+        SceneCommandsImpl::new(cmd_svc, scene_repo.clone(), episode_repo, shooting_day_repo);
 
     let scene_id = Uuid::now_v7();
 
@@ -179,7 +186,7 @@ async fn scenes_by_episode_returns_data() -> Result<()> {
             script_day: None,
         },
     };
-    scene_cmd.create(cmd).await?;
+    scene_cmd.create(test_user(), cmd).await?;
 
     await_proj(&pool, "projection_scene", scene_id).await;
 
@@ -200,8 +207,12 @@ async fn scenes_by_episode_returns_data() -> Result<()> {
 async fn characters_by_season_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let season_id = SeasonId::new();
-    let char_repo = CharacterRepositoryImpl::new(pool.clone());
-    let char_cmd = CharacterCommandsImpl::new(cmd_svc);
+    let _char_repo = CharacterRepositoryImpl::new(pool.clone());
+    let _char_repo = CharacterRepositoryImpl::new(pool.clone());
+    let _season_repo = SeasonRepositoryImpl::new(pool.clone());
+    let _char_repo = CharacterRepositoryImpl::new(pool.clone());
+    let _season_repo = SeasonRepositoryImpl::new(pool.clone());
+    let char_cmd = CharacterCommandsImpl::new(cmd_svc, char_repo.clone(), season_repo);
 
     let char_id = Uuid::now_v7();
 
@@ -211,7 +222,7 @@ async fn characters_by_season_returns_data() -> Result<()> {
         name: "Heroin".into(),
         category: CharacterCategory::MainCast,
     };
-    char_cmd.create(cmd).await?;
+    char_cmd.create(test_user(), cmd).await?;
 
     await_proj(&pool, "projection_character", char_id).await;
 
@@ -232,33 +243,46 @@ async fn characters_by_season_returns_data() -> Result<()> {
 async fn costumes_by_season_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let season_id = SeasonId::new();
-    let char_cmd = CharacterCommandsImpl::new(cmd_svc.clone());
-    let costume_cmd = CostumeCommandsImpl::new(cmd_svc);
+    let _char_repo = CharacterRepositoryImpl::new(pool.clone());
+    let _season_repo = SeasonRepositoryImpl::new(pool.clone());
+    let char_cmd = CharacterCommandsImpl::new(cmd_svc.clone(), char_repo, season_repo);
+    let costume_repo = CostumeRepositoryImpl::new(pool.clone());
+    let _char_repo = CharacterRepositoryImpl::new(pool.clone());
+    let _season_repo = SeasonRepositoryImpl::new(pool.clone());
+    let costume_cmd = CostumeCommandsImpl::new(cmd_svc, costume_repo, char_repo, season_repo);
     let costume_repo = CostumeRepositoryImpl::new(pool.clone());
 
     // A costume is only visible via `list_by_season` once it is bound to a
     // character in that season (the query joins through `character_id`).
     let char_id = Uuid::now_v7();
     char_cmd
-        .create(CreateCharacter {
-            id: char_id,
-            season_id,
-            name: "Wearer".into(),
-            category: CharacterCategory::MainCast,
-        })
+        .create(
+            test_user(),
+            CreateCharacter {
+                id: char_id,
+                season_id,
+                name: "Wearer".into(),
+                category: CharacterCategory::MainCast,
+            },
+        )
         .await?;
     await_proj(&pool, "projection_character", char_id).await;
 
     let costume_id = Uuid::now_v7();
-    let (_id, ver) = costume_cmd.create(CreateCostume { id: costume_id }).await?;
+    let (_id, ver) = costume_cmd
+        .create(test_user(), CreateCostume { id: costume_id })
+        .await?;
     await_proj(&pool, "projection_costume", costume_id).await;
 
     costume_cmd
-        .assign_to_character(AssignCostumeToCharacter {
-            id: costume_id,
-            character_id: char_id,
-            version: ver,
-        })
+        .assign_to_character(
+            test_user(),
+            AssignCostumeToCharacter {
+                id: costume_id,
+                character_id: char_id,
+                version: ver,
+            },
+        )
         .await?;
     await_proj_version(&pool, "projection_costume", costume_id, ver.0 + 1).await;
 
@@ -278,28 +302,34 @@ async fn costumes_by_season_returns_data() -> Result<()> {
 async fn costumes_with_details_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let _costume_repo = CostumeRepositoryImpl::new(pool.clone());
-    let costume_cmd = CostumeCommandsImpl::new(cmd_svc);
+    let costume_repo = CostumeRepositoryImpl::new(pool.clone());
+    let _char_repo = CharacterRepositoryImpl::new(pool.clone());
+    let _season_repo = SeasonRepositoryImpl::new(pool.clone());
+    let costume_cmd = CostumeCommandsImpl::new(cmd_svc, costume_repo, char_repo, season_repo);
 
     let costume_id = Uuid::now_v7();
 
     let cmd = CreateCostume { id: costume_id };
-    let (_id, ver) = costume_cmd.create(cmd).await?;
+    let (_id, ver) = costume_cmd.create(test_user(), cmd).await?;
 
     await_proj(&pool, "projection_costume", costume_id).await;
 
     // Add a detail
     let detail_id = Uuid::now_v7();
     let ver2 = costume_cmd
-        .add_detail(AddDetail {
-            id: costume_id,
-            detail: CostumeDetail {
-                id: detail_id,
-                subject: None,
-                category_id: None,
-                text: "Sleeve".into(),
+        .add_detail(
+            test_user(),
+            AddDetail {
+                id: costume_id,
+                detail: CostumeDetail {
+                    id: detail_id,
+                    subject: None,
+                    category_id: None,
+                    text: "Sleeve".into(),
+                },
+                version: ver,
             },
-            version: ver,
-        })
+        )
         .await?;
 
     await_proj_version(&pool, "projection_costume", costume_id, ver2.0 as u64).await;
@@ -312,17 +342,21 @@ async fn costumes_with_details_returns_data() -> Result<()> {
 async fn seasons_by_series_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let series_id = SeriesId::new();
-    let season_repo = SeasonRepositoryImpl::new(pool.clone());
-    let season_cmd = SeasonCommandsImpl::new(cmd_svc);
+    let _season_repo = SeasonRepositoryImpl::new(pool.clone());
+    let _season_repo = SeasonRepositoryImpl::new(pool.clone());
+    let season_cmd = SeasonCommandsImpl::new(cmd_svc, season_repo.clone());
 
     let season_id = Uuid::now_v7();
     season_cmd
-        .create(CreateSeason {
-            id: season_id,
-            series_id,
-            number: 2,
-            title: Some("S2".into()),
-        })
+        .create(
+            test_user(),
+            CreateSeason {
+                id: season_id,
+                series_id,
+                number: 2,
+                title: Some("S2".into()),
+            },
+        )
         .await?;
     await_proj(&pool, "projection_season", season_id).await;
 
@@ -339,19 +373,23 @@ async fn blocks_by_season_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let season_id = SeasonId::new();
     let series_id = SeriesId::new();
-    let block_repo = BlockRepositoryImpl::new(pool.clone());
-    let block_cmd = BlockCommandsImpl::new(cmd_svc);
+    let _block_repo = BlockRepositoryImpl::new(pool.clone());
+    let _block_repo = BlockRepositoryImpl::new(pool.clone());
+    let block_cmd = BlockCommandsImpl::new(cmd_svc, block_repo.clone());
 
     let block_id = Uuid::now_v7();
     block_cmd
-        .create(CreateBlock {
-            id: block_id,
-            season_id,
-            series_id,
-            number: 4,
-            start_date: None,
-            end_date: None,
-        })
+        .create(
+            test_user(),
+            CreateBlock {
+                id: block_id,
+                season_id,
+                series_id,
+                number: 4,
+                start_date: None,
+                end_date: None,
+            },
+        )
         .await?;
     await_proj(&pool, "projection_block", block_id).await;
 
@@ -365,18 +403,22 @@ async fn episodes_by_series_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let block_id = BlockId::new();
     let series_id = SeriesId::new();
-    let episode_repo = EpisodeRepositoryImpl::new(pool.clone());
-    let episode_cmd = EpisodeCommandsImpl::new(cmd_svc);
+    let _episode_repo = EpisodeRepositoryImpl::new(pool.compile());
+    let _episode_repo = EpisodeRepositoryImpl::new(pool.compile());
+    let episode_cmd = EpisodeCommandsImpl::new(cmd_svc, episode_repo.clone());
 
     let episode_id = Uuid::now_v7();
     episode_cmd
-        .create(CreateEpisode {
-            id: episode_id,
-            block_id,
-            series_id,
-            number: 9,
-            name: Some("E9".into()),
-        })
+        .create(
+            test_user(),
+            CreateEpisode {
+                id: episode_id,
+                block_id,
+                series_id,
+                number: 9,
+                name: Some("E9".into()),
+            },
+        )
         .await?;
     await_proj(&pool, "projection_episode", episode_id).await;
 
@@ -392,30 +434,40 @@ async fn episodes_by_series_returns_data() -> Result<()> {
 async fn character_measurements_persist() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let season_id = SeasonId::new();
-    let char_cmd = CharacterCommandsImpl::new(cmd_svc);
-    let char_repo = CharacterRepositoryImpl::new(pool.clone());
+    let _char_repo = CharacterRepositoryImpl::new(pool.clone());
+    let _season_repo = SeasonRepositoryImpl::new(pool.clone());
+    let _char_repo = CharacterRepositoryImpl::new(pool.clone());
+    let _season_repo = SeasonRepositoryImpl::new(pool.clone());
+    let char_cmd = CharacterCommandsImpl::new(cmd_svc, char_repo.clone(), season_repo);
+    let _char_repo = CharacterRepositoryImpl::new(pool.clone());
 
     let char_id = Uuid::now_v7();
     let (_id, ver) = char_cmd
-        .create(CreateCharacter {
-            id: char_id,
-            season_id,
-            name: "Measured".into(),
-            category: CharacterCategory::Guest,
-        })
+        .create(
+            test_user(),
+            CreateCharacter {
+                id: char_id,
+                season_id,
+                name: "Measured".into(),
+                category: CharacterCategory::Guest,
+            },
+        )
         .await?;
     await_proj(&pool, "projection_character", char_id).await;
 
     let ver2 = char_cmd
-        .update_measurements(UpdateMeasurements {
-            id: char_id,
-            measurements: CharacterMeasurements {
-                height: Some(Decimal::from(180)),
-                weight: Some(Decimal::from(75)),
-                ..Default::default()
+        .update_measurements(
+            test_user(),
+            UpdateMeasurements {
+                id: char_id,
+                measurements: CharacterMeasurements {
+                    height: Some(Decimal::from(180)),
+                    weight: Some(Decimal::from(75)),
+                    ..Default::default()
+                },
+                version: ver,
             },
-            version: ver,
-        })
+        )
         .await?;
     assert!(ver2.0 > ver.0);
 
@@ -425,4 +477,7 @@ async fn character_measurements_persist() -> Result<()> {
         Some(Decimal::from(180))
     );
     Ok(())
+}
+fn test_user() -> breakdown_core::shared::UserId {
+    crate::fixtures::test_user_id()
 }

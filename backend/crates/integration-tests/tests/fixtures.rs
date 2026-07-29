@@ -29,7 +29,13 @@ use testcontainers::runners::AsyncRunner;
 use testcontainers::{ContainerAsync, ContainerRequest, Image, ImageExt, ReuseDirective};
 use testcontainers_modules::postgres::Postgres as PostgresImage;
 
+use breakdown_core::shared::UserId;
 use kameo_es::command_service::CommandService;
+
+/// Create a deterministic UserId for tests.
+pub fn test_user_id() -> UserId {
+    UserId::from_sub("integration-test")
+}
 
 // ---------------------------------------------------------------------------
 // Container helpers
@@ -471,8 +477,16 @@ impl TestScene {
 
         let cmd_service = CommandService::new(conn_guard.conn.clone());
 
-        let scene_commands = infra::event_store::SceneCommandsImpl::new(cmd_service.clone());
         let scene_repo = infra::queries::SceneRepositoryImpl::new(pool_clone.clone());
+        let episode_repo = infra::queries::EpisodeRepositoryImpl::new(pool_clone.clone());
+        let shooting_day_repo = infra::queries::ShootingDayRepositoryImpl::new(pool_clone.clone());
+        let scene_commands = infra::event_store::SceneCommandsImpl::new(
+            cmd_service.clone(),
+            scene_repo.clone(),
+            episode_repo.clone(),
+            shooting_day_repo.clone(),
+        );
+        let scene_repo = scene_repo;
 
         Ok(Self {
             cmd_service,
@@ -493,7 +507,7 @@ impl TestScene {
         cmd: breakdown_core::scene::commands::CreateScene,
     ) -> Result<(uuid::Uuid, breakdown_core::shared::AggregateVersion), DomainError> {
         use SceneCommands;
-        self.scene_commands.create(cmd).await
+        self.scene_commands.create(test_user_id(), cmd).await
     }
 
     /// Execute an `UpdateSceneDetails` command and return `reply_version`.
@@ -502,7 +516,9 @@ impl TestScene {
         cmd: breakdown_core::scene::commands::UpdateSceneDetails,
     ) -> Result<breakdown_core::shared::AggregateVersion, DomainError> {
         use SceneCommands;
-        self.scene_commands.update_details(cmd).await
+        self.scene_commands
+            .update_details(test_user_id(), cmd)
+            .await
     }
 
     /// Query the projection for a scene by ID.

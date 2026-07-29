@@ -17,6 +17,10 @@
 
 mod fixtures;
 
+fn test_user() -> breakdown_core::shared::UserId {
+    crate::fixtures::test_user_id()
+}
+
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -28,6 +32,7 @@ use breakdown_core::character::commands::CreateCharacter;
 use breakdown_core::character::ports::CharacterCommands;
 use breakdown_core::costume_category::commands::CreateCostumeCategory;
 use breakdown_core::costume_category::ports::CostumeCategoryCommands;
+use breakdown_core::costume_category::ports::CostumeCategoryRepository;
 use breakdown_core::season::commands::CreateSeason;
 use breakdown_core::season::ports::SeasonCommands;
 use breakdown_core::shared::{
@@ -212,7 +217,7 @@ async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
     assert_eq!(season_row.event_type, "SeasonCreated");
     assert_eq!(season_row.entity_type, "season");
     assert_eq!(
-        season_row.actor.as_deref(),
+        season_row.actor.as_ref(),
         Some(&actor),
         "actor must come from command metadata"
     );
@@ -255,7 +260,7 @@ async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
     assert_eq!(char_row.event_type, "CharacterCreated");
     assert_eq!(char_row.entity_type, "character");
     assert_eq!(
-        char_row.actor.as_deref(),
+        char_row.actor.as_ref(),
         Some(&actor),
         "actor must come from command metadata"
     );
@@ -331,7 +336,7 @@ async fn costume_category_create_produces_attributed_audit_row() -> Result<()> {
     let row = &cc_entries[0];
     assert_eq!(row.event_type, "CostumeCategoryCreated");
     assert_eq!(row.entity_type, "costume_category");
-    assert_eq!(row.actor.as_deref(), Some(&actor));
+    assert_eq!(row.actor.as_ref(), Some(&actor));
     assert_eq!(row.series_id, Some(series_id.0));
 
     let prov = read_provenance(&pool, "costume_category", cc_id).await?;

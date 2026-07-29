@@ -11,6 +11,9 @@
 //! and Garage byte storage.
 
 mod fixtures;
+fn test_user() -> breakdown_core::shared::UserId {
+    crate::fixtures::test_user_id()
+}
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -27,7 +30,7 @@ use breakdown_core::shared::{
 };
 use chrono::Utc;
 use fixtures::{await_photo, build_storage, spawn_garage, spawn_postgres, spawn_sierradb};
-use infra::event_store::PhotoCommandsImpl;
+
 use infra::photo::repository::PhotoRepositoryImpl;
 use infra::projectors::{
     spawn_photo_projector, spawn_scene_projector, spawn_scene_shoot_projector,
@@ -169,8 +172,24 @@ async fn continuity_photo_upload_projection() -> Result<()> {
 
     let storage = build_storage(&creds);
     let cmd_service = CommandService::new(client.get_multiplexed_async_connection().await?);
-    let photo_commands = PhotoCommandsImpl::new(cmd_service);
+    let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
     let photo_repo = PhotoRepositoryImpl::new(pool.clone());
+    let character_repo = infra::queries::CharacterRepositoryImpl::new(pool.clone());
+    let season_repo = infra::queries::SeasonRepositoryImpl::new(pool.clone());
+    let scene_shoot_repo = infra::queries::SceneShootRepositoryImpl::new(pool.clone());
+    let scene_repo = infra::queries::SceneRepositoryImpl::new(pool.clone());
+    let episode_repo = infra::queries::EpisodeRepositoryImpl::new(pool.clone());
+    let photo_commands = infra::event_store::PhotoCommandsImpl::new(
+        cmd_service.clone(),
+        photo_repo.clone(),
+        costume_repo.clone(),
+        character_repo.clone(),
+        season_repo.clone(),
+        scene_shoot_repo.clone(),
+        scene_repo.clone(),
+        episode_repo.clone(),
+    );
+    let  _photo_repo_saga = photo_repo.clone();
 
     let _scene_proj = spawn_scene_projector(pool.clone(), Arc::clone(&client)).await?;
     let _sd_proj = spawn_shooting_day_projector(pool.clone(), Arc::clone(&client)).await?;
@@ -226,15 +245,18 @@ async fn continuity_photo_upload_projection() -> Result<()> {
         .await?;
 
     let version = photo_commands
-        .upload(UploadPhoto {
-            id: photo_id,
-            content_type: ct.clone(),
-            size_bytes: bytes.len() as u64,
-            binding: breakdown_core::photo::binding::PhotoBinding::Continuity {
-                scene_shoot_id: shoot_id,
-                costume_id: None,
+        .upload(
+            test_user(),
+            UploadPhoto {
+                id: photo_id,
+                content_type: ct.clone(),
+                size_bytes: bytes.len() as u64,
+                binding: breakdown_core::photo::binding::PhotoBinding::Continuity {
+                    scene_shoot_id: shoot_id,
+                    costume_id: None,
+                },
             },
-        })
+        )
         .await?;
     assert!(version.0 > 0);
 
@@ -280,8 +302,24 @@ async fn continuity_photo_delete_on_zero_refcount() -> Result<()> {
 
     let storage = build_storage(&creds);
     let cmd_service = CommandService::new(client.get_multiplexed_async_connection().await?);
-    let photo_commands = PhotoCommandsImpl::new(cmd_service);
     let photo_repo = PhotoRepositoryImpl::new(pool.clone());
+    let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
+    let character_repo = infra::queries::CharacterRepositoryImpl::new(pool.clone());
+    let season_repo = infra::queries::SeasonRepositoryImpl::new(pool.clone());
+    let scene_shoot_repo = infra::queries::SceneShootRepositoryImpl::new(pool.clone());
+    let scene_repo = infra::queries::SceneRepositoryImpl::new(pool.clone());
+    let episode_repo = infra::queries::EpisodeRepositoryImpl::new(pool.clone());
+    let photo_commands = infra::event_store::PhotoCommandsImpl::new(
+        cmd_service.clone(),
+        photo_repo.clone(),
+        costume_repo.clone(),
+        character_repo.clone(),
+        season_repo.clone(),
+        scene_shoot_repo.clone(),
+        scene_repo.clone(),
+        episode_repo.clone(),
+    );
+    let  _photo_repo_saga = photo_repo.clone();
 
     let _scene_proj = spawn_scene_projector(pool.clone(), Arc::clone(&client)).await?;
     let _sd_proj = spawn_shooting_day_projector(pool.clone(), Arc::clone(&client)).await?;
@@ -291,8 +329,14 @@ async fn continuity_photo_delete_on_zero_refcount() -> Result<()> {
     // Spawn ContinuityDeletionSaga (after projectors so replay picks up events).
     tokio::time::sleep(Duration::from_millis(500)).await;
     infra::photo::sagas::spawn_continuity_deletion_saga(
+        cmd_service.clone(),
         photo_repo.clone(),
-        photo_commands.clone(),
+        costume_repo.clone(),
+        character_repo.clone(),
+        season_repo.clone(),
+        scene_shoot_repo.clone(),
+        scene_repo.clone(),
+        episode_repo.clone(),
         Arc::clone(&client),
     )
     .await?;
@@ -346,15 +390,18 @@ async fn continuity_photo_delete_on_zero_refcount() -> Result<()> {
         .await?;
 
     let _v = photo_commands
-        .upload(UploadPhoto {
-            id: photo_id,
-            content_type: ct,
-            size_bytes: bytes.len() as u64,
-            binding: breakdown_core::photo::binding::PhotoBinding::Continuity {
-                scene_shoot_id: shoot_id,
-                costume_id: None,
+        .upload(
+            test_user(),
+            UploadPhoto {
+                id: photo_id,
+                content_type: ct,
+                size_bytes: bytes.len() as u64,
+                binding: breakdown_core::photo::binding::PhotoBinding::Continuity {
+                    scene_shoot_id: shoot_id,
+                    costume_id: None,
+                },
             },
-        })
+        )
         .await?;
 
     // Link photo to scene shoot.

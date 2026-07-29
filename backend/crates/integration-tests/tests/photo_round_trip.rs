@@ -8,6 +8,10 @@
 
 mod fixtures;
 
+fn test_user() -> breakdown_core::shared::UserId {
+    crate::fixtures::test_user_id()
+}
+
 use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
@@ -17,7 +21,7 @@ use breakdown_core::photo::commands::UploadPhoto;
 use breakdown_core::photo::ports::{PhotoCommands, PhotoStorage};
 use breakdown_core::shared::{PhotoId, PhotoVariant};
 use fixtures::{await_photo, build_storage, spawn_garage, spawn_postgres, spawn_sierradb};
-use infra::event_store::PhotoCommandsImpl;
+
 use infra::photo::repository::PhotoRepositoryImpl;
 use kameo_es::command_service::CommandService;
 
@@ -33,8 +37,23 @@ async fn photo_upload_then_delete_round_trip() -> Result<()> {
         let conn = sierra_client.get_multiplexed_async_connection().await?;
         CommandService::new(conn)
     };
-    let photo_commands = PhotoCommandsImpl::new(cmd_service.clone());
     let photo_repo = PhotoRepositoryImpl::new(_pool.clone());
+    let costume_repo = infra::queries::CostumeRepositoryImpl::new(_pool.clone());
+    let character_repo = infra::queries::CharacterRepositoryImpl::new(_pool.clone());
+    let season_repo = infra::queries::SeasonRepositoryImpl::new(_pool.clone());
+    let scene_shoot_repo = infra::queries::SceneShootRepositoryImpl::new(_pool.clone());
+    let scene_repo = infra::queries::SceneRepositoryImpl::new(_pool.clone());
+    let episode_repo = infra::queries::EpisodeRepositoryImpl::new(_pool.clone());
+    let photo_commands = infra::event_store::PhotoCommandsImpl::new(
+        cmd_service.clone(),
+        photo_repo.clone(),
+        costume_repo.clone(),
+        character_repo.clone(),
+        season_repo.clone(),
+        scene_shoot_repo.clone(),
+        scene_repo.clone(),
+        episode_repo.clone(),
+    );
 
     // Spawn the photo projector.
     let redis_client = Arc::clone(&sierra_client);
@@ -43,8 +62,15 @@ async fn photo_upload_then_delete_round_trip() -> Result<()> {
 
     // Spawn photo sagas.
     infra::photo::sagas::spawn_photo_thumbnail_saga(
+        cmd_service.clone(),
         storage.clone(),
-        photo_commands.clone(),
+        photo_repo.clone(),
+        costume_repo.clone(),
+        character_repo.clone(),
+        season_repo.clone(),
+        scene_shoot_repo.clone(),
+        scene_repo.clone(),
+        episode_repo.clone(),
         Arc::clone(&redis_client),
     )
     .await?;
@@ -75,14 +101,17 @@ async fn photo_upload_then_delete_round_trip() -> Result<()> {
 
     // 1. Dispatch UploadPhoto command.
     let version = photo_commands
-        .upload(UploadPhoto {
-            id: photo_id,
-            content_type: content_type.clone(),
-            size_bytes: image_bytes.len() as u64,
-            binding: breakdown_core::photo::binding::PhotoBinding::Costume {
-                costume_id: Uuid::now_v7(),
+        .upload(
+            test_user(),
+            UploadPhoto {
+                id: photo_id,
+                content_type: content_type.clone(),
+                size_bytes: image_bytes.len() as u64,
+                binding: breakdown_core::photo::binding::PhotoBinding::Costume {
+                    costume_id: Uuid::now_v7(),
+                },
             },
-        })
+        )
         .await?;
     assert!(version.0 > 0, "UploadPhoto should return version > 0");
 
@@ -99,10 +128,13 @@ async fn photo_upload_then_delete_round_trip() -> Result<()> {
 
     // 4. Dispatch DeletePhoto.
     photo_commands
-        .delete(breakdown_core::photo::commands::DeletePhoto {
-            id: photo_id,
-            version,
-        })
+        .delete(
+            test_user(),
+            breakdown_core::photo::commands::DeletePhoto {
+                id: photo_id,
+                version,
+            },
+        )
         .await?;
 
     // 5. Wait for the bytes-cleanup saga to remove bytes from Garage.
