@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: qwen3.6-35b (neuralwatt)
 // Co-authored-by: hy3 (opencode-go)
 
 use std::collections::HashMap;
@@ -156,7 +157,7 @@ impl EntityEventHandler<CostumeAggregate, ()> for PhotoDeletionSaga {
         &mut self,
         _ctx: &mut (),
         _id: Uuid,
-        event: Event<CostumeEvent, ()>,
+        event: Event<CostumeEvent, EventMetadata>,
     ) -> Result<(), Self::Error> {
         match event.data {
             CostumeEvent::PhotoLinked { photo_id, .. } => {

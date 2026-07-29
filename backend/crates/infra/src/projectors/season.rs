@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: qwen3.6-35b (neuralwatt)
 
 //! Season projection handler: `SeasonEvent` -> `projection_season`.
 
 use breakdown_core::season::aggregate::SeasonAggregate;
 use breakdown_core::season::events::SeasonEvent;
+use breakdown_core::shared::EventMetadata;
 use kameo_es::Event;
 use kameo_es::event_handler::{EntityEventHandler, EventHandler};
 use sqlx::{Postgres, Transaction};
@@ -23,7 +25,7 @@ impl<'a> EntityEventHandler<SeasonAggregate, Transaction<'a, Postgres>> for Seas
         &mut self,
         ctx: &mut Transaction<'a, Postgres>,
         _id: Uuid,
-        event: Event<SeasonEvent, ()>,
+        event: Event<SeasonEvent, EventMetadata>,
     ) -> Result<(), Self::Error> {
         let updated_at = event.timestamp;
 

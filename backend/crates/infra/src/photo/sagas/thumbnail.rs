@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: qwen3.6-35b (neuralwatt)
 // Co-authored-by: hy3 (opencode-go)
 
 use std::collections::HashMap;
@@ -151,7 +152,7 @@ impl EntityEventHandler<PhotoAggregate, ()> for PhotoThumbnailSaga {
         &mut self,
         _ctx: &mut (),
         _id: PhotoId,
-        event: Event<PhotoEvent, ()>,
+        event: Event<PhotoEvent, EventMetadata>,
     ) -> Result<(), Self::Error> {
         if let PhotoEvent::PhotoUploaded { id, .. } = event.data {
             self.process_upload(id).await?;

@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: qwen3.6-35b (neuralwatt)
 
 //! ShootingDay projection handler: `ShootingDayEvent` -> `projection_shooting_day`.
 
-use breakdown_core::shared::ShootingDayId;
+use breakdown_core::shared::{EventMetadata, ShootingDayId};
 use breakdown_core::shooting_day::aggregate::ShootingDayAggregate;
 use breakdown_core::shooting_day::events::ShootingDayEvent;
 use kameo_es::Event;
@@ -25,7 +26,7 @@ impl<'a> EntityEventHandler<ShootingDayAggregate, Transaction<'a, Postgres>>
         &mut self,
         ctx: &mut Transaction<'a, Postgres>,
         _id: ShootingDayId,
-        event: Event<ShootingDayEvent, ()>,
+        event: Event<ShootingDayEvent, EventMetadata>,
     ) -> Result<(), Self::Error> {
         let updated_at = event.timestamp;
 

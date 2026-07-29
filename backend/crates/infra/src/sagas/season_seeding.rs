@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: qwen3.6-35b (neuralwatt)
 // Co-authored-by: hy3 (opencode-go)
 
 //! Season-seeding saga — the canonical "event-reactor-issues-commands" pattern.
@@ -174,7 +175,7 @@ impl EntityEventHandler<SeasonAggregate, ()> for SeasonSeedingSaga {
         &mut self,
         _ctx: &mut (),
         _id: Uuid,
-        event: Event<SeasonEvent, ()>,
+        event: Event<SeasonEvent, EventMetadata>,
     ) -> Result<(), Self::Error> {
         if let SeasonEvent::SeasonCreated { id, .. } = event.data {
             self.seed_for_season(SeasonId(id)).await?;

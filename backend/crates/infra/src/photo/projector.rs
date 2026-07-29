@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: qwen3.6-35b (neuralwatt)
 
 use breakdown_core::photo::aggregate::PhotoAggregate;
 use breakdown_core::photo::binding::PhotoBinding;
 use breakdown_core::photo::events::PhotoEvent;
-use breakdown_core::shared::{PhotoId, PhotoVariant, VariantStatus};
+use breakdown_core::shared::{EventMetadata, PhotoId, PhotoVariant, VariantStatus};
 use kameo_es::Event;
 use kameo_es::event_handler::{EntityEventHandler, EventHandler};
 use sqlx::{Postgres, Transaction};
@@ -22,7 +23,7 @@ impl<'a> EntityEventHandler<PhotoAggregate, Transaction<'a, Postgres>> for Photo
         &mut self,
         ctx: &mut Transaction<'a, Postgres>,
         _id: PhotoId,
-        event: Event<PhotoEvent, ()>,
+        event: Event<PhotoEvent, EventMetadata>,
     ) -> Result<(), Self::Error> {
         let updated_at = event.timestamp;
 

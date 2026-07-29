@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: qwen3.6-35b (neuralwatt)
 
 //! Block projection handler: `BlockEvent` -> `projection_block`.
 
 use breakdown_core::block::aggregate::BlockAggregate;
 use breakdown_core::block::events::BlockEvent;
+use breakdown_core::shared::EventMetadata;
 use kameo_es::Event;
 use kameo_es::event_handler::{EntityEventHandler, EventHandler};
 use sqlx::{Postgres, Transaction};
@@ -23,7 +25,7 @@ impl<'a> EntityEventHandler<BlockAggregate, Transaction<'a, Postgres>> for Block
         &mut self,
         ctx: &mut Transaction<'a, Postgres>,
         _id: Uuid,
-        event: Event<BlockEvent, ()>,
+        event: Event<BlockEvent, EventMetadata>,
     ) -> Result<(), Self::Error> {
         let updated_at = event.timestamp;
 

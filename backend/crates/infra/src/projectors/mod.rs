@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: qwen3.6-35b (neuralwatt)
 
 //! Projection actors – one `PostgresProcessor` per aggregate.
 //!
@@ -20,7 +21,12 @@ mod shooting_day;
 pub mod supervisor;
 
 pub use crate::photo::projector::PhotoProjector;
-pub use audit::AuditProjector;
+pub use audit::{
+    AuditProjector, BlockAuditProjector, CharacterAuditProjector, CostumeAuditProjector,
+    CostumeCategoryAuditProjector, EpisodeAuditProjector, MembershipAuditProjector,
+    PhotoAuditProjector, SceneAuditProjector, SceneShootAuditProjector, SeasonAuditProjector,
+    ShootingDayAuditProjector,
+};
 pub use block::BlockProjector;
 pub use character::CharacterProjector;
 pub use costume::CostumeProjector;
@@ -65,6 +71,25 @@ type SeasonProcessor = PostgresProcessor<(SeasonAggregate,), SeasonProjector>;
 type BlockProcessor = PostgresProcessor<(BlockAggregate,), BlockProjector>;
 type EpisodeProcessor = PostgresProcessor<(EpisodeAggregate,), EpisodeProjector>;
 type MembershipProcessor = PostgresProcessor<(BlockMembership,), MembershipProjector>;
+// Category-specific audit processors (one per aggregate).
+// These subscribe to SierraDB streams per-aggregate so the
+// generalized auditor covers all 11 entity categories.
+type SeasonAuditProcessor = PostgresProcessor<(SeasonAggregate,), SeasonAuditProjector>;
+type BlockAuditProcessor = PostgresProcessor<(BlockAggregate,), BlockAuditProjector>;
+type EpisodeAuditProcessor = PostgresProcessor<(EpisodeAggregate,), EpisodeAuditProjector>;
+type SceneAuditProcessor = PostgresProcessor<(SceneAggregate,), SceneAuditProjector>;
+type SceneShootAuditProcessor = PostgresProcessor<(SceneShootAggregate,), SceneShootAuditProjector>;
+type ShootingDayAuditProcessor =
+    PostgresProcessor<(ShootingDayAggregate,), ShootingDayAuditProjector>;
+type CharacterAuditProcessor = PostgresProcessor<(CharacterAggregate,), CharacterAuditProjector>;
+type CostumeAuditProcessor = PostgresProcessor<(CostumeAggregate,), CostumeAuditProjector>;
+type CostumeCategoryAuditProcessor =
+    PostgresProcessor<(CostumeCategoryAggregate,), CostumeCategoryAuditProjector>;
+type PhotoAuditProcessor = PostgresProcessor<(PhotoAggregate,), PhotoAuditProjector>;
+type MembershipAuditProcessor = PostgresProcessor<(BlockMembership,), MembershipAuditProjector>;
+
+// Backward-compat alias — the original v1 used a single `BlockMembership` stream.
+// (Already re-exported via the block above; left here for clarity.)
 type AuditProcessor = PostgresProcessor<(BlockMembership,), AuditProjector>;
 type ShootingDayProcessor = PostgresProcessor<(ShootingDayAggregate,), ShootingDayProjector>;
 type PhotoProcessor = PostgresProcessor<(PhotoAggregate,), PhotoProjector>;
@@ -268,22 +293,257 @@ pub async fn spawn_membership_projector(
     Ok(actor_ref)
 }
 
-/// Spawn the audit projector actor and start its SierraDB subscription loop.
+// ── Generalized audit projector spawns (1 per category) ──────────────
+
+/// Spawn the season audit projector.
+pub async fn spawn_season_audit_projector(
+    pool: PgPool,
+    redis_client: Arc<RedisClient>,
+) -> Result<ActorRef<SeasonAuditProcessor>> {
+    let conn = redis_client.get_multiplexed_async_connection().await?;
+    let processor =
+        SeasonAuditProcessor::new(pool, conn, CHECKPOINTS_TABLE, "audit:season", SeasonAuditProjector)
+            .await?;
+    let actor_ref = SeasonAuditProcessor::spawn(processor);
+    run_projection_stream!(SeasonAggregate, "audit:season", redis_client, actor_ref.clone())?;
+    Ok(actor_ref)
+}
+
+/// Spawn the block audit projector.
+pub async fn spawn_block_audit_projector(
+    pool: PgPool,
+    redis_client: Arc<RedisClient>,
+) -> Result<ActorRef<BlockAuditProcessor>> {
+    let conn = redis_client.get_multiplexed_async_connection().await?;
+    let processor =
+        BlockAuditProcessor::new(pool, conn, CHECKPOINTS_TABLE, "audit:block", BlockAuditProjector)
+            .await?;
+    let actor_ref = BlockAuditProcessor::spawn(processor);
+    run_projection_stream!(BlockAggregate, "audit:block", redis_client, actor_ref.clone())?;
+    Ok(actor_ref)
+}
+
+/// Spawn the episode audit projector.
+pub async fn spawn_episode_audit_projector(
+    pool: PgPool,
+    redis_client: Arc<RedisClient>,
+) -> Result<ActorRef<EpisodeAuditProcessor>> {
+    let conn = redis_client.get_multiplexed_async_connection().await?;
+    let processor =
+        EpisodeAuditProcessor::new(pool, conn, CHECKPOINTS_TABLE, "audit:episode", EpisodeAuditProjector)
+            .await?;
+    let actor_ref = EpisodeAuditProcessor::spawn(processor);
+    run_projection_stream!(EpisodeAggregate, "audit:episode", redis_client, actor_ref.clone())?;
+    Ok(actor_ref)
+}
+
+/// Spawn the scene audit projector.
+pub async fn spawn_scene_audit_projector(
+    pool: PgPool,
+    redis_client: Arc<RedisClient>,
+) -> Result<ActorRef<SceneAuditProcessor>> {
+    let conn = redis_client.get_multiplexed_async_connection().await?;
+    let processor =
+        SceneAuditProcessor::new(pool, conn, CHECKPOINTS_TABLE, "audit:scene", SceneAuditProjector)
+            .await?;
+    let actor_ref = SceneAuditProcessor::spawn(processor);
+    run_projection_stream!(SceneAggregate, "audit:scene", redis_client, actor_ref.clone())?;
+    Ok(actor_ref)
+}
+
+/// Spawn the scene-shoot audit projector.
+pub async fn spawn_scene_shoot_audit_projector(
+    pool: PgPool,
+    redis_client: Arc<RedisClient>,
+) -> Result<ActorRef<SceneShootAuditProcessor>> {
+    let conn = redis_client.get_multiplexed_async_connection().await?;
+    let processor =
+        SceneShootAuditProcessor::new(pool, conn, CHECKPOINTS_TABLE, "audit:scene_shoot", SceneShootAuditProjector)
+            .await?;
+    let actor_ref = SceneShootAuditProcessor::spawn(processor);
+    run_projection_stream!(
+        SceneShootAggregate,
+        "audit:scene_shoot",
+        redis_client,
+        actor_ref.clone()
+    )?;
+    Ok(actor_ref)
+}
+
+/// Spawn the shooting-day audit projector.
+pub async fn spawn_shooting_day_audit_projector(
+    pool: PgPool,
+    redis_client: Arc<RedisClient>,
+) -> Result<ActorRef<ShootingDayAuditProcessor>> {
+    let conn = redis_client.get_multiplexed_async_connection().await?;
+    let processor = ShootingDayAuditProcessor::new(
+        pool,
+        conn,
+        CHECKPOINTS_TABLE,
+        "audit:shooting_day",
+        ShootingDayAuditProjector,
+    )
+    .await?;
+    let actor_ref = ShootingDayAuditProcessor::spawn(processor);
+    run_projection_stream!(
+        ShootingDayAggregate,
+        "audit:shooting_day",
+        redis_client,
+        actor_ref.clone()
+    )?;
+    Ok(actor_ref)
+}
+
+/// Spawn the character audit projector.
+pub async fn spawn_character_audit_projector(
+    pool: PgPool,
+    redis_client: Arc<RedisClient>,
+) -> Result<ActorRef<CharacterAuditProcessor>> {
+    let conn = redis_client.get_multiplexed_async_connection().await?;
+    let processor = CharacterAuditProcessor::new(
+        pool,
+        conn,
+        CHECKPOINTS_TABLE,
+        "audit:character",
+        CharacterAuditProjector,
+    )
+    .await?;
+    let actor_ref = CharacterAuditProcessor::spawn(processor);
+    run_projection_stream!(
+        CharacterAggregate,
+        "audit:character",
+        redis_client,
+        actor_ref.clone()
+    )?;
+    Ok(actor_ref)
+}
+
+/// Spawn the costume audit projector.
+pub async fn spawn_costume_audit_projector(
+    pool: PgPool,
+    redis_client: Arc<RedisClient>,
+) -> Result<ActorRef<CostumeAuditProcessor>> {
+    let conn = redis_client.get_multiplexed_async_connection().await?;
+    let processor =
+        CostumeAuditProcessor::new(pool, conn, CHECKPOINTS_TABLE, "audit:costume", CostumeAuditProjector)
+            .await?;
+    let actor_ref = CostumeAuditProcessor::spawn(processor);
+    run_projection_stream!(CostumeAggregate, "audit:costume", redis_client, actor_ref.clone())?;
+    Ok(actor_ref)
+}
+
+/// Spawn the costume-category audit projector.
+pub async fn spawn_costume_category_audit_projector(
+    pool: PgPool,
+    redis_client: Arc<RedisClient>,
+) -> Result<ActorRef<CostumeCategoryAuditProcessor>> {
+    let conn = redis_client.get_multiplexed_async_connection().await?;
+    let processor = CostumeCategoryAuditProcessor::new(
+        pool,
+        conn,
+        CHECKPOINTS_TABLE,
+        "audit:costume_category",
+        CostumeCategoryAuditProjector,
+    )
+    .await?;
+    let actor_ref = CostumeCategoryAuditProcessor::spawn(processor);
+    run_projection_stream!(
+        CostumeCategoryAggregate,
+        "audit:costume_category",
+        redis_client,
+        actor_ref.clone()
+    )?;
+    Ok(actor_ref)
+}
+
+/// Spawn the photo audit projector.
+pub async fn spawn_photo_audit_projector(
+    pool: PgPool,
+    redis_client: Arc<RedisClient>,
+) -> Result<ActorRef<PhotoAuditProcessor>> {
+    let conn = redis_client.get_multiplexed_async_connection().await?;
+    let processor =
+        PhotoAuditProcessor::new(pool, conn, CHECKPOINTS_TABLE, "audit:photo", PhotoAuditProjector)
+            .await?;
+    let actor_ref = PhotoAuditProcessor::spawn(processor);
+    run_projection_stream!(PhotoAggregate, "audit:photo", redis_client, actor_ref.clone())?;
+    Ok(actor_ref)
+}
+
+// ── Combined audit projector spawn (backward-compat + full coverage) ──
+
+/// Spawn the backward-compat audit projector.
+///
+/// This spawns **all 11** category audit projectors. The returned
+/// `ActorRef` is the membership audit projector (same as the original API).
 pub async fn spawn_audit_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<AuditProcessor>> {
+    spawn_all_audit_projectors(pool.clone(), redis_client.clone()).await?;
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = AuditProcessor::new(
-        pool.clone(),
+    let processor = MembershipAuditProcessor::new(
+        pool,
         conn,
         CHECKPOINTS_TABLE,
-        "audit",
-        AuditProjector,
+        "audit:membership",
+        MembershipAuditProjector,
     )
     .await?;
-    let actor_ref = AuditProcessor::spawn(processor);
-    run_projection_stream!(BlockMembership, "audit", redis_client, actor_ref.clone())?;
+    let actor_ref = MembershipAuditProcessor::spawn(processor);
+    run_projection_stream!(
+        BlockMembership,
+        "audit:membership",
+        redis_client,
+        actor_ref.clone()
+    )?;
+    Ok(actor_ref)
+}
+
+/// Spawn **all** 11 generalized audit projectors at once.
+///
+/// This is the preferred entry point for new code that does not need
+/// a specific `ActorRef` return value. It covers every aggregate
+/// category including membership.
+pub async fn spawn_all_audit_projectors(
+    pool: PgPool,
+    redis_client: Arc<RedisClient>,
+) -> Result<()> {
+    spawn_season_audit_projector(pool.clone(), redis_client.clone()).await?;
+    spawn_block_audit_projector(pool.clone(), redis_client.clone()).await?;
+    spawn_episode_audit_projector(pool.clone(), redis_client.clone()).await?;
+    spawn_scene_audit_projector(pool.clone(), redis_client.clone()).await?;
+    spawn_scene_shoot_audit_projector(pool.clone(), redis_client.clone()).await?;
+    spawn_shooting_day_audit_projector(pool.clone(), redis_client.clone()).await?;
+    spawn_character_audit_projector(pool.clone(), redis_client.clone()).await?;
+    spawn_costume_audit_projector(pool.clone(), redis_client.clone()).await?;
+    spawn_costume_category_audit_projector(pool.clone(), redis_client.clone()).await?;
+    spawn_photo_audit_projector(pool.clone(), redis_client.clone()).await?;
+    spawn_membership_audit_projector(pool, redis_client).await?;
+    Ok(())
+}
+
+/// Spawn the membership audit projector (independent of the others).
+pub async fn spawn_membership_audit_projector(
+    pool: PgPool,
+    redis_client: Arc<RedisClient>,
+) -> Result<ActorRef<MembershipAuditProcessor>> {
+    let conn = redis_client.get_multiplexed_async_connection().await?;
+    let processor = MembershipAuditProcessor::new(
+        pool,
+        conn,
+        CHECKPOINTS_TABLE,
+        "audit:membership",
+        MembershipAuditProjector,
+    )
+    .await?;
+    let actor_ref = MembershipAuditProcessor::spawn(processor);
+    run_projection_stream!(
+        BlockMembership,
+        "audit:membership",
+        redis_client,
+        actor_ref.clone()
+    )?;
     Ok(actor_ref)
 }
 

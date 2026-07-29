@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: qwen3.6-35b (neuralwatt)
 
 //! Character projection handler: `CharacterEvent` -> `projection_character`.
 
 use breakdown_core::character::aggregate::CharacterAggregate;
 use breakdown_core::character::events::CharacterEvent;
+use breakdown_core::shared::EventMetadata;
 use kameo_es::Event;
 use kameo_es::event_handler::{EntityEventHandler, EventHandler};
 use sqlx::{Postgres, Transaction};
@@ -23,7 +25,7 @@ impl<'a> EntityEventHandler<CharacterAggregate, Transaction<'a, Postgres>> for C
         &mut self,
         ctx: &mut Transaction<'a, Postgres>,
         _id: Uuid,
-        event: Event<CharacterEvent, ()>,
+        event: Event<CharacterEvent, EventMetadata>,
     ) -> Result<(), Self::Error> {
         let updated_at = event.timestamp;
 

@@ -1,78 +1,631 @@
 // SPDX-License-Identifier: AGPL-3.0
-// Copyright (C) 2024-2026 Breakdown RS Contributors
+// Copyright (C) 2024 Breakdown RS Contributors
+// Co-authored-by: qwen3.6-35b (neuralwatt)
 
 //! Generic audit / journal projector.
 //!
-//! v1 captures the `membership` Bounded Context's events; the projection is
-//! generic (`entity_type` + `payload` JSONB + nullable `series_id` tenant
-//! dimension) so other contexts' events can be appended later without a
-//! breaking migration. Idempotency under redelivery is guaranteed by using
-//! the event store's stable per-event `id` as the primary key
-//! (`ON CONFLICT (id) DO NOTHING`).
+//! Generalized to all 11 aggregate categories (`season`, `block`, `episode`,
+//! `scene`, `scene_shoot`, `shooting_day`, `character`, `costume`,
+//! `costume_category`, `photo`, `membership`). Each category gets its own
+//! `EntityEventHandler` impl that extracts `actor`, `provenance`, and
+//! `series_id` from `EventMetadata` and delegates to the shared
+//! [`write_audit_row`] helper.
+//!
+//! Idempotency under redelivery is guaranteed by the deterministic
+//! `event_key` + `ON CONFLICT (event_key) DO NOTHING` guard.
 
-use breakdown_core::membership::MembershipMetadata;
-use breakdown_core::membership::aggregate::BlockMembership;
-use breakdown_core::membership::events::MembershipEvent;
-use kameo_es::Event;
-use kameo_es::EventType;
+use breakdown_core::shared::{EventMetadata, PhotoId, SceneShootId, ShootingDayId};
+use breakdown_core::{
+    block::{aggregate::BlockAggregate, events::BlockEvent},
+    character::{aggregate::CharacterAggregate, events::CharacterEvent},
+    costume::{aggregate::CostumeAggregate, events::CostumeEvent},
+    costume_category::{
+        aggregate::CostumeCategoryAggregate, events::CostumeCategoryEvent,
+    },
+    episode::{aggregate::EpisodeAggregate, events::EpisodeEvent},
+    membership::{aggregate::BlockMembership, events::MembershipEvent},
+    photo::{aggregate::PhotoAggregate, events::PhotoEvent},
+    scene::{aggregate::SceneAggregate, events::SceneEvent},
+    scene_shoot::{aggregate::SceneShootAggregate, events::SceneShootEvent},
+    season::{aggregate::SeasonAggregate, events::SeasonEvent},
+    shooting_day::{aggregate::ShootingDayAggregate, events::ShootingDayEvent},
+};
+use sqlx::{self as sqlx, Postgres, Transaction};
+
 use kameo_es::event_handler::{EntityEventHandler, EventHandler};
-use sqlx::{Postgres, Transaction};
+use kameo_es::{Event, EventType};
 
-/// Idempotent audit projector for the `BlockMembership` aggregate (v1 scope).
+// ── shared insert logic ───────────────────────────────────────────────
+
+/// Write an audit row into `projection_audit`.
+///
+/// Uses the same `event_key` + `ON CONFLICT (event_key) DO NOTHING` idempotency
+/// pattern that the membership-only v1 projector used. `event_key` is derived
+/// from deterministic content (entity_type + entity_id + event_type + payload)
+/// so that redelivered events never create duplicates.
+///
+/// `provenance` is written as a plain-text label ("Human" / saga name / "System").
+/// `series_id` is written as a nullable UUID, denormalized at dispatch time.
+/// `block_id` is set to the entity_id for backwards compatibility with the
+/// existing `idx_projection_audit_block` index.
+#[allow(clippy::too_many_arguments)]
+async fn write_audit_row(
+    ctx: &mut Transaction<'_, Postgres>,
+    entity_type: &str,
+    entity_id: &str,
+    event_type: &str,
+    actor: Option<String>,
+    provenance: &str,
+    series_id: Option<String>,
+    event: impl serde::Serialize,
+    event_timestamp: chrono::DateTime<chrono::Utc>,
+    event_id: uuid::Uuid,
+) -> sqlx::Result<usize> {
+    let payload = serde_json::to_value(&event).expect("event serializes");
+    let event_key = format!("{entity_type}:{entity_id}:{event_type}:{payload}");
+
+    let series_uuid: Option<uuid::Uuid> = series_id
+        .and_then(|s| {
+            // The series_id string is already the UUID value.
+            uuid::Uuid::parse_str(&s).ok()
+        })
+        .or(None);
+
+    sqlx::query(
+        r#"
+        INSERT INTO projection_audit
+            (id, event_key, entity_type, entity_id, event_type, block_id, series_id, actor, provenance, payload, occurred_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        ON CONFLICT (event_key) DO NOTHING
+        "#,
+    )
+    .bind(event_id)
+    .bind(event_key)
+    .bind(entity_type)
+    .bind(entity_id)
+    .bind(event_type)
+    .bind(entity_id) // block_id — kept for compatibility with existing idx_projection_audit_block
+    .bind(series_uuid)
+    .bind(actor)
+    .bind(provenance)
+    .bind(payload)
+    .bind(event_timestamp)
+    .execute(&mut **ctx)
+    .await
+}
+
+// ── metadata helpers ──────────────────────────────────────────────────
+
+/// Extract actor, provenance, and series_id from event metadata.
+///
+/// Returns `(actor, provenance, series_id)`.  If no `EventMetadata` is
+/// present the defaults are `actor = None`, `provenance = "Human"`,
+/// `series_id = None`.
+fn extract_metadata(
+    event: &Event<impl kameo_es::EventType, EventMetadata>,
+) -> (Option<String>, String, Option<String>) {
+    event
+        .metadata
+        .data
+        .as_ref()
+        .map(|m| {
+            (
+                m.actor.as_ref().map(|u| u.as_str().to_string()),
+                m.provenance.as_str().to_string(),
+                m.series_id.as_ref().map(|s| s.0.to_string()),
+            )
+        })
+        .unwrap_or_else(|| (None, "Human".to_string(), None))
+}
+
+// ── Category: season ──────────────────────────────────────────────────
+
+/// Deduplicates events from the **Season** aggregate into `projection_audit`.
+///
+/// Reads `series_id` directly from `EventMetadata` — no entity→series
+/// chain resolution at projection time (task 3.4 invariant).
 #[derive(Clone, Default, Debug)]
-pub struct AuditProjector;
+pub struct SeasonAuditProjector;
 
-impl<'a> EventHandler<Transaction<'a, Postgres>> for AuditProjector {
+impl<'a> EventHandler<Transaction<'a, Postgres>> for SeasonAuditProjector {
     type Error = sqlx::Error;
 }
 
-impl<'a> EntityEventHandler<BlockMembership, Transaction<'a, Postgres>> for AuditProjector {
+impl<'a> EntityEventHandler<SeasonAggregate, Transaction<'a, Postgres>> for SeasonAuditProjector {
     async fn handle(
         &mut self,
         ctx: &mut Transaction<'a, Postgres>,
         _id: uuid::Uuid,
-        event: Event<MembershipEvent, MembershipMetadata>,
+        event: Event<SeasonEvent, EventMetadata>,
     ) -> Result<(), Self::Error> {
+        let entity_id = match &event.data {
+            SeasonEvent::SeasonCreated { id, .. }
+            | SeasonEvent::SeasonRenamed { id, .. } => id.to_string(),
+        };
+        let event_type = event.data.event_type().to_string();
+        let (actor, provenance, series_id) = extract_metadata(&event);
+
+        write_audit_row(
+            ctx,
+            "season",
+            &entity_id,
+            &event_type,
+            actor,
+            &provenance,
+            series_id,
+            &event.data,
+            event.timestamp,
+            event.id,
+        )
+        .await?;
+
+        Ok(())
+    }
+}
+
+// ── Category: block ───────────────────────────────────────────────────
+
+/// Deduplicates events from the **Block** aggregate into `projection_audit`.
+#[derive(Clone, Default, Debug)]
+pub struct BlockAuditProjector;
+
+impl<'a> EventHandler<Transaction<'a, Postgres>> for BlockAuditProjector {
+    type Error = sqlx::Error;
+}
+
+impl<'a> EntityEventHandler<BlockAggregate, Transaction<'a, Postgres>> for BlockAuditProjector {
+    async fn handle(
+        &mut self,
+        ctx: &mut Transaction<'a, Postgres>,
+        _id: uuid::Uuid,
+        event: Event<BlockEvent, EventMetadata>,
+    ) -> Result<(), Self::Error> {
+        let entity_id = match &event.data {
+            BlockEvent::BlockCreated { id, .. }
+            | BlockEvent::BlockTimeSpanUpdated { id, .. } => id.to_string(),
+        };
+        let event_type = event.data.event_type().to_string();
+        let (actor, provenance, series_id) = extract_metadata(&event);
+
+        write_audit_row(
+            ctx,
+            "block",
+            &entity_id,
+            &event_type,
+            actor,
+            &provenance,
+            series_id,
+            &event.data,
+            event.timestamp,
+            event.id,
+        )
+        .await?;
+
+        Ok(())
+    }
+}
+
+// ── Category: episode ─────────────────────────────────────────────────
+
+/// Deduplicates events from the **Episode** aggregate into `projection_audit`.
+#[derive(Clone, Default, Debug)]
+pub struct EpisodeAuditProjector;
+
+impl<'a> EventHandler<Transaction<'a, Postgres>> for EpisodeAuditProjector {
+    type Error = sqlx::Error;
+}
+
+impl<'a> EntityEventHandler<EpisodeAggregate, Transaction<'a, Postgres>> for EpisodeAuditProjector {
+    async fn handle(
+        &mut self,
+        ctx: &mut Transaction<'a, Postgres>,
+        _id: uuid::Uuid,
+        event: Event<EpisodeEvent, EventMetadata>,
+    ) -> Result<(), Self::Error> {
+        let entity_id = match &event.data {
+            EpisodeEvent::EpisodeCreated { id, .. }
+            | EpisodeEvent::EpisodeRenamed { id, .. } => id.to_string(),
+        };
+        let event_type = event.data.event_type().to_string();
+        let (actor, provenance, series_id) = extract_metadata(&event);
+
+        write_audit_row(
+            ctx,
+            "episode",
+            &entity_id,
+            &event_type,
+            actor,
+            &provenance,
+            series_id,
+            &event.data,
+            event.timestamp,
+            event.id,
+        )
+        .await?;
+
+        Ok(())
+    }
+}
+
+// ── Category: scene ───────────────────────────────────────────────────
+
+/// Deduplicates events from the **Scene** aggregate into `projection_audit`.
+#[derive(Clone, Default, Debug)]
+pub struct SceneAuditProjector;
+
+impl<'a> EventHandler<Transaction<'a, Postgres>> for SceneAuditProjector {
+    type Error = sqlx::Error;
+}
+
+impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for SceneAuditProjector {
+    async fn handle(
+        &mut self,
+        ctx: &mut Transaction<'a, Postgres>,
+        _id: uuid::Uuid,
+        event: Event<SceneEvent, EventMetadata>,
+    ) -> Result<(), Self::Error> {
+        let entity_id = match &event.data {
+            SceneEvent::SceneCreated { id, .. }
+            | SceneEvent::SceneDetailsUpdated { id, .. }
+            | SceneEvent::CharacterAssigned { id, .. }
+            | SceneEvent::CharacterRemoved { id, .. }
+            | SceneEvent::ShootingDayScheduled { id, .. }
+            | SceneEvent::ShootingDayUnscheduled { id, .. } => id.to_string(),
+        };
+        let event_type = event.data.event_type().to_string();
+        let (actor, provenance, series_id) = extract_metadata(&event);
+
+        write_audit_row(
+            ctx,
+            "scene",
+            &entity_id,
+            &event_type,
+            actor,
+            &provenance,
+            series_id,
+            &event.data,
+            event.timestamp,
+            event.id,
+        )
+        .await?;
+
+        Ok(())
+    }
+}
+
+// ── Category: scene_shoot ─────────────────────────────────────────────
+
+/// Deduplicates events from the **SceneShoot** aggregate into `projection_audit`.
+#[derive(Clone, Default, Debug)]
+pub struct SceneShootAuditProjector;
+
+impl<'a> EventHandler<Transaction<'a, Postgres>> for SceneShootAuditProjector {
+    type Error = sqlx::Error;
+}
+
+impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>> for SceneShootAuditProjector {
+    async fn handle(
+        &mut self,
+        ctx: &mut Transaction<'a, Postgres>,
+        _id: SceneShootId,
+        event: Event<SceneShootEvent, EventMetadata>,
+    ) -> Result<(), Self::Error> {
+        let entity_id = match &event.data {
+            SceneShootEvent::SceneShootPlanned { id, .. }
+            | SceneShootEvent::SceneShootReplanned { id, .. }
+            | SceneShootEvent::SceneShootStarted { id, .. }
+            | SceneShootEvent::SceneShootActualOrderSet { id, .. }
+            | SceneShootEvent::SceneShootFinished { id, .. }
+            | SceneShootEvent::SceneShootSkipped { id, .. }
+            | SceneShootEvent::ShootDayNoteAdded { id, .. }
+            | SceneShootEvent::ShootDayNoteUpdated { id, .. }
+            | SceneShootEvent::ShootDayNoteRemoved { id, .. }
+            | SceneShootEvent::ContinuityPhotoLinked { id, .. }
+            | SceneShootEvent::ContinuityPhotoUnlinked { id, .. } => id.0.to_string(),
+        };
+        let event_type = event.data.event_type().to_string();
+        let (actor, provenance, series_id) = extract_metadata(&event);
+
+        write_audit_row(
+            ctx,
+            "scene_shoot",
+            &entity_id,
+            &event_type,
+            actor,
+            &provenance,
+            series_id,
+            &event.data,
+            event.timestamp,
+            event.id,
+        )
+        .await?;
+
+        Ok(())
+    }
+}
+
+// ── Category: shooting_day ────────────────────────────────────────────
+
+/// Deduplicates events from the **ShootingDay** aggregate into `projection_audit`.
+#[derive(Clone, Default, Debug)]
+pub struct ShootingDayAuditProjector;
+
+impl<'a> EventHandler<Transaction<'a, Postgres>> for ShootingDayAuditProjector {
+    type Error = sqlx::Error;
+}
+
+impl<'a> EntityEventHandler<ShootingDayAggregate, Transaction<'a, Postgres>> for ShootingDayAuditProjector {
+    async fn handle(
+        &mut self,
+        ctx: &mut Transaction<'a, Postgres>,
+        _id: ShootingDayId,
+        event: Event<ShootingDayEvent, EventMetadata>,
+    ) -> Result<(), Self::Error> {
+        let entity_id = match &event.data {
+            ShootingDayEvent::ShootingDayCreated { id, .. }
+            | ShootingDayEvent::ShootingDayRenamed { id, .. }
+            | ShootingDayEvent::ShootingDayRescheduled { id, .. }
+            | ShootingDayEvent::ShootingDayReordered { id, .. }
+            | ShootingDayEvent::ShootingDayArchived { id, .. }
+            | ShootingDayEvent::ShootingDayWrapped { id, .. } => id.0.to_string(),
+        };
+        let event_type = event.data.event_type().to_string();
+        let (actor, provenance, series_id) = extract_metadata(&event);
+
+        write_audit_row(
+            ctx,
+            "shooting_day",
+            &entity_id,
+            &event_type,
+            actor,
+            &provenance,
+            series_id,
+            &event.data,
+            event.timestamp,
+            event.id,
+        )
+        .await?;
+
+        Ok(())
+    }
+}
+
+// ── Category: character ───────────────────────────────────────────────
+
+/// Deduplicates events from the **Character** aggregate into `projection_audit`.
+#[derive(Clone, Default, Debug)]
+pub struct CharacterAuditProjector;
+
+impl<'a> EventHandler<Transaction<'a, Postgres>> for CharacterAuditProjector {
+    type Error = sqlx::Error;
+}
+
+impl<'a> EntityEventHandler<CharacterAggregate, Transaction<'a, Postgres>> for CharacterAuditProjector {
+    async fn handle(
+        &mut self,
+        ctx: &mut Transaction<'a, Postgres>,
+        _id: uuid::Uuid,
+        event: Event<CharacterEvent, EventMetadata>,
+    ) -> Result<(), Self::Error> {
+        let entity_id = match &event.data {
+            CharacterEvent::CharacterCreated { id, .. }
+            | CharacterEvent::MeasurementsUpdated { id, .. }
+            | CharacterEvent::ContactInfoUpdated { id, .. } => id.to_string(),
+        };
+        let event_type = event.data.event_type().to_string();
+        let (actor, provenance, series_id) = extract_metadata(&event);
+
+        write_audit_row(
+            ctx,
+            "character",
+            &entity_id,
+            &event_type,
+            actor,
+            &provenance,
+            series_id,
+            &event.data,
+            event.timestamp,
+            event.id,
+        )
+        .await?;
+
+        Ok(())
+    }
+}
+
+// ── Category: costume ─────────────────────────────────────────────────
+
+/// Deduplicates events from the **Costume** aggregate into `projection_audit`.
+#[derive(Clone, Default, Debug)]
+pub struct CostumeAuditProjector;
+
+impl<'a> EventHandler<Transaction<'a, Postgres>> for CostumeAuditProjector {
+    type Error = sqlx::Error;
+}
+
+impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for CostumeAuditProjector {
+    async fn handle(
+        &mut self,
+        ctx: &mut Transaction<'a, Postgres>,
+        _id: uuid::Uuid,
+        event: Event<CostumeEvent, EventMetadata>,
+    ) -> Result<(), Self::Error> {
+        let entity_id = match &event.data {
+            CostumeEvent::CostumeCreated { id, .. }
+            | CostumeEvent::CostumeNotesUpdated { id, .. }
+            | CostumeEvent::CostumeAssignedToCharacter { id, .. }
+            | CostumeEvent::CostumeUnassigned { id, .. }
+            | CostumeEvent::DetailAdded { id, .. }
+            | CostumeEvent::DetailRemoved { id, .. }
+            | CostumeEvent::PhotoLinked { id, .. }
+            | CostumeEvent::PhotoUnlinked { id, .. } => id.to_string(),
+        };
+        let event_type = event.data.event_type().to_string();
+        let (actor, provenance, series_id) = extract_metadata(&event);
+
+        write_audit_row(
+            ctx,
+            "costume",
+            &entity_id,
+            &event_type,
+            actor,
+            &provenance,
+            series_id,
+            &event.data,
+            event.timestamp,
+            event.id,
+        )
+        .await?;
+
+        Ok(())
+    }
+}
+
+// ── Category: costume_category ────────────────────────────────────────
+
+/// Deduplicates events from the **CostumeCategory** aggregate into
+/// `projection_audit`.
+#[derive(Clone, Default, Debug)]
+pub struct CostumeCategoryAuditProjector;
+
+impl<'a> EventHandler<Transaction<'a, Postgres>> for CostumeCategoryAuditProjector {
+    type Error = sqlx::Error;
+}
+
+impl<'a> EntityEventHandler<CostumeCategoryAggregate, Transaction<'a, Postgres>> for CostumeCategoryAuditProjector {
+    async fn handle(
+        &mut self,
+        ctx: &mut Transaction<'a, Postgres>,
+        _id: uuid::Uuid,
+        event: Event<CostumeCategoryEvent, EventMetadata>,
+    ) -> Result<(), Self::Error> {
+        let entity_id = match &event.data {
+            CostumeCategoryEvent::CostumeCategoryCreated { id, .. }
+            | CostumeCategoryEvent::CostumeCategoryRenamed { id, .. }
+            | CostumeCategoryEvent::CostumeCategoryReordered { id, .. }
+            | CostumeCategoryEvent::CostumeCategoryArchived { id, .. } => {
+                id.to_string()
+            }
+        };
+        let event_type = event.data.event_type().to_string();
+        let (actor, provenance, series_id) = extract_metadata(&event);
+
+        write_audit_row(
+            ctx,
+            "costume_category",
+            &entity_id,
+            &event_type,
+            actor,
+            &provenance,
+            series_id,
+            &event.data,
+            event.timestamp,
+            event.id,
+        )
+        .await?;
+
+        Ok(())
+    }
+}
+
+// ── Category: photo ───────────────────────────────────────────────────
+
+/// Deduplicates events from the **Photo** aggregate into `projection_audit`.
+#[derive(Clone, Default, Debug)]
+pub struct PhotoAuditProjector;
+
+impl<'a> EventHandler<Transaction<'a, Postgres>> for PhotoAuditProjector {
+    type Error = sqlx::Error;
+}
+
+impl<'a> EntityEventHandler<PhotoAggregate, Transaction<'a, Postgres>> for PhotoAuditProjector {
+    async fn handle(
+        &mut self,
+        ctx: &mut Transaction<'a, Postgres>,
+        _id: PhotoId,
+        event: Event<PhotoEvent, EventMetadata>,
+    ) -> Result<(), Self::Error> {
+        let entity_id = match &event.data {
+            PhotoEvent::PhotoUploaded { id, .. }
+            | PhotoEvent::OriginalNormalized { id, .. }
+            | PhotoEvent::VariantGenerated { id, .. }
+            | PhotoEvent::VariantFailed { id, .. }
+            | PhotoEvent::PhotoDeleted { id, .. } => id.0.to_string(),
+        };
+        let event_type = event.data.event_type().to_string();
+        let (actor, provenance, series_id) = extract_metadata(&event);
+
+        write_audit_row(
+            ctx,
+            "photo",
+            &entity_id,
+            &event_type,
+            actor,
+            &provenance,
+            series_id,
+            &event.data,
+            event.timestamp,
+            event.id,
+        )
+        .await?;
+
+        Ok(())
+    }
+}
+
+// ── Backward-compat alias ────────────────────────────────────────────
+
+/// The original v1 audit projector (membership-only).
+///
+/// This type still exists for API stability and tests that import
+/// `infra::projectors::AuditProjector` directly; it is functionally
+/// equivalent to [`MembershipAuditProjector`].
+pub type AuditProjector = MembershipAuditProjector;
+
+// ── Category: membership (v1, unchanged event extraction) ─────────────
+
+/// Deduplicates events from the **BlockMembership** aggregate into
+/// `projection_audit`.
+///
+/// This is the original membership-only projector, now updated to write
+/// `provenance` and `series_id` from `EventMetadata`.
+#[derive(Clone, Default, Debug)]
+pub struct MembershipAuditProjector;
+
+impl<'a> EventHandler<Transaction<'a, Postgres>> for MembershipAuditProjector {
+    type Error = sqlx::Error;
+}
+
+impl<'a> EntityEventHandler<BlockMembership, Transaction<'a, Postgres>> for MembershipAuditProjector {
+    async fn handle(
+        &mut self,
+        ctx: &mut Transaction<'a, Postgres>,
+        _id: uuid::Uuid,
+        event: Event<MembershipEvent, EventMetadata>,
+    ) -> Result<(), Self::Error> {
+        // Membership events use `block_id` instead of a generic `id`.
         let block_id = match &event.data {
             MembershipEvent::MemberInvited { block_id, .. }
             | MembershipEvent::InvitationAccepted { block_id, .. }
             | MembershipEvent::RoleGranted { block_id, .. }
             | MembershipEvent::MemberRemoved { block_id, .. }
-            | MembershipEvent::OwnerBootstrapped { block_id, .. } => block_id.0,
+            | MembershipEvent::OwnerBootstrapped { block_id, .. } => block_id.0.to_string(),
         };
         let event_type = event.data.event_type().to_string();
-        let actor: Option<String> = event
-            .metadata
-            .data
-            .as_ref()
-            .and_then(|m| m.actor.clone())
-            .map(|u| u.as_str().to_string());
-        let payload = serde_json::to_value(&event.data).expect("MembershipEvent serializes");
+        let (actor, provenance, series_id) = extract_metadata(&event);
 
-        // Deterministic content key: identical for a redelivered event, so
-        // `ON CONFLICT (event_key) DO NOTHING` dedupes redeliveries even though
-        // SierraDB assigns a fresh `event.id` on every append.
-        let event_key = format!("membership:{block_id}:{event_type}:{payload}");
-
-        sqlx::query(
-            r#"
-            INSERT INTO projection_audit
-                (id, event_key, entity_type, entity_id, event_type, block_id, series_id, actor, payload, occurred_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            ON CONFLICT (event_key) DO NOTHING
-            "#,
+        write_audit_row(
+            ctx,
+            "membership",
+            &block_id,
+            &event_type,
+            actor,
+            &provenance,
+            series_id,
+            &event.data,
+            event.timestamp,
+            event.id,
         )
-        .bind(event.id)
-        .bind(event_key)
-        .bind("membership")
-        .bind(block_id.to_string())
-        .bind(event_type)
-        .bind(block_id)
-        .bind(Option::<uuid::Uuid>::None)
-        .bind(actor)
-        .bind(payload)
-        .bind(event.timestamp)
-        .execute(&mut **ctx)
         .await?;
 
         Ok(())

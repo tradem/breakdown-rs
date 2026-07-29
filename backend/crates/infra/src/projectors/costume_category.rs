@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: qwen3.6-35b (neuralwatt)
 
 //! CostumeCategory projection handler: `CostumeCategoryEvent` -> `projection_costume_category`
 //! (+ denormalised `category_name` refresh on `projection_costume_detail`).
 
 use breakdown_core::costume_category::aggregate::CostumeCategoryAggregate;
 use breakdown_core::costume_category::events::CostumeCategoryEvent;
+use breakdown_core::shared::EventMetadata;
 use kameo_es::Event;
 use kameo_es::event_handler::{EntityEventHandler, EventHandler};
 use sqlx::{Postgres, Transaction};
@@ -26,7 +28,7 @@ impl<'a> EntityEventHandler<CostumeCategoryAggregate, Transaction<'a, Postgres>>
         &mut self,
         ctx: &mut Transaction<'a, Postgres>,
         _id: Uuid,
-        event: Event<CostumeCategoryEvent, ()>,
+        event: Event<CostumeCategoryEvent, EventMetadata>,
     ) -> Result<(), Self::Error> {
         let updated_at = event.timestamp;
 

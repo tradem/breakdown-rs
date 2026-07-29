@@ -14,10 +14,10 @@
 
 ## 3. Generalize the AuditProjector
 
-- [ ] 3.1 Refactor `crates/infra/src/projectors/audit.rs` from `EntityEventHandler<BlockMembership, …>` to an `EntityEventHandler` impl per aggregate category (or an exhaustive dispatcher sharing the insert logic). Reuse the existing `event_key` + `ON CONFLICT DO NOTHING` idempotency pattern.
-- [ ] 3.2 For each category, read `actor`, `provenance`, and `series_id` from `EventMetadata` and write them into `projection_audit` (canonicalize `provenance` to a stable string column representation — verify the column type supports it; add a migration only if needed; the table already has `series_id` and `actor`).
-- [ ] 3.3 Verify the `entity_type` value written for each category matches the `Entity::category()` string exactly (e.g. `scene_shoot`, `costume_category`, `shooting_day`).
-- [ ] 3.4 Ensure no audit projector performs entity→series chain resolution at projection time — `series_id` comes from `EventMetadata` only.
+- [x] 3.1 Refactor `crates/infra/src/projectors/audit.rs` from `EntityEventHandler<BlockMembership, …>` to an `EntityEventHandler` impl per aggregate category (or an exhaustive dispatcher sharing the insert logic). Reuse the existing `event_key` + `ON CONFLICT DO NOTHING` idempotency pattern.
+- [x] 3.2 For each category, read `actor`, `provenance`, and `series_id` from `EventMetadata` and write them into `projection_audit` (canonicalize `provenance` to a stable string column representation — verify the column type supports it; add a migration only if needed; the table already has `series_id` and `actor`).
+- [x] 3.3 Verify the `entity_type` value written for each category matches the `Entity::category()` string exactly (e.g. `scene_shoot`, `costume_category`, `shooting_day`).
+- [x] 3.4 Ensure no audit projector performs entity→series chain resolution at projection time — `series_id` comes from `EventMetadata` only.
 
 ## 4. Compile-time-exhaustive coverage guard (Decision 4 / 5a)
 
