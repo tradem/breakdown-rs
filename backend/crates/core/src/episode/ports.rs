@@ -15,9 +15,17 @@ use super::views::EpisodeView;
 #[allow(async_fn_in_trait)]
 pub trait EpisodeCommands: Send + Sync {
     /// Create a new episode aggregate.
-    async fn create(&self, actor: UserId, cmd: CreateEpisode) -> Result<(Uuid, AggregateVersion), DomainError>;
+    async fn create(
+        &self,
+        actor: UserId,
+        cmd: CreateEpisode,
+    ) -> Result<(Uuid, AggregateVersion), DomainError>;
     /// Rename an episode (optional name).
-    async fn rename(&self, actor: UserId, cmd: RenameEpisode) -> Result<AggregateVersion, DomainError>;
+    async fn rename(
+        &self,
+        actor: UserId,
+        cmd: RenameEpisode,
+    ) -> Result<AggregateVersion, DomainError>;
 }
 
 /// Async read port returning flat `EpisodeView` projections.

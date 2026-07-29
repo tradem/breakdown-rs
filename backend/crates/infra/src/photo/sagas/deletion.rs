@@ -181,8 +181,8 @@ impl EntityEventHandler<CostumeAggregate, ()> for PhotoDeletionSaga {
                         }
                     };
                     let series_id = self.resolve_series_id(photo_id).await?;
-                    let stream_version = crate::event_store::domain_to_stream(version)
-                        .ok_or_else(|| {
+                    let stream_version =
+                        crate::event_store::domain_to_stream(version).ok_or_else(|| {
                             anyhow::anyhow!(
                                 "photo {photo_id} has version 0 — cannot determine stream version"
                             )

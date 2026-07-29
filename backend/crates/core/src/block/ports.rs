@@ -15,11 +15,16 @@ use super::views::BlockView;
 #[allow(async_fn_in_trait)]
 pub trait BlockCommands: Send + Sync {
     /// Create a new block aggregate.
-    async fn create(&self, actor: UserId, cmd: CreateBlock) -> Result<(Uuid, AggregateVersion), DomainError>;
+    async fn create(
+        &self,
+        actor: UserId,
+        cmd: CreateBlock,
+    ) -> Result<(Uuid, AggregateVersion), DomainError>;
     /// Update the block's (optional) time span.
     async fn update_time_span(
         &self,
-        actor: UserId, cmd: UpdateBlockTimeSpan,
+        actor: UserId,
+        cmd: UpdateBlockTimeSpan,
     ) -> Result<AggregateVersion, DomainError>;
 }
 

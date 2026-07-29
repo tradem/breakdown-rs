@@ -339,11 +339,15 @@ pub async fn get_audit_history<P: Ports>(
     // For v1, we allow access if the user is authenticated and provides a valid series_id.
     // In a future iteration, we will implement `MembershipRepository::list_by_series`
     // to verify actual membership within that tenant.
-    
+
     let entries = state
         .ports
         .audit_repo()
-        .list_by_series(series_id, params.limit.unwrap_or(50), params.offset.unwrap_or(0))
+        .list_by_series(
+            series_id,
+            params.limit.unwrap_or(50),
+            params.offset.unwrap_or(0),
+        )
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(entries)))
@@ -939,33 +943,42 @@ pub async fn update_shooting_day<P: Ports>(
     let cmds = state.ports.shooting_day_commands();
     if let Some(order_key) = req.order_key {
         let version = cmds
-            .reorder(actor.clone(), ReorderShootingDay {
-                id,
-                order_key,
-                version: req.version,
-            })
+            .reorder(
+                actor.clone(),
+                ReorderShootingDay {
+                    id,
+                    order_key,
+                    version: req.version,
+                },
+            )
             .await
             .map_err(map_err)?;
         return Ok((StatusCode::OK, Json(version)));
     }
     if req.date.is_some() {
         let version = cmds
-            .reschedule(actor.clone(), RescheduleShootingDay {
-                id,
-                date: req.date,
-                version: req.version,
-            })
+            .reschedule(
+                actor.clone(),
+                RescheduleShootingDay {
+                    id,
+                    date: req.date,
+                    version: req.version,
+                },
+            )
             .await
             .map_err(map_err)?;
         return Ok((StatusCode::OK, Json(version)));
     }
     if req.label.is_some() {
         let version = cmds
-            .rename(actor, RenameShootingDay {
-                id,
-                label: req.label,
-                version: req.version,
-            })
+            .rename(
+                actor,
+                RenameShootingDay {
+                    id,
+                    label: req.label,
+                    version: req.version,
+                },
+            )
             .await
             .map_err(map_err)?;
         return Ok((StatusCode::OK, Json(version)));
@@ -994,10 +1007,13 @@ pub async fn archive_shooting_day<P: Ports>(
     let version = state
         .ports
         .shooting_day_commands()
-        .archive(current_user.sub.clone(), ArchiveShootingDay {
-            id,
-            version: req.version,
-        })
+        .archive(
+            current_user.sub.clone(),
+            ArchiveShootingDay {
+                id,
+                version: req.version,
+            },
+        )
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -1369,11 +1385,14 @@ pub async fn add_costume_detail<P: Ports>(
     let version = state
         .ports
         .costume_commands()
-        .add_detail(current_user.sub.clone(), AddDetail {
-            id,
-            detail: req.detail,
-            version: req.version,
-        })
+        .add_detail(
+            current_user.sub.clone(),
+            AddDetail {
+                id,
+                detail: req.detail,
+                version: req.version,
+            },
+        )
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -1452,22 +1471,28 @@ pub async fn update_costume_category<P: Ports>(
     let cmds = state.ports.costume_category_commands();
     if let Some(name) = req.name {
         let version = cmds
-            .rename(actor.clone(), RenameCostumeCategory {
-                id,
-                name,
-                version: req.version,
-            })
+            .rename(
+                actor.clone(),
+                RenameCostumeCategory {
+                    id,
+                    name,
+                    version: req.version,
+                },
+            )
             .await
             .map_err(map_err)?;
         return Ok((StatusCode::OK, Json(version)));
     }
     if let Some(order_key) = req.order_key {
         let version = cmds
-            .reorder(actor, ReorderCostumeCategory {
-                id,
-                order_key,
-                version: req.version,
-            })
+            .reorder(
+                actor,
+                ReorderCostumeCategory {
+                    id,
+                    order_key,
+                    version: req.version,
+                },
+            )
             .await
             .map_err(map_err)?;
         return Ok((StatusCode::OK, Json(version)));
@@ -1496,10 +1521,13 @@ pub async fn archive_costume_category<P: Ports>(
     let version = state
         .ports
         .costume_category_commands()
-        .archive(current_user.sub.clone(), ArchiveCostumeCategory {
-            id,
-            version: req.version,
-        })
+        .archive(
+            current_user.sub.clone(),
+            ArchiveCostumeCategory {
+                id,
+                version: req.version,
+            },
+        )
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -1886,12 +1914,15 @@ pub async fn upload_costume_photo<P: Ports>(
     state
         .ports
         .photo_commands()
-        .upload(current_user.sub.clone(), UploadPhotoCmd {
-            id: photo_id,
-            content_type: content_type.clone(),
-            size_bytes,
-            binding: breakdown_core::photo::PhotoBinding::Costume { costume_id },
-        })
+        .upload(
+            current_user.sub.clone(),
+            UploadPhotoCmd {
+                id: photo_id,
+                content_type: content_type.clone(),
+                size_bytes,
+                binding: breakdown_core::photo::PhotoBinding::Costume { costume_id },
+            },
+        )
         .await
         .map_err(|e| {
             // Compensating delete: best-effort, cannot await in sync closure.
@@ -1904,11 +1935,14 @@ pub async fn upload_costume_photo<P: Ports>(
     state
         .ports
         .costume_commands()
-        .link_photo(current_user.sub.clone(), LinkPhoto {
-            id: costume_id,
-            photo_id: photo_id.0,
-            version,
-        })
+        .link_photo(
+            current_user.sub.clone(),
+            LinkPhoto {
+                id: costume_id,
+                photo_id: photo_id.0,
+                version,
+            },
+        )
         .await
         .map_err(|e| {
             // Compensating delete: best-effort, cannot await in sync closure.
@@ -2013,31 +2047,46 @@ pub async fn get_costume_photo_bytes<P: Ports>(
 
     // Build response headers for streaming.
     let mut headers = axum::http::HeaderMap::new();
-    let content_type_header = photo_bytes.content_type.parse::<axum::http::HeaderValue>()
+    let content_type_header = photo_bytes
+        .content_type
+        .parse::<axum::http::HeaderValue>()
         .map_err(|e| {
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
-                message: format!("invalid content-type in photo metadata: {e}")
-            }))
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    message: format!("invalid content-type in photo metadata: {e}"),
+                }),
+            )
         })?;
     headers.insert(axum::http::header::CONTENT_TYPE, content_type_header);
-    let content_length_header = photo_bytes.size_bytes.to_string().parse::<axum::http::HeaderValue>()
+    let content_length_header = photo_bytes
+        .size_bytes
+        .to_string()
+        .parse::<axum::http::HeaderValue>()
         .map_err(|e| {
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
-                message: format!("invalid content-length in photo metadata: {e}")
-            }))
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    message: format!("invalid content-length in photo metadata: {e}"),
+                }),
+            )
         })?;
     headers.insert(axum::http::header::CONTENT_LENGTH, content_length_header);
     headers.insert(
         axum::http::header::CACHE_CONTROL,
-        "private, max-age=300".parse().expect("hardcoded safe header value"),
+        "private, max-age=300"
+            .parse()
+            .expect("hardcoded safe header value"),
     );
     if let Some(ref etag) = photo_bytes.etag {
-        let etag_header = etag.parse::<axum::http::HeaderValue>()
-            .map_err(|e| {
-                (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
-                    message: format!("invalid etag in photo metadata: {e}")
-                }))
-            })?;
+        let etag_header = etag.parse::<axum::http::HeaderValue>().map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    message: format!("invalid etag in photo metadata: {e}"),
+                }),
+            )
+        })?;
         headers.insert(axum::http::header::ETAG, etag_header);
     }
 
@@ -2115,11 +2164,14 @@ pub async fn delete_costume_photo<P: Ports>(
     state
         .ports
         .costume_commands()
-        .unlink_photo(current_user.sub.clone(), UnlinkPhoto {
-            id: costume_id,
-            photo_id,
-            version: costume.version,
-        })
+        .unlink_photo(
+            current_user.sub.clone(),
+            UnlinkPhoto {
+                id: costume_id,
+                photo_id,
+                version: costume.version,
+            },
+        )
         .await
         .map_err(map_err)?;
 
@@ -2966,22 +3018,31 @@ pub async fn dispo_report_pdf<P: Ports>(
     let rendered = renderer.render(req).await.map_err(map_render_error)?;
 
     let mut headers = HeaderMap::new();
-    let content_type_value = rendered.content_type.parse::<axum::http::HeaderValue>()
+    let content_type_value = rendered
+        .content_type
+        .parse::<axum::http::HeaderValue>()
         .map_err(|e| {
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
-                message: format!("renderer produced invalid content-type: {e}")
-            }))
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    message: format!("renderer produced invalid content-type: {e}"),
+                }),
+            )
         })?;
     headers.insert(axum::http::header::CONTENT_TYPE, content_type_value);
     let disposition_format = format!(
         r#"inline; filename="{}""#,
         sanitize_pdf_filename("dispo", "de-DE")
     );
-    let disposition_value = disposition_format.parse::<axum::http::HeaderValue>()
+    let disposition_value = disposition_format
+        .parse::<axum::http::HeaderValue>()
         .map_err(|_| {
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
-                message: "failed to construct Content-Disposition header".into()
-            }))
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    message: "failed to construct Content-Disposition header".into(),
+                }),
+            )
         })?;
     headers.insert(axum::http::header::CONTENT_DISPOSITION, disposition_value);
     Ok((StatusCode::OK, headers, rendered.pdf_bytes))
@@ -3060,22 +3121,31 @@ pub async fn shoot_day_report_pdf<P: Ports>(
     let rendered = renderer.render(req).await.map_err(map_render_error)?;
 
     let mut headers = HeaderMap::new();
-    let content_type_value = rendered.content_type.parse::<axum::http::HeaderValue>()
+    let content_type_value = rendered
+        .content_type
+        .parse::<axum::http::HeaderValue>()
         .map_err(|e| {
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
-                message: format!("renderer produced invalid content-type: {e}")
-            }))
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    message: format!("renderer produced invalid content-type: {e}"),
+                }),
+            )
         })?;
     headers.insert(axum::http::header::CONTENT_TYPE, content_type_value);
     let disposition_format = format!(
         r#"inline; filename="{}""#,
         sanitize_pdf_filename("shoot-day", "de-DE")
     );
-    let disposition_value = disposition_format.parse::<axum::http::HeaderValue>()
+    let disposition_value = disposition_format
+        .parse::<axum::http::HeaderValue>()
         .map_err(|_| {
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
-                message: "failed to construct Content-Disposition header".into()
-            }))
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    message: "failed to construct Content-Disposition header".into(),
+                }),
+            )
         })?;
     headers.insert(axum::http::header::CONTENT_DISPOSITION, disposition_value);
     Ok((StatusCode::OK, headers, rendered.pdf_bytes))
@@ -3154,22 +3224,31 @@ pub async fn planned_vs_actual_report_pdf<P: Ports>(
     let rendered = renderer.render(req).await.map_err(map_render_error)?;
 
     let mut headers = HeaderMap::new();
-    let content_type_value = rendered.content_type.parse::<axum::http::HeaderValue>()
+    let content_type_value = rendered
+        .content_type
+        .parse::<axum::http::HeaderValue>()
         .map_err(|e| {
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
-                message: format!("renderer produced invalid content-type: {e}")
-            }))
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    message: format!("renderer produced invalid content-type: {e}"),
+                }),
+            )
         })?;
     headers.insert(axum::http::header::CONTENT_TYPE, content_type_value);
     let disposition_format = format!(
         r#"inline; filename="{}""#,
         sanitize_pdf_filename("planned-vs-actual", "de-DE")
     );
-    let disposition_value = disposition_format.parse::<axum::http::HeaderValue>()
+    let disposition_value = disposition_format
+        .parse::<axum::http::HeaderValue>()
         .map_err(|_| {
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
-                message: "failed to construct Content-Disposition header".into()
-            }))
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    message: "failed to construct Content-Disposition header".into(),
+                }),
+            )
         })?;
     headers.insert(axum::http::header::CONTENT_DISPOSITION, disposition_value);
     Ok((StatusCode::OK, headers, rendered.pdf_bytes))

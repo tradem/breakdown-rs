@@ -23,33 +23,46 @@ use super::views::SceneView;
 pub trait SceneCommands: Send + Sync {
     /// Create a new scene aggregate. Returns the generated UUIDv7 id and the
     /// initial aggregate version (`AggregateVersion::INITIAL`).
-    async fn create(&self, actor: UserId, cmd: CreateScene) -> Result<(Uuid, AggregateVersion), DomainError>;
+    async fn create(
+        &self,
+        actor: UserId,
+        cmd: CreateScene,
+    ) -> Result<(Uuid, AggregateVersion), DomainError>;
 
     /// Update scene scheduling/location/mood details. The command's `version`
     /// is used for optimistic concurrency.
     async fn update_details(
         &self,
-        actor: UserId, cmd: UpdateSceneDetails,
+        actor: UserId,
+        cmd: UpdateSceneDetails,
     ) -> Result<AggregateVersion, DomainError>;
 
     /// Assign a character to the scene.
-    async fn assign_character(&self, actor: UserId, cmd: AssignCharacter)
-    -> Result<AggregateVersion, DomainError>;
+    async fn assign_character(
+        &self,
+        actor: UserId,
+        cmd: AssignCharacter,
+    ) -> Result<AggregateVersion, DomainError>;
 
     /// Remove a character from the scene.
-    async fn remove_character(&self, actor: UserId, cmd: RemoveCharacter)
-    -> Result<AggregateVersion, DomainError>;
+    async fn remove_character(
+        &self,
+        actor: UserId,
+        cmd: RemoveCharacter,
+    ) -> Result<AggregateVersion, DomainError>;
 
     /// Link a `ShootingDay` to this scene (scene owns the collection).
     async fn schedule_on_shooting_day(
         &self,
-        actor: UserId, cmd: ScheduleSceneOnShootingDay,
+        actor: UserId,
+        cmd: ScheduleSceneOnShootingDay,
     ) -> Result<AggregateVersion, DomainError>;
 
     /// Remove a `ShootingDay` link from this scene.
     async fn unschedule_from_shooting_day(
         &self,
-        actor: UserId, cmd: UnscheduleSceneFromShootingDay,
+        actor: UserId,
+        cmd: UnscheduleSceneFromShootingDay,
     ) -> Result<AggregateVersion, DomainError>;
 }
 

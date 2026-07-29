@@ -24,9 +24,7 @@ use breakdown_core::scene_shoot::aggregate::SceneShootAggregate;
 use breakdown_core::scene_shoot::events::SceneShootEvent;
 use breakdown_core::scene_shoot::ports::SceneShootRepository;
 use breakdown_core::season::ports::SeasonRepository;
-use breakdown_core::shared::{
-    EventMetadata, PhotoId, Provenance, SceneShootId, SeriesId,
-};
+use breakdown_core::shared::{EventMetadata, PhotoId, Provenance, SceneShootId, SeriesId};
 use kameo_es::command_service::CommandService;
 use kameo_es::command_service::ExecuteExt;
 use kameo_es::event_handler::EventHandlerStreamBuilder;
@@ -196,10 +194,10 @@ impl EntityEventHandler<SceneShootAggregate, ()> for ContinuityDeletionSaga {
                     let series_id = self.resolve_series_id(photo_id).await?;
                     let stream_version = crate::event_store::domain_to_stream(photo_view.version)
                         .ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "photo {photo_id} has version 0 — cannot determine stream version"
-                            )
-                        })?;
+                        anyhow::anyhow!(
+                            "photo {photo_id} has version 0 — cannot determine stream version"
+                        )
+                    })?;
                     let result = PhotoAggregate::execute(
                         &self.cmd_service,
                         photo_id,

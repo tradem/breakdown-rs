@@ -227,7 +227,7 @@ async fn main() -> Result<()> {
     let photo_storage = OpenDalPhotoStorage::from_env().map_err(|e| {
         anyhow::anyhow!("Failed to initialise OpenDalPhotoStorage: {e}. Set S3_ENDPOINT, S3_ACCESS_KEY, S3_SECRET_KEY")
     })?;
-    
+
     // Create repositories first (commands depend on them for series_id resolution)
     let photo_repo = PhotoRepositoryImpl::new(pool.clone());
     let costume_repo = CostumeRepositoryImpl::new(pool.clone());
@@ -241,7 +241,7 @@ async fn main() -> Result<()> {
     let block_repo = BlockRepositoryImpl::new(pool.clone());
     let membership_repo_impl = MembershipRepositoryImpl::new(pool.clone());
     let audit_repo = AuditRepositoryImpl::new(pool.clone());
-    
+
     // Create command adapters with repository dependencies
     let photo_commands = PhotoCommandsImpl::new(
         cmd_service.clone(),

@@ -13,8 +13,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 use std::time::Instant;
 
-use kameo_es::{Apply, Context, Entity, Metadata, StreamId};
 use breakdown_core::shared::EventMetadata;
+use kameo_es::{Apply, Context, Entity, Metadata, StreamId};
 
 /// Process-wide empty causation-tracking map shared by all test contexts.
 type CausationTracking = HashMap<StreamId, (u64, HashSet<Cow<'static, str>>)>;

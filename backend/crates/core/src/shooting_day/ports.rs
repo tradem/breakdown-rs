@@ -21,24 +21,44 @@ pub trait ShootingDayCommands: Send + Sync {
     /// aggregate version (`AggregateVersion::INITIAL`).
     async fn create(
         &self,
-        actor: UserId, cmd: CreateShootingDay,
+        actor: UserId,
+        cmd: CreateShootingDay,
     ) -> Result<(ShootingDayId, AggregateVersion), DomainError>;
 
     /// Rename a shooting day.
-    async fn rename(&self, actor: UserId, cmd: RenameShootingDay) -> Result<AggregateVersion, DomainError>;
+    async fn rename(
+        &self,
+        actor: UserId,
+        cmd: RenameShootingDay,
+    ) -> Result<AggregateVersion, DomainError>;
 
     /// (Re)schedule a shooting day; `None` unschedules it.
-    async fn reschedule(&self, actor: UserId, cmd: RescheduleShootingDay)
-    -> Result<AggregateVersion, DomainError>;
+    async fn reschedule(
+        &self,
+        actor: UserId,
+        cmd: RescheduleShootingDay,
+    ) -> Result<AggregateVersion, DomainError>;
 
     /// Reorder a shooting day to a new `order_key`.
-    async fn reorder(&self, actor: UserId, cmd: ReorderShootingDay) -> Result<AggregateVersion, DomainError>;
+    async fn reorder(
+        &self,
+        actor: UserId,
+        cmd: ReorderShootingDay,
+    ) -> Result<AggregateVersion, DomainError>;
 
     /// Soft-archive a shooting day (terminal).
-    async fn archive(&self, actor: UserId, cmd: ArchiveShootingDay) -> Result<AggregateVersion, DomainError>;
+    async fn archive(
+        &self,
+        actor: UserId,
+        cmd: ArchiveShootingDay,
+    ) -> Result<AggregateVersion, DomainError>;
 
     /// Wrap (finalise) a shooting day. Idempotent.
-    async fn wrap(&self, actor: UserId, cmd: WrapShootingDay) -> Result<AggregateVersion, DomainError>;
+    async fn wrap(
+        &self,
+        actor: UserId,
+        cmd: WrapShootingDay,
+    ) -> Result<AggregateVersion, DomainError>;
 }
 
 /// Async read port returning flat `ShootingDayView` projections.

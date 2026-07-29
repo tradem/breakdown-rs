@@ -25,9 +25,7 @@ use breakdown_core::{
     block::{aggregate::BlockAggregate, events::BlockEvent},
     character::{aggregate::CharacterAggregate, events::CharacterEvent},
     costume::{aggregate::CostumeAggregate, events::CostumeEvent},
-    costume_category::{
-        aggregate::CostumeCategoryAggregate, events::CostumeCategoryEvent,
-    },
+    costume_category::{aggregate::CostumeCategoryAggregate, events::CostumeCategoryEvent},
     episode::{aggregate::EpisodeAggregate, events::EpisodeEvent},
     membership::{aggregate::BlockMembership, events::MembershipEvent},
     photo::{aggregate::PhotoAggregate, events::PhotoEvent},
@@ -40,7 +38,6 @@ use sqlx::{self as sqlx, Postgres, Transaction};
 
 use kameo_es::event_handler::{EntityEventHandler, EventHandler};
 use kameo_es::{Event, EventType};
-
 
 // ── Compile-time-exhaustive category enum ─────────────────────────────
 
@@ -213,8 +210,9 @@ impl<'a> EntityEventHandler<SeasonAggregate, Transaction<'a, Postgres>> for Seas
         event: Event<SeasonEvent, EventMetadata>,
     ) -> Result<(), Self::Error> {
         let entity_id = match &event.data {
-            SeasonEvent::SeasonCreated { id, .. }
-            | SeasonEvent::SeasonRenamed { id, .. } => id.to_string(),
+            SeasonEvent::SeasonCreated { id, .. } | SeasonEvent::SeasonRenamed { id, .. } => {
+                id.to_string()
+            }
         };
         let event_type = event.data.event_type().to_string();
         let (actor, provenance, series_id) = extract_metadata(&event);
@@ -255,8 +253,9 @@ impl<'a> EntityEventHandler<BlockAggregate, Transaction<'a, Postgres>> for Block
         event: Event<BlockEvent, EventMetadata>,
     ) -> Result<(), Self::Error> {
         let entity_id = match &event.data {
-            BlockEvent::BlockCreated { id, .. }
-            | BlockEvent::BlockTimeSpanUpdated { id, .. } => id.to_string(),
+            BlockEvent::BlockCreated { id, .. } | BlockEvent::BlockTimeSpanUpdated { id, .. } => {
+                id.to_string()
+            }
         };
         let event_type = event.data.event_type().to_string();
         let (actor, provenance, series_id) = extract_metadata(&event);
@@ -297,8 +296,9 @@ impl<'a> EntityEventHandler<EpisodeAggregate, Transaction<'a, Postgres>> for Epi
         event: Event<EpisodeEvent, EventMetadata>,
     ) -> Result<(), Self::Error> {
         let entity_id = match &event.data {
-            EpisodeEvent::EpisodeCreated { id, .. }
-            | EpisodeEvent::EpisodeRenamed { id, .. } => id.to_string(),
+            EpisodeEvent::EpisodeCreated { id, .. } | EpisodeEvent::EpisodeRenamed { id, .. } => {
+                id.to_string()
+            }
         };
         let event_type = event.data.event_type().to_string();
         let (actor, provenance, series_id) = extract_metadata(&event);
@@ -377,7 +377,9 @@ impl<'a> EventHandler<Transaction<'a, Postgres>> for SceneShootAuditProjector {
     type Error = sqlx::Error;
 }
 
-impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>> for SceneShootAuditProjector {
+impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
+    for SceneShootAuditProjector
+{
     async fn handle(
         &mut self,
         ctx: &mut Transaction<'a, Postgres>,
@@ -428,7 +430,9 @@ impl<'a> EventHandler<Transaction<'a, Postgres>> for ShootingDayAuditProjector {
     type Error = sqlx::Error;
 }
 
-impl<'a> EntityEventHandler<ShootingDayAggregate, Transaction<'a, Postgres>> for ShootingDayAuditProjector {
+impl<'a> EntityEventHandler<ShootingDayAggregate, Transaction<'a, Postgres>>
+    for ShootingDayAuditProjector
+{
     async fn handle(
         &mut self,
         ctx: &mut Transaction<'a, Postgres>,
@@ -474,7 +478,9 @@ impl<'a> EventHandler<Transaction<'a, Postgres>> for CharacterAuditProjector {
     type Error = sqlx::Error;
 }
 
-impl<'a> EntityEventHandler<CharacterAggregate, Transaction<'a, Postgres>> for CharacterAuditProjector {
+impl<'a> EntityEventHandler<CharacterAggregate, Transaction<'a, Postgres>>
+    for CharacterAuditProjector
+{
     async fn handle(
         &mut self,
         ctx: &mut Transaction<'a, Postgres>,
@@ -566,7 +572,9 @@ impl<'a> EventHandler<Transaction<'a, Postgres>> for CostumeCategoryAuditProject
     type Error = sqlx::Error;
 }
 
-impl<'a> EntityEventHandler<CostumeCategoryAggregate, Transaction<'a, Postgres>> for CostumeCategoryAuditProjector {
+impl<'a> EntityEventHandler<CostumeCategoryAggregate, Transaction<'a, Postgres>>
+    for CostumeCategoryAuditProjector
+{
     async fn handle(
         &mut self,
         ctx: &mut Transaction<'a, Postgres>,
@@ -577,9 +585,7 @@ impl<'a> EntityEventHandler<CostumeCategoryAggregate, Transaction<'a, Postgres>>
             CostumeCategoryEvent::CostumeCategoryCreated { id, .. }
             | CostumeCategoryEvent::CostumeCategoryRenamed { id, .. }
             | CostumeCategoryEvent::CostumeCategoryReordered { id, .. }
-            | CostumeCategoryEvent::CostumeCategoryArchived { id, .. } => {
-                id.to_string()
-            }
+            | CostumeCategoryEvent::CostumeCategoryArchived { id, .. } => id.to_string(),
         };
         let event_type = event.data.event_type().to_string();
         let (actor, provenance, series_id) = extract_metadata(&event);
@@ -670,7 +676,9 @@ impl<'a> EventHandler<Transaction<'a, Postgres>> for MembershipAuditProjector {
     type Error = sqlx::Error;
 }
 
-impl<'a> EntityEventHandler<BlockMembership, Transaction<'a, Postgres>> for MembershipAuditProjector {
+impl<'a> EntityEventHandler<BlockMembership, Transaction<'a, Postgres>>
+    for MembershipAuditProjector
+{
     async fn handle(
         &mut self,
         ctx: &mut Transaction<'a, Postgres>,
@@ -771,5 +779,9 @@ fn audit_category_coverage_is_exhaustive() {
     }
 
     // There should be exactly 11 variants — no more, no fewer.
-    assert_eq!(expected.len(), 11, "AuditCategory count is not 11 — did someone add or remove a variant?");
+    assert_eq!(
+        expected.len(),
+        11,
+        "AuditCategory count is not 11 — did someone add or remove a variant?"
+    );
 }

@@ -33,9 +33,7 @@ use breakdown_core::season::ports::SeasonCommands;
 use breakdown_core::shared::{
     AggregateVersion, EventMetadata, LexicalSortKey, Provenance, SeasonId, SeriesId, UserId,
 };
-use infra::event_store::{
-    CharacterCommandsImpl, CostumeCategoryCommandsImpl, SeasonCommandsImpl,
-};
+use infra::event_store::{CharacterCommandsImpl, CostumeCategoryCommandsImpl, SeasonCommandsImpl};
 use infra::projectors::spawn_all_audit_projectors;
 use infra::queries::{
     AuditRepositoryImpl, CharacterRepositoryImpl, CostumeCategoryRepositoryImpl,
@@ -172,11 +170,7 @@ async fn init() -> Result<(
     // Give subscriptions time to settle.
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    let cmd_service = CommandService::new(
-        redis_client
-            .get_multiplexed_async_connection()
-            .await?,
-    );
+    let cmd_service = CommandService::new(redis_client.get_multiplexed_async_connection().await?);
     let audit_repo = AuditRepositoryImpl::new(pool.clone());
 
     Ok((pool, cmd_service, audit_repo, redis_client))
@@ -197,7 +191,8 @@ async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
     let series_id = SeriesId(Uuid::now_v7());
 
     // --- Create a season (carries series_id in its payload) ---
-    let season_cmd = SeasonCommandsImpl::new(cmd_svc.clone(), SeasonRepositoryImpl::new(pool.clone()));
+    let season_cmd =
+        SeasonCommandsImpl::new(cmd_svc.clone(), SeasonRepositoryImpl::new(pool.clone()));
     let season_id = Uuid::now_v7();
     let season_cmd_create = CreateSeason {
         id: season_id,
@@ -208,7 +203,11 @@ async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
     let (rid, _rv) = season_cmd.create(actor.clone(), season_cmd_create).await?;
     assert_eq!(rid, season_id);
     let season_entries = await_audit_rows(&audit_repo, "season", season_id, 1).await?;
-    assert_eq!(season_entries.len(), 1, "exactly one audit row for SeasonCreated");
+    assert_eq!(
+        season_entries.len(),
+        1,
+        "exactly one audit row for SeasonCreated"
+    );
     let season_row = &season_entries[0];
     assert_eq!(season_row.event_type, "SeasonCreated");
     assert_eq!(season_row.entity_type, "season");
@@ -247,7 +246,11 @@ async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
     let (rid, _rv) = char_cmd.create(actor.clone(), char_cmd_create).await?;
     assert_eq!(rid, char_id);
     let char_entries = await_audit_rows(&audit_repo, "character", char_id, 1).await?;
-    assert_eq!(char_entries.len(), 1, "exactly one audit row for CharacterCreated");
+    assert_eq!(
+        char_entries.len(),
+        1,
+        "exactly one audit row for CharacterCreated"
+    );
     let char_row = &char_entries[0];
     assert_eq!(char_row.event_type, "CharacterCreated");
     assert_eq!(char_row.entity_type, "character");
@@ -282,7 +285,8 @@ async fn costume_category_create_produces_attributed_audit_row() -> Result<()> {
     let series_id = SeriesId(Uuid::now_v7());
 
     // Create a season first (needed by costume_category adapter).
-    let season_cmd = SeasonCommandsImpl::new(cmd_svc.clone(), SeasonRepositoryImpl::new(pool.clone()));
+    let season_cmd =
+        SeasonCommandsImpl::new(cmd_svc.clone(), SeasonRepositoryImpl::new(pool.clone()));
     let season_id = Uuid::now_v7();
     season_cmd
         .create(
@@ -319,7 +323,11 @@ async fn costume_category_create_produces_attributed_audit_row() -> Result<()> {
         .await?;
 
     let cc_entries = await_audit_rows(&audit_repo, "costume_category", cc_id, 1).await?;
-    assert_eq!(cc_entries.len(), 1, "exactly one audit row for CostumeCategoryCreated");
+    assert_eq!(
+        cc_entries.len(),
+        1,
+        "exactly one audit row for CostumeCategoryCreated"
+    );
     let row = &cc_entries[0];
     assert_eq!(row.event_type, "CostumeCategoryCreated");
     assert_eq!(row.entity_type, "costume_category");
@@ -384,13 +392,14 @@ async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> 
     let cc_id = Uuid::now_v7();
     let stream_id = format!("costume_category-{cc_id}");
 
-    let event = breakdown_core::costume_category::events::CostumeCategoryEvent::CostumeCategoryCreated {
-        id: cc_id,
-        season_id,
-        name: "Schuhe".into(),
-        order_key: LexicalSortKey("0".into()),
-        version: AggregateVersion::INITIAL,
-    };
+    let event =
+        breakdown_core::costume_category::events::CostumeCategoryEvent::CostumeCategoryCreated {
+            id: cc_id,
+            season_id,
+            name: "Schuhe".into(),
+            order_key: LexicalSortKey("0".into()),
+            version: AggregateVersion::INITIAL,
+        };
     let payload = encode_event(&event)?;
 
     // EAPPEND with saga metadata (simulates what SeasonSeedingSaga does).
@@ -504,7 +513,8 @@ async fn list_by_series_returns_tenant_scoped_rows() -> Result<()> {
     let actor = UserId::from_sub("tenant-test-6.3");
     let series_a = SeriesId(Uuid::now_v7());
     let series_b = SeriesId(Uuid::now_v7());
-    let season_cmd = SeasonCommandsImpl::new(cmd_svc.clone(), SeasonRepositoryImpl::new(pool.clone()));
+    let season_cmd =
+        SeasonCommandsImpl::new(cmd_svc.clone(), SeasonRepositoryImpl::new(pool.clone()));
 
     // Create season in series A.
     let season_a_id = Uuid::now_v7();
@@ -561,10 +571,8 @@ async fn list_by_series_returns_tenant_scoped_rows() -> Result<()> {
     }
 
     // Verify no row leaks between tenants.
-    let a_ids: std::collections::HashSet<Uuid> =
-        series_a_rows.iter().map(|r| r.id).collect();
-    let b_ids: std::collections::HashSet<Uuid> =
-        series_b_rows.iter().map(|r| r.id).collect();
+    let a_ids: std::collections::HashSet<Uuid> = series_a_rows.iter().map(|r| r.id).collect();
+    let b_ids: std::collections::HashSet<Uuid> = series_b_rows.iter().map(|r| r.id).collect();
     let intersection: Vec<_> = a_ids.intersection(&b_ids).collect();
     assert!(
         intersection.is_empty(),
@@ -617,13 +625,14 @@ async fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Resu
     let cc_id = Uuid::now_v7();
     let stream_id = format!("costume_category-{cc_id}");
 
-    let event = breakdown_core::costume_category::events::CostumeCategoryEvent::CostumeCategoryCreated {
-        id: cc_id,
-        season_id,
-        name: "Jacke".into(),
-        order_key: LexicalSortKey("0".into()),
-        version: AggregateVersion::INITIAL,
-    };
+    let event =
+        breakdown_core::costume_category::events::CostumeCategoryEvent::CostumeCategoryCreated {
+            id: cc_id,
+            season_id,
+            name: "Jacke".into(),
+            order_key: LexicalSortKey("0".into()),
+            version: AggregateVersion::INITIAL,
+        };
     let payload = encode_event(&event)?;
 
     // Helper: EAPPEND with metadata.
@@ -685,13 +694,14 @@ async fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Resu
     .await?;
 
     // 3. Distinct event to prove the projector processed through the redelivery.
-    let event2 = breakdown_core::costume_category::events::CostumeCategoryEvent::CostumeCategoryCreated {
-        id: cc_id,
-        season_id,
-        name: "Jacke v2".into(), // Different name → different payload → different event_key
-        order_key: LexicalSortKey("1".into()),
-        version: AggregateVersion::INITIAL,
-    };
+    let event2 =
+        breakdown_core::costume_category::events::CostumeCategoryEvent::CostumeCategoryCreated {
+            id: cc_id,
+            season_id,
+            name: "Jacke v2".into(), // Different name → different payload → different event_key
+            order_key: LexicalSortKey("1".into()),
+            version: AggregateVersion::INITIAL,
+        };
     let payload2 = encode_event(&event2)?;
     eappend_with_meta(
         &redis_client,
@@ -726,7 +736,10 @@ async fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Resu
         })
         .count();
 
-    assert_eq!(jacke_v1, 1, "Jacke must appear exactly once (redelivery deduped)");
+    assert_eq!(
+        jacke_v1, 1,
+        "Jacke must appear exactly once (redelivery deduped)"
+    );
     assert_eq!(jacke_v2, 1, "Jacke v2 must appear exactly once");
     assert!(
         entries.iter().any(|e| {

@@ -41,18 +41,31 @@ pub trait PhotoStorage: Send + Sync {
 /// Write port for the `Photo` aggregate, dispatching commands via kameo_es.
 #[async_trait]
 pub trait PhotoCommands: Send + Sync {
-    async fn upload(&self, actor: UserId, cmd: UploadPhoto) -> Result<AggregateVersion, DomainError>;
+    async fn upload(
+        &self,
+        actor: UserId,
+        cmd: UploadPhoto,
+    ) -> Result<AggregateVersion, DomainError>;
     async fn normalize_original(
         &self,
-        actor: UserId, cmd: NormalizeOriginal,
+        actor: UserId,
+        cmd: NormalizeOriginal,
     ) -> Result<AggregateVersion, DomainError>;
-    async fn generate_variant(&self, actor: UserId, cmd: GenerateVariant)
-    -> Result<AggregateVersion, DomainError>;
+    async fn generate_variant(
+        &self,
+        actor: UserId,
+        cmd: GenerateVariant,
+    ) -> Result<AggregateVersion, DomainError>;
     async fn mark_variant_failed(
         &self,
-        actor: UserId, cmd: MarkVariantFailed,
+        actor: UserId,
+        cmd: MarkVariantFailed,
     ) -> Result<AggregateVersion, DomainError>;
-    async fn delete(&self, actor: UserId, cmd: DeletePhoto) -> Result<AggregateVersion, DomainError>;
+    async fn delete(
+        &self,
+        actor: UserId,
+        cmd: DeletePhoto,
+    ) -> Result<AggregateVersion, DomainError>;
 }
 
 /// Read port for the `Photo` aggregate projection.
