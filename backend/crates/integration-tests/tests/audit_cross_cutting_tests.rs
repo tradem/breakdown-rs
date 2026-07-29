@@ -17,10 +17,6 @@
 
 mod fixtures;
 
-fn test_user() -> breakdown_core::shared::UserId {
-    crate::fixtures::test_user()
-}
-
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -170,7 +166,7 @@ async fn init() -> Result<(
         infra::projectors::spawn_season_projector(pool.clone(), Arc::clone(&redis_client)).await?;
 
     // Spawn ALL audit projectors (11 categories).
-    let _ap = spawn_all_audit_projectors(pool.clone(), Arc::clone(&redis_client)).await?;
+    spawn_all_audit_projectors(pool.clone(), Arc::clone(&redis_client)).await?;
 
     // Give subscriptions time to settle.
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -374,7 +370,7 @@ async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> 
         Arc::clone(&redis_client),
     )
     .await?;
-    let _ap = spawn_all_audit_projectors(pool.clone(), Arc::clone(&redis_client)).await?;
+    spawn_all_audit_projectors(pool.clone(), Arc::clone(&redis_client)).await?;
 
     // Let subscriptions settle.
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -453,7 +449,7 @@ async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> 
             .list_by_entity("costume_category", &cc_id.to_string(), 10, 0)
             .await;
         match audit_result {
-            Ok(entries) if entries.len() >= 1 => {
+            Ok(entries) if !entries.is_empty() => {
                 let row = &entries[0];
                 assert_eq!(row.event_type, "CostumeCategoryCreated");
                 assert_eq!(row.entity_type, "costume_category");
@@ -610,7 +606,7 @@ async fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Resu
         Arc::clone(&redis_client),
     )
     .await?;
-    let _ap = spawn_all_audit_projectors(pool.clone(), Arc::clone(&redis_client)).await?;
+    spawn_all_audit_projectors(pool.clone(), Arc::clone(&redis_client)).await?;
 
     tokio::time::sleep(Duration::from_millis(500)).await;
 

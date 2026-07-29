@@ -11,10 +11,6 @@
 
 mod fixtures;
 
-fn test_user() -> breakdown_core::shared::UserId {
-    crate::fixtures::test_user()
-}
-
 use std::sync::Arc;
 use std::time::Duration;
 
