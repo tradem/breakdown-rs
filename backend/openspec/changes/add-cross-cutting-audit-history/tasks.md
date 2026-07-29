@@ -28,8 +28,8 @@
 
 ## 5. AuditRepository query surface
 
-- [ ] 5.1 Add `list_by_series(series_id: SeriesId, limit, offset) -> Vec<AuditEntry>` to the `AuditRepository` port in `crates/core/src/audit/ports.rs`.
-- [ ] 5.2 Implement `list_by_series` in `AuditRepositoryImpl` against `projection_audit WHERE series_id = $1 ORDER BY occurred_at DESC, id DESC LIMIT $2 OFFSET $3` (static SQL literal + `.bind()`; no interpolated identifiers).
+- [x] 5.1 Add `list_by_series(series_id: SeriesId, limit, offset) -> Vec<AuditEntry>` to the `AuditRepository` port in `crates/core/src/audit/ports.rs`.
+- [x] 5.2 Implement `list_by_series` in `AuditRepositoryImpl` against `projection_audit WHERE series_id = $1 ORDER BY occurred_at DESC, id DESC LIMIT $2 OFFSET $3` (static SQL literal + `.bind()`; no interpolated identifiers).
 - [ ] 5.3 (Optional, only if needed) Add `list_by_provenance` filter if the admin UI surfaces saga-vs-human distinction. Defer if out of immediate scope.
 
 ## 6. Tests
