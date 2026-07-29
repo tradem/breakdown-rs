@@ -6,7 +6,7 @@
 use uuid::Uuid;
 
 use crate::error::DomainError;
-use crate::shared::{AggregateVersion, EpisodeId, SeasonId};
+use crate::shared::{AggregateVersion, EpisodeId, SeasonId, UserId};
 
 use super::category::CharacterCategory;
 use super::commands::{CreateCharacter, UpdateContactInfo, UpdateMeasurements};
@@ -15,14 +15,14 @@ use super::views::CharacterView;
 /// Async write port for the `CharacterAggregate`.
 #[allow(async_fn_in_trait)]
 pub trait CharacterCommands: Send + Sync {
-    async fn create(&self, cmd: CreateCharacter) -> Result<(Uuid, AggregateVersion), DomainError>;
+    async fn create(&self, actor: UserId, cmd: CreateCharacter) -> Result<(Uuid, AggregateVersion), DomainError>;
     async fn update_measurements(
         &self,
-        cmd: UpdateMeasurements,
+        actor: UserId, cmd: UpdateMeasurements,
     ) -> Result<AggregateVersion, DomainError>;
     async fn update_contact_info(
         &self,
-        cmd: UpdateContactInfo,
+        actor: UserId, cmd: UpdateContactInfo,
     ) -> Result<AggregateVersion, DomainError>;
 }
 

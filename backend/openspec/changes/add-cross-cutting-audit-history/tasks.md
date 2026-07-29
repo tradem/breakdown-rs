@@ -7,10 +7,10 @@
 
 ## 2. Command adapters inject actor, provenance, and series_id
 
-- [ ] 2.1 Update `MembershipCommandsImpl` to inject `EventMetadata { actor: Some(actor), provenance: Human, series_id: <resolved> }` on every command instead of `MembershipMetadata { actor: Some(actor) }`.
-- [ ] 2.2 For each non-membership command adapter, thread the authenticated `UserId` into the method signature (where not already present) and inject `EventMetadata { actor: Some(actor), provenance: Human, series_id }` at dispatch. For aggregates whose command payload already carries `series_id` (`CreateBlock`, `CreateEpisode`), use it directly; otherwise resolve via a single repository read.
-- [ ] 2.3 Update all saga command-dispatch paths to inject `provenance: Provenance::Saga(<stable name>)` with the appropriate saga identifier (e.g. `"SeasonSeedingSaga"`, `"PhotoDeletionSaga"`, `"PhotoThumbnailSaga"`, `"ContinuityDeletionSaga"`, `"PhotoBytesCleanupSaga"`).
-- [ ] 2.4 Ensure system-initiated dispatches (if any remain) inject `provenance: System`.
+- [x] 2.1 Update `MembershipCommandsImpl` to inject `EventMetadata { actor: Some(actor), provenance: Human, series_id: <resolved> }` on every command instead of `MembershipMetadata { actor: Some(actor) }`.
+- [x] 2.2 For each non-membership command adapter, thread the authenticated `UserId` into the method signature (where not already present) and inject `EventMetadata { actor: Some(actor), provenance: Human, series_id }` at dispatch. For aggregates whose command payload already carries `series_id` (`CreateBlock`, `CreateEpisode`), use it directly; otherwise resolve via a single repository read.
+- [x] 2.3 Update all saga command-dispatch paths to inject `provenance: Provenance::Saga(<stable name>)` with the appropriate saga identifier (e.g. `"SeasonSeedingSaga"`, `"PhotoDeletionSaga"`, `"PhotoThumbnailSaga"`, `"ContinuityDeletionSaga"`, `"PhotoBytesCleanupSaga"`).
+- [x] 2.4 Ensure system-initiated dispatches (if any remain) inject `provenance: System`.
 
 ## 3. Generalize the AuditProjector
 
@@ -47,7 +47,21 @@
 
 ## 8. Architecture and guardrails
 
-- [ ] 8.1 Run `cargo test -p architecture_tests` to confirm no core→infra boundary violation was introduced by the metadata refactor.
+- [x] 8.1 Run `cargo test -p architecture_tests` to confirm no core→infra boundary violation was introduced by the metadata refactor.
 - [ ] 8.2 Run `cargo deny check bans` to confirm no new banned dependency was introduced.
 - [ ] 8.3 Confirm no string-interpolated SQL was introduced (static literals only) via the `no-string-interpolation-sql` CI job.
 - [ ] 8.4 Run `cargo mutants --in-diff` for changed core/infra code; close any surviving mutants in the audit metadata extraction path.
+
+## 9. Drift-prevention verification (re-run after every future change in this spec)
+
+These checks were validated during the 2.1–2.4 implementation. Re-run them after
+any subsequent task to catch regressions early.
+
+- [ ] 9.1 `cargo check -p breakdown_core -p infra -p api -p test_support -p integration-tests` — no arity / missing-field / unresolved-import errors.
+- [ ] 9.2 `cargo test -p architecture_tests` — no core→infra boundary violation.
+- [ ] 9.3 `cargo clippy -p infra -p api` — no unused-import or other warnings in changed crates.
+- [ ] 9.4 `grep -rn "CommandsImpl" crates/infra/src/**/sagas/ crates/infra/src/sagas/` — returns NOTHING (sagas must never use human trait adapters).
+- [ ] 9.5 `grep -c "Provenance::Saga" crates/infra/src/**/sagas/ crates/infra/src/sagas/` — each of the 4 saga files has at least one hit (season_seeding, thumbnail, deletion, continuity_deletion).
+- [ ] 9.6 `grep -c "EventMetadata {" crates/infra/src/event_store/command_adapters.rs` — ≥ 48 hits (one per adapter method + helpers).
+- [ ] 9.7 Every modified `.rs` file carries a `// Co-authored-by: <PI_MODEL> (<PI_PROVIDER>)` line in its SPDX header block — derive the value from the current session's `$PI_MODEL` and `$PI_PROVIDER` env vars (e.g. `// Co-authored-by: mimo-v2.5 (opencode-go)`).
+- [ ] 9.8 `cargo build -p api` — binary compiles (catches constructor-arity regressions in `main.rs`).

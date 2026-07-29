@@ -12,7 +12,7 @@
 use uuid::Uuid;
 
 use crate::error::DomainError;
-use crate::shared::{AggregateVersion, SceneShootId, ShootingDayId};
+use crate::shared::{AggregateVersion, SceneShootId, ShootingDayId, UserId};
 
 use super::commands::{
     AddSceneShootNote, FinishSceneShoot, LinkContinuityPhoto, PlanSceneShoot, RemoveSceneShootNote,
@@ -27,45 +27,45 @@ pub trait SceneShootCommands: Send + Sync {
     /// Plan a new scene shoot. Returns the id and the initial aggregate version.
     async fn plan(
         &self,
-        cmd: PlanSceneShoot,
+        actor: UserId, cmd: PlanSceneShoot,
     ) -> Result<(SceneShootId, AggregateVersion), DomainError>;
 
     /// Replan (reorder) an existing scene shoot's planned order.
-    async fn replan(&self, cmd: ReplanSceneShoot) -> Result<AggregateVersion, DomainError>;
+    async fn replan(&self, actor: UserId, cmd: ReplanSceneShoot) -> Result<AggregateVersion, DomainError>;
 
     /// Start execution of this scene shoot.
-    async fn start(&self, cmd: StartSceneShoot) -> Result<AggregateVersion, DomainError>;
+    async fn start(&self, actor: UserId, cmd: StartSceneShoot) -> Result<AggregateVersion, DomainError>;
 
     /// Set the actual (Ist) execution order for this scene shoot.
-    async fn set_actual_order(&self, cmd: SetActualOrder) -> Result<AggregateVersion, DomainError>;
+    async fn set_actual_order(&self, actor: UserId, cmd: SetActualOrder) -> Result<AggregateVersion, DomainError>;
 
     /// Finish a scene shoot (mark as Shot).
-    async fn finish(&self, cmd: FinishSceneShoot) -> Result<AggregateVersion, DomainError>;
+    async fn finish(&self, actor: UserId, cmd: FinishSceneShoot) -> Result<AggregateVersion, DomainError>;
 
     /// Skip a scene shoot (mark as Skipped).
-    async fn skip(&self, cmd: SkipSceneShoot) -> Result<AggregateVersion, DomainError>;
+    async fn skip(&self, actor: UserId, cmd: SkipSceneShoot) -> Result<AggregateVersion, DomainError>;
 
     /// Add a mutable, audited note to this scene shoot.
-    async fn add_note(&self, cmd: AddSceneShootNote) -> Result<AggregateVersion, DomainError>;
+    async fn add_note(&self, actor: UserId, cmd: AddSceneShootNote) -> Result<AggregateVersion, DomainError>;
 
     /// Update the body of an existing note.
-    async fn update_note(&self, cmd: UpdateSceneShootNote)
+    async fn update_note(&self, actor: UserId, cmd: UpdateSceneShootNote)
     -> Result<AggregateVersion, DomainError>;
 
     /// Remove a note from this scene shoot.
-    async fn remove_note(&self, cmd: RemoveSceneShootNote)
+    async fn remove_note(&self, actor: UserId, cmd: RemoveSceneShootNote)
     -> Result<AggregateVersion, DomainError>;
 
     /// Link a continuity photo to this scene shoot.
     async fn link_continuity_photo(
         &self,
-        cmd: LinkContinuityPhoto,
+        actor: UserId, cmd: LinkContinuityPhoto,
     ) -> Result<AggregateVersion, DomainError>;
 
     /// Unlink a continuity photo from this scene shoot.
     async fn unlink_continuity_photo(
         &self,
-        cmd: UnlinkContinuityPhoto,
+        actor: UserId, cmd: UnlinkContinuityPhoto,
     ) -> Result<AggregateVersion, DomainError>;
 }
 

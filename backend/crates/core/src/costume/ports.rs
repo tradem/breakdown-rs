@@ -6,7 +6,7 @@
 use uuid::Uuid;
 
 use crate::error::DomainError;
-use crate::shared::{AggregateVersion, SeasonId};
+use crate::shared::{AggregateVersion, SeasonId, UserId};
 
 use super::commands::{
     AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto, RemoveDetail, UnassignCostume,
@@ -17,17 +17,17 @@ use super::views::CostumeView;
 /// Async write port for the `CostumeAggregate`.
 #[allow(async_fn_in_trait)]
 pub trait CostumeCommands: Send + Sync {
-    async fn create(&self, cmd: CreateCostume) -> Result<(Uuid, AggregateVersion), DomainError>;
-    async fn update_notes(&self, cmd: UpdateCostumeNotes) -> Result<AggregateVersion, DomainError>;
+    async fn create(&self, actor: UserId, cmd: CreateCostume) -> Result<(Uuid, AggregateVersion), DomainError>;
+    async fn update_notes(&self, actor: UserId, cmd: UpdateCostumeNotes) -> Result<AggregateVersion, DomainError>;
     async fn assign_to_character(
         &self,
-        cmd: AssignCostumeToCharacter,
+        actor: UserId, cmd: AssignCostumeToCharacter,
     ) -> Result<AggregateVersion, DomainError>;
-    async fn unassign(&self, cmd: UnassignCostume) -> Result<AggregateVersion, DomainError>;
-    async fn add_detail(&self, cmd: AddDetail) -> Result<AggregateVersion, DomainError>;
-    async fn remove_detail(&self, cmd: RemoveDetail) -> Result<AggregateVersion, DomainError>;
-    async fn link_photo(&self, cmd: LinkPhoto) -> Result<AggregateVersion, DomainError>;
-    async fn unlink_photo(&self, cmd: UnlinkPhoto) -> Result<AggregateVersion, DomainError>;
+    async fn unassign(&self, actor: UserId, cmd: UnassignCostume) -> Result<AggregateVersion, DomainError>;
+    async fn add_detail(&self, actor: UserId, cmd: AddDetail) -> Result<AggregateVersion, DomainError>;
+    async fn remove_detail(&self, actor: UserId, cmd: RemoveDetail) -> Result<AggregateVersion, DomainError>;
+    async fn link_photo(&self, actor: UserId, cmd: LinkPhoto) -> Result<AggregateVersion, DomainError>;
+    async fn unlink_photo(&self, actor: UserId, cmd: UnlinkPhoto) -> Result<AggregateVersion, DomainError>;
 }
 
 /// Async read port returning flat `CostumeView` projections.

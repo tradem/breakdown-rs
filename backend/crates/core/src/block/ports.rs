@@ -6,7 +6,7 @@
 use uuid::Uuid;
 
 use crate::error::DomainError;
-use crate::shared::{AggregateVersion, SeasonId, SeriesId};
+use crate::shared::{AggregateVersion, SeasonId, SeriesId, UserId};
 
 use super::commands::{CreateBlock, UpdateBlockTimeSpan};
 use super::views::BlockView;
@@ -15,11 +15,11 @@ use super::views::BlockView;
 #[allow(async_fn_in_trait)]
 pub trait BlockCommands: Send + Sync {
     /// Create a new block aggregate.
-    async fn create(&self, cmd: CreateBlock) -> Result<(Uuid, AggregateVersion), DomainError>;
+    async fn create(&self, actor: UserId, cmd: CreateBlock) -> Result<(Uuid, AggregateVersion), DomainError>;
     /// Update the block's (optional) time span.
     async fn update_time_span(
         &self,
-        cmd: UpdateBlockTimeSpan,
+        actor: UserId, cmd: UpdateBlockTimeSpan,
     ) -> Result<AggregateVersion, DomainError>;
 }
 

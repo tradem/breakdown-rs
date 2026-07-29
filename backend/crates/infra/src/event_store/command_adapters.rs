@@ -1,69 +1,85 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: hy3 (opencode-go)
 
 //! `kameo_es` write adapters implementing the `core` command ports.
 //!
 //! Every adapter owns a clone of the shared `CommandService`. It translates a
 //! `core` command into `SceneAggregate::execute(...)` / `ExpectedVersion` calls
 //! against SierraDB and maps the reply back to `DomainError`.
+//!
+//! Each adapter also owns the read-side repository impls it needs to resolve the
+//! denormalized `series_id` for the `EventMetadata` audit trail (Decision: the
+//! audit projector keys on `series_id`). `series_id` is looked up from the
+//! command's own parent reference when available (create paths) or from the
+//! existing projection of the targeted/related aggregate.
+//!
+//! ## Provenance conventions
+//!
+//! - **Human**: All dispatches from `*CommandsImpl` adapters use
+//!   `Provenance::Human` with `actor: Some(user_id)`.
+//! - **Saga**: Named sagas dispatch directly via `Aggregate::execute(...)`
+//!   with `Provenance::Saga("<StableName>")` and `actor: None`.
+//! - **System**: Any future system-initiated dispatch (neither human nor named
+//!   saga) must use `Provenance::System` with `actor: None`.
 
 use breakdown_core::block::aggregate::BlockAggregate;
 use breakdown_core::block::commands::{CreateBlock, UpdateBlockTimeSpan};
-use breakdown_core::block::ports::BlockCommands;
+use breakdown_core::block::ports::{BlockCommands, BlockRepository};
 use breakdown_core::character::aggregate::CharacterAggregate;
 use breakdown_core::character::commands::{CreateCharacter, UpdateContactInfo, UpdateMeasurements};
-use breakdown_core::character::ports::CharacterCommands;
+use breakdown_core::character::ports::{CharacterCommands, CharacterRepository};
 use breakdown_core::costume::aggregate::CostumeAggregate;
 use breakdown_core::costume::commands::{
     AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto, RemoveDetail, UnassignCostume,
     UnlinkPhoto, UpdateCostumeNotes,
 };
-use breakdown_core::costume::ports::CostumeCommands;
+use breakdown_core::costume::ports::{CostumeCommands, CostumeRepository};
 use breakdown_core::costume_category::aggregate::CostumeCategoryAggregate;
 use breakdown_core::costume_category::commands::{
     ArchiveCostumeCategory, CreateCostumeCategory, RenameCostumeCategory, ReorderCostumeCategory,
 };
-use breakdown_core::costume_category::ports::CostumeCategoryCommands;
+use breakdown_core::costume_category::ports::{CostumeCategoryCommands, CostumeCategoryRepository};
 use breakdown_core::episode::aggregate::EpisodeAggregate;
 use breakdown_core::episode::commands::{CreateEpisode, RenameEpisode};
-use breakdown_core::episode::ports::EpisodeCommands;
+use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::error::DomainError;
-use breakdown_core::membership::MembershipMetadata;
 use breakdown_core::membership::aggregate::BlockMembership;
 use breakdown_core::membership::commands::{
     AcceptInvitation, BootstrapOwner, GrantRole, InviteMember, LeaveBlock, RemoveMember,
 };
-use breakdown_core::membership::ports::MembershipCommands;
+use breakdown_core::membership::ports::{MembershipCommands, MembershipRepository};
 use breakdown_core::photo::aggregate::PhotoAggregate;
+use breakdown_core::photo::binding::PhotoBinding;
 use breakdown_core::photo::commands::{
     DeletePhoto, GenerateVariant, MarkVariantFailed, NormalizeOriginal, UploadPhoto,
 };
-use breakdown_core::photo::ports::PhotoCommands;
+use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository};
+use breakdown_core::scene::aggregate::SceneAggregate;
+use breakdown_core::scene::commands::{
+    AssignCharacter, CreateScene, RemoveCharacter, ScheduleSceneOnShootingDay,
+    UnscheduleSceneFromShootingDay, UpdateSceneDetails,
+};
+use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
 use breakdown_core::scene_shoot::aggregate::SceneShootAggregate;
 use breakdown_core::scene_shoot::commands::{
     AddSceneShootNote, FinishSceneShoot, LinkContinuityPhoto, PlanSceneShoot, RemoveSceneShootNote,
     ReplanSceneShoot, SetActualOrder, SkipSceneShoot, StartSceneShoot, UnlinkContinuityPhoto,
     UpdateSceneShootNote,
 };
-use breakdown_core::scene_shoot::ports::SceneShootCommands;
-use breakdown_core::shared::SceneShootId;
-
-use breakdown_core::scene::aggregate::SceneAggregate;
-use breakdown_core::scene::commands::{
-    AssignCharacter, CreateScene, RemoveCharacter, ScheduleSceneOnShootingDay,
-    UnscheduleSceneFromShootingDay, UpdateSceneDetails,
-};
-use breakdown_core::scene::ports::SceneCommands;
+use breakdown_core::scene_shoot::ports::{SceneShootCommands, SceneShootRepository};
 use breakdown_core::season::aggregate::SeasonAggregate;
 use breakdown_core::season::commands::{CreateSeason, RenameSeason};
-use breakdown_core::season::ports::SeasonCommands;
-use breakdown_core::shared::{AggregateVersion, ShootingDayId, UserId};
+use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
+use breakdown_core::shared::{
+    AggregateVersion, EventMetadata, Provenance, SceneShootId, SeriesId, ShootingDayId, UserId,
+};
 use breakdown_core::shooting_day::aggregate::ShootingDayAggregate;
 use breakdown_core::shooting_day::commands::{
     ArchiveShootingDay, CreateShootingDay, RenameShootingDay, ReorderShootingDay,
     RescheduleShootingDay, WrapShootingDay,
 };
-use breakdown_core::shooting_day::ports::ShootingDayCommands;
+use breakdown_core::shooting_day::ports::{ShootingDayCommands, ShootingDayRepository};
 use kameo_es::command_service::{CommandService, ExecuteExt, ExecuteResult};
 use kameo_es::error::ExecuteError;
 use sierradb_client::{CurrentVersion, ExpectedVersion};
@@ -71,88 +87,194 @@ use uuid::Uuid;
 
 use async_trait::async_trait;
 
+use crate::photo::repository::PhotoRepositoryImpl;
+use crate::queries::{
+    BlockRepositoryImpl, CharacterRepositoryImpl, CostumeCategoryRepositoryImpl,
+    CostumeRepositoryImpl, EpisodeRepositoryImpl, SceneRepositoryImpl, SceneShootRepositoryImpl,
+    SeasonRepositoryImpl, ShootingDayRepositoryImpl,
+};
+
 /// Command adapter for the Scene aggregate.
 #[derive(Clone, Debug)]
 pub struct SceneCommandsImpl {
     cmd_service: CommandService,
+    scene_repo: SceneRepositoryImpl,
+    episode_repo: EpisodeRepositoryImpl,
+    shooting_day_repo: ShootingDayRepositoryImpl,
 }
 
 impl SceneCommandsImpl {
-    pub fn new(cmd_service: CommandService) -> Self {
-        Self { cmd_service }
+    pub fn new(
+        cmd_service: CommandService,
+        scene_repo: SceneRepositoryImpl,
+        episode_repo: EpisodeRepositoryImpl,
+        shooting_day_repo: ShootingDayRepositoryImpl,
+    ) -> Self {
+        Self {
+            cmd_service,
+            scene_repo,
+            episode_repo,
+            shooting_day_repo,
+        }
     }
 }
 
 impl SceneCommands for SceneCommandsImpl {
-    async fn create(&self, cmd: CreateScene) -> Result<(Uuid, AggregateVersion), DomainError> {
+    async fn create(
+        &self,
+        actor: UserId,
+        cmd: CreateScene,
+    ) -> Result<(Uuid, AggregateVersion), DomainError> {
         let id = cmd.id;
+        let series_id = Some(
+            self.episode_repo
+                .find_by_id(cmd.episode_id.0)
+                .await?
+                .series_id,
+        );
         let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Empty)
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_executed(id, result)
     }
 
     async fn update_details(
         &self,
+        actor: UserId,
         cmd: UpdateSceneDetails,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let scene = self.scene_repo.find_by_id(cmd.id).await?;
+        let series_id = Some(
+            self.episode_repo
+                .find_by_id(scene.episode_id.0)
+                .await?
+                .series_id,
+        );
         let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
 
     async fn assign_character(
         &self,
+        actor: UserId,
         cmd: AssignCharacter,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let scene = self.scene_repo.find_by_id(cmd.id).await?;
+        let series_id = Some(
+            self.episode_repo
+                .find_by_id(scene.episode_id.0)
+                .await?
+                .series_id,
+        );
         let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
 
     async fn remove_character(
         &self,
+        actor: UserId,
         cmd: RemoveCharacter,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let scene = self.scene_repo.find_by_id(cmd.id).await?;
+        let series_id = Some(
+            self.episode_repo
+                .find_by_id(scene.episode_id.0)
+                .await?
+                .series_id,
+        );
         let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
 
     async fn schedule_on_shooting_day(
         &self,
+        actor: UserId,
         cmd: ScheduleSceneOnShootingDay,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let sd = self
+            .shooting_day_repo
+            .find_by_id(cmd.shooting_day_id)
+            .await?;
+        let series_id = Some(
+            self.episode_repo
+                .find_by_id(sd.episode_id.0)
+                .await?
+                .series_id,
+        );
         let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
 
     async fn unschedule_from_shooting_day(
         &self,
+        actor: UserId,
         cmd: UnscheduleSceneFromShootingDay,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let sd = self
+            .shooting_day_repo
+            .find_by_id(cmd.shooting_day_id)
+            .await?;
+        let series_id = Some(
+            self.episode_repo
+                .find_by_id(sd.episode_id.0)
+                .await?
+                .series_id,
+        );
         let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
@@ -162,75 +284,174 @@ impl SceneCommands for SceneCommandsImpl {
 #[derive(Clone, Debug)]
 pub struct ShootingDayCommandsImpl {
     cmd_service: CommandService,
+    shooting_day_repo: ShootingDayRepositoryImpl,
+    episode_repo: EpisodeRepositoryImpl,
 }
 
 impl ShootingDayCommandsImpl {
-    pub fn new(cmd_service: CommandService) -> Self {
-        Self { cmd_service }
+    pub fn new(
+        cmd_service: CommandService,
+        shooting_day_repo: ShootingDayRepositoryImpl,
+        episode_repo: EpisodeRepositoryImpl,
+    ) -> Self {
+        Self {
+            cmd_service,
+            shooting_day_repo,
+            episode_repo,
+        }
     }
 }
 
 impl ShootingDayCommands for ShootingDayCommandsImpl {
     async fn create(
         &self,
+        actor: UserId,
         cmd: CreateShootingDay,
     ) -> Result<(ShootingDayId, AggregateVersion), DomainError> {
         let id = cmd.id;
+        let series_id = Some(
+            self.episode_repo
+                .find_by_id(cmd.episode_id.0)
+                .await?
+                .series_id,
+        );
         let result = ShootingDayAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Empty)
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_executed(id, result)
     }
 
-    async fn rename(&self, cmd: RenameShootingDay) -> Result<AggregateVersion, DomainError> {
+    async fn rename(
+        &self,
+        actor: UserId,
+        cmd: RenameShootingDay,
+    ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let sd = self.shooting_day_repo.find_by_id(cmd.id).await?;
+        let series_id = Some(
+            self.episode_repo
+                .find_by_id(sd.episode_id.0)
+                .await?
+                .series_id,
+        );
         let result = ShootingDayAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
 
     async fn reschedule(
         &self,
+        actor: UserId,
         cmd: RescheduleShootingDay,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let sd = self.shooting_day_repo.find_by_id(cmd.id).await?;
+        let series_id = Some(
+            self.episode_repo
+                .find_by_id(sd.episode_id.0)
+                .await?
+                .series_id,
+        );
         let result = ShootingDayAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
 
-    async fn reorder(&self, cmd: ReorderShootingDay) -> Result<AggregateVersion, DomainError> {
+    async fn reorder(
+        &self,
+        actor: UserId,
+        cmd: ReorderShootingDay,
+    ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let sd = self.shooting_day_repo.find_by_id(cmd.id).await?;
+        let series_id = Some(
+            self.episode_repo
+                .find_by_id(sd.episode_id.0)
+                .await?
+                .series_id,
+        );
         let result = ShootingDayAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
 
-    async fn archive(&self, cmd: ArchiveShootingDay) -> Result<AggregateVersion, DomainError> {
+    async fn archive(
+        &self,
+        actor: UserId,
+        cmd: ArchiveShootingDay,
+    ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let sd = self.shooting_day_repo.find_by_id(cmd.id).await?;
+        let series_id = Some(
+            self.episode_repo
+                .find_by_id(sd.episode_id.0)
+                .await?
+                .series_id,
+        );
         let result = ShootingDayAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
 
-    async fn wrap(&self, cmd: WrapShootingDay) -> Result<AggregateVersion, DomainError> {
+    async fn wrap(
+        &self,
+        actor: UserId,
+        cmd: WrapShootingDay,
+    ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let sd = self.shooting_day_repo.find_by_id(cmd.id).await?;
+        let series_id = Some(
+            self.episode_repo
+                .find_by_id(sd.episode_id.0)
+                .await?
+                .series_id,
+        );
         let result = ShootingDayAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
@@ -240,45 +461,86 @@ impl ShootingDayCommands for ShootingDayCommandsImpl {
 #[derive(Clone, Debug)]
 pub struct CharacterCommandsImpl {
     cmd_service: CommandService,
+    character_repo: CharacterRepositoryImpl,
+    season_repo: SeasonRepositoryImpl,
 }
 
 impl CharacterCommandsImpl {
-    pub fn new(cmd_service: CommandService) -> Self {
-        Self { cmd_service }
+    pub fn new(
+        cmd_service: CommandService,
+        character_repo: CharacterRepositoryImpl,
+        season_repo: SeasonRepositoryImpl,
+    ) -> Self {
+        Self {
+            cmd_service,
+            character_repo,
+            season_repo,
+        }
     }
 }
 
 impl CharacterCommands for CharacterCommandsImpl {
-    async fn create(&self, cmd: CreateCharacter) -> Result<(Uuid, AggregateVersion), DomainError> {
+    async fn create(
+        &self,
+        actor: UserId,
+        cmd: CreateCharacter,
+    ) -> Result<(Uuid, AggregateVersion), DomainError> {
         let id = cmd.id;
+        let series_id = Some(
+            self.season_repo
+                .find_by_id(cmd.season_id.0)
+                .await?
+                .series_id,
+        );
         let result = CharacterAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Empty)
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_executed(id, result)
     }
 
     async fn update_measurements(
         &self,
+        actor: UserId,
         cmd: UpdateMeasurements,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let ch = self.character_repo.find_by_id(cmd.id).await?;
+        let series_id = Some(self.season_repo.find_by_id(ch.season_id.0).await?.series_id);
         let result = CharacterAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
 
     async fn update_contact_info(
         &self,
+        actor: UserId,
         cmd: UpdateContactInfo,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let ch = self.character_repo.find_by_id(cmd.id).await?;
+        let series_id = Some(self.season_repo.find_by_id(ch.season_id.0).await?.series_id);
         let result = CharacterAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
@@ -288,92 +550,227 @@ impl CharacterCommands for CharacterCommandsImpl {
 #[derive(Clone, Debug)]
 pub struct CostumeCommandsImpl {
     cmd_service: CommandService,
+    costume_repo: CostumeRepositoryImpl,
+    character_repo: CharacterRepositoryImpl,
+    season_repo: SeasonRepositoryImpl,
 }
 
 impl CostumeCommandsImpl {
-    pub fn new(cmd_service: CommandService) -> Self {
-        Self { cmd_service }
+    pub fn new(
+        cmd_service: CommandService,
+        costume_repo: CostumeRepositoryImpl,
+        character_repo: CharacterRepositoryImpl,
+        season_repo: SeasonRepositoryImpl,
+    ) -> Self {
+        Self {
+            cmd_service,
+            costume_repo,
+            character_repo,
+            season_repo,
+        }
     }
 }
 
 impl CostumeCommands for CostumeCommandsImpl {
-    async fn create(&self, cmd: CreateCostume) -> Result<(Uuid, AggregateVersion), DomainError> {
+    async fn create(
+        &self,
+        actor: UserId,
+        cmd: CreateCostume,
+    ) -> Result<(Uuid, AggregateVersion), DomainError> {
         let id = cmd.id;
+        // A freshly created costume has no character association yet, so the
+        // series cannot be resolved from the read model; leave it `None`.
+        let series_id: Option<SeriesId> = None;
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Empty)
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_executed(id, result)
     }
 
-    async fn update_notes(&self, cmd: UpdateCostumeNotes) -> Result<AggregateVersion, DomainError> {
+    async fn update_notes(
+        &self,
+        actor: UserId,
+        cmd: UpdateCostumeNotes,
+    ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let co = self.costume_repo.find_by_id(cmd.id).await?;
+        let series_id = match co.character_id {
+            Some(character_id) => {
+                let ch = self.character_repo.find_by_id(character_id).await?;
+                Some(self.season_repo.find_by_id(ch.season_id.0).await?.series_id)
+            }
+            None => None,
+        };
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
 
     async fn assign_to_character(
         &self,
+        actor: UserId,
         cmd: AssignCostumeToCharacter,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let ch = self.character_repo.find_by_id(cmd.character_id).await?;
+        let series_id = Some(self.season_repo.find_by_id(ch.season_id.0).await?.series_id);
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
 
-    async fn unassign(&self, cmd: UnassignCostume) -> Result<AggregateVersion, DomainError> {
+    async fn unassign(
+        &self,
+        actor: UserId,
+        cmd: UnassignCostume,
+    ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let co = self.costume_repo.find_by_id(cmd.id).await?;
+        let series_id = match co.character_id {
+            Some(character_id) => {
+                let ch = self.character_repo.find_by_id(character_id).await?;
+                Some(self.season_repo.find_by_id(ch.season_id.0).await?.series_id)
+            }
+            None => None,
+        };
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
 
-    async fn add_detail(&self, cmd: AddDetail) -> Result<AggregateVersion, DomainError> {
+    async fn add_detail(
+        &self,
+        actor: UserId,
+        cmd: AddDetail,
+    ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let co = self.costume_repo.find_by_id(cmd.id).await?;
+        let series_id = match co.character_id {
+            Some(character_id) => {
+                let ch = self.character_repo.find_by_id(character_id).await?;
+                Some(self.season_repo.find_by_id(ch.season_id.0).await?.series_id)
+            }
+            None => None,
+        };
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
 
-    async fn remove_detail(&self, cmd: RemoveDetail) -> Result<AggregateVersion, DomainError> {
+    async fn remove_detail(
+        &self,
+        actor: UserId,
+        cmd: RemoveDetail,
+    ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let co = self.costume_repo.find_by_id(cmd.id).await?;
+        let series_id = match co.character_id {
+            Some(character_id) => {
+                let ch = self.character_repo.find_by_id(character_id).await?;
+                Some(self.season_repo.find_by_id(ch.season_id.0).await?.series_id)
+            }
+            None => None,
+        };
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
 
-    async fn link_photo(&self, cmd: LinkPhoto) -> Result<AggregateVersion, DomainError> {
+    async fn link_photo(
+        &self,
+        actor: UserId,
+        cmd: LinkPhoto,
+    ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let co = self.costume_repo.find_by_id(cmd.id).await?;
+        let series_id = match co.character_id {
+            Some(character_id) => {
+                let ch = self.character_repo.find_by_id(character_id).await?;
+                Some(self.season_repo.find_by_id(ch.season_id.0).await?.series_id)
+            }
+            None => None,
+        };
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
 
-    async fn unlink_photo(&self, cmd: UnlinkPhoto) -> Result<AggregateVersion, DomainError> {
+    async fn unlink_photo(
+        &self,
+        actor: UserId,
+        cmd: UnlinkPhoto,
+    ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let co = self.costume_repo.find_by_id(cmd.id).await?;
+        let series_id = match co.character_id {
+            Some(character_id) => {
+                let ch = self.character_repo.find_by_id(character_id).await?;
+                Some(self.season_repo.find_by_id(ch.season_id.0).await?.series_id)
+            }
+            None => None,
+        };
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
@@ -383,29 +780,53 @@ impl CostumeCommands for CostumeCommandsImpl {
 #[derive(Clone, Debug)]
 pub struct SeasonCommandsImpl {
     cmd_service: CommandService,
+    season_repo: SeasonRepositoryImpl,
 }
 
 impl SeasonCommandsImpl {
-    pub fn new(cmd_service: CommandService) -> Self {
-        Self { cmd_service }
+    pub fn new(cmd_service: CommandService, season_repo: SeasonRepositoryImpl) -> Self {
+        Self {
+            cmd_service,
+            season_repo,
+        }
     }
 }
 
 impl SeasonCommands for SeasonCommandsImpl {
-    async fn create(&self, cmd: CreateSeason) -> Result<(Uuid, AggregateVersion), DomainError> {
+    async fn create(
+        &self,
+        actor: UserId,
+        cmd: CreateSeason,
+    ) -> Result<(Uuid, AggregateVersion), DomainError> {
         let id = cmd.id;
+        let series_id = Some(cmd.series_id);
         let result = SeasonAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Empty)
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_executed(id, result)
     }
 
-    async fn rename(&self, cmd: RenameSeason) -> Result<AggregateVersion, DomainError> {
+    async fn rename(
+        &self,
+        actor: UserId,
+        cmd: RenameSeason,
+    ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let series_id = Some(self.season_repo.find_by_id(cmd.id).await?.series_id);
         let result = SeasonAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
@@ -415,32 +836,53 @@ impl SeasonCommands for SeasonCommandsImpl {
 #[derive(Clone, Debug)]
 pub struct BlockCommandsImpl {
     cmd_service: CommandService,
+    block_repo: BlockRepositoryImpl,
 }
 
 impl BlockCommandsImpl {
-    pub fn new(cmd_service: CommandService) -> Self {
-        Self { cmd_service }
+    pub fn new(cmd_service: CommandService, block_repo: BlockRepositoryImpl) -> Self {
+        Self {
+            cmd_service,
+            block_repo,
+        }
     }
 }
 
 impl BlockCommands for BlockCommandsImpl {
-    async fn create(&self, cmd: CreateBlock) -> Result<(Uuid, AggregateVersion), DomainError> {
+    async fn create(
+        &self,
+        actor: UserId,
+        cmd: CreateBlock,
+    ) -> Result<(Uuid, AggregateVersion), DomainError> {
         let id = cmd.id;
+        let series_id = Some(cmd.series_id);
         let result = BlockAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Empty)
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_executed(id, result)
     }
 
     async fn update_time_span(
         &self,
+        actor: UserId,
         cmd: UpdateBlockTimeSpan,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let series_id = Some(self.block_repo.find_by_id(cmd.id).await?.series_id);
         let result = BlockAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
@@ -450,29 +892,53 @@ impl BlockCommands for BlockCommandsImpl {
 #[derive(Clone, Debug)]
 pub struct EpisodeCommandsImpl {
     cmd_service: CommandService,
+    episode_repo: EpisodeRepositoryImpl,
 }
 
 impl EpisodeCommandsImpl {
-    pub fn new(cmd_service: CommandService) -> Self {
-        Self { cmd_service }
+    pub fn new(cmd_service: CommandService, episode_repo: EpisodeRepositoryImpl) -> Self {
+        Self {
+            cmd_service,
+            episode_repo,
+        }
     }
 }
 
 impl EpisodeCommands for EpisodeCommandsImpl {
-    async fn create(&self, cmd: CreateEpisode) -> Result<(Uuid, AggregateVersion), DomainError> {
+    async fn create(
+        &self,
+        actor: UserId,
+        cmd: CreateEpisode,
+    ) -> Result<(Uuid, AggregateVersion), DomainError> {
         let id = cmd.id;
+        let series_id = Some(cmd.series_id);
         let result = EpisodeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Empty)
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_executed(id, result)
     }
 
-    async fn rename(&self, cmd: RenameEpisode) -> Result<AggregateVersion, DomainError> {
+    async fn rename(
+        &self,
+        actor: UserId,
+        cmd: RenameEpisode,
+    ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let series_id = Some(self.episode_repo.find_by_id(cmd.id).await?.series_id);
         let result = EpisodeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
@@ -483,23 +949,33 @@ impl EpisodeCommands for EpisodeCommandsImpl {
 /// Every command is dispatched with `ExpectedVersion::Any` (the aggregate
 /// enforces invitation/role/membership invariants itself) and carries the
 /// authenticated `actor` as `kameo_es` command `Metadata` for audit (Decision 6).
+/// The `series_id` is resolved from the targeted block's season.
 #[derive(Clone, Debug)]
 pub struct MembershipCommandsImpl {
     cmd_service: CommandService,
+    block_repo: BlockRepositoryImpl,
 }
 
 impl MembershipCommandsImpl {
-    pub fn new(cmd_service: CommandService) -> Self {
-        Self { cmd_service }
+    pub fn new(cmd_service: CommandService, block_repo: BlockRepositoryImpl) -> Self {
+        Self {
+            cmd_service,
+            block_repo,
+        }
     }
 }
 
 #[async_trait]
 impl MembershipCommands for MembershipCommandsImpl {
     async fn invite(&self, actor: UserId, cmd: InviteMember) -> Result<(), DomainError> {
+        let series_id = self.block_repo.find_by_id(cmd.block_id.0).await?.series_id;
         let result = BlockMembership::execute(&self.cmd_service, cmd.block_id.0, cmd)
             .expected_version(ExpectedVersion::Any)
-            .metadata(MembershipMetadata { actor: Some(actor) })
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id: Some(series_id),
+            })
             .await;
         let _ = map_executed_result(Uuid::nil(), result)?;
         Ok(())
@@ -510,45 +986,70 @@ impl MembershipCommands for MembershipCommandsImpl {
         actor: UserId,
         cmd: AcceptInvitation,
     ) -> Result<(), DomainError> {
+        let series_id = self.block_repo.find_by_id(cmd.block_id.0).await?.series_id;
         let result = BlockMembership::execute(&self.cmd_service, cmd.block_id.0, cmd)
             .expected_version(ExpectedVersion::Any)
-            .metadata(MembershipMetadata { actor: Some(actor) })
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id: Some(series_id),
+            })
             .await;
         let _ = map_executed_result(Uuid::nil(), result)?;
         Ok(())
     }
 
     async fn grant_role(&self, actor: UserId, cmd: GrantRole) -> Result<(), DomainError> {
+        let series_id = self.block_repo.find_by_id(cmd.block_id.0).await?.series_id;
         let result = BlockMembership::execute(&self.cmd_service, cmd.block_id.0, cmd)
             .expected_version(ExpectedVersion::Any)
-            .metadata(MembershipMetadata { actor: Some(actor) })
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id: Some(series_id),
+            })
             .await;
         let _ = map_executed_result(Uuid::nil(), result)?;
         Ok(())
     }
 
     async fn remove_member(&self, actor: UserId, cmd: RemoveMember) -> Result<(), DomainError> {
+        let series_id = self.block_repo.find_by_id(cmd.block_id.0).await?.series_id;
         let result = BlockMembership::execute(&self.cmd_service, cmd.block_id.0, cmd)
             .expected_version(ExpectedVersion::Any)
-            .metadata(MembershipMetadata { actor: Some(actor) })
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id: Some(series_id),
+            })
             .await;
         let _ = map_executed_result(Uuid::nil(), result)?;
         Ok(())
     }
 
     async fn leave_block(&self, actor: UserId, cmd: LeaveBlock) -> Result<(), DomainError> {
+        let series_id = self.block_repo.find_by_id(cmd.block_id.0).await?.series_id;
         let result = BlockMembership::execute(&self.cmd_service, cmd.block_id.0, cmd)
             .expected_version(ExpectedVersion::Any)
-            .metadata(MembershipMetadata { actor: Some(actor) })
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id: Some(series_id),
+            })
             .await;
         let _ = map_executed_result(Uuid::nil(), result)?;
         Ok(())
     }
 
     async fn bootstrap_owner(&self, actor: UserId, cmd: BootstrapOwner) -> Result<(), DomainError> {
+        let series_id = self.block_repo.find_by_id(cmd.block_id.0).await?.series_id;
         let result = BlockMembership::execute(&self.cmd_service, cmd.block_id.0, cmd)
             .expected_version(ExpectedVersion::Any)
-            .metadata(MembershipMetadata { actor: Some(actor) })
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id: Some(series_id),
+            })
             .await;
         let _ = map_executed_result(Uuid::nil(), result)?;
         Ok(())
@@ -559,52 +1060,107 @@ impl MembershipCommands for MembershipCommandsImpl {
 #[derive(Clone, Debug)]
 pub struct CostumeCategoryCommandsImpl {
     cmd_service: CommandService,
+    costume_category_repo: CostumeCategoryRepositoryImpl,
+    season_repo: SeasonRepositoryImpl,
 }
 
 impl CostumeCategoryCommandsImpl {
-    pub fn new(cmd_service: CommandService) -> Self {
-        Self { cmd_service }
+    pub fn new(
+        cmd_service: CommandService,
+        costume_category_repo: CostumeCategoryRepositoryImpl,
+        season_repo: SeasonRepositoryImpl,
+    ) -> Self {
+        Self {
+            cmd_service,
+            costume_category_repo,
+            season_repo,
+        }
     }
 }
 
 impl CostumeCategoryCommands for CostumeCategoryCommandsImpl {
     async fn create(
         &self,
+        actor: UserId,
         cmd: CreateCostumeCategory,
     ) -> Result<(Uuid, AggregateVersion), DomainError> {
         let id = cmd.id;
+        let series_id = Some(
+            self.season_repo
+                .find_by_id(cmd.season_id.0)
+                .await?
+                .series_id,
+        );
         let result = CostumeCategoryAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Empty)
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_executed(id, result)
     }
 
-    async fn rename(&self, cmd: RenameCostumeCategory) -> Result<AggregateVersion, DomainError> {
+    async fn rename(
+        &self,
+        actor: UserId,
+        cmd: RenameCostumeCategory,
+    ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let cc = self.costume_category_repo.find_by_id(cmd.id).await?;
+        let series_id = Some(self.season_repo.find_by_id(cc.season_id.0).await?.series_id);
         let result = CostumeCategoryAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
 
-    async fn reorder(&self, cmd: ReorderCostumeCategory) -> Result<AggregateVersion, DomainError> {
+    async fn reorder(
+        &self,
+        actor: UserId,
+        cmd: ReorderCostumeCategory,
+    ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let cc = self.costume_category_repo.find_by_id(cmd.id).await?;
+        let series_id = Some(self.season_repo.find_by_id(cc.season_id.0).await?.series_id);
         let result = CostumeCategoryAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
 
-    async fn archive(&self, cmd: ArchiveCostumeCategory) -> Result<AggregateVersion, DomainError> {
+    async fn archive(
+        &self,
+        actor: UserId,
+        cmd: ArchiveCostumeCategory,
+    ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let cc = self.costume_category_repo.find_by_id(cmd.id).await?;
+        let series_id = Some(self.season_repo.find_by_id(cc.season_id.0).await?.series_id);
         let result = CostumeCategoryAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
@@ -614,69 +1170,178 @@ impl CostumeCategoryCommands for CostumeCategoryCommandsImpl {
 #[derive(Clone, Debug)]
 pub struct PhotoCommandsImpl {
     cmd_service: CommandService,
+    photo_repo: PhotoRepositoryImpl,
+    costume_repo: CostumeRepositoryImpl,
+    character_repo: CharacterRepositoryImpl,
+    season_repo: SeasonRepositoryImpl,
+    scene_shoot_repo: SceneShootRepositoryImpl,
+    scene_repo: SceneRepositoryImpl,
+    episode_repo: EpisodeRepositoryImpl,
 }
 
 impl PhotoCommandsImpl {
-    pub fn new(cmd_service: CommandService) -> Self {
-        Self { cmd_service }
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        cmd_service: CommandService,
+        photo_repo: PhotoRepositoryImpl,
+        costume_repo: CostumeRepositoryImpl,
+        character_repo: CharacterRepositoryImpl,
+        season_repo: SeasonRepositoryImpl,
+        scene_shoot_repo: SceneShootRepositoryImpl,
+        scene_repo: SceneRepositoryImpl,
+        episode_repo: EpisodeRepositoryImpl,
+    ) -> Self {
+        Self {
+            cmd_service,
+            photo_repo,
+            costume_repo,
+            character_repo,
+            season_repo,
+            scene_shoot_repo,
+            scene_repo,
+            episode_repo,
+        }
+    }
+}
+
+impl PhotoCommandsImpl {
+    /// Resolve the `series_id` for a photo from its `PhotoBinding`.
+    ///
+    /// Costume-bound photos walk `costume → character → season`; continuity
+    /// photos walk `scene_shoot → scene → episode`. Returns `None` when the
+    /// photo is not (yet) associated with a series (e.g. an unassigned
+    /// costume).
+    async fn resolve_series_id_for_binding(
+        &self,
+        binding: &PhotoBinding,
+    ) -> Result<Option<SeriesId>, DomainError> {
+        match binding {
+            PhotoBinding::Costume { costume_id } => {
+                let costume = self.costume_repo.find_by_id(*costume_id).await?;
+                match costume.character_id {
+                    Some(character_id) => {
+                        let ch = self.character_repo.find_by_id(character_id).await?;
+                        Ok(Some(
+                            self.season_repo.find_by_id(ch.season_id.0).await?.series_id,
+                        ))
+                    }
+                    None => Ok(None),
+                }
+            }
+            PhotoBinding::Continuity { scene_shoot_id, .. } => {
+                let ss = self.scene_shoot_repo.find_by_id(*scene_shoot_id).await?;
+                let sc = self.scene_repo.find_by_id(ss.scene_id).await?;
+                Ok(Some(
+                    self.episode_repo
+                        .find_by_id(sc.episode_id.0)
+                        .await?
+                        .series_id,
+                ))
+            }
+        }
     }
 }
 
 #[async_trait]
 impl PhotoCommands for PhotoCommandsImpl {
-    async fn upload(&self, cmd: UploadPhoto) -> Result<AggregateVersion, DomainError> {
+    async fn upload(
+        &self,
+        actor: UserId,
+        cmd: UploadPhoto,
+    ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
+        let series_id = self.resolve_series_id_for_binding(&cmd.binding).await?;
         let result = PhotoAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Empty)
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
 
     async fn normalize_original(
         &self,
+        actor: UserId,
         cmd: NormalizeOriginal,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let binding = self.photo_repo.find_by_id(cmd.id).await?.binding;
+        let series_id = self.resolve_series_id_for_binding(&binding).await?;
         let result = PhotoAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
 
     async fn generate_variant(
         &self,
+        actor: UserId,
         cmd: GenerateVariant,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let binding = self.photo_repo.find_by_id(cmd.id).await?.binding;
+        let series_id = self.resolve_series_id_for_binding(&binding).await?;
         let result = PhotoAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
 
     async fn mark_variant_failed(
         &self,
+        actor: UserId,
         cmd: MarkVariantFailed,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let binding = self.photo_repo.find_by_id(cmd.id).await?.binding;
+        let series_id = self.resolve_series_id_for_binding(&binding).await?;
         let result = PhotoAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
 
-    async fn delete(&self, cmd: DeletePhoto) -> Result<AggregateVersion, DomainError> {
+    async fn delete(
+        &self,
+        actor: UserId,
+        cmd: DeletePhoto,
+    ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let binding = self.photo_repo.find_by_id(cmd.id).await?.binding;
+        let series_id = self.resolve_series_id_for_binding(&binding).await?;
         let result = PhotoAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
@@ -685,132 +1350,315 @@ impl PhotoCommands for PhotoCommandsImpl {
 #[derive(Clone, Debug)]
 pub struct SceneShootCommandsImpl {
     cmd_service: CommandService,
+    scene_shoot_repo: SceneShootRepositoryImpl,
+    scene_repo: SceneRepositoryImpl,
+    episode_repo: EpisodeRepositoryImpl,
 }
 
 impl SceneShootCommandsImpl {
-    pub fn new(cmd_service: CommandService) -> Self {
-        Self { cmd_service }
+    pub fn new(
+        cmd_service: CommandService,
+        scene_shoot_repo: SceneShootRepositoryImpl,
+        scene_repo: SceneRepositoryImpl,
+        episode_repo: EpisodeRepositoryImpl,
+    ) -> Self {
+        Self {
+            cmd_service,
+            scene_shoot_repo,
+            scene_repo,
+            episode_repo,
+        }
     }
 }
 
 impl SceneShootCommands for SceneShootCommandsImpl {
     async fn plan(
         &self,
+        actor: UserId,
         cmd: PlanSceneShoot,
     ) -> Result<(SceneShootId, AggregateVersion), DomainError> {
         let id = cmd.id;
+        let series_id = Some(
+            self.episode_repo
+                .find_by_id(self.scene_repo.find_by_id(cmd.scene_id).await?.episode_id.0)
+                .await?
+                .series_id,
+        );
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Empty)
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_executed(id, result)
     }
 
-    async fn replan(&self, cmd: ReplanSceneShoot) -> Result<AggregateVersion, DomainError> {
+    async fn replan(
+        &self,
+        actor: UserId,
+        cmd: ReplanSceneShoot,
+    ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let ss = self.scene_shoot_repo.find_by_id(cmd.id).await?;
+        let scene = self.scene_repo.find_by_id(ss.scene_id).await?;
+        let series_id = Some(
+            self.episode_repo
+                .find_by_id(scene.episode_id.0)
+                .await?
+                .series_id,
+        );
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
 
-    async fn start(&self, cmd: StartSceneShoot) -> Result<AggregateVersion, DomainError> {
+    async fn start(
+        &self,
+        actor: UserId,
+        cmd: StartSceneShoot,
+    ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let ss = self.scene_shoot_repo.find_by_id(cmd.id).await?;
+        let scene = self.scene_repo.find_by_id(ss.scene_id).await?;
+        let series_id = Some(
+            self.episode_repo
+                .find_by_id(scene.episode_id.0)
+                .await?
+                .series_id,
+        );
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
 
-    async fn set_actual_order(&self, cmd: SetActualOrder) -> Result<AggregateVersion, DomainError> {
+    async fn set_actual_order(
+        &self,
+        actor: UserId,
+        cmd: SetActualOrder,
+    ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let ss = self.scene_shoot_repo.find_by_id(cmd.id).await?;
+        let scene = self.scene_repo.find_by_id(ss.scene_id).await?;
+        let series_id = Some(
+            self.episode_repo
+                .find_by_id(scene.episode_id.0)
+                .await?
+                .series_id,
+        );
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
 
-    async fn finish(&self, cmd: FinishSceneShoot) -> Result<AggregateVersion, DomainError> {
+    async fn finish(
+        &self,
+        actor: UserId,
+        cmd: FinishSceneShoot,
+    ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let ss = self.scene_shoot_repo.find_by_id(cmd.id).await?;
+        let scene = self.scene_repo.find_by_id(ss.scene_id).await?;
+        let series_id = Some(
+            self.episode_repo
+                .find_by_id(scene.episode_id.0)
+                .await?
+                .series_id,
+        );
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
 
-    async fn skip(&self, cmd: SkipSceneShoot) -> Result<AggregateVersion, DomainError> {
+    async fn skip(
+        &self,
+        actor: UserId,
+        cmd: SkipSceneShoot,
+    ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let ss = self.scene_shoot_repo.find_by_id(cmd.id).await?;
+        let scene = self.scene_repo.find_by_id(ss.scene_id).await?;
+        let series_id = Some(
+            self.episode_repo
+                .find_by_id(scene.episode_id.0)
+                .await?
+                .series_id,
+        );
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
 
-    async fn add_note(&self, cmd: AddSceneShootNote) -> Result<AggregateVersion, DomainError> {
+    async fn add_note(
+        &self,
+        actor: UserId,
+        cmd: AddSceneShootNote,
+    ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
+        let ss = self.scene_shoot_repo.find_by_id(cmd.id).await?;
+        let scene = self.scene_repo.find_by_id(ss.scene_id).await?;
+        let series_id = Some(
+            self.episode_repo
+                .find_by_id(scene.episode_id.0)
+                .await?
+                .series_id,
+        );
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Any)
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
 
     async fn update_note(
         &self,
+        actor: UserId,
         cmd: UpdateSceneShootNote,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let ss = self.scene_shoot_repo.find_by_id(cmd.id).await?;
+        let scene = self.scene_repo.find_by_id(ss.scene_id).await?;
+        let series_id = Some(
+            self.episode_repo
+                .find_by_id(scene.episode_id.0)
+                .await?
+                .series_id,
+        );
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
 
     async fn remove_note(
         &self,
+        actor: UserId,
         cmd: RemoveSceneShootNote,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let ss = self.scene_shoot_repo.find_by_id(cmd.id).await?;
+        let scene = self.scene_repo.find_by_id(ss.scene_id).await?;
+        let series_id = Some(
+            self.episode_repo
+                .find_by_id(scene.episode_id.0)
+                .await?
+                .series_id,
+        );
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
 
     async fn link_continuity_photo(
         &self,
+        actor: UserId,
         cmd: LinkContinuityPhoto,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let ss = self.scene_shoot_repo.find_by_id(cmd.id).await?;
+        let scene = self.scene_repo.find_by_id(ss.scene_id).await?;
+        let series_id = Some(
+            self.episode_repo
+                .find_by_id(scene.episode_id.0)
+                .await?
+                .series_id,
+        );
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
 
     async fn unlink_continuity_photo(
         &self,
+        actor: UserId,
         cmd: UnlinkContinuityPhoto,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let ss = self.scene_shoot_repo.find_by_id(cmd.id).await?;
+        let scene = self.scene_repo.find_by_id(ss.scene_id).await?;
+        let series_id = Some(
+            self.episode_repo
+                .find_by_id(scene.episode_id.0)
+                .await?
+                .series_id,
+        );
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
             .await;
         map_version_only(result)
     }
