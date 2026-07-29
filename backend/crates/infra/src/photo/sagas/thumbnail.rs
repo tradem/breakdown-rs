@@ -217,9 +217,7 @@ impl PhotoThumbnailSaga {
             version: AggregateVersion::INITIAL,
         };
         let result = PhotoAggregate::execute(&self.cmd_service, norm_id, norm_cmd)
-            .expected_version(ExpectedVersion::Exact(
-                crate::event_store::domain_to_stream(AggregateVersion::INITIAL).unwrap(),
-            ))
+            .expected_version(ExpectedVersion::Any)
             .metadata(EventMetadata {
                 actor: None,
                 provenance: Provenance::Saga("PhotoThumbnailSaga".to_string()),
@@ -237,9 +235,7 @@ impl PhotoThumbnailSaga {
             version: AggregateVersion::INITIAL,
         };
         let result = PhotoAggregate::execute(&self.cmd_service, thumb_id, thumb_cmd)
-            .expected_version(ExpectedVersion::Exact(
-                crate::event_store::domain_to_stream(AggregateVersion::INITIAL).unwrap(),
-            ))
+            .expected_version(ExpectedVersion::Any)
             .metadata(EventMetadata {
                 actor: None,
                 provenance: Provenance::Saga("PhotoThumbnailSaga".to_string()),
@@ -257,9 +253,7 @@ impl PhotoThumbnailSaga {
             version: AggregateVersion::INITIAL,
         };
         let result = PhotoAggregate::execute(&self.cmd_service, med_id, med_cmd)
-            .expected_version(ExpectedVersion::Exact(
-                crate::event_store::domain_to_stream(AggregateVersion::INITIAL).unwrap(),
-            ))
+            .expected_version(ExpectedVersion::Any)
             .metadata(EventMetadata {
                 actor: None,
                 provenance: Provenance::Saga("PhotoThumbnailSaga".to_string()),

@@ -24,6 +24,9 @@ pub enum DomainError {
     #[error("Entity not found: {0}")]
     NotFound(String),
 
+    #[error("Unauthorized: {0}")]
+    Unauthorized(String),
+
     #[error("Validation error: {0}")]
     ValidationError(String),
 

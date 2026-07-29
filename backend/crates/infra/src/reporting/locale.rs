@@ -44,7 +44,7 @@ pub fn convert_to_timezone(
 ) -> (i32, u8, u8, u8, u8) {
     // For now, use chrono's timezone support
     // In production, this should use ICU4X's timezone support
-    let berlin = chrono::FixedOffset::east_opt(3600).unwrap(); // CET
+    let berlin = chrono::FixedOffset::east_opt(3600).expect("CET = UTC+3600s is always valid"); // CET
     let local = utc_dt.with_timezone(&berlin);
 
     use chrono::Datelike;

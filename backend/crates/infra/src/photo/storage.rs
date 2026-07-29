@@ -203,7 +203,7 @@ impl PhotoStorage for OpenDalPhotoStorage {
             let Ok(entry) = entry else {
                 return Err(DomainError::ValidationError(format!(
                     "Failed to list object entry: {}",
-                    entry.err().unwrap()
+                    entry.unwrap_err()
                 )));
             };
             let path = entry.path();

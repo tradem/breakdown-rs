@@ -19,7 +19,7 @@ use breakdown_core::photo::ports::PhotoRepository;
 use breakdown_core::scene::ports::SceneRepository;
 use breakdown_core::scene_shoot::ports::SceneShootRepository;
 use breakdown_core::season::ports::SeasonRepository;
-use breakdown_core::shared::{AggregateVersion, EventMetadata, PhotoId, Provenance, SeriesId};
+use breakdown_core::shared::{EventMetadata, PhotoId, Provenance, SeriesId};
 use kameo_es::command_service::CommandService;
 use kameo_es::command_service::ExecuteExt;
 use kameo_es::event_handler::EventHandlerStreamBuilder;
@@ -181,6 +181,12 @@ impl EntityEventHandler<CostumeAggregate, ()> for PhotoDeletionSaga {
                         }
                     };
                     let series_id = self.resolve_series_id(photo_id).await?;
+                    let stream_version = crate::event_store::domain_to_stream(version)
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "photo {photo_id} has version 0 — cannot determine stream version"
+                            )
+                        })?;
                     let result = PhotoAggregate::execute(
                         &self.cmd_service,
                         photo_id,
@@ -189,9 +195,7 @@ impl EntityEventHandler<CostumeAggregate, ()> for PhotoDeletionSaga {
                             version,
                         },
                     )
-                    .expected_version(ExpectedVersion::Exact(
-                        crate::event_store::domain_to_stream(version).unwrap(),
-                    ))
+                    .expected_version(ExpectedVersion::Exact(stream_version))
                     .metadata(EventMetadata {
                         actor: None,
                         provenance: Provenance::Saga("PhotoDeletionSaga".to_string()),

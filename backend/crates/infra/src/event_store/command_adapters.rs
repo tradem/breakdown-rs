@@ -48,7 +48,7 @@ use breakdown_core::membership::aggregate::BlockMembership;
 use breakdown_core::membership::commands::{
     AcceptInvitation, BootstrapOwner, GrantRole, InviteMember, LeaveBlock, RemoveMember,
 };
-use breakdown_core::membership::ports::{MembershipCommands, MembershipRepository};
+use breakdown_core::membership::ports::MembershipCommands;
 use breakdown_core::photo::aggregate::PhotoAggregate;
 use breakdown_core::photo::binding::PhotoBinding;
 use breakdown_core::photo::commands::{
@@ -159,7 +159,7 @@ impl SceneCommands for SceneCommandsImpl {
                 .series_id,
         );
         let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -185,7 +185,7 @@ impl SceneCommands for SceneCommandsImpl {
                 .series_id,
         );
         let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -211,7 +211,7 @@ impl SceneCommands for SceneCommandsImpl {
                 .series_id,
         );
         let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -240,7 +240,7 @@ impl SceneCommands for SceneCommandsImpl {
                 .series_id,
         );
         let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -269,7 +269,7 @@ impl SceneCommands for SceneCommandsImpl {
                 .series_id,
         );
         let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -342,7 +342,7 @@ impl ShootingDayCommands for ShootingDayCommandsImpl {
                 .series_id,
         );
         let result = ShootingDayAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -368,7 +368,7 @@ impl ShootingDayCommands for ShootingDayCommandsImpl {
                 .series_id,
         );
         let result = ShootingDayAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -394,7 +394,7 @@ impl ShootingDayCommands for ShootingDayCommandsImpl {
                 .series_id,
         );
         let result = ShootingDayAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -420,7 +420,7 @@ impl ShootingDayCommands for ShootingDayCommandsImpl {
                 .series_id,
         );
         let result = ShootingDayAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -446,7 +446,7 @@ impl ShootingDayCommands for ShootingDayCommandsImpl {
                 .series_id,
         );
         let result = ShootingDayAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -514,7 +514,7 @@ impl CharacterCommands for CharacterCommandsImpl {
         let ch = self.character_repo.find_by_id(cmd.id).await?;
         let series_id = Some(self.season_repo.find_by_id(ch.season_id.0).await?.series_id);
         let result = CharacterAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -535,7 +535,7 @@ impl CharacterCommands for CharacterCommandsImpl {
         let ch = self.character_repo.find_by_id(cmd.id).await?;
         let series_id = Some(self.season_repo.find_by_id(ch.season_id.0).await?.series_id);
         let result = CharacterAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -609,7 +609,7 @@ impl CostumeCommands for CostumeCommandsImpl {
             None => None,
         };
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -630,7 +630,7 @@ impl CostumeCommands for CostumeCommandsImpl {
         let ch = self.character_repo.find_by_id(cmd.character_id).await?;
         let series_id = Some(self.season_repo.find_by_id(ch.season_id.0).await?.series_id);
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -657,7 +657,7 @@ impl CostumeCommands for CostumeCommandsImpl {
             None => None,
         };
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -684,7 +684,7 @@ impl CostumeCommands for CostumeCommandsImpl {
             None => None,
         };
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -711,7 +711,7 @@ impl CostumeCommands for CostumeCommandsImpl {
             None => None,
         };
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -738,7 +738,7 @@ impl CostumeCommands for CostumeCommandsImpl {
             None => None,
         };
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -765,7 +765,7 @@ impl CostumeCommands for CostumeCommandsImpl {
             None => None,
         };
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -821,7 +821,7 @@ impl SeasonCommands for SeasonCommandsImpl {
         check_nonzero_version(version)?;
         let series_id = Some(self.season_repo.find_by_id(cmd.id).await?.series_id);
         let result = SeasonAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -877,7 +877,7 @@ impl BlockCommands for BlockCommandsImpl {
         check_nonzero_version(version)?;
         let series_id = Some(self.block_repo.find_by_id(cmd.id).await?.series_id);
         let result = BlockAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -933,7 +933,7 @@ impl EpisodeCommands for EpisodeCommandsImpl {
         check_nonzero_version(version)?;
         let series_id = Some(self.episode_repo.find_by_id(cmd.id).await?.series_id);
         let result = EpisodeAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -1113,7 +1113,7 @@ impl CostumeCategoryCommands for CostumeCategoryCommandsImpl {
         let cc = self.costume_category_repo.find_by_id(cmd.id).await?;
         let series_id = Some(self.season_repo.find_by_id(cc.season_id.0).await?.series_id);
         let result = CostumeCategoryAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -1134,7 +1134,7 @@ impl CostumeCategoryCommands for CostumeCategoryCommandsImpl {
         let cc = self.costume_category_repo.find_by_id(cmd.id).await?;
         let series_id = Some(self.season_repo.find_by_id(cc.season_id.0).await?.series_id);
         let result = CostumeCategoryAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -1155,7 +1155,7 @@ impl CostumeCategoryCommands for CostumeCategoryCommandsImpl {
         let cc = self.costume_category_repo.find_by_id(cmd.id).await?;
         let series_id = Some(self.season_repo.find_by_id(cc.season_id.0).await?.series_id);
         let result = CostumeCategoryAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -1273,7 +1273,7 @@ impl PhotoCommands for PhotoCommandsImpl {
         let binding = self.photo_repo.find_by_id(cmd.id).await?.binding;
         let series_id = self.resolve_series_id_for_binding(&binding).await?;
         let result = PhotoAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -1294,7 +1294,7 @@ impl PhotoCommands for PhotoCommandsImpl {
         let binding = self.photo_repo.find_by_id(cmd.id).await?.binding;
         let series_id = self.resolve_series_id_for_binding(&binding).await?;
         let result = PhotoAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -1315,7 +1315,7 @@ impl PhotoCommands for PhotoCommandsImpl {
         let binding = self.photo_repo.find_by_id(cmd.id).await?.binding;
         let series_id = self.resolve_series_id_for_binding(&binding).await?;
         let result = PhotoAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -1336,7 +1336,7 @@ impl PhotoCommands for PhotoCommandsImpl {
         let binding = self.photo_repo.find_by_id(cmd.id).await?.binding;
         let series_id = self.resolve_series_id_for_binding(&binding).await?;
         let result = PhotoAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -1412,7 +1412,7 @@ impl SceneShootCommands for SceneShootCommandsImpl {
                 .series_id,
         );
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -1439,7 +1439,7 @@ impl SceneShootCommands for SceneShootCommandsImpl {
                 .series_id,
         );
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -1466,7 +1466,7 @@ impl SceneShootCommands for SceneShootCommandsImpl {
                 .series_id,
         );
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -1493,7 +1493,7 @@ impl SceneShootCommands for SceneShootCommandsImpl {
                 .series_id,
         );
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -1520,7 +1520,7 @@ impl SceneShootCommands for SceneShootCommandsImpl {
                 .series_id,
         );
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -1572,7 +1572,7 @@ impl SceneShootCommands for SceneShootCommandsImpl {
                 .series_id,
         );
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -1599,7 +1599,7 @@ impl SceneShootCommands for SceneShootCommandsImpl {
                 .series_id,
         );
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -1626,7 +1626,7 @@ impl SceneShootCommands for SceneShootCommandsImpl {
                 .series_id,
         );
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
@@ -1653,7 +1653,7 @@ impl SceneShootCommands for SceneShootCommandsImpl {
                 .series_id,
         );
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).unwrap()))
+            .expected_version(ExpectedVersion::Exact(domain_to_stream(version).expect("guarded by check_nonzero_version")))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,

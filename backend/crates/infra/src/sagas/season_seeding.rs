@@ -25,7 +25,7 @@ use breakdown_core::costume_category::ports::CostumeCategoryRepository;
 use breakdown_core::season::aggregate::SeasonAggregate;
 use breakdown_core::season::events::SeasonEvent;
 use breakdown_core::season::ports::SeasonRepository;
-use breakdown_core::shared::{EventMetadata, LexicalSortKey, Provenance, SeasonId, SeriesId};
+use breakdown_core::shared::{EventMetadata, LexicalSortKey, Provenance, SeasonId};
 use kameo_es::command_service::{CommandService, ExecuteExt};
 use kameo_es::event_handler::{
     EntityEventHandler, EventHandler, EventHandlerError, EventHandlerStreamBuilder, EventProcessor,
