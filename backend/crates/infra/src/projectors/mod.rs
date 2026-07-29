@@ -22,7 +22,7 @@ pub mod supervisor;
 
 pub use crate::photo::projector::PhotoProjector;
 pub use audit::{
-    AuditProjector, BlockAuditProjector, CharacterAuditProjector, CostumeAuditProjector,
+    AuditCategory, AuditProjector, BlockAuditProjector, CharacterAuditProjector, CostumeAuditProjector,
     CostumeCategoryAuditProjector, EpisodeAuditProjector, MembershipAuditProjector,
     PhotoAuditProjector, SceneAuditProjector, SceneShootAuditProjector, SeasonAuditProjector,
     ShootingDayAuditProjector,
@@ -500,7 +500,7 @@ pub async fn spawn_audit_projector(
     Ok(actor_ref)
 }
 
-/// Spawn **all** 11 generalized audit projectors at once.
+/// Spawn **all** generalized audit projectors at once.
 ///
 /// This is the preferred entry point for new code that does not need
 /// a specific `ActorRef` return value. It covers every aggregate
@@ -509,18 +509,73 @@ pub async fn spawn_all_audit_projectors(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
 ) -> Result<()> {
-    spawn_season_audit_projector(pool.clone(), redis_client.clone()).await?;
-    spawn_block_audit_projector(pool.clone(), redis_client.clone()).await?;
-    spawn_episode_audit_projector(pool.clone(), redis_client.clone()).await?;
-    spawn_scene_audit_projector(pool.clone(), redis_client.clone()).await?;
-    spawn_scene_shoot_audit_projector(pool.clone(), redis_client.clone()).await?;
-    spawn_shooting_day_audit_projector(pool.clone(), redis_client.clone()).await?;
-    spawn_character_audit_projector(pool.clone(), redis_client.clone()).await?;
-    spawn_costume_audit_projector(pool.clone(), redis_client.clone()).await?;
-    spawn_costume_category_audit_projector(pool.clone(), redis_client.clone()).await?;
-    spawn_photo_audit_projector(pool.clone(), redis_client.clone()).await?;
-    spawn_membership_audit_projector(pool, redis_client).await?;
+    for category in [
+        AuditCategory::Season,
+        AuditCategory::Block,
+        AuditCategory::Episode,
+        AuditCategory::Scene,
+        AuditCategory::SceneShoot,
+        AuditCategory::ShootingDay,
+        AuditCategory::Character,
+        AuditCategory::Costume,
+        AuditCategory::CostumeCategory,
+        AuditCategory::Photo,
+        AuditCategory::Membership,
+    ] {
+        spawn_single_audit_projector(category, pool.clone(), redis_client.clone()).await?;
+    }
     Ok(())
+}
+
+/// Spawn **one** specific audit projector by category.
+///
+/// This function must be updated whenever `AuditCategory` gains a variant —
+/// the exhaustive `match` enforces compile-time coverage.
+pub fn spawn_single_audit_projector(
+    category: AuditCategory,
+    pool: PgPool,
+    redis_client: Arc<RedisClient>,
+) -> impl std::future::Future<Output = Result<()>> + Send {
+    async move {
+        // Exhaustive match on AuditCategory — adding a variant without
+        // an arm causes a compile error.
+        match category {
+            AuditCategory::Season => {
+                let _ = spawn_season_audit_projector(pool, redis_client).await?;
+            }
+            AuditCategory::Block => {
+                let _ = spawn_block_audit_projector(pool, redis_client).await?;
+            }
+            AuditCategory::Episode => {
+                let _ = spawn_episode_audit_projector(pool, redis_client).await?;
+            }
+            AuditCategory::Scene => {
+                let _ = spawn_scene_audit_projector(pool, redis_client).await?;
+            }
+            AuditCategory::SceneShoot => {
+                let _ = spawn_scene_shoot_audit_projector(pool, redis_client).await?;
+            }
+            AuditCategory::ShootingDay => {
+                let _ = spawn_shooting_day_audit_projector(pool, redis_client).await?;
+            }
+            AuditCategory::Character => {
+                let _ = spawn_character_audit_projector(pool, redis_client).await?;
+            }
+            AuditCategory::Costume => {
+                let _ = spawn_costume_audit_projector(pool, redis_client).await?;
+            }
+            AuditCategory::CostumeCategory => {
+                let _ = spawn_costume_category_audit_projector(pool, redis_client).await?;
+            }
+            AuditCategory::Photo => {
+                let _ = spawn_photo_audit_projector(pool, redis_client).await?;
+            }
+            AuditCategory::Membership => {
+                let _ = spawn_membership_audit_projector(pool, redis_client).await?;
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Spawn the membership audit projector (independent of the others).

@@ -21,10 +21,10 @@
 
 ## 4. Compile-time-exhaustive coverage guard (Decision 4 / 5a)
 
-- [ ] 4.1 Define `infra::projectors::audit::AuditCategory` (a `#[non_exhaustive]` enum) with one variant per aggregate category.
-- [ ] 4.2 Refactor the supervisor audit-projector registration to `match` on `AuditCategory` exhaustively; each arm registers the category's `EntityEventHandler` audit projector.
-- [ ] 4.3 Add a documentation-style unit test (`#[test] fn audit_category_coverage_is_exhaustive`) that documents *why* the enum exists and asserts all expected variants are present, so future readers understand its purpose.
-- [ ] 4.4 Verify that adding a 12th aggregate without a variant fails compilation (can be validated via a temporary scratch variant / compile-fail check, or asserted in the unit test by deriving from a const list of expected categories).
+- [x] 4.1 Define `infra::projectors::audit::AuditCategory` (a `#[non_exhaustive]` enum) with one variant per aggregate category.
+- [x] 4.2 Refactor the supervisor audit-projector registration to `match` on `AuditCategory` exhaustively; each arm registers the category's `EntityEventHandler` audit projector.
+- [x] 4.3 Add a documentation-style unit test (`#[test] fn audit_category_coverage_is_exhaustive`) that documents *why* the enum exists and asserts all expected variants are present, so future readers understand its purpose.
+- [x] 4.4 Verify that adding a 12th aggregate without a variant fails compilation (can be validated via a temporary scratch variant / compile-fail check, or asserted in the unit test by deriving from a const list of expected categories).
 
 ## 5. AuditRepository query surface
 

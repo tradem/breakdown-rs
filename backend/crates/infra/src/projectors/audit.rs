@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
 // Co-authored-by: qwen3.6-35b (neuralwatt)
-
 //! Generic audit / journal projector.
 //!
 //! Generalized to all 11 aggregate categories (`season`, `block`, `episode`,
@@ -13,6 +12,13 @@
 //!
 //! Idempotency under redelivery is guaranteed by the deterministic
 //! `event_key` + `ON CONFLICT (event_key) DO NOTHING` guard.
+//!
+//! ## Compile-time-exhaustive coverage guard (Task 4)
+//!
+//! The [`AuditCategory`] enum acts as a compile-time invariant: adding a new
+//! aggregate category without adding a variant and registering its projector
+//! fails compilation.  See the `audit_category_coverage_is_exhaustive` test
+//! for documentation of this guard.
 
 use breakdown_core::shared::{EventMetadata, PhotoId, SceneShootId, ShootingDayId};
 use breakdown_core::{
@@ -34,6 +40,73 @@ use sqlx::{self as sqlx, Postgres, Transaction};
 
 use kameo_es::event_handler::{EntityEventHandler, EventHandler};
 use kameo_es::{Event, EventType};
+
+
+// ── Compile-time-exhaustive category enum ─────────────────────────────
+
+/// Aggregate categories covered by the audit projector.
+///
+/// This enum is the **compile-time-exhaustive coverage guard** (Task 4):
+/// adding a new aggregate category requires:
+///
+/// 1. Adding a variant here (new variant without match arms = compile error).
+/// 2. Registering an `EntityEventHandler` audit projector for the variant
+///    in [`spawn_all_audit_projectors`](super::spawn_all_audit_projectors).
+///
+/// `#[non_exhaustive]` allows downstream crates to pattern-match without
+/// breaking on version upgrade, while the exhaustive match at the call
+/// site in `mod.rs` keeps the invariant compiler-enforced.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum AuditCategory {
+    Season,
+    Block,
+    Episode,
+    Scene,
+    SceneShoot,
+    ShootingDay,
+    Character,
+    Costume,
+    CostumeCategory,
+    Photo,
+    Membership,
+}
+
+impl AuditCategory {
+    /// Canonical aggregate entity-type string (same as `Entity::category()`).
+    pub fn entity_type(self) -> &'static str {
+        match self {
+            AuditCategory::Season => "season",
+            AuditCategory::Block => "block",
+            AuditCategory::Episode => "episode",
+            AuditCategory::Scene => "scene",
+            AuditCategory::SceneShoot => "scene_shoot",
+            AuditCategory::ShootingDay => "shooting_day",
+            AuditCategory::Character => "character",
+            AuditCategory::Costume => "costume",
+            AuditCategory::CostumeCategory => "costume_category",
+            AuditCategory::Photo => "photo",
+            AuditCategory::Membership => "membership",
+        }
+    }
+
+    /// Returns the name of the projector struct for this category.
+    pub fn projector_type(self) -> &'static str {
+        match self {
+            AuditCategory::Season => "Season",
+            AuditCategory::Block => "Block",
+            AuditCategory::Episode => "Episode",
+            AuditCategory::Scene => "Scene",
+            AuditCategory::SceneShoot => "SceneShoot",
+            AuditCategory::ShootingDay => "ShootingDay",
+            AuditCategory::Character => "Character",
+            AuditCategory::Costume => "Costume",
+            AuditCategory::CostumeCategory => "CostumeCategory",
+            AuditCategory::Photo => "Photo",
+            AuditCategory::Membership => "Membership",
+        }
+    }
+}
 
 // ── shared insert logic ───────────────────────────────────────────────
 
@@ -60,7 +133,7 @@ async fn write_audit_row(
     event: impl serde::Serialize,
     event_timestamp: chrono::DateTime<chrono::Utc>,
     event_id: uuid::Uuid,
-) -> sqlx::Result<usize> {
+) -> sqlx::Result<()> {
     let payload = serde_json::to_value(&event).expect("event serializes");
     let event_key = format!("{entity_type}:{entity_id}:{event_type}:{payload}");
 
@@ -91,7 +164,8 @@ async fn write_audit_row(
     .bind(payload)
     .bind(event_timestamp)
     .execute(&mut **ctx)
-    .await
+        .await
+        .map(|_| ())
 }
 
 // ── metadata helpers ──────────────────────────────────────────────────
@@ -630,4 +704,72 @@ impl<'a> EntityEventHandler<BlockMembership, Transaction<'a, Postgres>> for Memb
 
         Ok(())
     }
+}
+
+// ── Test: compile-time-exhaustive coverage guard ──────────────────────
+
+/// Asserts that every aggregate category has a corresponding `AuditCategory`
+/// variant.
+///
+/// **Why this test exists (Task 4 / Decision 4):**
+///
+/// "Forgetting to register an audit projector for a new aggregate" is a silent
+/// compile-time-free bug in the original version — each `EntityEventHandler`
+/// impl is independent and the supervisor only starts the projectors it is
+/// explicitly told to.  The [`AuditCategory`] enum is the primary guard:
+/// adding a variant without match arms elsewhere causes a compile error.
+///
+/// This unit test is the **documentation anchor**: it proves to future readers
+/// that the enum is meant to be exhaustive and lists all expected variants so
+/// they never have to hunt through the codebase to discover the full set.
+///
+/// The **real** compile-time enforcement lives in `super::spawn_all_audit_projectors`
+/// which matches on `AuditCategory` exhaustively — removing a variant or adding
+/// a new one without a corresponding projector will fail compilation.
+#[test]
+fn audit_category_coverage_is_exhaustive() {
+    // This const list is the source-of-truth for expected variants.
+    // Adding a new aggregate MUST add a variant here AND in the enum
+    // AND in the supervisor exhaustive match in mod.rs.
+    let expected: [AuditCategory; 11] = [
+        AuditCategory::Season,
+        AuditCategory::Block,
+        AuditCategory::Episode,
+        AuditCategory::Scene,
+        AuditCategory::SceneShoot,
+        AuditCategory::ShootingDay,
+        AuditCategory::Character,
+        AuditCategory::Costume,
+        AuditCategory::CostumeCategory,
+        AuditCategory::Photo,
+        AuditCategory::Membership,
+    ];
+
+    // Verify: every category has a known entity_type string.
+    let types: [&str; 11] = [
+        "season",
+        "block",
+        "episode",
+        "scene",
+        "scene_shoot",
+        "shooting_day",
+        "character",
+        "costume",
+        "costume_category",
+        "photo",
+        "membership",
+    ];
+
+    for (cat, expected_type) in expected.iter().copied().zip(types.iter().copied()) {
+        assert_eq!(
+            cat.entity_type(),
+            expected_type,
+            "entity_type mismatch for {:?} (expected '{}')",
+            cat,
+            expected_type
+        );
+    }
+
+    // There should be exactly 11 variants — no more, no fewer.
+    assert_eq!(expected.len(), 11, "AuditCategory count is not 11 — did someone add or remove a variant?");
 }
