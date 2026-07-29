@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: mimo-v2.5 (opencode-go)
 
 //! BlockMembership aggregate using `kameo_es` event-sourced actor pattern.
 
 use std::collections::HashMap;
 
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
-use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::shared::BlockId;
+use crate::shared::{BlockId, EventMetadata};
 
 use super::commands::{
     AcceptInvitation, BootstrapOwner, GrantRole, InviteMember, LeaveBlock, RemoveMember,
@@ -17,16 +17,12 @@ use super::commands::{
 use super::error::MembershipError;
 use super::events::MembershipEvent;
 
-/// Audit/actor metadata attached to every membership command (Decision 6).
+/// Audit/actor metadata attached to every membership command.
 ///
-/// The `actor` is the authenticated `UserId` performing the command. It is
-/// persisted by `kameo_es` alongside the event for an audit trail, without
-/// polluting command payloads. For `LeaveBlock` the `actor` *is* the member
-/// being removed.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MembershipMetadata {
-    pub actor: Option<crate::shared::UserId>,
-}
+/// **Deprecated:** Use [`crate::shared::EventMetadata`] instead.
+/// This type is retained temporarily as a type alias for downstream compatibility
+/// during the transition to the shared `EventMetadata` type.
+pub type MembershipMetadata = EventMetadata;
 
 /// Per-user membership state within a block.
 ///
@@ -52,7 +48,7 @@ pub struct BlockMembership {
 impl Entity for BlockMembership {
     type ID = Uuid;
     type Event = MembershipEvent;
-    type Metadata = MembershipMetadata;
+    type Metadata = EventMetadata;
 
     fn category() -> &'static str {
         "membership"
@@ -65,7 +61,7 @@ impl Entity for BlockMembership {
 // the same event leaves state unchanged (insert/remove are naturally
 // idempotent; role replacement only touches an existing active member).
 impl Apply for BlockMembership {
-    fn apply(&mut self, event: Self::Event, _metadata: Metadata<Self::Metadata>) {
+    fn apply(&mut self, event: Self::Event, _metadata: Metadata<EventMetadata>) {
         match event {
             MembershipEvent::MemberInvited {
                 block_id,

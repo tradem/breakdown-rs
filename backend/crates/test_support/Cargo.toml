@@ -9,3 +9,4 @@ publish = false
 kameo.workspace = true
 kameo_es.workspace = true
 chrono.workspace = true
+breakdown_core = { path = "../core" }

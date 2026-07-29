@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: mimo-v2.5 (opencode-go)
 
 //! The `ShootingDay` event-sourced aggregate.
 
 use chrono::{DateTime, NaiveDate, Utc};
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
 
-use crate::shared::{AggregateVersion, EpisodeId, LexicalSortKey, ShootingDayId};
+use crate::shared::{AggregateVersion, EpisodeId, EventMetadata, LexicalSortKey, ShootingDayId};
 
 use super::commands::{
     ArchiveShootingDay, CreateShootingDay, RenameShootingDay, ReorderShootingDay,
@@ -55,7 +55,7 @@ impl Default for ShootingDayAggregate {
 impl Entity for ShootingDayAggregate {
     type ID = ShootingDayId;
     type Event = ShootingDayEvent;
-    type Metadata = ();
+    type Metadata = EventMetadata;
 
     fn category() -> &'static str {
         "shooting_day"
@@ -63,7 +63,7 @@ impl Entity for ShootingDayAggregate {
 }
 
 impl Apply for ShootingDayAggregate {
-    fn apply(&mut self, event: Self::Event, _metadata: Metadata<()>) {
+    fn apply(&mut self, event: Self::Event, _metadata: Metadata<EventMetadata>) {
         match event {
             ShootingDayEvent::ShootingDayCreated {
                 id,

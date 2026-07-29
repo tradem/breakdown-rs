@@ -4,7 +4,7 @@
 
 use breakdown_core::membership::aggregate::MembershipState;
 use breakdown_core::membership::*;
-use breakdown_core::shared::{BlockId, UserId};
+use breakdown_core::shared::{BlockId, EventMetadata, Provenance, UserId};
 use chrono::Utc;
 use kameo_es::{Apply, Command, Context, Metadata, StreamId};
 use std::borrow::Cow;
@@ -20,8 +20,12 @@ type CausationTracking = HashMap<StreamId, (u64, HashSet<Cow<'static, str>>)>;
 /// MembershipMetadata`).
 fn ctx_with(actor: Option<UserId>) -> Context<'static, BlockMembership> {
     static TRACKING: LazyLock<CausationTracking> = LazyLock::new(HashMap::new);
-    let metadata: &'static Metadata<MembershipMetadata> = Box::leak(Box::new(Metadata {
-        data: Some(MembershipMetadata { actor }),
+    let metadata: &'static Metadata<EventMetadata> = Box::leak(Box::new(Metadata {
+        data: Some(EventMetadata {
+            actor,
+            provenance: Provenance::Human,
+            series_id: None,
+        }),
         ..Default::default()
     }));
     Context {

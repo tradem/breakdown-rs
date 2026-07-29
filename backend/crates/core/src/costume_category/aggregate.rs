@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
+// Co-authored-by: mimo-v2.5 (opencode-go)
 
 //! CostumeCategory aggregate using `kameo_es` event-sourced actor pattern.
 
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, CostumeCategoryId, LexicalSortKey, SeasonId};
+use crate::shared::{AggregateVersion, CostumeCategoryId, EventMetadata, LexicalSortKey, SeasonId};
 
 use super::commands::*;
 use super::error::CostumeCategoryError;
@@ -43,7 +44,7 @@ impl Default for CostumeCategoryAggregate {
 impl Entity for CostumeCategoryAggregate {
     type ID = Uuid;
     type Event = CostumeCategoryEvent;
-    type Metadata = ();
+    type Metadata = EventMetadata;
 
     fn category() -> &'static str {
         "costume_category"
@@ -53,7 +54,7 @@ impl Entity for CostumeCategoryAggregate {
 // ADR-002 (Event Sourcing / CQRS): Apply replays past events to rebuild
 // aggregate state. Every command handler emits events that are applied here.
 impl Apply for CostumeCategoryAggregate {
-    fn apply(&mut self, event: Self::Event, _metadata: Metadata<()>) {
+    fn apply(&mut self, event: Self::Event, _metadata: Metadata<EventMetadata>) {
         match event {
             CostumeCategoryEvent::CostumeCategoryCreated {
                 id,

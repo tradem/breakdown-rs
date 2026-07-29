@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: mimo-v2.5 (opencode-go)
 
 //! Block aggregate using `kameo_es` event-sourced actor pattern.
 
@@ -7,7 +8,7 @@ use chrono::NaiveDate;
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, SeasonId, SeriesId};
+use crate::shared::{AggregateVersion, EventMetadata, SeasonId, SeriesId};
 
 use super::commands::{CreateBlock, UpdateBlockTimeSpan};
 use super::error::BlockError;
@@ -33,7 +34,7 @@ pub struct BlockAggregate {
 impl Entity for BlockAggregate {
     type ID = Uuid;
     type Event = BlockEvent;
-    type Metadata = ();
+    type Metadata = EventMetadata;
 
     fn category() -> &'static str {
         "block"
@@ -43,7 +44,7 @@ impl Entity for BlockAggregate {
 // ADR-002 (Event Sourcing / CQRS): Apply replays past events to rebuild
 // aggregate state. Every command handler emits events that are applied here.
 impl Apply for BlockAggregate {
-    fn apply(&mut self, event: Self::Event, _metadata: Metadata<()>) {
+    fn apply(&mut self, event: Self::Event, _metadata: Metadata<EventMetadata>) {
         match event {
             BlockEvent::BlockCreated {
                 id,

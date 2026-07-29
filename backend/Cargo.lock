@@ -6727,6 +6727,7 @@ dependencies = [
 name = "test_support"
 version = "0.1.0"
 dependencies = [
+ "breakdown_core",
  "chrono",
  "kameo",
  "kameo_es",
