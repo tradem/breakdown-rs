@@ -358,6 +358,7 @@ impl EventProcessor<(PhotoAggregate,), PhotoThumbnailSaga> for PhotoThumbnailSag
 /// Spawn the thumbnail saga subscription loop (supervised, background).
 ///
 /// Subscribes to the `photo` stream and processes `PhotoUploaded` events.
+#[allow(clippy::too_many_arguments)]
 pub async fn spawn_photo_thumbnail_saga(
     cmd_service: CommandService,
     storage: OpenDalPhotoStorage,

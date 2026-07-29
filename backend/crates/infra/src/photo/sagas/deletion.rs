@@ -245,6 +245,7 @@ impl EventProcessor<(CostumeAggregate,), PhotoDeletionSaga> for PhotoDeletionSag
 /// Spawn the deletion saga subscription loop (supervised, background).
 ///
 /// Subscribes to the `costume` stream and processes `PhotoUnlinked` events.
+#[allow(clippy::too_many_arguments)]
 pub async fn spawn_photo_deletion_saga(
     cmd_service: CommandService,
     repo: PhotoRepositoryImpl,

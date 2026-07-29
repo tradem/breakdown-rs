@@ -254,6 +254,7 @@ impl EventProcessor<(SceneShootAggregate,), ContinuityDeletionSaga> for Continui
 }
 
 /// Spawn the continuity deletion saga subscription loop (supervised, background).
+#[allow(clippy::too_many_arguments)]
 pub async fn spawn_continuity_deletion_saga(
     cmd_service: CommandService,
     repo: PhotoRepositoryImpl,

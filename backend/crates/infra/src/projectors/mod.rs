@@ -596,51 +596,49 @@ pub async fn spawn_all_audit_projectors(
 ///
 /// This function must be updated whenever `AuditCategory` gains a variant —
 /// the exhaustive `match` enforces compile-time coverage.
-pub fn spawn_single_audit_projector(
+pub async fn spawn_single_audit_projector(
     category: AuditCategory,
     pool: PgPool,
     redis_client: Arc<RedisClient>,
-) -> impl std::future::Future<Output = Result<()>> + Send {
-    async move {
-        // Exhaustive match on AuditCategory — adding a variant without
-        // an arm causes a compile error.
-        match category {
-            AuditCategory::Season => {
-                let _ = spawn_season_audit_projector(pool, redis_client).await?;
-            }
-            AuditCategory::Block => {
-                let _ = spawn_block_audit_projector(pool, redis_client).await?;
-            }
-            AuditCategory::Episode => {
-                let _ = spawn_episode_audit_projector(pool, redis_client).await?;
-            }
-            AuditCategory::Scene => {
-                let _ = spawn_scene_audit_projector(pool, redis_client).await?;
-            }
-            AuditCategory::SceneShoot => {
-                let _ = spawn_scene_shoot_audit_projector(pool, redis_client).await?;
-            }
-            AuditCategory::ShootingDay => {
-                let _ = spawn_shooting_day_audit_projector(pool, redis_client).await?;
-            }
-            AuditCategory::Character => {
-                let _ = spawn_character_audit_projector(pool, redis_client).await?;
-            }
-            AuditCategory::Costume => {
-                let _ = spawn_costume_audit_projector(pool, redis_client).await?;
-            }
-            AuditCategory::CostumeCategory => {
-                let _ = spawn_costume_category_audit_projector(pool, redis_client).await?;
-            }
-            AuditCategory::Photo => {
-                let _ = spawn_photo_audit_projector(pool, redis_client).await?;
-            }
-            AuditCategory::Membership => {
-                let _ = spawn_membership_audit_projector(pool, redis_client).await?;
-            }
+) -> Result<()> {
+    // Exhaustive match on AuditCategory — adding a variant without
+    // an arm causes a compile error.
+    match category {
+        AuditCategory::Season => {
+            let _ = spawn_season_audit_projector(pool, redis_client).await?;
         }
-        Ok(())
+        AuditCategory::Block => {
+            let _ = spawn_block_audit_projector(pool, redis_client).await?;
+        }
+        AuditCategory::Episode => {
+            let _ = spawn_episode_audit_projector(pool, redis_client).await?;
+        }
+        AuditCategory::Scene => {
+            let _ = spawn_scene_audit_projector(pool, redis_client).await?;
+        }
+        AuditCategory::SceneShoot => {
+            let _ = spawn_scene_shoot_audit_projector(pool, redis_client).await?;
+        }
+        AuditCategory::ShootingDay => {
+            let _ = spawn_shooting_day_audit_projector(pool, redis_client).await?;
+        }
+        AuditCategory::Character => {
+            let _ = spawn_character_audit_projector(pool, redis_client).await?;
+        }
+        AuditCategory::Costume => {
+            let _ = spawn_costume_audit_projector(pool, redis_client).await?;
+        }
+        AuditCategory::CostumeCategory => {
+            let _ = spawn_costume_category_audit_projector(pool, redis_client).await?;
+        }
+        AuditCategory::Photo => {
+            let _ = spawn_photo_audit_projector(pool, redis_client).await?;
+        }
+        AuditCategory::Membership => {
+            let _ = spawn_membership_audit_projector(pool, redis_client).await?;
+        }
     }
+    Ok(())
 }
 
 /// Spawn the membership audit projector (independent of the others).
