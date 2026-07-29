@@ -29,13 +29,7 @@ use testcontainers::runners::AsyncRunner;
 use testcontainers::{ContainerAsync, ContainerRequest, Image, ImageExt, ReuseDirective};
 use testcontainers_modules::postgres::Postgres as PostgresImage;
 
-use breakdown_core::shared::UserId;
 use kameo_es::command_service::CommandService;
-
-/// Create a deterministic UserId for tests.
-pub fn test_user_id() -> UserId {
-    UserId::from_sub("integration-test")
-}
 
 // ---------------------------------------------------------------------------
 // Container helpers
@@ -461,6 +455,11 @@ pub struct TestScene {
     _pg_guard: ContainerAsync<PostgresImage>,
 }
 
+/// Test user for commands that require actor identification.
+pub fn test_user() -> breakdown_core::shared::UserId {
+    breakdown_core::shared::UserId("test-user".into())
+}
+
 impl TestScene {
     /// Build a `TestScene` from a pre-built [`TestApp`].
     /// The passed-in `app.pool` is cloned so the caller retains it for spawning projectors.
@@ -477,16 +476,13 @@ impl TestScene {
 
         let cmd_service = CommandService::new(conn_guard.conn.clone());
 
-        let scene_repo = infra::queries::SceneRepositoryImpl::new(pool_clone.clone());
-        let episode_repo = infra::queries::EpisodeRepositoryImpl::new(pool_clone.clone());
-        let shooting_day_repo = infra::queries::ShootingDayRepositoryImpl::new(pool_clone.clone());
         let scene_commands = infra::event_store::SceneCommandsImpl::new(
             cmd_service.clone(),
-            scene_repo.clone(),
-            episode_repo.clone(),
-            shooting_day_repo.clone(),
+            infra::queries::SceneRepositoryImpl::new(pool_clone.clone()),
+            infra::queries::EpisodeRepositoryImpl::new(pool_clone.clone()),
+            infra::queries::ShootingDayRepositoryImpl::new(pool_clone.clone()),
         );
-        let scene_repo = scene_repo;
+        let scene_repo = infra::queries::SceneRepositoryImpl::new(pool_clone.clone());
 
         Ok(Self {
             cmd_service,
@@ -507,7 +503,7 @@ impl TestScene {
         cmd: breakdown_core::scene::commands::CreateScene,
     ) -> Result<(uuid::Uuid, breakdown_core::shared::AggregateVersion), DomainError> {
         use SceneCommands;
-        self.scene_commands.create(test_user_id(), cmd).await
+        self.scene_commands.create(test_user(), cmd).await
     }
 
     /// Execute an `UpdateSceneDetails` command and return `reply_version`.
@@ -516,9 +512,7 @@ impl TestScene {
         cmd: breakdown_core::scene::commands::UpdateSceneDetails,
     ) -> Result<breakdown_core::shared::AggregateVersion, DomainError> {
         use SceneCommands;
-        self.scene_commands
-            .update_details(test_user_id(), cmd)
-            .await
+        self.scene_commands.update_details(test_user(), cmd).await
     }
 
     /// Query the projection for a scene by ID.

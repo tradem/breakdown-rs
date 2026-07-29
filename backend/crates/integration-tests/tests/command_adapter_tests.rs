@@ -8,10 +8,6 @@
 
 mod fixtures;
 
-fn test_user() -> breakdown_core::shared::UserId {
-    crate::fixtures::test_user_id()
-}
-
 use std::time::Duration;
 
 use anyhow::Result;
@@ -35,6 +31,10 @@ use breakdown_core::shared::{BlockId, EpisodeId, SeasonId, SeriesId};
 use kameo_es::command_service::CommandService;
 use rust_decimal::Decimal;
 use uuid::Uuid;
+
+fn test_user() -> breakdown_core::shared::UserId {
+    breakdown_core::shared::UserId("test-user".into())
+}
 
 // ---------------------------------------------------------------------------
 // Helpers

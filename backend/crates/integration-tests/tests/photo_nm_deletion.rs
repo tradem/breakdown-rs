@@ -15,7 +15,7 @@
 mod fixtures;
 
 fn test_user() -> breakdown_core::shared::UserId {
-    crate::fixtures::test_user_id()
+    breakdown_core::shared::UserId("test-user".into())
 }
 
 use std::sync::Arc;
@@ -28,7 +28,7 @@ use breakdown_core::photo::commands::UploadPhoto;
 use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
 use breakdown_core::shared::{PhotoId, PhotoVariant};
 use fixtures::{await_photo, build_storage, spawn_garage, spawn_postgres, spawn_sierradb};
-
+use infra::event_store::{CostumeCommandsImpl, PhotoCommandsImpl};
 use infra::photo::repository::PhotoRepositoryImpl;
 use infra::queries::CostumeRepositoryImpl;
 use kameo_es::command_service::CommandService;
@@ -104,7 +104,7 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
     // -----------------------------------------------------------------------
     // 1. Infrastructure: Postgres + SierraDB + Garage
     // -----------------------------------------------------------------------
-    let (_pool, _pg_guard) = spawn_postgres().await?;
+    let (pool, _pg_guard) = spawn_postgres().await?;
     let (sierra_client, _conn, _sierra_guard) = spawn_sierradb().await?;
     let (creds, _garage_guard) = spawn_garage().await?;
 
@@ -117,39 +117,33 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
     // -----------------------------------------------------------------------
     // 2. Adapters
     // -----------------------------------------------------------------------
-    let photo_repo = PhotoRepositoryImpl::new(_pool.clone());
-    let costume_repo = CostumeRepositoryImpl::new(_pool.clone());
-    let character_repo = infra::queries::CharacterRepositoryImpl::new(_pool.clone());
-    let season_repo = infra::queries::SeasonRepositoryImpl::new(_pool.clone());
-    let scene_shoot_repo = infra::queries::SceneShootRepositoryImpl::new(_pool.clone());
-    let scene_repo = infra::queries::SceneRepositoryImpl::new(_pool.clone());
-    let episode_repo = infra::queries::EpisodeRepositoryImpl::new(_pool.clone());
-    let photo_commands = infra::event_store::PhotoCommandsImpl::new(
+    let photo_commands = PhotoCommandsImpl::new(
         cmd_service.clone(),
-        photo_repo.clone(),
-        costume_repo.clone(),
-        character_repo.clone(),
-        season_repo.clone(),
-        scene_shoot_repo.clone(),
-        scene_repo.clone(),
-        episode_repo.clone(),
+        PhotoRepositoryImpl::new(pool.clone()),
+        infra::queries::CostumeRepositoryImpl::new(pool.clone()),
+        infra::queries::CharacterRepositoryImpl::new(pool.clone()),
+        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
+        infra::queries::SceneShootRepositoryImpl::new(pool.clone()),
+        infra::queries::SceneRepositoryImpl::new(pool.clone()),
+        infra::queries::EpisodeRepositoryImpl::new(pool.clone()),
     );
-    let costume_commands = infra::event_store::CostumeCommandsImpl::new(
+    let costume_commands = CostumeCommandsImpl::new(
         cmd_service.clone(),
-        costume_repo.clone(),
-        character_repo.clone(),
-        season_repo.clone(),
+        infra::queries::CostumeRepositoryImpl::new(pool.clone()),
+        infra::queries::CharacterRepositoryImpl::new(pool.clone()),
+        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
     );
+    let photo_repo = PhotoRepositoryImpl::new(pool.clone());
+    let _costume_repo = CostumeRepositoryImpl::new(pool.clone());
 
     // -----------------------------------------------------------------------
     // 3. Projectors (photo + costume — both needed for FK refs)
     // -----------------------------------------------------------------------
     let redis_client = Arc::clone(&sierra_client);
     let _photo_projector =
-        infra::projectors::spawn_photo_projector(_pool.clone(), Arc::clone(&redis_client)).await?;
+        infra::projectors::spawn_photo_projector(pool.clone(), Arc::clone(&redis_client)).await?;
     let _costume_projector =
-        infra::projectors::spawn_costume_projector(_pool.clone(), Arc::clone(&redis_client))
-            .await?;
+        infra::projectors::spawn_costume_projector(pool.clone(), Arc::clone(&redis_client)).await?;
 
     // -----------------------------------------------------------------------
     // 4. Sagas (thumbnail, deletion, bytes-cleanup)
@@ -157,25 +151,25 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
     infra::photo::sagas::spawn_photo_thumbnail_saga(
         cmd_service.clone(),
         storage.clone(),
-        photo_repo.clone(),
-        costume_repo.clone(),
-        character_repo.clone(),
-        season_repo.clone(),
-        scene_shoot_repo.clone(),
-        scene_repo.clone(),
-        episode_repo.clone(),
+        PhotoRepositoryImpl::new(pool.clone()),
+        infra::queries::CostumeRepositoryImpl::new(pool.clone()),
+        infra::queries::CharacterRepositoryImpl::new(pool.clone()),
+        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
+        infra::queries::SceneShootRepositoryImpl::new(pool.clone()),
+        infra::queries::SceneRepositoryImpl::new(pool.clone()),
+        infra::queries::EpisodeRepositoryImpl::new(pool.clone()),
         Arc::clone(&redis_client),
     )
     .await?;
     infra::photo::sagas::spawn_photo_deletion_saga(
         cmd_service.clone(),
         photo_repo.clone(),
-        costume_repo.clone(),
-        character_repo.clone(),
-        season_repo.clone(),
-        scene_shoot_repo.clone(),
-        scene_repo.clone(),
-        episode_repo.clone(),
+        infra::queries::CostumeRepositoryImpl::new(pool.clone()),
+        infra::queries::CharacterRepositoryImpl::new(pool.clone()),
+        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
+        infra::queries::SceneShootRepositoryImpl::new(pool.clone()),
+        infra::queries::SceneRepositoryImpl::new(pool.clone()),
+        infra::queries::EpisodeRepositoryImpl::new(pool.clone()),
         Arc::clone(&redis_client),
     )
     .await?;
@@ -239,7 +233,7 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
     // Wait for costume A projection.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
     loop {
-        match costume_repo.find_by_id(costume_a_id).await {
+        match _costume_repo.find_by_id(costume_a_id).await {
             Ok(_) => break,
             Err(_) if tokio::time::Instant::now() > deadline => {
                 anyhow::bail!("Timed out waiting for costume A projection");
@@ -256,7 +250,7 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
     // Wait for costume B projection.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
     loop {
-        match costume_repo.find_by_id(costume_b_id).await {
+        match _costume_repo.find_by_id(costume_b_id).await {
             Ok(_) => break,
             Err(_) if tokio::time::Instant::now() > deadline => {
                 anyhow::bail!("Timed out waiting for costume B projection");
@@ -296,7 +290,7 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
 
     // Wait for both links to appear in projection_costume_photo.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
-    await_photo_refcount(&_pool, photo_id, 2, deadline).await?;
+    await_photo_refcount(&pool, photo_id, 2, deadline).await?;
 
     // -----------------------------------------------------------------------
     // 8. Unlink from costume A — refcount drops to 1, bytes should survive
@@ -315,7 +309,7 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
 
     // Wait for projection to reflect the unlink.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
-    await_photo_refcount(&_pool, photo_id, 1, deadline).await?;
+    await_photo_refcount(&pool, photo_id, 1, deadline).await?;
 
     // Short grace period for saga to process (should NOT delete).
     tokio::time::sleep(Duration::from_secs(3)).await;
@@ -349,7 +343,7 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
     //
     // Each hop uses its own deadline so a timeout pinpoints the slow link.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
-    await_photo_refcount(&_pool, photo_id, 0, deadline).await?;
+    await_photo_refcount(&pool, photo_id, 0, deadline).await?;
 
     // Wait for the photo projection to be deleted (confirms DeletePhoto
     // was emitted and projected; the bytes saga runs on the same stream).
@@ -367,7 +361,7 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
     let count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM projection_costume_photo WHERE photo_id = $1")
             .bind(photo_id.0)
-            .fetch_one(&_pool)
+            .fetch_one(&pool)
             .await?;
     assert_eq!(
         count, 0,
