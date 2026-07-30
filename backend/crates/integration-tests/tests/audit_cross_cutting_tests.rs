@@ -16,8 +16,8 @@
 //! to avoid the ESCAN-related race condition ("Conflict: command service stopped").
 //!
 //! All tests in this file share a single Postgres + SierraDB container pair
-//! via `LazyLock` to avoid spawning multiple containers in parallel on CI
-//! runners (which causes resource exhaustion / connection refused errors).
+//! initialized on a **background thread** to avoid nested tokio runtime errors
+//! when the cargo test runner spawns containers concurrently.
 //!
 //! **Coverage:**
 //! - 6.1: Non-membership events produce correctly-attributed audit rows
@@ -28,7 +28,7 @@
 mod fixtures;
 
 use std::sync::Arc;
-use std::sync::LazyLock;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
@@ -58,7 +58,7 @@ const PROJECTION_DEADLINE: Duration = Duration::from_secs(30);
 const POLL_INTERVAL: Duration = Duration::from_millis(150);
 
 // ---------------------------------------------------------------------------
-// Shared container setup (LazyLock)
+// Shared container setup (background thread)
 // ---------------------------------------------------------------------------
 
 /// Shared infrastructure handles. All tests reuse the same containers instead
@@ -69,32 +69,42 @@ struct TestContainers {
 }
 
 /// Lazy, one-shot initialization of Postgres + SierraDB + audit projectors.
-/// All 5 tests in this file share this setup.
-static CONTAINERS: LazyLock<TestContainers> = LazyLock::new(|| {
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("Failed to build tokio runtime for container setup");
+/// Runs on a background thread to avoid nested tokio runtime errors.
+static CONTAINERS: OnceLock<TestContainers> = OnceLock::new();
 
-    rt.block_on(async {
-        let (pool, _pg) = fixtures::spawn_postgres()
-            .await
-            .expect("spawn_postgres failed");
-        let (redis_client, _sierra_conn, _sierra) = fixtures::spawn_sierradb()
-            .await
-            .expect("spawn_sierradb failed");
+/// Initialize containers (called lazily by the first test via `init_containers`).
+fn init_containers() -> &'static TestContainers {
+    CONTAINERS.get_or_init(|| {
+        // Spawn containers on a background thread to avoid nested runtime errors.
+        std::thread::spawn(|| {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to build tokio runtime for container setup");
 
-        // Spawn ALL audit projectors (11 categories including non-membership).
-        spawn_all_audit_projectors(pool.clone(), Arc::clone(&redis_client))
-            .await
-            .expect("spawn audit projectors failed");
+            rt.block_on(async {
+                let (pool, _pg) = fixtures::spawn_postgres()
+                    .await
+                    .expect("spawn_postgres failed");
+                let (redis_client, _sierra_conn, _sierra) = fixtures::spawn_sierradb()
+                    .await
+                    .expect("spawn_sierradb failed");
 
-        // Let subscriptions settle.
-        tokio::time::sleep(Duration::from_millis(500)).await;
+                // Spawn ALL audit projectors (11 categories including non-membership).
+                spawn_all_audit_projectors(pool.clone(), Arc::clone(&redis_client))
+                    .await
+                    .expect("spawn audit projectors failed");
 
-        TestContainers { pool, redis_client }
+                // Let subscriptions settle.
+                tokio::time::sleep(Duration::from_millis(500)).await;
+
+                TestContainers { pool, redis_client }
+            })
+        })
+        .join()
+        .expect("Container setup thread panicked")
     })
-});
+}
 
 // ---------------------------------------------------------------------------
 // EAPPEND helpers
@@ -275,8 +285,9 @@ async fn await_audit_by_series(
 /// and series_id.
 #[tokio::test]
 async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
-    let pool = &CONTAINERS.pool;
-    let redis_client = &CONTAINERS.redis_client;
+    let containers = init_containers();
+    let pool = &containers.pool;
+    let redis_client = &containers.redis_client;
     let audit_repo = AuditRepositoryImpl::new(pool.clone());
 
     let actor = UserId::from_sub("test-actor-6.1");
@@ -399,8 +410,9 @@ async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
 /// (Requires a season to exist for series_id resolution.)
 #[tokio::test]
 async fn costume_category_create_produces_attributed_audit_row() -> Result<()> {
-    let pool = &CONTAINERS.pool;
-    let redis_client = &CONTAINERS.redis_client;
+    let containers = init_containers();
+    let pool = &containers.pool;
+    let redis_client = &containers.redis_client;
     let audit_repo = AuditRepositoryImpl::new(pool.clone());
 
     let actor = UserId::from_sub("test-actor-cc");
@@ -494,8 +506,9 @@ async fn costume_category_create_produces_attributed_audit_row() -> Result<()> {
 /// `provenance = "SeasonSeedingSaga"` and `actor = NULL`.
 #[tokio::test]
 async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> {
-    let pool = &CONTAINERS.pool;
-    let redis_client = &CONTAINERS.redis_client;
+    let containers = init_containers();
+    let pool = &containers.pool;
+    let redis_client = &containers.redis_client;
 
     // Spawn the costume category projector AND the audit projector for
     // costume_category, so both projection and audit rows are produced.
@@ -619,8 +632,9 @@ async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> 
 /// that `list_by_series` returns only rows for the requested series_id.
 #[tokio::test]
 async fn list_by_series_returns_tenant_scoped_rows() -> Result<()> {
-    let pool = &CONTAINERS.pool;
-    let redis_client = &CONTAINERS.redis_client;
+    let containers = init_containers();
+    let pool = &containers.pool;
+    let redis_client = &containers.redis_client;
     let audit_repo = AuditRepositoryImpl::new(pool.clone());
 
     let actor = UserId::from_sub("tenant-test-6.3");
@@ -724,11 +738,11 @@ async fn list_by_series_returns_tenant_scoped_rows() -> Result<()> {
 /// so even a fresh SierraDB append gets deduped by the audit projector.
 #[tokio::test]
 async fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Result<()> {
-    let pool = &CONTAINERS.pool;
-    let redis_client = &CONTAINERS.redis_client;
+    let containers = init_containers();
+    let pool = &containers.pool;
+    let redis_client = &containers.redis_client;
 
-    // Let spawn_all_audit_projectors run during LazyLock init.
-    // This test needs the costume_category projector that was spawned.
+    // Let spawn_all_audit_projectors run during init.
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     let audit_repo = AuditRepositoryImpl::new(pool.clone());
