@@ -117,8 +117,8 @@ fn encode_event<E: Serialize>(event: &E) -> Result<Vec<u8>> {
     Ok(buf)
 }
 
-/// Retry an async operation with up to `max_retries` retries (default 500ms delay).
-async fn retry_with_backoff<F, Fut, T>(func: F, max_retries: u32) -> Result<Option<T>>
+/// Retry an async operation with up to `max_retries` retries (500ms delay between attempts).
+async fn retry_with_backoff<F, Fut, T>(func: F, max_retries: u32) -> Result<T>
 where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = Result<T, anyhow::Error>>,
@@ -126,7 +126,7 @@ where
     let mut last_err = None;
     for _ in 0..=max_retries {
         match func().await {
-            Ok(value) => return Ok(Some(value)),
+            Ok(value) => return Ok(value),
             Err(e) => last_err = Some(e),
         }
     }
@@ -148,7 +148,7 @@ async fn eappend_event(
     payload: &[u8],
     metadata: &[u8],
 ) -> Result<()> {
-    let last_err = retry_with_backoff(
+    retry_with_backoff(
         || async {
             let now_ms = Utc::now().timestamp_millis().try_into().unwrap_or(0u64);
             let ts_bytes = now_ms.to_string().as_bytes();
@@ -170,9 +170,8 @@ async fn eappend_event(
         },
         3,
     )
-    .await?
-    .ok_or_else(|| anyhow!("EAPPEND {event_name} failed after retries"))?;
-    Ok(last_err)
+    .await?;
+    Ok(())
 }
 
 /// Create CBOR-encoded saga metadata.
