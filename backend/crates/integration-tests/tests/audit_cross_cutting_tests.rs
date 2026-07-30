@@ -48,6 +48,7 @@ use infra::projectors::spawn_all_audit_projectors;
 use infra::queries::{AuditRepositoryImpl, SeasonRepositoryImpl};
 use redis::Client as RedisClient;
 use redis::Value;
+use testcontainers::ContainerAsync;
 use serde::Serialize;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -62,10 +63,14 @@ const POLL_INTERVAL: Duration = Duration::from_millis(150);
 // ---------------------------------------------------------------------------
 
 /// Shared infrastructure handles. All tests reuse the same containers instead
-/// of spawning their own, avoiding resource exhaustion on CI runners.
+/// of spawning their own, avoiding resource exhaustion on CI runners.  The
+/// `_pg` / `_sierra` fields hold the `ContainerAsync` guard so the containers
+/// are not GC'd until the `OnceLock` is dropped (i.e. at process exit).
 struct TestContainers {
     pool: PgPool,
     redis_client: Arc<RedisClient>,
+    _pg: ContainerAsync<testcontainers_modules::postgres::Postgres>,
+    _sierra: ContainerAsync<fixtures::SierraDbImage>,
 }
 
 /// Lazy, one-shot initialization of Postgres + SierraDB + audit projectors.
@@ -83,10 +88,10 @@ fn init_containers() -> &'static TestContainers {
                 .expect("Failed to build tokio runtime for container setup");
 
             rt.block_on(async {
-                let (pool, _pg) = fixtures::spawn_postgres()
+                let (pool, pg) = fixtures::spawn_postgres()
                     .await
                     .expect("spawn_postgres failed");
-                let (redis_client, _sierra_conn, _sierra) = fixtures::spawn_sierradb()
+                let (redis_client, _sierra_conn, sierra) = fixtures::spawn_sierradb()
                     .await
                     .expect("spawn_sierradb failed");
 
@@ -99,7 +104,12 @@ fn init_containers() -> &'static TestContainers {
                 // SierraDB in CI can take several seconds after ESVER passes.
                 tokio::time::sleep(Duration::from_secs(10)).await;
 
-                TestContainers { pool, redis_client }
+                TestContainers {
+                    pool,
+                    redis_client,
+                    _pg: pg,
+                    _sierra: sierra,
+                }
             })
         })
         .join()
