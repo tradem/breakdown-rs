@@ -100,10 +100,55 @@ jobs:
           done
           echo "OK: no production crate depends on integration-tests"
 
-      - name: Run integration tests
+      - name: Postgres-only integration tests (parallel)
+        env:
+          RUST_LOG: info
+        run: |
+          # Note: --test <name> flags go BEFORE the first -- (Cargo option);
+          # --nocapture goes AFTER -- (test runner option).
+          cargo test -p integration-tests \
+            --test photo_gc_sweep \
+            --test photo_storage_tests \
+            --test projector_scene_test \
+            --test repository_scene_test \
+            --test role_separation_tests \
+            --test scene_shoot_repository_tests \
+            --test smoke_costume_round_trip \
+            --test smoke_postgres_harness \
+            --test supervisor_budget_test \
+            -- \
+            --nocapture
+
+      - name: SierraDB round-trip integration tests (sequential)
         env:
           RUST_LOG: info,sierradb=debug,kameo_es=debug
-        run: cargo test -p integration-tests -- --nocapture
+        run: |
+          # SierraDB containers require ~400 MB each (Postgres + SierraDB pair).
+          # ubuntu-latest has ~7 GB RAM — running too many in parallel OOMs.
+          # We run them sequentially (one test file at a time) to avoid
+          # resource exhaustion. See ADR-014 / ADR-016 and AGENTS.md §
+          # "Integration tests" for the background.
+          #
+          # Note: --test <name> flags go BEFORE the first -- (Cargo option);
+          # --test-threads=1 goes AFTER -- (test runner option).
+          cargo test -p integration-tests \
+            --test sierradb_round_trip \
+            --test audit_projector \
+            --test audit_cross_cutting_tests \
+            --test continuity_photo_round_trip \
+            --test photo_round_trip \
+            --test photo_nm_deletion \
+            --test membership_round_trip \
+            --test scene_shoot_idempotency \
+            --test scene_shoot_round_trip \
+            --test shooting_day_round_trip \
+            --test costume_category_round_trip \
+            --test projector_tests \
+            --test query_repository_tests \
+            --test command_adapter_tests \
+            -- \
+            --test-threads=1 \
+            --nocapture
 
       # GDrive archival provider contract test.
       # Only runs when the GDRIVE_CLIENT_ID secret is configured.

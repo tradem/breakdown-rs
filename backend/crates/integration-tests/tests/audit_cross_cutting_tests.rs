@@ -309,7 +309,6 @@ async fn await_audit_by_series(
 /// Create a season + character directly via EAPPEND and verify that the
 /// `projection_audit` rows carry the correct actor, provenance = Human,
 /// and series_id.
-#[ignore] // Skipped on CI: container resource exhaustion
 #[tokio::test]
 async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
     let containers = init_containers();
@@ -435,7 +434,6 @@ async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
 
 /// Create a costume category via EAPPEND and verify audit row attribution.
 /// (Requires a season to exist for series_id resolution.)
-#[ignore] // Skipped on CI: container resource exhaustion
 #[tokio::test]
 async fn costume_category_create_produces_attributed_audit_row() -> Result<()> {
     let containers = init_containers();
@@ -532,7 +530,6 @@ async fn costume_category_create_produces_attributed_audit_row() -> Result<()> {
 /// EAPPEND a saga-dispatched CostumeCategoryCreated (simulating the
 /// SeasonSeedingSaga path) and verify the audit row records
 /// `provenance = "SeasonSeedingSaga"` and `actor = NULL`.
-#[ignore] // Skipped on CI: container resource exhaustion
 #[tokio::test]
 async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> {
     let containers = init_containers();
@@ -659,7 +656,6 @@ async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> 
 
 /// Create seasons in two different series via direct EAPPEND, then verify
 /// that `list_by_series` returns only rows for the requested series_id.
-#[ignore] // Skipped on CI: container resource exhaustion
 #[tokio::test]
 async fn list_by_series_returns_tenant_scoped_rows() -> Result<()> {
     let containers = init_containers();
@@ -766,7 +762,6 @@ async fn list_by_series_returns_tenant_scoped_rows() -> Result<()> {
 /// This tests the non-membership idempotency path: the `event_key`
 /// deterministically depends on (entity_type, entity_id, event_type, payload),
 /// so even a fresh SierraDB append gets deduped by the audit projector.
-#[ignore] // Skipped on CI: container resource exhaustion
 #[tokio::test]
 async fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Result<()> {
     let containers = init_containers();
