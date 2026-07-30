@@ -73,7 +73,17 @@ const POLL_INTERVAL: Duration = Duration::from_millis(150);
 /// 11 projectors, the test queries, and connection retries don't starve each
 /// other.
 struct SharedContainers {
+    /// The pool consumed by **audit projector workers**. Because the kameo-es
+    /// projector spawns lazily one per-partition worker per stream (Live +
+    /// Buffers), workers hold long-lived read-only transactions for the
+    /// lifetime of their processing window.  `max_connections(2000)` gives
+    /// enough breathing room to absorb processing bursts without starving
+    /// test-side queries.
     pg_pool: PgPool,
+    /// A **dedicated pool for test-side queries only**.  It is created
+    /// separately so that projector workers never compete with test SQL
+    /// for pool slots — a proven production pattern (ADR-016).
+    query_pool: PgPool,
     redis_client: Arc<RedisClient>,
     // The runtime MUST be kept alive.  Dropping the Runtime cancels all
     // spawned supervisor tasks — the JoinHandle alone is not sufficient.
@@ -91,6 +101,7 @@ static CONTAINERS: OnceLock<SharedContainers> = OnceLock::new();
 /// Internal: the result of `block_on` before we inject the runtime.
 struct InitStage {
     pg_pool: PgPool,
+    query_pool: PgPool,
     redis_client: Arc<RedisClient>,
     handles: AuditProjectorHandles,
     pg: ContainerAsync<testcontainers_modules::postgres::Postgres>,
@@ -127,13 +138,24 @@ fn init_containers() -> &'static SharedContainers {
                 let host = pg.get_host().await.expect("get_host failed");
                 let port = pg.get_host_port_ipv4(5432).await.expect("get_port failed");
                 let url = format!("postgres://postgres:postgres@{host}:{port}/postgres");
-                let pool = PgPoolOptions::new()
+                let pg_pool = PgPoolOptions::new()
                     .max_connections(2000)
                     .connect(&url)
                     .await
                     .expect("connect PG pool failed");
 
-                let handles = spawn_all_audit_projectors(pool.clone(), Arc::clone(&redis_client))
+                // Dedicated pool for test-side queries — completely isolated
+                // from projector transactions so there is zero contention.
+                // Using the same size as pg_pool so we can reason about the
+                // total pool consumption: 2000 (projectors) + 2000 (test)
+                // = 4000 connections, well within Postgres's 10000 limit.
+                let query_pool = PgPoolOptions::new()
+                    .max_connections(2000)
+                    .connect(&url)
+                    .await
+                    .expect("connect query pool failed");
+
+                let handles = spawn_all_audit_projectors(pg_pool.clone(), Arc::clone(&redis_client))
                     .await
                     .expect("spawn audit projectors failed");
 
@@ -142,7 +164,8 @@ fn init_containers() -> &'static SharedContainers {
                 tokio::time::sleep(Duration::from_secs(10)).await;
 
                 InitStage {
-                    pg_pool: pool,
+                    pg_pool,
+                    query_pool,
                     redis_client,
                     handles,
                     pg,
@@ -155,6 +178,7 @@ fn init_containers() -> &'static SharedContainers {
             // `JoinHandle` is still alive elsewhere.
             SharedContainers {
                 pg_pool: stage.pg_pool,
+                query_pool: stage.query_pool,
                 redis_client: stage.redis_client,
                 _handles: stage.handles,
                 _pg: stage.pg,
@@ -382,7 +406,7 @@ async fn await_audit_by_series(
 #[tokio::test]
 async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
     let containers = init_containers();
-    let pool = &containers.pg_pool;
+    let pool = &containers.query_pool;
     let redis_client = &containers.redis_client;
     let audit_repo = AuditRepositoryImpl::new(pool.clone());
 
@@ -509,7 +533,7 @@ async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
 #[tokio::test]
 async fn costume_category_create_produces_attributed_audit_row() -> Result<()> {
     let containers = init_containers();
-    let pool = &containers.pg_pool;
+    let pool = &containers.query_pool;
     let redis_client = &containers.redis_client;
     let audit_repo = AuditRepositoryImpl::new(pool.clone());
 
@@ -605,18 +629,24 @@ async fn costume_category_create_produces_attributed_audit_row() -> Result<()> {
 #[tokio::test]
 async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> {
     let containers = init_containers();
-    let pool = &containers.pg_pool;
-    let redis_client = &containers.redis_client;
 
-    // Spawn the costume category projector AND the audit projector for
-    // costume_category, so both projection and audit rows are produced.
-    infra::projectors::spawn_costume_category_projector(pool.clone(), Arc::clone(redis_client))
-        .await?;
+    // Spawn the costume category read-model projector on the projector pool so
+    // its workers don't compete with test queries for connection slots.
+    infra::projectors::spawn_costume_category_projector(
+        containers.pg_pool.clone(),
+        Arc::clone(&containers.redis_client),
+    )
+    .await?;
 
     // Let subscriptions settle.
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    let cc_repo = infra::queries::CostumeCategoryRepositoryImpl::new(pool.clone());
+    let cc_repo = infra::queries::CostumeCategoryRepositoryImpl::new(
+        containers.query_pool.clone(),
+    );
+
+    let redis_client = &containers.redis_client;
+    let pool = &containers.query_pool;
 
     // Build saga metadata: provenance = Saga("SeasonSeedingSaga"),
     // actor = None, series_id = Some(...).
@@ -731,10 +761,7 @@ async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> 
 #[tokio::test]
 async fn list_by_series_returns_tenant_scoped_rows() -> Result<()> {
     let containers = init_containers();
-    // NOTE: concurrency controlled by CI's --test-threads=1 flag.
-    // Parallel test execution can exhaust the Postgres connection pool
-    // because 11 projector workers each hold long-lived transactions.
-    let pool = &containers.pg_pool;
+    let pool = &containers.query_pool;
     let redis_client = &containers.redis_client;
     let audit_repo = AuditRepositoryImpl::new(pool.clone());
 
@@ -840,7 +867,7 @@ async fn list_by_series_returns_tenant_scoped_rows() -> Result<()> {
 #[tokio::test]
 async fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Result<()> {
     let containers = init_containers();
-    let pool = &containers.pg_pool;
+    let pool = &containers.query_pool;
     let redis_client = &containers.redis_client;
 
     // Let spawn_all_audit_projectors run during init.

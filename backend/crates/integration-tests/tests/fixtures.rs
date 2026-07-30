@@ -71,7 +71,7 @@ pub fn build_postgres_container_request() -> ContainerRequest<PostgresImage> {
     // The Postgres default max_connections=100 is too low for 11+ projectors
     // each spawning up to 16 workers (each worker holds 1-2 connections).
     base.with_startup_timeout(Duration::from_secs(120))
-        .with_env_var("POSTGRES_MAX_CONNECTIONS", "2000")
+        .with_env_var("POSTGRES_MAX_CONNECTIONS", "10000")
 }
 
 // ---------------------------------------------------------------------------

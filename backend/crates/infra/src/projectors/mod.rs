@@ -629,6 +629,24 @@ pub async fn spawn_audit_projector(
     Ok(actor_ref)
 }
 
+/// Spawn audit projectors for a specific set of categories.
+///
+/// This is the entry point for test code that only needs a subset of
+/// audit projectors, so different tests can hold their own isolated
+/// `PgPool` instances without competing for connections.
+pub async fn spawn_audit_projectors_for_types(
+    categories: &[AuditCategory],
+    handlers: &mut AuditProjectorHandles,
+    pool: PgPool,
+    redis_client: Arc<RedisClient>,
+) -> Result<()> {
+    for category in categories {
+        spawn_single_audit_projector(*category, handlers, pool.clone(), redis_client.clone())
+            .await?;
+    }
+    Ok(())
+}
+
 /// Spawn **all** generalized audit projectors at once.
 ///
 /// This is the preferred entry point for new code that does not need
@@ -638,8 +656,7 @@ pub async fn spawn_all_audit_projectors(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
 ) -> Result<AuditProjectorHandles> {
-    let mut handles = AuditProjectorHandles::new();
-    for category in [
+    let categories = [
         AuditCategory::Season,
         AuditCategory::Block,
         AuditCategory::Episode,
@@ -651,7 +668,9 @@ pub async fn spawn_all_audit_projectors(
         AuditCategory::CostumeCategory,
         AuditCategory::Photo,
         AuditCategory::Membership,
-    ] {
+    ];
+    let mut handles = AuditProjectorHandles::new();
+    for category in categories {
         spawn_single_audit_projector(category, &mut handles, pool.clone(), redis_client.clone())
             .await?;
     }
