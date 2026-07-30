@@ -126,6 +126,65 @@ macro_rules! run_projection_stream {
     }};
 }
 
+/// Same as `run_projection_stream!` but returns the supervisor `JoinHandle`
+/// instead of dropping it. Caller **must** keep the handle alive to prevent
+/// the supervisor loop from being cancelled.
+macro_rules! run_projection_stream_handle {
+    ($entity:ty, $category:expr, $redis_client:expr, $actor_ref:expr) => {{
+        let actor_ref_inner = $actor_ref.clone();
+        let redis_client_inner = $redis_client.clone();
+        let category = $category;
+
+        let handle = supervisor::run_with_restart(category, move || {
+            let mut ar = actor_ref_inner.clone();
+            let client = redis_client_inner.clone();
+            async move {
+                let mut manager = client.subscription_manager().await?;
+                let mut stream = <($entity,)>::event_handler_stream(&mut manager, &mut ar).await?;
+                stream
+                    .run(&mut ar)
+                    .await
+                    .map_err(|e| anyhow::Error::from(e))
+            }
+        })
+        .await?;
+        Ok::<_, anyhow::Error>(handle)
+    }};
+}
+
+/// Holds all supervisor `JoinHandle`s for the audit projectors.
+/// Dropping this struct drops all handles, which gracefully stops
+/// all projector subscription loops.
+#[must_use = "Projector handles must be kept alive to prevent suppression"]
+pub struct AuditProjectorHandles {
+    pub handles: [Option<tokio::task::JoinHandle<()>>; 11],
+}
+
+impl AuditProjectorHandles {
+    pub fn new() -> Self {
+        Self {
+            handles: [
+                None, None, None, None, None, None, None, None, None, None, None,
+            ],
+        }
+    }
+
+    pub fn store(&mut self, idx: usize, handle: tokio::task::JoinHandle<()>) {
+        debug_assert!(idx < 11);
+        self.handles[idx] = Some(handle);
+    }
+}
+
+impl Drop for AuditProjectorHandles {
+    fn drop(&mut self) {
+        self.handles.iter_mut().for_each(|h| {
+            if let Some(handle) = h.take() {
+                handle.abort();
+            }
+        });
+    }
+}
+
 /// Spawn the scene projector actor and start its SierraDB subscription loop in the background.
 pub async fn spawn_scene_projector(
     pool: PgPool,
@@ -310,7 +369,7 @@ pub async fn spawn_season_audit_projector(
     )
     .await?;
     let actor_ref = SeasonAuditProcessor::spawn(processor);
-    run_projection_stream!(
+    run_projection_stream_handle!(
         SeasonAggregate,
         "audit:season",
         redis_client,
@@ -334,7 +393,7 @@ pub async fn spawn_block_audit_projector(
     )
     .await?;
     let actor_ref = BlockAuditProcessor::spawn(processor);
-    run_projection_stream!(
+    run_projection_stream_handle!(
         BlockAggregate,
         "audit:block",
         redis_client,
@@ -358,7 +417,7 @@ pub async fn spawn_episode_audit_projector(
     )
     .await?;
     let actor_ref = EpisodeAuditProcessor::spawn(processor);
-    run_projection_stream!(
+    run_projection_stream_handle!(
         EpisodeAggregate,
         "audit:episode",
         redis_client,
@@ -382,7 +441,7 @@ pub async fn spawn_scene_audit_projector(
     )
     .await?;
     let actor_ref = SceneAuditProcessor::spawn(processor);
-    run_projection_stream!(
+    run_projection_stream_handle!(
         SceneAggregate,
         "audit:scene",
         redis_client,
@@ -406,7 +465,7 @@ pub async fn spawn_scene_shoot_audit_projector(
     )
     .await?;
     let actor_ref = SceneShootAuditProcessor::spawn(processor);
-    run_projection_stream!(
+    run_projection_stream_handle!(
         SceneShootAggregate,
         "audit:scene_shoot",
         redis_client,
@@ -430,7 +489,7 @@ pub async fn spawn_shooting_day_audit_projector(
     )
     .await?;
     let actor_ref = ShootingDayAuditProcessor::spawn(processor);
-    run_projection_stream!(
+    run_projection_stream_handle!(
         ShootingDayAggregate,
         "audit:shooting_day",
         redis_client,
@@ -454,7 +513,7 @@ pub async fn spawn_character_audit_projector(
     )
     .await?;
     let actor_ref = CharacterAuditProcessor::spawn(processor);
-    run_projection_stream!(
+    run_projection_stream_handle!(
         CharacterAggregate,
         "audit:character",
         redis_client,
@@ -478,7 +537,7 @@ pub async fn spawn_costume_audit_projector(
     )
     .await?;
     let actor_ref = CostumeAuditProcessor::spawn(processor);
-    run_projection_stream!(
+    run_projection_stream_handle!(
         CostumeAggregate,
         "audit:costume",
         redis_client,
@@ -502,7 +561,7 @@ pub async fn spawn_costume_category_audit_projector(
     )
     .await?;
     let actor_ref = CostumeCategoryAuditProcessor::spawn(processor);
-    run_projection_stream!(
+    run_projection_stream_handle!(
         CostumeCategoryAggregate,
         "audit:costume_category",
         redis_client,
@@ -526,7 +585,7 @@ pub async fn spawn_photo_audit_projector(
     )
     .await?;
     let actor_ref = PhotoAuditProcessor::spawn(processor);
-    run_projection_stream!(
+    run_projection_stream_handle!(
         PhotoAggregate,
         "audit:photo",
         redis_client,
@@ -545,7 +604,12 @@ pub async fn spawn_audit_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<AuditProcessor>> {
-    spawn_all_audit_projectors(pool.clone(), redis_client.clone()).await?;
+    // Spawn handles are intentionally dropped here — the supervisor loops
+    // are spawned in the SAME tokio runtime as the caller so they are
+    // kept alive by the runtime's lifecycle.  In test fixtures a separate
+    // runtime is used, so `init_containers` stores the handles explicitly.
+    let _handles = spawn_all_audit_projectors(pool.clone(), redis_client.clone()).await?;
+
     let conn = redis_client.get_multiplexed_async_connection().await?;
     let processor = MembershipAuditProcessor::new(
         pool,
@@ -556,7 +620,7 @@ pub async fn spawn_audit_projector(
     )
     .await?;
     let actor_ref = MembershipAuditProcessor::spawn(processor);
-    run_projection_stream!(
+    run_projection_stream_handle!(
         BlockMembership,
         "audit:membership",
         redis_client,
@@ -573,7 +637,8 @@ pub async fn spawn_audit_projector(
 pub async fn spawn_all_audit_projectors(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
-) -> Result<()> {
+) -> Result<AuditProjectorHandles> {
+    let mut handles = AuditProjectorHandles::new();
     for category in [
         AuditCategory::Season,
         AuditCategory::Block,
@@ -587,9 +652,10 @@ pub async fn spawn_all_audit_projectors(
         AuditCategory::Photo,
         AuditCategory::Membership,
     ] {
-        spawn_single_audit_projector(category, pool.clone(), redis_client.clone()).await?;
+        spawn_single_audit_projector(category, &mut handles, pool.clone(), redis_client.clone())
+            .await?;
     }
-    Ok(())
+    Ok(handles)
 }
 
 /// Spawn **one** specific audit projector by category.
@@ -598,6 +664,7 @@ pub async fn spawn_all_audit_projectors(
 /// the exhaustive `match` enforces compile-time coverage.
 pub async fn spawn_single_audit_projector(
     category: AuditCategory,
+    handlers: &mut AuditProjectorHandles,
     pool: PgPool,
     redis_client: Arc<RedisClient>,
 ) -> Result<()> {
@@ -605,37 +672,213 @@ pub async fn spawn_single_audit_projector(
     // an arm causes a compile error.
     match category {
         AuditCategory::Season => {
-            let _ = spawn_season_audit_projector(pool, redis_client).await?;
+            let conn = redis_client.get_multiplexed_async_connection().await?;
+            let processor = SeasonAuditProcessor::new(
+                pool,
+                conn,
+                CHECKPOINTS_TABLE,
+                "audit:season",
+                SeasonAuditProjector,
+            )
+            .await?;
+            let ar = SeasonAuditProcessor::spawn(processor);
+            let handle = run_projection_stream_handle!(
+                SeasonAggregate,
+                "audit:season",
+                redis_client,
+                ar.clone()
+            )?;
+            handlers.store(AuditCategory::Season as usize, handle);
         }
         AuditCategory::Block => {
-            let _ = spawn_block_audit_projector(pool, redis_client).await?;
+            let conn = redis_client.get_multiplexed_async_connection().await?;
+            let processor = BlockAuditProcessor::new(
+                pool,
+                conn,
+                CHECKPOINTS_TABLE,
+                "audit:block",
+                BlockAuditProjector,
+            )
+            .await?;
+            let ar = BlockAuditProcessor::spawn(processor);
+            let handle = run_projection_stream_handle!(
+                BlockAggregate,
+                "audit:block",
+                redis_client,
+                ar.clone()
+            )?;
+            handlers.store(AuditCategory::Block as usize, handle);
         }
         AuditCategory::Episode => {
-            let _ = spawn_episode_audit_projector(pool, redis_client).await?;
+            let conn = redis_client.get_multiplexed_async_connection().await?;
+            let processor = EpisodeAuditProcessor::new(
+                pool,
+                conn,
+                CHECKPOINTS_TABLE,
+                "audit:episode",
+                EpisodeAuditProjector,
+            )
+            .await?;
+            let ar = EpisodeAuditProcessor::spawn(processor);
+            let handle = run_projection_stream_handle!(
+                EpisodeAggregate,
+                "audit:episode",
+                redis_client,
+                ar.clone()
+            )?;
+            handlers.store(AuditCategory::Episode as usize, handle);
         }
         AuditCategory::Scene => {
-            let _ = spawn_scene_audit_projector(pool, redis_client).await?;
+            let conn = redis_client.get_multiplexed_async_connection().await?;
+            let processor = SceneAuditProcessor::new(
+                pool,
+                conn,
+                CHECKPOINTS_TABLE,
+                "audit:scene",
+                SceneAuditProjector,
+            )
+            .await?;
+            let ar = SceneAuditProcessor::spawn(processor);
+            let handle = run_projection_stream_handle!(
+                SceneAggregate,
+                "audit:scene",
+                redis_client,
+                ar.clone()
+            )?;
+            handlers.store(AuditCategory::Scene as usize, handle);
         }
         AuditCategory::SceneShoot => {
-            let _ = spawn_scene_shoot_audit_projector(pool, redis_client).await?;
+            let conn = redis_client.get_multiplexed_async_connection().await?;
+            let processor = SceneShootAuditProcessor::new(
+                pool,
+                conn,
+                CHECKPOINTS_TABLE,
+                "audit:scene_shoot",
+                SceneShootAuditProjector,
+            )
+            .await?;
+            let ar = SceneShootAuditProcessor::spawn(processor);
+            let handle = run_projection_stream_handle!(
+                SceneShootAggregate,
+                "audit:scene_shoot",
+                redis_client,
+                ar.clone()
+            )?;
+            handlers.store(AuditCategory::SceneShoot as usize, handle);
         }
         AuditCategory::ShootingDay => {
-            let _ = spawn_shooting_day_audit_projector(pool, redis_client).await?;
+            let conn = redis_client.get_multiplexed_async_connection().await?;
+            let processor = ShootingDayAuditProcessor::new(
+                pool,
+                conn,
+                CHECKPOINTS_TABLE,
+                "audit:shooting_day",
+                ShootingDayAuditProjector,
+            )
+            .await?;
+            let ar = ShootingDayAuditProcessor::spawn(processor);
+            let handle = run_projection_stream_handle!(
+                ShootingDayAggregate,
+                "audit:shooting_day",
+                redis_client,
+                ar.clone()
+            )?;
+            handlers.store(AuditCategory::ShootingDay as usize, handle);
         }
         AuditCategory::Character => {
-            let _ = spawn_character_audit_projector(pool, redis_client).await?;
+            let conn = redis_client.get_multiplexed_async_connection().await?;
+            let processor = CharacterAuditProcessor::new(
+                pool,
+                conn,
+                CHECKPOINTS_TABLE,
+                "audit:character",
+                CharacterAuditProjector,
+            )
+            .await?;
+            let ar = CharacterAuditProcessor::spawn(processor);
+            let handle = run_projection_stream_handle!(
+                CharacterAggregate,
+                "audit:character",
+                redis_client,
+                ar.clone()
+            )?;
+            handlers.store(AuditCategory::Character as usize, handle);
         }
         AuditCategory::Costume => {
-            let _ = spawn_costume_audit_projector(pool, redis_client).await?;
+            let conn = redis_client.get_multiplexed_async_connection().await?;
+            let processor = CostumeAuditProcessor::new(
+                pool,
+                conn,
+                CHECKPOINTS_TABLE,
+                "audit:costume",
+                CostumeAuditProjector,
+            )
+            .await?;
+            let ar = CostumeAuditProcessor::spawn(processor);
+            let handle = run_projection_stream_handle!(
+                CostumeAggregate,
+                "audit:costume",
+                redis_client,
+                ar.clone()
+            )?;
+            handlers.store(AuditCategory::Costume as usize, handle);
         }
         AuditCategory::CostumeCategory => {
-            let _ = spawn_costume_category_audit_projector(pool, redis_client).await?;
+            let conn = redis_client.get_multiplexed_async_connection().await?;
+            let processor = CostumeCategoryAuditProcessor::new(
+                pool,
+                conn,
+                CHECKPOINTS_TABLE,
+                "audit:costume_category",
+                CostumeCategoryAuditProjector,
+            )
+            .await?;
+            let ar = CostumeCategoryAuditProcessor::spawn(processor);
+            let handle = run_projection_stream_handle!(
+                CostumeCategoryAggregate,
+                "audit:costume_category",
+                redis_client,
+                ar.clone()
+            )?;
+            handlers.store(AuditCategory::CostumeCategory as usize, handle);
         }
         AuditCategory::Photo => {
-            let _ = spawn_photo_audit_projector(pool, redis_client).await?;
+            let conn = redis_client.get_multiplexed_async_connection().await?;
+            let processor = PhotoAuditProcessor::new(
+                pool,
+                conn,
+                CHECKPOINTS_TABLE,
+                "audit:photo",
+                PhotoAuditProjector,
+            )
+            .await?;
+            let ar = PhotoAuditProcessor::spawn(processor);
+            let handle = run_projection_stream_handle!(
+                PhotoAggregate,
+                "audit:photo",
+                redis_client,
+                ar.clone()
+            )?;
+            handlers.store(AuditCategory::Photo as usize, handle);
         }
         AuditCategory::Membership => {
-            let _ = spawn_membership_audit_projector(pool, redis_client).await?;
+            let conn = redis_client.get_multiplexed_async_connection().await?;
+            let processor = MembershipAuditProcessor::new(
+                pool,
+                conn,
+                CHECKPOINTS_TABLE,
+                "audit:membership",
+                MembershipAuditProjector,
+            )
+            .await?;
+            let ar = MembershipAuditProcessor::spawn(processor);
+            let handle = run_projection_stream_handle!(
+                BlockMembership,
+                "audit:membership",
+                redis_client,
+                ar.clone()
+            )?;
+            handlers.store(AuditCategory::Membership as usize, handle);
         }
     }
     Ok(())

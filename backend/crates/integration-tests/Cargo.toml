@@ -11,6 +11,8 @@ crate-type = ["lib"]
 [dependencies]
 
 [dev-dependencies]
+lazy_static = "1.4"
+
 breakdown_core = { path = "../core" }
 infra = { path = "../infra" }
 test_support = { path = "../test_support" }

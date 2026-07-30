@@ -3306,6 +3306,7 @@ dependencies = [
  "fastrand",
  "infra",
  "kameo_es",
+ "lazy_static",
  "opendal",
  "redis",
  "rust_decimal",

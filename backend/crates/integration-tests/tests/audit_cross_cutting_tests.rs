@@ -45,13 +45,14 @@ use breakdown_core::shared::{
     AggregateVersion, EventMetadata, LexicalSortKey, Provenance, SeasonId, SeriesId, UserId,
 };
 use chrono::Utc;
-use infra::projectors::spawn_all_audit_projectors;
-use infra::queries::{AuditRepositoryImpl};
+use infra::projectors::{AuditProjectorHandles, spawn_all_audit_projectors};
+use infra::queries::AuditRepositoryImpl;
+use kameo_es::Metadata;
 use redis::Client as RedisClient;
 use redis::Value;
-use testcontainers::ContainerAsync;
 use serde::Serialize;
 use sqlx::PgPool;
+use testcontainers::ContainerAsync;
 use uuid::Uuid;
 
 /// Bounded-retry window for the audit projector to catch up (ADR-015 eventual
@@ -74,6 +75,10 @@ const POLL_INTERVAL: Duration = Duration::from_millis(150);
 struct SharedContainers {
     pg_pool: PgPool,
     redis_client: Arc<RedisClient>,
+    // The runtime MUST be kept alive.  Dropping the Runtime cancels all
+    // spawned supervisor tasks — the JoinHandle alone is not sufficient.
+    _runtime: tokio::runtime::Runtime,
+    _handles: AuditProjectorHandles,
     _pg: ContainerAsync<testcontainers_modules::postgres::Postgres>,
     _sierra: ContainerAsync<fixtures::SierraDbImage>,
 }
@@ -83,16 +88,35 @@ struct SharedContainers {
 static CONTAINERS: OnceLock<SharedContainers> = OnceLock::new();
 
 /// Initialize containers (called lazily by the first test via `init_containers`).
+/// Internal: the result of `block_on` before we inject the runtime.
+struct InitStage {
+    pg_pool: PgPool,
+    redis_client: Arc<RedisClient>,
+    handles: AuditProjectorHandles,
+    pg: ContainerAsync<testcontainers_modules::postgres::Postgres>,
+    sierra: ContainerAsync<fixtures::SierraDbImage>,
+}
+
 fn init_containers() -> &'static SharedContainers {
     CONTAINERS.get_or_init(|| {
         // Spawn containers on a background thread to avoid nested runtime errors.
         std::thread::spawn(|| {
-            let rt = tokio::runtime::Builder::new_current_thread()
+            // Must be a **full** runtime (not `new_current_thread`) because
+            // `full` spawns an I/O reactor + worker threads that keep
+            // polling the supervisor-loops AFTER `block_on` returns.
+            // Must be a **full** (multi-threaded) runtime.  new_current_thread
+            // does NOT drive tasks after `block_on` returns — only a full
+            // runtime keeps the I/O reactor and worker threads alive.
+            let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
+                .thread_name("audit-cross-cutting-setup")
                 .build()
                 .expect("Failed to build tokio runtime for container setup");
 
-            rt.block_on(async {
+            // `block_on` runs the async init code but we move `rt` into
+            // `SharedContainers` AFTER it returns — keeping `rt` alive
+            // ensures all supervisor tasks continue running.
+            let stage = rt.block_on(async {
                 let (_pool, pg) = fixtures::spawn_postgres()
                     .await
                     .expect("spawn_postgres failed");
@@ -100,35 +124,43 @@ fn init_containers() -> &'static SharedContainers {
                     .await
                     .expect("spawn_sierradb failed");
 
-                // The fixtures pool has max_connections=5 which is too small
-                // for 11 projectors + 5 concurrent tests.  Re-create with a
-                // generous pool so query + projector transactions never starve.
                 let host = pg.get_host().await.expect("get_host failed");
                 let port = pg.get_host_port_ipv4(5432).await.expect("get_port failed");
                 let url = format!("postgres://postgres:postgres@{host}:{port}/postgres");
-                // 11 projectors × ~4 conn each + 5 tests × ~5 conn each ≈ 70.
                 let pool = PgPoolOptions::new()
-                    .max_connections(100)
+                    .max_connections(2000)
                     .connect(&url)
                     .await
                     .expect("connect PG pool failed");
 
-                // Spawn ALL audit projectors (11 categories including non-membership).
-                spawn_all_audit_projectors(pool.clone(), Arc::clone(&redis_client))
+                let handles = spawn_all_audit_projectors(pool.clone(), Arc::clone(&redis_client))
                     .await
                     .expect("spawn audit projectors failed");
 
-                // Wait long enough for subscriptions & streams to fully initialise.
-                // SierraDB in CI can take several seconds after ESVER passes.
+                // Give subscriptions 10 s to establish before we leave the
+                // runtime alive.
                 tokio::time::sleep(Duration::from_secs(10)).await;
 
-                SharedContainers {
+                InitStage {
                     pg_pool: pool,
                     redis_client,
-                    _pg: pg,
-                    _sierra: sierra,
+                    handles,
+                    pg,
+                    sierra,
                 }
-            })
+            });
+
+            // Move `rt` into the containers struct — dropping the
+            // `Runtime` **cancels** all spawned tasks even if their
+            // `JoinHandle` is still alive elsewhere.
+            SharedContainers {
+                pg_pool: stage.pg_pool,
+                redis_client: stage.redis_client,
+                _handles: stage.handles,
+                _pg: stage.pg,
+                _sierra: stage.sierra,
+                _runtime: rt,
+            }
         })
         .join()
         .expect("Container setup thread panicked")
@@ -215,21 +247,26 @@ fn saga_metadata(series_id: SeriesId, saga_name: &'static str) -> Result<Vec<u8>
         provenance: Provenance::saga(saga_name),
         series_id: Some(series_id),
     };
+    let wrapped = Metadata::<EventMetadata>::default().with_data(meta);
     let mut buf = Vec::new();
-    ciborium::into_writer(&meta, &mut buf)
+    ciborium::into_writer(&wrapped, &mut buf)
         .map_err(|e| anyhow!("CBOR metadata encode failed: {e}"))?;
     Ok(buf)
 }
 
 /// Create CBOR-encoded "human" metadata (actor set, provenance = Human, optional series).
+///
+/// The bytes must match what `kameo_es::CommandService::CommandExecution`
+/// produces — `EventMetadata` wrapped in `Metadata`.
 fn human_metadata(actor: UserId, series_id: Option<SeriesId>) -> Result<Vec<u8>> {
     let meta = EventMetadata {
         actor: Some(actor),
         provenance: Provenance::Human,
         series_id,
     };
+    let wrapped = Metadata::<EventMetadata>::default().with_data(meta);
     let mut buf = Vec::new();
-    ciborium::into_writer(&meta, &mut buf)
+    ciborium::into_writer(&wrapped, &mut buf)
         .map_err(|e| anyhow!("CBOR metadata encode failed: {e}"))?;
     Ok(buf)
 }
@@ -376,7 +413,13 @@ async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
     .await?;
 
     // Wait for the season audit row (no main Season projector is running)
-    let _entries = await_audit_rows(&AuditRepositoryImpl::new(pool.clone()), "season", season_id, 1).await?;
+    let _entries = await_audit_rows(
+        &AuditRepositoryImpl::new(pool.clone()),
+        "season",
+        season_id,
+        1,
+    )
+    .await?;
 
     let season_entries = await_audit_rows(&audit_repo, "season", season_id, 1).await?;
     assert_eq!(
@@ -688,6 +731,9 @@ async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> 
 #[tokio::test]
 async fn list_by_series_returns_tenant_scoped_rows() -> Result<()> {
     let containers = init_containers();
+    // NOTE: concurrency controlled by CI's --test-threads=1 flag.
+    // Parallel test execution can exhaust the Postgres connection pool
+    // because 11 projector workers each hold long-lived transactions.
     let pool = &containers.pg_pool;
     let redis_client = &containers.redis_client;
     let audit_repo = AuditRepositoryImpl::new(pool.clone());
@@ -819,7 +865,7 @@ async fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Resu
     };
     let payload = encode_event(&event)?;
 
-    // 1. First append (EXPECTED_VERSION EMPTY → version 0→1).
+    // 1. First append (EXPECTED_VERSION EMPTY).
     eappend_event(
         redis_client,
         &stream_id,
@@ -835,8 +881,9 @@ async fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Resu
     assert_eq!(entries.len(), 1, "first event projected");
     assert_eq!(entries[0].event_type, "CostumeCategoryCreated");
 
-    // 2. Redelivery: same logical event, fresh SierraDB append (version 0→2,
-    // but same payload → same event_key → deduped by audit projector).
+    // After EMPTY, stream version is 0.  Redelivery appends at the same version.
+
+    // 2. Redelivery: same logical event, fresh SierraDB append at version 0.
     eappend_event(
         redis_client,
         &stream_id,
@@ -860,7 +907,7 @@ async fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Resu
         redis_client,
         &stream_id,
         "CostumeCategoryCreated",
-        "0",
+        "1",
         &payload2,
         &metadata_buf,
     )
@@ -875,24 +922,36 @@ async fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Resu
         entries.len()
     );
 
+    // The payload JSON is an enum-variant wrapper:
+    // `{"CostumeCategoryCreated":{"name":"Jacke","order_key":"0",...}}`.
+    // `name` is nested under the variant key, not at the root.
+    fn extract_name(payload: &serde_json::Value) -> Option<&str> {
+        // Try root first (handles non-enum events)
+        payload
+            .as_object()
+            .and_then(|o| o.get("name"))
+            .and_then(|v| v.as_str())
+            // Then try under the variant key
+            .or_else(|| {
+                payload.as_object().and_then(|o| {
+                    o.keys().next().and_then(|variant_key| {
+                        o.get(variant_key)
+                            .and_then(|v| v.as_object())
+                            .and_then(|inner| inner.get("name"))
+                            .and_then(|v| v.as_str())
+                    })
+                })
+            })
+    }
+
     // Count distinct payload names.
     let jacke_v1 = entries
         .iter()
-        .filter(|e| {
-            matches!(
-                &e.payload.as_object(),
-                Some(obj) if obj.get("name").and_then(|v| v.as_str()) == Some("Jacke")
-            )
-        })
+        .filter(|e| extract_name(&e.payload) == Some("Jacke"))
         .count();
     let jacke_v2 = entries
         .iter()
-        .filter(|e| {
-            matches!(
-                &e.payload.as_object(),
-                Some(obj) if obj.get("name").and_then(|v| v.as_str()) == Some("Jacke v2")
-            )
-        })
+        .filter(|e| extract_name(&e.payload) == Some("Jacke v2"))
         .count();
 
     assert_eq!(
@@ -901,12 +960,9 @@ async fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Resu
     );
     assert_eq!(jacke_v2, 1, "Jacke v2 must appear exactly once");
     assert!(
-        entries.iter().any(|e| {
-            matches!(
-                &e.payload.as_object(),
-                Some(obj) if obj.get("name").and_then(|v| v.as_str()) == Some("Jacke v2")
-            )
-        }),
+        entries
+            .iter()
+            .any(|e| extract_name(&e.payload) == Some("Jacke v2")),
         "distinct event (Jacke v2) must be projected as its own row"
     );
 

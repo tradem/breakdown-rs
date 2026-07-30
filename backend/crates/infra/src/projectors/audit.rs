@@ -152,9 +152,12 @@ async fn write_audit_row(
     .bind(event_id)
     .bind(event_key)
     .bind(entity_type)
-    .bind(entity_id)
+        .bind(entity_id)
     .bind(event_type)
-    .bind(entity_id) // block_id — kept for compatibility with existing idx_projection_audit_block
+    .bind(
+        uuid::Uuid::parse_str(entity_id)
+            .expect("entity_id is a valid UUID for block_id"),
+    ) // block_id — kept for compatibility with existing idx_projection_audit_block
     .bind(series_uuid)
     .bind(actor)
     .bind(provenance)
@@ -175,7 +178,7 @@ async fn write_audit_row(
 fn extract_metadata(
     event: &Event<impl kameo_es::EventType, EventMetadata>,
 ) -> (Option<String>, String, Option<String>) {
-    event
+    let result = event
         .metadata
         .data
         .as_ref()
@@ -186,7 +189,9 @@ fn extract_metadata(
                 m.series_id.as_ref().map(|s| s.0.to_string()),
             )
         })
-        .unwrap_or_else(|| (None, "Human".to_string(), None))
+        .unwrap_or_else(|| (None, "Human".to_string(), None));
+
+    result
 }
 
 // ── Category: season ──────────────────────────────────────────────────
