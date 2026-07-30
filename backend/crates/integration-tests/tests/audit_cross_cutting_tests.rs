@@ -95,8 +95,9 @@ fn init_containers() -> &'static TestContainers {
                     .await
                     .expect("spawn audit projectors failed");
 
-                // Let subscriptions settle.
-                tokio::time::sleep(Duration::from_millis(500)).await;
+                // Wait long enough for subscriptions & streams to fully initialise.
+                // SierraDB in CI can take several seconds after ESVER passes.
+                tokio::time::sleep(Duration::from_secs(10)).await;
 
                 TestContainers { pool, redis_client }
             })
@@ -117,17 +118,21 @@ fn encode_event<E: Serialize>(event: &E) -> Result<Vec<u8>> {
     Ok(buf)
 }
 
-/// Retry an async operation with up to `max_retries` retries (500ms delay between attempts).
+/// Retry an async operation with up to `max_retries` retries (1s delay between attempts).
 async fn retry_with_backoff<F, Fut, T>(func: F, max_retries: u32) -> Result<T>
 where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = Result<T, anyhow::Error>>,
 {
     let mut last_err = None;
-    for _ in 0..=max_retries {
+    for attempt in 0..=max_retries {
         match func().await {
             Ok(value) => return Ok(value),
-            Err(e) => last_err = Some(e),
+            Err(e) if attempt < max_retries => {
+                last_err = Some(e);
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+            Err(e) => return Err(e),
         }
     }
     Err(anyhow!(
@@ -169,7 +174,7 @@ async fn eappend_event(
                 .await
                 .map_err(|e| anyhow!("EAPPEND {event_name} failed: {e}"))
         },
-        3,
+        12, // 12 retries × 1s = 12s max wait; SierraDB in CI can need 5-10s after ESVER passes
     )
     .await?;
     Ok(())
