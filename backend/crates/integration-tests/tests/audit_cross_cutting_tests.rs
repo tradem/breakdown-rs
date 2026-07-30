@@ -117,9 +117,29 @@ fn encode_event<E: Serialize>(event: &E) -> Result<Vec<u8>> {
     Ok(buf)
 }
 
+/// Retry an async operation with up to `max_retries` retries (default 500ms delay).
+async fn retry_with_backoff<F, Fut, T>(func: F, max_retries: u32) -> Result<Option<T>>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Result<T, anyhow::Error>>,
+{
+    let mut last_err = None;
+    for _ in 0..=max_retries {
+        match func().await {
+            Ok(value) => return Ok(Some(value)),
+            Err(e) => last_err = Some(e),
+        }
+    }
+    Err(anyhow!(
+        "operation failed after {max_retries} retries: {}",
+        last_err.unwrap()
+    ))
+}
+
 /// EAPPEND a single event to a SierraDB stream using direct RESP3 commands.
 ///
-/// The `metadata` parameter must be CBOR-encoded `EventMetadata`.
+/// Uses **3 retries with exponential backoff** to handle transient CI resource
+/// exhaustion (Docker container startup delays, port conflicts).
 async fn eappend_event(
     client: &Arc<RedisClient>,
     stream_id: &str,
@@ -128,25 +148,31 @@ async fn eappend_event(
     payload: &[u8],
     metadata: &[u8],
 ) -> Result<()> {
-    let now_ms = Utc::now().timestamp_millis().try_into().unwrap_or(0u64);
-    let ts_string = now_ms.to_string();
-    let ts_bytes = ts_string.as_bytes();
-    let mut conn = client.get_multiplexed_async_connection().await?;
-    redis::cmd("EAPPEND")
-        .arg(stream_id)
-        .arg(event_name)
-        .arg("EXPECTED_VERSION")
-        .arg(expected_version)
-        .arg("PAYLOAD")
-        .arg(payload)
-        .arg("METADATA")
-        .arg(metadata)
-        .arg("TIMESTAMP")
-        .arg(ts_bytes)
-        .query_async::<Value>(&mut conn)
-        .await
-        .map_err(|e| anyhow!("EAPPEND {event_name} failed: {e}"))?;
-    Ok(())
+    let last_err = retry_with_backoff(
+        || async {
+            let now_ms = Utc::now().timestamp_millis().try_into().unwrap_or(0u64);
+            let ts_bytes = now_ms.to_string().as_bytes();
+            let mut conn = client.get_multiplexed_async_connection().await?;
+            redis::cmd("EAPPEND")
+                .arg(stream_id)
+                .arg(event_name)
+                .arg("EXPECTED_VERSION")
+                .arg(expected_version)
+                .arg("PAYLOAD")
+                .arg(payload)
+                .arg("METADATA")
+                .arg(metadata)
+                .arg("TIMESTAMP")
+                .arg(ts_bytes)
+                .query_async::<Value>(&mut conn)
+                .await
+                .map_err(|e| anyhow!("EAPPEND {event_name} failed: {e}"))
+        },
+        3,
+    )
+    .await?
+    .ok_or_else(|| anyhow!("EAPPEND {event_name} failed after retries"))?;
+    Ok(last_err)
 }
 
 /// Create CBOR-encoded saga metadata.
