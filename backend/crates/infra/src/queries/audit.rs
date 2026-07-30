@@ -23,6 +23,11 @@ impl AuditRepositoryImpl {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
+
+/// Returns a clone of the inner PgPool for diagnostic probing.
+pub fn get_pool(&self) -> PgPool {
+    self.pool.clone()
+}
 }
 
 #[async_trait]

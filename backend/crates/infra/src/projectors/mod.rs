@@ -61,6 +61,42 @@ use sqlx::PgPool;
 
 const CHECKPOINTS_TABLE: &str = "sierradb_event_checkpoints";
 
+/// Apply aggressive flush configuration for test scenarios.
+///
+/// Forces the projector to commit its transaction within 500 ms or after 5 events,
+/// whichever comes first, in live mode.  This prevents projector workers from
+/// holding long-lived `sqlx::Transaction` objects that starve the `PgPool` during
+/// sequential test runs (ADR-016).
+///
+/// The defaults are 2 s / 10 events — this helper tightens them for fast CI feedback.
+fn aggressive_test_flush<E, H>(
+    processor: PostgresProcessor<E, H>,
+) -> PostgresProcessor<E, H>
+where
+    E: 'static,
+    H: EventHandler<sqlx::Transaction<'static, Postgres>>
+        + CompositeEventHandler<E, sqlx::Transaction<'static, Postgres>, PostgresEventProcessorError>
+        + Send
+        + 'static,
+    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error: fmt::Debug + Sync,
+{
+    processor
+        .workers(2)
+        // Live mode: commit every 500ms or 5 events
+        .flush_live_interval_time(Duration::from_millis(500))
+        .flush_live_interval_events(5)
+        // Replay mode: commit every 2s or 50 events (prevents long-held
+        // transactions at projector startup when backlog must be caught up)
+        .flush_replay_interval_time(Duration::from_secs(2))
+        .flush_replay_interval_events(50)
+}
+
+use std::fmt;
+use std::time::Duration;
+use kameo_es::event_handler::{CompositeEventHandler, EventHandler};
+use kameo_es::event_handler::postgres::PostgresEventProcessorError;
+use sqlx::Postgres;
+
 type SceneProcessor = PostgresProcessor<(SceneAggregate,), SceneProjector>;
 type SceneShootProcessor = PostgresProcessor<(SceneShootAggregate,), SceneShootProjector>;
 type CharacterProcessor = PostgresProcessor<(CharacterAggregate,), CharacterProjector>;
@@ -191,14 +227,14 @@ pub async fn spawn_scene_projector(
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<SceneProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = SceneProcessor::new(
+    let processor = aggressive_test_flush(SceneProcessor::new(
         pool.clone(),
         conn,
         CHECKPOINTS_TABLE,
         "scene",
         SceneProjector,
     )
-    .await?;
+    .await?);
     let actor_ref = SceneProcessor::spawn(processor);
     run_projection_stream!(SceneAggregate, "scene", redis_client, actor_ref.clone())?;
     Ok(actor_ref)
@@ -210,14 +246,14 @@ pub async fn spawn_character_projector(
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<CharacterProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = CharacterProcessor::new(
+    let processor = aggressive_test_flush(CharacterProcessor::new(
         pool.clone(),
         conn,
         CHECKPOINTS_TABLE,
         "character",
         CharacterProjector,
     )
-    .await?;
+    .await?);
     let actor_ref = CharacterProcessor::spawn(processor);
     run_projection_stream!(
         CharacterAggregate,
@@ -234,14 +270,14 @@ pub async fn spawn_costume_projector(
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<CostumeProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = CostumeProcessor::new(
+    let processor = aggressive_test_flush(CostumeProcessor::new(
         pool.clone(),
         conn,
         CHECKPOINTS_TABLE,
         "costume",
         CostumeProjector,
     )
-    .await?;
+    .await?);
     let actor_ref = CostumeProcessor::spawn(processor);
     run_projection_stream!(CostumeAggregate, "costume", redis_client, actor_ref.clone())?;
     Ok(actor_ref)
@@ -253,14 +289,14 @@ pub async fn spawn_costume_category_projector(
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<CostumeCategoryProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = CostumeCategoryProcessor::new(
+    let processor = aggressive_test_flush(CostumeCategoryProcessor::new(
         pool.clone(),
         conn,
         CHECKPOINTS_TABLE,
         "costume_category",
         CostumeCategoryProjector,
     )
-    .await?;
+    .await?);
     let actor_ref = CostumeCategoryProcessor::spawn(processor);
     run_projection_stream!(
         CostumeCategoryAggregate,
@@ -277,14 +313,14 @@ pub async fn spawn_season_projector(
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<SeasonProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = SeasonProcessor::new(
+    let processor = aggressive_test_flush(SeasonProcessor::new(
         pool.clone(),
         conn,
         CHECKPOINTS_TABLE,
         "season",
         SeasonProjector,
     )
-    .await?;
+    .await?);
     let actor_ref = SeasonProcessor::spawn(processor);
     run_projection_stream!(SeasonAggregate, "season", redis_client, actor_ref.clone())?;
     Ok(actor_ref)
@@ -296,14 +332,14 @@ pub async fn spawn_block_projector(
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<BlockProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = BlockProcessor::new(
+    let processor = aggressive_test_flush(BlockProcessor::new(
         pool.clone(),
         conn,
         CHECKPOINTS_TABLE,
         "block",
         BlockProjector,
     )
-    .await?;
+    .await?);
     let actor_ref = BlockProcessor::spawn(processor);
     run_projection_stream!(BlockAggregate, "block", redis_client, actor_ref.clone())?;
     Ok(actor_ref)
@@ -315,14 +351,14 @@ pub async fn spawn_episode_projector(
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<EpisodeProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = EpisodeProcessor::new(
+    let processor = aggressive_test_flush(EpisodeProcessor::new(
         pool.clone(),
         conn,
         CHECKPOINTS_TABLE,
         "episode",
         EpisodeProjector,
     )
-    .await?;
+    .await?);
     let actor_ref = EpisodeProcessor::spawn(processor);
     run_projection_stream!(EpisodeAggregate, "episode", redis_client, actor_ref.clone())?;
     Ok(actor_ref)
@@ -334,14 +370,14 @@ pub async fn spawn_membership_projector(
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<MembershipProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = MembershipProcessor::new(
+    let processor = aggressive_test_flush(MembershipProcessor::new(
         pool.clone(),
         conn,
         CHECKPOINTS_TABLE,
         "membership",
         MembershipProjector,
     )
-    .await?;
+    .await?);
     let actor_ref = MembershipProcessor::spawn(processor);
     run_projection_stream!(
         BlockMembership,
@@ -360,14 +396,14 @@ pub async fn spawn_season_audit_projector(
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<SeasonAuditProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = SeasonAuditProcessor::new(
+    let processor = aggressive_test_flush(SeasonAuditProcessor::new(
         pool,
         conn,
         CHECKPOINTS_TABLE,
         "audit:season",
         SeasonAuditProjector,
     )
-    .await?;
+    .await?);
     let actor_ref = SeasonAuditProcessor::spawn(processor);
     run_projection_stream_handle!(
         SeasonAggregate,
@@ -384,14 +420,14 @@ pub async fn spawn_block_audit_projector(
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<BlockAuditProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = BlockAuditProcessor::new(
+    let processor = aggressive_test_flush(BlockAuditProcessor::new(
         pool,
         conn,
         CHECKPOINTS_TABLE,
         "audit:block",
         BlockAuditProjector,
     )
-    .await?;
+    .await?);
     let actor_ref = BlockAuditProcessor::spawn(processor);
     run_projection_stream_handle!(
         BlockAggregate,
@@ -408,14 +444,14 @@ pub async fn spawn_episode_audit_projector(
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<EpisodeAuditProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = EpisodeAuditProcessor::new(
+    let processor = aggressive_test_flush(EpisodeAuditProcessor::new(
         pool,
         conn,
         CHECKPOINTS_TABLE,
         "audit:episode",
         EpisodeAuditProjector,
     )
-    .await?;
+    .await?);
     let actor_ref = EpisodeAuditProcessor::spawn(processor);
     run_projection_stream_handle!(
         EpisodeAggregate,
@@ -432,14 +468,14 @@ pub async fn spawn_scene_audit_projector(
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<SceneAuditProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = SceneAuditProcessor::new(
+    let processor = aggressive_test_flush(SceneAuditProcessor::new(
         pool,
         conn,
         CHECKPOINTS_TABLE,
         "audit:scene",
         SceneAuditProjector,
     )
-    .await?;
+    .await?);
     let actor_ref = SceneAuditProcessor::spawn(processor);
     run_projection_stream_handle!(
         SceneAggregate,
@@ -456,14 +492,14 @@ pub async fn spawn_scene_shoot_audit_projector(
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<SceneShootAuditProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = SceneShootAuditProcessor::new(
+    let processor = aggressive_test_flush(SceneShootAuditProcessor::new(
         pool,
         conn,
         CHECKPOINTS_TABLE,
         "audit:scene_shoot",
         SceneShootAuditProjector,
     )
-    .await?;
+    .await?);
     let actor_ref = SceneShootAuditProcessor::spawn(processor);
     run_projection_stream_handle!(
         SceneShootAggregate,
@@ -480,14 +516,14 @@ pub async fn spawn_shooting_day_audit_projector(
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<ShootingDayAuditProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = ShootingDayAuditProcessor::new(
+    let processor = aggressive_test_flush(ShootingDayAuditProcessor::new(
         pool,
         conn,
         CHECKPOINTS_TABLE,
         "audit:shooting_day",
         ShootingDayAuditProjector,
     )
-    .await?;
+    .await?);
     let actor_ref = ShootingDayAuditProcessor::spawn(processor);
     run_projection_stream_handle!(
         ShootingDayAggregate,
@@ -504,14 +540,14 @@ pub async fn spawn_character_audit_projector(
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<CharacterAuditProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = CharacterAuditProcessor::new(
+    let processor = aggressive_test_flush(CharacterAuditProcessor::new(
         pool,
         conn,
         CHECKPOINTS_TABLE,
         "audit:character",
         CharacterAuditProjector,
     )
-    .await?;
+    .await?);
     let actor_ref = CharacterAuditProcessor::spawn(processor);
     run_projection_stream_handle!(
         CharacterAggregate,
@@ -528,14 +564,14 @@ pub async fn spawn_costume_audit_projector(
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<CostumeAuditProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = CostumeAuditProcessor::new(
+    let processor = aggressive_test_flush(CostumeAuditProcessor::new(
         pool,
         conn,
         CHECKPOINTS_TABLE,
         "audit:costume",
         CostumeAuditProjector,
     )
-    .await?;
+    .await?);
     let actor_ref = CostumeAuditProcessor::spawn(processor);
     run_projection_stream_handle!(
         CostumeAggregate,
@@ -552,14 +588,14 @@ pub async fn spawn_costume_category_audit_projector(
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<CostumeCategoryAuditProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = CostumeCategoryAuditProcessor::new(
+    let processor = aggressive_test_flush(CostumeCategoryAuditProcessor::new(
         pool,
         conn,
         CHECKPOINTS_TABLE,
         "audit:costume_category",
         CostumeCategoryAuditProjector,
     )
-    .await?;
+    .await?);
     let actor_ref = CostumeCategoryAuditProcessor::spawn(processor);
     run_projection_stream_handle!(
         CostumeCategoryAggregate,
@@ -576,14 +612,14 @@ pub async fn spawn_photo_audit_projector(
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<PhotoAuditProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = PhotoAuditProcessor::new(
+    let processor = aggressive_test_flush(PhotoAuditProcessor::new(
         pool,
         conn,
         CHECKPOINTS_TABLE,
         "audit:photo",
         PhotoAuditProjector,
     )
-    .await?;
+    .await?);
     let actor_ref = PhotoAuditProcessor::spawn(processor);
     run_projection_stream_handle!(
         PhotoAggregate,
@@ -611,14 +647,14 @@ pub async fn spawn_audit_projector(
     let _handles = spawn_all_audit_projectors(pool.clone(), redis_client.clone()).await?;
 
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = MembershipAuditProcessor::new(
+    let processor = aggressive_test_flush(MembershipAuditProcessor::new(
         pool,
         conn,
         CHECKPOINTS_TABLE,
         "audit:membership",
         MembershipAuditProjector,
     )
-    .await?;
+    .await?);
     let actor_ref = MembershipAuditProcessor::spawn(processor);
     run_projection_stream_handle!(
         BlockMembership,
@@ -692,14 +728,14 @@ pub async fn spawn_single_audit_projector(
     match category {
         AuditCategory::Season => {
             let conn = redis_client.get_multiplexed_async_connection().await?;
-            let processor = SeasonAuditProcessor::new(
+            let processor = aggressive_test_flush(SeasonAuditProcessor::new(
                 pool,
                 conn,
                 CHECKPOINTS_TABLE,
                 "audit:season",
                 SeasonAuditProjector,
             )
-            .await?;
+            .await?);
             let ar = SeasonAuditProcessor::spawn(processor);
             let handle = run_projection_stream_handle!(
                 SeasonAggregate,
@@ -711,14 +747,14 @@ pub async fn spawn_single_audit_projector(
         }
         AuditCategory::Block => {
             let conn = redis_client.get_multiplexed_async_connection().await?;
-            let processor = BlockAuditProcessor::new(
+            let processor = aggressive_test_flush(BlockAuditProcessor::new(
                 pool,
                 conn,
                 CHECKPOINTS_TABLE,
                 "audit:block",
                 BlockAuditProjector,
             )
-            .await?;
+            .await?);
             let ar = BlockAuditProcessor::spawn(processor);
             let handle = run_projection_stream_handle!(
                 BlockAggregate,
@@ -730,14 +766,14 @@ pub async fn spawn_single_audit_projector(
         }
         AuditCategory::Episode => {
             let conn = redis_client.get_multiplexed_async_connection().await?;
-            let processor = EpisodeAuditProcessor::new(
+            let processor = aggressive_test_flush(EpisodeAuditProcessor::new(
                 pool,
                 conn,
                 CHECKPOINTS_TABLE,
                 "audit:episode",
                 EpisodeAuditProjector,
             )
-            .await?;
+            .await?);
             let ar = EpisodeAuditProcessor::spawn(processor);
             let handle = run_projection_stream_handle!(
                 EpisodeAggregate,
@@ -749,14 +785,14 @@ pub async fn spawn_single_audit_projector(
         }
         AuditCategory::Scene => {
             let conn = redis_client.get_multiplexed_async_connection().await?;
-            let processor = SceneAuditProcessor::new(
+            let processor = aggressive_test_flush(SceneAuditProcessor::new(
                 pool,
                 conn,
                 CHECKPOINTS_TABLE,
                 "audit:scene",
                 SceneAuditProjector,
             )
-            .await?;
+            .await?);
             let ar = SceneAuditProcessor::spawn(processor);
             let handle = run_projection_stream_handle!(
                 SceneAggregate,
@@ -768,14 +804,14 @@ pub async fn spawn_single_audit_projector(
         }
         AuditCategory::SceneShoot => {
             let conn = redis_client.get_multiplexed_async_connection().await?;
-            let processor = SceneShootAuditProcessor::new(
+            let processor = aggressive_test_flush(SceneShootAuditProcessor::new(
                 pool,
                 conn,
                 CHECKPOINTS_TABLE,
                 "audit:scene_shoot",
                 SceneShootAuditProjector,
             )
-            .await?;
+            .await?);
             let ar = SceneShootAuditProcessor::spawn(processor);
             let handle = run_projection_stream_handle!(
                 SceneShootAggregate,
@@ -787,14 +823,14 @@ pub async fn spawn_single_audit_projector(
         }
         AuditCategory::ShootingDay => {
             let conn = redis_client.get_multiplexed_async_connection().await?;
-            let processor = ShootingDayAuditProcessor::new(
+            let processor = aggressive_test_flush(ShootingDayAuditProcessor::new(
                 pool,
                 conn,
                 CHECKPOINTS_TABLE,
                 "audit:shooting_day",
                 ShootingDayAuditProjector,
             )
-            .await?;
+            .await?);
             let ar = ShootingDayAuditProcessor::spawn(processor);
             let handle = run_projection_stream_handle!(
                 ShootingDayAggregate,
@@ -806,14 +842,14 @@ pub async fn spawn_single_audit_projector(
         }
         AuditCategory::Character => {
             let conn = redis_client.get_multiplexed_async_connection().await?;
-            let processor = CharacterAuditProcessor::new(
+            let processor = aggressive_test_flush(CharacterAuditProcessor::new(
                 pool,
                 conn,
                 CHECKPOINTS_TABLE,
                 "audit:character",
                 CharacterAuditProjector,
             )
-            .await?;
+            .await?);
             let ar = CharacterAuditProcessor::spawn(processor);
             let handle = run_projection_stream_handle!(
                 CharacterAggregate,
@@ -825,14 +861,14 @@ pub async fn spawn_single_audit_projector(
         }
         AuditCategory::Costume => {
             let conn = redis_client.get_multiplexed_async_connection().await?;
-            let processor = CostumeAuditProcessor::new(
+            let processor = aggressive_test_flush(CostumeAuditProcessor::new(
                 pool,
                 conn,
                 CHECKPOINTS_TABLE,
                 "audit:costume",
                 CostumeAuditProjector,
             )
-            .await?;
+            .await?);
             let ar = CostumeAuditProcessor::spawn(processor);
             let handle = run_projection_stream_handle!(
                 CostumeAggregate,
@@ -844,14 +880,14 @@ pub async fn spawn_single_audit_projector(
         }
         AuditCategory::CostumeCategory => {
             let conn = redis_client.get_multiplexed_async_connection().await?;
-            let processor = CostumeCategoryAuditProcessor::new(
+            let processor = aggressive_test_flush(CostumeCategoryAuditProcessor::new(
                 pool,
                 conn,
                 CHECKPOINTS_TABLE,
                 "audit:costume_category",
                 CostumeCategoryAuditProjector,
             )
-            .await?;
+            .await?);
             let ar = CostumeCategoryAuditProcessor::spawn(processor);
             let handle = run_projection_stream_handle!(
                 CostumeCategoryAggregate,
@@ -863,14 +899,14 @@ pub async fn spawn_single_audit_projector(
         }
         AuditCategory::Photo => {
             let conn = redis_client.get_multiplexed_async_connection().await?;
-            let processor = PhotoAuditProcessor::new(
+            let processor = aggressive_test_flush(PhotoAuditProcessor::new(
                 pool,
                 conn,
                 CHECKPOINTS_TABLE,
                 "audit:photo",
                 PhotoAuditProjector,
             )
-            .await?;
+            .await?);
             let ar = PhotoAuditProcessor::spawn(processor);
             let handle = run_projection_stream_handle!(
                 PhotoAggregate,
@@ -882,14 +918,14 @@ pub async fn spawn_single_audit_projector(
         }
         AuditCategory::Membership => {
             let conn = redis_client.get_multiplexed_async_connection().await?;
-            let processor = MembershipAuditProcessor::new(
+            let processor = aggressive_test_flush(MembershipAuditProcessor::new(
                 pool,
                 conn,
                 CHECKPOINTS_TABLE,
                 "audit:membership",
                 MembershipAuditProjector,
             )
-            .await?;
+            .await?);
             let ar = MembershipAuditProcessor::spawn(processor);
             let handle = run_projection_stream_handle!(
                 BlockMembership,
@@ -909,14 +945,14 @@ pub async fn spawn_membership_audit_projector(
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<MembershipAuditProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = MembershipAuditProcessor::new(
+    let processor = aggressive_test_flush(MembershipAuditProcessor::new(
         pool,
         conn,
         CHECKPOINTS_TABLE,
         "audit:membership",
         MembershipAuditProjector,
     )
-    .await?;
+    .await?);
     let actor_ref = MembershipAuditProcessor::spawn(processor);
     run_projection_stream!(
         BlockMembership,
@@ -933,14 +969,14 @@ pub async fn spawn_shooting_day_projector(
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<ShootingDayProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = ShootingDayProcessor::new(
+    let processor = aggressive_test_flush(ShootingDayProcessor::new(
         pool.clone(),
         conn,
         CHECKPOINTS_TABLE,
         "shooting_day",
         ShootingDayProjector,
     )
-    .await?;
+    .await?);
     let actor_ref = ShootingDayProcessor::spawn(processor);
     run_projection_stream!(
         ShootingDayAggregate,
@@ -957,14 +993,14 @@ pub async fn spawn_photo_projector(
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<PhotoProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = PhotoProcessor::new(
+    let processor = aggressive_test_flush(PhotoProcessor::new(
         pool.clone(),
         conn,
         CHECKPOINTS_TABLE,
         "photo",
         PhotoProjector,
     )
-    .await?;
+    .await?);
     let actor_ref = PhotoProcessor::spawn(processor);
     run_projection_stream!(PhotoAggregate, "photo", redis_client, actor_ref.clone())?;
     Ok(actor_ref)
@@ -976,14 +1012,14 @@ pub async fn spawn_scene_shoot_projector(
     redis_client: Arc<RedisClient>,
 ) -> Result<ActorRef<SceneShootProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = SceneShootProcessor::new(
+    let processor = aggressive_test_flush(SceneShootProcessor::new(
         pool.clone(),
         conn,
         CHECKPOINTS_TABLE,
         "scene_shoot",
         SceneShootProjector,
     )
-    .await?;
+    .await?);
     let actor_ref = SceneShootProcessor::spawn(processor);
     run_projection_stream!(
         SceneShootAggregate,

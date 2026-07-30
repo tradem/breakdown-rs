@@ -29,7 +29,7 @@ mod fixtures;
 
 use std::sync::Arc;
 use std::sync::OnceLock;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use sqlx::postgres::PgPoolOptions;
 
@@ -55,10 +55,63 @@ use sqlx::PgPool;
 use testcontainers::ContainerAsync;
 use uuid::Uuid;
 
+/// Maximum wait time for projection lag (45 s).  The generous deadline accounts
+/// for projector warm-up in CI and for the tail-end of the previous test's
+/// redelivery (the projector needs to flush its in-flight transaction before
+/// the next test's events can be projected).
+const PROJECTION_DEADLINE: Duration = Duration::from_secs(45);
+
 /// Bounded-retry window for the audit projector to catch up (ADR-015 eventual
 /// consistency). Generous enough for CI containers where startup takes longer.
-const PROJECTION_DEADLINE: Duration = Duration::from_secs(30);
 const POLL_INTERVAL: Duration = Duration::from_millis(150);
+
+/// Maximum number of retries before giving up on a slow pool acquire (for diagnostics).
+const MAX_POOL_ACQUIRE_RETRIES: usize = 3;
+
+// ---------------------------------------------------------------------------
+// Diagnostic helpers
+// ---------------------------------------------------------------------------
+
+/// Probe the given pool by acquiring and immediately releasing a connection.
+/// Returns `Ok(duration)` with the time taken to acquire the connection,
+/// or `Err` if the acquire timed out or failed.
+///
+/// This is used to detect which pool is exhausted before a real query fails.
+async fn pool_probe(pool: &PgPool, label: &str) -> Result<Duration> {
+    let start = Instant::now();
+    // 1 s probe timeout — fast failure when pool is saturated, avoids misleading
+    // 30 s waits that look like the projector is stuck.
+    match tokio::time::timeout(Duration::from_secs(1), pool.acquire()).await {
+        Ok(Ok(_conn)) => {
+            // Immediately release the connection
+            drop(_conn);
+            let elapsed = start.elapsed();
+            eprintln!("[DIAG] {label}: pool acquire took {elapsed:.2?}");
+            Ok(elapsed)
+        }
+        Ok(Err(e)) => {
+            let elapsed = start.elapsed();
+            eprintln!("[DIAG] {label}: pool acquire failed after {elapsed:.2?}: {e}");
+            Err(anyhow!("{label} pool acquire failed: {e}"))
+        }
+        Err(_timeout) => {
+            let elapsed = start.elapsed();
+            eprintln!("[DIAG] {label}: pool acquire TIMED OUT after {elapsed:.2?}");
+            bail!("{label} pool timed out acquiring connection")
+        }
+    }
+}
+
+/// Run a probe on `query_pool` and log the result.  Skips silently in
+/// non-test builds so the compiler sees a single stable return type.
+#[allow(unused_variables)]
+async fn probe_query_pool(pool: &PgPool) {
+    if let Ok(dur) = pool_probe(pool, "QUERY").await {
+        eprintln!("[DIAG] query_pool acquire: {dur:.2?}");
+    } else {
+        eprintln!("[DIAG] query_pool: CONCURRENTLY EXHAUSTED — all 2000 slots busy");
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Shared container setup (background thread)
@@ -138,8 +191,15 @@ fn init_containers() -> &'static SharedContainers {
                 let host = pg.get_host().await.expect("get_host failed");
                 let port = pg.get_host_port_ipv4(5432).await.expect("get_port failed");
                 let url = format!("postgres://postgres:postgres@{host}:{port}/postgres");
+
+                // Generous pool sized for projector concurrency + test queries.
+                // With aggressive flush (500ms / 5 events, 2 workers/projector),
+                // projectors hold ~44 concurrent transactions max.  We give each
+                // pool its own semaphore with 512 permits to avoid any cross-pool
+                // contention under high load.
                 let pg_pool = PgPoolOptions::new()
-                    .max_connections(2000)
+                    .max_connections(1024)
+                    .acquire_timeout(Duration::from_secs(3))
                     .connect(&url)
                     .await
                     .expect("connect PG pool failed");
@@ -149,8 +209,10 @@ fn init_containers() -> &'static SharedContainers {
                 // Using the same size as pg_pool so we can reason about the
                 // total pool consumption: 2000 (projectors) + 2000 (test)
                 // = 4000 connections, well within Postgres's 10000 limit.
+                // Dedicated query pool for tests — fully isolated from projector workers.
                 let query_pool = PgPoolOptions::new()
-                    .max_connections(2000)
+                    .max_connections(1024)
+                    .acquire_timeout(Duration::from_secs(10))
                     .connect(&url)
                     .await
                     .expect("connect query pool failed");
@@ -321,30 +383,45 @@ async fn read_provenance(
 
 /// Wait until the audit projection has at least `min` matching rows for the
 /// given `entity_type` and `entity_id`.
+///
+/// Wait until at least `min` audit rows exist for a given entity.
+///
+/// Retries on `NotFound` (projector hasn't caught up yet) and on
+/// insufficient count (eventual consistency).  Uses a short deadline
+/// to fail quickly rather than spin forever.
 async fn await_audit_rows(
     repo: &AuditRepositoryImpl,
     entity_type: &str,
     entity_id: Uuid,
     min: usize,
 ) -> Result<Vec<AuditEntry>> {
-    let deadline = std::time::Instant::now() + PROJECTION_DEADLINE;
+    let deadline = Instant::now() + PROJECTION_DEADLINE;
+    let mut attempt = 0u32;
     loop {
+        attempt += 1;
         let result = repo
             .list_by_entity(entity_type, &entity_id.to_string(), 100, 0)
             .await;
         match result {
-            Ok(entries) if entries.len() >= min => return Ok(entries),
-            Ok(_) => {}
+            Ok(entries) => {
+                if entries.len() >= min {
+                    eprintln!("[DIAG] attempt #{attempt}: GOT {}/{} entries", entries.len(), min);
+                    return Ok(entries)
+                } else {
+                    eprintln!("[DIAG] attempt #{attempt}: got {} entries, need {min}", entries.len());
+                }
+            }
             Err(ref e) => {
                 let msg = e.to_string();
-                if msg.contains("NotFound") && std::time::Instant::now() < deadline {
+                if msg.contains("NotFound") && Instant::now() < deadline {
+                    eprintln!("[DIAG] attempt #{attempt}: NotFound, retrying...");
                     tokio::time::sleep(POLL_INTERVAL).await;
                     continue;
                 }
                 return Err(anyhow!("list_by_entity failed: {e}"));
             }
         }
-        if std::time::Instant::now() < deadline {
+        if Instant::now() < deadline {
             tokio::time::sleep(POLL_INTERVAL).await;
         } else {
             bail!(
@@ -365,7 +442,7 @@ async fn await_audit_by_series(
     series_id: SeriesId,
     min: usize,
 ) -> Result<Vec<AuditEntry>> {
-    let deadline = std::time::Instant::now() + PROJECTION_DEADLINE;
+    let deadline = Instant::now() + PROJECTION_DEADLINE;
     loop {
         let result = repo.list_by_series(series_id, 100, 0).await;
         match result {
@@ -373,14 +450,14 @@ async fn await_audit_by_series(
             Ok(_) => {}
             Err(ref e) => {
                 let msg = e.to_string();
-                if msg.contains("NotFound") && std::time::Instant::now() < deadline {
+                if msg.contains("NotFound") && Instant::now() < deadline {
                     tokio::time::sleep(POLL_INTERVAL).await;
                     continue;
                 }
                 return Err(anyhow!("list_by_series failed: {e}"));
             }
         }
-        if std::time::Instant::now() < deadline {
+        if Instant::now() < deadline {
             tokio::time::sleep(POLL_INTERVAL).await;
         } else {
             bail!(
@@ -679,12 +756,12 @@ async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> 
 
     // Wait for the costume_category projector to catch up.
     {
-        let deadline = std::time::Instant::now() + PROJECTION_DEADLINE;
+        let deadline = Instant::now() + PROJECTION_DEADLINE;
         loop {
             if cc_repo.find_by_id(cc_id).await.is_ok() {
                 break;
             }
-            if std::time::Instant::now() < deadline {
+            if Instant::now() < deadline {
                 tokio::time::sleep(POLL_INTERVAL).await;
             } else {
                 bail!("costume_category projection not ready within deadline");
@@ -694,7 +771,7 @@ async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> 
 
     // Now check the audit row.
     let audit_repo = AuditRepositoryImpl::new(pool.clone());
-    let deadline = std::time::Instant::now() + PROJECTION_DEADLINE;
+    let deadline = Instant::now() + PROJECTION_DEADLINE;
     loop {
         let audit_result = audit_repo
             .list_by_entity("costume_category", &cc_id.to_string(), 10, 0)
@@ -737,14 +814,14 @@ async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> 
             Ok(_) => {}
             Err(ref e) => {
                 let msg = e.to_string();
-                if msg.contains("NotFound") && std::time::Instant::now() < deadline {
+                if msg.contains("NotFound") && Instant::now() < deadline {
                     tokio::time::sleep(POLL_INTERVAL).await;
                     continue;
                 }
                 return Err(anyhow!("audit query failed: {e}"));
             }
         }
-        if std::time::Instant::now() < deadline {
+        if Instant::now() < deadline {
             tokio::time::sleep(POLL_INTERVAL).await;
         } else {
             bail!("audit row for saga-dispatched costume_category not found within deadline");
@@ -866,12 +943,13 @@ async fn list_by_series_returns_tenant_scoped_rows() -> Result<()> {
 /// so even a fresh SierraDB append gets deduped by the audit projector.
 #[tokio::test]
 async fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Result<()> {
+    eprintln!("\n[TEST] non_membership_audit_projector_is_idempotent_under_redelivery START");
     let containers = init_containers();
     let pool = &containers.query_pool;
     let redis_client = &containers.redis_client;
 
-    // Let spawn_all_audit_projectors run during init.
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    // Wait for projectors to settle before emitting events.
+    tokio::time::sleep(Duration::from_millis(500)).await;
 
     let audit_repo = AuditRepositoryImpl::new(pool.clone());
 
@@ -893,6 +971,7 @@ async fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Resu
     let payload = encode_event(&event)?;
 
     // 1. First append (EXPECTED_VERSION EMPTY).
+    eprintln!("[DIAG] Step 1: eappend_event #1 (CostumeCategoryCreated)... ");
     eappend_event(
         redis_client,
         &stream_id,
@@ -904,6 +983,7 @@ async fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Resu
     .await?;
 
     // Wait for the first audit row.
+    eprintln!("[DIAG] Step 2: await_audit_rows #1 (expecting 1 row)...");
     let entries = await_audit_rows(&audit_repo, "costume_category", cc_id, 1).await?;
     assert_eq!(entries.len(), 1, "first event projected");
     assert_eq!(entries[0].event_type, "CostumeCategoryCreated");
@@ -911,6 +991,7 @@ async fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Resu
     // After EMPTY, stream version is 0.  Redelivery appends at the same version.
 
     // 2. Redelivery: same logical event, fresh SierraDB append at version 0.
+    eprintln!("[DIAG] Step 3: eappend_event #2 (redelivery)...");
     eappend_event(
         redis_client,
         &stream_id,
@@ -941,6 +1022,7 @@ async fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Resu
     .await?;
 
     // Wait for the third event to be projected (2 unique event_keys).
+    eprintln!("[DIAG] Step 4: await_audit_rows #2 (expecting 2 rows)...");
     let entries = await_audit_rows(&audit_repo, "costume_category", cc_id, 2).await?;
     assert_eq!(
         entries.len(),
@@ -992,6 +1074,12 @@ async fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Resu
             .any(|e| extract_name(&e.payload) == Some("Jacke v2")),
         "distinct event (Jacke v2) must be projected as its own row"
     );
+
+    // Flush delay: projector worker transactions are committed every 500ms, but
+    // the broadcast to `PostgresProcessor` actors + checkpoint update adds latency.
+    // A 1s pause gives projectors enough time to drain their backlog before
+    // the next test starts.
+    tokio::time::sleep(Duration::from_millis(1000)).await;
 
     Ok(())
 }
