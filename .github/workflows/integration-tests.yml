@@ -133,13 +133,13 @@ jobs:
           # --test-threads=1 goes AFTER -- (test runner option).
           cargo test -p integration-tests \
             --test sierradb_round_trip \
-            --test audit_projector \
+            --test audit_projector_tests \
             --test audit_cross_cutting_tests \
             --test continuity_photo_round_trip \
             --test photo_round_trip \
             --test photo_nm_deletion \
             --test membership_round_trip \
-            --test scene_shoot_idempotency \
+            --test scene_shoot_idempotency_tests \
             --test scene_shoot_round_trip \
             --test shooting_day_round_trip \
             --test costume_category_round_trip \
