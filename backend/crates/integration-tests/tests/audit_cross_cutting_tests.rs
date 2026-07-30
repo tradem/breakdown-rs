@@ -31,6 +31,8 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::Duration;
 
+use sqlx::postgres::PgPoolOptions;
+
 use anyhow::{Result, anyhow, bail};
 use breakdown_core::audit::ports::AuditRepository as _;
 use breakdown_core::audit::views::AuditEntry;
@@ -39,13 +41,12 @@ use breakdown_core::character::events::CharacterEvent;
 use breakdown_core::costume_category::events::CostumeCategoryEvent;
 use breakdown_core::costume_category::ports::CostumeCategoryRepository;
 use breakdown_core::season::events::SeasonEvent;
-use breakdown_core::season::ports::SeasonRepository;
 use breakdown_core::shared::{
     AggregateVersion, EventMetadata, LexicalSortKey, Provenance, SeasonId, SeriesId, UserId,
 };
 use chrono::Utc;
 use infra::projectors::spawn_all_audit_projectors;
-use infra::queries::{AuditRepositoryImpl, SeasonRepositoryImpl};
+use infra::queries::{AuditRepositoryImpl};
 use redis::Client as RedisClient;
 use redis::Value;
 use testcontainers::ContainerAsync;
@@ -65,9 +66,13 @@ const POLL_INTERVAL: Duration = Duration::from_millis(150);
 /// Shared infrastructure handles. All tests reuse the same containers instead
 /// of spawning their own, avoiding resource exhaustion on CI runners.  The
 /// `_pg` / `_sierra` fields hold the `ContainerAsync` guard so the containers
-/// are not GC'd until the `OnceLock` is dropped (i.e. at process exit).
-struct TestContainers {
-    pool: PgPool,
+/// are not GC'd until the `OnceLock` is dropped (i.e. at process exit).  The
+/// shared `PgPool` is used by the audit projectors; individual test queries
+/// also draw from this pool — we use a generous max_connections so that the
+/// 11 projectors, the test queries, and connection retries don't starve each
+/// other.
+struct SharedContainers {
+    pg_pool: PgPool,
     redis_client: Arc<RedisClient>,
     _pg: ContainerAsync<testcontainers_modules::postgres::Postgres>,
     _sierra: ContainerAsync<fixtures::SierraDbImage>,
@@ -75,10 +80,10 @@ struct TestContainers {
 
 /// Lazy, one-shot initialization of Postgres + SierraDB + audit projectors.
 /// Runs on a background thread to avoid nested tokio runtime errors.
-static CONTAINERS: OnceLock<TestContainers> = OnceLock::new();
+static CONTAINERS: OnceLock<SharedContainers> = OnceLock::new();
 
 /// Initialize containers (called lazily by the first test via `init_containers`).
-fn init_containers() -> &'static TestContainers {
+fn init_containers() -> &'static SharedContainers {
     CONTAINERS.get_or_init(|| {
         // Spawn containers on a background thread to avoid nested runtime errors.
         std::thread::spawn(|| {
@@ -88,12 +93,25 @@ fn init_containers() -> &'static TestContainers {
                 .expect("Failed to build tokio runtime for container setup");
 
             rt.block_on(async {
-                let (pool, pg) = fixtures::spawn_postgres()
+                let (_pool, pg) = fixtures::spawn_postgres()
                     .await
                     .expect("spawn_postgres failed");
                 let (redis_client, _sierra_conn, sierra) = fixtures::spawn_sierradb()
                     .await
                     .expect("spawn_sierradb failed");
+
+                // The fixtures pool has max_connections=5 which is too small
+                // for 11 projectors + 5 concurrent tests.  Re-create with a
+                // generous pool so query + projector transactions never starve.
+                let host = pg.get_host().await.expect("get_host failed");
+                let port = pg.get_host_port_ipv4(5432).await.expect("get_port failed");
+                let url = format!("postgres://postgres:postgres@{host}:{port}/postgres");
+                // 11 projectors × ~4 conn each + 5 tests × ~5 conn each ≈ 70.
+                let pool = PgPoolOptions::new()
+                    .max_connections(100)
+                    .connect(&url)
+                    .await
+                    .expect("connect PG pool failed");
 
                 // Spawn ALL audit projectors (11 categories including non-membership).
                 spawn_all_audit_projectors(pool.clone(), Arc::clone(&redis_client))
@@ -104,8 +122,8 @@ fn init_containers() -> &'static TestContainers {
                 // SierraDB in CI can take several seconds after ESVER passes.
                 tokio::time::sleep(Duration::from_secs(10)).await;
 
-                TestContainers {
-                    pool,
+                SharedContainers {
+                    pg_pool: pool,
                     redis_client,
                     _pg: pg,
                     _sierra: sierra,
@@ -327,7 +345,7 @@ async fn await_audit_by_series(
 #[tokio::test]
 async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
     let containers = init_containers();
-    let pool = &containers.pool;
+    let pool = &containers.pg_pool;
     let redis_client = &containers.redis_client;
     let audit_repo = AuditRepositoryImpl::new(pool.clone());
 
@@ -357,12 +375,8 @@ async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
     )
     .await?;
 
-    // Wait for the season to be projected first.
-    {
-        let _season = SeasonRepositoryImpl::new(pool.clone())
-            .find_by_id(season_id)
-            .await?;
-    }
+    // Wait for the season audit row (no main Season projector is running)
+    let _entries = await_audit_rows(&AuditRepositoryImpl::new(pool.clone()), "season", season_id, 1).await?;
 
     let season_entries = await_audit_rows(&audit_repo, "season", season_id, 1).await?;
     assert_eq!(
@@ -452,7 +466,7 @@ async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
 #[tokio::test]
 async fn costume_category_create_produces_attributed_audit_row() -> Result<()> {
     let containers = init_containers();
-    let pool = &containers.pool;
+    let pool = &containers.pg_pool;
     let redis_client = &containers.redis_client;
     let audit_repo = AuditRepositoryImpl::new(pool.clone());
 
@@ -548,7 +562,7 @@ async fn costume_category_create_produces_attributed_audit_row() -> Result<()> {
 #[tokio::test]
 async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> {
     let containers = init_containers();
-    let pool = &containers.pool;
+    let pool = &containers.pg_pool;
     let redis_client = &containers.redis_client;
 
     // Spawn the costume category projector AND the audit projector for
@@ -674,7 +688,7 @@ async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> 
 #[tokio::test]
 async fn list_by_series_returns_tenant_scoped_rows() -> Result<()> {
     let containers = init_containers();
-    let pool = &containers.pool;
+    let pool = &containers.pg_pool;
     let redis_client = &containers.redis_client;
     let audit_repo = AuditRepositoryImpl::new(pool.clone());
 
@@ -780,7 +794,7 @@ async fn list_by_series_returns_tenant_scoped_rows() -> Result<()> {
 #[tokio::test]
 async fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Result<()> {
     let containers = init_containers();
-    let pool = &containers.pool;
+    let pool = &containers.pg_pool;
     let redis_client = &containers.redis_client;
 
     // Let spawn_all_audit_projectors run during init.
