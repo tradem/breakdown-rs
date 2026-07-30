@@ -10,11 +10,14 @@
 //! exercising the generalized audit projector for **non-membership**
 //! aggregate categories.
 //!
-//! **Stability note**: `CommandService::new()` uses SierraDB v0.3.1's `ESCAN`
-//! command which is unstable on CI runners. All tests therefore use direct
-//! `EAPPEND` (like `sierradb_round_trip.rs` and `audit_projector_tests.rs`)
-//! to avoid the ESCAN-related race condition ("Conflict: command service
-//! stopped").
+//! **Stability note**: `kameo_es::CommandService` uses SierraDB v0.3.1's
+//! `ESCAN` command which is unstable on CI runners. All tests therefore use
+//! direct `EAPPEND` (like `sierradb_round_trip.rs` and `audit_projector_tests.rs`)
+//! to avoid the ESCAN-related race condition ("Conflict: command service stopped").
+//!
+//! All tests in this file share a single Postgres + SierraDB container pair
+//! via `LazyLock` to avoid spawning multiple containers in parallel on CI
+//! runners (which causes resource exhaustion / connection refused errors).
 //!
 //! **Coverage:**
 //! - 6.1: Non-membership events produce correctly-attributed audit rows
@@ -25,6 +28,7 @@
 mod fixtures;
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
@@ -49,9 +53,48 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 /// Bounded-retry window for the audit projector to catch up (ADR-015 eventual
-/// consistency). Mirrors `audit_projector_tests.rs`.
-const PROJECTION_DEADLINE: Duration = Duration::from_secs(15);
+/// consistency). Generous enough for CI containers where startup takes longer.
+const PROJECTION_DEADLINE: Duration = Duration::from_secs(30);
 const POLL_INTERVAL: Duration = Duration::from_millis(150);
+
+// ---------------------------------------------------------------------------
+// Shared container setup (LazyLock)
+// ---------------------------------------------------------------------------
+
+/// Shared infrastructure handles. All tests reuse the same containers instead
+/// of spawning their own, avoiding resource exhaustion on CI runners.
+struct TestContainers {
+    pool: PgPool,
+    redis_client: Arc<RedisClient>,
+}
+
+/// Lazy, one-shot initialization of Postgres + SierraDB + audit projectors.
+/// All 5 tests in this file share this setup.
+static CONTAINERS: LazyLock<TestContainers> = LazyLock::new(|| {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("Failed to build tokio runtime for container setup");
+
+    rt.block_on(async {
+        let (pool, _pg) = fixtures::spawn_postgres()
+            .await
+            .expect("spawn_postgres failed");
+        let (redis_client, _sierra_conn, _sierra) = fixtures::spawn_sierradb()
+            .await
+            .expect("spawn_sierradb failed");
+
+        // Spawn ALL audit projectors (11 categories including non-membership).
+        spawn_all_audit_projectors(pool.clone(), Arc::clone(&redis_client))
+            .await
+            .expect("spawn audit projectors failed");
+
+        // Let subscriptions settle.
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        TestContainers { pool, redis_client }
+    })
+});
 
 // ---------------------------------------------------------------------------
 // EAPPEND helpers
@@ -120,28 +163,6 @@ fn human_metadata(actor: UserId, series_id: Option<SeriesId>) -> Result<Vec<u8>>
     ciborium::into_writer(&meta, &mut buf)
         .map_err(|e| anyhow!("CBOR metadata encode failed: {e}"))?;
     Ok(buf)
-}
-
-// ---------------------------------------------------------------------------
-// Shared setup helpers
-// ---------------------------------------------------------------------------
-
-/// Spin up Postgres + SierraDB + all audit projectors.
-///
-/// Returns the pool and audit repository handles needed for the
-/// cross-cutting audit tests.
-async fn init_audit() -> Result<(PgPool, AuditRepositoryImpl, Arc<RedisClient>)> {
-    let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
-    let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
-
-    // Spawn ALL audit projectors (11 categories).
-    spawn_all_audit_projectors(pool.clone(), Arc::clone(&redis_client)).await?;
-
-    // Give subscriptions time to settle.
-    tokio::time::sleep(Duration::from_millis(500)).await;
-
-    let audit_repo = AuditRepositoryImpl::new(pool.clone());
-    Ok((pool, audit_repo, redis_client))
 }
 
 // ---------------------------------------------------------------------------
@@ -254,7 +275,9 @@ async fn await_audit_by_series(
 /// and series_id.
 #[tokio::test]
 async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
-    let (pool, audit_repo, redis_client) = init_audit().await?;
+    let pool = &CONTAINERS.pool;
+    let redis_client = &CONTAINERS.redis_client;
+    let audit_repo = AuditRepositoryImpl::new(pool.clone());
 
     let actor = UserId::from_sub("test-actor-6.1");
     let series_id = SeriesId(Uuid::now_v7());
@@ -273,7 +296,7 @@ async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
     let season_meta = human_metadata(actor.clone(), Some(series_id))?;
 
     eappend_event(
-        &redis_client,
+        redis_client,
         &season_stream,
         "SeasonCreated",
         "EMPTY",
@@ -310,7 +333,7 @@ async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
     );
 
     // Verify provenance via raw SQL query (AuditEntry view does not expose it).
-    let prov = read_provenance(&pool, "season", season_id).await?;
+    let prov = read_provenance(pool, "season", season_id).await?;
     assert_eq!(
         prov.as_deref(),
         Some("Human"),
@@ -333,7 +356,7 @@ async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
     let char_meta = human_metadata(actor.clone(), Some(series_id))?;
 
     eappend_event(
-        &redis_client,
+        redis_client,
         &char_stream,
         "CharacterCreated",
         "EMPTY",
@@ -362,7 +385,7 @@ async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
         "series_id must be denormalized in metadata, not resolved at projection time"
     );
 
-    let prov = read_provenance(&pool, "character", char_id).await?;
+    let prov = read_provenance(pool, "character", char_id).await?;
     assert_eq!(
         prov.as_deref(),
         Some("Human"),
@@ -376,7 +399,9 @@ async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
 /// (Requires a season to exist for series_id resolution.)
 #[tokio::test]
 async fn costume_category_create_produces_attributed_audit_row() -> Result<()> {
-    let (pool, audit_repo, redis_client) = init_audit().await?;
+    let pool = &CONTAINERS.pool;
+    let redis_client = &CONTAINERS.redis_client;
+    let audit_repo = AuditRepositoryImpl::new(pool.clone());
 
     let actor = UserId::from_sub("test-actor-cc");
     let series_id = SeriesId(Uuid::now_v7());
@@ -395,7 +420,7 @@ async fn costume_category_create_produces_attributed_audit_row() -> Result<()> {
     let season_meta = human_metadata(actor.clone(), Some(series_id))?;
 
     eappend_event(
-        &redis_client,
+        redis_client,
         &season_stream,
         "SeasonCreated",
         "EMPTY",
@@ -421,7 +446,7 @@ async fn costume_category_create_produces_attributed_audit_row() -> Result<()> {
     let cc_meta = human_metadata(actor.clone(), Some(series_id))?;
 
     eappend_event(
-        &redis_client,
+        redis_client,
         &cc_stream,
         "CostumeCategoryCreated",
         "EMPTY",
@@ -450,7 +475,7 @@ async fn costume_category_create_produces_attributed_audit_row() -> Result<()> {
         "series_id must be present"
     );
 
-    let prov = read_provenance(&pool, "costume_category", cc_id).await?;
+    let prov = read_provenance(pool, "costume_category", cc_id).await?;
     assert_eq!(
         prov.as_deref(),
         Some("Human"),
@@ -469,17 +494,13 @@ async fn costume_category_create_produces_attributed_audit_row() -> Result<()> {
 /// `provenance = "SeasonSeedingSaga"` and `actor = NULL`.
 #[tokio::test]
 async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> {
-    let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
-    let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
+    let pool = &CONTAINERS.pool;
+    let redis_client = &CONTAINERS.redis_client;
 
     // Spawn the costume category projector AND the audit projector for
     // costume_category, so both projection and audit rows are produced.
-    let _cc_proj = infra::projectors::spawn_costume_category_projector(
-        pool.clone(),
-        Arc::clone(&redis_client),
-    )
-    .await?;
-    spawn_all_audit_projectors(pool.clone(), Arc::clone(&redis_client)).await?;
+    infra::projectors::spawn_costume_category_projector(pool.clone(), Arc::clone(redis_client))
+        .await?;
 
     // Let subscriptions settle.
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -506,7 +527,7 @@ async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> 
 
     // EAPPEND with saga metadata (simulates what SeasonSeedingSaga does).
     eappend_event(
-        &redis_client,
+        redis_client,
         &stream_id,
         "CostumeCategoryCreated",
         "EMPTY",
@@ -561,7 +582,7 @@ async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> 
                 )
                 .bind("costume_category")
                 .bind(cc_id.to_string())
-                .fetch_optional(&pool)
+                .fetch_optional(pool)
                 .await
                 .map_err(|e| anyhow!("SQL error: {e}"))?;
 
@@ -598,7 +619,9 @@ async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> 
 /// that `list_by_series` returns only rows for the requested series_id.
 #[tokio::test]
 async fn list_by_series_returns_tenant_scoped_rows() -> Result<()> {
-    let (_pool, audit_repo, redis_client) = init_audit().await?;
+    let pool = &CONTAINERS.pool;
+    let redis_client = &CONTAINERS.redis_client;
+    let audit_repo = AuditRepositoryImpl::new(pool.clone());
 
     let actor = UserId::from_sub("tenant-test-6.3");
     let series_a = SeriesId(Uuid::now_v7());
@@ -617,7 +640,7 @@ async fn list_by_series_returns_tenant_scoped_rows() -> Result<()> {
     let season_a_payload = encode_event(&season_a_event)?;
     let season_a_meta = human_metadata(actor.clone(), Some(series_a))?;
     eappend_event(
-        &redis_client,
+        redis_client,
         &season_a_stream,
         "SeasonCreated",
         "EMPTY",
@@ -639,7 +662,7 @@ async fn list_by_series_returns_tenant_scoped_rows() -> Result<()> {
     let season_b_payload = encode_event(&season_b_event)?;
     let season_b_meta = human_metadata(actor.clone(), Some(series_b))?;
     eappend_event(
-        &redis_client,
+        redis_client,
         &season_b_stream,
         "SeasonCreated",
         "EMPTY",
@@ -701,18 +724,12 @@ async fn list_by_series_returns_tenant_scoped_rows() -> Result<()> {
 /// so even a fresh SierraDB append gets deduped by the audit projector.
 #[tokio::test]
 async fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Result<()> {
-    let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
-    let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
+    let pool = &CONTAINERS.pool;
+    let redis_client = &CONTAINERS.redis_client;
 
-    // Spawn: costume_category projector + all audit projectors.
-    let _cc_proj = infra::projectors::spawn_costume_category_projector(
-        pool.clone(),
-        Arc::clone(&redis_client),
-    )
-    .await?;
-    spawn_all_audit_projectors(pool.clone(), Arc::clone(&redis_client)).await?;
-
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    // Let spawn_all_audit_projectors run during LazyLock init.
+    // This test needs the costume_category projector that was spawned.
+    tokio::time::sleep(Duration::from_millis(200)).await;
 
     let audit_repo = AuditRepositoryImpl::new(pool.clone());
 
@@ -735,7 +752,7 @@ async fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Resu
 
     // 1. First append (EXPECTED_VERSION EMPTY → version 0→1).
     eappend_event(
-        &redis_client,
+        redis_client,
         &stream_id,
         "CostumeCategoryCreated",
         "EMPTY",
@@ -752,7 +769,7 @@ async fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Resu
     // 2. Redelivery: same logical event, fresh SierraDB append (version 0→2,
     // but same payload → same event_key → deduped by audit projector).
     eappend_event(
-        &redis_client,
+        redis_client,
         &stream_id,
         "CostumeCategoryCreated",
         "0",
@@ -771,7 +788,7 @@ async fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Resu
     };
     let payload2 = encode_event(&event2)?;
     eappend_event(
-        &redis_client,
+        redis_client,
         &stream_id,
         "CostumeCategoryCreated",
         "0",
