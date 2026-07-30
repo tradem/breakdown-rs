@@ -151,7 +151,8 @@ async fn eappend_event(
     retry_with_backoff(
         || async {
             let now_ms = Utc::now().timestamp_millis().try_into().unwrap_or(0u64);
-            let ts_bytes = now_ms.to_string().as_bytes();
+            let ts_string = now_ms.to_string();
+            let ts_bytes = ts_string.as_bytes();
             let mut conn = client.get_multiplexed_async_connection().await?;
             redis::cmd("EAPPEND")
                 .arg(stream_id)
