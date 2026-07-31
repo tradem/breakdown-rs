@@ -70,13 +70,6 @@ typst-layout = { version = "=0.15.1", default-features = false }
 # Font embedding for deterministic Latin text
 typst-assets = "0.15.1"
 
-# Locale / i18n support (de-DE)
-fluent-bundle = "0.16"
-icu = { version = "1.5", default-features = false, features = ["compiled_data"] }
-icu_datetime = { version = "1.5", default-features = false, features = ["compiled_data"] }
-icu_decimal = { version = "1.5", default-features = false, features = ["compiled_data"] }
-icu_provider = { version = "2.2", default-features = false }
-
 # Embedded font assets
 rust-embed = "8"
 
