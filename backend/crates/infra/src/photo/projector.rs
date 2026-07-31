@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: qwen3.6-35b (neuralwatt)
+// Co-authored-by: glm-5.2 (neuralwatt)
 
 use breakdown_core::photo::aggregate::PhotoAggregate;
 use breakdown_core::photo::binding::PhotoBinding;

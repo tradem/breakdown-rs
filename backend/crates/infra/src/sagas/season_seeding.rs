@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: qwen3.6-35b (neuralwatt)
 // Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: glm-5.2 (neuralwatt)
 
 //! Season-seeding saga — the canonical "event-reactor-issues-commands" pattern.
 //!

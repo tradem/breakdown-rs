@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
 // Co-authored-by: qwen3.6-35b (neuralwatt)
+// Co-authored-by: glm-5.2 (neuralwatt)
 //! Generic audit / journal projector.
 //!
 //! Generalized to all 11 aggregate categories (`season`, `block`, `episode`,

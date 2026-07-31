@@ -3,6 +3,7 @@
 // Co-authored-by: qwen3.6-35b (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: glm-5.2 (neuralwatt)
 
 //! Saga that reacts to `ContinuityPhotoUnlinked` events on the `scene_shoot`
 //! stream. Checks refcount via `projection_continuity_photo` and dispatches

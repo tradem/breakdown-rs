@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: glm-5.2 (neuralwatt)
 
 //! Tier-4 integration tests for continuity-photo lifecycle (9.2 + 9.3).
 //!

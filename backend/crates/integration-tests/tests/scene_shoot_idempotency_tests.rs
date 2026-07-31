@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: moonshotai/kimi-k3 (openrouter)
+// Co-authored-by: glm-5.2 (neuralwatt)
 
 //! Tier-4 projector idempotency test for the SceneShoot aggregate (ADR-016).
 //!

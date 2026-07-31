@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.2 (neuralwatt)
 
 //! Tier-4 round-trip integration tests for the season-scoped `CostumeCategory`
 //! aggregate, the detail-enrichment of `CostumeDetail`, and the

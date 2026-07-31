@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
+// Co-authored-by: glm-5.2 (neuralwatt)
 
 //! Exercises the real `run_with_restart_with_config` supervisor with a
 //! `BackoffConfig` tuned for a small `max_attempts` and millisecond backoff.
