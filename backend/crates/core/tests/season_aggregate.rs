@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -15,6 +16,10 @@ use breakdown_core::shared::{AggregateVersion, SeriesId};
 use kameo_es::{Apply, Command};
 use test_support::make_ctx;
 use uuid::Uuid;
+
+fn series_id() -> SeriesId {
+    SeriesId::new()
+}
 
 fn create_season() -> SeasonAggregate {
     let cmd = CreateSeason {
@@ -81,6 +86,7 @@ fn test_rename_season_success() {
             RenameSeason {
                 id: agg.id,
                 title: Some("Renamed".into()),
+                series_id: Some(series_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -98,6 +104,7 @@ fn test_rename_season_idempotency() {
         RenameSeason {
             id: agg.id,
             title: agg.title.clone(),
+            series_id: Some(series_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -116,6 +123,7 @@ fn test_rename_season_wrong_version() {
         RenameSeason {
             id: agg.id,
             title: Some("X".into()),
+            series_id: Some(series_id()),
             version: AggregateVersion(99),
         },
         make_ctx(),
@@ -185,6 +193,7 @@ fn test_rename_uses_not_equal() {
         RenameSeason {
             id,
             title: Some("B".into()),
+            series_id: Some(series_id()),
             version: AggregateVersion(2),
         },
         make_ctx(),

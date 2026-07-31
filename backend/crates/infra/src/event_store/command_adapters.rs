@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! `kameo_es` write adapters implementing the `core` command ports.
 //!
@@ -9,11 +10,10 @@
 //! `core` command into `SceneAggregate::execute(...)` / `ExpectedVersion` calls
 //! against SierraDB and maps the reply back to `DomainError`.
 //!
-//! Each adapter also owns the read-side repository impls it needs to resolve the
-//! denormalized `series_id` for the `EventMetadata` audit trail (Decision: the
-//! audit projector keys on `series_id`). `series_id` is looked up from the
-//! command's own parent reference when available (create paths) or from the
-//! existing projection of the targeted/related aggregate.
+//! Adapters are write-side only: they never query read-model projections.
+//! The `series_id` for the `EventMetadata` audit trail (the audit projector
+//! keys on `series_id`) is carried directly on each command struct and
+//! resolved at the API edge by the handlers (the read-model boundary).
 //!
 //! ## Provenance conventions
 //!
@@ -26,7 +26,7 @@
 
 use breakdown_core::block::aggregate::BlockAggregate;
 use breakdown_core::block::commands::{CreateBlock, UpdateBlockTimeSpan};
-use breakdown_core::block::ports::{BlockCommands, BlockRepository};
+use breakdown_core::block::ports::BlockCommands;
 use breakdown_core::character::aggregate::CharacterAggregate;
 use breakdown_core::character::commands::{CreateCharacter, UpdateContactInfo, UpdateMeasurements};
 use breakdown_core::character::ports::{CharacterCommands, CharacterRepository};
@@ -90,9 +90,9 @@ use async_trait::async_trait;
 
 use crate::photo::repository::PhotoRepositoryImpl;
 use crate::queries::{
-    BlockRepositoryImpl, CharacterRepositoryImpl, CostumeCategoryRepositoryImpl,
-    CostumeRepositoryImpl, EpisodeRepositoryImpl, SceneRepositoryImpl, SceneShootRepositoryImpl,
-    SeasonRepositoryImpl, ShootingDayRepositoryImpl,
+    CharacterRepositoryImpl, CostumeCategoryRepositoryImpl, CostumeRepositoryImpl,
+    EpisodeRepositoryImpl, SceneRepositoryImpl, SceneShootRepositoryImpl, SeasonRepositoryImpl,
+    ShootingDayRepositoryImpl,
 };
 
 /// Command adapter for the Scene aggregate.
@@ -870,15 +870,11 @@ impl CostumeCommands for CostumeCommandsImpl {
 #[derive(Clone, Debug)]
 pub struct SeasonCommandsImpl {
     cmd_service: CommandService,
-    season_repo: SeasonRepositoryImpl,
 }
 
 impl SeasonCommandsImpl {
-    pub fn new(cmd_service: CommandService, season_repo: SeasonRepositoryImpl) -> Self {
-        Self {
-            cmd_service,
-            season_repo,
-        }
+    pub fn new(cmd_service: CommandService) -> Self {
+        Self { cmd_service }
     }
 }
 
@@ -909,12 +905,7 @@ impl SeasonCommands for SeasonCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = self
-            .season_repo
-            .find_by_id(cmd.id)
-            .await
-            .ok()
-            .map(|x| x.series_id);
+        let series_id = cmd.series_id;
         let result = SeasonAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
@@ -931,15 +922,11 @@ impl SeasonCommands for SeasonCommandsImpl {
 #[derive(Clone, Debug)]
 pub struct BlockCommandsImpl {
     cmd_service: CommandService,
-    block_repo: BlockRepositoryImpl,
 }
 
 impl BlockCommandsImpl {
-    pub fn new(cmd_service: CommandService, block_repo: BlockRepositoryImpl) -> Self {
-        Self {
-            cmd_service,
-            block_repo,
-        }
+    pub fn new(cmd_service: CommandService) -> Self {
+        Self { cmd_service }
     }
 }
 
@@ -970,12 +957,7 @@ impl BlockCommands for BlockCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = self
-            .block_repo
-            .find_by_id(cmd.id)
-            .await
-            .ok()
-            .map(|x| x.series_id);
+        let series_id = cmd.series_id;
         let result = BlockAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
@@ -992,15 +974,11 @@ impl BlockCommands for BlockCommandsImpl {
 #[derive(Clone, Debug)]
 pub struct EpisodeCommandsImpl {
     cmd_service: CommandService,
-    episode_repo: EpisodeRepositoryImpl,
 }
 
 impl EpisodeCommandsImpl {
-    pub fn new(cmd_service: CommandService, episode_repo: EpisodeRepositoryImpl) -> Self {
-        Self {
-            cmd_service,
-            episode_repo,
-        }
+    pub fn new(cmd_service: CommandService) -> Self {
+        Self { cmd_service }
     }
 }
 
@@ -1031,12 +1009,7 @@ impl EpisodeCommands for EpisodeCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = self
-            .episode_repo
-            .find_by_id(cmd.id)
-            .await
-            .ok()
-            .map(|x| x.series_id);
+        let series_id = cmd.series_id;
         let result = EpisodeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {

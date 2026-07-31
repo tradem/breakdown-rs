@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -15,6 +16,10 @@ use breakdown_core::shared::{AggregateVersion, BlockId, SeriesId};
 use kameo_es::{Apply, Command};
 use test_support::make_ctx;
 use uuid::Uuid;
+
+fn series_id() -> SeriesId {
+    SeriesId::new()
+}
 
 fn create_episode() -> EpisodeAggregate {
     let cmd = CreateEpisode {
@@ -87,6 +92,7 @@ fn test_rename_episode_success() {
             RenameEpisode {
                 id: agg.id,
                 name: Some("Renamed".into()),
+                series_id: Some(series_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -104,6 +110,7 @@ fn test_rename_episode_idempotency() {
         RenameEpisode {
             id: agg.id,
             name: agg.name.clone(),
+            series_id: Some(series_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -122,6 +129,7 @@ fn test_rename_episode_wrong_version() {
         RenameEpisode {
             id: agg.id,
             name: Some("X".into()),
+            series_id: Some(series_id()),
             version: AggregateVersion(99),
         },
         make_ctx(),
@@ -191,6 +199,7 @@ fn test_rename_uses_not_equal() {
         RenameEpisode {
             id,
             name: Some("B".into()),
+            series_id: Some(series_id()),
             version: AggregateVersion(2),
         },
         make_ctx(),

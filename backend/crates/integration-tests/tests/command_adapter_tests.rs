@@ -53,10 +53,7 @@ async fn seed_season(pool: &sqlx::PgPool, cmd_svc: &CommandService) -> (uuid::Uu
     let series_id = uuid::Uuid::now_v7();
     let season_id = uuid::Uuid::now_v7();
     {
-        let season_cmd = infra::event_store::SeasonCommandsImpl::new(
-            cmd_svc.clone(),
-            infra::queries::SeasonRepositoryImpl::new(pool.clone()),
-        );
+        let season_cmd = infra::event_store::SeasonCommandsImpl::new(cmd_svc.clone());
         let cmd = CreateSeason {
             id: season_id,
             series_id: SeriesId(series_id),
@@ -83,10 +80,7 @@ async fn seed_season_and_episode(
     // adapter.
     let episode_id = uuid::Uuid::now_v7();
     {
-        let ep_cmd = infra::event_store::EpisodeCommandsImpl::new(
-            cmd_svc.clone(),
-            infra::queries::EpisodeRepositoryImpl::new(pool.clone()),
-        );
+        let ep_cmd = infra::event_store::EpisodeCommandsImpl::new(cmd_svc.clone());
         let cmd = CreateEpisode {
             id: episode_id,
             block_id: BlockId(season_id),
@@ -806,10 +800,7 @@ async fn costume_photo_link_unlink() -> Result<()> {
 #[tokio::test]
 async fn season_create() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let season_cmd = infra::event_store::SeasonCommandsImpl::new(
-        cmd_svc,
-        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
-    );
+    let season_cmd = infra::event_store::SeasonCommandsImpl::new(cmd_svc);
     let season_repo = infra::queries::SeasonRepositoryImpl::new(pool.clone());
 
     let season_id = Uuid::now_v7();
@@ -836,10 +827,7 @@ async fn season_create() -> Result<()> {
 #[tokio::test]
 async fn block_create() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let block_cmd = infra::event_store::BlockCommandsImpl::new(
-        cmd_svc,
-        infra::queries::BlockRepositoryImpl::new(pool.clone()),
-    );
+    let block_cmd = infra::event_store::BlockCommandsImpl::new(cmd_svc);
     let block_repo = infra::queries::BlockRepositoryImpl::new(pool.clone());
 
     let block_id = Uuid::now_v7();
@@ -867,10 +855,7 @@ async fn block_create() -> Result<()> {
 #[tokio::test]
 async fn episode_create() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let episode_cmd = infra::event_store::EpisodeCommandsImpl::new(
-        cmd_svc,
-        infra::queries::EpisodeRepositoryImpl::new(pool.clone()),
-    );
+    let episode_cmd = infra::event_store::EpisodeCommandsImpl::new(cmd_svc);
     let episode_repo = infra::queries::EpisodeRepositoryImpl::new(pool.clone());
 
     let episode_id = Uuid::now_v7();

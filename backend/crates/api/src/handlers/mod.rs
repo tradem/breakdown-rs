@@ -416,9 +416,19 @@ pub async fn rename_season<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<RenameSeasonRequest>,
 ) -> ApiResult<AggregateVersion> {
+    let series_id = Some(
+        state
+            .ports
+            .season_repo()
+            .find_by_id(id)
+            .await
+            .map_err(map_err)?
+            .series_id,
+    );
     let cmd = RenameSeason {
         id,
         title: req.title,
+        series_id,
         version: req.version,
     };
     let version = state
@@ -570,10 +580,20 @@ pub async fn update_block_time_span<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateBlockTimeSpanRequest>,
 ) -> ApiResult<AggregateVersion> {
+    let series_id = Some(
+        state
+            .ports
+            .block_repo()
+            .find_by_id(id)
+            .await
+            .map_err(map_err)?
+            .series_id,
+    );
     let cmd = UpdateBlockTimeSpan {
         id,
         start_date: req.start_date,
         end_date: req.end_date,
+        series_id,
         version: req.version,
     };
     let version = state
@@ -672,9 +692,19 @@ pub async fn rename_episode<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<RenameEpisodeRequest>,
 ) -> ApiResult<AggregateVersion> {
+    let series_id = Some(
+        state
+            .ports
+            .episode_repo()
+            .find_by_id(id)
+            .await
+            .map_err(map_err)?
+            .series_id,
+    );
     let cmd = RenameEpisode {
         id,
         name: req.name,
+        series_id,
         version: req.version,
     };
     let version = state

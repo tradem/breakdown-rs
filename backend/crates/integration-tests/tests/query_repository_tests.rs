@@ -391,7 +391,7 @@ async fn seasons_by_series_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let series_id = SeriesId::new();
     let season_repo = SeasonRepositoryImpl::new(pool.clone());
-    let season_cmd = SeasonCommandsImpl::new(cmd_svc, SeasonRepositoryImpl::new(pool.clone()));
+    let season_cmd = SeasonCommandsImpl::new(cmd_svc);
 
     let season_id = Uuid::now_v7();
     season_cmd
@@ -421,7 +421,7 @@ async fn blocks_by_season_returns_data() -> Result<()> {
     let season_id = SeasonId::new();
     let series_id = SeriesId::new();
     let block_repo = BlockRepositoryImpl::new(pool.clone());
-    let block_cmd = BlockCommandsImpl::new(cmd_svc, BlockRepositoryImpl::new(pool.clone()));
+    let block_cmd = BlockCommandsImpl::new(cmd_svc);
 
     let block_id = Uuid::now_v7();
     block_cmd
@@ -450,7 +450,7 @@ async fn episodes_by_series_returns_data() -> Result<()> {
     let block_id = BlockId::new();
     let series_id = SeriesId::new();
     let episode_repo = EpisodeRepositoryImpl::new(pool.clone());
-    let episode_cmd = EpisodeCommandsImpl::new(cmd_svc, EpisodeRepositoryImpl::new(pool.clone()));
+    let episode_cmd = EpisodeCommandsImpl::new(cmd_svc);
 
     let episode_id = Uuid::now_v7();
     episode_cmd
