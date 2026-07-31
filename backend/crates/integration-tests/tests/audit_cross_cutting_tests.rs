@@ -81,7 +81,7 @@ struct SharedContainers {
     /// The pool consumed by **audit projector workers**. Because the kameo-es
     /// projector spawns lazily one per-partition worker per stream (Live +
     /// Buffers), workers hold long-lived read-only transactions for the
-    /// lifetime of their processing window.  `max_connections(2000)` gives
+    /// lifetime of their processing window.  `max_connections(256)` gives
     /// enough breathing room to absorb processing bursts without starving
     /// test-side queries.
     pg_pool: PgPool,
@@ -150,7 +150,7 @@ fn init_containers() -> &'static SharedContainers {
                 // pool its own semaphore with 512 permits to avoid any cross-pool
                 // contention under high load.
                 let pg_pool = PgPoolOptions::new()
-                    .max_connections(1024)
+                    .max_connections(256)
                     .acquire_timeout(Duration::from_secs(3))
                     .connect(&url)
                     .await
@@ -159,11 +159,11 @@ fn init_containers() -> &'static SharedContainers {
                 // Dedicated pool for test-side queries — completely isolated
                 // from projector transactions so there is zero contention.
                 // Using the same size as pg_pool so we can reason about the
-                // total pool consumption: 2000 (projectors) + 2000 (test)
+                // total pool consumption: 256 (projectors) + 256 (test)
                 // = 4000 connections, well within Postgres's 10000 limit.
                 // Dedicated query pool for tests — fully isolated from projector workers.
                 let query_pool = PgPoolOptions::new()
-                    .max_connections(1024)
+                    .max_connections(256)
                     .acquire_timeout(Duration::from_secs(10))
                     .connect(&url)
                     .await

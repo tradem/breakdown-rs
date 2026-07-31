@@ -201,8 +201,12 @@ async fn main() -> Result<()> {
     let _membership_projector =
         infra::projectors::spawn_membership_projector(pool.clone(), Arc::clone(&redis_client))
             .await?;
-    let _audit_projector =
-        infra::projectors::spawn_audit_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    // Spawn all 11 category audit projectors and keep their supervisor handles
+    // alive for the process lifetime. The handles' Drop aborts the projectors,
+    // so they MUST be held here (not dropped at end of function).
+    let _audit_handles =
+        infra::projectors::spawn_all_audit_projectors(pool.clone(), Arc::clone(&redis_client))
+            .await?;
     let _shooting_day_projector =
         infra::projectors::spawn_shooting_day_projector(pool.clone(), Arc::clone(&redis_client))
             .await?;

@@ -13,7 +13,7 @@ use breakdown_core::membership::Role;
 use breakdown_core::membership::events::MembershipEvent;
 use breakdown_core::shared::{BlockId, UserId};
 use chrono::Utc;
-use infra::projectors::spawn_audit_projector;
+use infra::projectors::spawn_membership_audit_projector;
 use infra::queries::AuditRepositoryImpl;
 use redis::Client as RedisClient;
 use serde_json::json;
@@ -86,7 +86,8 @@ async fn eappend_owner_bootstrapped_round_trips_into_audit() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
-    let _audit_ref = spawn_audit_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _audit_ref =
+        spawn_membership_audit_projector(pool.clone(), Arc::clone(&redis_client)).await?;
 
     let repo = AuditRepositoryImpl::new(pool);
 
@@ -154,7 +155,8 @@ async fn audit_projector_is_idempotent_under_redelivery() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
-    let _audit_ref = spawn_audit_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _audit_ref =
+        spawn_membership_audit_projector(pool.clone(), Arc::clone(&redis_client)).await?;
 
     let repo = AuditRepositoryImpl::new(pool);
 

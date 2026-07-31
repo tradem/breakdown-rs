@@ -124,7 +124,6 @@ type MembershipAuditProcessor = PostgresProcessor<(BlockMembership,), Membership
 
 // Backward-compat alias — the original v1 used a single `BlockMembership` stream.
 // (Already re-exported via the block above; left here for clarity.)
-type AuditProcessor = PostgresProcessor<(BlockMembership,), AuditProjector>;
 type ShootingDayProcessor = PostgresProcessor<(ShootingDayAggregate,), ShootingDayProjector>;
 type PhotoProcessor = PostgresProcessor<(PhotoAggregate,), PhotoProjector>;
 
@@ -664,43 +663,6 @@ pub async fn spawn_photo_audit_projector(
     run_projection_stream_handle!(
         PhotoAggregate,
         "audit:photo",
-        redis_client,
-        actor_ref.clone()
-    )?;
-    Ok(actor_ref)
-}
-
-// ── Combined audit projector spawn (backward-compat + full coverage) ──
-
-/// Spawn the backward-compat audit projector.
-///
-/// This spawns **all 11** category audit projectors. The returned
-/// `ActorRef` is the membership audit projector (same as the original API).
-pub async fn spawn_audit_projector(
-    pool: PgPool,
-    redis_client: Arc<RedisClient>,
-) -> Result<ActorRef<AuditProcessor>> {
-    // Spawn handles are intentionally dropped here — the supervisor loops
-    // are spawned in the SAME tokio runtime as the caller so they are
-    // kept alive by the runtime's lifecycle.  In test fixtures a separate
-    // runtime is used, so `init_containers` stores the handles explicitly.
-    let _handles = spawn_all_audit_projectors(pool.clone(), redis_client.clone()).await?;
-
-    let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = aggressive_test_flush(
-        MembershipAuditProcessor::new(
-            pool,
-            conn,
-            CHECKPOINTS_TABLE,
-            "audit:membership",
-            MembershipAuditProjector,
-        )
-        .await?,
-    );
-    let actor_ref = MembershipAuditProcessor::spawn(processor);
-    run_projection_stream_handle!(
-        BlockMembership,
-        "audit:membership",
         redis_client,
         actor_ref.clone()
     )?;
