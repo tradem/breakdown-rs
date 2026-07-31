@@ -1,6 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.2 (neuralwatt)
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::dbg_macro
+)]
 //! Tier-4 round-trip integration tests for the ShootingDay aggregate and the
 //! Scene ↔ ShootingDay scheduling link (ADR-014 / ADR-015 / ADR-016).
 //!
@@ -237,9 +246,12 @@ async fn eappend_shooting_day_created_round_trips_into_list() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
-    let _sd_ref =
-        infra::projectors::spawn_shooting_day_projector(pool.clone(), Arc::clone(&redis_client))
-            .await?;
+    let _sd_ref = infra::projectors::spawn_shooting_day_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
 
     let repo = ShootingDayRepositoryImpl::new(pool.clone());
 
@@ -289,11 +301,18 @@ async fn eappend_schedule_scene_links_join_and_reverse_query() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
-    let _scene_ref =
-        infra::projectors::spawn_scene_projector(pool.clone(), Arc::clone(&redis_client)).await?;
-    let _sd_ref =
-        infra::projectors::spawn_shooting_day_projector(pool.clone(), Arc::clone(&redis_client))
-            .await?;
+    let _scene_ref = infra::projectors::spawn_scene_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
+    let _sd_ref = infra::projectors::spawn_shooting_day_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
 
     let scene_repo = SceneRepositoryImpl::new(pool.clone());
     let sd_repo = ShootingDayRepositoryImpl::new(pool.clone());
@@ -394,11 +413,18 @@ async fn eappend_archive_while_referenced_hides_from_picker_keeps_link() -> Resu
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
-    let _scene_ref =
-        infra::projectors::spawn_scene_projector(pool.clone(), Arc::clone(&redis_client)).await?;
-    let _sd_ref =
-        infra::projectors::spawn_shooting_day_projector(pool.clone(), Arc::clone(&redis_client))
-            .await?;
+    let _scene_ref = infra::projectors::spawn_scene_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
+    let _sd_ref = infra::projectors::spawn_shooting_day_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
 
     let scene_repo = SceneRepositoryImpl::new(pool.clone());
     let sd_repo = ShootingDayRepositoryImpl::new(pool.clone());
@@ -522,9 +548,12 @@ async fn eappend_reorder_with_midpoint_orders_projection() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
-    let _sd_ref =
-        infra::projectors::spawn_shooting_day_projector(pool.clone(), Arc::clone(&redis_client))
-            .await?;
+    let _sd_ref = infra::projectors::spawn_shooting_day_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
 
     let repo = ShootingDayRepositoryImpl::new(pool.clone());
     let episode_id = EpisodeId::new();

@@ -1,39 +1,148 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: qwen3.6-35b (neuralwatt)
+// Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: glm-5.2 (neuralwatt)
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result;
+use breakdown_core::character::ports::CharacterRepository;
+use breakdown_core::costume::ports::CostumeRepository;
+use breakdown_core::episode::ports::EpisodeRepository;
 use breakdown_core::photo::aggregate::PhotoAggregate;
+use breakdown_core::photo::binding::PhotoBinding;
 use breakdown_core::photo::commands::{GenerateVariant, NormalizeOriginal};
 use breakdown_core::photo::events::PhotoEvent;
-use breakdown_core::photo::ports::{PhotoCommands, PhotoStorage};
-use breakdown_core::shared::{AggregateVersion, PhotoId, PhotoVariant};
+use breakdown_core::photo::ports::{PhotoRepository, PhotoStorage};
+use breakdown_core::scene::ports::SceneRepository;
+use breakdown_core::scene_shoot::ports::SceneShootRepository;
+use breakdown_core::season::ports::SeasonRepository;
+use breakdown_core::shared::{
+    AggregateVersion, EventMetadata, PhotoId, PhotoVariant, Provenance, SeriesId,
+};
+use kameo_es::command_service::CommandService;
+use kameo_es::command_service::ExecuteExt;
 use kameo_es::event_handler::EventHandlerStreamBuilder;
 use kameo_es::event_handler::{EntityEventHandler, EventHandler};
 use kameo_es::event_handler::{EventHandlerError, EventProcessor};
 use kameo_es::{Entity, Event};
 use redis::Client as RedisClient;
+use sierradb_client::ExpectedVersion;
 use sierradb_client::SierraAsyncClientExt;
 
-use crate::event_store::PhotoCommandsImpl;
+use crate::event_store::map_version_only;
+use crate::photo::repository::PhotoRepositoryImpl;
 use crate::photo::storage::OpenDalPhotoStorage;
 use crate::projectors::supervisor;
+use crate::queries::{
+    CharacterRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl, SceneRepositoryImpl,
+    SceneShootRepositoryImpl, SeasonRepositoryImpl,
+};
 
 /// Saga that reacts to `PhotoUploaded` events: fetches original bytes from
 /// storage, decodes them, applies EXIF orientation correction, re-encodes
 /// the original upright and EXIF-stripped, generates thumbnail and medium
-/// variants, and dispatches the corresponding commands.
+/// variants, and dispatches the corresponding commands directly via
+/// `PhotoAggregate::execute` with `Provenance::Saga`.
 #[derive(Clone, Debug)]
 pub struct PhotoThumbnailSaga {
+    cmd_service: CommandService,
     storage: OpenDalPhotoStorage,
-    commands: PhotoCommandsImpl,
+    photo_repo: PhotoRepositoryImpl,
+    costume_repo: CostumeRepositoryImpl,
+    character_repo: CharacterRepositoryImpl,
+    season_repo: SeasonRepositoryImpl,
+    scene_shoot_repo: SceneShootRepositoryImpl,
+    scene_repo: SceneRepositoryImpl,
+    episode_repo: EpisodeRepositoryImpl,
 }
 
 impl PhotoThumbnailSaga {
-    pub fn new(storage: OpenDalPhotoStorage, commands: PhotoCommandsImpl) -> Self {
-        Self { storage, commands }
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        cmd_service: CommandService,
+        storage: OpenDalPhotoStorage,
+        photo_repo: PhotoRepositoryImpl,
+        costume_repo: CostumeRepositoryImpl,
+        character_repo: CharacterRepositoryImpl,
+        season_repo: SeasonRepositoryImpl,
+        scene_shoot_repo: SceneShootRepositoryImpl,
+        scene_repo: SceneRepositoryImpl,
+        episode_repo: EpisodeRepositoryImpl,
+    ) -> Self {
+        Self {
+            cmd_service,
+            storage,
+            photo_repo,
+            costume_repo,
+            character_repo,
+            season_repo,
+            scene_shoot_repo,
+            scene_repo,
+            episode_repo,
+        }
+    }
+
+    /// Resolve `series_id` from the photo's binding.
+    async fn resolve_series_id(
+        &self,
+        photo_id: PhotoId,
+    ) -> Result<Option<SeriesId>, anyhow::Error> {
+        // Best-effort series_id resolution for the audit trail. Any projection
+        // miss (NotFound, lag, missing parent projector) yields Ok(None) rather
+        // than failing the saga — thumbnail/deletion processing must not be
+        // blocked by audit-metadata resolution.
+        let binding = self
+            .photo_repo
+            .find_by_id(photo_id)
+            .await
+            .ok()
+            .map(|p| p.binding);
+        let binding = match binding {
+            Some(b) => b,
+            None => return Ok(None),
+        };
+        match binding {
+            PhotoBinding::Costume { costume_id } => {
+                let costume = match self.costume_repo.find_by_id(costume_id).await.ok() {
+                    Some(c) => c,
+                    None => return Ok(None),
+                };
+                match costume.character_id {
+                    Some(character_id) => {
+                        let ch = match self.character_repo.find_by_id(character_id).await.ok() {
+                            Some(c) => c,
+                            None => return Ok(None),
+                        };
+                        Ok(self
+                            .season_repo
+                            .find_by_id(ch.season_id.0)
+                            .await
+                            .ok()
+                            .map(|s| s.series_id))
+                    }
+                    None => Ok(None),
+                }
+            }
+            PhotoBinding::Continuity { scene_shoot_id, .. } => {
+                let ss = match self.scene_shoot_repo.find_by_id(scene_shoot_id).await.ok() {
+                    Some(s) => s,
+                    None => return Ok(None),
+                };
+                let sc = match self.scene_repo.find_by_id(ss.scene_id).await.ok() {
+                    Some(s) => s,
+                    None => return Ok(None),
+                };
+                Ok(self
+                    .episode_repo
+                    .find_by_id(sc.episode_id.0)
+                    .await
+                    .ok()
+                    .map(|e| e.series_id))
+            }
+        }
     }
 }
 
@@ -46,7 +155,7 @@ impl EntityEventHandler<PhotoAggregate, ()> for PhotoThumbnailSaga {
         &mut self,
         _ctx: &mut (),
         _id: PhotoId,
-        event: Event<PhotoEvent, ()>,
+        event: Event<PhotoEvent, EventMetadata>,
     ) -> Result<(), Self::Error> {
         if let PhotoEvent::PhotoUploaded { id, .. } = event.data {
             self.process_upload(id).await?;
@@ -99,37 +208,62 @@ impl PhotoThumbnailSaga {
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-        // Dispatch the normalization command.
-        self.commands
-            .normalize_original(NormalizeOriginal {
-                id,
-                new_size: photo_bytes.size_bytes,
-                rotated,
-                version: AggregateVersion::INITIAL,
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        // Resolve series_id from the photo's binding.
+        let series_id = self.resolve_series_id(id).await?;
 
-        // Dispatch the variant generation commands.
-        self.commands
-            .generate_variant(GenerateVariant {
-                id,
-                variant: PhotoVariant::Thumb,
-                size_bytes: 0, // Will be updated by the command handler
-                version: AggregateVersion::INITIAL,
+        // Dispatch the normalization command via Aggregate::execute.
+        let norm_id = id;
+        let norm_cmd = NormalizeOriginal {
+            id,
+            new_size: photo_bytes.size_bytes,
+            rotated,
+            version: AggregateVersion::INITIAL,
+        };
+        let result = PhotoAggregate::execute(&self.cmd_service, norm_id, norm_cmd)
+            .expected_version(ExpectedVersion::Any)
+            .metadata(EventMetadata {
+                actor: None,
+                provenance: Provenance::Saga("PhotoThumbnailSaga".to_string()),
+                series_id,
             })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+            .await;
+        map_version_only(result).map_err(|e| anyhow::anyhow!("{e}"))?;
 
-        self.commands
-            .generate_variant(GenerateVariant {
-                id,
-                variant: PhotoVariant::Medium,
-                size_bytes: 0,
-                version: AggregateVersion::INITIAL,
+        // Dispatch the Thumb variant generation command.
+        let thumb_id = id;
+        let thumb_cmd = GenerateVariant {
+            id,
+            variant: PhotoVariant::Thumb,
+            size_bytes: 0,
+            version: AggregateVersion::INITIAL,
+        };
+        let result = PhotoAggregate::execute(&self.cmd_service, thumb_id, thumb_cmd)
+            .expected_version(ExpectedVersion::Any)
+            .metadata(EventMetadata {
+                actor: None,
+                provenance: Provenance::Saga("PhotoThumbnailSaga".to_string()),
+                series_id,
             })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+            .await;
+        map_version_only(result).map_err(|e| anyhow::anyhow!("{e}"))?;
+
+        // Dispatch the Medium variant generation command.
+        let med_id = id;
+        let med_cmd = GenerateVariant {
+            id,
+            variant: PhotoVariant::Medium,
+            size_bytes: 0,
+            version: AggregateVersion::INITIAL,
+        };
+        let result = PhotoAggregate::execute(&self.cmd_service, med_id, med_cmd)
+            .expected_version(ExpectedVersion::Any)
+            .metadata(EventMetadata {
+                actor: None,
+                provenance: Provenance::Saga("PhotoThumbnailSaga".to_string()),
+                series_id,
+            })
+            .await;
+        map_version_only(result).map_err(|e| anyhow::anyhow!("{e}"))?;
 
         Ok(())
     }
@@ -227,12 +361,30 @@ impl EventProcessor<(PhotoAggregate,), PhotoThumbnailSaga> for PhotoThumbnailSag
 /// Spawn the thumbnail saga subscription loop (supervised, background).
 ///
 /// Subscribes to the `photo` stream and processes `PhotoUploaded` events.
+#[allow(clippy::too_many_arguments)]
 pub async fn spawn_photo_thumbnail_saga(
+    cmd_service: CommandService,
     storage: OpenDalPhotoStorage,
-    commands: PhotoCommandsImpl,
+    photo_repo: PhotoRepositoryImpl,
+    costume_repo: CostumeRepositoryImpl,
+    character_repo: CharacterRepositoryImpl,
+    season_repo: SeasonRepositoryImpl,
+    scene_shoot_repo: SceneShootRepositoryImpl,
+    scene_repo: SceneRepositoryImpl,
+    episode_repo: EpisodeRepositoryImpl,
     redis_client: Arc<RedisClient>,
 ) -> Result<()> {
-    let saga = PhotoThumbnailSaga::new(storage, commands);
+    let saga = PhotoThumbnailSaga::new(
+        cmd_service,
+        storage,
+        photo_repo,
+        costume_repo,
+        character_repo,
+        season_repo,
+        scene_shoot_repo,
+        scene_repo,
+        episode_repo,
+    );
     let _handle = supervisor::run_with_restart("photo_thumbnail_saga", move || {
         let mut saga = saga.clone();
         let client = redis_client.clone();

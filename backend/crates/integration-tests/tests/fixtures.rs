@@ -1,6 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.2 (neuralwatt)
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::dbg_macro
+)]
 //! Test-harness for integration and end-to-end tests.
 //!
 //! Provides ephemeral container helpers (`spawn_postgres`, `spawn_sierradb`)
@@ -66,7 +75,12 @@ pub fn build_postgres_container_request() -> ContainerRequest<PostgresImage> {
     } else {
         image.into()
     };
+    // Allow enough connections for many projectors to hold long-lived
+    // transactions simultaneously + concurrent test queries.
+    // The Postgres default max_connections=100 is too low for 11+ projectors
+    // each spawning up to 16 workers (each worker holds 1-2 connections).
     base.with_startup_timeout(Duration::from_secs(120))
+        .with_env_var("POSTGRES_MAX_CONNECTIONS", "600")
 }
 
 // ---------------------------------------------------------------------------
@@ -455,6 +469,11 @@ pub struct TestScene {
     _pg_guard: ContainerAsync<PostgresImage>,
 }
 
+/// Test user for commands that require actor identification.
+pub fn test_user() -> breakdown_core::shared::UserId {
+    breakdown_core::shared::UserId("test-user".into())
+}
+
 impl TestScene {
     /// Build a `TestScene` from a pre-built [`TestApp`].
     /// The passed-in `app.pool` is cloned so the caller retains it for spawning projectors.
@@ -471,7 +490,12 @@ impl TestScene {
 
         let cmd_service = CommandService::new(conn_guard.conn.clone());
 
-        let scene_commands = infra::event_store::SceneCommandsImpl::new(cmd_service.clone());
+        let scene_commands = infra::event_store::SceneCommandsImpl::new(
+            cmd_service.clone(),
+            infra::queries::SceneRepositoryImpl::new(pool_clone.clone()),
+            infra::queries::EpisodeRepositoryImpl::new(pool_clone.clone()),
+            infra::queries::ShootingDayRepositoryImpl::new(pool_clone.clone()),
+        );
         let scene_repo = infra::queries::SceneRepositoryImpl::new(pool_clone.clone());
 
         Ok(Self {
@@ -493,7 +517,7 @@ impl TestScene {
         cmd: breakdown_core::scene::commands::CreateScene,
     ) -> Result<(uuid::Uuid, breakdown_core::shared::AggregateVersion), DomainError> {
         use SceneCommands;
-        self.scene_commands.create(cmd).await
+        self.scene_commands.create(test_user(), cmd).await
     }
 
     /// Execute an `UpdateSceneDetails` command and return `reply_version`.
@@ -502,7 +526,7 @@ impl TestScene {
         cmd: breakdown_core::scene::commands::UpdateSceneDetails,
     ) -> Result<breakdown_core::shared::AggregateVersion, DomainError> {
         use SceneCommands;
-        self.scene_commands.update_details(cmd).await
+        self.scene_commands.update_details(test_user(), cmd).await
     }
 
     /// Query the projection for a scene by ID.

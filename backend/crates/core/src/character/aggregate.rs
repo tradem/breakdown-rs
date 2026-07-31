@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: mimo-v2.5 (opencode-go)
 
 //! Character aggregate using `kameo_es` event-sourced actor pattern.
 
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, SeasonId};
+use crate::shared::{AggregateVersion, EventMetadata, SeasonId};
 
 use super::category::CharacterCategory;
 use super::commands::{CreateCharacter, UpdateContactInfo, UpdateMeasurements};
@@ -31,7 +32,7 @@ pub struct CharacterAggregate {
 impl Entity for CharacterAggregate {
     type ID = Uuid;
     type Event = CharacterEvent;
-    type Metadata = ();
+    type Metadata = EventMetadata;
 
     fn category() -> &'static str {
         "character"
@@ -41,7 +42,7 @@ impl Entity for CharacterAggregate {
 // ADR-002 (Event Sourcing / CQRS): Apply replays past events to rebuild
 // aggregate state. Every command handler emits events that are applied here.
 impl Apply for CharacterAggregate {
-    fn apply(&mut self, event: Self::Event, _metadata: Metadata<()>) {
+    fn apply(&mut self, event: Self::Event, _metadata: Metadata<EventMetadata>) {
         match event {
             CharacterEvent::CharacterCreated {
                 id,

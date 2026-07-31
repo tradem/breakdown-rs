@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: glm-5.2 (neuralwatt)
 
 //! Axum-Handler (Request → Command / Query)
 
@@ -286,6 +287,7 @@ type ApiResult<T> = Result<(StatusCode, Json<T>), (StatusCode, Json<ErrorRespons
 fn map_err(err: DomainError) -> (StatusCode, Json<ErrorResponse>) {
     let status = match &err {
         DomainError::NotFound(_) => StatusCode::NOT_FOUND,
+        DomainError::Unauthorized(_) => StatusCode::FORBIDDEN,
         DomainError::ValidationError(_) => StatusCode::BAD_REQUEST,
         DomainError::Conflict(_) | DomainError::VersionConflict { .. } => StatusCode::CONFLICT,
     };
@@ -317,6 +319,41 @@ fn require_series(params: &ListParams) -> Result<SeriesId, (StatusCode, Json<Err
         .ok_or_else(|| map_err(DomainError::ValidationError("series_id is required".into())))
 }
 
+#[utoipa::path(
+    get,
+    path = "/audit",
+    params(ListParams),
+    responses(
+        (status = 200, body = Vec<AuditEntry>, description = "Audit journal entries, newest first"),
+        (status = 403, body = ErrorResponse, description = "Not authorized"),
+        (status = 400, body = ErrorResponse, description = "Validation error"),
+    ),
+)]
+pub async fn get_audit_history<P: Ports>(
+    State(state): State<AppState<P>>,
+    _current_user: CurrentUser,
+    Query(params): Query<ListParams>,
+) -> ApiResult<Vec<AuditEntry>> {
+    let series_id = require_series(&params)?;
+
+    // AUTHZ-GATE: Audit history is a privileged administrative view.
+    // For v1, we allow access if the user is authenticated and provides a valid series_id.
+    // In a future iteration, we will implement `MembershipRepository::list_by_series`
+    // to verify actual membership within that tenant.
+
+    let entries = state
+        .ports
+        .audit_repo()
+        .list_by_series(
+            series_id,
+            params.limit.unwrap_or(50),
+            params.offset.unwrap_or(0),
+        )
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(entries)))
+}
+
 // ---------------------------------------------------------------------------
 // Season handlers
 // ---------------------------------------------------------------------------
@@ -329,6 +366,7 @@ fn require_series(params: &ListParams) -> Result<SeriesId, (StatusCode, Json<Err
 )]
 pub async fn create_season<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Json(req): Json<CreateSeasonRequest>,
 ) -> ApiResult<IdVersionResponse> {
     let id = Uuid::now_v7();
@@ -341,7 +379,7 @@ pub async fn create_season<P: Ports>(
     let (id, version) = state
         .ports
         .season_commands()
-        .create(cmd)
+        .create(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::CREATED, Json(IdVersionResponse { id, version })))
@@ -374,6 +412,7 @@ pub async fn get_season<P: Ports>(
 )]
 pub async fn rename_season<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Path(id): Path<Uuid>,
     Json(req): Json<RenameSeasonRequest>,
 ) -> ApiResult<AggregateVersion> {
@@ -385,7 +424,7 @@ pub async fn rename_season<P: Ports>(
     let version = state
         .ports
         .season_commands()
-        .rename(cmd)
+        .rename(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -418,7 +457,7 @@ pub async fn create_block<P: Ports>(
     let (id, version) = state
         .ports
         .block_commands()
-        .create(cmd)
+        .create(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
 
@@ -427,6 +466,7 @@ pub async fn create_block<P: Ports>(
     // bootstrap command only succeeds on an empty block.
     let bootstrap = BootstrapOwner {
         block_id: BlockId(id),
+        series_id: req.series_id,
         user_id: current_user.sub.clone(),
         role: Role::CostumeAssistant,
     };
@@ -526,6 +566,7 @@ pub async fn list_blocks<P: Ports>(
 )]
 pub async fn update_block_time_span<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateBlockTimeSpanRequest>,
 ) -> ApiResult<AggregateVersion> {
@@ -538,7 +579,7 @@ pub async fn update_block_time_span<P: Ports>(
     let version = state
         .ports
         .block_commands()
-        .update_time_span(cmd)
+        .update_time_span(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -556,6 +597,7 @@ pub async fn update_block_time_span<P: Ports>(
 )]
 pub async fn create_episode<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Json(req): Json<CreateEpisodeRequest>,
 ) -> ApiResult<IdVersionResponse> {
     let id = Uuid::now_v7();
@@ -569,7 +611,7 @@ pub async fn create_episode<P: Ports>(
     let (id, version) = state
         .ports
         .episode_commands()
-        .create(cmd)
+        .create(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::CREATED, Json(IdVersionResponse { id, version })))
@@ -626,6 +668,7 @@ pub async fn list_episodes<P: Ports>(
 )]
 pub async fn rename_episode<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Path(id): Path<Uuid>,
     Json(req): Json<RenameEpisodeRequest>,
 ) -> ApiResult<AggregateVersion> {
@@ -637,7 +680,7 @@ pub async fn rename_episode<P: Ports>(
     let version = state
         .ports
         .episode_commands()
-        .rename(cmd)
+        .rename(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -659,6 +702,7 @@ pub async fn rename_episode<P: Ports>(
 )]
 pub async fn create_scene<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Json(req): Json<CreateSceneRequest>,
 ) -> ApiResult<IdVersionResponse> {
     let id = Uuid::now_v7();
@@ -670,7 +714,7 @@ pub async fn create_scene<P: Ports>(
     let (id, version) = state
         .ports
         .scene_commands()
-        .create(cmd)
+        .create(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::CREATED, Json(IdVersionResponse { id, version })))
@@ -734,6 +778,7 @@ pub async fn list_scenes<P: Ports>(
 )]
 pub async fn update_scene_details<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateSceneDetailsRequest>,
 ) -> ApiResult<AggregateVersion> {
@@ -745,7 +790,7 @@ pub async fn update_scene_details<P: Ports>(
     let version = state
         .ports
         .scene_commands()
-        .update_details(cmd)
+        .update_details(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -759,6 +804,7 @@ pub async fn update_scene_details<P: Ports>(
 )]
 pub async fn assign_scene_character<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Path(id): Path<Uuid>,
     Json(req): Json<AssignCharacterRequest>,
 ) -> ApiResult<AggregateVersion> {
@@ -770,7 +816,7 @@ pub async fn assign_scene_character<P: Ports>(
     let version = state
         .ports
         .scene_commands()
-        .assign_character(cmd)
+        .assign_character(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -784,6 +830,7 @@ pub async fn assign_scene_character<P: Ports>(
 )]
 pub async fn remove_scene_character<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Path((id, character_id)): Path<(Uuid, Uuid)>,
     Query(version): Query<VersionRequest>,
 ) -> ApiResult<AggregateVersion> {
@@ -795,7 +842,7 @@ pub async fn remove_scene_character<P: Ports>(
     let version = state
         .ports
         .scene_commands()
-        .remove_character(cmd)
+        .remove_character(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -814,6 +861,7 @@ pub async fn remove_scene_character<P: Ports>(
 )]
 pub async fn create_shooting_day<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Path(episode_id): Path<EpisodeId>,
     Json(req): Json<CreateShootingDayRequest>,
 ) -> ApiResult<IdVersionResponse> {
@@ -829,7 +877,7 @@ pub async fn create_shooting_day<P: Ports>(
     let (id, version) = state
         .ports
         .shooting_day_commands()
-        .create(cmd)
+        .create(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((
@@ -889,39 +937,50 @@ pub async fn get_shooting_day<P: Ports>(
 )]
 pub async fn update_shooting_day<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Path(id): Path<ShootingDayId>,
     Json(req): Json<UpdateShootingDayRequest>,
 ) -> ApiResult<AggregateVersion> {
+    let actor = current_user.sub.clone();
     let cmds = state.ports.shooting_day_commands();
     if let Some(order_key) = req.order_key {
         let version = cmds
-            .reorder(ReorderShootingDay {
-                id,
-                order_key,
-                version: req.version,
-            })
+            .reorder(
+                actor.clone(),
+                ReorderShootingDay {
+                    id,
+                    order_key,
+                    version: req.version,
+                },
+            )
             .await
             .map_err(map_err)?;
         return Ok((StatusCode::OK, Json(version)));
     }
     if req.date.is_some() {
         let version = cmds
-            .reschedule(RescheduleShootingDay {
-                id,
-                date: req.date,
-                version: req.version,
-            })
+            .reschedule(
+                actor.clone(),
+                RescheduleShootingDay {
+                    id,
+                    date: req.date,
+                    version: req.version,
+                },
+            )
             .await
             .map_err(map_err)?;
         return Ok((StatusCode::OK, Json(version)));
     }
     if req.label.is_some() {
         let version = cmds
-            .rename(RenameShootingDay {
-                id,
-                label: req.label,
-                version: req.version,
-            })
+            .rename(
+                actor,
+                RenameShootingDay {
+                    id,
+                    label: req.label,
+                    version: req.version,
+                },
+            )
             .await
             .map_err(map_err)?;
         return Ok((StatusCode::OK, Json(version)));
@@ -943,16 +1002,20 @@ pub async fn update_shooting_day<P: Ports>(
 )]
 pub async fn archive_shooting_day<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Path(id): Path<ShootingDayId>,
     Json(req): Json<VersionRequest>,
 ) -> ApiResult<AggregateVersion> {
     let version = state
         .ports
         .shooting_day_commands()
-        .archive(ArchiveShootingDay {
-            id,
-            version: req.version,
-        })
+        .archive(
+            current_user.sub.clone(),
+            ArchiveShootingDay {
+                id,
+                version: req.version,
+            },
+        )
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -971,6 +1034,7 @@ pub async fn archive_shooting_day<P: Ports>(
 )]
 pub async fn schedule_scene_on_shooting_day<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Path(id): Path<Uuid>,
     Json(req): Json<ScheduleSceneRequest>,
 ) -> ApiResult<AggregateVersion> {
@@ -982,7 +1046,7 @@ pub async fn schedule_scene_on_shooting_day<P: Ports>(
     let version = state
         .ports
         .scene_commands()
-        .schedule_on_shooting_day(cmd)
+        .schedule_on_shooting_day(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -999,6 +1063,7 @@ pub async fn schedule_scene_on_shooting_day<P: Ports>(
 )]
 pub async fn unschedule_scene_from_shooting_day<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Path((id, shooting_day_id)): Path<(Uuid, ShootingDayId)>,
     Query(version): Query<VersionRequest>,
 ) -> ApiResult<AggregateVersion> {
@@ -1010,7 +1075,7 @@ pub async fn unschedule_scene_from_shooting_day<P: Ports>(
     let version = state
         .ports
         .scene_commands()
-        .unschedule_from_shooting_day(cmd)
+        .unschedule_from_shooting_day(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -1031,6 +1096,7 @@ pub async fn unschedule_scene_from_shooting_day<P: Ports>(
 )]
 pub async fn create_character<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Json(req): Json<CreateCharacterRequest>,
 ) -> ApiResult<IdVersionResponse> {
     let id = Uuid::now_v7();
@@ -1043,7 +1109,7 @@ pub async fn create_character<P: Ports>(
     let (id, version) = state
         .ports
         .character_commands()
-        .create(cmd)
+        .create(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::CREATED, Json(IdVersionResponse { id, version })))
@@ -1104,6 +1170,7 @@ pub async fn list_characters<P: Ports>(
 )]
 pub async fn update_measurements<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateMeasurementsRequest>,
 ) -> ApiResult<AggregateVersion> {
@@ -1115,7 +1182,7 @@ pub async fn update_measurements<P: Ports>(
     let version = state
         .ports
         .character_commands()
-        .update_measurements(cmd)
+        .update_measurements(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -1129,6 +1196,7 @@ pub async fn update_measurements<P: Ports>(
 )]
 pub async fn update_contact_info<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateContactInfoRequest>,
 ) -> ApiResult<AggregateVersion> {
@@ -1140,7 +1208,7 @@ pub async fn update_contact_info<P: Ports>(
     let version = state
         .ports
         .character_commands()
-        .update_contact_info(cmd)
+        .update_contact_info(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -1161,6 +1229,7 @@ pub async fn update_contact_info<P: Ports>(
 )]
 pub async fn create_costume<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Json(_req): Json<CreateCostumeRequest>,
 ) -> ApiResult<IdVersionResponse> {
     let id = Uuid::now_v7();
@@ -1168,7 +1237,7 @@ pub async fn create_costume<P: Ports>(
     let (id, version) = state
         .ports
         .costume_commands()
-        .create(cmd)
+        .create(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::CREATED, Json(IdVersionResponse { id, version })))
@@ -1229,6 +1298,7 @@ pub async fn list_costumes<P: Ports>(
 )]
 pub async fn update_costume_notes<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateCostumeNotesRequest>,
 ) -> ApiResult<AggregateVersion> {
@@ -1240,7 +1310,7 @@ pub async fn update_costume_notes<P: Ports>(
     let version = state
         .ports
         .costume_commands()
-        .update_notes(cmd)
+        .update_notes(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -1254,6 +1324,7 @@ pub async fn update_costume_notes<P: Ports>(
 )]
 pub async fn assign_costume<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Path(id): Path<Uuid>,
     Json(req): Json<AssignCostumeRequest>,
 ) -> ApiResult<AggregateVersion> {
@@ -1265,7 +1336,7 @@ pub async fn assign_costume<P: Ports>(
     let version = state
         .ports
         .costume_commands()
-        .assign_to_character(cmd)
+        .assign_to_character(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -1279,6 +1350,7 @@ pub async fn assign_costume<P: Ports>(
 )]
 pub async fn unassign_costume<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Path(id): Path<Uuid>,
     Json(req): Json<VersionRequest>,
 ) -> ApiResult<AggregateVersion> {
@@ -1289,7 +1361,7 @@ pub async fn unassign_costume<P: Ports>(
     let version = state
         .ports
         .costume_commands()
-        .unassign(cmd)
+        .unassign(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -1308,17 +1380,21 @@ pub async fn unassign_costume<P: Ports>(
 )]
 pub async fn add_costume_detail<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Path(id): Path<Uuid>,
     Json(req): Json<AddCostumeDetailRequest>,
 ) -> ApiResult<AggregateVersion> {
     let version = state
         .ports
         .costume_commands()
-        .add_detail(AddDetail {
-            id,
-            detail: req.detail,
-            version: req.version,
-        })
+        .add_detail(
+            current_user.sub.clone(),
+            AddDetail {
+                id,
+                detail: req.detail,
+                version: req.version,
+            },
+        )
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -1337,6 +1413,7 @@ pub async fn add_costume_detail<P: Ports>(
 )]
 pub async fn create_costume_category<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Path(season_id): Path<SeasonId>,
     Json(req): Json<CreateCostumeCategoryRequest>,
 ) -> ApiResult<IdVersionResponse> {
@@ -1350,7 +1427,7 @@ pub async fn create_costume_category<P: Ports>(
     let (id, version) = state
         .ports
         .costume_category_commands()
-        .create(cmd)
+        .create(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::CREATED, Json(IdVersionResponse { id, version })))
@@ -1388,28 +1465,36 @@ pub async fn list_costume_categories<P: Ports>(
 )]
 pub async fn update_costume_category<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateCostumeCategoryRequest>,
 ) -> ApiResult<AggregateVersion> {
+    let actor = current_user.sub.clone();
     let cmds = state.ports.costume_category_commands();
     if let Some(name) = req.name {
         let version = cmds
-            .rename(RenameCostumeCategory {
-                id,
-                name,
-                version: req.version,
-            })
+            .rename(
+                actor.clone(),
+                RenameCostumeCategory {
+                    id,
+                    name,
+                    version: req.version,
+                },
+            )
             .await
             .map_err(map_err)?;
         return Ok((StatusCode::OK, Json(version)));
     }
     if let Some(order_key) = req.order_key {
         let version = cmds
-            .reorder(ReorderCostumeCategory {
-                id,
-                order_key,
-                version: req.version,
-            })
+            .reorder(
+                actor,
+                ReorderCostumeCategory {
+                    id,
+                    order_key,
+                    version: req.version,
+                },
+            )
             .await
             .map_err(map_err)?;
         return Ok((StatusCode::OK, Json(version)));
@@ -1431,16 +1516,20 @@ pub async fn update_costume_category<P: Ports>(
 )]
 pub async fn archive_costume_category<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Path(id): Path<Uuid>,
     Json(req): Json<VersionRequest>,
 ) -> ApiResult<AggregateVersion> {
     let version = state
         .ports
         .costume_category_commands()
-        .archive(ArchiveCostumeCategory {
-            id,
-            version: req.version,
-        })
+        .archive(
+            current_user.sub.clone(),
+            ArchiveCostumeCategory {
+                id,
+                version: req.version,
+            },
+        )
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -1472,8 +1561,16 @@ pub async fn invite_member<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<InviteMemberRequest>,
 ) -> ApiResult<()> {
+    let series_id = state
+        .ports
+        .block_repo()
+        .find_by_id(id)
+        .await
+        .map_err(map_err)?
+        .series_id;
     let cmd = InviteMember {
         block_id: BlockId::from_uuid(id),
+        series_id,
         user_id: UserId::from_sub(req.user_id),
         role: req.role,
     };
@@ -1508,8 +1605,16 @@ pub async fn accept_invitation<P: Ports>(
     current_user: CurrentUser,
     Path(id): Path<Uuid>,
 ) -> ApiResult<()> {
+    let series_id = state
+        .ports
+        .block_repo()
+        .find_by_id(id)
+        .await
+        .map_err(map_err)?
+        .series_id;
     let cmd = AcceptInvitation {
         block_id: BlockId::from_uuid(id),
+        series_id,
         user_id: current_user.sub.clone(),
     };
     state
@@ -1543,8 +1648,16 @@ pub async fn grant_role<P: Ports>(
     Path((id, user_id)): Path<(Uuid, String)>,
     Json(req): Json<GrantRoleRequest>,
 ) -> ApiResult<()> {
+    let series_id = state
+        .ports
+        .block_repo()
+        .find_by_id(id)
+        .await
+        .map_err(map_err)?
+        .series_id;
     let cmd = GrantRole {
         block_id: BlockId::from_uuid(id),
+        series_id,
         user_id: UserId::from_sub(user_id),
         role: req.role,
     };
@@ -1577,8 +1690,16 @@ pub async fn remove_member<P: Ports>(
     current_user: CurrentUser,
     Path((id, user_id)): Path<(Uuid, String)>,
 ) -> ApiResult<()> {
+    let series_id = state
+        .ports
+        .block_repo()
+        .find_by_id(id)
+        .await
+        .map_err(map_err)?
+        .series_id;
     let cmd = RemoveMember {
         block_id: BlockId::from_uuid(id),
+        series_id,
         user_id: UserId::from_sub(user_id),
     };
     state
@@ -1609,8 +1730,16 @@ pub async fn leave_block<P: Ports>(
     current_user: CurrentUser,
     Path(id): Path<Uuid>,
 ) -> ApiResult<()> {
+    let series_id = state
+        .ports
+        .block_repo()
+        .find_by_id(id)
+        .await
+        .map_err(map_err)?
+        .series_id;
     let cmd = LeaveBlock {
         block_id: BlockId::from_uuid(id),
+        series_id,
     };
     state
         .ports
@@ -1827,12 +1956,15 @@ pub async fn upload_costume_photo<P: Ports>(
     state
         .ports
         .photo_commands()
-        .upload(UploadPhotoCmd {
-            id: photo_id,
-            content_type: content_type.clone(),
-            size_bytes,
-            binding: breakdown_core::photo::PhotoBinding::Costume { costume_id },
-        })
+        .upload(
+            current_user.sub.clone(),
+            UploadPhotoCmd {
+                id: photo_id,
+                content_type: content_type.clone(),
+                size_bytes,
+                binding: breakdown_core::photo::PhotoBinding::Costume { costume_id },
+            },
+        )
         .await
         .map_err(|e| {
             // Compensating delete: best-effort, cannot await in sync closure.
@@ -1845,11 +1977,14 @@ pub async fn upload_costume_photo<P: Ports>(
     state
         .ports
         .costume_commands()
-        .link_photo(LinkPhoto {
-            id: costume_id,
-            photo_id: photo_id.0,
-            version,
-        })
+        .link_photo(
+            current_user.sub.clone(),
+            LinkPhoto {
+                id: costume_id,
+                photo_id: photo_id.0,
+                version,
+            },
+        )
         .await
         .map_err(|e| {
             // Compensating delete: best-effort, cannot await in sync closure.
@@ -1954,20 +2089,48 @@ pub async fn get_costume_photo_bytes<P: Ports>(
 
     // Build response headers for streaming.
     let mut headers = axum::http::HeaderMap::new();
-    headers.insert(
-        axum::http::header::CONTENT_TYPE,
-        photo_bytes.content_type.parse().unwrap(),
-    );
-    headers.insert(
-        axum::http::header::CONTENT_LENGTH,
-        photo_bytes.size_bytes.to_string().parse().unwrap(),
-    );
+    let content_type_header = photo_bytes
+        .content_type
+        .parse::<axum::http::HeaderValue>()
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    message: format!("invalid content-type in photo metadata: {e}"),
+                }),
+            )
+        })?;
+    headers.insert(axum::http::header::CONTENT_TYPE, content_type_header);
+    let content_length_header = photo_bytes
+        .size_bytes
+        .to_string()
+        .parse::<axum::http::HeaderValue>()
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    message: format!("invalid content-length in photo metadata: {e}"),
+                }),
+            )
+        })?;
+    headers.insert(axum::http::header::CONTENT_LENGTH, content_length_header);
     headers.insert(
         axum::http::header::CACHE_CONTROL,
-        "private, max-age=300".parse().unwrap(),
+        #[allow(clippy::expect_used)] // hardcoded safe header literal
+        "private, max-age=300"
+            .parse()
+            .expect("hardcoded safe header value"),
     );
     if let Some(ref etag) = photo_bytes.etag {
-        headers.insert(axum::http::header::ETAG, etag.parse().unwrap());
+        let etag_header = etag.parse::<axum::http::HeaderValue>().map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    message: format!("invalid etag in photo metadata: {e}"),
+                }),
+            )
+        })?;
+        headers.insert(axum::http::header::ETAG, etag_header);
     }
 
     Ok((StatusCode::OK, headers, photo_bytes.bytes))
@@ -2044,11 +2207,14 @@ pub async fn delete_costume_photo<P: Ports>(
     state
         .ports
         .costume_commands()
-        .unlink_photo(UnlinkPhoto {
-            id: costume_id,
-            photo_id,
-            version: costume.version,
-        })
+        .unlink_photo(
+            current_user.sub.clone(),
+            UnlinkPhoto {
+                id: costume_id,
+                photo_id,
+                version: costume.version,
+            },
+        )
         .await
         .map_err(map_err)?;
 
@@ -2149,6 +2315,7 @@ pub struct WrapShootingDayRequest {
 )]
 pub async fn plan_scene_shoot<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Path((day_id, scene_id)): Path<(ShootingDayId, Uuid)>,
     Json(req): Json<PlanSceneShootRequest>,
 ) -> ApiResult<IdVersionResponse> {
@@ -2170,7 +2337,7 @@ pub async fn plan_scene_shoot<P: Ports>(
     let (id, version) = state
         .ports
         .scene_shoot_commands()
-        .plan(cmd)
+        .plan(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((
@@ -2187,6 +2354,7 @@ pub async fn plan_scene_shoot<P: Ports>(
 )]
 pub async fn replan_scene_shoot<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Path((_day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<ReplanSceneShootRequest>,
 ) -> ApiResult<AggregateVersion> {
@@ -2198,7 +2366,7 @@ pub async fn replan_scene_shoot<P: Ports>(
     let version = state
         .ports
         .scene_shoot_commands()
-        .replan(cmd)
+        .replan(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -2212,6 +2380,7 @@ pub async fn replan_scene_shoot<P: Ports>(
 )]
 pub async fn start_scene_shoot<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Path((_day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<StartSceneShootRequest>,
 ) -> ApiResult<AggregateVersion> {
@@ -2223,7 +2392,7 @@ pub async fn start_scene_shoot<P: Ports>(
     let version = state
         .ports
         .scene_shoot_commands()
-        .start(cmd)
+        .start(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -2237,6 +2406,7 @@ pub async fn start_scene_shoot<P: Ports>(
 )]
 pub async fn set_actual_order<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Path((_day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<SetActualOrderRequest>,
 ) -> ApiResult<AggregateVersion> {
@@ -2248,7 +2418,7 @@ pub async fn set_actual_order<P: Ports>(
     let version = state
         .ports
         .scene_shoot_commands()
-        .set_actual_order(cmd)
+        .set_actual_order(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -2262,6 +2432,7 @@ pub async fn set_actual_order<P: Ports>(
 )]
 pub async fn finish_scene_shoot<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Path((_day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<FinishSceneShootRequest>,
 ) -> ApiResult<AggregateVersion> {
@@ -2273,7 +2444,7 @@ pub async fn finish_scene_shoot<P: Ports>(
     let version = state
         .ports
         .scene_shoot_commands()
-        .finish(cmd)
+        .finish(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -2287,6 +2458,7 @@ pub async fn finish_scene_shoot<P: Ports>(
 )]
 pub async fn skip_scene_shoot<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Path((_day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<SkipSceneShootRequest>,
 ) -> ApiResult<AggregateVersion> {
@@ -2297,7 +2469,7 @@ pub async fn skip_scene_shoot<P: Ports>(
     let version = state
         .ports
         .scene_shoot_commands()
-        .skip(cmd)
+        .skip(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -2351,6 +2523,7 @@ pub async fn list_scene_shoots<P: Ports>(
 )]
 pub async fn add_scene_shoot_note<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Path((_day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<AddNoteRequest>,
 ) -> ApiResult<AggregateVersion> {
@@ -2364,7 +2537,7 @@ pub async fn add_scene_shoot_note<P: Ports>(
     let version = state
         .ports
         .scene_shoot_commands()
-        .add_note(cmd)
+        .add_note(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -2378,6 +2551,7 @@ pub async fn add_scene_shoot_note<P: Ports>(
 )]
 pub async fn update_scene_shoot_note<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Path((_day_id, _scene_id, shoot_id, note_id)): Path<(ShootingDayId, Uuid, SceneShootId, Uuid)>,
     Json(req): Json<UpdateNoteRequest>,
 ) -> ApiResult<AggregateVersion> {
@@ -2390,7 +2564,7 @@ pub async fn update_scene_shoot_note<P: Ports>(
     let version = state
         .ports
         .scene_shoot_commands()
-        .update_note(cmd)
+        .update_note(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -2403,6 +2577,7 @@ pub async fn update_scene_shoot_note<P: Ports>(
 )]
 pub async fn remove_scene_shoot_note<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Path((_day_id, _scene_id, shoot_id, note_id)): Path<(ShootingDayId, Uuid, SceneShootId, Uuid)>,
     Json(req): Json<VersionRequest>,
 ) -> ApiResult<AggregateVersion> {
@@ -2414,7 +2589,7 @@ pub async fn remove_scene_shoot_note<P: Ports>(
     let version = state
         .ports
         .scene_shoot_commands()
-        .remove_note(cmd)
+        .remove_note(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -2482,7 +2657,7 @@ pub async fn link_continuity_photo<P: Ports>(
     let version = state
         .ports
         .scene_shoot_commands()
-        .link_continuity_photo(cmd)
+        .link_continuity_photo(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -2567,7 +2742,7 @@ pub async fn unlink_continuity_photo<P: Ports>(
     let version = state
         .ports
         .scene_shoot_commands()
-        .unlink_continuity_photo(cmd)
+        .unlink_continuity_photo(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -2585,6 +2760,7 @@ pub async fn unlink_continuity_photo<P: Ports>(
 )]
 pub async fn wrap_shooting_day<P: Ports>(
     State(state): State<AppState<P>>,
+    current_user: CurrentUser,
     Path(id): Path<ShootingDayId>,
     Json(req): Json<WrapShootingDayRequest>,
 ) -> ApiResult<AggregateVersion> {
@@ -2596,7 +2772,7 @@ pub async fn wrap_shooting_day<P: Ports>(
     let version = state
         .ports
         .shooting_day_commands()
-        .wrap(cmd)
+        .wrap(current_user.sub.clone(), cmd)
         .await
         .map_err(map_err)?;
     Ok((StatusCode::OK, Json(version)))
@@ -2885,19 +3061,33 @@ pub async fn dispo_report_pdf<P: Ports>(
     let rendered = renderer.render(req).await.map_err(map_render_error)?;
 
     let mut headers = HeaderMap::new();
-    headers.insert(
-        axum::http::header::CONTENT_TYPE,
-        rendered.content_type.parse().unwrap(),
+    let content_type_value = rendered
+        .content_type
+        .parse::<axum::http::HeaderValue>()
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    message: format!("renderer produced invalid content-type: {e}"),
+                }),
+            )
+        })?;
+    headers.insert(axum::http::header::CONTENT_TYPE, content_type_value);
+    let disposition_format = format!(
+        r#"inline; filename="{}""#,
+        sanitize_pdf_filename("dispo", "de-DE")
     );
-    headers.insert(
-        axum::http::header::CONTENT_DISPOSITION,
-        format!(
-            r#"inline; filename="{}""#,
-            sanitize_pdf_filename("dispo", "de-DE")
-        )
-        .parse()
-        .unwrap(),
-    );
+    let disposition_value = disposition_format
+        .parse::<axum::http::HeaderValue>()
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    message: "failed to construct Content-Disposition header".into(),
+                }),
+            )
+        })?;
+    headers.insert(axum::http::header::CONTENT_DISPOSITION, disposition_value);
     Ok((StatusCode::OK, headers, rendered.pdf_bytes))
 }
 
@@ -2974,19 +3164,33 @@ pub async fn shoot_day_report_pdf<P: Ports>(
     let rendered = renderer.render(req).await.map_err(map_render_error)?;
 
     let mut headers = HeaderMap::new();
-    headers.insert(
-        axum::http::header::CONTENT_TYPE,
-        rendered.content_type.parse().unwrap(),
+    let content_type_value = rendered
+        .content_type
+        .parse::<axum::http::HeaderValue>()
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    message: format!("renderer produced invalid content-type: {e}"),
+                }),
+            )
+        })?;
+    headers.insert(axum::http::header::CONTENT_TYPE, content_type_value);
+    let disposition_format = format!(
+        r#"inline; filename="{}""#,
+        sanitize_pdf_filename("shoot-day", "de-DE")
     );
-    headers.insert(
-        axum::http::header::CONTENT_DISPOSITION,
-        format!(
-            r#"inline; filename="{}""#,
-            sanitize_pdf_filename("shoot-day", "de-DE")
-        )
-        .parse()
-        .unwrap(),
-    );
+    let disposition_value = disposition_format
+        .parse::<axum::http::HeaderValue>()
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    message: "failed to construct Content-Disposition header".into(),
+                }),
+            )
+        })?;
+    headers.insert(axum::http::header::CONTENT_DISPOSITION, disposition_value);
     Ok((StatusCode::OK, headers, rendered.pdf_bytes))
 }
 
@@ -3063,19 +3267,33 @@ pub async fn planned_vs_actual_report_pdf<P: Ports>(
     let rendered = renderer.render(req).await.map_err(map_render_error)?;
 
     let mut headers = HeaderMap::new();
-    headers.insert(
-        axum::http::header::CONTENT_TYPE,
-        rendered.content_type.parse().unwrap(),
+    let content_type_value = rendered
+        .content_type
+        .parse::<axum::http::HeaderValue>()
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    message: format!("renderer produced invalid content-type: {e}"),
+                }),
+            )
+        })?;
+    headers.insert(axum::http::header::CONTENT_TYPE, content_type_value);
+    let disposition_format = format!(
+        r#"inline; filename="{}""#,
+        sanitize_pdf_filename("planned-vs-actual", "de-DE")
     );
-    headers.insert(
-        axum::http::header::CONTENT_DISPOSITION,
-        format!(
-            r#"inline; filename="{}""#,
-            sanitize_pdf_filename("planned-vs-actual", "de-DE")
-        )
-        .parse()
-        .unwrap(),
-    );
+    let disposition_value = disposition_format
+        .parse::<axum::http::HeaderValue>()
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    message: "failed to construct Content-Disposition header".into(),
+                }),
+            )
+        })?;
+    headers.insert(axum::http::header::CONTENT_DISPOSITION, disposition_value);
     Ok((StatusCode::OK, headers, rendered.pdf_bytes))
 }
 
@@ -3209,6 +3427,10 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         .route(
             "/blocks/{id}/audit",
             routing::get(get_block_audit::<ProductionPorts>),
+        )
+        .route(
+            "/audit",
+            routing::get(get_audit_history::<ProductionPorts>),
         )
         .route(
             "/blocks/{id}/members",

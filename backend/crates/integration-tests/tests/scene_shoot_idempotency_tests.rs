@@ -1,7 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: moonshotai/kimi-k3 (openrouter)
+// Co-authored-by: glm-5.2 (neuralwatt)
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::dbg_macro
+)]
 //! Tier-4 projector idempotency test for the SceneShoot aggregate (ADR-016).
 //!
 //! Verifies that event redelivery (a fresh SierraDB append of the same logical
@@ -134,7 +143,12 @@ async fn scene_shoot_projector_is_idempotent_under_redelivery() -> Result<()> {
     sqlx::migrate!("../infra/migrations").run(&pool).await?;
     let (redis_client, _conn, _sierra) = fixtures::spawn_sierradb().await?;
 
-    let _projector = spawn_scene_shoot_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _projector = spawn_scene_shoot_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
     // Give the subscription time to establish before appending.
     tokio::time::sleep(Duration::from_millis(500)).await;
 
@@ -254,7 +268,12 @@ async fn continuity_photo_link_is_idempotent_under_redelivery() -> Result<()> {
     sqlx::migrate!("../infra/migrations").run(&pool).await?;
     let (redis_client, _conn, _sierra) = fixtures::spawn_sierradb().await?;
 
-    let _projector = spawn_scene_shoot_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _projector = spawn_scene_shoot_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     let repo = SceneShootRepositoryImpl::new(pool.clone());

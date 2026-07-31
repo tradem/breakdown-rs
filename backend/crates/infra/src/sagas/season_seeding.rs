@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: qwen3.6-35b (neuralwatt)
+// Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: glm-5.2 (neuralwatt)
 
 //! Season-seeding saga — the canonical "event-reactor-issues-commands" pattern.
 //!
@@ -13,25 +16,25 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::event_store::map_executed;
+use crate::projectors::supervisor;
+use crate::queries::CostumeCategoryRepositoryImpl;
 use anyhow::Result;
+use breakdown_core::costume_category::aggregate::CostumeCategoryAggregate;
 use breakdown_core::costume_category::commands::CreateCostumeCategory;
-use breakdown_core::costume_category::ports::{CostumeCategoryCommands, CostumeCategoryRepository};
+use breakdown_core::costume_category::ports::CostumeCategoryRepository;
 use breakdown_core::season::aggregate::SeasonAggregate;
 use breakdown_core::season::events::SeasonEvent;
-use breakdown_core::shared::{LexicalSortKey, SeasonId};
-use kameo_es::command_service::CommandService;
+use breakdown_core::shared::{EventMetadata, LexicalSortKey, Provenance, SeasonId, SeriesId};
+use kameo_es::command_service::{CommandService, ExecuteExt};
 use kameo_es::event_handler::{
     EntityEventHandler, EventHandler, EventHandlerError, EventHandlerStreamBuilder, EventProcessor,
 };
 use kameo_es::{Entity, Event};
 use redis::Client as RedisClient;
-use sierradb_client::SierraAsyncClientExt;
+use sierradb_client::{ExpectedVersion, SierraAsyncClientExt};
 use sqlx::PgPool;
 use uuid::Uuid;
-
-use crate::event_store::CostumeCategoryCommandsImpl;
-use crate::projectors::supervisor;
-use crate::queries::CostumeCategoryRepositoryImpl;
 
 /// Monotonic seed order keys (single printable-ASCII, lexicographically ordered).
 /// There is no concurrent insertion during seeding, so a simple sequence suffices.
@@ -76,29 +79,43 @@ pub fn load_default_costume_categories() -> Vec<String> {
 }
 
 /// The season-seeding saga subscriber.
+///
+/// Dispatches `CreateCostumeCategory` commands directly via
+/// `CostumeCategoryAggregate::execute` (no trait adapter needed).
+///
+/// `series_id` is taken directly from the `SeasonCreated` event rather than
+/// queried from the season projection — a saga must react to event data, not
+/// read-model state (avoids coupling to projector presence / lag).
 #[derive(Clone, Debug)]
 pub struct SeasonSeedingSaga {
-    commands: CostumeCategoryCommandsImpl,
+    cmd_service: CommandService,
     repo: CostumeCategoryRepositoryImpl,
     seed: Vec<String>,
 }
 
 impl SeasonSeedingSaga {
     pub fn new(
-        commands: CostumeCategoryCommandsImpl,
+        cmd_service: CommandService,
         repo: CostumeCategoryRepositoryImpl,
         seed: Vec<String>,
     ) -> Self {
         Self {
-            commands,
+            cmd_service,
             repo,
             seed,
         }
     }
 
     /// Idempotently seed one category per seed entry for `season_id`.
-    async fn seed_for_season(&self, season_id: SeasonId) -> Result<()> {
-        seed_season(&self.commands, &self.repo, &self.seed, season_id).await
+    async fn seed_for_season(&self, season_id: SeasonId, series_id: SeriesId) -> Result<()> {
+        seed_season(
+            &self.cmd_service,
+            &self.repo,
+            &self.seed,
+            season_id,
+            series_id,
+        )
+        .await
     }
 }
 
@@ -106,14 +123,14 @@ impl SeasonSeedingSaga {
 /// with in-memory fakes. Idempotent: skips when the season already has any
 /// categories (the `count_for_season` guard), so replaying `SeasonCreated`
 /// never double-seeds.
-pub async fn seed_season<C, R>(
-    commands: &C,
+pub async fn seed_season<R>(
+    cmd_service: &CommandService,
     repo: &R,
     seed: &[String],
     season_id: SeasonId,
+    series_id: SeriesId,
 ) -> Result<()>
 where
-    C: CostumeCategoryCommands,
     R: CostumeCategoryRepository,
 {
     let count = repo
@@ -125,16 +142,22 @@ where
     }
     for (i, name) in seed.iter().enumerate() {
         let order_key = SEED_ORDER_KEYS.get(i).copied().unwrap_or("z");
+        let id = Uuid::now_v7();
         let cmd = CreateCostumeCategory {
-            id: Uuid::now_v7(),
+            id,
             season_id,
             name: name.clone(),
             order_key: LexicalSortKey::from_static(order_key),
         };
-        commands
-            .create(cmd)
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let result = CostumeCategoryAggregate::execute(cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Empty)
+            .metadata(EventMetadata {
+                actor: None,
+                provenance: Provenance::Saga("SeasonSeedingSaga".to_string()),
+                series_id: Some(series_id),
+            })
+            .await;
+        map_executed(id, result).map_err(|e| anyhow::anyhow!("{e}"))?;
     }
     Ok(())
 }
@@ -148,10 +171,10 @@ impl EntityEventHandler<SeasonAggregate, ()> for SeasonSeedingSaga {
         &mut self,
         _ctx: &mut (),
         _id: Uuid,
-        event: Event<SeasonEvent, ()>,
+        event: Event<SeasonEvent, EventMetadata>,
     ) -> Result<(), Self::Error> {
-        if let SeasonEvent::SeasonCreated { id, .. } = event.data {
-            self.seed_for_season(SeasonId(id)).await?;
+        if let SeasonEvent::SeasonCreated { id, series_id, .. } = event.data {
+            self.seed_for_season(SeasonId(id), series_id).await?;
         }
         Ok(())
     }
@@ -198,8 +221,7 @@ pub async fn spawn_season_seeding_saga(
 ) -> Result<()> {
     let seed = load_default_costume_categories();
     let repo = CostumeCategoryRepositoryImpl::new(pool.clone());
-    let commands = CostumeCategoryCommandsImpl::new(cmd_service);
-    let saga = SeasonSeedingSaga::new(commands, repo, seed);
+    let saga = SeasonSeedingSaga::new(cmd_service, repo, seed);
     let redis_client_inner = redis_client.clone();
     let _handle = supervisor::run_with_restart("season_seeding_saga", move || {
         let mut saga = saga.clone();

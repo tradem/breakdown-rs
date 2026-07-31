@@ -6,7 +6,7 @@
 use uuid::Uuid;
 
 use crate::error::DomainError;
-use crate::shared::{AggregateVersion, BlockId, SeriesId};
+use crate::shared::{AggregateVersion, BlockId, SeriesId, UserId};
 
 use super::commands::{CreateEpisode, RenameEpisode};
 use super::views::EpisodeView;
@@ -15,9 +15,17 @@ use super::views::EpisodeView;
 #[allow(async_fn_in_trait)]
 pub trait EpisodeCommands: Send + Sync {
     /// Create a new episode aggregate.
-    async fn create(&self, cmd: CreateEpisode) -> Result<(Uuid, AggregateVersion), DomainError>;
+    async fn create(
+        &self,
+        actor: UserId,
+        cmd: CreateEpisode,
+    ) -> Result<(Uuid, AggregateVersion), DomainError>;
     /// Rename an episode (optional name).
-    async fn rename(&self, cmd: RenameEpisode) -> Result<AggregateVersion, DomainError>;
+    async fn rename(
+        &self,
+        actor: UserId,
+        cmd: RenameEpisode,
+    ) -> Result<AggregateVersion, DomainError>;
 }
 
 /// Async read port returning flat `EpisodeView` projections.

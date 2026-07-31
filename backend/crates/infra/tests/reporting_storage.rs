@@ -2,6 +2,14 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::dbg_macro
+)]
 use breakdown_core::reporting::storage::*;
 use infra::reporting::storage::{
     MemoryReportArchiveStorage, external_key, sha256_hex, staging_key,

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: qwen3.6-35b (neuralwatt)
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -8,7 +9,7 @@ use anyhow::Result;
 use breakdown_core::photo::aggregate::PhotoAggregate;
 use breakdown_core::photo::events::PhotoEvent;
 use breakdown_core::photo::ports::PhotoStorage;
-use breakdown_core::shared::PhotoId;
+use breakdown_core::shared::{EventMetadata, PhotoId};
 use kameo_es::event_handler::EventHandlerStreamBuilder;
 use kameo_es::event_handler::{EntityEventHandler, EventHandler};
 use kameo_es::event_handler::{EventHandlerError, EventProcessor};
@@ -41,7 +42,7 @@ impl EntityEventHandler<PhotoAggregate, ()> for PhotoBytesCleanupSaga {
         &mut self,
         _ctx: &mut (),
         _id: PhotoId,
-        event: Event<PhotoEvent, ()>,
+        event: Event<PhotoEvent, EventMetadata>,
     ) -> Result<(), Self::Error> {
         if let PhotoEvent::PhotoDeleted { id, .. } = event.data {
             self.storage

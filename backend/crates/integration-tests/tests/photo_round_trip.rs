@@ -1,12 +1,25 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.2 (neuralwatt)
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::dbg_macro
+)]
 //! Tier-4 integration test: Postgres + SierraDB + Garage full round-trip.
 //!
 //! Spawns the Photo projector + thumbnail/deletion/bytes-cleanup sagas and
 //! exercises the full command→event→projection→read chain for photo lifecycle.
 
 mod fixtures;
+
+fn test_user() -> breakdown_core::shared::UserId {
+    crate::fixtures::test_user()
+}
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,14 +30,57 @@ use breakdown_core::photo::commands::UploadPhoto;
 use breakdown_core::photo::ports::{PhotoCommands, PhotoStorage};
 use breakdown_core::shared::{PhotoId, PhotoVariant};
 use fixtures::{await_photo, build_storage, spawn_garage, spawn_postgres, spawn_sierradb};
-use infra::event_store::PhotoCommandsImpl;
+
 use infra::photo::repository::PhotoRepositoryImpl;
 use kameo_es::command_service::CommandService;
+
+/// Seed a Season into projection_season.
+async fn seed_season(pool: &sqlx::PgPool) -> Result<breakdown_core::shared::SeasonId> {
+    let series_id = Uuid::now_v7();
+    let season_id = Uuid::now_v7();
+    sqlx::query(
+        r#"INSERT INTO projection_season (id, series_id, number, title, version, updated_at)
+           VALUES ($1, $2, 1, 'Season 1', 1, now())"#,
+    )
+    .bind(season_id)
+    .bind(series_id)
+    .execute(pool)
+    .await?;
+    Ok(breakdown_core::shared::SeasonId(season_id))
+}
+
+/// Seed a Character into projection_character.
+async fn seed_character(pool: &sqlx::PgPool, season_id: Uuid) -> Result<Uuid> {
+    let char_id = Uuid::now_v7();
+    sqlx::query(
+        r#"INSERT INTO projection_character (id, name, season_id, category, measurements, contact, version, updated_at)
+           VALUES ($1, 'Char', $2, '"main_cast"'::jsonb, '{}'::jsonb, '{}'::jsonb, 1, now())"#,
+    )
+    .bind(char_id)
+    .bind(season_id)
+    .execute(pool)
+    .await?;
+    Ok(char_id)
+}
+
+/// Seed a Costume into projection_costume.
+async fn seed_costume(pool: &sqlx::PgPool, character_id: Uuid) -> Result<Uuid> {
+    let costume_id = Uuid::now_v7();
+    sqlx::query(
+        r#"INSERT INTO projection_costume (id, character_id, notes, version, updated_at)
+           VALUES ($1, $2, '', 1, now())"#,
+    )
+    .bind(costume_id)
+    .bind(character_id)
+    .execute(pool)
+    .await?;
+    Ok(costume_id)
+}
 
 #[tokio::test]
 async fn photo_upload_then_delete_round_trip() -> Result<()> {
     // Start all three tiers.
-    let (_pool, _pg_guard) = spawn_postgres().await?;
+    let (pg_pool, _pg_guard) = spawn_postgres().await?;
     let (sierra_client, _conn, _sierra_guard) = spawn_sierradb().await?;
     let (creds, _garage_guard) = spawn_garage().await?;
 
@@ -33,18 +89,50 @@ async fn photo_upload_then_delete_round_trip() -> Result<()> {
         let conn = sierra_client.get_multiplexed_async_connection().await?;
         CommandService::new(conn)
     };
-    let photo_commands = PhotoCommandsImpl::new(cmd_service.clone());
-    let photo_repo = PhotoRepositoryImpl::new(_pool.clone());
+    let photo_repo = PhotoRepositoryImpl::new(pg_pool.clone());
+    let costume_repo = infra::queries::CostumeRepositoryImpl::new(pg_pool.clone());
+    let character_repo = infra::queries::CharacterRepositoryImpl::new(pg_pool.clone());
+    let season_repo = infra::queries::SeasonRepositoryImpl::new(pg_pool.clone());
+    let scene_shoot_repo = infra::queries::SceneShootRepositoryImpl::new(pg_pool.clone());
+    let scene_repo = infra::queries::SceneRepositoryImpl::new(pg_pool.clone());
+    let episode_repo = infra::queries::EpisodeRepositoryImpl::new(pg_pool.clone());
+
+    // Seed Season → Character → Costume before creating PhotoCommandsImpl.
+    let season_id = seed_season(&pg_pool).await?;
+    let character_id = seed_character(&pg_pool, season_id.0).await?;
+    let costume_id = seed_costume(&pg_pool, character_id).await?;
+
+    let photo_commands = infra::event_store::PhotoCommandsImpl::new(
+        cmd_service.clone(),
+        photo_repo.clone(),
+        costume_repo.clone(),
+        character_repo.clone(),
+        season_repo.clone(),
+        scene_shoot_repo.clone(),
+        scene_repo.clone(),
+        episode_repo.clone(),
+    );
 
     // Spawn the photo projector.
     let redis_client = Arc::clone(&sierra_client);
-    let _photo_projector =
-        infra::projectors::spawn_photo_projector(_pool.clone(), Arc::clone(&redis_client)).await?;
+    let _photo_projector = infra::projectors::spawn_photo_projector(
+        pg_pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
 
     // Spawn photo sagas.
     infra::photo::sagas::spawn_photo_thumbnail_saga(
+        cmd_service.clone(),
         storage.clone(),
-        photo_commands.clone(),
+        photo_repo.clone(),
+        costume_repo.clone(),
+        character_repo.clone(),
+        season_repo.clone(),
+        scene_shoot_repo.clone(),
+        scene_repo.clone(),
+        episode_repo.clone(),
         Arc::clone(&redis_client),
     )
     .await?;
@@ -73,16 +161,17 @@ async fn photo_upload_then_delete_round_trip() -> Result<()> {
         )
         .await?;
 
-    // 1. Dispatch UploadPhoto command.
+    // 1. Dispatch UploadPhoto command — binding points to the seeded costume.
     let version = photo_commands
-        .upload(UploadPhoto {
-            id: photo_id,
-            content_type: content_type.clone(),
-            size_bytes: image_bytes.len() as u64,
-            binding: breakdown_core::photo::binding::PhotoBinding::Costume {
-                costume_id: Uuid::now_v7(),
+        .upload(
+            test_user(),
+            UploadPhoto {
+                id: photo_id,
+                content_type: content_type.clone(),
+                size_bytes: image_bytes.len() as u64,
+                binding: breakdown_core::photo::binding::PhotoBinding::Costume { costume_id },
             },
-        })
+        )
         .await?;
     assert!(version.0 > 0, "UploadPhoto should return version > 0");
 
@@ -99,10 +188,13 @@ async fn photo_upload_then_delete_round_trip() -> Result<()> {
 
     // 4. Dispatch DeletePhoto.
     photo_commands
-        .delete(breakdown_core::photo::commands::DeletePhoto {
-            id: photo_id,
-            version,
-        })
+        .delete(
+            test_user(),
+            breakdown_core::photo::commands::DeletePhoto {
+                id: photo_id,
+                version,
+            },
+        )
         .await?;
 
     // 5. Wait for the bytes-cleanup saga to remove bytes from Garage.

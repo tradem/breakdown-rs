@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.2 (neuralwatt)
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -85,35 +86,44 @@ use api::state::Ports;
 pub struct FakeSceneCommands;
 
 impl SceneCommands for FakeSceneCommands {
-    async fn create(&self, cmd: CreateScene) -> Result<(Uuid, AggregateVersion), DomainError> {
+    async fn create(
+        &self,
+        _actor: UserId,
+        cmd: CreateScene,
+    ) -> Result<(Uuid, AggregateVersion), DomainError> {
         Ok((cmd.id, AggregateVersion::INITIAL))
     }
     async fn update_details(
         &self,
+        _actor: UserId,
         _cmd: UpdateSceneDetails,
     ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
     async fn assign_character(
         &self,
+        _actor: UserId,
         _cmd: AssignCharacter,
     ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
     async fn remove_character(
         &self,
+        _actor: UserId,
         _cmd: RemoveCharacter,
     ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
     async fn schedule_on_shooting_day(
         &self,
+        _actor: UserId,
         _cmd: ScheduleSceneOnShootingDay,
     ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
     async fn unschedule_from_shooting_day(
         &self,
+        _actor: UserId,
         _cmd: UnscheduleSceneFromShootingDay,
     ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
@@ -125,17 +135,23 @@ impl SceneCommands for FakeSceneCommands {
 pub struct FakeCharacterCommands;
 
 impl CharacterCommands for FakeCharacterCommands {
-    async fn create(&self, cmd: CreateCharacter) -> Result<(Uuid, AggregateVersion), DomainError> {
+    async fn create(
+        &self,
+        _actor: UserId,
+        cmd: CreateCharacter,
+    ) -> Result<(Uuid, AggregateVersion), DomainError> {
         Ok((cmd.id, AggregateVersion::INITIAL))
     }
     async fn update_measurements(
         &self,
+        _actor: UserId,
         _cmd: UpdateMeasurements,
     ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
     async fn update_contact_info(
         &self,
+        _actor: UserId,
         _cmd: UpdateContactInfo,
     ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
@@ -147,34 +163,60 @@ impl CharacterCommands for FakeCharacterCommands {
 pub struct FakeCostumeCommands;
 
 impl CostumeCommands for FakeCostumeCommands {
-    async fn create(&self, cmd: CreateCostume) -> Result<(Uuid, AggregateVersion), DomainError> {
+    async fn create(
+        &self,
+        _actor: UserId,
+        cmd: CreateCostume,
+    ) -> Result<(Uuid, AggregateVersion), DomainError> {
         Ok((cmd.id, AggregateVersion::INITIAL))
     }
     async fn update_notes(
         &self,
+        _actor: UserId,
         _cmd: UpdateCostumeNotes,
     ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
     async fn assign_to_character(
         &self,
+        _actor: UserId,
         _cmd: AssignCostumeToCharacter,
     ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
-    async fn unassign(&self, _cmd: UnassignCostume) -> Result<AggregateVersion, DomainError> {
+    async fn unassign(
+        &self,
+        _actor: UserId,
+        _cmd: UnassignCostume,
+    ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
-    async fn add_detail(&self, _cmd: AddDetail) -> Result<AggregateVersion, DomainError> {
+    async fn add_detail(
+        &self,
+        _actor: UserId,
+        _cmd: AddDetail,
+    ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
-    async fn remove_detail(&self, _cmd: RemoveDetail) -> Result<AggregateVersion, DomainError> {
+    async fn remove_detail(
+        &self,
+        _actor: UserId,
+        _cmd: RemoveDetail,
+    ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
-    async fn link_photo(&self, _cmd: LinkPhoto) -> Result<AggregateVersion, DomainError> {
+    async fn link_photo(
+        &self,
+        _actor: UserId,
+        _cmd: LinkPhoto,
+    ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
-    async fn unlink_photo(&self, _cmd: UnlinkPhoto) -> Result<AggregateVersion, DomainError> {
+    async fn unlink_photo(
+        &self,
+        _actor: UserId,
+        _cmd: UnlinkPhoto,
+    ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
 }
@@ -186,17 +228,30 @@ pub struct FakeCostumeCategoryCommands;
 impl CostumeCategoryCommands for FakeCostumeCategoryCommands {
     async fn create(
         &self,
+        _actor: UserId,
         cmd: CreateCostumeCategory,
     ) -> Result<(Uuid, AggregateVersion), DomainError> {
         Ok((cmd.id, AggregateVersion::INITIAL))
     }
-    async fn rename(&self, _cmd: RenameCostumeCategory) -> Result<AggregateVersion, DomainError> {
+    async fn rename(
+        &self,
+        _actor: UserId,
+        _cmd: RenameCostumeCategory,
+    ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
-    async fn reorder(&self, _cmd: ReorderCostumeCategory) -> Result<AggregateVersion, DomainError> {
+    async fn reorder(
+        &self,
+        _actor: UserId,
+        _cmd: ReorderCostumeCategory,
+    ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
-    async fn archive(&self, _cmd: ArchiveCostumeCategory) -> Result<AggregateVersion, DomainError> {
+    async fn archive(
+        &self,
+        _actor: UserId,
+        _cmd: ArchiveCostumeCategory,
+    ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
 }
@@ -206,10 +261,18 @@ impl CostumeCategoryCommands for FakeCostumeCategoryCommands {
 pub struct FakeSeasonCommands;
 
 impl SeasonCommands for FakeSeasonCommands {
-    async fn create(&self, cmd: CreateSeason) -> Result<(Uuid, AggregateVersion), DomainError> {
+    async fn create(
+        &self,
+        _actor: UserId,
+        cmd: CreateSeason,
+    ) -> Result<(Uuid, AggregateVersion), DomainError> {
         Ok((cmd.id, AggregateVersion::INITIAL))
     }
-    async fn rename(&self, _cmd: RenameSeason) -> Result<AggregateVersion, DomainError> {
+    async fn rename(
+        &self,
+        _actor: UserId,
+        _cmd: RenameSeason,
+    ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
 }
@@ -219,11 +282,16 @@ impl SeasonCommands for FakeSeasonCommands {
 pub struct FakeBlockCommands;
 
 impl BlockCommands for FakeBlockCommands {
-    async fn create(&self, cmd: CreateBlock) -> Result<(Uuid, AggregateVersion), DomainError> {
+    async fn create(
+        &self,
+        _actor: UserId,
+        cmd: CreateBlock,
+    ) -> Result<(Uuid, AggregateVersion), DomainError> {
         Ok((cmd.id, AggregateVersion::INITIAL))
     }
     async fn update_time_span(
         &self,
+        _actor: UserId,
         _cmd: UpdateBlockTimeSpan,
     ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
@@ -235,10 +303,18 @@ impl BlockCommands for FakeBlockCommands {
 pub struct FakeEpisodeCommands;
 
 impl EpisodeCommands for FakeEpisodeCommands {
-    async fn create(&self, cmd: CreateEpisode) -> Result<(Uuid, AggregateVersion), DomainError> {
+    async fn create(
+        &self,
+        _actor: UserId,
+        cmd: CreateEpisode,
+    ) -> Result<(Uuid, AggregateVersion), DomainError> {
         Ok((cmd.id, AggregateVersion::INITIAL))
     }
-    async fn rename(&self, _cmd: RenameEpisode) -> Result<AggregateVersion, DomainError> {
+    async fn rename(
+        &self,
+        _actor: UserId,
+        _cmd: RenameEpisode,
+    ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
 }
@@ -516,7 +592,18 @@ pub struct FakeBlockRepo;
 
 impl BlockRepository for FakeBlockRepo {
     async fn find_by_id(&self, id: Uuid) -> Result<BlockView, DomainError> {
-        Err(DomainError::NotFound(format!("Block({id})")))
+        // Return a stub BlockView so membership handlers can resolve series_id
+        // for EventMetadata without a real projection.
+        Ok(BlockView {
+            id,
+            season_id: SeasonId::from_uuid(Uuid::now_v7()),
+            series_id: SeriesId::from_uuid(Uuid::now_v7()),
+            number: 1,
+            start_date: None,
+            end_date: None,
+            version: AggregateVersion::INITIAL,
+            updated_at: chrono::Utc::now(),
+        })
     }
     async fn list_by_season(
         &self,
@@ -617,6 +704,14 @@ impl AuditRepository for FakeAuditRepo {
     ) -> Result<Vec<AuditEntry>, DomainError> {
         Ok(Vec::new())
     }
+    async fn list_by_series(
+        &self,
+        _series_id: SeriesId,
+        _limit: i64,
+        _offset: i64,
+    ) -> Result<Vec<AuditEntry>, DomainError> {
+        Ok(Vec::new())
+    }
 }
 
 #[derive(Clone, Default)]
@@ -626,27 +721,45 @@ pub struct FakeShootingDayCommands;
 impl ShootingDayCommands for FakeShootingDayCommands {
     async fn create(
         &self,
+        _actor: UserId,
         cmd: CreateShootingDay,
     ) -> Result<(ShootingDayId, AggregateVersion), DomainError> {
         Ok((cmd.id, AggregateVersion::INITIAL))
     }
-    async fn rename(&self, _cmd: RenameShootingDay) -> Result<AggregateVersion, DomainError> {
+    async fn rename(
+        &self,
+        _actor: UserId,
+        _cmd: RenameShootingDay,
+    ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
     async fn reschedule(
         &self,
+        _actor: UserId,
         _cmd: RescheduleShootingDay,
     ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
-    async fn reorder(&self, _cmd: ReorderShootingDay) -> Result<AggregateVersion, DomainError> {
+    async fn reorder(
+        &self,
+        _actor: UserId,
+        _cmd: ReorderShootingDay,
+    ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
-    async fn archive(&self, _cmd: ArchiveShootingDay) -> Result<AggregateVersion, DomainError> {
+    async fn archive(
+        &self,
+        _actor: UserId,
+        _cmd: ArchiveShootingDay,
+    ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
 
-    async fn wrap(&self, _cmd: WrapShootingDay) -> Result<AggregateVersion, DomainError> {
+    async fn wrap(
+        &self,
+        _actor: UserId,
+        _cmd: WrapShootingDay,
+    ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
 }
@@ -712,28 +825,39 @@ impl PhotoStorage for FakePhotoStorage {
 
 #[async_trait]
 impl PhotoCommands for FakePhotoCommands {
-    async fn upload(&self, _cmd: UploadPhoto) -> Result<AggregateVersion, DomainError> {
+    async fn upload(
+        &self,
+        _actor: UserId,
+        _cmd: UploadPhoto,
+    ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL)
     }
     async fn normalize_original(
         &self,
+        _actor: UserId,
         _cmd: NormalizeOriginal,
     ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL)
     }
     async fn generate_variant(
         &self,
+        _actor: UserId,
         _cmd: GenerateVariant,
     ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL)
     }
     async fn mark_variant_failed(
         &self,
+        _actor: UserId,
         _cmd: MarkVariantFailed,
     ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL)
     }
-    async fn delete(&self, _cmd: DeletePhoto) -> Result<AggregateVersion, DomainError> {
+    async fn delete(
+        &self,
+        _actor: UserId,
+        _cmd: DeletePhoto,
+    ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL)
     }
 }
@@ -760,51 +884,77 @@ pub struct FakeSceneShootCommands;
 impl SceneShootCommands for FakeSceneShootCommands {
     async fn plan(
         &self,
+        _actor: UserId,
         _cmd: PlanSceneShoot,
     ) -> Result<(SceneShootId, AggregateVersion), DomainError> {
         unreachable!("not used in authz tests")
     }
-    async fn replan(&self, _cmd: ReplanSceneShoot) -> Result<AggregateVersion, DomainError> {
+    async fn replan(
+        &self,
+        _actor: UserId,
+        _cmd: ReplanSceneShoot,
+    ) -> Result<AggregateVersion, DomainError> {
         unreachable!("not used in authz tests")
     }
-    async fn start(&self, _cmd: StartSceneShoot) -> Result<AggregateVersion, DomainError> {
+    async fn start(
+        &self,
+        _actor: UserId,
+        _cmd: StartSceneShoot,
+    ) -> Result<AggregateVersion, DomainError> {
         unreachable!("not used in authz tests")
     }
     async fn set_actual_order(
         &self,
+        _actor: UserId,
         _cmd: SetActualOrder,
     ) -> Result<AggregateVersion, DomainError> {
         unreachable!("not used in authz tests")
     }
-    async fn finish(&self, _cmd: FinishSceneShoot) -> Result<AggregateVersion, DomainError> {
+    async fn finish(
+        &self,
+        _actor: UserId,
+        _cmd: FinishSceneShoot,
+    ) -> Result<AggregateVersion, DomainError> {
         unreachable!("not used in authz tests")
     }
-    async fn skip(&self, _cmd: SkipSceneShoot) -> Result<AggregateVersion, DomainError> {
+    async fn skip(
+        &self,
+        _actor: UserId,
+        _cmd: SkipSceneShoot,
+    ) -> Result<AggregateVersion, DomainError> {
         unreachable!("not used in authz tests")
     }
-    async fn add_note(&self, _cmd: AddSceneShootNote) -> Result<AggregateVersion, DomainError> {
+    async fn add_note(
+        &self,
+        _actor: UserId,
+        _cmd: AddSceneShootNote,
+    ) -> Result<AggregateVersion, DomainError> {
         unreachable!("not used in authz tests")
     }
     async fn update_note(
         &self,
+        _actor: UserId,
         _cmd: UpdateSceneShootNote,
     ) -> Result<AggregateVersion, DomainError> {
         unreachable!("not used in authz tests")
     }
     async fn remove_note(
         &self,
+        _actor: UserId,
         _cmd: RemoveSceneShootNote,
     ) -> Result<AggregateVersion, DomainError> {
         unreachable!("not used in authz tests")
     }
     async fn link_continuity_photo(
         &self,
+        _actor: UserId,
         _cmd: LinkContinuityPhoto,
     ) -> Result<AggregateVersion, DomainError> {
         unreachable!("not used in authz tests")
     }
     async fn unlink_continuity_photo(
         &self,
+        _actor: UserId,
         _cmd: UnlinkContinuityPhoto,
     ) -> Result<AggregateVersion, DomainError> {
         unreachable!("not used in authz tests")

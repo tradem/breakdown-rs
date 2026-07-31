@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
+// Co-authored-by: mimo-v2.5 (opencode-go)
 
 //! Scene aggregate using `kameo_es` event-sourced actor pattern.
 
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, EpisodeId, ShootingDayId};
+use crate::shared::{AggregateVersion, EpisodeId, EventMetadata, ShootingDayId};
 
 use super::commands::{
     AssignCharacter, CreateScene, RemoveCharacter, ScheduleSceneOnShootingDay,
@@ -35,7 +36,7 @@ pub struct SceneAggregate {
 impl Entity for SceneAggregate {
     type ID = Uuid;
     type Event = SceneEvent;
-    type Metadata = ();
+    type Metadata = EventMetadata;
 
     fn category() -> &'static str {
         "scene"
@@ -45,7 +46,7 @@ impl Entity for SceneAggregate {
 // ADR-002 (Event Sourcing / CQRS): Apply replays past events to rebuild
 // aggregate state. Every command handler emits events that are applied here.
 impl Apply for SceneAggregate {
-    fn apply(&mut self, event: Self::Event, _metadata: Metadata<()>) {
+    fn apply(&mut self, event: Self::Event, _metadata: Metadata<EventMetadata>) {
         match event {
             SceneEvent::SceneCreated {
                 id,

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0
+// Co-authored-by: qwen3.6-35b (neuralwatt)
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 
 //! PostgreSQL read adapter for the audit / journal projection.
@@ -7,7 +8,7 @@ use async_trait::async_trait;
 use breakdown_core::audit::ports::AuditRepository;
 use breakdown_core::audit::views::AuditEntry;
 use breakdown_core::error::DomainError;
-use breakdown_core::shared::{BlockId, UserId};
+use breakdown_core::shared::{BlockId, SeriesId, UserId};
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
@@ -21,6 +22,11 @@ pub struct AuditRepositoryImpl {
 impl AuditRepositoryImpl {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+
+    /// Returns a clone of the inner PgPool for diagnostic probing.
+    pub fn get_pool(&self) -> PgPool {
+        self.pool.clone()
     }
 }
 
@@ -89,6 +95,23 @@ impl AuditRepository for AuditRepositoryImpl {
         let rows = sqlx::query("SELECT id, entity_type, entity_id, event_type, block_id, series_id, actor, payload, occurred_at FROM projection_audit WHERE entity_type = $1 AND entity_id = $2 ORDER BY occurred_at DESC, id DESC LIMIT $3 OFFSET $4")
         .bind(entity_type)
         .bind(entity_id)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+
+        rows.into_iter().map(map_audit_row).collect()
+    }
+
+    async fn list_by_series(
+        &self,
+        series_id: SeriesId,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<AuditEntry>, DomainError> {
+        let rows = sqlx::query("SELECT id, entity_type, entity_id, event_type, block_id, series_id, actor, payload, occurred_at FROM projection_audit WHERE series_id = $1 ORDER BY occurred_at DESC, id DESC LIMIT $2 OFFSET $3")
+        .bind(series_id.0)
         .bind(limit)
         .bind(offset)
         .fetch_all(&self.pool)

@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
-
-//! In-process supervisor for projector subscription loops.
-//!
-//! Wraps a per-epoch subscription + `stream.run()` body in a restart loop with
-//! exponential backoff, jitter, bounded retry budget, and structured tracing.
+// Co-authored-by: glm-5.2 (neuralwatt)
 
 use std::future::Future;
 use std::time::{Duration, Instant};
@@ -25,31 +21,95 @@ pub const MAX_ATTEMPTS: usize = 10;
 /// counter is reset on the next failure.
 pub const RESET_WINDOW_SECS: u64 = 300;
 
-// ── helpers ──────────────────────────────────────────────────────────
-
-/// Compute the delay for a given attempt (0-indexed) with exponential
-/// backoff, cap, and random jitter.
-pub fn compute_backoff(attempt: usize, max: Duration) -> Duration {
-    let base = std::cmp::min(
-        BACKOFF_BASE_MS * 2_u64.saturating_pow(attempt as u32),
-        max.as_millis() as u64,
-    );
-    let jitter: u64 = fastrand::u64(0..=base / 4); // up to 25 % of base
-    let total = base.saturating_add(jitter).min(max.as_millis() as u64);
-    Duration::from_millis(total)
+/// Tunable backoff parameters for [`run_with_restart`].
+///
+/// Production code uses [`BackoffConfig::default`] (slow exponential
+/// backoff up to 30 s).  Tests use [`BackoffConfig::test_profile`] so a
+/// 10-attempt budget exhaustion completes in milliseconds instead of
+/// minutes — without duplicating the supervisor loop.
+#[derive(Clone, Copy, Debug)]
+pub struct BackoffConfig {
+    /// Base delay in milliseconds; the `attempt`-th retry waits roughly
+    /// `base_ms * 2^attempt` (capped at `max_delay`), plus jitter.
+    pub base_ms: u64,
+    /// Upper bound for a single backoff delay.
+    pub max_delay: Duration,
+    /// Consecutive failures before the supervisor gives up and the loop exits.
+    pub max_attempts: usize,
+    /// How long a successful epoch must run before the next failure resets the
+    /// consecutive-failure counter.
+    pub reset_window: Duration,
 }
 
-// ── public API ───────────────────────────────────────────────────────
+impl Default for BackoffConfig {
+    fn default() -> Self {
+        Self {
+            base_ms: BACKOFF_BASE_MS,
+            max_delay: Duration::from_millis(BACKOFF_MAX_DELAY_MS),
+            max_attempts: MAX_ATTEMPTS,
+            reset_window: Duration::from_secs(RESET_WINDOW_SECS),
+        }
+    }
+}
 
-/// Spawn a supervised projector subscription loop.
+impl BackoffConfig {
+    /// Fast profile for unit/integration tests — tiny delays so a multi-attempt
+    /// budget exhaustion completes in milliseconds instead of ~3 minutes.
+    /// **Never use in production** — production supervisor loops must use
+    /// [`BackoffConfig::default`].
+    #[doc(hidden)]
+    pub fn test_profile() -> Self {
+        Self {
+            base_ms: 1,
+            max_delay: Duration::from_millis(5),
+            max_attempts: MAX_ATTEMPTS,
+            reset_window: Duration::from_secs(60),
+        }
+    }
+
+    /// Compute the delay for a given 0-indexed attempt with exponential
+    /// backoff, cap, and random jitter.
+    fn compute_backoff(&self, attempt: usize) -> Duration {
+        let base = std::cmp::min(
+            self.base_ms * 2_u64.saturating_pow(attempt as u32),
+            self.max_delay.as_millis() as u64,
+        );
+        let jitter: u64 = fastrand::u64(0..=base / 4);
+        let total = base
+            .saturating_add(jitter)
+            .min(self.max_delay.as_millis() as u64);
+        Duration::from_millis(total)
+    }
+}
+
+/// Compute the delay for a given attempt (0-indexed) with exponential
+/// backoff, cap, and random jitter, using production defaults.
+///
+/// Kept `pub` for direct formula unit tests. Runtime callers should go
+/// through [`BackoffConfig::compute_backoff`] so their config is honoured.
+pub fn compute_backoff(attempt: usize, max: Duration) -> Duration {
+    BackoffConfig::default()
+        .with_max_delay(max)
+        .compute_backoff(attempt)
+}
+
+impl BackoffConfig {
+    /// Builder helper used by the free-standing [`compute_backoff`] shim.
+    fn with_max_delay(mut self, max: Duration) -> Self {
+        self.max_delay = max;
+        self
+    }
+}
+
+/// Spawn a supervised projector subscription loop with production backoff.
 ///
 /// The supplied closure `make_epoch` builds the SierraDB subscription +
 /// calls `stream.run()`.  On `Err` or panic the loop restarts from the
 /// projector's checkpoint after an exponential-backoff delay, up to
 /// [`MAX_ATTEMPTS`] consecutive failures.
 ///
-/// Returns a [`JoinHandle`] that completes when the supervisor loop
-/// exits — either because budget exhaustion was reached or because the
+/// Returns a [`tokio::task::JoinHandle`] that completes when the supervisor
+/// loop exits — either because the budget was exhausted or because the
 /// handle is aborted.
 pub async fn run_with_restart<F, Fut>(
     category: &'static str,
@@ -59,11 +119,25 @@ where
     F: Fn() -> Fut + Send + 'static,
     Fut: Future<Output = anyhow::Result<()>> + Send + 'static,
 {
-    let handle = tokio::spawn(supervisor_loop(category, make_epoch));
+    run_with_restart_with_config(category, make_epoch, BackoffConfig::default()).await
+}
+
+/// Like [`run_with_restart`] but with an explicit [`BackoffConfig`], so tests
+/// can run with millisecond backoff instead of the production 30 s cap.
+pub async fn run_with_restart_with_config<F, Fut>(
+    category: &'static str,
+    make_epoch: F,
+    config: BackoffConfig,
+) -> Result<tokio::task::JoinHandle<()>>
+where
+    F: Fn() -> Fut + Send + 'static,
+    Fut: Future<Output = anyhow::Result<()>> + Send + 'static,
+{
+    let handle = tokio::spawn(supervisor_loop(category, make_epoch, config));
     Ok(handle)
 }
 
-async fn supervisor_loop<F, Fut>(category: &'static str, make_epoch: F)
+async fn supervisor_loop<F, Fut>(category: &'static str, make_epoch: F, config: BackoffConfig)
 where
     F: Fn() -> Fut + Send + 'static,
     Fut: Future<Output = anyhow::Result<()>> + Send + 'static,
@@ -80,21 +154,17 @@ where
         let started_at = Instant::now();
         let epoch_fut = make_epoch();
 
-        // tokio::spawn catches panics via JoinError — panics are
-        // treated as failures and follow the same backoff path.
         let handle = tokio::spawn(epoch_fut);
 
         match handle.await {
-            // Epoch completed successfully.
             Ok(Ok(())) => {
-                if started_at.elapsed() >= Duration::from_secs(RESET_WINDOW_SECS) {
+                if started_at.elapsed() >= config.reset_window {
                     long_success_occurred = true;
                 }
                 consecutive_failures = 0;
-                continue; // next epoch
+                continue;
             }
 
-            // stream.run() returned an error.
             Ok(Err(err)) => {
                 if long_success_occurred {
                     long_success_occurred = false;
@@ -102,7 +172,7 @@ where
                 }
                 consecutive_failures += 1;
 
-                if consecutive_failures >= MAX_ATTEMPTS {
+                if consecutive_failures >= config.max_attempts {
                     tracing::error!(
                         projector.category = category,
                         error = %err,
@@ -111,10 +181,7 @@ where
                     return;
                 }
 
-                let delay = compute_backoff(
-                    consecutive_failures,
-                    Duration::from_millis(BACKOFF_MAX_DELAY_MS),
-                );
+                let delay = config.compute_backoff(consecutive_failures);
                 tracing::warn!(
                     projector.category = category,
                     attempt = consecutive_failures,
@@ -125,7 +192,6 @@ where
                 sleep(delay).await;
             }
 
-            // Task panicked — caught via JoinError.
             Err(join_err) => {
                 let payload = join_err.to_string();
                 if long_success_occurred {
@@ -134,7 +200,7 @@ where
                 }
                 consecutive_failures += 1;
 
-                if consecutive_failures >= MAX_ATTEMPTS {
+                if consecutive_failures >= config.max_attempts {
                     tracing::error!(
                         projector.category = category,
                         error = %payload,
@@ -143,10 +209,7 @@ where
                     return;
                 }
 
-                let delay = compute_backoff(
-                    consecutive_failures,
-                    Duration::from_millis(BACKOFF_MAX_DELAY_MS),
-                );
+                let delay = config.compute_backoff(consecutive_failures);
                 tracing::warn!(
                     projector.category = category,
                     attempt = consecutive_failures,
@@ -157,5 +220,34 @@ where
                 sleep(delay).await;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_matches_production_constants() {
+        let c = BackoffConfig::default();
+        assert_eq!(c.base_ms, BACKOFF_BASE_MS);
+        assert_eq!(c.max_delay, Duration::from_millis(BACKOFF_MAX_DELAY_MS));
+        assert_eq!(c.max_attempts, MAX_ATTEMPTS);
+        assert_eq!(c.reset_window, Duration::from_secs(RESET_WINDOW_SECS));
+    }
+
+    #[test]
+    fn test_profile_is_fast() {
+        let c = BackoffConfig::test_profile();
+        assert!(c.max_delay < Duration::from_secs(1));
+        // Sum of worst-case backoff for `max_attempts` retries must be
+        // comfortably under the 200 ms test budget used by callers.
+        let total: u128 = (1..=c.max_attempts)
+            .map(|a| c.compute_backoff(a).as_millis())
+            .sum();
+        assert!(
+            total < 300,
+            "test_profile total backoff {total:?} ms too slow"
+        );
     }
 }

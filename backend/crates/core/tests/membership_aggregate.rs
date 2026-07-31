@@ -1,10 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: glm-5.2 (neuralwatt)
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::dbg_macro
+)]
 use breakdown_core::membership::aggregate::MembershipState;
 use breakdown_core::membership::*;
-use breakdown_core::shared::{BlockId, UserId};
+use breakdown_core::shared::{BlockId, EventMetadata, Provenance, SeriesId, UserId};
 use chrono::Utc;
 use kameo_es::{Apply, Command, Context, Metadata, StreamId};
 use std::borrow::Cow;
@@ -20,8 +29,12 @@ type CausationTracking = HashMap<StreamId, (u64, HashSet<Cow<'static, str>>)>;
 /// MembershipMetadata`).
 fn ctx_with(actor: Option<UserId>) -> Context<'static, BlockMembership> {
     static TRACKING: LazyLock<CausationTracking> = LazyLock::new(HashMap::new);
-    let metadata: &'static Metadata<MembershipMetadata> = Box::leak(Box::new(Metadata {
-        data: Some(MembershipMetadata { actor }),
+    let metadata: &'static Metadata<EventMetadata> = Box::leak(Box::new(Metadata {
+        data: Some(EventMetadata {
+            actor,
+            provenance: Provenance::Human,
+            series_id: None,
+        }),
         ..Default::default()
     }));
     Context {
@@ -57,6 +70,10 @@ fn block_id() -> BlockId {
     BlockId::new()
 }
 
+fn series_id() -> SeriesId {
+    SeriesId::new()
+}
+
 fn user(sub: &str) -> UserId {
     UserId::from_sub(sub.to_string())
 }
@@ -66,6 +83,7 @@ fn invite_emits_member_invited_and_is_pending() {
     let agg = BlockMembership::default();
     let cmd = InviteMember {
         block_id: block_id(),
+        series_id: series_id(),
         user_id: user("alice"),
         role: Role::CostumeDesigner,
     };
@@ -85,6 +103,7 @@ fn re_invite_existing_user_is_rejected() {
     let mut agg = BlockMembership::default();
     let cmd = InviteMember {
         block_id: block_id(),
+        series_id: series_id(),
         user_id: user("alice"),
         role: Role::CostumeDesigner,
     };
@@ -106,6 +125,7 @@ fn accept_pending_invitation_becomes_active() {
         a.handle(
             InviteMember {
                 block_id: b,
+                series_id: series_id(),
                 user_id: alice.clone(),
                 role: Role::CostumeDesigner,
             },
@@ -117,6 +137,7 @@ fn accept_pending_invitation_becomes_active() {
         .handle(
             AcceptInvitation {
                 block_id: b,
+                series_id: series_id(),
                 user_id: alice.clone(),
             },
             ctx_with(None),
@@ -144,6 +165,7 @@ fn accept_without_pending_is_rejected() {
     let result = agg.handle(
         AcceptInvitation {
             block_id: block_id(),
+            series_id: series_id(),
             user_id: user("bob"),
         },
         ctx_with(None),
@@ -163,6 +185,7 @@ fn grant_role_to_active_member_replaces_role() {
         a.handle(
             InviteMember {
                 block_id: b,
+                series_id: series_id(),
                 user_id: bob.clone(),
                 role: Role::CostumeDesigner,
             },
@@ -173,6 +196,7 @@ fn grant_role_to_active_member_replaces_role() {
         a.handle(
             AcceptInvitation {
                 block_id: b,
+                series_id: series_id(),
                 user_id: bob.clone(),
             },
             ctx_with(None),
@@ -183,6 +207,7 @@ fn grant_role_to_active_member_replaces_role() {
         .handle(
             GrantRole {
                 block_id: b,
+                series_id: series_id(),
                 user_id: bob.clone(),
                 role: Role::WardrobeSupervisor,
             },
@@ -211,6 +236,7 @@ fn grant_role_to_non_member_is_rejected() {
     let result = agg.handle(
         GrantRole {
             block_id: block_id(),
+            series_id: series_id(),
             user_id: user("carol"),
             role: Role::WardrobeSupervisor,
         },
@@ -231,6 +257,7 @@ fn remove_active_member_emits_member_removed() {
         a.handle(
             InviteMember {
                 block_id: b,
+                series_id: series_id(),
                 user_id: dave.clone(),
                 role: Role::WardrobeSupervisor,
             },
@@ -241,6 +268,7 @@ fn remove_active_member_emits_member_removed() {
         a.handle(
             AcceptInvitation {
                 block_id: b,
+                series_id: series_id(),
                 user_id: dave.clone(),
             },
             ctx_with(None),
@@ -251,6 +279,7 @@ fn remove_active_member_emits_member_removed() {
         .handle(
             RemoveMember {
                 block_id: b,
+                series_id: series_id(),
                 user_id: dave.clone(),
             },
             ctx_with(None),
@@ -267,6 +296,7 @@ fn remove_non_member_is_rejected() {
     let result = agg.handle(
         RemoveMember {
             block_id: block_id(),
+            series_id: series_id(),
             user_id: user("eve"),
         },
         ctx_with(None),
@@ -286,6 +316,7 @@ fn leave_block_as_active_member_removes_self() {
         a.handle(
             InviteMember {
                 block_id: b,
+                series_id: series_id(),
                 user_id: frank.clone(),
                 role: Role::CostumeDesigner,
             },
@@ -296,6 +327,7 @@ fn leave_block_as_active_member_removes_self() {
         a.handle(
             AcceptInvitation {
                 block_id: b,
+                series_id: series_id(),
                 user_id: frank.clone(),
             },
             ctx_with(None),
@@ -303,7 +335,13 @@ fn leave_block_as_active_member_removes_self() {
     });
 
     let events = agg
-        .handle(LeaveBlock { block_id: b }, ctx_with(Some(frank.clone())))
+        .handle(
+            LeaveBlock {
+                block_id: b,
+                series_id: series_id(),
+            },
+            ctx_with(Some(frank.clone())),
+        )
         .unwrap();
     assert!(matches!(
         events[0],
@@ -323,6 +361,7 @@ fn leave_block_without_actor_is_rejected() {
         a.handle(
             InviteMember {
                 block_id: b,
+                series_id: series_id(),
                 user_id: grace.clone(),
                 role: Role::CostumeDesigner,
             },
@@ -333,13 +372,20 @@ fn leave_block_without_actor_is_rejected() {
         a.handle(
             AcceptInvitation {
                 block_id: b,
+                series_id: series_id(),
                 user_id: grace.clone(),
             },
             ctx_with(None),
         )
     });
 
-    let result = agg.handle(LeaveBlock { block_id: b }, ctx_with(None));
+    let result = agg.handle(
+        LeaveBlock {
+            block_id: b,
+            series_id: series_id(),
+        },
+        ctx_with(None),
+    );
     assert!(matches!(result, Err(MembershipError::MissingActor)));
 }
 
@@ -349,6 +395,7 @@ fn leave_block_as_non_member_is_rejected() {
     let result = agg.handle(
         LeaveBlock {
             block_id: block_id(),
+            series_id: series_id(),
         },
         ctx_with(Some(user("heidi"))),
     );
@@ -367,6 +414,7 @@ fn bootstrap_owner_seeds_first_active_member() {
         .handle(
             BootstrapOwner {
                 block_id: b,
+                series_id: series_id(),
                 user_id: owner.clone(),
                 role: Role::CostumeAssistant,
             },
@@ -399,6 +447,7 @@ fn bootstrap_owner_twice_is_rejected() {
         a.handle(
             BootstrapOwner {
                 block_id: b,
+                series_id: series_id(),
                 user_id: owner.clone(),
                 role: Role::CostumeAssistant,
             },
@@ -409,6 +458,7 @@ fn bootstrap_owner_twice_is_rejected() {
     let result = agg.handle(
         BootstrapOwner {
             block_id: b,
+            series_id: series_id(),
             user_id: user("other"),
             role: Role::CostumeDesigner,
         },

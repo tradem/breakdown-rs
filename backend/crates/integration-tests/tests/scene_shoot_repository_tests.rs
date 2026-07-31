@@ -2,6 +2,14 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: moonshotai/kimi-k3 (openrouter)
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::dbg_macro
+)]
 //! Tier-3 (Postgres-only) repository tests for the SceneShoot read model.
 //!
 //! Seeds projection data directly into Postgres and exercises the four

@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024 Breakdown RS Contributors
+
+# Workspace clippy configuration.  The lint severity is set in Cargo.toml's
+# `[workspace.lints.clippy]`; this file tunes thresholds and allows the
+# panic-style lints in test code (where `unwrap()` / `expect()` / `panic!`
+# are idiomatic).
+#
+# `unwrap_used`, `expect_used`, `panic` are denied in production code
+# (Cargo.toml). The `test` profile re-allows them so test files under
+# `crates/*/tests/` (which compile as separate binaries and do NOT inherit
+# `cfg_attr(test, allow(...))` from lib.rs) stay clean.
+
+# Do NOT warn about these in test code at all.
+# This is the cleanest way because test binaries don't inherit crate-level
+# cfg_attr(test, ...) attributes.

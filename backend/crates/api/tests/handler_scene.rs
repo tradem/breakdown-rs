@@ -2,6 +2,14 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::dbg_macro
+)]
 use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -11,6 +19,7 @@ use breakdown_core::shared::{AggregateVersion, EpisodeId};
 use chrono::Utc;
 use uuid::Uuid;
 
+use api::auth::CurrentUser;
 use api::handlers::{CreateSceneRequest, create_scene, get_scene};
 use api::state::AppState;
 
@@ -23,8 +32,9 @@ async fn create_scene_returns_201_with_id_and_version() {
         episode_id: EpisodeId::new(),
         details: SceneDetails::default(),
     };
+    let current_user = CurrentUser::dummy("test-user");
 
-    let result = create_scene(State(state), Json(req)).await;
+    let result = create_scene(State(state), current_user, Json(req)).await;
     let (status, Json(body)) = result.expect("handler should succeed");
 
     assert_eq!(status, StatusCode::CREATED);

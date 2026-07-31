@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: qwen3.6-35b (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: glm-5.2 (neuralwatt)
 
 //! Saga that reacts to `ContinuityPhotoUnlinked` events on the `scene_shoot`
 //! stream. Checks refcount via `projection_continuity_photo` and dispatches
@@ -10,27 +13,41 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result;
+use breakdown_core::character::ports::CharacterRepository;
+use breakdown_core::costume::ports::CostumeRepository;
+use breakdown_core::episode::ports::EpisodeRepository;
+use breakdown_core::photo::aggregate::PhotoAggregate;
+use breakdown_core::photo::binding::PhotoBinding;
 use breakdown_core::photo::commands::DeletePhoto;
-use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository};
+use breakdown_core::photo::ports::PhotoRepository;
+use breakdown_core::scene::ports::SceneRepository;
 use breakdown_core::scene_shoot::aggregate::SceneShootAggregate;
 use breakdown_core::scene_shoot::events::SceneShootEvent;
+use breakdown_core::scene_shoot::ports::SceneShootRepository;
+use breakdown_core::season::ports::SeasonRepository;
+use breakdown_core::shared::{EventMetadata, PhotoId, Provenance, SceneShootId, SeriesId};
+use kameo_es::command_service::CommandService;
+use kameo_es::command_service::ExecuteExt;
 use kameo_es::event_handler::EventHandlerStreamBuilder;
 use kameo_es::event_handler::{
     EntityEventHandler, EventHandler, EventHandlerError, EventProcessor,
 };
 use kameo_es::{Entity, Event};
 use redis::Client as RedisClient;
+use sierradb_client::ExpectedVersion;
 use sierradb_client::SierraAsyncClientExt;
 use uuid::Uuid;
 
-use breakdown_core::shared::SceneShootId;
-
-use crate::event_store::PhotoCommandsImpl;
+use crate::event_store::map_version_only;
 use crate::photo::repository::PhotoRepositoryImpl;
 use crate::projectors::supervisor;
+use crate::queries::{
+    CharacterRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl, SceneRepositoryImpl,
+    SceneShootRepositoryImpl, SeasonRepositoryImpl,
+};
 
-/// Saga that disptaches `DeletePhoto` when a continuity photo's refcount
-/// reaches zero.
+/// Saga that dispatches `DeletePhoto` when a continuity photo's refcount
+/// reaches zero, directly via `Aggregate::execute` with `Provenance::Saga`.
 ///
 /// Tracks `ContinuityPhotoLinked` / `ContinuityPhotoUnlinked` events on the
 /// `scene_shoot` stream. When a `ContinuityPhotoUnlinked` event brings the
@@ -38,18 +55,95 @@ use crate::projectors::supervisor;
 /// to check for remaining costume-side references before dispatching delete.
 #[derive(Clone, Debug)]
 pub struct ContinuityDeletionSaga {
+    cmd_service: CommandService,
     repo: PhotoRepositoryImpl,
-    commands: PhotoCommandsImpl,
+    costume_repo: CostumeRepositoryImpl,
+    character_repo: CharacterRepositoryImpl,
+    season_repo: SeasonRepositoryImpl,
+    scene_shoot_repo: SceneShootRepositoryImpl,
+    scene_repo: SceneRepositoryImpl,
+    episode_repo: EpisodeRepositoryImpl,
     /// In-memory continuity-photo refcounts keyed by `PhotoId`.
     refcounts: HashMap<Uuid, u64>,
 }
 
 impl ContinuityDeletionSaga {
-    pub fn new(repo: PhotoRepositoryImpl, commands: PhotoCommandsImpl) -> Self {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        cmd_service: CommandService,
+        repo: PhotoRepositoryImpl,
+        costume_repo: CostumeRepositoryImpl,
+        character_repo: CharacterRepositoryImpl,
+        season_repo: SeasonRepositoryImpl,
+        scene_shoot_repo: SceneShootRepositoryImpl,
+        scene_repo: SceneRepositoryImpl,
+        episode_repo: EpisodeRepositoryImpl,
+    ) -> Self {
         Self {
+            cmd_service,
             repo,
-            commands,
+            costume_repo,
+            character_repo,
+            season_repo,
+            scene_shoot_repo,
+            scene_repo,
+            episode_repo,
             refcounts: HashMap::new(),
+        }
+    }
+
+    /// Resolve `series_id` from the photo's binding.
+    async fn resolve_series_id(
+        &self,
+        photo_id: PhotoId,
+    ) -> Result<Option<SeriesId>, anyhow::Error> {
+        // Best-effort series_id resolution for the audit trail. Any projection
+        // miss (NotFound, lag, missing parent projector) yields Ok(None) rather
+        // than failing the saga — thumbnail/deletion processing must not be
+        // blocked by audit-metadata resolution.
+        let binding = self.repo.find_by_id(photo_id).await.ok().map(|p| p.binding);
+        let binding = match binding {
+            Some(b) => b,
+            None => return Ok(None),
+        };
+        match binding {
+            PhotoBinding::Costume { costume_id } => {
+                let costume = match self.costume_repo.find_by_id(costume_id).await.ok() {
+                    Some(c) => c,
+                    None => return Ok(None),
+                };
+                match costume.character_id {
+                    Some(character_id) => {
+                        let ch = match self.character_repo.find_by_id(character_id).await.ok() {
+                            Some(c) => c,
+                            None => return Ok(None),
+                        };
+                        Ok(self
+                            .season_repo
+                            .find_by_id(ch.season_id.0)
+                            .await
+                            .ok()
+                            .map(|s| s.series_id))
+                    }
+                    None => Ok(None),
+                }
+            }
+            PhotoBinding::Continuity { scene_shoot_id, .. } => {
+                let ss = match self.scene_shoot_repo.find_by_id(scene_shoot_id).await.ok() {
+                    Some(s) => s,
+                    None => return Ok(None),
+                };
+                let sc = match self.scene_repo.find_by_id(ss.scene_id).await.ok() {
+                    Some(s) => s,
+                    None => return Ok(None),
+                };
+                Ok(self
+                    .episode_repo
+                    .find_by_id(sc.episode_id.0)
+                    .await
+                    .ok()
+                    .map(|e| e.series_id))
+            }
         }
     }
 }
@@ -63,7 +157,7 @@ impl EntityEventHandler<SceneShootAggregate, ()> for ContinuityDeletionSaga {
         &mut self,
         _ctx: &mut (),
         _id: SceneShootId,
-        event: Event<SceneShootEvent, ()>,
+        event: Event<SceneShootEvent, EventMetadata>,
     ) -> Result<(), Self::Error> {
         match event.data {
             SceneShootEvent::ContinuityPhotoLinked { photo_id, .. } => {
@@ -91,17 +185,34 @@ impl EntityEventHandler<SceneShootAggregate, ()> for ContinuityDeletionSaga {
                         }
                     }
 
-                    let photo_view = match self.repo.find_by_id(photo_id).await {
-                        Ok(view) => view,
-                        Err(_) => return Ok(()),
-                    };
-                    self.commands
-                        .delete(DeletePhoto {
-                            id: photo_id,
-                            version: photo_view.version,
-                        })
+                    let photo_view = self
+                        .repo
+                        .find_by_id(photo_id)
                         .await
                         .map_err(|e| anyhow::anyhow!("{e}"))?;
+                    let series_id = self.resolve_series_id(photo_id).await?;
+                    let stream_version = crate::event_store::domain_to_stream(photo_view.version)
+                        .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "photo {photo_id} has version 0 — cannot determine stream version"
+                        )
+                    })?;
+                    let result = PhotoAggregate::execute(
+                        &self.cmd_service,
+                        photo_id,
+                        DeletePhoto {
+                            id: photo_id,
+                            version: photo_view.version,
+                        },
+                    )
+                    .expected_version(ExpectedVersion::Exact(stream_version))
+                    .metadata(EventMetadata {
+                        actor: None,
+                        provenance: Provenance::Saga("ContinuityDeletionSaga".to_string()),
+                        series_id,
+                    })
+                    .await;
+                    map_version_only(result).map_err(|e| anyhow::anyhow!("{e}"))?;
                 }
             }
             _ => {}
@@ -142,12 +253,28 @@ impl EventProcessor<(SceneShootAggregate,), ContinuityDeletionSaga> for Continui
 }
 
 /// Spawn the continuity deletion saga subscription loop (supervised, background).
+#[allow(clippy::too_many_arguments)]
 pub async fn spawn_continuity_deletion_saga(
+    cmd_service: CommandService,
     repo: PhotoRepositoryImpl,
-    commands: PhotoCommandsImpl,
+    costume_repo: CostumeRepositoryImpl,
+    character_repo: CharacterRepositoryImpl,
+    season_repo: SeasonRepositoryImpl,
+    scene_shoot_repo: SceneShootRepositoryImpl,
+    scene_repo: SceneRepositoryImpl,
+    episode_repo: EpisodeRepositoryImpl,
     redis_client: Arc<RedisClient>,
 ) -> Result<()> {
-    let saga = ContinuityDeletionSaga::new(repo, commands);
+    let saga = ContinuityDeletionSaga::new(
+        cmd_service,
+        repo,
+        costume_repo,
+        character_repo,
+        season_repo,
+        scene_shoot_repo,
+        scene_repo,
+        episode_repo,
+    );
     let _handle = supervisor::run_with_restart("continuity_deletion_saga", move || {
         let mut saga = saga.clone();
         let client = redis_client.clone();

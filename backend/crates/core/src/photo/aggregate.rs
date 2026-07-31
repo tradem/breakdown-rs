@@ -1,9 +1,12 @@
-// Co-authored-by: deepseek-v4-flash (opencode-go)
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024 Breakdown RS Contributors
+// Co-authored-by: mimo-v2.5 (opencode-go)
+
 use chrono::{DateTime, Utc};
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
 
 use crate::photo::binding::PhotoBinding;
-use crate::shared::{AggregateVersion, PhotoId, PhotoVariant, VariantStatus};
+use crate::shared::{AggregateVersion, EventMetadata, PhotoId, PhotoVariant, VariantStatus};
 
 use super::commands::*;
 use super::error::PhotoError;
@@ -57,7 +60,7 @@ impl PhotoAggregate {
 impl Entity for PhotoAggregate {
     type ID = PhotoId;
     type Event = PhotoEvent;
-    type Metadata = ();
+    type Metadata = EventMetadata;
 
     fn category() -> &'static str {
         "photo"
@@ -65,7 +68,7 @@ impl Entity for PhotoAggregate {
 }
 
 impl Apply for PhotoAggregate {
-    fn apply(&mut self, event: Self::Event, _metadata: Metadata<()>) {
+    fn apply(&mut self, event: Self::Event, _metadata: Metadata<EventMetadata>) {
         match event {
             PhotoEvent::PhotoUploaded {
                 id,
