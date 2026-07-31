@@ -3,6 +3,14 @@
 // Co-authored-by: moonshotai/kimi-k3 (openrouter)
 // Co-authored-by: glm-5.2 (neuralwatt)
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::dbg_macro
+)]
 //! Tier-4 projector idempotency test for the SceneShoot aggregate (ADR-016).
 //!
 //! Verifies that event redelivery (a fresh SierraDB append of the same logical

@@ -1,3 +1,11 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::dbg_macro
+)]
 mod common;
 use utoipa::OpenApi;
 // Copyright (C) 2024-2026 Breakdown RS Contributors

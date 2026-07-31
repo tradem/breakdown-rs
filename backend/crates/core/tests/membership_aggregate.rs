@@ -3,6 +3,14 @@
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::dbg_macro
+)]
 use breakdown_core::membership::aggregate::MembershipState;
 use breakdown_core::membership::*;
 use breakdown_core::shared::{BlockId, EventMetadata, Provenance, SeriesId, UserId};

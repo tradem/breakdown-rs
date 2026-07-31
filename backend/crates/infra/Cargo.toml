@@ -80,3 +80,6 @@ icu_provider = { version = "1.5", default-features = false }
 # Embedded font assets
 rust-embed = "8"
 
+
+[lints]
+workspace = true

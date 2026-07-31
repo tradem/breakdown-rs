@@ -65,18 +65,30 @@ fn init_otel_tracer() -> Option<opentelemetry_sdk::trace::SdkTracer> {
 
     // Build the exporter based on the configured protocol.
     let exporter = match protocol.as_str() {
-        "http/protobuf" => opentelemetry_otlp::SpanExporter::builder()
+        "http/protobuf" => match opentelemetry_otlp::SpanExporter::builder()
             .with_http()
             .with_endpoint(&endpoint)
             .build()
-            .expect("failed to build OTLP HTTP exporter"),
+        {
+            Ok(e) => e,
+            Err(e) => {
+                warn!(error = %e, "failed to build OTLP HTTP exporter; tracing disabled");
+                return None;
+            }
+        },
         _ => {
             // Default to gRPC (tonic) when protocol is unset or "grpc".
-            opentelemetry_otlp::SpanExporter::builder()
+            match opentelemetry_otlp::SpanExporter::builder()
                 .with_tonic()
                 .with_endpoint(&endpoint)
                 .build()
-                .expect("failed to build OTLP gRPC exporter")
+            {
+                Ok(e) => e,
+                Err(e) => {
+                    warn!(error = %e, "failed to build OTLP gRPC exporter; tracing disabled");
+                    return None;
+                }
+            }
         }
     };
 

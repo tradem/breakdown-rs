@@ -2,6 +2,14 @@
 // Copyright (C) 2024 Breakdown RS Contributors
 // Co-authored-by: glm-5.2 (neuralwatt)
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::dbg_macro
+)]
 //! Exercises the real `run_with_restart_with_config` supervisor with a
 //! `BackoffConfig` tuned for a small `max_attempts` and millisecond backoff.
 //!

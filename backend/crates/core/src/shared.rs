@@ -544,6 +544,7 @@ impl LexicalSortKey {
     ///
     /// Intended for `const`-friendly seeds and tests where the literal is known
     /// to be valid.
+    #[allow(clippy::expect_used)] // const-time seed construction from a known-valid literal
     pub fn from_static(s: &'static str) -> Self {
         Self::new(s).expect("static LexicalSortKey must be valid")
     }
@@ -560,6 +561,7 @@ impl LexicalSortKey {
     /// Returns [`LexicalSortKeyError::NoRoom`] when both bounds are already at
     /// maximum length with no gap (the degenerate case a compaction pass must
     /// resolve).
+    #[allow(clippy::expect_used)] // bytes are from the controlled LEXICAL alphabet; char is guaranteed valid
     pub fn midpoint(a: &Self, b: &Self) -> Result<Self, LexicalSortKeyError> {
         if a.0.is_empty() || b.0.is_empty() {
             return Err(LexicalSortKeyError::Empty);

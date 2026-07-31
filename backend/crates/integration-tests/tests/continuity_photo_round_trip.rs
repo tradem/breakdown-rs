@@ -3,6 +3,14 @@
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::dbg_macro
+)]
 //! Tier-4 integration tests for continuity-photo lifecycle (9.2 + 9.3).
 //!
 //! 9.2: continuity photo upload → variant generation → bytes in Garage → projection rows

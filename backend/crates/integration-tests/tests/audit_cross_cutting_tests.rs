@@ -3,6 +3,14 @@
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: glm-5.2 (neuralwatt)
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::dbg_macro
+)]
 //! Tier-4 cross-cutting audit projector integration tests (tasks 6.1–6.4).
 //!
 //! These black-box tests drive the full

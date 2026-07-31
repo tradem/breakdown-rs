@@ -57,5 +57,23 @@ utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
 utoipa-swagger-ui = { version = "9", features = ["axum"] }
 
 [workspace.lints.rust]
-unsafe_code = "forbid"
-edition_mismatch = "warn"
+# `unsafe` is forbidden in production code. Use `deny` (not `forbid`) so test
+# binaries that need `unsafe` for legit reasons (JWT/socket stubs in
+# auth tests) can `#![allow(unsafe_code)]` locally. `forbid` is un-overridable.
+unsafe_code = "deny"
+
+# Panics are the "safe" equivalent of `unsafe` for crashing production:
+# they bypass structured error handling, produce no tracing span, and (in
+# spawned tasks like projectors/sagas) silently kill the worker. The
+# architecture forbids `unwrap()`/`expect()`/`panic!()` in production code
+# (AGENTS.md §3).  Test code and const-time construction may `#[allow]` them
+# with a justification comment.
+[workspace.lints.clippy]
+expect_used = "deny"
+unwrap_used = "deny"
+panic = "deny"
+# `dbg_macro` and `print_stdout` leak test scaffolding into prod; deny to
+# keep production output clean (use `tracing` instead).
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"

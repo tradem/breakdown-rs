@@ -54,3 +54,6 @@ rand_core = "0.6"
 hyper = { version = "1", features = ["server", "http1"] }
 http-body-util = "0.1"
 tower = "0.5"
+
+[lints]
+workspace = true

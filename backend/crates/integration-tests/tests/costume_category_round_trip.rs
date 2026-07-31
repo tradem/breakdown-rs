@@ -2,6 +2,14 @@
 // Copyright (C2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.2 (neuralwatt)
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::dbg_macro
+)]
 //! Tier-4 round-trip integration tests for the season-scoped `CostumeCategory`
 //! aggregate, the detail-enrichment of `CostumeDetail`, and the
 //! seed-on-create saga (ADR-014 / ADR-015 / ADR-016).

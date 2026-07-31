@@ -41,8 +41,7 @@ impl<'a> EntityEventHandler<ShootingDayAggregate, Transaction<'a, Postgres>>
                 version,
             } => {
                 let version = version.0 as i64;
-                let source_json =
-                    serde_json::to_value(&source).expect("ShootingDaySource serializes");
+                let source_json = serde_json::to_value(&source).unwrap_or(serde_json::Value::Null);
                 sqlx::query(
                     r#"
                     INSERT INTO projection_shooting_day

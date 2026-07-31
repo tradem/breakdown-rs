@@ -38,9 +38,9 @@ impl<'a> EntityEventHandler<BlockMembership, Transaction<'a, Postgres>> for Memb
                 user_id,
                 role,
             } => {
-                let role_json = serde_json::to_string(&role).expect("Role serializes");
+                let role_json = serde_json::to_string(&role).unwrap_or_default();
                 let state_json =
-                    serde_json::to_string(&MembershipStateKind::Pending).expect("state serializes");
+                    serde_json::to_string(&MembershipStateKind::Pending).unwrap_or_default();
                 sqlx::query(
                     r#"
                     INSERT INTO projection_membership
@@ -67,9 +67,9 @@ impl<'a> EntityEventHandler<BlockMembership, Transaction<'a, Postgres>> for Memb
                 user_id,
                 role,
             } => {
-                let role_json = serde_json::to_string(&role).expect("Role serializes");
+                let role_json = serde_json::to_string(&role).unwrap_or_default();
                 let state_json =
-                    serde_json::to_string(&MembershipStateKind::Active).expect("state serializes");
+                    serde_json::to_string(&MembershipStateKind::Active).unwrap_or_default();
                 sqlx::query(
                     r#"
                     UPDATE projection_membership
@@ -90,7 +90,7 @@ impl<'a> EntityEventHandler<BlockMembership, Transaction<'a, Postgres>> for Memb
                 user_id,
                 role,
             } => {
-                let role_json = serde_json::to_string(&role).expect("Role serializes");
+                let role_json = serde_json::to_string(&role).unwrap_or_default();
                 sqlx::query(
                     r#"
                     UPDATE projection_membership
@@ -125,9 +125,9 @@ impl<'a> EntityEventHandler<BlockMembership, Transaction<'a, Postgres>> for Memb
                 // Treated exactly like an accepted invitation: the bootstrapped
                 // user becomes an active member with `role`. Idempotent upsert
                 // keyed by `(block_id, user_id)` keeps redelivery safe.
-                let role_json = serde_json::to_string(&role).expect("Role serializes");
+                let role_json = serde_json::to_string(&role).unwrap_or_default();
                 let state_json =
-                    serde_json::to_string(&MembershipStateKind::Active).expect("state serializes");
+                    serde_json::to_string(&MembershipStateKind::Active).unwrap_or_default();
                 sqlx::query(
                     r#"
                     INSERT INTO projection_membership

@@ -438,6 +438,7 @@ pub fn sha256_hex(bytes: &[u8]) -> ContentDigest {
     let out = hasher.finalize();
     // Hex encode without pulling an extra crate.
     let hex: String = out.iter().map(|b| format!("{b:02x}")).collect();
+    #[allow(clippy::expect_used)] // sha256 hex output is always a valid ContentDigest
     ContentDigest::new(hex).expect("sha256 hex is always valid")
 }
 

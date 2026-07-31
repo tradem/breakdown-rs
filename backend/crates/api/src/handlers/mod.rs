@@ -2116,6 +2116,7 @@ pub async fn get_costume_photo_bytes<P: Ports>(
     headers.insert(axum::http::header::CONTENT_LENGTH, content_length_header);
     headers.insert(
         axum::http::header::CACHE_CONTROL,
+        #[allow(clippy::expect_used)] // hardcoded safe header literal
         "private, max-age=300"
             .parse()
             .expect("hardcoded safe header value"),

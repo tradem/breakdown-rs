@@ -2,6 +2,14 @@
 // Copyright (C) 2024 Breakdown RS Contributors
 // Co-authored-by: glm-5.2 (neuralwatt)
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::dbg_macro
+)]
 use infra::projectors::supervisor::{
     BACKOFF_BASE_MS, BACKOFF_MAX_DELAY_MS, BackoffConfig, MAX_ATTEMPTS, compute_backoff,
     run_with_restart_with_config,

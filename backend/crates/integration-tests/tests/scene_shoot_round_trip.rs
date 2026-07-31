@@ -3,6 +3,14 @@
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::dbg_macro
+)]
 //! Tier-4 round-trip integration tests for SceneShoot lifecycle and
 //! ShootingDayWrapped report finality (ADR-016).
 //!

@@ -14,6 +14,14 @@
 //
 // Run: cargo test -p architecture_tests
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::dbg_macro
+)]
 use rust_arkitect::dsl::architectural_rules::ArchitecturalRules;
 use rust_arkitect::dsl::arkitect::Arkitect;
 use rust_arkitect::dsl::project::Project;

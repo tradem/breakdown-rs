@@ -53,10 +53,11 @@ pub struct RestrictedWorld {
 
 impl RestrictedWorld {
     /// Create a new restricted world with the given template and data.
+    #[allow(clippy::unwrap_used)] // VirtualPath::new from a const literal cannot fail
     pub fn new(template_source: &str, report_json: &[u8], fonts: Vec<Font>) -> Self {
         let file_id = FileId::new(typst::syntax::RootedPath::new(
             typst::syntax::VirtualRoot::Project,
-            VirtualPath::new("main.typ").unwrap(),
+            VirtualPath::new("main.typ").unwrap(), // const-time path literal
         ));
         let source = Source::new(file_id, template_source.to_string());
 
@@ -77,6 +78,7 @@ impl RestrictedWorld {
 
 impl RestrictedWorld {
     /// Return the FileId for the virtual `report.json`.
+    #[allow(clippy::unwrap_used)] // VirtualPath::new from a const literal cannot fail
     fn report_json_id(&self) -> FileId {
         FileId::new(typst::syntax::RootedPath::new(
             typst::syntax::VirtualRoot::Project,
@@ -125,6 +127,7 @@ impl World for RestrictedWorld {
         _offset: Option<typst::foundations::Duration>,
     ) -> Option<typst::foundations::Datetime> {
         // Pin to a fixed date for deterministic rendering
+        #[allow(clippy::unwrap_used)] // const-time ymd
         Some(typst::foundations::Datetime::from_ymd(2024, 6, 15).unwrap())
     }
 }

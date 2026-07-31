@@ -2,6 +2,14 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::dbg_macro
+)]
 //! Smoke test for the embedded seed configuration.
 //!
 //! The actual seeding logic (create/replay guard) is verified by

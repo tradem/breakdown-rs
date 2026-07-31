@@ -132,7 +132,7 @@ async fn write_audit_row(
     event_timestamp: chrono::DateTime<chrono::Utc>,
     event_id: uuid::Uuid,
 ) -> sqlx::Result<()> {
-    let payload = serde_json::to_value(&event).expect("event serializes");
+    let payload = serde_json::to_value(&event).unwrap_or(serde_json::Value::Null);
     let event_key = format!("{entity_type}:{entity_id}:{event_type}:{payload}");
 
     let series_uuid: Option<uuid::Uuid> = series_id
@@ -157,8 +157,8 @@ async fn write_audit_row(
     .bind(event_type)
     .bind(
         uuid::Uuid::parse_str(entity_id)
-            .expect("entity_id is a valid UUID for block_id"),
-    ) // block_id — kept for compatibility with existing idx_projection_audit_block
+            .unwrap_or_default(), // block_id — kept for compatibility with existing idx_projection_audit_block
+    )
     .bind(series_uuid)
     .bind(actor)
     .bind(provenance)

@@ -2,6 +2,14 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.2 (neuralwatt)
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::dbg_macro
+)]
 //! Tier-4 round-trip integration tests for the ShootingDay aggregate and the
 //! Scene ↔ ShootingDay scheduling link (ADR-014 / ADR-015 / ADR-016).
 //!

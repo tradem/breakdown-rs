@@ -7,6 +7,7 @@ You are the primary coding agent for `breakdown-rs` – a collaborative costume 
 - **CQRS & Event Sourcing:**
   - **Write Side:** All state changes occur via **Commands** sent to **Aggregates**. Aggregates validate commands and emit **Events**. State is never updated directly; it is rebuilt by replaying past events.
   - **Read Side:** **Queries** read from flat PostgreSQL **Projections**. Event Handlers asynchronously update these projections when new events occur. Never query aggregates directly for views.
+  - **CQRS Boundary (hard rule):** Write-side code — Command adapters (`*CommandsImpl`), Sagas, Aggregates — must **never** query a read-model projection (`*Repository::find_by_id`) to resolve audit/derived context such as `series_id`. Such context must come from the **event data itself** (e.g. `SeasonCreated.series_id`) or from a **command field** populated at the API edge. The API layer (handlers) is the *only* legitimate consumer of read-model queries and may enrich commands before dispatch. Violating this creates a hidden coupling to projector presence and projection lag that breaks tests and, in production, risks silent audit gaps when a parent projector lags. (See issue #147 for the known backlog.)
 - **kameo_es (Actors):** We use `kameo_es` for Event-Sourced aggregates. Each aggregate is a `kameo::Actor` implementing `kameo_es::Entity`. Commands act as `kameo_es::Command`.
 
 ## 2. Workspace Structure
@@ -82,6 +83,7 @@ membership check via the shooting_day → episode → block → season chain). T
 - **Open-Spec / API First:** Define the API in the OpenAPI spec before writing code. Map exact types using `serde`.
 - **ID Generation:** Strictly use **UUIDv7** (`uuid::Uuid::now_v7()`) for all entities and events. No UUIDv4.
 - **Security:** Never hardcode secrets. Your code must pass `gitleaks`.
+- **No panics in production code (hard rule).** Panics are the "safe" equivalent of `unsafe` for crashing production: they bypass structured error handling (`?` / `DomainError`/`anyhow`), produce no tracing span, and (in spawned tasks like projectors and sagas) silently kill the worker — defeating the entire tracing/audit effort. **`unwrap()` / `expect()` / `panic!()` / `unreachable!()` / `todo!()` are forbidden** in production code paths (adapters, sagas, projectors, handlers, `main.rs`). Use `?` with `DomainError`/`anyhow`, or `match` with an explicit fallback. The workspace clippy lints `clippy::unwrap_used`, `clippy::expect_used`, `clippy::panic` are `deny` (CI-enforced via `-D warnings`). `#[allow]` is only acceptable for (a) const-time construction from a known-valid literal (e.g. `LexicalSortKey::from_static`) or (b) test code — both must carry a justification comment. Audit metadata (e.g. `series_id`) must **never** block command processing: resolve it best-effort, returning `None`/default on projection misses (see CQRS-boundary rule in §1).
 - **Security — No string-interpolated SQL (hard rule).** Every SQL statement passed to
   `sqlx::query(...)`, `sqlx::query_as(...)`, or `sqlx::query_scalar(...)` must be a static
   `&str` literal (or `r#"..."#`). All dynamic values go through `.bind()`. Identifiers
