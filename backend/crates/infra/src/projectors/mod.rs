@@ -61,32 +61,69 @@ use sqlx::PgPool;
 
 const CHECKPOINTS_TABLE: &str = "sierradb_event_checkpoints";
 
-/// Apply aggressive flush configuration for test scenarios.
+/// Tunable projector flush / worker configuration.
 ///
-/// Forces the projector to commit its transaction within 500 ms or after 5 events,
-/// whichever comes first, in live mode.  This prevents projector workers from
-/// holding long-lived `sqlx::Transaction` objects that starve the `PgPool` during
-/// sequential test runs (ADR-016).
-///
-/// The defaults are 2 s / 10 events — this helper tightens them for fast CI feedback.
-fn aggressive_test_flush<E, H>(processor: PostgresProcessor<E, H>) -> PostgresProcessor<E, H>
-where
-    E: 'static,
-    H: EventHandler<sqlx::Transaction<'static, Postgres>>
-        + CompositeEventHandler<E, sqlx::Transaction<'static, Postgres>, PostgresEventProcessorError>
-        + Send
-        + 'static,
-    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error: fmt::Debug + Sync,
-{
-    processor
-        .workers(2)
-        // Live mode: commit every 500ms or 5 events
-        .flush_live_interval_time(Duration::from_millis(500))
-        .flush_live_interval_events(5)
-        // Replay mode: commit every 2s or 50 events (prevents long-held
-        // transactions at projector startup when backlog must be caught up)
-        .flush_replay_interval_time(Duration::from_secs(2))
-        .flush_replay_interval_events(50)
+/// `Default` is **production**: no overrides, preserving the upstream
+/// `kameo_es::PostgresProcessor` defaults (workers = 16, live 2 s / 10
+/// events, replay 10 s / 10 000 events). `fn test_profile` tightens these
+/// for fast CI feedback and to avoid pool starvation in sequential test
+/// runs (ADR-016) — it must never be used in production boot.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ProjectorFlushConfig {
+    workers: Option<u16>,
+    flush_live_interval_time: Option<Duration>,
+    flush_live_interval_events: Option<u64>,
+    flush_replay_interval_time: Option<Duration>,
+    flush_replay_interval_events: Option<u64>,
+}
+
+impl ProjectorFlushConfig {
+    /// Aggressive flush for tests: commit within 500 ms / 5 events and limit
+    /// parallelism to 2 workers. Reduces wall-clock and pool pressure under
+    /// sequential testcontainers runs.
+    #[doc(hidden)]
+    pub fn test_profile() -> Self {
+        Self {
+            workers: Some(2),
+            flush_live_interval_time: Some(Duration::from_millis(500)),
+            flush_live_interval_events: Some(5),
+            flush_replay_interval_time: Some(Duration::from_secs(2)),
+            flush_replay_interval_events: Some(50),
+        }
+    }
+
+    /// Apply the overrides to a processor. `Default` leaves it untouched
+    /// (production defaults stay intact); `test_profile` tightens flush/parallelism.
+    pub fn apply<E, H>(self, processor: PostgresProcessor<E, H>) -> PostgresProcessor<E, H>
+    where
+        E: 'static,
+        H: EventHandler<sqlx::Transaction<'static, Postgres>>
+            + CompositeEventHandler<
+                E,
+                sqlx::Transaction<'static, Postgres>,
+                PostgresEventProcessorError,
+            > + Send
+            + 'static,
+        <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error: fmt::Debug + Sync,
+    {
+        let mut p = processor;
+        if let Some(w) = self.workers {
+            p = p.workers(w);
+        }
+        if let Some(d) = self.flush_live_interval_time {
+            p = p.flush_live_interval_time(d);
+        }
+        if let Some(n) = self.flush_live_interval_events {
+            p = p.flush_live_interval_events(n);
+        }
+        if let Some(d) = self.flush_replay_interval_time {
+            p = p.flush_replay_interval_time(d);
+        }
+        if let Some(n) = self.flush_replay_interval_events {
+            p = p.flush_replay_interval_events(n);
+        }
+        p
+    }
 }
 
 use kameo_es::event_handler::postgres::PostgresEventProcessorError;
@@ -228,9 +265,10 @@ impl Drop for AuditProjectorHandles {
 pub async fn spawn_scene_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
 ) -> Result<ActorRef<SceneProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = aggressive_test_flush(
+    let processor = config.apply(
         SceneProcessor::new(
             pool.clone(),
             conn,
@@ -249,9 +287,10 @@ pub async fn spawn_scene_projector(
 pub async fn spawn_character_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
 ) -> Result<ActorRef<CharacterProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = aggressive_test_flush(
+    let processor = config.apply(
         CharacterProcessor::new(
             pool.clone(),
             conn,
@@ -275,9 +314,10 @@ pub async fn spawn_character_projector(
 pub async fn spawn_costume_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
 ) -> Result<ActorRef<CostumeProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = aggressive_test_flush(
+    let processor = config.apply(
         CostumeProcessor::new(
             pool.clone(),
             conn,
@@ -296,9 +336,10 @@ pub async fn spawn_costume_projector(
 pub async fn spawn_costume_category_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
 ) -> Result<ActorRef<CostumeCategoryProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = aggressive_test_flush(
+    let processor = config.apply(
         CostumeCategoryProcessor::new(
             pool.clone(),
             conn,
@@ -322,9 +363,10 @@ pub async fn spawn_costume_category_projector(
 pub async fn spawn_season_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
 ) -> Result<ActorRef<SeasonProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = aggressive_test_flush(
+    let processor = config.apply(
         SeasonProcessor::new(
             pool.clone(),
             conn,
@@ -343,9 +385,10 @@ pub async fn spawn_season_projector(
 pub async fn spawn_block_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
 ) -> Result<ActorRef<BlockProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = aggressive_test_flush(
+    let processor = config.apply(
         BlockProcessor::new(
             pool.clone(),
             conn,
@@ -364,9 +407,10 @@ pub async fn spawn_block_projector(
 pub async fn spawn_episode_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
 ) -> Result<ActorRef<EpisodeProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = aggressive_test_flush(
+    let processor = config.apply(
         EpisodeProcessor::new(
             pool.clone(),
             conn,
@@ -385,9 +429,10 @@ pub async fn spawn_episode_projector(
 pub async fn spawn_membership_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
 ) -> Result<ActorRef<MembershipProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = aggressive_test_flush(
+    let processor = config.apply(
         MembershipProcessor::new(
             pool.clone(),
             conn,
@@ -413,9 +458,10 @@ pub async fn spawn_membership_projector(
 pub async fn spawn_season_audit_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
 ) -> Result<ActorRef<SeasonAuditProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = aggressive_test_flush(
+    let processor = config.apply(
         SeasonAuditProcessor::new(
             pool,
             conn,
@@ -439,9 +485,10 @@ pub async fn spawn_season_audit_projector(
 pub async fn spawn_block_audit_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
 ) -> Result<ActorRef<BlockAuditProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = aggressive_test_flush(
+    let processor = config.apply(
         BlockAuditProcessor::new(
             pool,
             conn,
@@ -465,9 +512,10 @@ pub async fn spawn_block_audit_projector(
 pub async fn spawn_episode_audit_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
 ) -> Result<ActorRef<EpisodeAuditProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = aggressive_test_flush(
+    let processor = config.apply(
         EpisodeAuditProcessor::new(
             pool,
             conn,
@@ -491,9 +539,10 @@ pub async fn spawn_episode_audit_projector(
 pub async fn spawn_scene_audit_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
 ) -> Result<ActorRef<SceneAuditProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = aggressive_test_flush(
+    let processor = config.apply(
         SceneAuditProcessor::new(
             pool,
             conn,
@@ -517,9 +566,10 @@ pub async fn spawn_scene_audit_projector(
 pub async fn spawn_scene_shoot_audit_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
 ) -> Result<ActorRef<SceneShootAuditProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = aggressive_test_flush(
+    let processor = config.apply(
         SceneShootAuditProcessor::new(
             pool,
             conn,
@@ -543,9 +593,10 @@ pub async fn spawn_scene_shoot_audit_projector(
 pub async fn spawn_shooting_day_audit_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
 ) -> Result<ActorRef<ShootingDayAuditProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = aggressive_test_flush(
+    let processor = config.apply(
         ShootingDayAuditProcessor::new(
             pool,
             conn,
@@ -569,9 +620,10 @@ pub async fn spawn_shooting_day_audit_projector(
 pub async fn spawn_character_audit_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
 ) -> Result<ActorRef<CharacterAuditProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = aggressive_test_flush(
+    let processor = config.apply(
         CharacterAuditProcessor::new(
             pool,
             conn,
@@ -595,9 +647,10 @@ pub async fn spawn_character_audit_projector(
 pub async fn spawn_costume_audit_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
 ) -> Result<ActorRef<CostumeAuditProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = aggressive_test_flush(
+    let processor = config.apply(
         CostumeAuditProcessor::new(
             pool,
             conn,
@@ -621,9 +674,10 @@ pub async fn spawn_costume_audit_projector(
 pub async fn spawn_costume_category_audit_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
 ) -> Result<ActorRef<CostumeCategoryAuditProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = aggressive_test_flush(
+    let processor = config.apply(
         CostumeCategoryAuditProcessor::new(
             pool,
             conn,
@@ -647,9 +701,10 @@ pub async fn spawn_costume_category_audit_projector(
 pub async fn spawn_photo_audit_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
 ) -> Result<ActorRef<PhotoAuditProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = aggressive_test_flush(
+    let processor = config.apply(
         PhotoAuditProcessor::new(
             pool,
             conn,
@@ -679,10 +734,17 @@ pub async fn spawn_audit_projectors_for_types(
     handlers: &mut AuditProjectorHandles,
     pool: PgPool,
     redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
 ) -> Result<()> {
     for category in categories {
-        spawn_single_audit_projector(*category, handlers, pool.clone(), redis_client.clone())
-            .await?;
+        spawn_single_audit_projector(
+            *category,
+            handlers,
+            pool.clone(),
+            redis_client.clone(),
+            config,
+        )
+        .await?;
     }
     Ok(())
 }
@@ -695,6 +757,7 @@ pub async fn spawn_audit_projectors_for_types(
 pub async fn spawn_all_audit_projectors(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
 ) -> Result<AuditProjectorHandles> {
     let categories = [
         AuditCategory::Season,
@@ -711,8 +774,14 @@ pub async fn spawn_all_audit_projectors(
     ];
     let mut handles = AuditProjectorHandles::new();
     for category in categories {
-        spawn_single_audit_projector(category, &mut handles, pool.clone(), redis_client.clone())
-            .await?;
+        spawn_single_audit_projector(
+            category,
+            &mut handles,
+            pool.clone(),
+            redis_client.clone(),
+            config,
+        )
+        .await?;
     }
     Ok(handles)
 }
@@ -726,13 +795,14 @@ pub async fn spawn_single_audit_projector(
     handlers: &mut AuditProjectorHandles,
     pool: PgPool,
     redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
 ) -> Result<()> {
     // Exhaustive match on AuditCategory — adding a variant without
     // an arm causes a compile error.
     match category {
         AuditCategory::Season => {
             let conn = redis_client.get_multiplexed_async_connection().await?;
-            let processor = aggressive_test_flush(
+            let processor = config.apply(
                 SeasonAuditProcessor::new(
                     pool,
                     conn,
@@ -753,7 +823,7 @@ pub async fn spawn_single_audit_projector(
         }
         AuditCategory::Block => {
             let conn = redis_client.get_multiplexed_async_connection().await?;
-            let processor = aggressive_test_flush(
+            let processor = config.apply(
                 BlockAuditProcessor::new(
                     pool,
                     conn,
@@ -774,7 +844,7 @@ pub async fn spawn_single_audit_projector(
         }
         AuditCategory::Episode => {
             let conn = redis_client.get_multiplexed_async_connection().await?;
-            let processor = aggressive_test_flush(
+            let processor = config.apply(
                 EpisodeAuditProcessor::new(
                     pool,
                     conn,
@@ -795,7 +865,7 @@ pub async fn spawn_single_audit_projector(
         }
         AuditCategory::Scene => {
             let conn = redis_client.get_multiplexed_async_connection().await?;
-            let processor = aggressive_test_flush(
+            let processor = config.apply(
                 SceneAuditProcessor::new(
                     pool,
                     conn,
@@ -816,7 +886,7 @@ pub async fn spawn_single_audit_projector(
         }
         AuditCategory::SceneShoot => {
             let conn = redis_client.get_multiplexed_async_connection().await?;
-            let processor = aggressive_test_flush(
+            let processor = config.apply(
                 SceneShootAuditProcessor::new(
                     pool,
                     conn,
@@ -837,7 +907,7 @@ pub async fn spawn_single_audit_projector(
         }
         AuditCategory::ShootingDay => {
             let conn = redis_client.get_multiplexed_async_connection().await?;
-            let processor = aggressive_test_flush(
+            let processor = config.apply(
                 ShootingDayAuditProcessor::new(
                     pool,
                     conn,
@@ -858,7 +928,7 @@ pub async fn spawn_single_audit_projector(
         }
         AuditCategory::Character => {
             let conn = redis_client.get_multiplexed_async_connection().await?;
-            let processor = aggressive_test_flush(
+            let processor = config.apply(
                 CharacterAuditProcessor::new(
                     pool,
                     conn,
@@ -879,7 +949,7 @@ pub async fn spawn_single_audit_projector(
         }
         AuditCategory::Costume => {
             let conn = redis_client.get_multiplexed_async_connection().await?;
-            let processor = aggressive_test_flush(
+            let processor = config.apply(
                 CostumeAuditProcessor::new(
                     pool,
                     conn,
@@ -900,7 +970,7 @@ pub async fn spawn_single_audit_projector(
         }
         AuditCategory::CostumeCategory => {
             let conn = redis_client.get_multiplexed_async_connection().await?;
-            let processor = aggressive_test_flush(
+            let processor = config.apply(
                 CostumeCategoryAuditProcessor::new(
                     pool,
                     conn,
@@ -921,7 +991,7 @@ pub async fn spawn_single_audit_projector(
         }
         AuditCategory::Photo => {
             let conn = redis_client.get_multiplexed_async_connection().await?;
-            let processor = aggressive_test_flush(
+            let processor = config.apply(
                 PhotoAuditProcessor::new(
                     pool,
                     conn,
@@ -942,7 +1012,7 @@ pub async fn spawn_single_audit_projector(
         }
         AuditCategory::Membership => {
             let conn = redis_client.get_multiplexed_async_connection().await?;
-            let processor = aggressive_test_flush(
+            let processor = config.apply(
                 MembershipAuditProcessor::new(
                     pool,
                     conn,
@@ -969,9 +1039,10 @@ pub async fn spawn_single_audit_projector(
 pub async fn spawn_membership_audit_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
 ) -> Result<ActorRef<MembershipAuditProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = aggressive_test_flush(
+    let processor = config.apply(
         MembershipAuditProcessor::new(
             pool,
             conn,
@@ -995,9 +1066,10 @@ pub async fn spawn_membership_audit_projector(
 pub async fn spawn_shooting_day_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
 ) -> Result<ActorRef<ShootingDayProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = aggressive_test_flush(
+    let processor = config.apply(
         ShootingDayProcessor::new(
             pool.clone(),
             conn,
@@ -1021,9 +1093,10 @@ pub async fn spawn_shooting_day_projector(
 pub async fn spawn_photo_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
 ) -> Result<ActorRef<PhotoProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = aggressive_test_flush(
+    let processor = config.apply(
         PhotoProcessor::new(
             pool.clone(),
             conn,
@@ -1042,9 +1115,10 @@ pub async fn spawn_photo_projector(
 pub async fn spawn_scene_shoot_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
 ) -> Result<ActorRef<SceneShootProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
-    let processor = aggressive_test_flush(
+    let processor = config.apply(
         SceneShootProcessor::new(
             pool.clone(),
             conn,

@@ -169,10 +169,13 @@ fn init_containers() -> &'static SharedContainers {
                     .await
                     .expect("connect query pool failed");
 
-                let handles =
-                    spawn_all_audit_projectors(pg_pool.clone(), Arc::clone(&redis_client))
-                        .await
-                        .expect("spawn audit projectors failed");
+                let handles = spawn_all_audit_projectors(
+                    pg_pool.clone(),
+                    Arc::clone(&redis_client),
+                    infra::projectors::ProjectorFlushConfig::test_profile(),
+                )
+                .await
+                .expect("spawn audit projectors failed");
 
                 // Give subscriptions 10 s to establish before we leave the
                 // runtime alive.
@@ -659,6 +662,7 @@ async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> 
     infra::projectors::spawn_costume_category_projector(
         containers.pg_pool.clone(),
         Arc::clone(&containers.redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
     )
     .await?;
 

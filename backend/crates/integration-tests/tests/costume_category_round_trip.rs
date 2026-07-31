@@ -187,6 +187,7 @@ async fn eappend_costume_category_created_round_trips_into_projection() -> Resul
     let _ref = infra::projectors::spawn_costume_category_projector(
         pool.clone(),
         Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
     )
     .await?;
 
@@ -244,6 +245,7 @@ async fn season_created_seeds_exactly_five_categories_and_is_idempotent() -> Res
     let _cat_ref = infra::projectors::spawn_costume_category_projector(
         pool.clone(),
         Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
     )
     .await?;
     // Spawn the saga BEFORE emitting SeasonCreated so it catches the event.
@@ -330,10 +332,15 @@ async fn costume_detail_carries_subject_category_id_and_resolved_name() -> Resul
     let _cat_ref = infra::projectors::spawn_costume_category_projector(
         pool.clone(),
         Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
     )
     .await?;
-    let _costume_ref =
-        infra::projectors::spawn_costume_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _costume_ref = infra::projectors::spawn_costume_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
 
     let cat_repo = CostumeCategoryRepositoryImpl::new(pool.clone());
     let costume_repo = CostumeRepositoryImpl::new(pool.clone());
@@ -423,6 +430,7 @@ async fn costume_category_projector_is_idempotent_under_redelivery() -> Result<(
     let _ref = infra::projectors::spawn_costume_category_projector(
         pool.clone(),
         Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
     )
     .await?;
 
@@ -519,10 +527,15 @@ async fn rename_category_refreshes_referencing_detail_category_name() -> Result<
     let _cat_ref = infra::projectors::spawn_costume_category_projector(
         pool.clone(),
         Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
     )
     .await?;
-    let _costume_ref =
-        infra::projectors::spawn_costume_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _costume_ref = infra::projectors::spawn_costume_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
 
     let cat_repo = CostumeCategoryRepositoryImpl::new(pool.clone());
     let costume_repo = CostumeRepositoryImpl::new(pool.clone());
@@ -617,10 +630,15 @@ async fn archive_category_preserves_detail_name_and_hides_from_picker() -> Resul
     let _cat_ref = infra::projectors::spawn_costume_category_projector(
         pool.clone(),
         Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
     )
     .await?;
-    let _costume_ref =
-        infra::projectors::spawn_costume_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _costume_ref = infra::projectors::spawn_costume_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
 
     let cat_repo = CostumeCategoryRepositoryImpl::new(pool.clone());
     let costume_repo = CostumeRepositoryImpl::new(pool.clone());
@@ -725,15 +743,23 @@ async fn end_to_end_costume_categorisation_with_character() -> Result<()> {
     let _cat_ref = infra::projectors::spawn_costume_category_projector(
         pool.clone(),
         Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
     )
     .await?;
-    let _costume_ref =
-        infra::projectors::spawn_costume_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _costume_ref = infra::projectors::spawn_costume_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
     // The projection_costume table has a FK to projection_character,
     // so we need the character projector to populate it.
-    let _char_ref =
-        infra::projectors::spawn_character_projector(pool.clone(), Arc::clone(&redis_client))
-            .await?;
+    let _char_ref = infra::projectors::spawn_character_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
 
     let cat_repo = CostumeCategoryRepositoryImpl::new(pool.clone());
     let costume_repo = CostumeRepositoryImpl::new(pool.clone());

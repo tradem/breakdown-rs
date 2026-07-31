@@ -140,10 +140,18 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
     // 3. Projectors (photo + costume — both needed for FK refs)
     // -----------------------------------------------------------------------
     let redis_client = Arc::clone(&sierra_client);
-    let _photo_projector =
-        infra::projectors::spawn_photo_projector(pool.clone(), Arc::clone(&redis_client)).await?;
-    let _costume_projector =
-        infra::projectors::spawn_costume_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _photo_projector = infra::projectors::spawn_photo_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
+    let _costume_projector = infra::projectors::spawn_costume_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
 
     // -----------------------------------------------------------------------
     // 4. Sagas (thumbnail, deletion, bytes-cleanup)

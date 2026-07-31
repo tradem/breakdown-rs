@@ -198,10 +198,30 @@ async fn continuity_photo_upload_projection() -> Result<()> {
     );
     let photo_repo = PhotoRepositoryImpl::new(pool.clone());
 
-    let _scene_proj = spawn_scene_projector(pool.clone(), Arc::clone(&client)).await?;
-    let _sd_proj = spawn_shooting_day_projector(pool.clone(), Arc::clone(&client)).await?;
-    let _ss_proj = spawn_scene_shoot_projector(pool.clone(), Arc::clone(&client)).await?;
-    let _photo_proj = spawn_photo_projector(pool.clone(), Arc::clone(&client)).await?;
+    let _scene_proj = spawn_scene_projector(
+        pool.clone(),
+        Arc::clone(&client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
+    let _sd_proj = spawn_shooting_day_projector(
+        pool.clone(),
+        Arc::clone(&client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
+    let _ss_proj = spawn_scene_shoot_projector(
+        pool.clone(),
+        Arc::clone(&client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
+    let _photo_proj = spawn_photo_projector(
+        pool.clone(),
+        Arc::clone(&client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     let shoot_id = SceneShootId::new();
@@ -321,10 +341,30 @@ async fn continuity_photo_delete_on_zero_refcount() -> Result<()> {
     );
     let photo_repo = PhotoRepositoryImpl::new(pool.clone());
 
-    let _scene_proj = spawn_scene_projector(pool.clone(), Arc::clone(&client)).await?;
-    let _sd_proj = spawn_shooting_day_projector(pool.clone(), Arc::clone(&client)).await?;
-    let _ss_proj = spawn_scene_shoot_projector(pool.clone(), Arc::clone(&client)).await?;
-    let _photo_proj = spawn_photo_projector(pool.clone(), Arc::clone(&client)).await?;
+    let _scene_proj = spawn_scene_projector(
+        pool.clone(),
+        Arc::clone(&client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
+    let _sd_proj = spawn_shooting_day_projector(
+        pool.clone(),
+        Arc::clone(&client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
+    let _ss_proj = spawn_scene_shoot_projector(
+        pool.clone(),
+        Arc::clone(&client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
+    let _photo_proj = spawn_photo_projector(
+        pool.clone(),
+        Arc::clone(&client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
 
     // Spawn ContinuityDeletionSaga (after projectors so replay picks up events).
     tokio::time::sleep(Duration::from_millis(500)).await;

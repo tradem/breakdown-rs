@@ -185,39 +185,75 @@ async fn main() -> Result<()> {
     let cmd_service = CommandService::new(sierra_conn);
 
     // Start one PostgresProcessor per aggregate, each with its own checkpoint stream.
-    let _season_projector =
-        infra::projectors::spawn_season_projector(pool.clone(), Arc::clone(&redis_client)).await?;
-    let _block_projector =
-        infra::projectors::spawn_block_projector(pool.clone(), Arc::clone(&redis_client)).await?;
-    let _episode_projector =
-        infra::projectors::spawn_episode_projector(pool.clone(), Arc::clone(&redis_client)).await?;
-    let _scene_projector =
-        infra::projectors::spawn_scene_projector(pool.clone(), Arc::clone(&redis_client)).await?;
-    let _character_projector =
-        infra::projectors::spawn_character_projector(pool.clone(), Arc::clone(&redis_client))
-            .await?;
-    let _costume_projector =
-        infra::projectors::spawn_costume_projector(pool.clone(), Arc::clone(&redis_client)).await?;
-    let _membership_projector =
-        infra::projectors::spawn_membership_projector(pool.clone(), Arc::clone(&redis_client))
-            .await?;
+    let _season_projector = infra::projectors::spawn_season_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::default(),
+    )
+    .await?;
+    let _block_projector = infra::projectors::spawn_block_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::default(),
+    )
+    .await?;
+    let _episode_projector = infra::projectors::spawn_episode_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::default(),
+    )
+    .await?;
+    let _scene_projector = infra::projectors::spawn_scene_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::default(),
+    )
+    .await?;
+    let _character_projector = infra::projectors::spawn_character_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::default(),
+    )
+    .await?;
+    let _costume_projector = infra::projectors::spawn_costume_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::default(),
+    )
+    .await?;
+    let _membership_projector = infra::projectors::spawn_membership_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::default(),
+    )
+    .await?;
     // Spawn all 11 category audit projectors and keep their supervisor handles
     // alive for the process lifetime. The handles' Drop aborts the projectors,
     // so they MUST be held here (not dropped at end of function).
-    let _audit_handles =
-        infra::projectors::spawn_all_audit_projectors(pool.clone(), Arc::clone(&redis_client))
-            .await?;
-    let _shooting_day_projector =
-        infra::projectors::spawn_shooting_day_projector(pool.clone(), Arc::clone(&redis_client))
-            .await?;
+    let _audit_handles = infra::projectors::spawn_all_audit_projectors(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::default(),
+    )
+    .await?;
+    let _shooting_day_projector = infra::projectors::spawn_shooting_day_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::default(),
+    )
+    .await?;
     let _costume_category_projector = infra::projectors::spawn_costume_category_projector(
         pool.clone(),
         Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::default(),
     )
     .await?;
-    let _scene_shoot_projector =
-        infra::projectors::spawn_scene_shoot_projector(pool.clone(), Arc::clone(&redis_client))
-            .await?;
+    let _scene_shoot_projector = infra::projectors::spawn_scene_shoot_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::default(),
+    )
+    .await?;
     // Event-reactor saga: seeds default costume categories on SeasonCreated.
     infra::sagas::spawn_season_seeding_saga(
         pool.clone(),

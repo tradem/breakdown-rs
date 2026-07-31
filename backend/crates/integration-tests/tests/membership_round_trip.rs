@@ -132,7 +132,12 @@ async fn init_membership() -> Result<(
     let (sierra_client, _sierra_conn, sierra_guard) = fixtures::spawn_sierradb().await?;
 
     // Spawn the membership projector (subscribes to `membership-*` streams).
-    let _mp = spawn_membership_projector(pool.clone(), Arc::clone(&sierra_client)).await?;
+    let _mp = spawn_membership_projector(
+        pool.clone(),
+        Arc::clone(&sierra_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
     // Let the subscription settle before appending events.
     tokio::time::sleep(Duration::from_millis(500)).await;
 
@@ -346,7 +351,12 @@ async fn membership_projector_is_idempotent_under_redelivery() -> Result<()> {
     let (pool, _pg) = fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = fixtures::spawn_sierradb().await?;
 
-    let _mp = spawn_membership_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _mp = spawn_membership_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
     let repo = MembershipRepositoryImpl::new(pool);
 
     let block_id = Uuid::now_v7();

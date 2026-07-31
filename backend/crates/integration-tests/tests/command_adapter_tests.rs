@@ -190,12 +190,42 @@ async fn init() -> Result<(
     let r5 = sierra_client.clone();
     let r6 = sierra_client.clone();
 
-    let _sp = infra::projectors::spawn_season_projector(pool.clone(), r1).await?;
-    let _sp = infra::projectors::spawn_block_projector(pool.clone(), r2).await?;
-    let _sp = infra::projectors::spawn_episode_projector(pool.clone(), r3).await?;
-    let _sp = infra::projectors::spawn_scene_projector(pool.clone(), r4).await?;
-    let _sp = infra::projectors::spawn_character_projector(pool.clone(), r5).await?;
-    let _sp = infra::projectors::spawn_costume_projector(pool.clone(), r6).await?;
+    let _sp = infra::projectors::spawn_season_projector(
+        pool.clone(),
+        r1,
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
+    let _sp = infra::projectors::spawn_block_projector(
+        pool.clone(),
+        r2,
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
+    let _sp = infra::projectors::spawn_episode_projector(
+        pool.clone(),
+        r3,
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
+    let _sp = infra::projectors::spawn_scene_projector(
+        pool.clone(),
+        r4,
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
+    let _sp = infra::projectors::spawn_character_projector(
+        pool.clone(),
+        r5,
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
+    let _sp = infra::projectors::spawn_costume_projector(
+        pool.clone(),
+        r6,
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
 
     // Give the supervisor background tasks a chance to enter their epoch loop
     // (tokio::spawn + first backoff + Redis subscription). In slow CI environments

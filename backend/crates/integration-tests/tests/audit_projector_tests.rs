@@ -86,8 +86,12 @@ async fn eappend_owner_bootstrapped_round_trips_into_audit() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
-    let _audit_ref =
-        spawn_membership_audit_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _audit_ref = spawn_membership_audit_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
 
     let repo = AuditRepositoryImpl::new(pool);
 
@@ -155,8 +159,12 @@ async fn audit_projector_is_idempotent_under_redelivery() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
-    let _audit_ref =
-        spawn_membership_audit_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _audit_ref = spawn_membership_audit_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
 
     let repo = AuditRepositoryImpl::new(pool);
 

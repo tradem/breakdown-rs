@@ -131,8 +131,12 @@ async fn scene_created_projects_scene_details() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
-    let _scene_ref =
-        infra::projectors::spawn_scene_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _scene_ref = infra::projectors::spawn_scene_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
 
     let scene_repo = infra::queries::SceneRepositoryImpl::new(pool.clone());
 
@@ -187,8 +191,12 @@ async fn scene_details_updated_projects_changes() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
-    let _scene_ref =
-        infra::projectors::spawn_scene_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _scene_ref = infra::projectors::spawn_scene_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
 
     let scene_repo = infra::queries::SceneRepositoryImpl::new(pool.clone());
 
@@ -259,8 +267,12 @@ async fn scene_assign_character_creates_sub_row() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
-    let _scene_ref =
-        infra::projectors::spawn_scene_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _scene_ref = infra::projectors::spawn_scene_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
 
     let scene_repo = infra::queries::SceneRepositoryImpl::new(pool.clone());
 
@@ -320,8 +332,12 @@ async fn scene_remove_character_clears_sub_row() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
-    let _scene_ref =
-        infra::projectors::spawn_scene_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _scene_ref = infra::projectors::spawn_scene_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
 
     let scene_repo = infra::queries::SceneRepositoryImpl::new(pool.clone());
 
@@ -383,9 +399,12 @@ async fn character_created_projects_basic_fields() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
-    let _char_ref =
-        infra::projectors::spawn_character_projector(pool.clone(), Arc::clone(&redis_client))
-            .await?;
+    let _char_ref = infra::projectors::spawn_character_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
 
     let char_repo = infra::queries::CharacterRepositoryImpl::new(pool.clone());
 
@@ -424,9 +443,12 @@ async fn character_measurements_updated_projects_values() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
-    let _char_ref =
-        infra::projectors::spawn_character_projector(pool.clone(), Arc::clone(&redis_client))
-            .await?;
+    let _char_ref = infra::projectors::spawn_character_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
 
     let char_repo = infra::queries::CharacterRepositoryImpl::new(pool.clone());
 
@@ -488,9 +510,12 @@ async fn character_contact_info_updated_projects_values() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
-    let _char_ref =
-        infra::projectors::spawn_character_projector(pool.clone(), Arc::clone(&redis_client))
-            .await?;
+    let _char_ref = infra::projectors::spawn_character_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
 
     let char_repo = infra::queries::CharacterRepositoryImpl::new(pool.clone());
 
@@ -551,8 +576,12 @@ async fn costume_created_projects_basic_fields() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
-    let _costume_ref =
-        infra::projectors::spawn_costume_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _costume_ref = infra::projectors::spawn_costume_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
 
     let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
 
@@ -595,8 +624,12 @@ async fn costume_notes_updated_projects_changes() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
-    let _costume_ref =
-        infra::projectors::spawn_costume_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _costume_ref = infra::projectors::spawn_costume_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
 
     let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
 
@@ -645,17 +678,24 @@ async fn costume_assign_unassign_characters() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
-    let _costume_ref =
-        infra::projectors::spawn_costume_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _costume_ref = infra::projectors::spawn_costume_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
     // The costume projector's `CostumeAssignedToCharacter` handler writes
     // `character_id` into `projection_costume`, whose FK references
     // `projection_character(id)`. We therefore also run the character
     // projector and project the referenced character *before* appending the
     // assign event, so the projector does not hit a foreign-key violation
     // and stall the checkpoint.
-    let _char_ref =
-        infra::projectors::spawn_character_projector(pool.clone(), Arc::clone(&redis_client))
-            .await?;
+    let _char_ref = infra::projectors::spawn_character_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
 
     let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
 
@@ -747,8 +787,12 @@ async fn costume_detail_add_remove() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
-    let _costume_ref =
-        infra::projectors::spawn_costume_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _costume_ref = infra::projectors::spawn_costume_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
 
     let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
 
@@ -824,8 +868,12 @@ async fn costume_photo_link_unlink() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
-    let _costume_ref =
-        infra::projectors::spawn_costume_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _costume_ref = infra::projectors::spawn_costume_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
 
     let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
 

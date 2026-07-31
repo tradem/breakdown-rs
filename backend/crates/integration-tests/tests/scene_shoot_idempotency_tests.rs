@@ -134,7 +134,12 @@ async fn scene_shoot_projector_is_idempotent_under_redelivery() -> Result<()> {
     sqlx::migrate!("../infra/migrations").run(&pool).await?;
     let (redis_client, _conn, _sierra) = fixtures::spawn_sierradb().await?;
 
-    let _projector = spawn_scene_shoot_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _projector = spawn_scene_shoot_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
     // Give the subscription time to establish before appending.
     tokio::time::sleep(Duration::from_millis(500)).await;
 
@@ -254,7 +259,12 @@ async fn continuity_photo_link_is_idempotent_under_redelivery() -> Result<()> {
     sqlx::migrate!("../infra/migrations").run(&pool).await?;
     let (redis_client, _conn, _sierra) = fixtures::spawn_sierradb().await?;
 
-    let _projector = spawn_scene_shoot_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _projector = spawn_scene_shoot_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     let repo = SceneShootRepositoryImpl::new(pool.clone());

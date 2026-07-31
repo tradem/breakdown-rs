@@ -71,8 +71,12 @@ async fn eappend_scene_created_round_trips_into_projection() -> Result<()> {
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
     // Start the scene projector so it subscribes to event notifications.
-    let _scene_ref =
-        infra::projectors::spawn_scene_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _scene_ref = infra::projectors::spawn_scene_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
 
     let repo = SceneRepositoryImpl::new(pool);
 
@@ -181,8 +185,12 @@ async fn eappend_character_assigned_twice_is_idempotent() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
-    let _scene_ref =
-        infra::projectors::spawn_scene_projector(pool.clone(), Arc::clone(&redis_client)).await?;
+    let _scene_ref = infra::projectors::spawn_scene_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
 
     let repo = SceneRepositoryImpl::new(pool);
 
