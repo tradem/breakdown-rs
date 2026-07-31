@@ -33,7 +33,7 @@ utoipa-swagger-ui.workspace = true
 # OIDC / JWT validation (Decision D1)
 jsonwebtoken = "11"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-base64 = "0.22"
+base64 = "0.23"
 async-trait.workspace = true
 
 # Logging / Tracing
