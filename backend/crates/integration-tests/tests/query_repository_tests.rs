@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
 
 #![allow(
@@ -279,12 +280,7 @@ async fn costumes_by_season_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let season_id = SeasonId::new();
     let char_cmd = CharacterCommandsImpl::new(cmd_svc.clone());
-    let costume_cmd = CostumeCommandsImpl::new(
-        cmd_svc,
-        CostumeRepositoryImpl::new(pool.clone()),
-        CharacterRepositoryImpl::new(pool.clone()),
-        SeasonRepositoryImpl::new(pool.clone()),
-    );
+    let costume_cmd = CostumeCommandsImpl::new(cmd_svc);
     let costume_repo = CostumeRepositoryImpl::new(pool.clone());
 
     // A costume is only visible via `list_by_season` once it is bound to a
@@ -306,7 +302,13 @@ async fn costumes_by_season_returns_data() -> Result<()> {
 
     let costume_id = Uuid::now_v7();
     let (_id, ver) = costume_cmd
-        .create(test_user(), CreateCostume { id: costume_id })
+        .create(
+            test_user(),
+            CreateCostume {
+                id: costume_id,
+                series_id: None,
+            },
+        )
         .await?;
     await_proj(&pool, "projection_costume", costume_id).await;
 
@@ -316,6 +318,7 @@ async fn costumes_by_season_returns_data() -> Result<()> {
             AssignCostumeToCharacter {
                 id: costume_id,
                 character_id: char_id,
+                series_id: None,
                 version: ver,
             },
         )
@@ -338,16 +341,14 @@ async fn costumes_by_season_returns_data() -> Result<()> {
 async fn costumes_with_details_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let _costume_repo = CostumeRepositoryImpl::new(pool.clone());
-    let costume_cmd = CostumeCommandsImpl::new(
-        cmd_svc,
-        CostumeRepositoryImpl::new(pool.clone()),
-        CharacterRepositoryImpl::new(pool.clone()),
-        SeasonRepositoryImpl::new(pool.clone()),
-    );
+    let costume_cmd = CostumeCommandsImpl::new(cmd_svc);
 
     let costume_id = Uuid::now_v7();
 
-    let cmd = CreateCostume { id: costume_id };
+    let cmd = CreateCostume {
+        id: costume_id,
+        series_id: None,
+    };
     let (_id, ver) = costume_cmd.create(test_user(), cmd).await?;
 
     await_proj(&pool, "projection_costume", costume_id).await;
@@ -365,6 +366,7 @@ async fn costumes_with_details_returns_data() -> Result<()> {
                     category_id: None,
                     text: "Sleeve".into(),
                 },
+                series_id: None,
                 version: ver,
             },
         )

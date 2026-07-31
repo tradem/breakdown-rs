@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
 
 #![allow(
@@ -520,17 +521,15 @@ async fn character_update_contact_info() -> Result<()> {
 #[tokio::test]
 async fn costume_create() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(
-        cmd_svc,
-        infra::queries::CostumeRepositoryImpl::new(pool.clone()),
-        infra::queries::CharacterRepositoryImpl::new(pool.clone()),
-        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
-    );
+    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(cmd_svc);
     let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
 
     let costume_id = Uuid::now_v7();
 
-    let cmd = CreateCostume { id: costume_id };
+    let cmd = CreateCostume {
+        id: costume_id,
+        series_id: None,
+    };
 
     let (rid, rv) = costume_cmd.create(test_user(), cmd).await?;
     assert_ne!(rid, Uuid::nil());
@@ -547,17 +546,15 @@ async fn costume_create() -> Result<()> {
 #[tokio::test]
 async fn costume_notes() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(
-        cmd_svc,
-        infra::queries::CostumeRepositoryImpl::new(pool.clone()),
-        infra::queries::CharacterRepositoryImpl::new(pool.clone()),
-        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
-    );
+    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(cmd_svc);
     let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
 
     let costume_id = Uuid::now_v7();
 
-    let cmd = CreateCostume { id: costume_id };
+    let cmd = CreateCostume {
+        id: costume_id,
+        series_id: None,
+    };
     let (_id, ver) = costume_cmd.create(test_user(), cmd).await?;
     await_proj(&pool, "projection_costume", costume_id).await;
 
@@ -567,6 +564,7 @@ async fn costume_notes() -> Result<()> {
             breakdown_core::costume::commands::UpdateCostumeNotes {
                 id: costume_id,
                 notes: "Blue dress".into(),
+                series_id: None,
                 version: ver,
             },
         )
@@ -585,12 +583,7 @@ async fn costume_notes() -> Result<()> {
 async fn costume_assign_unassign() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
     let (season_id, _series_id) = seed_season(&pool, &cmd_svc).await;
-    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(
-        cmd_svc.clone(),
-        infra::queries::CostumeRepositoryImpl::new(pool.clone()),
-        infra::queries::CharacterRepositoryImpl::new(pool.clone()),
-        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
-    );
+    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(cmd_svc.clone());
     let char_cmd = infra::event_store::CharacterCommandsImpl::new(cmd_svc);
     let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
 
@@ -617,7 +610,10 @@ async fn costume_assign_unassign() -> Result<()> {
         .await?;
     await_proj(&pool, "projection_character", char_id).await;
 
-    let cmd = CreateCostume { id: costume_id };
+    let cmd = CreateCostume {
+        id: costume_id,
+        series_id: None,
+    };
     let (_id, ver) = costume_cmd.create(test_user(), cmd).await?;
     await_proj(&pool, "projection_costume", costume_id).await;
 
@@ -627,6 +623,7 @@ async fn costume_assign_unassign() -> Result<()> {
             AssignCostumeToCharacter {
                 id: costume_id,
                 character_id: char_id,
+                series_id: None,
                 version: ver,
             },
         )
@@ -644,6 +641,7 @@ async fn costume_assign_unassign() -> Result<()> {
             test_user(),
             breakdown_core::costume::commands::UnassignCostume {
                 id: costume_id,
+                series_id: None,
                 version: ver2,
             },
         )
@@ -664,18 +662,16 @@ async fn costume_assign_unassign() -> Result<()> {
 #[tokio::test]
 async fn costume_detail_add_remove() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(
-        cmd_svc,
-        infra::queries::CostumeRepositoryImpl::new(pool.clone()),
-        infra::queries::CharacterRepositoryImpl::new(pool.clone()),
-        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
-    );
+    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(cmd_svc);
     let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
 
     let costume_id = Uuid::now_v7();
     let detail_id = Uuid::now_v7();
 
-    let cmd = CreateCostume { id: costume_id };
+    let cmd = CreateCostume {
+        id: costume_id,
+        series_id: None,
+    };
     let (_id, ver) = costume_cmd.create(test_user(), cmd).await?;
     await_proj(&pool, "projection_costume", costume_id).await;
 
@@ -690,6 +686,7 @@ async fn costume_detail_add_remove() -> Result<()> {
                     category_id: None,
                     text: "Red lining".into(),
                 },
+                series_id: None,
                 version: ver,
             },
         )
@@ -706,6 +703,7 @@ async fn costume_detail_add_remove() -> Result<()> {
             breakdown_core::costume::commands::RemoveDetail {
                 id: costume_id,
                 detail_id,
+                series_id: None,
                 version: ver2,
             },
         )
@@ -726,18 +724,16 @@ async fn costume_detail_add_remove() -> Result<()> {
 #[tokio::test]
 async fn costume_photo_link_unlink() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(
-        cmd_svc,
-        infra::queries::CostumeRepositoryImpl::new(pool.clone()),
-        infra::queries::CharacterRepositoryImpl::new(pool.clone()),
-        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
-    );
+    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(cmd_svc);
     let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
 
     let costume_id = Uuid::now_v7();
     let photo_id = Uuid::now_v7();
 
-    let cmd = CreateCostume { id: costume_id };
+    let cmd = CreateCostume {
+        id: costume_id,
+        series_id: None,
+    };
     let (_id, ver) = costume_cmd.create(test_user(), cmd).await?;
     await_proj(&pool, "projection_costume", costume_id).await;
 
@@ -747,6 +743,7 @@ async fn costume_photo_link_unlink() -> Result<()> {
             breakdown_core::costume::commands::LinkPhoto {
                 id: costume_id,
                 photo_id,
+                series_id: None,
                 version: ver,
             },
         )
@@ -763,6 +760,7 @@ async fn costume_photo_link_unlink() -> Result<()> {
             breakdown_core::costume::commands::UnlinkPhoto {
                 id: costume_id,
                 photo_id,
+                series_id: None,
                 version: ver2,
             },
         )

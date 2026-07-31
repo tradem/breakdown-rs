@@ -306,12 +306,7 @@ async fn main() -> Result<()> {
         scene_repo.clone(),
         episode_repo.clone(),
     );
-    let scene_shoot_commands = SceneShootCommandsImpl::new(
-        cmd_service.clone(),
-        scene_shoot_repo.clone(),
-        scene_repo.clone(),
-        episode_repo.clone(),
-    );
+    let scene_shoot_commands = SceneShootCommandsImpl::new(cmd_service.clone());
     let scene_shoot_report_repo = SceneShootReportRepositoryImpl::new(pool.clone());
 
     // --- Spawn photo sagas (thumbnail, deletion, bytes-cleanup) ---
@@ -426,12 +421,7 @@ async fn main() -> Result<()> {
         shooting_day_repo,
         CharacterCommandsImpl::new(cmd_service.clone()),
         character_repo.clone(),
-        CostumeCommandsImpl::new(
-            cmd_service.clone(),
-            costume_repo.clone(),
-            character_repo.clone(),
-            season_repo.clone(),
-        ),
+        CostumeCommandsImpl::new(cmd_service.clone()),
         costume_repo,
         CostumeCategoryCommandsImpl::new(cmd_service.clone()),
         costume_category_repo,

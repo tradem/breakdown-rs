@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -29,7 +30,10 @@ async fn postgres_harness_supports_costume_round_trip_template() -> Result<()> {
     let costume_id = uuid::Uuid::now_v7();
     let aggregate = CostumeAggregate::default();
     let events = aggregate.handle(
-        CreateCostume { id: costume_id },
+        CreateCostume {
+            id: costume_id,
+            series_id: None,
+        },
         make_ctx::<CostumeAggregate>(),
     )?;
 

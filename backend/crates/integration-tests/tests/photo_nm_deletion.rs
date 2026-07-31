@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
 
 #![allow(
@@ -136,12 +137,7 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
         infra::queries::SceneRepositoryImpl::new(pool.clone()),
         infra::queries::EpisodeRepositoryImpl::new(pool.clone()),
     );
-    let costume_commands = CostumeCommandsImpl::new(
-        cmd_service.clone(),
-        infra::queries::CostumeRepositoryImpl::new(pool.clone()),
-        infra::queries::CharacterRepositoryImpl::new(pool.clone()),
-        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
-    );
+    let costume_commands = CostumeCommandsImpl::new(cmd_service.clone());
     let photo_repo = PhotoRepositoryImpl::new(pool.clone());
     let _costume_repo = CostumeRepositoryImpl::new(pool.clone());
 
@@ -245,7 +241,13 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
     let costume_b_id = Uuid::now_v7();
 
     let (_id_a, ver_a) = costume_commands
-        .create(test_user(), CreateCostume { id: costume_a_id })
+        .create(
+            test_user(),
+            CreateCostume {
+                id: costume_a_id,
+                series_id: None,
+            },
+        )
         .await?;
     // Wait for costume A projection.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
@@ -262,7 +264,13 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
     }
 
     let (_id_b, ver_b) = costume_commands
-        .create(test_user(), CreateCostume { id: costume_b_id })
+        .create(
+            test_user(),
+            CreateCostume {
+                id: costume_b_id,
+                series_id: None,
+            },
+        )
         .await?;
     // Wait for costume B projection.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
@@ -287,6 +295,7 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
             LinkPhoto {
                 id: costume_a_id,
                 photo_id: photo_id.0,
+                series_id: None,
                 version: ver_a,
             },
         )
@@ -299,6 +308,7 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
             LinkPhoto {
                 id: costume_b_id,
                 photo_id: photo_id.0,
+                series_id: None,
                 version: ver_b,
             },
         )
@@ -318,6 +328,7 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
             UnlinkPhoto {
                 id: costume_a_id,
                 photo_id: photo_id.0,
+                series_id: None,
                 version: ver_a2,
             },
         )
@@ -347,6 +358,7 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
             UnlinkPhoto {
                 id: costume_b_id,
                 photo_id: photo_id.0,
+                series_id: None,
                 version: ver_b2,
             },
         )

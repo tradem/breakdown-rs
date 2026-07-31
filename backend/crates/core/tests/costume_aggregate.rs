@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
 #![allow(
@@ -11,15 +12,25 @@
     clippy::dbg_macro
 )]
 use breakdown_core::costume::*;
-use breakdown_core::shared::{AggregateVersion, CostumeCategoryId};
+use breakdown_core::shared::{AggregateVersion, CostumeCategoryId, SeriesId};
 use kameo_es::{Apply, Command};
 use test_support::make_ctx;
 use uuid::Uuid;
 
+fn series_id() -> SeriesId {
+    SeriesId::new()
+}
+
 fn make_costume() -> CostumeAggregate {
     let agg = CostumeAggregate::default();
     let events = agg
-        .handle(CreateCostume { id: Uuid::now_v7() }, make_ctx())
+        .handle(
+            CreateCostume {
+                id: Uuid::now_v7(),
+                series_id: Some(series_id()),
+            },
+            make_ctx(),
+        )
         .unwrap();
     let mut applied = CostumeAggregate::default();
     test_support::replay_events(&mut applied, events);
@@ -28,8 +39,13 @@ fn make_costume() -> CostumeAggregate {
 
 #[test]
 fn test_create_costume_success() {
-    let result =
-        CostumeAggregate::default().handle(CreateCostume { id: Uuid::now_v7() }, make_ctx());
+    let result = CostumeAggregate::default().handle(
+        CreateCostume {
+            id: Uuid::now_v7(),
+            series_id: Some(series_id()),
+        },
+        make_ctx(),
+    );
     assert!(result.is_ok());
     match result.unwrap().into_iter().next().unwrap() {
         CostumeEvent::CostumeCreated {
@@ -55,6 +71,7 @@ fn test_update_costume_notes_success() {
             UpdateCostumeNotes {
                 id: agg.id,
                 notes: n.clone(),
+                series_id: Some(series_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -71,6 +88,7 @@ fn test_update_costume_notes_idempotency() {
         UpdateCostumeNotes {
             id: agg.id,
             notes: agg.notes.clone(),
+            series_id: Some(series_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -85,6 +103,7 @@ fn test_update_costume_notes_wrong_version() {
         UpdateCostumeNotes {
             id: agg.id,
             notes: "X".into(),
+            series_id: Some(series_id()),
             version: AggregateVersion(99),
         },
         make_ctx(),
@@ -105,6 +124,7 @@ fn test_assign_costume_success() {
             AssignCostumeToCharacter {
                 id: agg.id,
                 character_id: cid,
+                series_id: Some(series_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -123,6 +143,7 @@ fn test_assign_costume_conflict() {
             AssignCostumeToCharacter {
                 id: agg.id,
                 character_id: ca,
+                series_id: Some(series_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -134,6 +155,7 @@ fn test_assign_costume_conflict() {
         AssignCostumeToCharacter {
             id: agg.id,
             character_id: Uuid::now_v7(),
+            series_id: Some(series_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -154,6 +176,7 @@ fn test_unassign_costume_success() {
             AssignCostumeToCharacter {
                 id: agg.id,
                 character_id: cid,
+                series_id: Some(series_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -165,6 +188,7 @@ fn test_unassign_costume_success() {
         .handle(
             UnassignCostume {
                 id: agg.id,
+                series_id: Some(series_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -180,6 +204,7 @@ fn test_unassign_not_assigned() {
     let result = agg.handle(
         UnassignCostume {
             id: agg.id,
+            series_id: Some(series_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -205,6 +230,7 @@ fn test_add_detail_success() {
                     category_id: None,
                     text: "silk".to_string(),
                 },
+                series_id: Some(series_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -229,6 +255,7 @@ fn test_remove_detail_success() {
                     category_id: None,
                     text: "x".to_string(),
                 },
+                series_id: Some(series_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -240,6 +267,7 @@ fn test_remove_detail_success() {
             RemoveDetail {
                 id: agg.id,
                 detail_id: did,
+                series_id: Some(series_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -256,6 +284,7 @@ fn test_remove_detail_not_found() {
         RemoveDetail {
             id: agg.id,
             detail_id: Uuid::now_v7(),
+            series_id: Some(series_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -276,6 +305,7 @@ fn test_link_photo_success() {
             LinkPhoto {
                 id: agg.id,
                 photo_id: pid,
+                series_id: Some(series_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -294,6 +324,7 @@ fn test_link_photo_already_linked() {
             LinkPhoto {
                 id: agg.id,
                 photo_id: pid,
+                series_id: Some(series_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -304,6 +335,7 @@ fn test_link_photo_already_linked() {
         LinkPhoto {
             id: agg.id,
             photo_id: pid,
+            series_id: Some(series_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -324,6 +356,7 @@ fn test_unlink_photo_success() {
             LinkPhoto {
                 id: agg.id,
                 photo_id: pid,
+                series_id: Some(series_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -335,6 +368,7 @@ fn test_unlink_photo_success() {
             UnlinkPhoto {
                 id: agg.id,
                 photo_id: pid,
+                series_id: Some(series_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -351,6 +385,7 @@ fn test_unlink_photo_not_linked() {
         UnlinkPhoto {
             id: agg.id,
             photo_id: Uuid::now_v7(),
+            series_id: Some(series_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -415,6 +450,7 @@ fn test_unlink_photo_uses_negation() {
         UnlinkPhoto {
             id,
             photo_id,
+            series_id: Some(series_id()),
             version: AggregateVersion::INITIAL,
         },
         make_ctx(),
@@ -440,6 +476,7 @@ fn test_add_detail_accepts_enriched_detail() {
                     category_id: Some(cat_id),
                     text: "Knöpfe vorne".into(),
                 },
+                series_id: Some(series_id()),
                 version: agg.version,
             },
             make_ctx(),
