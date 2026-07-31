@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -11,18 +12,23 @@
     clippy::dbg_macro
 )]
 use breakdown_core::character::*;
-use breakdown_core::shared::{AggregateVersion, SeasonId};
+use breakdown_core::shared::{AggregateVersion, SeasonId, SeriesId};
 use kameo_es::{Apply, Command};
 use rust_decimal::Decimal;
 use std::str::FromStr;
 use test_support::make_ctx;
 use uuid::Uuid;
 
+fn series_id() -> SeriesId {
+    SeriesId::new()
+}
+
 fn create_character(name: &str, category: CharacterCategory) -> CharacterAggregate {
     let season_id = SeasonId::new();
     let cmd = CreateCharacter {
         id: Uuid::now_v7(),
         season_id,
+        series_id: Some(series_id()),
         name: name.to_string(),
         category,
     };
@@ -40,6 +46,7 @@ fn test_create_character_success() {
     let cmd = CreateCharacter {
         id: Uuid::now_v7(),
         season_id,
+        series_id: Some(series_id()),
         name: "Hans Müller".to_string(),
         category: CharacterCategory::MainCast,
     };
@@ -69,6 +76,7 @@ fn test_create_character_empty_name() {
     let cmd = CreateCharacter {
         id: Uuid::now_v7(),
         season_id,
+        series_id: Some(series_id()),
         name: String::new(),
         category: CharacterCategory::MainCast,
     };
@@ -91,6 +99,7 @@ fn test_update_measurements_success() {
     let cmd = UpdateMeasurements {
         id: agg.id,
         measurements: measurements.clone(),
+        series_id: Some(series_id()),
         version: agg.version,
     };
     let events = agg.handle(cmd, make_ctx()).unwrap();
@@ -114,6 +123,7 @@ fn test_update_measurements_idempotency() {
     let cmd = UpdateMeasurements {
         id: agg.id,
         measurements: agg.measurements.clone(),
+        series_id: Some(series_id()),
         version: agg.version,
     };
     let result = agg.handle(cmd, make_ctx());
@@ -133,6 +143,7 @@ fn test_update_measurements_wrong_version() {
             shoe_size: Some(Decimal::from_str("42").unwrap()),
             ..Default::default()
         },
+        series_id: Some(series_id()),
         version: AggregateVersion(99),
     };
     let result = agg.handle(cmd, make_ctx());
@@ -153,6 +164,7 @@ fn test_update_contact_info_success() {
     let cmd = UpdateContactInfo {
         id: agg.id,
         contact_info: contact.clone(),
+        series_id: Some(series_id()),
         version: agg.version,
     };
     let event = agg.handle(cmd, make_ctx());
@@ -167,6 +179,7 @@ fn test_update_contact_info_idempotency() {
     let cmd = UpdateContactInfo {
         id: agg.id,
         contact_info: agg.contact_info.clone(),
+        series_id: Some(series_id()),
         version: agg.version,
     };
     let result = agg.handle(cmd, make_ctx());
@@ -186,6 +199,7 @@ fn test_update_contact_info_wrong_version() {
             phone: Some("test".to_string()),
             email: None,
         },
+        series_id: Some(series_id()),
         version: AggregateVersion(99),
     };
     let result = agg.handle(cmd, make_ctx());
@@ -264,6 +278,7 @@ fn test_update_contact_info_idempotency_uses_not_equal() {
     let result = agg.handle(
         UpdateContactInfo {
             id,
+            series_id: Some(series_id()),
             contact_info: ContactInfo {
                 phone: Some(phone.clone()),
                 email: None,

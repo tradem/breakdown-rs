@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! Fuzz target for `CreateCharacterRequest` deserialization.
 //!
@@ -48,6 +49,7 @@ fuzz_target!(|data: &[u8]| {
     let _cmd = breakdown_core::character::commands::CreateCharacter {
         id: Uuid::now_v7(),
         season_id: req.season_id,
+        series_id: None,
         name: req.name,
         category: req.category,
     };

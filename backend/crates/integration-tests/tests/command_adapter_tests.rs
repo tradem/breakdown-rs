@@ -247,12 +247,7 @@ async fn init() -> Result<(
 async fn scene_create() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
     let (_season_id, episode_id) = seed_season_and_episode(&pool, &cmd_svc).await;
-    let scene_cmd = infra::event_store::SceneCommandsImpl::new(
-        cmd_svc,
-        infra::queries::SceneRepositoryImpl::new(pool.clone()),
-        infra::queries::EpisodeRepositoryImpl::new(pool.clone()),
-        infra::queries::ShootingDayRepositoryImpl::new(pool.clone()),
-    );
+    let scene_cmd = infra::event_store::SceneCommandsImpl::new(cmd_svc);
     let scene_repo = infra::queries::SceneRepositoryImpl::new(pool.clone());
 
     let scene_id = Uuid::now_v7();
@@ -261,6 +256,7 @@ async fn scene_create() -> Result<()> {
     let cmd = breakdown_core::scene::commands::CreateScene {
         id: scene_id,
         episode_id,
+        series_id: Some(SeriesId::new()),
         details: SceneDetails {
             scene_number: Some(42),
             location: Some("Berlin".into()),
@@ -287,12 +283,7 @@ async fn scene_create() -> Result<()> {
 async fn scene_update_details() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
     let (_season_id, episode_id) = seed_season_and_episode(&pool, &cmd_svc).await;
-    let scene_cmd = infra::event_store::SceneCommandsImpl::new(
-        cmd_svc,
-        infra::queries::SceneRepositoryImpl::new(pool.clone()),
-        infra::queries::EpisodeRepositoryImpl::new(pool.clone()),
-        infra::queries::ShootingDayRepositoryImpl::new(pool.clone()),
-    );
+    let scene_cmd = infra::event_store::SceneCommandsImpl::new(cmd_svc);
     let scene_repo = infra::queries::SceneRepositoryImpl::new(pool.clone());
 
     let scene_id = Uuid::now_v7();
@@ -301,6 +292,7 @@ async fn scene_update_details() -> Result<()> {
     let cmd = breakdown_core::scene::commands::CreateScene {
         id: scene_id,
         episode_id,
+        series_id: Some(SeriesId::new()),
         details: SceneDetails {
             scene_number: Some(1),
             location: Some("A".into()),
@@ -326,6 +318,7 @@ async fn scene_update_details() -> Result<()> {
                     summary: None,
                     script_day: None,
                 },
+                series_id: Some(SeriesId::new()),
                 version: ver,
             },
         )
@@ -346,12 +339,7 @@ async fn scene_update_details() -> Result<()> {
 async fn scene_assign_remove_character() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
     let (_season_id, episode_id) = seed_season_and_episode(&pool, &cmd_svc).await;
-    let scene_cmd = infra::event_store::SceneCommandsImpl::new(
-        cmd_svc,
-        infra::queries::SceneRepositoryImpl::new(pool.clone()),
-        infra::queries::EpisodeRepositoryImpl::new(pool.clone()),
-        infra::queries::ShootingDayRepositoryImpl::new(pool.clone()),
-    );
+    let scene_cmd = infra::event_store::SceneCommandsImpl::new(cmd_svc);
     let scene_repo = infra::queries::SceneRepositoryImpl::new(pool.clone());
 
     let scene_id = Uuid::now_v7();
@@ -361,6 +349,7 @@ async fn scene_assign_remove_character() -> Result<()> {
     let cmd = breakdown_core::scene::commands::CreateScene {
         id: scene_id,
         episode_id,
+        series_id: Some(SeriesId::new()),
         details: SceneDetails {
             scene_number: Some(1),
             location: None,
@@ -379,6 +368,7 @@ async fn scene_assign_remove_character() -> Result<()> {
             AssignCharacter {
                 id: scene_id,
                 character_id: char_id,
+                series_id: Some(SeriesId::new()),
                 version: ver,
             },
         )
@@ -396,6 +386,7 @@ async fn scene_assign_remove_character() -> Result<()> {
             breakdown_core::scene::commands::RemoveCharacter {
                 id: scene_id,
                 character_id: char_id,
+                series_id: Some(SeriesId::new()),
                 version: ver2,
             },
         )
@@ -416,11 +407,7 @@ async fn scene_assign_remove_character() -> Result<()> {
 async fn character_create() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
     let (season_id, _series_id) = seed_season(&pool, &cmd_svc).await;
-    let char_cmd = infra::event_store::CharacterCommandsImpl::new(
-        cmd_svc,
-        infra::queries::CharacterRepositoryImpl::new(pool.clone()),
-        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
-    );
+    let char_cmd = infra::event_store::CharacterCommandsImpl::new(cmd_svc);
     let char_repo = infra::queries::CharacterRepositoryImpl::new(pool.clone());
 
     let char_id = Uuid::now_v7();
@@ -428,6 +415,7 @@ async fn character_create() -> Result<()> {
     let cmd = CreateCharacter {
         id: char_id,
         season_id: SeasonId(season_id),
+        series_id: Some(SeriesId::new()),
         name: "Hero".into(),
         category: CharacterCategory::MainCast,
     };
@@ -447,11 +435,7 @@ async fn character_create() -> Result<()> {
 async fn character_update_measurements() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
     let (season_id, _series_id) = seed_season(&pool, &cmd_svc).await;
-    let char_cmd = infra::event_store::CharacterCommandsImpl::new(
-        cmd_svc,
-        infra::queries::CharacterRepositoryImpl::new(pool.clone()),
-        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
-    );
+    let char_cmd = infra::event_store::CharacterCommandsImpl::new(cmd_svc);
     let char_repo = infra::queries::CharacterRepositoryImpl::new(pool.clone());
 
     let char_id = Uuid::now_v7();
@@ -459,6 +443,7 @@ async fn character_update_measurements() -> Result<()> {
     let cmd = CreateCharacter {
         id: char_id,
         season_id: SeasonId(season_id),
+        series_id: Some(SeriesId::new()),
         name: "Test".into(),
         category: CharacterCategory::Guest,
     };
@@ -475,6 +460,7 @@ async fn character_update_measurements() -> Result<()> {
                     weight: Some(Decimal::from(75)),
                     ..Default::default()
                 },
+                series_id: Some(SeriesId::new()),
                 version: ver,
             },
         )
@@ -491,11 +477,7 @@ async fn character_update_measurements() -> Result<()> {
 async fn character_update_contact_info() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
     let (season_id, _series_id) = seed_season(&pool, &cmd_svc).await;
-    let char_cmd = infra::event_store::CharacterCommandsImpl::new(
-        cmd_svc,
-        infra::queries::CharacterRepositoryImpl::new(pool.clone()),
-        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
-    );
+    let char_cmd = infra::event_store::CharacterCommandsImpl::new(cmd_svc);
     let char_repo = infra::queries::CharacterRepositoryImpl::new(pool.clone());
 
     let char_id = Uuid::now_v7();
@@ -503,6 +485,7 @@ async fn character_update_contact_info() -> Result<()> {
     let cmd = CreateCharacter {
         id: char_id,
         season_id: SeasonId(season_id),
+        series_id: Some(SeriesId::new()),
         name: "Test".into(),
         category: CharacterCategory::Guest,
     };
@@ -518,6 +501,7 @@ async fn character_update_contact_info() -> Result<()> {
                     email: Some("test@example.com".into()),
                     phone: Some("+49-123".into()),
                 },
+                series_id: Some(SeriesId::new()),
                 version: ver,
             },
         )
@@ -607,11 +591,7 @@ async fn costume_assign_unassign() -> Result<()> {
         infra::queries::CharacterRepositoryImpl::new(pool.clone()),
         infra::queries::SeasonRepositoryImpl::new(pool.clone()),
     );
-    let char_cmd = infra::event_store::CharacterCommandsImpl::new(
-        cmd_svc,
-        infra::queries::CharacterRepositoryImpl::new(pool.clone()),
-        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
-    );
+    let char_cmd = infra::event_store::CharacterCommandsImpl::new(cmd_svc);
     let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
 
     let costume_id = Uuid::now_v7();
@@ -629,6 +609,7 @@ async fn costume_assign_unassign() -> Result<()> {
             CreateCharacter {
                 id: char_id,
                 season_id: SeasonId(season_id),
+                series_id: Some(SeriesId::new()),
                 name: "Wearer".into(),
                 category: CharacterCategory::Guest,
             },

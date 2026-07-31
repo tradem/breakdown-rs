@@ -490,12 +490,7 @@ impl TestScene {
 
         let cmd_service = CommandService::new(conn_guard.conn.clone());
 
-        let scene_commands = infra::event_store::SceneCommandsImpl::new(
-            cmd_service.clone(),
-            infra::queries::SceneRepositoryImpl::new(pool_clone.clone()),
-            infra::queries::EpisodeRepositoryImpl::new(pool_clone.clone()),
-            infra::queries::ShootingDayRepositoryImpl::new(pool_clone.clone()),
-        );
+        let scene_commands = infra::event_store::SceneCommandsImpl::new(cmd_service.clone());
         let scene_repo = infra::queries::SceneRepositoryImpl::new(pool_clone.clone());
 
         Ok(Self {

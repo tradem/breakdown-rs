@@ -70,6 +70,7 @@ fuzz_target!(|data: &[u8]| {
         let _cmd = breakdown_core::shooting_day::commands::CreateShootingDay {
             id: ShootingDayId::new(),
             episode_id: req.episode_id,
+            series_id: None,
             label: req.label,
             order_key: req.order_key,
             date: req.date,

@@ -40,7 +40,7 @@ use breakdown_core::costume_category::aggregate::CostumeCategoryAggregate;
 use breakdown_core::costume_category::commands::{
     ArchiveCostumeCategory, CreateCostumeCategory, RenameCostumeCategory, ReorderCostumeCategory,
 };
-use breakdown_core::costume_category::ports::{CostumeCategoryCommands, CostumeCategoryRepository};
+use breakdown_core::costume_category::ports::CostumeCategoryCommands;
 use breakdown_core::episode::aggregate::EpisodeAggregate;
 use breakdown_core::episode::commands::{CreateEpisode, RenameEpisode};
 use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
@@ -80,7 +80,7 @@ use breakdown_core::shooting_day::commands::{
     ArchiveShootingDay, CreateShootingDay, RenameShootingDay, ReorderShootingDay,
     RescheduleShootingDay, WrapShootingDay,
 };
-use breakdown_core::shooting_day::ports::{ShootingDayCommands, ShootingDayRepository};
+use breakdown_core::shooting_day::ports::ShootingDayCommands;
 use kameo_es::command_service::{CommandService, ExecuteExt, ExecuteResult};
 use kameo_es::error::ExecuteError;
 use sierradb_client::{CurrentVersion, ExpectedVersion};
@@ -90,33 +90,19 @@ use async_trait::async_trait;
 
 use crate::photo::repository::PhotoRepositoryImpl;
 use crate::queries::{
-    CharacterRepositoryImpl, CostumeCategoryRepositoryImpl, CostumeRepositoryImpl,
-    EpisodeRepositoryImpl, SceneRepositoryImpl, SceneShootRepositoryImpl, SeasonRepositoryImpl,
-    ShootingDayRepositoryImpl,
+    CharacterRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl, SceneRepositoryImpl,
+    SceneShootRepositoryImpl, SeasonRepositoryImpl,
 };
 
 /// Command adapter for the Scene aggregate.
 #[derive(Clone, Debug)]
 pub struct SceneCommandsImpl {
     cmd_service: CommandService,
-    scene_repo: SceneRepositoryImpl,
-    episode_repo: EpisodeRepositoryImpl,
-    shooting_day_repo: ShootingDayRepositoryImpl,
 }
 
 impl SceneCommandsImpl {
-    pub fn new(
-        cmd_service: CommandService,
-        scene_repo: SceneRepositoryImpl,
-        episode_repo: EpisodeRepositoryImpl,
-        shooting_day_repo: ShootingDayRepositoryImpl,
-    ) -> Self {
-        Self {
-            cmd_service,
-            scene_repo,
-            episode_repo,
-            shooting_day_repo,
-        }
+    pub fn new(cmd_service: CommandService) -> Self {
+        Self { cmd_service }
     }
 }
 
@@ -127,12 +113,7 @@ impl SceneCommands for SceneCommandsImpl {
         cmd: CreateScene,
     ) -> Result<(Uuid, AggregateVersion), DomainError> {
         let id = cmd.id;
-        let series_id = self
-            .episode_repo
-            .find_by_id(cmd.episode_id.0)
-            .await
-            .ok()
-            .map(|x| x.series_id);
+        let series_id = cmd.series_id;
         let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Empty)
             .metadata(EventMetadata {
@@ -152,15 +133,7 @@ impl SceneCommands for SceneCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = async {
-            let scene = self.scene_repo.find_by_id(cmd.id).await.ok()?;
-            self.episode_repo
-                .find_by_id(scene.episode_id.0)
-                .await
-                .ok()
-                .map(|x| x.series_id)
-        }
-        .await;
+        let series_id = cmd.series_id;
         let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
@@ -180,15 +153,7 @@ impl SceneCommands for SceneCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = async {
-            let scene = self.scene_repo.find_by_id(cmd.id).await.ok()?;
-            self.episode_repo
-                .find_by_id(scene.episode_id.0)
-                .await
-                .ok()
-                .map(|x| x.series_id)
-        }
-        .await;
+        let series_id = cmd.series_id;
         let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
@@ -208,15 +173,7 @@ impl SceneCommands for SceneCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = async {
-            let scene = self.scene_repo.find_by_id(cmd.id).await.ok()?;
-            self.episode_repo
-                .find_by_id(scene.episode_id.0)
-                .await
-                .ok()
-                .map(|x| x.series_id)
-        }
-        .await;
+        let series_id = cmd.series_id;
         let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
@@ -236,16 +193,7 @@ impl SceneCommands for SceneCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let sd = self
-            .shooting_day_repo
-            .find_by_id(cmd.shooting_day_id)
-            .await?;
-        let series_id = self
-            .episode_repo
-            .find_by_id(sd.episode_id.0)
-            .await
-            .ok()
-            .map(|x| x.series_id);
+        let series_id = cmd.series_id;
         let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
@@ -265,16 +213,7 @@ impl SceneCommands for SceneCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let sd = self
-            .shooting_day_repo
-            .find_by_id(cmd.shooting_day_id)
-            .await?;
-        let series_id = self
-            .episode_repo
-            .find_by_id(sd.episode_id.0)
-            .await
-            .ok()
-            .map(|x| x.series_id);
+        let series_id = cmd.series_id;
         let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
@@ -291,21 +230,11 @@ impl SceneCommands for SceneCommandsImpl {
 #[derive(Clone, Debug)]
 pub struct ShootingDayCommandsImpl {
     cmd_service: CommandService,
-    shooting_day_repo: ShootingDayRepositoryImpl,
-    episode_repo: EpisodeRepositoryImpl,
 }
 
 impl ShootingDayCommandsImpl {
-    pub fn new(
-        cmd_service: CommandService,
-        shooting_day_repo: ShootingDayRepositoryImpl,
-        episode_repo: EpisodeRepositoryImpl,
-    ) -> Self {
-        Self {
-            cmd_service,
-            shooting_day_repo,
-            episode_repo,
-        }
+    pub fn new(cmd_service: CommandService) -> Self {
+        Self { cmd_service }
     }
 }
 
@@ -316,12 +245,7 @@ impl ShootingDayCommands for ShootingDayCommandsImpl {
         cmd: CreateShootingDay,
     ) -> Result<(ShootingDayId, AggregateVersion), DomainError> {
         let id = cmd.id;
-        let series_id = self
-            .episode_repo
-            .find_by_id(cmd.episode_id.0)
-            .await
-            .ok()
-            .map(|x| x.series_id);
+        let series_id = cmd.series_id;
         let result = ShootingDayAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Empty)
             .metadata(EventMetadata {
@@ -341,15 +265,7 @@ impl ShootingDayCommands for ShootingDayCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = async {
-            let sd = self.shooting_day_repo.find_by_id(cmd.id).await.ok()?;
-            self.episode_repo
-                .find_by_id(sd.episode_id.0)
-                .await
-                .ok()
-                .map(|x| x.series_id)
-        }
-        .await;
+        let series_id = cmd.series_id;
         let result = ShootingDayAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
@@ -369,15 +285,7 @@ impl ShootingDayCommands for ShootingDayCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = async {
-            let sd = self.shooting_day_repo.find_by_id(cmd.id).await.ok()?;
-            self.episode_repo
-                .find_by_id(sd.episode_id.0)
-                .await
-                .ok()
-                .map(|x| x.series_id)
-        }
-        .await;
+        let series_id = cmd.series_id;
         let result = ShootingDayAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
@@ -397,15 +305,7 @@ impl ShootingDayCommands for ShootingDayCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = async {
-            let sd = self.shooting_day_repo.find_by_id(cmd.id).await.ok()?;
-            self.episode_repo
-                .find_by_id(sd.episode_id.0)
-                .await
-                .ok()
-                .map(|x| x.series_id)
-        }
-        .await;
+        let series_id = cmd.series_id;
         let result = ShootingDayAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
@@ -425,15 +325,7 @@ impl ShootingDayCommands for ShootingDayCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = async {
-            let sd = self.shooting_day_repo.find_by_id(cmd.id).await.ok()?;
-            self.episode_repo
-                .find_by_id(sd.episode_id.0)
-                .await
-                .ok()
-                .map(|x| x.series_id)
-        }
-        .await;
+        let series_id = cmd.series_id;
         let result = ShootingDayAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
@@ -453,15 +345,7 @@ impl ShootingDayCommands for ShootingDayCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = async {
-            let sd = self.shooting_day_repo.find_by_id(cmd.id).await.ok()?;
-            self.episode_repo
-                .find_by_id(sd.episode_id.0)
-                .await
-                .ok()
-                .map(|x| x.series_id)
-        }
-        .await;
+        let series_id = cmd.series_id;
         let result = ShootingDayAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
@@ -478,21 +362,11 @@ impl ShootingDayCommands for ShootingDayCommandsImpl {
 #[derive(Clone, Debug)]
 pub struct CharacterCommandsImpl {
     cmd_service: CommandService,
-    character_repo: CharacterRepositoryImpl,
-    season_repo: SeasonRepositoryImpl,
 }
 
 impl CharacterCommandsImpl {
-    pub fn new(
-        cmd_service: CommandService,
-        character_repo: CharacterRepositoryImpl,
-        season_repo: SeasonRepositoryImpl,
-    ) -> Self {
-        Self {
-            cmd_service,
-            character_repo,
-            season_repo,
-        }
+    pub fn new(cmd_service: CommandService) -> Self {
+        Self { cmd_service }
     }
 }
 
@@ -503,12 +377,7 @@ impl CharacterCommands for CharacterCommandsImpl {
         cmd: CreateCharacter,
     ) -> Result<(Uuid, AggregateVersion), DomainError> {
         let id = cmd.id;
-        let series_id = self
-            .season_repo
-            .find_by_id(cmd.season_id.0)
-            .await
-            .ok()
-            .map(|x| x.series_id);
+        let series_id = cmd.series_id;
         let result = CharacterAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Empty)
             .metadata(EventMetadata {
@@ -528,15 +397,7 @@ impl CharacterCommands for CharacterCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = async {
-            let ch = self.character_repo.find_by_id(cmd.id).await.ok()?;
-            self.season_repo
-                .find_by_id(ch.season_id.0)
-                .await
-                .ok()
-                .map(|x| x.series_id)
-        }
-        .await;
+        let series_id = cmd.series_id;
         let result = CharacterAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
@@ -556,15 +417,7 @@ impl CharacterCommands for CharacterCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = async {
-            let ch = self.character_repo.find_by_id(cmd.id).await.ok()?;
-            self.season_repo
-                .find_by_id(ch.season_id.0)
-                .await
-                .ok()
-                .map(|x| x.series_id)
-        }
-        .await;
+        let series_id = cmd.series_id;
         let result = CharacterAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
@@ -1134,21 +987,11 @@ impl MembershipCommands for MembershipCommandsImpl {
 #[derive(Clone, Debug)]
 pub struct CostumeCategoryCommandsImpl {
     cmd_service: CommandService,
-    costume_category_repo: CostumeCategoryRepositoryImpl,
-    season_repo: SeasonRepositoryImpl,
 }
 
 impl CostumeCategoryCommandsImpl {
-    pub fn new(
-        cmd_service: CommandService,
-        costume_category_repo: CostumeCategoryRepositoryImpl,
-        season_repo: SeasonRepositoryImpl,
-    ) -> Self {
-        Self {
-            cmd_service,
-            costume_category_repo,
-            season_repo,
-        }
+    pub fn new(cmd_service: CommandService) -> Self {
+        Self { cmd_service }
     }
 }
 
@@ -1159,12 +1002,7 @@ impl CostumeCategoryCommands for CostumeCategoryCommandsImpl {
         cmd: CreateCostumeCategory,
     ) -> Result<(Uuid, AggregateVersion), DomainError> {
         let id = cmd.id;
-        let series_id = self
-            .season_repo
-            .find_by_id(cmd.season_id.0)
-            .await
-            .ok()
-            .map(|x| x.series_id);
+        let series_id = cmd.series_id;
         let result = CostumeCategoryAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Empty)
             .metadata(EventMetadata {
@@ -1184,15 +1022,7 @@ impl CostumeCategoryCommands for CostumeCategoryCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = async {
-            let cc = self.costume_category_repo.find_by_id(cmd.id).await.ok()?;
-            self.season_repo
-                .find_by_id(cc.season_id.0)
-                .await
-                .ok()
-                .map(|x| x.series_id)
-        }
-        .await;
+        let series_id = cmd.series_id;
         let result = CostumeCategoryAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
@@ -1212,15 +1042,7 @@ impl CostumeCategoryCommands for CostumeCategoryCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = async {
-            let cc = self.costume_category_repo.find_by_id(cmd.id).await.ok()?;
-            self.season_repo
-                .find_by_id(cc.season_id.0)
-                .await
-                .ok()
-                .map(|x| x.series_id)
-        }
-        .await;
+        let series_id = cmd.series_id;
         let result = CostumeCategoryAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
@@ -1240,15 +1062,7 @@ impl CostumeCategoryCommands for CostumeCategoryCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = async {
-            let cc = self.costume_category_repo.find_by_id(cmd.id).await.ok()?;
-            self.season_repo
-                .find_by_id(cc.season_id.0)
-                .await
-                .ok()
-                .map(|x| x.series_id)
-        }
-        .await;
+        let series_id = cmd.series_id;
         let result = CostumeCategoryAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {

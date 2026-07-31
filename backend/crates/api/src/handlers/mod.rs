@@ -319,6 +319,91 @@ fn require_series(params: &ListParams) -> Result<SeriesId, (StatusCode, Json<Err
         .ok_or_else(|| map_err(DomainError::ValidationError("series_id is required".into())))
 }
 
+/// Resolve the `series_id` for a scene at the API edge (scene → episode → series).
+///
+/// Handlers are the legitimate read-model boundary: the `series_id` is carried
+/// into the command for the `EventMetadata` audit trail and must never be
+/// re-queried by the command adapter (CQRS, issue #147). A missing parent
+/// projection is a genuine 404 — the entity cannot exist without it.
+async fn series_id_for_scene<P: Ports>(
+    state: &AppState<P>,
+    scene_id: Uuid,
+) -> Result<SeriesId, (StatusCode, Json<ErrorResponse>)> {
+    let scene = state
+        .ports
+        .scene_repo()
+        .find_by_id(scene_id)
+        .await
+        .map_err(map_err)?;
+    let episode = state
+        .ports
+        .episode_repo()
+        .find_by_id(scene.episode_id.0)
+        .await
+        .map_err(map_err)?;
+    Ok(episode.series_id)
+}
+
+/// Resolve the `series_id` for a shooting day (shooting_day → episode → series).
+async fn series_id_for_shooting_day<P: Ports>(
+    state: &AppState<P>,
+    day_id: ShootingDayId,
+) -> Result<SeriesId, (StatusCode, Json<ErrorResponse>)> {
+    let day = state
+        .ports
+        .shooting_day_repo()
+        .find_by_id(day_id)
+        .await
+        .map_err(map_err)?;
+    let episode = state
+        .ports
+        .episode_repo()
+        .find_by_id(day.episode_id.0)
+        .await
+        .map_err(map_err)?;
+    Ok(episode.series_id)
+}
+
+/// Resolve the `series_id` for a character (character → season → series).
+async fn series_id_for_character<P: Ports>(
+    state: &AppState<P>,
+    character_id: Uuid,
+) -> Result<SeriesId, (StatusCode, Json<ErrorResponse>)> {
+    let ch = state
+        .ports
+        .character_repo()
+        .find_by_id(character_id)
+        .await
+        .map_err(map_err)?;
+    let season = state
+        .ports
+        .season_repo()
+        .find_by_id(ch.season_id.0)
+        .await
+        .map_err(map_err)?;
+    Ok(season.series_id)
+}
+
+/// Resolve the `series_id` for a costume category (category → season → series).
+async fn series_id_for_costume_category<P: Ports>(
+    state: &AppState<P>,
+    category_id: Uuid,
+) -> Result<SeriesId, (StatusCode, Json<ErrorResponse>)> {
+    let cc = state
+        .ports
+        .costume_category_repo()
+        .find_by_id(category_id)
+        .await
+        .map_err(map_err)?;
+    let season = state
+        .ports
+        .season_repo()
+        .find_by_id(cc.season_id.0)
+        .await
+        .map_err(map_err)?;
+    Ok(season.series_id)
+}
+
 #[utoipa::path(
     get,
     path = "/audit",
@@ -736,9 +821,19 @@ pub async fn create_scene<P: Ports>(
     Json(req): Json<CreateSceneRequest>,
 ) -> ApiResult<IdVersionResponse> {
     let id = Uuid::now_v7();
+    let series_id = Some(
+        state
+            .ports
+            .episode_repo()
+            .find_by_id(req.episode_id.0)
+            .await
+            .map_err(map_err)?
+            .series_id,
+    );
     let cmd = CreateScene {
         id,
         episode_id: req.episode_id,
+        series_id,
         details: req.details,
     };
     let (id, version) = state
@@ -812,9 +907,11 @@ pub async fn update_scene_details<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateSceneDetailsRequest>,
 ) -> ApiResult<AggregateVersion> {
+    let series_id = Some(series_id_for_scene(&state, id).await?);
     let cmd = UpdateSceneDetails {
         id,
         details: req.details,
+        series_id,
         version: req.version,
     };
     let version = state
@@ -838,9 +935,11 @@ pub async fn assign_scene_character<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<AssignCharacterRequest>,
 ) -> ApiResult<AggregateVersion> {
+    let series_id = Some(series_id_for_scene(&state, id).await?);
     let cmd = AssignCharacter {
         id,
         character_id: req.character_id,
+        series_id,
         version: req.version,
     };
     let version = state
@@ -864,9 +963,11 @@ pub async fn remove_scene_character<P: Ports>(
     Path((id, character_id)): Path<(Uuid, Uuid)>,
     Query(version): Query<VersionRequest>,
 ) -> ApiResult<AggregateVersion> {
+    let series_id = Some(series_id_for_scene(&state, id).await?);
     let cmd = RemoveCharacter {
         id,
         character_id,
+        series_id,
         version: version.version,
     };
     let version = state
@@ -896,9 +997,19 @@ pub async fn create_shooting_day<P: Ports>(
     Json(req): Json<CreateShootingDayRequest>,
 ) -> ApiResult<IdVersionResponse> {
     let id = ShootingDayId::new();
+    let series_id = Some(
+        state
+            .ports
+            .episode_repo()
+            .find_by_id(episode_id.0)
+            .await
+            .map_err(map_err)?
+            .series_id,
+    );
     let cmd = CreateShootingDay {
         id,
         episode_id,
+        series_id,
         label: req.label,
         order_key: req.order_key,
         date: req.date,
@@ -972,6 +1083,7 @@ pub async fn update_shooting_day<P: Ports>(
     Json(req): Json<UpdateShootingDayRequest>,
 ) -> ApiResult<AggregateVersion> {
     let actor = current_user.sub.clone();
+    let series_id = Some(series_id_for_shooting_day(&state, id).await?);
     let cmds = state.ports.shooting_day_commands();
     if let Some(order_key) = req.order_key {
         let version = cmds
@@ -980,6 +1092,7 @@ pub async fn update_shooting_day<P: Ports>(
                 ReorderShootingDay {
                     id,
                     order_key,
+                    series_id,
                     version: req.version,
                 },
             )
@@ -994,6 +1107,7 @@ pub async fn update_shooting_day<P: Ports>(
                 RescheduleShootingDay {
                     id,
                     date: req.date,
+                    series_id,
                     version: req.version,
                 },
             )
@@ -1008,6 +1122,7 @@ pub async fn update_shooting_day<P: Ports>(
                 RenameShootingDay {
                     id,
                     label: req.label,
+                    series_id,
                     version: req.version,
                 },
             )
@@ -1036,6 +1151,7 @@ pub async fn archive_shooting_day<P: Ports>(
     Path(id): Path<ShootingDayId>,
     Json(req): Json<VersionRequest>,
 ) -> ApiResult<AggregateVersion> {
+    let series_id = Some(series_id_for_shooting_day(&state, id).await?);
     let version = state
         .ports
         .shooting_day_commands()
@@ -1043,6 +1159,7 @@ pub async fn archive_shooting_day<P: Ports>(
             current_user.sub.clone(),
             ArchiveShootingDay {
                 id,
+                series_id,
                 version: req.version,
             },
         )
@@ -1068,9 +1185,11 @@ pub async fn schedule_scene_on_shooting_day<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<ScheduleSceneRequest>,
 ) -> ApiResult<AggregateVersion> {
+    let series_id = Some(series_id_for_shooting_day(&state, req.shooting_day_id).await?);
     let cmd = ScheduleSceneOnShootingDay {
         id,
         shooting_day_id: req.shooting_day_id,
+        series_id,
         version: req.version,
     };
     let version = state
@@ -1097,9 +1216,11 @@ pub async fn unschedule_scene_from_shooting_day<P: Ports>(
     Path((id, shooting_day_id)): Path<(Uuid, ShootingDayId)>,
     Query(version): Query<VersionRequest>,
 ) -> ApiResult<AggregateVersion> {
+    let series_id = Some(series_id_for_shooting_day(&state, shooting_day_id).await?);
     let cmd = UnscheduleSceneFromShootingDay {
         id,
         shooting_day_id,
+        series_id,
         version: version.version,
     };
     let version = state
@@ -1130,9 +1251,19 @@ pub async fn create_character<P: Ports>(
     Json(req): Json<CreateCharacterRequest>,
 ) -> ApiResult<IdVersionResponse> {
     let id = Uuid::now_v7();
+    let series_id = Some(
+        state
+            .ports
+            .season_repo()
+            .find_by_id(req.season_id.0)
+            .await
+            .map_err(map_err)?
+            .series_id,
+    );
     let cmd = CreateCharacter {
         id,
         season_id: req.season_id,
+        series_id,
         name: req.name,
         category: req.category,
     };
@@ -1204,9 +1335,11 @@ pub async fn update_measurements<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateMeasurementsRequest>,
 ) -> ApiResult<AggregateVersion> {
+    let series_id = Some(series_id_for_character(&state, id).await?);
     let cmd = UpdateMeasurements {
         id,
         measurements: req.measurements,
+        series_id,
         version: req.version,
     };
     let version = state
@@ -1230,9 +1363,11 @@ pub async fn update_contact_info<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateContactInfoRequest>,
 ) -> ApiResult<AggregateVersion> {
+    let series_id = Some(series_id_for_character(&state, id).await?);
     let cmd = UpdateContactInfo {
         id,
         contact_info: req.contact_info,
+        series_id,
         version: req.version,
     };
     let version = state
@@ -1448,9 +1583,19 @@ pub async fn create_costume_category<P: Ports>(
     Json(req): Json<CreateCostumeCategoryRequest>,
 ) -> ApiResult<IdVersionResponse> {
     let id = Uuid::now_v7();
+    let series_id = Some(
+        state
+            .ports
+            .season_repo()
+            .find_by_id(season_id.0)
+            .await
+            .map_err(map_err)?
+            .series_id,
+    );
     let cmd = CreateCostumeCategory {
         id,
         season_id,
+        series_id,
         name: req.name,
         order_key: req.order_key,
     };
@@ -1500,6 +1645,7 @@ pub async fn update_costume_category<P: Ports>(
     Json(req): Json<UpdateCostumeCategoryRequest>,
 ) -> ApiResult<AggregateVersion> {
     let actor = current_user.sub.clone();
+    let series_id = Some(series_id_for_costume_category(&state, id).await?);
     let cmds = state.ports.costume_category_commands();
     if let Some(name) = req.name {
         let version = cmds
@@ -1508,6 +1654,7 @@ pub async fn update_costume_category<P: Ports>(
                 RenameCostumeCategory {
                     id,
                     name,
+                    series_id,
                     version: req.version,
                 },
             )
@@ -1522,6 +1669,7 @@ pub async fn update_costume_category<P: Ports>(
                 ReorderCostumeCategory {
                     id,
                     order_key,
+                    series_id,
                     version: req.version,
                 },
             )
@@ -1550,6 +1698,7 @@ pub async fn archive_costume_category<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<VersionRequest>,
 ) -> ApiResult<AggregateVersion> {
+    let series_id = Some(series_id_for_costume_category(&state, id).await?);
     let version = state
         .ports
         .costume_category_commands()
@@ -1557,6 +1706,7 @@ pub async fn archive_costume_category<P: Ports>(
             current_user.sub.clone(),
             ArchiveCostumeCategory {
                 id,
+                series_id,
                 version: req.version,
             },
         )
@@ -2795,8 +2945,10 @@ pub async fn wrap_shooting_day<P: Ports>(
     Json(req): Json<WrapShootingDayRequest>,
 ) -> ApiResult<AggregateVersion> {
     use breakdown_core::shooting_day::commands::WrapShootingDay;
+    let series_id = Some(series_id_for_shooting_day(&state, id).await?);
     let cmd = WrapShootingDay {
         id,
+        series_id,
         version: req.version,
     };
     let version = state

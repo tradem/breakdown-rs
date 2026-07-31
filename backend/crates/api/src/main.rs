@@ -420,24 +420,11 @@ async fn main() -> Result<()> {
     }
 
     let ports = ProductionPorts::new(
-        SceneCommandsImpl::new(
-            cmd_service.clone(),
-            scene_repo.clone(),
-            episode_repo.clone(),
-            shooting_day_repo.clone(),
-        ),
+        SceneCommandsImpl::new(cmd_service.clone()),
         scene_repo,
-        ShootingDayCommandsImpl::new(
-            cmd_service.clone(),
-            shooting_day_repo.clone(),
-            episode_repo.clone(),
-        ),
+        ShootingDayCommandsImpl::new(cmd_service.clone()),
         shooting_day_repo,
-        CharacterCommandsImpl::new(
-            cmd_service.clone(),
-            character_repo.clone(),
-            season_repo.clone(),
-        ),
+        CharacterCommandsImpl::new(cmd_service.clone()),
         character_repo.clone(),
         CostumeCommandsImpl::new(
             cmd_service.clone(),
@@ -446,11 +433,7 @@ async fn main() -> Result<()> {
             season_repo.clone(),
         ),
         costume_repo,
-        CostumeCategoryCommandsImpl::new(
-            cmd_service.clone(),
-            costume_category_repo.clone(),
-            season_repo.clone(),
-        ),
+        CostumeCategoryCommandsImpl::new(cmd_service.clone()),
         costume_category_repo,
         SeasonCommandsImpl::new(cmd_service.clone()),
         season_repo,

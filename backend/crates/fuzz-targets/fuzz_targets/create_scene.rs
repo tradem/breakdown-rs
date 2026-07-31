@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! Fuzz target for `CreateSceneRequest` deserialization.
 //!
@@ -48,6 +49,7 @@ fuzz_target!(|data: &[u8]| {
     let _cmd = breakdown_core::scene::commands::CreateScene {
         id: Uuid::now_v7(),
         episode_id: req.episode_id,
+        series_id: None,
         details: req.details,
     };
 });

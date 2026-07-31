@@ -11,10 +11,14 @@
     clippy::dbg_macro
 )]
 use breakdown_core::scene::*;
-use breakdown_core::shared::{AggregateVersion, EpisodeId, ShootingDayId};
+use breakdown_core::shared::{AggregateVersion, EpisodeId, SeriesId, ShootingDayId};
 use kameo_es::Command;
 use test_support::make_ctx;
 use uuid::Uuid;
+
+fn series_id() -> SeriesId {
+    SeriesId::new()
+}
 
 fn create_scene() -> SceneAggregate {
     let episode_id = EpisodeId::new();
@@ -30,6 +34,7 @@ fn create_scene() -> SceneAggregate {
         CreateScene {
             id: Uuid::now_v7(),
             episode_id,
+            series_id: Some(series_id()),
             details: details.clone(),
         },
         make_ctx(),
@@ -41,6 +46,7 @@ fn create_scene() -> SceneAggregate {
             CreateScene {
                 id: Uuid::now_v7(),
                 episode_id,
+                series_id: Some(series_id()),
                 details,
             },
             make_ctx(),
@@ -65,6 +71,7 @@ fn test_create_scene_success() {
         CreateScene {
             id: Uuid::now_v7(),
             episode_id,
+            series_id: Some(series_id()),
             details,
         },
         make_ctx(),
@@ -104,6 +111,7 @@ fn test_update_scene_details_success() {
         UpdateSceneDetails {
             id: agg.id,
             details: details.clone(),
+            series_id: Some(series_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -119,6 +127,7 @@ fn test_update_scene_details_idempotency() {
         UpdateSceneDetails {
             id: agg.id,
             details: agg.details.clone(),
+            series_id: Some(series_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -140,6 +149,7 @@ fn test_update_scene_details_wrong_version() {
                 scene_number: Some(99),
                 ..Default::default()
             },
+            series_id: Some(series_id()),
             version: AggregateVersion(99),
         },
         make_ctx(),
@@ -160,6 +170,7 @@ fn test_assign_character_success() {
             AssignCharacter {
                 id: agg.id,
                 character_id: char_id,
+                series_id: Some(series_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -179,6 +190,7 @@ fn test_assign_character_conflict() {
             AssignCharacter {
                 id: agg.id,
                 character_id: char_id,
+                series_id: Some(series_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -189,6 +201,7 @@ fn test_assign_character_conflict() {
         AssignCharacter {
             id: agg.id,
             character_id: char_id,
+            series_id: Some(series_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -209,6 +222,7 @@ fn test_remove_character_success() {
             AssignCharacter {
                 id: agg.id,
                 character_id: char_id,
+                series_id: Some(series_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -220,6 +234,7 @@ fn test_remove_character_success() {
             RemoveCharacter {
                 id: agg.id,
                 character_id: char_id,
+                series_id: Some(series_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -237,6 +252,7 @@ fn test_remove_character_not_assigned() {
         RemoveCharacter {
             id: agg.id,
             character_id: Uuid::now_v7(),
+            series_id: Some(series_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -257,6 +273,7 @@ fn test_schedule_scene_double_schedule_rejected() {
             ScheduleSceneOnShootingDay {
                 id: agg.id,
                 shooting_day_id: day,
+                series_id: Some(series_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -270,6 +287,7 @@ fn test_schedule_scene_double_schedule_rejected() {
         ScheduleSceneOnShootingDay {
             id: agg.id,
             shooting_day_id: day,
+            series_id: Some(series_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -289,6 +307,7 @@ fn test_unschedule_not_scheduled_rejected() {
         UnscheduleSceneFromShootingDay {
             id: agg.id,
             shooting_day_id: day,
+            series_id: Some(series_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -308,6 +327,7 @@ fn test_unschedule_removes_link() {
             ScheduleSceneOnShootingDay {
                 id: agg.id,
                 shooting_day_id: day,
+                series_id: Some(series_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -319,6 +339,7 @@ fn test_unschedule_removes_link() {
             UnscheduleSceneFromShootingDay {
                 id: agg.id,
                 shooting_day_id: day,
+                series_id: Some(series_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -340,6 +361,7 @@ fn test_summary_round_trips_through_update_guard() {
                     summary: Some(summary.clone()),
                     ..agg.details.clone()
                 },
+                series_id: Some(series_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -353,6 +375,7 @@ fn test_summary_round_trips_through_update_guard() {
         UpdateSceneDetails {
             id: agg.id,
             details: agg.details.clone(),
+            series_id: Some(series_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -375,6 +398,7 @@ fn test_script_day_round_trips_through_update_guard() {
                     script_day: Some(script_day.clone()),
                     ..agg.details.clone()
                 },
+                series_id: Some(series_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -388,6 +412,7 @@ fn test_script_day_round_trips_through_update_guard() {
         UpdateSceneDetails {
             id: agg.id,
             details: agg.details.clone(),
+            series_id: Some(series_id()),
             version: agg.version,
         },
         make_ctx(),
