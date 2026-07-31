@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -11,10 +12,14 @@
     clippy::dbg_macro
 )]
 use breakdown_core::costume_category::*;
-use breakdown_core::shared::{AggregateVersion, LexicalSortKey, SeasonId};
+use breakdown_core::shared::{AggregateVersion, LexicalSortKey, SeasonId, SeriesId};
 use kameo_es::Command;
 use test_support::make_ctx;
 use uuid::Uuid;
+
+fn series_id() -> SeriesId {
+    SeriesId::new()
+}
 
 fn create_category() -> CostumeCategoryAggregate {
     let season_id = SeasonId::new();
@@ -24,6 +29,7 @@ fn create_category() -> CostumeCategoryAggregate {
             CreateCostumeCategory {
                 id: Uuid::now_v7(),
                 season_id,
+                series_id: Some(series_id()),
                 name: "Oberteil".to_string(),
                 order_key: LexicalSortKey::from_static("a"),
             },
@@ -44,6 +50,7 @@ fn test_create_category_success() {
             CreateCostumeCategory {
                 id,
                 season_id,
+                series_id: Some(series_id()),
                 name: "Schuhe".to_string(),
                 order_key: LexicalSortKey::from_static("b"),
             },
@@ -75,6 +82,7 @@ fn test_create_category_rejects_empty_name() {
         CreateCostumeCategory {
             id: Uuid::now_v7(),
             season_id: SeasonId::new(),
+            series_id: Some(series_id()),
             name: "   ".to_string(),
             order_key: LexicalSortKey::from_static("a"),
         },
@@ -94,6 +102,7 @@ fn test_rename_preserves_order() {
             RenameCostumeCategory {
                 id: agg.id,
                 name: "Obertreiber".to_string(),
+                series_id: Some(series_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -112,6 +121,7 @@ fn test_reorder_midpoint_is_single_event() {
             ReorderCostumeCategory {
                 id: agg.id,
                 order_key: LexicalSortKey::from_static("a0"),
+                series_id: Some(series_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -145,6 +155,7 @@ fn test_archive_is_terminal_and_rejects_mutations() {
         .handle(
             ArchiveCostumeCategory {
                 id: agg.id,
+                series_id: Some(series_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -157,6 +168,7 @@ fn test_archive_is_terminal_and_rejects_mutations() {
     let again = agg.handle(
         ArchiveCostumeCategory {
             id: agg.id,
+            series_id: Some(series_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -171,6 +183,7 @@ fn test_archive_is_terminal_and_rejects_mutations() {
         RenameCostumeCategory {
             id: agg.id,
             name: "Nope".to_string(),
+            series_id: Some(series_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -185,6 +198,7 @@ fn test_archive_is_terminal_and_rejects_mutations() {
         ReorderCostumeCategory {
             id: agg.id,
             order_key: LexicalSortKey::from_static("z"),
+            series_id: Some(series_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -202,6 +216,7 @@ fn test_version_mismatch_rejection() {
         RenameCostumeCategory {
             id: agg.id,
             name: "X".into(),
+            series_id: Some(series_id()),
             version: AggregateVersion(99),
         },
         make_ctx(),

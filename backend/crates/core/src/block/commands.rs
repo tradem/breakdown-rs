@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! Block domain commands.
 
@@ -23,6 +24,10 @@ pub struct CreateBlock {
 }
 
 /// Update a block's (optional) time span.
+///
+/// `series_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `series_id`); it is resolved at the API edge from the
+/// block projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct UpdateBlockTimeSpan {
     pub id: Uuid,
@@ -30,6 +35,7 @@ pub struct UpdateBlockTimeSpan {
     pub start_date: Option<NaiveDate>,
     #[schema(value_type = String)]
     pub end_date: Option<NaiveDate>,
+    pub series_id: Option<SeriesId>,
     pub version: AggregateVersion,
 }
 

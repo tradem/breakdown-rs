@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
 #![allow(
@@ -15,17 +16,23 @@
 
 use breakdown_core::scene_shoot::*;
 use breakdown_core::shared::{
-    AggregateVersion, LexicalSortKey, PhotoId, SceneShootId, SceneShootStatus, ShootingDayId,
+    AggregateVersion, LexicalSortKey, PhotoId, SceneShootId, SceneShootStatus, SeriesId,
+    ShootingDayId,
 };
 use chrono::{TimeDelta, Utc};
 use kameo_es::Command;
 use test_support::{make_ctx, replay_events};
 use uuid::Uuid;
 
+fn series_id() -> SeriesId {
+    SeriesId::new()
+}
+
 fn make_plan_cmd(scene_id: Uuid, shooting_day_id: ShootingDayId) -> PlanSceneShoot {
     PlanSceneShoot {
         id: SceneShootId::new(),
         scene_id,
+        series_id: Some(series_id()),
         shooting_day_id,
         planned_order: LexicalSortKey::from_static("a"),
     }
@@ -88,6 +95,7 @@ fn start_transitions_to_in_progress_and_records_start_dt() {
             StartSceneShoot {
                 id: state.id,
                 start_dt: now,
+                series_id: Some(series_id()),
                 version: state.version,
             },
             make_ctx(),
@@ -120,6 +128,7 @@ fn setting_actual_order_transitions_to_in_progress() {
             SetActualOrder {
                 id: state.id,
                 actual_order: order.clone(),
+                series_id: Some(series_id()),
                 version: state.version,
             },
             make_ctx(),
@@ -145,6 +154,7 @@ fn finish_transitions_to_shot() {
             StartSceneShoot {
                 id: state.id,
                 start_dt: now,
+                series_id: Some(series_id()),
                 version: state.version,
             },
             make_ctx(),
@@ -158,6 +168,7 @@ fn finish_transitions_to_shot() {
             FinishSceneShoot {
                 id: state.id,
                 end_dt,
+                series_id: Some(series_id()),
                 version: state.version,
             },
             make_ctx(),
@@ -186,6 +197,7 @@ fn skip_transitions_to_skipped() {
         .handle(
             SkipSceneShoot {
                 id: state.id,
+                series_id: Some(series_id()),
                 version: state.version,
             },
             make_ctx(),
@@ -213,6 +225,7 @@ fn finish_only_allowed_from_in_progress() {
             FinishSceneShoot {
                 id: state.id,
                 end_dt,
+                series_id: Some(series_id()),
                 version: state.version,
             },
             make_ctx(),
@@ -239,6 +252,7 @@ fn planned_order_editable_before_execution_data() {
             ReplanSceneShoot {
                 id: state.id,
                 planned_order: new_order.clone(),
+                series_id: Some(series_id()),
                 version: state.version,
             },
             make_ctx(),
@@ -268,6 +282,7 @@ fn planned_order_frozen_after_start_dt_set() {
             StartSceneShoot {
                 id: state.id,
                 start_dt: now,
+                series_id: Some(series_id()),
                 version: state.version,
             },
             make_ctx(),
@@ -280,6 +295,7 @@ fn planned_order_frozen_after_start_dt_set() {
             ReplanSceneShoot {
                 id: state.id,
                 planned_order: LexicalSortKey::from_static("z"),
+                series_id: Some(series_id()),
                 version: state.version,
             },
             make_ctx(),
@@ -303,6 +319,7 @@ fn planned_order_frozen_after_actual_order_set() {
             SetActualOrder {
                 id: state.id,
                 actual_order: LexicalSortKey::from_static("b"),
+                series_id: Some(series_id()),
                 version: state.version,
             },
             make_ctx(),
@@ -315,6 +332,7 @@ fn planned_order_frozen_after_actual_order_set() {
             ReplanSceneShoot {
                 id: state.id,
                 planned_order: LexicalSortKey::from_static("z"),
+                series_id: Some(series_id()),
                 version: state.version,
             },
             make_ctx(),
@@ -341,6 +359,7 @@ fn add_note_appends_to_notes() {
             AddSceneShootNote {
                 id: state.id,
                 note_id,
+                series_id: Some(series_id()),
                 body: "First note".into(),
                 author: None,
             },
@@ -366,6 +385,7 @@ fn update_note_body_changes_body() {
             AddSceneShootNote {
                 id: state.id,
                 note_id,
+                series_id: Some(series_id()),
                 body: "Original".into(),
                 author: None,
             },
@@ -379,6 +399,7 @@ fn update_note_body_changes_body() {
             UpdateSceneShootNote {
                 id: state.id,
                 note_id,
+                series_id: Some(series_id()),
                 body: "Updated".into(),
                 version: state.version,
             },
@@ -403,6 +424,7 @@ fn remove_note_removes_from_notes() {
             AddSceneShootNote {
                 id: state.id,
                 note_id,
+                series_id: Some(series_id()),
                 body: "To be removed".into(),
                 author: None,
             },
@@ -416,6 +438,7 @@ fn remove_note_removes_from_notes() {
             RemoveSceneShootNote {
                 id: state.id,
                 note_id,
+                series_id: Some(series_id()),
                 version: state.version,
             },
             make_ctx(),
@@ -457,6 +480,7 @@ fn link_continuity_photo_adds_to_set() {
             LinkContinuityPhoto {
                 id: state.id,
                 photo_id,
+                series_id: Some(series_id()),
                 version: state.version,
             },
             make_ctx(),
@@ -480,6 +504,7 @@ fn link_same_photo_twice_is_rejected() {
             LinkContinuityPhoto {
                 id: state.id,
                 photo_id,
+                series_id: Some(series_id()),
                 version: state.version,
             },
             make_ctx(),
@@ -491,6 +516,7 @@ fn link_same_photo_twice_is_rejected() {
         LinkContinuityPhoto {
             id: state.id,
             photo_id,
+            series_id: Some(series_id()),
             version: state.version,
         },
         make_ctx(),
@@ -514,6 +540,7 @@ fn unlink_continuity_photo_removes_from_set() {
             LinkContinuityPhoto {
                 id: state.id,
                 photo_id,
+                series_id: Some(series_id()),
                 version: state.version,
             },
             make_ctx(),
@@ -526,6 +553,7 @@ fn unlink_continuity_photo_removes_from_set() {
             UnlinkContinuityPhoto {
                 id: state.id,
                 photo_id,
+                series_id: Some(series_id()),
                 version: state.version,
             },
             make_ctx(),

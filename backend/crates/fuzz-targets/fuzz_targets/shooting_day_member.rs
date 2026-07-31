@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! Fuzz target for deserialization of request bodies with complex enums:
 //! `CreateShootingDayRequest` (ShootingDaySource) and `InviteMemberRequest`
@@ -69,6 +70,7 @@ fuzz_target!(|data: &[u8]| {
         let _cmd = breakdown_core::shooting_day::commands::CreateShootingDay {
             id: ShootingDayId::new(),
             episode_id: req.episode_id,
+            series_id: None,
             label: req.label,
             order_key: req.order_key,
             date: req.date,
@@ -85,6 +87,7 @@ fuzz_target!(|data: &[u8]| {
 
         let _cmd = breakdown_core::membership::commands::InviteMember {
             block_id: breakdown_core::shared::BlockId::from_uuid(uuid::Uuid::now_v7()),
+            series_id: breakdown_core::shared::SeriesId::new(),
             user_id: breakdown_core::shared::UserId::from_sub(req.user_id),
             role: req.role,
         };

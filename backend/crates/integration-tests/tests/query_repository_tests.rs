@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
 
 #![allow(
@@ -47,7 +48,7 @@ use infra::projectors::{
 };
 use infra::queries::{
     BlockRepositoryImpl, CharacterRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl,
-    SceneRepositoryImpl, SeasonRepositoryImpl, ShootingDayRepositoryImpl,
+    SceneRepositoryImpl, SeasonRepositoryImpl,
 };
 use kameo_es::command_service::CommandService;
 use rust_decimal::Decimal;
@@ -207,18 +208,14 @@ async fn scenes_by_episode_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let episode_id = EpisodeId::new();
     let scene_repo = SceneRepositoryImpl::new(pool.clone());
-    let scene_cmd = SceneCommandsImpl::new(
-        cmd_svc,
-        SceneRepositoryImpl::new(pool.clone()),
-        EpisodeRepositoryImpl::new(pool.clone()),
-        ShootingDayRepositoryImpl::new(pool.clone()),
-    );
+    let scene_cmd = SceneCommandsImpl::new(cmd_svc);
 
     let scene_id = Uuid::now_v7();
 
     let cmd = CreateScene {
         id: scene_id,
         episode_id,
+        series_id: Some(SeriesId::new()),
         details: SceneDetails {
             scene_number: Some(1),
             location: Some("A".into()),
@@ -250,17 +247,14 @@ async fn characters_by_season_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let season_id = SeasonId::new();
     let char_repo = CharacterRepositoryImpl::new(pool.clone());
-    let char_cmd = CharacterCommandsImpl::new(
-        cmd_svc,
-        CharacterRepositoryImpl::new(pool.clone()),
-        SeasonRepositoryImpl::new(pool.clone()),
-    );
+    let char_cmd = CharacterCommandsImpl::new(cmd_svc);
 
     let char_id = Uuid::now_v7();
 
     let cmd = CreateCharacter {
         id: char_id,
         season_id,
+        series_id: Some(SeriesId::new()),
         name: "Heroin".into(),
         category: CharacterCategory::MainCast,
     };
@@ -285,17 +279,8 @@ async fn characters_by_season_returns_data() -> Result<()> {
 async fn costumes_by_season_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let season_id = SeasonId::new();
-    let char_cmd = CharacterCommandsImpl::new(
-        cmd_svc.clone(),
-        CharacterRepositoryImpl::new(pool.clone()),
-        SeasonRepositoryImpl::new(pool.clone()),
-    );
-    let costume_cmd = CostumeCommandsImpl::new(
-        cmd_svc,
-        CostumeRepositoryImpl::new(pool.clone()),
-        CharacterRepositoryImpl::new(pool.clone()),
-        SeasonRepositoryImpl::new(pool.clone()),
-    );
+    let char_cmd = CharacterCommandsImpl::new(cmd_svc.clone());
+    let costume_cmd = CostumeCommandsImpl::new(cmd_svc);
     let costume_repo = CostumeRepositoryImpl::new(pool.clone());
 
     // A costume is only visible via `list_by_season` once it is bound to a
@@ -307,6 +292,7 @@ async fn costumes_by_season_returns_data() -> Result<()> {
             CreateCharacter {
                 id: char_id,
                 season_id,
+                series_id: Some(SeriesId::new()),
                 name: "Wearer".into(),
                 category: CharacterCategory::MainCast,
             },
@@ -316,7 +302,13 @@ async fn costumes_by_season_returns_data() -> Result<()> {
 
     let costume_id = Uuid::now_v7();
     let (_id, ver) = costume_cmd
-        .create(test_user(), CreateCostume { id: costume_id })
+        .create(
+            test_user(),
+            CreateCostume {
+                id: costume_id,
+                series_id: None,
+            },
+        )
         .await?;
     await_proj(&pool, "projection_costume", costume_id).await;
 
@@ -326,6 +318,7 @@ async fn costumes_by_season_returns_data() -> Result<()> {
             AssignCostumeToCharacter {
                 id: costume_id,
                 character_id: char_id,
+                series_id: None,
                 version: ver,
             },
         )
@@ -348,16 +341,14 @@ async fn costumes_by_season_returns_data() -> Result<()> {
 async fn costumes_with_details_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let _costume_repo = CostumeRepositoryImpl::new(pool.clone());
-    let costume_cmd = CostumeCommandsImpl::new(
-        cmd_svc,
-        CostumeRepositoryImpl::new(pool.clone()),
-        CharacterRepositoryImpl::new(pool.clone()),
-        SeasonRepositoryImpl::new(pool.clone()),
-    );
+    let costume_cmd = CostumeCommandsImpl::new(cmd_svc);
 
     let costume_id = Uuid::now_v7();
 
-    let cmd = CreateCostume { id: costume_id };
+    let cmd = CreateCostume {
+        id: costume_id,
+        series_id: None,
+    };
     let (_id, ver) = costume_cmd.create(test_user(), cmd).await?;
 
     await_proj(&pool, "projection_costume", costume_id).await;
@@ -375,6 +366,7 @@ async fn costumes_with_details_returns_data() -> Result<()> {
                     category_id: None,
                     text: "Sleeve".into(),
                 },
+                series_id: None,
                 version: ver,
             },
         )
@@ -391,7 +383,7 @@ async fn seasons_by_series_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let series_id = SeriesId::new();
     let season_repo = SeasonRepositoryImpl::new(pool.clone());
-    let season_cmd = SeasonCommandsImpl::new(cmd_svc, SeasonRepositoryImpl::new(pool.clone()));
+    let season_cmd = SeasonCommandsImpl::new(cmd_svc);
 
     let season_id = Uuid::now_v7();
     season_cmd
@@ -421,7 +413,7 @@ async fn blocks_by_season_returns_data() -> Result<()> {
     let season_id = SeasonId::new();
     let series_id = SeriesId::new();
     let block_repo = BlockRepositoryImpl::new(pool.clone());
-    let block_cmd = BlockCommandsImpl::new(cmd_svc, BlockRepositoryImpl::new(pool.clone()));
+    let block_cmd = BlockCommandsImpl::new(cmd_svc);
 
     let block_id = Uuid::now_v7();
     block_cmd
@@ -450,7 +442,7 @@ async fn episodes_by_series_returns_data() -> Result<()> {
     let block_id = BlockId::new();
     let series_id = SeriesId::new();
     let episode_repo = EpisodeRepositoryImpl::new(pool.clone());
-    let episode_cmd = EpisodeCommandsImpl::new(cmd_svc, EpisodeRepositoryImpl::new(pool.clone()));
+    let episode_cmd = EpisodeCommandsImpl::new(cmd_svc);
 
     let episode_id = Uuid::now_v7();
     episode_cmd
@@ -479,11 +471,7 @@ async fn episodes_by_series_returns_data() -> Result<()> {
 async fn character_measurements_persist() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let season_id = SeasonId::new();
-    let char_cmd = CharacterCommandsImpl::new(
-        cmd_svc,
-        CharacterRepositoryImpl::new(pool.clone()),
-        SeasonRepositoryImpl::new(pool.clone()),
-    );
+    let char_cmd = CharacterCommandsImpl::new(cmd_svc);
     let char_repo = CharacterRepositoryImpl::new(pool.clone());
 
     let char_id = Uuid::now_v7();
@@ -493,6 +481,7 @@ async fn character_measurements_persist() -> Result<()> {
             CreateCharacter {
                 id: char_id,
                 season_id,
+                series_id: Some(SeriesId::new()),
                 name: "Measured".into(),
                 category: CharacterCategory::Guest,
             },
@@ -510,6 +499,7 @@ async fn character_measurements_persist() -> Result<()> {
                     weight: Some(Decimal::from(75)),
                     ..Default::default()
                 },
+                series_id: Some(SeriesId::new()),
                 version: ver,
             },
         )

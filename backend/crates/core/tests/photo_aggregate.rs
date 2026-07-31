@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -11,9 +12,13 @@
     clippy::dbg_macro
 )]
 use breakdown_core::photo::*;
-use breakdown_core::shared::{AggregateVersion, PhotoId, PhotoVariant, VariantStatus};
+use breakdown_core::shared::{AggregateVersion, PhotoId, PhotoVariant, SeriesId, VariantStatus};
 use kameo_es::{Apply, Command};
 use test_support::make_ctx;
+
+fn series_id() -> SeriesId {
+    SeriesId::new()
+}
 
 fn make_uploaded_photo() -> PhotoAggregate {
     let agg = PhotoAggregate::default();
@@ -21,6 +26,7 @@ fn make_uploaded_photo() -> PhotoAggregate {
         .handle(
             UploadPhoto {
                 id: PhotoId::new(),
+                series_id: Some(series_id()),
                 content_type: "image/jpeg".into(),
                 size_bytes: 1024 * 1024,
                 binding: PhotoBinding::default(),
@@ -39,6 +45,7 @@ fn test_upload_emits_photo_uploaded_with_pending_variants() {
     let result = PhotoAggregate::default().handle(
         UploadPhoto {
             id,
+            series_id: Some(series_id()),
             content_type: "image/jpeg".into(),
             size_bytes: 5000,
             binding: PhotoBinding::default(),
@@ -77,6 +84,7 @@ fn test_normalize_original_success() {
             NormalizeOriginal {
                 id: agg.id,
                 new_size: 900000,
+                series_id: Some(series_id()),
                 rotated: true,
                 version: agg.version,
             },
@@ -106,6 +114,7 @@ fn test_generate_variant_success() {
             GenerateVariant {
                 id: agg.id,
                 variant: PhotoVariant::Thumb,
+                series_id: Some(series_id()),
                 size_bytes: 50000,
                 version,
             },
@@ -130,6 +139,7 @@ fn test_generate_variant_wrong_version() {
         GenerateVariant {
             id: agg.id,
             variant: PhotoVariant::Thumb,
+            series_id: Some(series_id()),
             size_bytes: 50000,
             version: AggregateVersion(99),
         },
@@ -147,6 +157,7 @@ fn test_mark_variant_failed() {
                 id: agg.id,
                 variant: PhotoVariant::Thumb,
                 error: "OOM".into(),
+                series_id: Some(series_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -169,6 +180,7 @@ fn test_delete_photo_success() {
     let result = agg.handle(
         DeletePhoto {
             id: agg.id,
+            series_id: Some(series_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -185,6 +197,7 @@ fn test_delete_photo_wrong_version() {
     let result = agg.handle(
         DeletePhoto {
             id: agg.id,
+            series_id: Some(series_id()),
             version: AggregateVersion(99),
         },
         make_ctx(),

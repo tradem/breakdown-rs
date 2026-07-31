@@ -3,6 +3,7 @@
 // Co-authored-by: qwen3.6-35b (neuralwatt)
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! Season-seeding saga — the canonical "event-reactor-issues-commands" pattern.
 //!
@@ -146,6 +147,7 @@ where
         let cmd = CreateCostumeCategory {
             id,
             season_id,
+            series_id: Some(series_id),
             name: name.clone(),
             order_key: LexicalSortKey::from_static(order_key),
         };

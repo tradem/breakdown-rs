@@ -202,6 +202,7 @@ impl EntityEventHandler<SceneShootAggregate, ()> for ContinuityDeletionSaga {
                         photo_id,
                         DeletePhoto {
                             id: photo_id,
+                            series_id,
                             version: photo_view.version,
                         },
                     )

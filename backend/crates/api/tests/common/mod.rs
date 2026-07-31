@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.2 (neuralwatt)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -567,7 +568,16 @@ pub struct FakeSeasonRepo;
 
 impl SeasonRepository for FakeSeasonRepo {
     async fn find_by_id(&self, id: Uuid) -> Result<SeasonView, DomainError> {
-        Err(DomainError::NotFound(format!("Season({id})")))
+        // Return a stub SeasonView so handlers can resolve series_id
+        // for EventMetadata without a real projection.
+        Ok(SeasonView {
+            id,
+            series_id: SeriesId::from_uuid(Uuid::now_v7()),
+            number: 1,
+            title: None,
+            version: AggregateVersion::INITIAL,
+            updated_at: chrono::Utc::now(),
+        })
     }
     async fn list_by_series(
         &self,
@@ -628,7 +638,17 @@ pub struct FakeEpisodeRepo;
 
 impl EpisodeRepository for FakeEpisodeRepo {
     async fn find_by_id(&self, id: Uuid) -> Result<EpisodeView, DomainError> {
-        Err(DomainError::NotFound(format!("Episode({id})")))
+        // Return a stub EpisodeView so handlers can resolve series_id
+        // for EventMetadata without a real projection.
+        Ok(EpisodeView {
+            id,
+            block_id: BlockId::from_uuid(Uuid::now_v7()),
+            series_id: SeriesId::from_uuid(Uuid::now_v7()),
+            number: 1,
+            name: None,
+            version: AggregateVersion::INITIAL,
+            updated_at: chrono::Utc::now(),
+        })
     }
     async fn list_by_block(
         &self,

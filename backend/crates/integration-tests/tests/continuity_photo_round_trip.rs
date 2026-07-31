@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
 
 #![allow(
@@ -195,16 +196,7 @@ async fn continuity_photo_upload_projection() -> Result<()> {
 
     let storage = build_storage(&creds);
     let cmd_service = CommandService::new(client.get_multiplexed_async_connection().await?);
-    let photo_commands = PhotoCommandsImpl::new(
-        cmd_service.clone(),
-        PhotoRepositoryImpl::new(pool.clone()),
-        infra::queries::CostumeRepositoryImpl::new(pool.clone()),
-        infra::queries::CharacterRepositoryImpl::new(pool.clone()),
-        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
-        infra::queries::SceneShootRepositoryImpl::new(pool.clone()),
-        infra::queries::SceneRepositoryImpl::new(pool.clone()),
-        infra::queries::EpisodeRepositoryImpl::new(pool.clone()),
-    );
+    let photo_commands = PhotoCommandsImpl::new(cmd_service.clone());
     let photo_repo = PhotoRepositoryImpl::new(pool.clone());
 
     let _scene_proj = spawn_scene_projector(
@@ -291,6 +283,7 @@ async fn continuity_photo_upload_projection() -> Result<()> {
                     scene_shoot_id: shoot_id,
                     costume_id: None,
                 },
+                series_id: Some(breakdown_core::shared::SeriesId::new()),
             },
         )
         .await?;
@@ -338,16 +331,7 @@ async fn continuity_photo_delete_on_zero_refcount() -> Result<()> {
 
     let storage = build_storage(&creds);
     let cmd_service = CommandService::new(client.get_multiplexed_async_connection().await?);
-    let photo_commands = PhotoCommandsImpl::new(
-        cmd_service.clone(),
-        PhotoRepositoryImpl::new(pool.clone()),
-        infra::queries::CostumeRepositoryImpl::new(pool.clone()),
-        infra::queries::CharacterRepositoryImpl::new(pool.clone()),
-        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
-        infra::queries::SceneShootRepositoryImpl::new(pool.clone()),
-        infra::queries::SceneRepositoryImpl::new(pool.clone()),
-        infra::queries::EpisodeRepositoryImpl::new(pool.clone()),
-    );
+    let photo_commands = PhotoCommandsImpl::new(cmd_service.clone());
     let photo_repo = PhotoRepositoryImpl::new(pool.clone());
 
     let _scene_proj = spawn_scene_projector(
@@ -449,6 +433,7 @@ async fn continuity_photo_delete_on_zero_refcount() -> Result<()> {
                     scene_shoot_id: shoot_id,
                     costume_id: None,
                 },
+                series_id: Some(breakdown_core::shared::SeriesId::new()),
             },
         )
         .await?;

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
 
 #![allow(
@@ -490,12 +491,7 @@ impl TestScene {
 
         let cmd_service = CommandService::new(conn_guard.conn.clone());
 
-        let scene_commands = infra::event_store::SceneCommandsImpl::new(
-            cmd_service.clone(),
-            infra::queries::SceneRepositoryImpl::new(pool_clone.clone()),
-            infra::queries::EpisodeRepositoryImpl::new(pool_clone.clone()),
-            infra::queries::ShootingDayRepositoryImpl::new(pool_clone.clone()),
-        );
+        let scene_commands = infra::event_store::SceneCommandsImpl::new(cmd_service.clone());
         let scene_repo = infra::queries::SceneRepositoryImpl::new(pool_clone.clone());
 
         Ok(Self {

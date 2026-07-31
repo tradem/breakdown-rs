@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
-// Copyright (C) 2024 Breakdown RS Contributors
+// Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -16,6 +17,10 @@ use chrono::NaiveDate;
 use kameo_es::{Apply, Command};
 use test_support::make_ctx;
 use uuid::Uuid;
+
+fn series_id() -> SeriesId {
+    SeriesId::new()
+}
 
 fn make_block() -> BlockAggregate {
     let cmd = CreateBlock {
@@ -104,6 +109,7 @@ fn test_update_block_time_span_success() {
                 id: agg.id,
                 start_date: Some(d1),
                 end_date: Some(d2),
+                series_id: Some(series_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -123,6 +129,7 @@ fn test_update_block_time_span_wrong_version() {
             id: agg.id,
             start_date: None,
             end_date: None,
+            series_id: Some(series_id()),
             version: AggregateVersion(99),
         },
         make_ctx(),

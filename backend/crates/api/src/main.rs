@@ -296,22 +296,8 @@ async fn main() -> Result<()> {
     let audit_repo = AuditRepositoryImpl::new(pool.clone());
 
     // Create command adapters with repository dependencies
-    let photo_commands = PhotoCommandsImpl::new(
-        cmd_service.clone(),
-        photo_repo.clone(),
-        costume_repo.clone(),
-        character_repo.clone(),
-        season_repo.clone(),
-        scene_shoot_repo.clone(),
-        scene_repo.clone(),
-        episode_repo.clone(),
-    );
-    let scene_shoot_commands = SceneShootCommandsImpl::new(
-        cmd_service.clone(),
-        scene_shoot_repo.clone(),
-        scene_repo.clone(),
-        episode_repo.clone(),
-    );
+    let photo_commands = PhotoCommandsImpl::new(cmd_service.clone());
+    let scene_shoot_commands = SceneShootCommandsImpl::new(cmd_service.clone());
     let scene_shoot_report_repo = SceneShootReportRepositoryImpl::new(pool.clone());
 
     // --- Spawn photo sagas (thumbnail, deletion, bytes-cleanup) ---
@@ -420,43 +406,21 @@ async fn main() -> Result<()> {
     }
 
     let ports = ProductionPorts::new(
-        SceneCommandsImpl::new(
-            cmd_service.clone(),
-            scene_repo.clone(),
-            episode_repo.clone(),
-            shooting_day_repo.clone(),
-        ),
+        SceneCommandsImpl::new(cmd_service.clone()),
         scene_repo,
-        ShootingDayCommandsImpl::new(
-            cmd_service.clone(),
-            shooting_day_repo.clone(),
-            episode_repo.clone(),
-        ),
+        ShootingDayCommandsImpl::new(cmd_service.clone()),
         shooting_day_repo,
-        CharacterCommandsImpl::new(
-            cmd_service.clone(),
-            character_repo.clone(),
-            season_repo.clone(),
-        ),
+        CharacterCommandsImpl::new(cmd_service.clone()),
         character_repo.clone(),
-        CostumeCommandsImpl::new(
-            cmd_service.clone(),
-            costume_repo.clone(),
-            character_repo.clone(),
-            season_repo.clone(),
-        ),
+        CostumeCommandsImpl::new(cmd_service.clone()),
         costume_repo,
-        CostumeCategoryCommandsImpl::new(
-            cmd_service.clone(),
-            costume_category_repo.clone(),
-            season_repo.clone(),
-        ),
+        CostumeCategoryCommandsImpl::new(cmd_service.clone()),
         costume_category_repo,
-        SeasonCommandsImpl::new(cmd_service.clone(), season_repo.clone()),
+        SeasonCommandsImpl::new(cmd_service.clone()),
         season_repo,
-        BlockCommandsImpl::new(cmd_service.clone(), block_repo.clone()),
+        BlockCommandsImpl::new(cmd_service.clone()),
         block_repo.clone(),
-        EpisodeCommandsImpl::new(cmd_service.clone(), episode_repo.clone()),
+        EpisodeCommandsImpl::new(cmd_service.clone()),
         episode_repo,
         MembershipCommandsImpl::new(cmd_service.clone()),
         membership_repo_impl.clone(),

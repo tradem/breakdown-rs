@@ -6,48 +6,78 @@
 
 use chrono::NaiveDate;
 
-use crate::shared::{AggregateVersion, EpisodeId, LexicalSortKey, ShootingDayId};
+use crate::shared::{AggregateVersion, EpisodeId, LexicalSortKey, SeriesId, ShootingDayId};
 
 use super::events::ShootingDaySource;
 
+/// Create a shooting day within an episode.
+///
+/// `series_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `series_id`); it is resolved at the API edge from the
+/// episode projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct CreateShootingDay {
     pub id: ShootingDayId,
     pub episode_id: EpisodeId,
+    pub series_id: Option<SeriesId>,
     pub label: Option<String>,
     pub order_key: LexicalSortKey,
     pub date: Option<NaiveDate>,
     pub source: ShootingDaySource,
 }
 
+/// Rename a shooting day.
+///
+/// `series_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `series_id`); it is resolved at the API edge from the
+/// shooting-day projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct RenameShootingDay {
     pub id: ShootingDayId,
     /// New free-form label. `None` clears the label.
     pub label: Option<String>,
+    pub series_id: Option<SeriesId>,
     pub version: AggregateVersion,
 }
 
+/// Reschedule a shooting day.
+///
+/// `series_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `series_id`); it is resolved at the API edge from the
+/// shooting-day projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct RescheduleShootingDay {
     pub id: ShootingDayId,
     /// New calendar date. `None` unschedules the day (planning only).
     pub date: Option<NaiveDate>,
+    pub series_id: Option<SeriesId>,
     pub version: AggregateVersion,
 }
 
+/// Reorder a shooting day.
+///
+/// `series_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `series_id`); it is resolved at the API edge from the
+/// shooting-day projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct ReorderShootingDay {
     pub id: ShootingDayId,
     /// New canonical ordering key. Computed by the caller (e.g. midpoint of
     /// two sibling keys); the aggregate validates its format only.
     pub order_key: LexicalSortKey,
+    pub series_id: Option<SeriesId>,
     pub version: AggregateVersion,
 }
 
+/// Archive a shooting day.
+///
+/// `series_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `series_id`); it is resolved at the API edge from the
+/// shooting-day projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct ArchiveShootingDay {
     pub id: ShootingDayId,
+    pub series_id: Option<SeriesId>,
     pub version: AggregateVersion,
 }
 
@@ -81,9 +111,14 @@ impl kameo_es::CommandName for ArchiveShootingDay {
 ///
 /// Idempotent: re-dispatching on an already-wrapped day emits no event.
 /// Wrapping does not prevent archiving.
+///
+/// `series_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `series_id`); it is resolved at the API edge from the
+/// shooting-day projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct WrapShootingDay {
     pub id: ShootingDayId,
+    pub series_id: Option<SeriesId>,
     pub version: AggregateVersion,
 }
 
