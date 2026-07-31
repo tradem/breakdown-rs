@@ -127,16 +127,7 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
     // -----------------------------------------------------------------------
     // 2. Adapters
     // -----------------------------------------------------------------------
-    let photo_commands = PhotoCommandsImpl::new(
-        cmd_service.clone(),
-        PhotoRepositoryImpl::new(pool.clone()),
-        infra::queries::CostumeRepositoryImpl::new(pool.clone()),
-        infra::queries::CharacterRepositoryImpl::new(pool.clone()),
-        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
-        infra::queries::SceneShootRepositoryImpl::new(pool.clone()),
-        infra::queries::SceneRepositoryImpl::new(pool.clone()),
-        infra::queries::EpisodeRepositoryImpl::new(pool.clone()),
-    );
+    let photo_commands = PhotoCommandsImpl::new(cmd_service.clone());
     let costume_commands = CostumeCommandsImpl::new(cmd_service.clone());
     let photo_repo = PhotoRepositoryImpl::new(pool.clone());
     let _costume_repo = CostumeRepositoryImpl::new(pool.clone());
@@ -224,6 +215,7 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
                 binding: breakdown_core::photo::binding::PhotoBinding::Costume {
                     costume_id: Uuid::now_v7(),
                 },
+                series_id: Some(breakdown_core::shared::SeriesId::new()),
             },
         )
         .await?;

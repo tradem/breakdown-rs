@@ -296,16 +296,7 @@ async fn main() -> Result<()> {
     let audit_repo = AuditRepositoryImpl::new(pool.clone());
 
     // Create command adapters with repository dependencies
-    let photo_commands = PhotoCommandsImpl::new(
-        cmd_service.clone(),
-        photo_repo.clone(),
-        costume_repo.clone(),
-        character_repo.clone(),
-        season_repo.clone(),
-        scene_shoot_repo.clone(),
-        scene_repo.clone(),
-        episode_repo.clone(),
-    );
+    let photo_commands = PhotoCommandsImpl::new(cmd_service.clone());
     let scene_shoot_commands = SceneShootCommandsImpl::new(cmd_service.clone());
     let scene_shoot_report_repo = SceneShootReportRepositoryImpl::new(pool.clone());
 

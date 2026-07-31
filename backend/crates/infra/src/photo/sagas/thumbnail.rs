@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: qwen3.6-35b (neuralwatt)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
 
@@ -217,6 +218,7 @@ impl PhotoThumbnailSaga {
             id,
             new_size: photo_bytes.size_bytes,
             rotated,
+            series_id,
             version: AggregateVersion::INITIAL,
         };
         let result = PhotoAggregate::execute(&self.cmd_service, norm_id, norm_cmd)
@@ -235,6 +237,7 @@ impl PhotoThumbnailSaga {
             id,
             variant: PhotoVariant::Thumb,
             size_bytes: 0,
+            series_id,
             version: AggregateVersion::INITIAL,
         };
         let result = PhotoAggregate::execute(&self.cmd_service, thumb_id, thumb_cmd)
@@ -253,6 +256,7 @@ impl PhotoThumbnailSaga {
             id,
             variant: PhotoVariant::Medium,
             size_bytes: 0,
+            series_id,
             version: AggregateVersion::INITIAL,
         };
         let result = PhotoAggregate::execute(&self.cmd_service, med_id, med_cmd)

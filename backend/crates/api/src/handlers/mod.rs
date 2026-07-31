@@ -2206,6 +2206,7 @@ pub async fn upload_costume_photo<P: Ports>(
         .map_err(map_err)?;
 
     // Dispatch UploadPhoto command.
+    let series_id = series_id_for_costume(&state, costume_id).await?;
     state
         .ports
         .photo_commands()
@@ -2216,6 +2217,7 @@ pub async fn upload_costume_photo<P: Ports>(
                 content_type: content_type.clone(),
                 size_bytes,
                 binding: breakdown_core::photo::PhotoBinding::Costume { costume_id },
+                series_id,
             },
         )
         .await

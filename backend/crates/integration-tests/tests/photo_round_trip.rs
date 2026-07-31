@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.2 (neuralwatt)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -102,16 +103,7 @@ async fn photo_upload_then_delete_round_trip() -> Result<()> {
     let character_id = seed_character(&pg_pool, season_id.0).await?;
     let costume_id = seed_costume(&pg_pool, character_id).await?;
 
-    let photo_commands = infra::event_store::PhotoCommandsImpl::new(
-        cmd_service.clone(),
-        photo_repo.clone(),
-        costume_repo.clone(),
-        character_repo.clone(),
-        season_repo.clone(),
-        scene_shoot_repo.clone(),
-        scene_repo.clone(),
-        episode_repo.clone(),
-    );
+    let photo_commands = infra::event_store::PhotoCommandsImpl::new(cmd_service.clone());
 
     // Spawn the photo projector.
     let redis_client = Arc::clone(&sierra_client);
@@ -170,6 +162,7 @@ async fn photo_upload_then_delete_round_trip() -> Result<()> {
                 content_type: content_type.clone(),
                 size_bytes: image_bytes.len() as u64,
                 binding: breakdown_core::photo::binding::PhotoBinding::Costume { costume_id },
+                series_id: Some(breakdown_core::shared::SeriesId::new()),
             },
         )
         .await?;
@@ -192,6 +185,7 @@ async fn photo_upload_then_delete_round_trip() -> Result<()> {
             test_user(),
             breakdown_core::photo::commands::DeletePhoto {
                 id: photo_id,
+                series_id: None,
                 version,
             },
         )
