@@ -2,6 +2,11 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+#![cfg_attr(
+    test,
+    allow(clippy::print_stdout, clippy::print_stderr, clippy::dbg_macro)
+)]
 pub mod auth;
 pub mod handlers;
 pub mod routes;

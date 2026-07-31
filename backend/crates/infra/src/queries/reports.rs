@@ -129,8 +129,12 @@ impl SceneShootReportRepository for SceneShootReportRepositoryImpl {
         // Collect scene_ids for reshoot candidate check.
         let scene_ids: Vec<Uuid> = rows
             .iter()
-            .map(|r| r.try_get::<Uuid, _>("scene_id").unwrap())
-            .collect();
+            .map(|r: &sqlx::postgres::PgRow| {
+                r.try_get::<Uuid, _>("scene_id")
+                    .map_err(|e| anyhow::anyhow!("Failed to read scene_id: {e}"))
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| DomainError::Conflict(e.to_string()))?;
 
         // For each scene, check if it has a Shot record on a *different* day.
         let reshot_scenes: Vec<Uuid> = if !scene_ids.is_empty() {

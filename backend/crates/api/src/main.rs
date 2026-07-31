@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: glm-5.2 (neuralwatt)
 
 //! # Breakdown RS – API-Server
 //!
@@ -64,18 +65,30 @@ fn init_otel_tracer() -> Option<opentelemetry_sdk::trace::SdkTracer> {
 
     // Build the exporter based on the configured protocol.
     let exporter = match protocol.as_str() {
-        "http/protobuf" => opentelemetry_otlp::SpanExporter::builder()
+        "http/protobuf" => match opentelemetry_otlp::SpanExporter::builder()
             .with_http()
             .with_endpoint(&endpoint)
             .build()
-            .expect("failed to build OTLP HTTP exporter"),
+        {
+            Ok(e) => e,
+            Err(e) => {
+                warn!(error = %e, "failed to build OTLP HTTP exporter; tracing disabled");
+                return None;
+            }
+        },
         _ => {
             // Default to gRPC (tonic) when protocol is unset or "grpc".
-            opentelemetry_otlp::SpanExporter::builder()
+            match opentelemetry_otlp::SpanExporter::builder()
                 .with_tonic()
                 .with_endpoint(&endpoint)
                 .build()
-                .expect("failed to build OTLP gRPC exporter")
+            {
+                Ok(e) => e,
+                Err(e) => {
+                    warn!(error = %e, "failed to build OTLP gRPC exporter; tracing disabled");
+                    return None;
+                }
+            }
         }
     };
 
@@ -185,35 +198,75 @@ async fn main() -> Result<()> {
     let cmd_service = CommandService::new(sierra_conn);
 
     // Start one PostgresProcessor per aggregate, each with its own checkpoint stream.
-    let _season_projector =
-        infra::projectors::spawn_season_projector(pool.clone(), Arc::clone(&redis_client)).await?;
-    let _block_projector =
-        infra::projectors::spawn_block_projector(pool.clone(), Arc::clone(&redis_client)).await?;
-    let _episode_projector =
-        infra::projectors::spawn_episode_projector(pool.clone(), Arc::clone(&redis_client)).await?;
-    let _scene_projector =
-        infra::projectors::spawn_scene_projector(pool.clone(), Arc::clone(&redis_client)).await?;
-    let _character_projector =
-        infra::projectors::spawn_character_projector(pool.clone(), Arc::clone(&redis_client))
-            .await?;
-    let _costume_projector =
-        infra::projectors::spawn_costume_projector(pool.clone(), Arc::clone(&redis_client)).await?;
-    let _membership_projector =
-        infra::projectors::spawn_membership_projector(pool.clone(), Arc::clone(&redis_client))
-            .await?;
-    let _audit_projector =
-        infra::projectors::spawn_audit_projector(pool.clone(), Arc::clone(&redis_client)).await?;
-    let _shooting_day_projector =
-        infra::projectors::spawn_shooting_day_projector(pool.clone(), Arc::clone(&redis_client))
-            .await?;
+    let _season_projector = infra::projectors::spawn_season_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::default(),
+    )
+    .await?;
+    let _block_projector = infra::projectors::spawn_block_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::default(),
+    )
+    .await?;
+    let _episode_projector = infra::projectors::spawn_episode_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::default(),
+    )
+    .await?;
+    let _scene_projector = infra::projectors::spawn_scene_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::default(),
+    )
+    .await?;
+    let _character_projector = infra::projectors::spawn_character_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::default(),
+    )
+    .await?;
+    let _costume_projector = infra::projectors::spawn_costume_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::default(),
+    )
+    .await?;
+    let _membership_projector = infra::projectors::spawn_membership_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::default(),
+    )
+    .await?;
+    // Spawn all 11 category audit projectors and keep their supervisor handles
+    // alive for the process lifetime. The handles' Drop aborts the projectors,
+    // so they MUST be held here (not dropped at end of function).
+    let _audit_handles = infra::projectors::spawn_all_audit_projectors(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::default(),
+    )
+    .await?;
+    let _shooting_day_projector = infra::projectors::spawn_shooting_day_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::default(),
+    )
+    .await?;
     let _costume_category_projector = infra::projectors::spawn_costume_category_projector(
         pool.clone(),
         Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::default(),
     )
     .await?;
-    let _scene_shoot_projector =
-        infra::projectors::spawn_scene_shoot_projector(pool.clone(), Arc::clone(&redis_client))
-            .await?;
+    let _scene_shoot_projector = infra::projectors::spawn_scene_shoot_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::default(),
+    )
+    .await?;
     // Event-reactor saga: seeds default costume categories on SeasonCreated.
     infra::sagas::spawn_season_seeding_saga(
         pool.clone(),
@@ -227,22 +280,63 @@ async fn main() -> Result<()> {
     let photo_storage = OpenDalPhotoStorage::from_env().map_err(|e| {
         anyhow::anyhow!("Failed to initialise OpenDalPhotoStorage: {e}. Set S3_ENDPOINT, S3_ACCESS_KEY, S3_SECRET_KEY")
     })?;
-    let photo_commands = PhotoCommandsImpl::new(cmd_service.clone());
+
+    // Create repositories first (commands depend on them for series_id resolution)
     let photo_repo = PhotoRepositoryImpl::new(pool.clone());
-    let scene_shoot_commands = SceneShootCommandsImpl::new(cmd_service.clone());
+    let costume_repo = CostumeRepositoryImpl::new(pool.clone());
+    let character_repo = CharacterRepositoryImpl::new(pool.clone());
+    let season_repo = SeasonRepositoryImpl::new(pool.clone());
     let scene_shoot_repo = SceneShootRepositoryImpl::new(pool.clone());
+    let scene_repo = SceneRepositoryImpl::new(pool.clone());
+    let episode_repo = EpisodeRepositoryImpl::new(pool.clone());
+    let shooting_day_repo = ShootingDayRepositoryImpl::new(pool.clone());
+    let costume_category_repo = CostumeCategoryRepositoryImpl::new(pool.clone());
+    let block_repo = BlockRepositoryImpl::new(pool.clone());
+    let membership_repo_impl = MembershipRepositoryImpl::new(pool.clone());
+    let audit_repo = AuditRepositoryImpl::new(pool.clone());
+
+    // Create command adapters with repository dependencies
+    let photo_commands = PhotoCommandsImpl::new(
+        cmd_service.clone(),
+        photo_repo.clone(),
+        costume_repo.clone(),
+        character_repo.clone(),
+        season_repo.clone(),
+        scene_shoot_repo.clone(),
+        scene_repo.clone(),
+        episode_repo.clone(),
+    );
+    let scene_shoot_commands = SceneShootCommandsImpl::new(
+        cmd_service.clone(),
+        scene_shoot_repo.clone(),
+        scene_repo.clone(),
+        episode_repo.clone(),
+    );
     let scene_shoot_report_repo = SceneShootReportRepositoryImpl::new(pool.clone());
 
     // --- Spawn photo sagas (thumbnail, deletion, bytes-cleanup) ---
     infra::photo::sagas::spawn_photo_thumbnail_saga(
+        cmd_service.clone(),
         photo_storage.clone(),
-        photo_commands.clone(),
+        photo_repo.clone(),
+        costume_repo.clone(),
+        character_repo.clone(),
+        season_repo.clone(),
+        scene_shoot_repo.clone(),
+        scene_repo.clone(),
+        episode_repo.clone(),
         Arc::clone(&redis_client),
     )
     .await?;
     infra::photo::sagas::spawn_photo_deletion_saga(
+        cmd_service.clone(),
         photo_repo.clone(),
-        photo_commands.clone(),
+        costume_repo.clone(),
+        character_repo.clone(),
+        season_repo.clone(),
+        scene_shoot_repo.clone(),
+        scene_repo.clone(),
+        episode_repo.clone(),
         Arc::clone(&redis_client),
     )
     .await?;
@@ -252,8 +346,14 @@ async fn main() -> Result<()> {
     )
     .await?;
     infra::photo::sagas::spawn_continuity_deletion_saga(
+        cmd_service.clone(),
         photo_repo.clone(),
-        photo_commands.clone(),
+        costume_repo.clone(),
+        character_repo.clone(),
+        season_repo.clone(),
+        scene_shoot_repo.clone(),
+        scene_repo.clone(),
+        episode_repo.clone(),
         Arc::clone(&redis_client),
     )
     .await?;
@@ -320,25 +420,47 @@ async fn main() -> Result<()> {
     }
 
     let ports = ProductionPorts::new(
-        SceneCommandsImpl::new(cmd_service.clone()),
-        SceneRepositoryImpl::new(pool.clone()),
-        ShootingDayCommandsImpl::new(cmd_service.clone()),
-        ShootingDayRepositoryImpl::new(pool.clone()),
-        CharacterCommandsImpl::new(cmd_service.clone()),
-        CharacterRepositoryImpl::new(pool.clone()),
-        CostumeCommandsImpl::new(cmd_service.clone()),
-        CostumeRepositoryImpl::new(pool.clone()),
-        CostumeCategoryCommandsImpl::new(cmd_service.clone()),
-        CostumeCategoryRepositoryImpl::new(pool.clone()),
-        SeasonCommandsImpl::new(cmd_service.clone()),
-        SeasonRepositoryImpl::new(pool.clone()),
-        BlockCommandsImpl::new(cmd_service.clone()),
-        BlockRepositoryImpl::new(pool.clone()),
-        EpisodeCommandsImpl::new(cmd_service.clone()),
-        EpisodeRepositoryImpl::new(pool.clone()),
+        SceneCommandsImpl::new(
+            cmd_service.clone(),
+            scene_repo.clone(),
+            episode_repo.clone(),
+            shooting_day_repo.clone(),
+        ),
+        scene_repo,
+        ShootingDayCommandsImpl::new(
+            cmd_service.clone(),
+            shooting_day_repo.clone(),
+            episode_repo.clone(),
+        ),
+        shooting_day_repo,
+        CharacterCommandsImpl::new(
+            cmd_service.clone(),
+            character_repo.clone(),
+            season_repo.clone(),
+        ),
+        character_repo.clone(),
+        CostumeCommandsImpl::new(
+            cmd_service.clone(),
+            costume_repo.clone(),
+            character_repo.clone(),
+            season_repo.clone(),
+        ),
+        costume_repo,
+        CostumeCategoryCommandsImpl::new(
+            cmd_service.clone(),
+            costume_category_repo.clone(),
+            season_repo.clone(),
+        ),
+        costume_category_repo,
+        SeasonCommandsImpl::new(cmd_service.clone(), season_repo.clone()),
+        season_repo,
+        BlockCommandsImpl::new(cmd_service.clone(), block_repo.clone()),
+        block_repo.clone(),
+        EpisodeCommandsImpl::new(cmd_service.clone(), episode_repo.clone()),
+        episode_repo,
         MembershipCommandsImpl::new(cmd_service.clone()),
-        MembershipRepositoryImpl::new(pool.clone()),
-        AuditRepositoryImpl::new(pool.clone()),
+        membership_repo_impl.clone(),
+        audit_repo.clone(),
         photo_storage,
         photo_commands,
         photo_repo,

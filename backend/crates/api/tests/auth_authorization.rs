@@ -1,6 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::dbg_macro
+)]
+#![allow(unsafe_code)] // test-only JWT/socket stubs
 use std::sync::Arc;
 
 use api::auth::authorization::{AuthorizationState, Requirement, authorize_middleware};

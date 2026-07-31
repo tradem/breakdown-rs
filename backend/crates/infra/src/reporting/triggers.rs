@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: qwen3.6-35b (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: grok-4.5 (opencode-go)
 
@@ -23,7 +24,7 @@ use breakdown_core::reporting::{
     ArchivalTrigger, EnqueueArchivalRequest, ReportArchivalQueue, ReportKind, ReportLocale,
     SnapshotIdentity, TEMPLATE_VERSION,
 };
-use breakdown_core::shared::ShootingDayId;
+use breakdown_core::shared::{EventMetadata, ShootingDayId};
 use breakdown_core::shooting_day::aggregate::ShootingDayAggregate;
 use breakdown_core::shooting_day::events::ShootingDayEvent;
 use kameo_es::event_handler::{
@@ -197,7 +198,7 @@ impl EntityEventHandler<ShootingDayAggregate, ()> for ReportArchivalOnWrapSaga {
         &mut self,
         _ctx: &mut (),
         _id: ShootingDayId,
-        event: Event<ShootingDayEvent, ()>,
+        event: Event<ShootingDayEvent, EventMetadata>,
     ) -> Result<(), Self::Error> {
         if let ShootingDayEvent::ShootingDayWrapped { id, .. } = event.data {
             let created = enqueue_for_day(&self.queue, id, ArchivalTrigger::Wrapped).await?;

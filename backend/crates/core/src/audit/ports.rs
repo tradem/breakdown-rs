@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0
+// Co-authored-by: qwen3.6-35b (neuralwatt)
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 
 //! Read port for the audit / journal projection.
 
 use crate::audit::views::AuditEntry;
 use crate::error::DomainError;
-use crate::shared::{BlockId, UserId};
+use crate::shared::{BlockId, SeriesId, UserId};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
@@ -48,6 +49,14 @@ pub trait AuditRepository: Send + Sync {
         &self,
         entity_type: &str,
         entity_id: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<AuditEntry>, DomainError>;
+
+    /// Journal entries scoped to a `series_id` (tenant), newest first.
+    async fn list_by_series(
+        &self,
+        series_id: SeriesId,
         limit: i64,
         offset: i64,
     ) -> Result<Vec<AuditEntry>, DomainError>;

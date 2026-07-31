@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
+// Co-authored-by: mimo-v2.5 (opencode-go)
 
 //! Costume aggregate.
 
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use uuid::Uuid;
 
-use crate::shared::AggregateVersion;
+use crate::shared::{AggregateVersion, EventMetadata};
 
 use super::commands::*;
 use super::error::CostumeError;
@@ -26,7 +27,7 @@ pub struct CostumeAggregate {
 impl Entity for CostumeAggregate {
     type ID = Uuid;
     type Event = CostumeEvent;
-    type Metadata = ();
+    type Metadata = EventMetadata;
 
     fn category() -> &'static str {
         "costume"
@@ -36,7 +37,7 @@ impl Entity for CostumeAggregate {
 // ADR-002 (Event Sourcing / CQRS): Apply replays past events to rebuild
 // aggregate state. Every command handler emits events that are applied here.
 impl Apply for CostumeAggregate {
-    fn apply(&mut self, event: Self::Event, _metadata: Metadata<()>) {
+    fn apply(&mut self, event: Self::Event, _metadata: Metadata<EventMetadata>) {
         match event {
             CostumeEvent::CostumeCreated {
                 id,

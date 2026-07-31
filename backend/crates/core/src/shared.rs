@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
+// Co-authored-by: mimo-v2.5 (opencode-go)
 
 //! Globally shared Value Objects and Domain Primitives.
 
@@ -8,6 +9,54 @@ use std::fmt;
 use thiserror::Error;
 use utoipa::ToSchema;
 use uuid::Uuid;
+
+/// Cross-cutting metadata attached to every event-sourced command.
+///
+/// `EventMetadata` captures *who* triggered each event (`actor`), *how*
+/// (`provenance`), and *where* (`series_id` for tenant scoping). Every
+/// aggregate's `Entity::Metadata` is set to this shared type so the audit
+/// projector can extract actor/provenance/series uniformly.
+///
+/// Pre-existing events of formerly `()`-aggregates carry `provenance = System`,
+/// `actor = None`, `series_id = None` (honest state, no fabrication).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventMetadata {
+    /// The authenticated OIDC `sub` claim, if dispatched by a human actor.
+    pub actor: Option<UserId>,
+    /// Discriminates human-initiated, saga-initiated, and system-initiated commands.
+    pub provenance: Provenance,
+    /// Denormalized tenant key — populated by command adapters at dispatch time.
+    pub series_id: Option<SeriesId>,
+}
+
+/// Discriminates who/what initiated a command.
+///
+/// - `Human` — dispatched by an authenticated user.
+/// - `Saga` — dispatched by a named saga (stable string identifier).
+/// - `System` — dispatched by an internal system path (neither human nor named saga).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Provenance {
+    #[default]
+    Human,
+    Saga(String),
+    System,
+}
+
+impl Provenance {
+    /// Create a `Saga` provenance with a static name.
+    pub fn saga(name: &'static str) -> Self {
+        Provenance::Saga(name.to_string())
+    }
+
+    /// Canonical string representation for the `projection_audit.provenance` column.
+    pub fn as_str(&self) -> &str {
+        match self {
+            Provenance::Human => "Human",
+            Provenance::Saga(name) => name,
+            Provenance::System => "System",
+        }
+    }
+}
 
 /// Opaque identifier for a user, wrapping the OIDC `sub` claim.
 ///
@@ -495,6 +544,7 @@ impl LexicalSortKey {
     ///
     /// Intended for `const`-friendly seeds and tests where the literal is known
     /// to be valid.
+    #[allow(clippy::expect_used)] // const-time seed construction from a known-valid literal
     pub fn from_static(s: &'static str) -> Self {
         Self::new(s).expect("static LexicalSortKey must be valid")
     }
@@ -511,6 +561,7 @@ impl LexicalSortKey {
     /// Returns [`LexicalSortKeyError::NoRoom`] when both bounds are already at
     /// maximum length with no gap (the degenerate case a compaction pass must
     /// resolve).
+    #[allow(clippy::expect_used)] // bytes are from the controlled LEXICAL alphabet; char is guaranteed valid
     pub fn midpoint(a: &Self, b: &Self) -> Result<Self, LexicalSortKeyError> {
         if a.0.is_empty() || b.0.is_empty() {
             return Err(LexicalSortKeyError::Empty);

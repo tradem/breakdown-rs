@@ -6,7 +6,7 @@
 use uuid::Uuid;
 
 use crate::error::DomainError;
-use crate::shared::{AggregateVersion, SeriesId};
+use crate::shared::{AggregateVersion, SeriesId, UserId};
 
 use super::commands::{CreateSeason, RenameSeason};
 use super::views::SeasonView;
@@ -15,9 +15,17 @@ use super::views::SeasonView;
 #[allow(async_fn_in_trait)]
 pub trait SeasonCommands: Send + Sync {
     /// Create a new season aggregate.
-    async fn create(&self, cmd: CreateSeason) -> Result<(Uuid, AggregateVersion), DomainError>;
+    async fn create(
+        &self,
+        actor: UserId,
+        cmd: CreateSeason,
+    ) -> Result<(Uuid, AggregateVersion), DomainError>;
     /// Rename a season (optional title).
-    async fn rename(&self, cmd: RenameSeason) -> Result<AggregateVersion, DomainError>;
+    async fn rename(
+        &self,
+        actor: UserId,
+        cmd: RenameSeason,
+    ) -> Result<AggregateVersion, DomainError>;
 }
 
 /// Async read port returning flat `SeasonView` projections.

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: mimo-v2.5 (opencode-go)
 
 //! Shared test helpers for unit and integration tests.
 //!
@@ -12,6 +13,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 use std::time::Instant;
 
+use breakdown_core::shared::EventMetadata;
 use kameo_es::{Apply, Context, Entity, Metadata, StreamId};
 
 /// Process-wide empty causation-tracking map shared by all test contexts.
@@ -26,9 +28,9 @@ type CausationTracking = HashMap<StreamId, (u64, HashSet<Cow<'static, str>>)>;
 /// need deterministic timestamps should assert on relative values.
 pub fn make_ctx<E>() -> Context<'static, E>
 where
-    E: Entity<Metadata = ()>,
+    E: Entity<Metadata = EventMetadata>,
 {
-    static META: LazyLock<Metadata<()>> = LazyLock::new(Metadata::default);
+    static META: LazyLock<Metadata<EventMetadata>> = LazyLock::new(Metadata::default);
     static TRACKING: LazyLock<CausationTracking> = LazyLock::new(HashMap::new);
     Context {
         metadata: &META,
@@ -46,7 +48,7 @@ where
 /// }` noise in every test.
 pub fn replay_events<E>(agg: &mut E, events: impl IntoIterator<Item = E::Event>)
 where
-    E: Entity<Metadata = ()> + Apply,
+    E: Entity<Metadata = EventMetadata> + Apply,
 {
     for event in events {
         agg.apply(event, Metadata::default());

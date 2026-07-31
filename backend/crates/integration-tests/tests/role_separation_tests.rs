@@ -17,6 +17,14 @@
 //
 // Each test starts a fresh Postgres container.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::dbg_macro
+)]
 mod fixtures;
 
 use anyhow::{Context, Result};

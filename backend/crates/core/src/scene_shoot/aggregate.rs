@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: mimo-v2.5 (opencode-go)
 
 //! The `SceneShoot` event-sourced aggregate.
 
@@ -9,7 +9,8 @@ use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use uuid::Uuid;
 
 use crate::shared::{
-    AggregateVersion, LexicalSortKey, PhotoId, SceneShootId, SceneShootStatus, ShootingDayId,
+    AggregateVersion, EventMetadata, LexicalSortKey, PhotoId, SceneShootId, SceneShootStatus,
+    ShootingDayId,
 };
 
 use super::commands::{
@@ -62,7 +63,7 @@ impl Default for SceneShootAggregate {
 impl Entity for SceneShootAggregate {
     type ID = SceneShootId;
     type Event = SceneShootEvent;
-    type Metadata = ();
+    type Metadata = EventMetadata;
 
     fn category() -> &'static str {
         "scene_shoot"
@@ -124,7 +125,7 @@ impl SceneShootAggregate {
 }
 
 impl Apply for SceneShootAggregate {
-    fn apply(&mut self, event: Self::Event, _metadata: Metadata<()>) {
+    fn apply(&mut self, event: Self::Event, _metadata: Metadata<EventMetadata>) {
         match event {
             SceneShootEvent::SceneShootPlanned {
                 id,
