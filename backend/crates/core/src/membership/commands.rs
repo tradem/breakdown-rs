@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.2 (neuralwatt)
 
 //! Membership domain commands.
 
-use crate::shared::{BlockId, UserId};
+use crate::shared::{BlockId, SeriesId, UserId};
 use kameo_es::CommandName;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -11,9 +12,14 @@ use utoipa::ToSchema;
 use crate::membership::Role;
 
 /// Invite a `user_id` to the block with a proposed `role` (pending until accepted).
+///
+/// `series_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `series_id`); it is resolved at the API edge from the
+/// block projection, never queried again by the command adapter.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct InviteMember {
     pub block_id: BlockId,
+    pub series_id: SeriesId,
     pub user_id: UserId,
     pub role: Role,
 }
@@ -22,6 +28,7 @@ pub struct InviteMember {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AcceptInvitation {
     pub block_id: BlockId,
+    pub series_id: SeriesId,
     pub user_id: UserId,
 }
 
@@ -29,6 +36,7 @@ pub struct AcceptInvitation {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct GrantRole {
     pub block_id: BlockId,
+    pub series_id: SeriesId,
     pub user_id: UserId,
     pub role: Role,
 }
@@ -37,15 +45,18 @@ pub struct GrantRole {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RemoveMember {
     pub block_id: BlockId,
+    pub series_id: SeriesId,
     pub user_id: UserId,
 }
 
 /// Self-service leave: the authenticated actor removes themselves. The actor
 /// `UserId` is supplied via command `Metadata` (Decision 6), not in this
-/// payload, so the command carries only the `block_id` it is scoped to.
+/// payload, so the command carries only the `block_id` it is scoped to (plus
+/// `series_id` for the audit trail).
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct LeaveBlock {
     pub block_id: BlockId,
+    pub series_id: SeriesId,
 }
 
 /// Bootstrap the block's first (owner) member.
@@ -62,6 +73,7 @@ pub struct LeaveBlock {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct BootstrapOwner {
     pub block_id: BlockId,
+    pub series_id: SeriesId,
     pub user_id: UserId,
     pub role: Role,
 }

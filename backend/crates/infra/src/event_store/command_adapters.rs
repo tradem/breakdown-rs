@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: glm-5.2 (neuralwatt)
 
 //! `kameo_es` write adapters implementing the `core` command ports.
 //!
@@ -997,28 +998,24 @@ impl EpisodeCommands for EpisodeCommandsImpl {
 #[derive(Clone, Debug)]
 pub struct MembershipCommandsImpl {
     cmd_service: CommandService,
-    block_repo: BlockRepositoryImpl,
 }
 
 impl MembershipCommandsImpl {
-    pub fn new(cmd_service: CommandService, block_repo: BlockRepositoryImpl) -> Self {
-        Self {
-            cmd_service,
-            block_repo,
-        }
+    pub fn new(cmd_service: CommandService) -> Self {
+        Self { cmd_service }
     }
 }
 
 #[async_trait]
 impl MembershipCommands for MembershipCommandsImpl {
     async fn invite(&self, actor: UserId, cmd: InviteMember) -> Result<(), DomainError> {
-        let series_id = self.block_repo.find_by_id(cmd.block_id.0).await?.series_id;
+        let series_id = Some(cmd.series_id);
         let result = BlockMembership::execute(&self.cmd_service, cmd.block_id.0, cmd)
             .expected_version(ExpectedVersion::Any)
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id: Some(series_id),
+                series_id,
             })
             .await;
         let _ = map_executed_result(Uuid::nil(), result)?;
@@ -1030,13 +1027,13 @@ impl MembershipCommands for MembershipCommandsImpl {
         actor: UserId,
         cmd: AcceptInvitation,
     ) -> Result<(), DomainError> {
-        let series_id = self.block_repo.find_by_id(cmd.block_id.0).await?.series_id;
+        let series_id = Some(cmd.series_id);
         let result = BlockMembership::execute(&self.cmd_service, cmd.block_id.0, cmd)
             .expected_version(ExpectedVersion::Any)
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id: Some(series_id),
+                series_id,
             })
             .await;
         let _ = map_executed_result(Uuid::nil(), result)?;
@@ -1044,13 +1041,13 @@ impl MembershipCommands for MembershipCommandsImpl {
     }
 
     async fn grant_role(&self, actor: UserId, cmd: GrantRole) -> Result<(), DomainError> {
-        let series_id = self.block_repo.find_by_id(cmd.block_id.0).await?.series_id;
+        let series_id = Some(cmd.series_id);
         let result = BlockMembership::execute(&self.cmd_service, cmd.block_id.0, cmd)
             .expected_version(ExpectedVersion::Any)
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id: Some(series_id),
+                series_id,
             })
             .await;
         let _ = map_executed_result(Uuid::nil(), result)?;
@@ -1058,13 +1055,13 @@ impl MembershipCommands for MembershipCommandsImpl {
     }
 
     async fn remove_member(&self, actor: UserId, cmd: RemoveMember) -> Result<(), DomainError> {
-        let series_id = self.block_repo.find_by_id(cmd.block_id.0).await?.series_id;
+        let series_id = Some(cmd.series_id);
         let result = BlockMembership::execute(&self.cmd_service, cmd.block_id.0, cmd)
             .expected_version(ExpectedVersion::Any)
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id: Some(series_id),
+                series_id,
             })
             .await;
         let _ = map_executed_result(Uuid::nil(), result)?;
@@ -1072,13 +1069,13 @@ impl MembershipCommands for MembershipCommandsImpl {
     }
 
     async fn leave_block(&self, actor: UserId, cmd: LeaveBlock) -> Result<(), DomainError> {
-        let series_id = self.block_repo.find_by_id(cmd.block_id.0).await?.series_id;
+        let series_id = Some(cmd.series_id);
         let result = BlockMembership::execute(&self.cmd_service, cmd.block_id.0, cmd)
             .expected_version(ExpectedVersion::Any)
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id: Some(series_id),
+                series_id,
             })
             .await;
         let _ = map_executed_result(Uuid::nil(), result)?;
@@ -1086,13 +1083,13 @@ impl MembershipCommands for MembershipCommandsImpl {
     }
 
     async fn bootstrap_owner(&self, actor: UserId, cmd: BootstrapOwner) -> Result<(), DomainError> {
-        let series_id = self.block_repo.find_by_id(cmd.block_id.0).await?.series_id;
+        let series_id = Some(cmd.series_id);
         let result = BlockMembership::execute(&self.cmd_service, cmd.block_id.0, cmd)
             .expected_version(ExpectedVersion::Any)
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id: Some(series_id),
+                series_id,
             })
             .await;
         let _ = map_executed_result(Uuid::nil(), result)?;

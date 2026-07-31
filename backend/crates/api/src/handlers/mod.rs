@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: glm-5.2 (neuralwatt)
 
 //! Axum-Handler (Request → Command / Query)
 
@@ -465,6 +466,7 @@ pub async fn create_block<P: Ports>(
     // bootstrap command only succeeds on an empty block.
     let bootstrap = BootstrapOwner {
         block_id: BlockId(id),
+        series_id: req.series_id,
         user_id: current_user.sub.clone(),
         role: Role::CostumeAssistant,
     };
@@ -1559,8 +1561,16 @@ pub async fn invite_member<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<InviteMemberRequest>,
 ) -> ApiResult<()> {
+    let series_id = state
+        .ports
+        .block_repo()
+        .find_by_id(id)
+        .await
+        .map_err(map_err)?
+        .series_id;
     let cmd = InviteMember {
         block_id: BlockId::from_uuid(id),
+        series_id,
         user_id: UserId::from_sub(req.user_id),
         role: req.role,
     };
@@ -1595,8 +1605,16 @@ pub async fn accept_invitation<P: Ports>(
     current_user: CurrentUser,
     Path(id): Path<Uuid>,
 ) -> ApiResult<()> {
+    let series_id = state
+        .ports
+        .block_repo()
+        .find_by_id(id)
+        .await
+        .map_err(map_err)?
+        .series_id;
     let cmd = AcceptInvitation {
         block_id: BlockId::from_uuid(id),
+        series_id,
         user_id: current_user.sub.clone(),
     };
     state
@@ -1630,8 +1648,16 @@ pub async fn grant_role<P: Ports>(
     Path((id, user_id)): Path<(Uuid, String)>,
     Json(req): Json<GrantRoleRequest>,
 ) -> ApiResult<()> {
+    let series_id = state
+        .ports
+        .block_repo()
+        .find_by_id(id)
+        .await
+        .map_err(map_err)?
+        .series_id;
     let cmd = GrantRole {
         block_id: BlockId::from_uuid(id),
+        series_id,
         user_id: UserId::from_sub(user_id),
         role: req.role,
     };
@@ -1664,8 +1690,16 @@ pub async fn remove_member<P: Ports>(
     current_user: CurrentUser,
     Path((id, user_id)): Path<(Uuid, String)>,
 ) -> ApiResult<()> {
+    let series_id = state
+        .ports
+        .block_repo()
+        .find_by_id(id)
+        .await
+        .map_err(map_err)?
+        .series_id;
     let cmd = RemoveMember {
         block_id: BlockId::from_uuid(id),
+        series_id,
         user_id: UserId::from_sub(user_id),
     };
     state
@@ -1696,8 +1730,16 @@ pub async fn leave_block<P: Ports>(
     current_user: CurrentUser,
     Path(id): Path<Uuid>,
 ) -> ApiResult<()> {
+    let series_id = state
+        .ports
+        .block_repo()
+        .find_by_id(id)
+        .await
+        .map_err(map_err)?
+        .series_id;
     let cmd = LeaveBlock {
         block_id: BlockId::from_uuid(id),
+        series_id,
     };
     state
         .ports

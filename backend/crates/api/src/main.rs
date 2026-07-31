@@ -447,7 +447,7 @@ async fn main() -> Result<()> {
         block_repo.clone(),
         EpisodeCommandsImpl::new(cmd_service.clone(), episode_repo.clone()),
         episode_repo,
-        MembershipCommandsImpl::new(cmd_service.clone(), block_repo.clone()),
+        MembershipCommandsImpl::new(cmd_service.clone()),
         membership_repo_impl.clone(),
         audit_repo.clone(),
         photo_storage,

@@ -22,7 +22,7 @@ use breakdown_core::membership::{
     AcceptInvitation, BootstrapOwner, GrantRole, InviteMember, LeaveBlock, MembershipCommands,
     MembershipRepository, RemoveMember, Role,
 };
-use breakdown_core::shared::{BlockId, UserId};
+use breakdown_core::shared::{BlockId, SeriesId, UserId};
 use infra::event_store::MembershipCommandsImpl;
 use infra::projectors::spawn_membership_projector;
 use infra::queries::MembershipRepositoryImpl;
@@ -123,6 +123,10 @@ async fn await_member_absent(
 
 /// Spin up Postgres + SierraDB + the membership projector, and a SierraDB-backed
 /// `CommandService` (full command → SierraDB → projector → PG chain).
+fn test_series_id() -> SeriesId {
+    SeriesId::from_uuid(uuid::Uuid::now_v7())
+}
+
 async fn init_membership() -> Result<(
     PgPool,
     CommandService,
@@ -184,8 +188,7 @@ async fn eappend_membership(
 #[tokio::test]
 async fn command_invite_accept_round_trips_into_membership_projection() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init_membership().await?;
-    let block_repo = infra::queries::BlockRepositoryImpl::new(pool.clone());
-    let membership = MembershipCommandsImpl::new(cmd_svc, block_repo);
+    let membership = MembershipCommandsImpl::new(cmd_svc);
     let repo = MembershipRepositoryImpl::new(pool.clone());
 
     let block_id = BlockId::from_uuid(Uuid::now_v7());
@@ -198,6 +201,7 @@ async fn command_invite_accept_round_trips_into_membership_projection() -> Resul
             owner.clone(),
             BootstrapOwner {
                 block_id,
+                series_id: test_series_id(),
                 user_id: owner.clone(),
                 role: Role::CostumeAssistant,
             },
@@ -210,6 +214,7 @@ async fn command_invite_accept_round_trips_into_membership_projection() -> Resul
             owner.clone(),
             InviteMember {
                 block_id,
+                series_id: test_series_id(),
                 user_id: invitee.clone(),
                 role: Role::CostumeDesigner,
             },
@@ -222,6 +227,7 @@ async fn command_invite_accept_round_trips_into_membership_projection() -> Resul
             invitee.clone(),
             AcceptInvitation {
                 block_id,
+                series_id: test_series_id(),
                 user_id: invitee.clone(),
             },
         )
@@ -258,8 +264,7 @@ async fn command_invite_accept_round_trips_into_membership_projection() -> Resul
 #[tokio::test]
 async fn command_grant_remove_leave_round_trips_into_membership_projection() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init_membership().await?;
-    let block_repo = infra::queries::BlockRepositoryImpl::new(pool.clone());
-    let membership = MembershipCommandsImpl::new(cmd_svc, block_repo);
+    let membership = MembershipCommandsImpl::new(cmd_svc);
     let repo = MembershipRepositoryImpl::new(pool.clone());
 
     let block_id = BlockId::from_uuid(Uuid::now_v7());
@@ -271,6 +276,7 @@ async fn command_grant_remove_leave_round_trips_into_membership_projection() -> 
             owner.clone(),
             BootstrapOwner {
                 block_id,
+                series_id: test_series_id(),
                 user_id: owner.clone(),
                 role: Role::CostumeAssistant,
             },
@@ -281,6 +287,7 @@ async fn command_grant_remove_leave_round_trips_into_membership_projection() -> 
             owner.clone(),
             InviteMember {
                 block_id,
+                series_id: test_series_id(),
                 user_id: member.clone(),
                 role: Role::CostumeAssistant,
             },
@@ -291,6 +298,7 @@ async fn command_grant_remove_leave_round_trips_into_membership_projection() -> 
             member.clone(),
             AcceptInvitation {
                 block_id,
+                series_id: test_series_id(),
                 user_id: member.clone(),
             },
         )
@@ -302,6 +310,7 @@ async fn command_grant_remove_leave_round_trips_into_membership_projection() -> 
             owner.clone(),
             GrantRole {
                 block_id,
+                series_id: test_series_id(),
                 user_id: member.clone(),
                 role: Role::WardrobeSupervisor,
             },
@@ -318,6 +327,7 @@ async fn command_grant_remove_leave_round_trips_into_membership_projection() -> 
             owner.clone(),
             RemoveMember {
                 block_id,
+                series_id: test_series_id(),
                 user_id: member.clone(),
             },
         )
@@ -326,7 +336,13 @@ async fn command_grant_remove_leave_round_trips_into_membership_projection() -> 
 
     // Owner leaves via self-service.
     membership
-        .leave_block(owner.clone(), LeaveBlock { block_id })
+        .leave_block(
+            owner.clone(),
+            LeaveBlock {
+                block_id,
+                series_id: test_series_id(),
+            },
+        )
         .await?;
     await_member_absent(&repo, block_id, owner.clone()).await?;
 
