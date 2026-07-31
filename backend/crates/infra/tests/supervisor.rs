@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0
-// Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: mimo-v2.5 (opencode-go)
+// Copyright (C) 2024 Breakdown RS Contributors
 
 use infra::projectors::supervisor::{
-    BACKOFF_BASE_MS, BACKOFF_MAX_DELAY_MS, MAX_ATTEMPTS, compute_backoff, run_with_restart,
+    BACKOFF_BASE_MS, BACKOFF_MAX_DELAY_MS, BackoffConfig, MAX_ATTEMPTS, compute_backoff,
+    run_with_restart_with_config,
 };
 use std::future::Future;
 use std::pin::Pin;
@@ -33,7 +33,6 @@ fn backoff_non_decreasing_and_capped() {
 fn compute_backoff_values() {
     let max = Duration::from_millis(BACKOFF_MAX_DELAY_MS);
 
-    // Expected base values (without jitter, which is 0–25 % of base).
     let expected_base: Vec<u64> = (0..=5)
         .map(|a| {
             std::cmp::min(
@@ -47,13 +46,12 @@ fn compute_backoff_values() {
 
     for (attempt, (exp_base, delay)) in expected_base.iter().zip(delays.iter()).enumerate() {
         let delay_ms = delay.as_millis() as u64;
-        // Delay must be within ±25 % of the base (the jitter window).
         assert!(
             delay_ms >= (*exp_base * 3) / 4,
             "attempt {attempt}: delay {delay_ms}ms below 75 % of expected base {exp_base}ms"
         );
         assert!(
-            delay_ms <= (exp_base * 5).div_ceil(4), // allow full jitter
+            delay_ms <= (exp_base * 5).div_ceil(4),
             "attempt {attempt}: delay {delay_ms}ms above 125 % of expected base {exp_base}ms"
         );
     }
@@ -131,49 +129,73 @@ fn make_controlled(
     (data, count, closure)
 }
 
+/// Two failures then success must reset the consecutive-failure counter.
+/// Uses `test_profile` backoff so the epoch restarts happen in milliseconds.
 #[tokio::test]
 async fn error_triggers_restart_then_success_resets_counter() {
     let (_data, count, closure) =
         make_controlled(vec![Outcome::Fail, Outcome::Fail, Outcome::Succeed]);
 
-    // run_with_restart returns a JoinHandle; keeping it alive keeps
-    // the supervisor loop running.  After the 3rd epoch succeeds the
-    // loop continues; we abort it to end the test.
-    let handle = run_with_restart("err_test", closure).await.unwrap();
+    let handle = run_with_restart_with_config("err_test", closure, BackoffConfig::test_profile())
+        .await
+        .unwrap();
 
-    // Give enough time for 3 epochs + 2 backoff delays (~2.5s).
-    tokio::time::sleep(Duration::from_secs(4)).await;
+    // With 1 ms base / 5 ms cap backoff, three epochs complete well within 1 s.
+    tokio::time::timeout(Duration::from_secs(1), async {
+        // Wait until at least 3 epochs have run.
+        loop {
+            if count.load(Ordering::SeqCst) >= 3 {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("restart counter never reached 3");
     assert!(count.load(Ordering::SeqCst) >= 3);
 
-    // Stop the supervisor so the test ends.
     handle.abort();
     let _ = handle.await;
 }
 
+/// Feed more failures than `max_attempts`; the loop must stop on its own
+/// (budget exhausted). With `test_profile` this completes in milliseconds
+/// instead of ~3 minutes of real production backoff.
 #[tokio::test]
 async fn budget_exhaustion_stops_loop() {
     let (_data, count, closure) = make_controlled(vec![Outcome::Fail; MAX_ATTEMPTS + 5]);
 
-    // When budget exhausts the supervisor_loop exits naturally,
-    // so the JoinHandle completes on its own.
-    let handle = run_with_restart("budget_test", closure).await.unwrap();
+    let handle =
+        run_with_restart_with_config("budget_test", closure, BackoffConfig::test_profile())
+            .await
+            .unwrap();
 
-    // 10 failures × capped backoff (~30s each). Total ≈ 60-90s.
-    tokio::time::timeout(Duration::from_secs(240), handle)
+    tokio::time::timeout(Duration::from_secs(2), handle)
         .await
         .expect("budget exhaustion timed out")
         .expect("supervisor task panicked");
     assert!(count.load(Ordering::SeqCst) >= MAX_ATTEMPTS);
 }
 
+/// A panicking epoch is caught and retried, then success resets the counter.
 #[tokio::test]
 async fn panic_is_caught_and_retried() {
     let (_data, count, closure) = make_controlled(vec![Outcome::Panic, Outcome::Succeed]);
 
-    let handle = run_with_restart("panic_test", closure).await.unwrap();
+    let handle = run_with_restart_with_config("panic_test", closure, BackoffConfig::test_profile())
+        .await
+        .unwrap();
 
-    // After panic + backoff + restart, second epoch succeeds (~1.5s).
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if count.load(Ordering::SeqCst) >= 2 {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("panic retry counter never reached 2");
     assert!(count.load(Ordering::SeqCst) >= 2);
 
     handle.abort();
