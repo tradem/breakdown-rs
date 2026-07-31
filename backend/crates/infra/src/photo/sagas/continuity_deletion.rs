@@ -35,6 +35,7 @@ use kameo_es::{Entity, Event};
 use redis::Client as RedisClient;
 use sierradb_client::ExpectedVersion;
 use sierradb_client::SierraAsyncClientExt;
+use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
 use crate::event_store::map_version_only;
@@ -62,6 +63,7 @@ pub struct ContinuityDeletionSaga {
     scene_shoot_repo: SceneShootRepositoryImpl,
     scene_repo: SceneRepositoryImpl,
     episode_repo: EpisodeRepositoryImpl,
+    pg_pool: PgPool,
     /// In-memory continuity-photo refcounts keyed by `PhotoId`.
     refcounts: HashMap<Uuid, u64>,
 }
@@ -77,6 +79,7 @@ impl ContinuityDeletionSaga {
         scene_shoot_repo: SceneShootRepositoryImpl,
         scene_repo: SceneRepositoryImpl,
         episode_repo: EpisodeRepositoryImpl,
+        pg_pool: PgPool,
     ) -> Self {
         Self {
             cmd_service,
@@ -87,6 +90,7 @@ impl ContinuityDeletionSaga {
             scene_shoot_repo,
             scene_repo,
             episode_repo,
+            pg_pool,
             refcounts: HashMap::new(),
         }
     }
@@ -127,10 +131,33 @@ impl ContinuityDeletionSaga {
                     None => Ok(None),
                 }
             }
-            PhotoBinding::Continuity { scene_shoot_id, .. } => {
+            PhotoBinding::Continuity { scene_shoot_id: _, .. } => {
+                // The binding in projection_photo is a generic marker.
+                // The actual scene_shoot_id is in projection_continuity_photo.
+                let row = sqlx::query(
+                    r#"
+                    SELECT scene_shoot_id
+                    FROM projection_continuity_photo
+                    WHERE photo_id = $1
+                    LIMIT 1
+                    "#,
+                )
+                .bind(photo_id.0)
+                .fetch_optional(&self.pg_pool)
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+                let scene_shoot_id: Uuid = match row {
+                    Some(r) => r.try_get("scene_shoot_id").map_err(|e| anyhow::anyhow!("{e}"))?,
+                    None => {
+                        // No continuity record — shouldn't happen for a continuity-bound photo.
+                        return Ok(None);
+                    }
+                };
+
                 let ss = self
                     .scene_shoot_repo
-                    .find_by_id(scene_shoot_id)
+                    .find_by_id(SceneShootId(scene_shoot_id))
                     .await
                     .map_err(|e| anyhow::anyhow!("{e}"))?;
                 let sc = self
@@ -187,10 +214,7 @@ impl EntityEventHandler<SceneShootAggregate, ()> for ContinuityDeletionSaga {
                         }
                     }
 
-                    let photo_view = match self.repo.find_by_id(photo_id).await {
-                        Ok(view) => view,
-                        Err(_) => return Ok(()),
-                    };
+                    let photo_view = self.repo.find_by_id(photo_id).await.map_err(|e| anyhow::anyhow!("{e}"))?;
                     let series_id = self.resolve_series_id(photo_id).await?;
                     let stream_version = crate::event_store::domain_to_stream(photo_view.version)
                         .ok_or_else(|| {
@@ -264,6 +288,7 @@ pub async fn spawn_continuity_deletion_saga(
     scene_shoot_repo: SceneShootRepositoryImpl,
     scene_repo: SceneRepositoryImpl,
     episode_repo: EpisodeRepositoryImpl,
+    pg_pool: PgPool,
     redis_client: Arc<RedisClient>,
 ) -> Result<()> {
     let saga = ContinuityDeletionSaga::new(
@@ -275,6 +300,7 @@ pub async fn spawn_continuity_deletion_saga(
         scene_shoot_repo,
         scene_repo,
         episode_repo,
+        pg_pool,
     );
     let _handle = supervisor::run_with_restart("continuity_deletion_saga", move || {
         let mut saga = saga.clone();

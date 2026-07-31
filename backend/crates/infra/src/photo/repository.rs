@@ -28,7 +28,7 @@ impl PhotoRepository for PhotoRepositoryImpl {
     async fn find_by_id(&self, id: PhotoId) -> Result<PhotoView, DomainError> {
         let row = sqlx::query(
             r#"
-            SELECT photo_id, content_type, size_bytes, version, created_at, updated_at
+            SELECT photo_id, content_type, size_bytes, version, created_at, updated_at, binding
             FROM projection_photo
             WHERE photo_id = $1
             "#,
@@ -71,13 +71,16 @@ impl PhotoRepository for PhotoRepositoryImpl {
             })
             .collect::<Result<Vec<_>, DomainError>>()?;
 
+        let binding: String = row.try_get("binding").map_err(map_err)?;
+        let binding = parse_binding(&binding).map_err(|e| DomainError::Conflict(e))?;
+
         Ok(PhotoView {
             id: PhotoId::from_uuid(photo_id),
             content_type: row.try_get("content_type").map_err(map_err)?,
             size_bytes: row.try_get::<i64, _>("size_bytes").map_err(map_err)? as u64,
             variants,
             exif_stripped_at,
-            binding: PhotoBinding::default(),
+            binding,
             version: AggregateVersion(version as u64),
         })
     }
@@ -131,6 +134,18 @@ fn parse_status(s: &str) -> Result<VariantStatus, DomainError> {
         _ => Err(DomainError::ValidationError(format!(
             "Unknown variant status: {s}"
         ))),
+    }
+}
+
+fn parse_binding(val: &str) -> Result<PhotoBinding, String> {
+    // First try deserializing from JSON (new format).
+    if let Ok(b) = serde_json::from_str::<PhotoBinding>(val) {
+        return Ok(b);
+    }
+    // Fall back to legacy string format for backward compatibility.
+    match val {
+        "Costume" => Ok(PhotoBinding::Costume { costume_id: Uuid::default() }),
+        _ => Err(format!("Unknown binding: {val}")),
     }
 }
 

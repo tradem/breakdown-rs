@@ -127,6 +127,19 @@ async fn seed_parents(pool: &sqlx::PgPool, scene_id: Uuid, day_id: ShootingDayId
     .execute(pool)
     .await?;
 
+    // episode (required so photo upload resolve_series_id finds it)
+    sqlx::query(
+        r#"INSERT INTO projection_episode
+            (id,block_id,series_id,number,name,version,updated_at)
+        VALUES ($1,$2,$3,1,'Test Ep',1,now())
+        ON CONFLICT (id) DO NOTHING"#,
+    )
+    .bind(ep)
+    .bind(ep) // block_id = same id re-used as opaque value
+    .bind(ep) // series_id = same id re-used as opaque value
+    .execute(pool)
+    .await?;
+
     Ok(())
 }
 
@@ -324,6 +337,7 @@ async fn continuity_photo_delete_on_zero_refcount() -> Result<()> {
         infra::queries::SceneShootRepositoryImpl::new(pool.clone()),
         infra::queries::SceneRepositoryImpl::new(pool.clone()),
         infra::queries::EpisodeRepositoryImpl::new(pool.clone()),
+        pool.clone(),
         Arc::clone(&client),
     )
     .await?;

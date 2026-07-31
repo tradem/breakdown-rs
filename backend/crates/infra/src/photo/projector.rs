@@ -37,15 +37,21 @@ impl<'a> EntityEventHandler<PhotoAggregate, Transaction<'a, Postgres>> for Photo
                 ..
             } => {
                 // Insert the photo row.
+                // Store binding as JSON so the actual costume_id / scene_shoot_id
+                // can be recovered later (e.g. by the photo delete saga).
+                let binding_json = serde_json::to_value(&binding)
+                    .expect("PhotoBinding serialises OK");
+
                 sqlx::query(
                     r#"
                     INSERT INTO projection_photo
-                        (photo_id, content_type, size_bytes, created_at, updated_at)
-                    VALUES ($1, $2, $3, $4, $5)
+                        (photo_id, content_type, size_bytes, created_at, updated_at, binding)
+                    VALUES ($1, $2, $3, $4, $5, $6)
                     ON CONFLICT (photo_id) DO UPDATE SET
                         content_type = EXCLUDED.content_type,
                         size_bytes = EXCLUDED.size_bytes,
-                        updated_at = EXCLUDED.updated_at
+                        updated_at = EXCLUDED.updated_at,
+                        binding = EXCLUDED.binding
                     "#,
                 )
                 .bind(id.0)
@@ -53,6 +59,7 @@ impl<'a> EntityEventHandler<PhotoAggregate, Transaction<'a, Postgres>> for Photo
                 .bind(size_bytes as i64)
                 .bind(updated_at)
                 .bind(updated_at)
+                .bind(binding_json)
                 .execute(&mut **ctx)
                 .await?;
 
