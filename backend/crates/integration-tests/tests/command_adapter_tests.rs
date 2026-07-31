@@ -39,10 +39,7 @@ fn test_user() -> breakdown_core::shared::UserId {
 /// Seed a fresh season (and, if needed, an episode) into the projectors,
 /// returning the generated ids.  Must be called BEFORE any command that
 /// references season_id / episode_id.
-async fn seed_season(
-    pool: &sqlx::PgPool,
-    cmd_svc: &CommandService,
-) -> (uuid::Uuid, uuid::Uuid) {
+async fn seed_season(pool: &sqlx::PgPool, cmd_svc: &CommandService) -> (uuid::Uuid, uuid::Uuid) {
     // Create a season.
     let series_id = uuid::Uuid::now_v7();
     let season_id = uuid::Uuid::now_v7();
@@ -57,7 +54,10 @@ async fn seed_season(
             number: 1,
             title: Some("Test Season".into()),
         };
-        season_cmd.create(test_user(), cmd).await.expect("season_create");
+        season_cmd
+            .create(test_user(), cmd)
+            .await
+            .expect("season_create");
     }
     await_proj(pool, "projection_season", season_id).await;
     (season_id, series_id)
@@ -85,7 +85,10 @@ async fn seed_season_and_episode(
             number: 1,
             name: Some("Test Episode".into()),
         };
-        ep_cmd.create(test_user(), cmd).await.expect("episode_create");
+        ep_cmd
+            .create(test_user(), cmd)
+            .await
+            .expect("episode_create");
     }
     await_proj(pool, "projection_episode", episode_id).await;
     (season_id, episode_id)

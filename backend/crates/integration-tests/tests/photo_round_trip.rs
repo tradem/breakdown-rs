@@ -107,7 +107,8 @@ async fn photo_upload_then_delete_round_trip() -> Result<()> {
     // Spawn the photo projector.
     let redis_client = Arc::clone(&sierra_client);
     let _photo_projector =
-        infra::projectors::spawn_photo_projector(pg_pool.clone(), Arc::clone(&redis_client)).await?;
+        infra::projectors::spawn_photo_projector(pg_pool.clone(), Arc::clone(&redis_client))
+            .await?;
 
     // Spawn photo sagas.
     infra::photo::sagas::spawn_photo_thumbnail_saga(
@@ -156,9 +157,7 @@ async fn photo_upload_then_delete_round_trip() -> Result<()> {
                 id: photo_id,
                 content_type: content_type.clone(),
                 size_bytes: image_bytes.len() as u64,
-                binding: breakdown_core::photo::binding::PhotoBinding::Costume {
-                    costume_id,
-                },
+                binding: breakdown_core::photo::binding::PhotoBinding::Costume { costume_id },
             },
         )
         .await?;

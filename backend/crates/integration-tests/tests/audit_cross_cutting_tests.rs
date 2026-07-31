@@ -65,54 +65,6 @@ const PROJECTION_DEADLINE: Duration = Duration::from_secs(45);
 /// consistency). Generous enough for CI containers where startup takes longer.
 const POLL_INTERVAL: Duration = Duration::from_millis(150);
 
-/// Maximum number of retries before giving up on a slow pool acquire (for diagnostics).
-const MAX_POOL_ACQUIRE_RETRIES: usize = 3;
-
-// ---------------------------------------------------------------------------
-// Diagnostic helpers
-// ---------------------------------------------------------------------------
-
-/// Probe the given pool by acquiring and immediately releasing a connection.
-/// Returns `Ok(duration)` with the time taken to acquire the connection,
-/// or `Err` if the acquire timed out or failed.
-///
-/// This is used to detect which pool is exhausted before a real query fails.
-async fn pool_probe(pool: &PgPool, label: &str) -> Result<Duration> {
-    let start = Instant::now();
-    // 1 s probe timeout — fast failure when pool is saturated, avoids misleading
-    // 30 s waits that look like the projector is stuck.
-    match tokio::time::timeout(Duration::from_secs(1), pool.acquire()).await {
-        Ok(Ok(_conn)) => {
-            // Immediately release the connection
-            drop(_conn);
-            let elapsed = start.elapsed();
-            eprintln!("[DIAG] {label}: pool acquire took {elapsed:.2?}");
-            Ok(elapsed)
-        }
-        Ok(Err(e)) => {
-            let elapsed = start.elapsed();
-            eprintln!("[DIAG] {label}: pool acquire failed after {elapsed:.2?}: {e}");
-            Err(anyhow!("{label} pool acquire failed: {e}"))
-        }
-        Err(_timeout) => {
-            let elapsed = start.elapsed();
-            eprintln!("[DIAG] {label}: pool acquire TIMED OUT after {elapsed:.2?}");
-            bail!("{label} pool timed out acquiring connection")
-        }
-    }
-}
-
-/// Run a probe on `query_pool` and log the result.  Skips silently in
-/// non-test builds so the compiler sees a single stable return type.
-#[allow(unused_variables)]
-async fn probe_query_pool(pool: &PgPool) {
-    if let Ok(dur) = pool_probe(pool, "QUERY").await {
-        eprintln!("[DIAG] query_pool acquire: {dur:.2?}");
-    } else {
-        eprintln!("[DIAG] query_pool: CONCURRENTLY EXHAUSTED — all 2000 slots busy");
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Shared container setup (background thread)
 // ---------------------------------------------------------------------------
@@ -217,9 +169,10 @@ fn init_containers() -> &'static SharedContainers {
                     .await
                     .expect("connect query pool failed");
 
-                let handles = spawn_all_audit_projectors(pg_pool.clone(), Arc::clone(&redis_client))
-                    .await
-                    .expect("spawn audit projectors failed");
+                let handles =
+                    spawn_all_audit_projectors(pg_pool.clone(), Arc::clone(&redis_client))
+                        .await
+                        .expect("spawn audit projectors failed");
 
                 // Give subscriptions 10 s to establish before we leave the
                 // runtime alive.
@@ -396,25 +349,19 @@ async fn await_audit_rows(
     min: usize,
 ) -> Result<Vec<AuditEntry>> {
     let deadline = Instant::now() + PROJECTION_DEADLINE;
-    let mut attempt = 0u32;
     loop {
-        attempt += 1;
         let result = repo
             .list_by_entity(entity_type, &entity_id.to_string(), 100, 0)
             .await;
         match result {
             Ok(entries) => {
                 if entries.len() >= min {
-                    eprintln!("[DIAG] attempt #{attempt}: GOT {}/{} entries", entries.len(), min);
-                    return Ok(entries)
-                } else {
-                    eprintln!("[DIAG] attempt #{attempt}: got {} entries, need {min}", entries.len());
+                    return Ok(entries);
                 }
             }
             Err(ref e) => {
                 let msg = e.to_string();
                 if msg.contains("NotFound") && Instant::now() < deadline {
-                    eprintln!("[DIAG] attempt #{attempt}: NotFound, retrying...");
                     tokio::time::sleep(POLL_INTERVAL).await;
                     continue;
                 }
@@ -718,9 +665,7 @@ async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> 
     // Let subscriptions settle.
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    let cc_repo = infra::queries::CostumeCategoryRepositoryImpl::new(
-        containers.query_pool.clone(),
-    );
+    let cc_repo = infra::queries::CostumeCategoryRepositoryImpl::new(containers.query_pool.clone());
 
     let redis_client = &containers.redis_client;
     let pool = &containers.query_pool;
@@ -943,7 +888,6 @@ async fn list_by_series_returns_tenant_scoped_rows() -> Result<()> {
 /// so even a fresh SierraDB append gets deduped by the audit projector.
 #[tokio::test]
 async fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Result<()> {
-    eprintln!("\n[TEST] non_membership_audit_projector_is_idempotent_under_redelivery START");
     let containers = init_containers();
     let pool = &containers.query_pool;
     let redis_client = &containers.redis_client;
@@ -971,7 +915,6 @@ async fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Resu
     let payload = encode_event(&event)?;
 
     // 1. First append (EXPECTED_VERSION EMPTY).
-    eprintln!("[DIAG] Step 1: eappend_event #1 (CostumeCategoryCreated)... ");
     eappend_event(
         redis_client,
         &stream_id,
@@ -983,7 +926,6 @@ async fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Resu
     .await?;
 
     // Wait for the first audit row.
-    eprintln!("[DIAG] Step 2: await_audit_rows #1 (expecting 1 row)...");
     let entries = await_audit_rows(&audit_repo, "costume_category", cc_id, 1).await?;
     assert_eq!(entries.len(), 1, "first event projected");
     assert_eq!(entries[0].event_type, "CostumeCategoryCreated");
@@ -991,7 +933,6 @@ async fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Resu
     // After EMPTY, stream version is 0.  Redelivery appends at the same version.
 
     // 2. Redelivery: same logical event, fresh SierraDB append at version 0.
-    eprintln!("[DIAG] Step 3: eappend_event #2 (redelivery)...");
     eappend_event(
         redis_client,
         &stream_id,
@@ -1022,7 +963,6 @@ async fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Resu
     .await?;
 
     // Wait for the third event to be projected (2 unique event_keys).
-    eprintln!("[DIAG] Step 4: await_audit_rows #2 (expecting 2 rows)...");
     let entries = await_audit_rows(&audit_repo, "costume_category", cc_id, 2).await?;
     assert_eq!(
         entries.len(),

@@ -72,7 +72,7 @@ impl PhotoRepository for PhotoRepositoryImpl {
             .collect::<Result<Vec<_>, DomainError>>()?;
 
         let binding: String = row.try_get("binding").map_err(map_err)?;
-        let binding = parse_binding(&binding).map_err(|e| DomainError::Conflict(e))?;
+        let binding = parse_binding(&binding).map_err(DomainError::Conflict)?;
 
         Ok(PhotoView {
             id: PhotoId::from_uuid(photo_id),
@@ -144,7 +144,9 @@ fn parse_binding(val: &str) -> Result<PhotoBinding, String> {
     }
     // Fall back to legacy string format for backward compatibility.
     match val {
-        "Costume" => Ok(PhotoBinding::Costume { costume_id: Uuid::default() }),
+        "Costume" => Ok(PhotoBinding::Costume {
+            costume_id: Uuid::default(),
+        }),
         _ => Err(format!("Unknown binding: {val}")),
     }
 }

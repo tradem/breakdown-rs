@@ -24,10 +24,10 @@ impl AuditRepositoryImpl {
         Self { pool }
     }
 
-/// Returns a clone of the inner PgPool for diagnostic probing.
-pub fn get_pool(&self) -> PgPool {
-    self.pool.clone()
-}
+    /// Returns a clone of the inner PgPool for diagnostic probing.
+    pub fn get_pool(&self) -> PgPool {
+        self.pool.clone()
+    }
 }
 
 #[async_trait]

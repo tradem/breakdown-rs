@@ -17,15 +17,14 @@ use std::sync::Arc;
 
 use crate::event_store::map_executed;
 use crate::projectors::supervisor;
-use crate::queries::{CostumeCategoryRepositoryImpl, SeasonRepositoryImpl};
+use crate::queries::CostumeCategoryRepositoryImpl;
 use anyhow::Result;
 use breakdown_core::costume_category::aggregate::CostumeCategoryAggregate;
 use breakdown_core::costume_category::commands::CreateCostumeCategory;
 use breakdown_core::costume_category::ports::CostumeCategoryRepository;
 use breakdown_core::season::aggregate::SeasonAggregate;
 use breakdown_core::season::events::SeasonEvent;
-use breakdown_core::season::ports::SeasonRepository;
-use breakdown_core::shared::{EventMetadata, LexicalSortKey, Provenance, SeasonId};
+use breakdown_core::shared::{EventMetadata, LexicalSortKey, Provenance, SeasonId, SeriesId};
 use kameo_es::command_service::{CommandService, ExecuteExt};
 use kameo_es::event_handler::{
     EntityEventHandler, EventHandler, EventHandlerError, EventHandlerStreamBuilder, EventProcessor,
@@ -82,10 +81,13 @@ pub fn load_default_costume_categories() -> Vec<String> {
 ///
 /// Dispatches `CreateCostumeCategory` commands directly via
 /// `CostumeCategoryAggregate::execute` (no trait adapter needed).
+///
+/// `series_id` is taken directly from the `SeasonCreated` event rather than
+/// queried from the season projection — a saga must react to event data, not
+/// read-model state (avoids coupling to projector presence / lag).
 #[derive(Clone, Debug)]
 pub struct SeasonSeedingSaga {
     cmd_service: CommandService,
-    season_repo: SeasonRepositoryImpl,
     repo: CostumeCategoryRepositoryImpl,
     seed: Vec<String>,
 }
@@ -93,26 +95,24 @@ pub struct SeasonSeedingSaga {
 impl SeasonSeedingSaga {
     pub fn new(
         cmd_service: CommandService,
-        season_repo: SeasonRepositoryImpl,
         repo: CostumeCategoryRepositoryImpl,
         seed: Vec<String>,
     ) -> Self {
         Self {
             cmd_service,
-            season_repo,
             repo,
             seed,
         }
     }
 
     /// Idempotently seed one category per seed entry for `season_id`.
-    async fn seed_for_season(&self, season_id: SeasonId) -> Result<()> {
+    async fn seed_for_season(&self, season_id: SeasonId, series_id: SeriesId) -> Result<()> {
         seed_season(
             &self.cmd_service,
-            &self.season_repo,
             &self.repo,
             &self.seed,
             season_id,
+            series_id,
         )
         .await
     }
@@ -124,10 +124,10 @@ impl SeasonSeedingSaga {
 /// never double-seeds.
 pub async fn seed_season<R>(
     cmd_service: &CommandService,
-    season_repo: &SeasonRepositoryImpl,
     repo: &R,
     seed: &[String],
     season_id: SeasonId,
+    series_id: SeriesId,
 ) -> Result<()>
 where
     R: CostumeCategoryRepository,
@@ -139,11 +139,6 @@ where
     if count > 0 {
         return Ok(());
     }
-    let series_id = season_repo
-        .find_by_id(season_id.0)
-        .await
-        .map_err(|e| anyhow::anyhow!("{e}"))?
-        .series_id;
     for (i, name) in seed.iter().enumerate() {
         let order_key = SEED_ORDER_KEYS.get(i).copied().unwrap_or("z");
         let id = Uuid::now_v7();
@@ -177,8 +172,8 @@ impl EntityEventHandler<SeasonAggregate, ()> for SeasonSeedingSaga {
         _id: Uuid,
         event: Event<SeasonEvent, EventMetadata>,
     ) -> Result<(), Self::Error> {
-        if let SeasonEvent::SeasonCreated { id, .. } = event.data {
-            self.seed_for_season(SeasonId(id)).await?;
+        if let SeasonEvent::SeasonCreated { id, series_id, .. } = event.data {
+            self.seed_for_season(SeasonId(id), series_id).await?;
         }
         Ok(())
     }
@@ -225,8 +220,7 @@ pub async fn spawn_season_seeding_saga(
 ) -> Result<()> {
     let seed = load_default_costume_categories();
     let repo = CostumeCategoryRepositoryImpl::new(pool.clone());
-    let season_repo = SeasonRepositoryImpl::new(pool.clone());
-    let saga = SeasonSeedingSaga::new(cmd_service, season_repo, repo, seed);
+    let saga = SeasonSeedingSaga::new(cmd_service, repo, seed);
     let redis_client_inner = redis_client.clone();
     let _handle = supervisor::run_with_restart("season_seeding_saga", move || {
         let mut saga = saga.clone();

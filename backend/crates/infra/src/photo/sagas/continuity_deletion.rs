@@ -131,7 +131,7 @@ impl ContinuityDeletionSaga {
                     None => Ok(None),
                 }
             }
-            PhotoBinding::Continuity { scene_shoot_id: _, .. } => {
+            PhotoBinding::Continuity { .. } => {
                 // The binding in projection_photo is a generic marker.
                 // The actual scene_shoot_id is in projection_continuity_photo.
                 let row = sqlx::query(
@@ -148,7 +148,9 @@ impl ContinuityDeletionSaga {
                 .map_err(|e| anyhow::anyhow!("{e}"))?;
 
                 let scene_shoot_id: Uuid = match row {
-                    Some(r) => r.try_get("scene_shoot_id").map_err(|e| anyhow::anyhow!("{e}"))?,
+                    Some(r) => r
+                        .try_get("scene_shoot_id")
+                        .map_err(|e| anyhow::anyhow!("{e}"))?,
                     None => {
                         // No continuity record — shouldn't happen for a continuity-bound photo.
                         return Ok(None);
@@ -214,7 +216,11 @@ impl EntityEventHandler<SceneShootAggregate, ()> for ContinuityDeletionSaga {
                         }
                     }
 
-                    let photo_view = self.repo.find_by_id(photo_id).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                    let photo_view = self
+                        .repo
+                        .find_by_id(photo_id)
+                        .await
+                        .map_err(|e| anyhow::anyhow!("{e}"))?;
                     let series_id = self.resolve_series_id(photo_id).await?;
                     let stream_version = crate::event_store::domain_to_stream(photo_view.version)
                         .ok_or_else(|| {

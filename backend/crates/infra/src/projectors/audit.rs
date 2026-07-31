@@ -178,7 +178,7 @@ async fn write_audit_row(
 fn extract_metadata(
     event: &Event<impl kameo_es::EventType, EventMetadata>,
 ) -> (Option<String>, String, Option<String>) {
-    let result = event
+    event
         .metadata
         .data
         .as_ref()
@@ -189,9 +189,7 @@ fn extract_metadata(
                 m.series_id.as_ref().map(|s| s.0.to_string()),
             )
         })
-        .unwrap_or_else(|| (None, "Human".to_string(), None));
-
-    result
+        .unwrap_or_else(|| (None, "Human".to_string(), None))
 }
 
 // ── Category: season ──────────────────────────────────────────────────
