@@ -1,6 +1,6 @@
 [package]
 name = "integration-tests"
-version.workspace = true
+version = "0.2.0"
 edition.workspace = true
 license.workspace = true
 publish = false
@@ -13,9 +13,9 @@ crate-type = ["lib"]
 [dev-dependencies]
 lazy_static = "1.4"
 
-breakdown_core = { path = "../core" }
-infra = { path = "../infra" }
-test_support = { path = "../test_support" }
+breakdown_core = { path = "../core", version = "0.2.0" }
+infra = { path = "../infra", version = "0.2.0" }
+test_support = { path = "../test_support", version = "0.2.0" }
 
 # Event-sourcing traits used by the in-memory aggregate command checks.
 kameo_es.workspace = true

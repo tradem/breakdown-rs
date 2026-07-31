@@ -141,7 +141,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "api"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -206,7 +206,7 @@ dependencies = [
 
 [[package]]
 name = "architecture_tests"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "api",
  "breakdown_core",
@@ -656,7 +656,7 @@ dependencies = [
 
 [[package]]
 name = "breakdown-fuzz-targets"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "breakdown_core",
  "chrono",
@@ -668,7 +668,7 @@ dependencies = [
 
 [[package]]
 name = "breakdown_core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -3257,7 +3257,7 @@ checksum = "a588916bfdfd92e71cacef98a63d9b1f0d74d6599980d11894290e7ddefffcf7"
 
 [[package]]
 name = "infra"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3297,7 +3297,7 @@ dependencies = [
 
 [[package]]
 name = "integration-tests"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "breakdown_core",
@@ -6726,7 +6726,7 @@ dependencies = [
 
 [[package]]
 name = "test_support"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "breakdown_core",
  "chrono",
