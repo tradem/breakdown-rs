@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.2 (neuralwatt)
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -591,7 +592,18 @@ pub struct FakeBlockRepo;
 
 impl BlockRepository for FakeBlockRepo {
     async fn find_by_id(&self, id: Uuid) -> Result<BlockView, DomainError> {
-        Err(DomainError::NotFound(format!("Block({id})")))
+        // Return a stub BlockView so membership handlers can resolve series_id
+        // for EventMetadata without a real projection.
+        Ok(BlockView {
+            id,
+            season_id: SeasonId::from_uuid(Uuid::now_v7()),
+            series_id: SeriesId::from_uuid(Uuid::now_v7()),
+            number: 1,
+            start_date: None,
+            end_date: None,
+            version: AggregateVersion::INITIAL,
+            updated_at: chrono::Utc::now(),
+        })
     }
     async fn list_by_season(
         &self,

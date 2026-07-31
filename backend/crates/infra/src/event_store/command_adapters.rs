@@ -625,14 +625,22 @@ impl CostumeCommands for CostumeCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let co = self.costume_repo.find_by_id(cmd.id).await?;
-        let series_id = match co.character_id {
-            Some(character_id) => {
-                let ch = self.character_repo.find_by_id(character_id).await?;
-                Some(self.season_repo.find_by_id(ch.season_id.0).await?.series_id)
-            }
-            None => None,
-        };
+        let series_id = async {
+            let co = self.costume_repo.find_by_id(cmd.id).await.ok()?;
+            let ch = self
+                .character_repo
+                .find_by_id(co.character_id?)
+                .await
+                .ok()?;
+            Some(
+                self.season_repo
+                    .find_by_id(ch.season_id.0)
+                    .await
+                    .ok()?
+                    .series_id,
+            )
+        }
+        .await;
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(
                 domain_to_stream(version).expect("guarded by check_nonzero_version"),
@@ -677,14 +685,22 @@ impl CostumeCommands for CostumeCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let co = self.costume_repo.find_by_id(cmd.id).await?;
-        let series_id = match co.character_id {
-            Some(character_id) => {
-                let ch = self.character_repo.find_by_id(character_id).await?;
-                Some(self.season_repo.find_by_id(ch.season_id.0).await?.series_id)
-            }
-            None => None,
-        };
+        let series_id = async {
+            let co = self.costume_repo.find_by_id(cmd.id).await.ok()?;
+            let ch = self
+                .character_repo
+                .find_by_id(co.character_id?)
+                .await
+                .ok()?;
+            Some(
+                self.season_repo
+                    .find_by_id(ch.season_id.0)
+                    .await
+                    .ok()?
+                    .series_id,
+            )
+        }
+        .await;
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(
                 domain_to_stream(version).expect("guarded by check_nonzero_version"),
@@ -706,14 +722,22 @@ impl CostumeCommands for CostumeCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let co = self.costume_repo.find_by_id(cmd.id).await?;
-        let series_id = match co.character_id {
-            Some(character_id) => {
-                let ch = self.character_repo.find_by_id(character_id).await?;
-                Some(self.season_repo.find_by_id(ch.season_id.0).await?.series_id)
-            }
-            None => None,
-        };
+        let series_id = async {
+            let co = self.costume_repo.find_by_id(cmd.id).await.ok()?;
+            let ch = self
+                .character_repo
+                .find_by_id(co.character_id?)
+                .await
+                .ok()?;
+            Some(
+                self.season_repo
+                    .find_by_id(ch.season_id.0)
+                    .await
+                    .ok()?
+                    .series_id,
+            )
+        }
+        .await;
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(
                 domain_to_stream(version).expect("guarded by check_nonzero_version"),
@@ -735,14 +759,22 @@ impl CostumeCommands for CostumeCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let co = self.costume_repo.find_by_id(cmd.id).await?;
-        let series_id = match co.character_id {
-            Some(character_id) => {
-                let ch = self.character_repo.find_by_id(character_id).await?;
-                Some(self.season_repo.find_by_id(ch.season_id.0).await?.series_id)
-            }
-            None => None,
-        };
+        let series_id = async {
+            let co = self.costume_repo.find_by_id(cmd.id).await.ok()?;
+            let ch = self
+                .character_repo
+                .find_by_id(co.character_id?)
+                .await
+                .ok()?;
+            Some(
+                self.season_repo
+                    .find_by_id(ch.season_id.0)
+                    .await
+                    .ok()?
+                    .series_id,
+            )
+        }
+        .await;
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(
                 domain_to_stream(version).expect("guarded by check_nonzero_version"),
@@ -764,14 +796,22 @@ impl CostumeCommands for CostumeCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let co = self.costume_repo.find_by_id(cmd.id).await?;
-        let series_id = match co.character_id {
-            Some(character_id) => {
-                let ch = self.character_repo.find_by_id(character_id).await?;
-                Some(self.season_repo.find_by_id(ch.season_id.0).await?.series_id)
-            }
-            None => None,
-        };
+        let series_id = async {
+            let co = self.costume_repo.find_by_id(cmd.id).await.ok()?;
+            let ch = self
+                .character_repo
+                .find_by_id(co.character_id?)
+                .await
+                .ok()?;
+            Some(
+                self.season_repo
+                    .find_by_id(ch.season_id.0)
+                    .await
+                    .ok()?
+                    .series_id,
+            )
+        }
+        .await;
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(
                 domain_to_stream(version).expect("guarded by check_nonzero_version"),
@@ -793,14 +833,22 @@ impl CostumeCommands for CostumeCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let co = self.costume_repo.find_by_id(cmd.id).await?;
-        let series_id = match co.character_id {
-            Some(character_id) => {
-                let ch = self.character_repo.find_by_id(character_id).await?;
-                Some(self.season_repo.find_by_id(ch.season_id.0).await?.series_id)
-            }
-            None => None,
-        };
+        let series_id = async {
+            let co = self.costume_repo.find_by_id(cmd.id).await.ok()?;
+            let ch = self
+                .character_repo
+                .find_by_id(co.character_id?)
+                .await
+                .ok()?;
+            Some(
+                self.season_repo
+                    .find_by_id(ch.season_id.0)
+                    .await
+                    .ok()?
+                    .series_id,
+            )
+        }
+        .await;
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(
                 domain_to_stream(version).expect("guarded by check_nonzero_version"),
@@ -1257,33 +1305,45 @@ impl PhotoCommandsImpl {
     /// Costume-bound photos walk `costume → character → season`; continuity
     /// photos walk `scene_shoot → scene → episode`. Returns `None` when the
     /// photo is not (yet) associated with a series (e.g. an unassigned
-    /// costume).
+    /// costume) **or when the projection lookup fails** (NotFound, lag) —
+    /// `series_id` is audit metadata and must never block photo processing.
     async fn resolve_series_id_for_binding(
         &self,
         binding: &PhotoBinding,
     ) -> Result<Option<SeriesId>, DomainError> {
         match binding {
             PhotoBinding::Costume { costume_id } => {
-                let costume = self.costume_repo.find_by_id(*costume_id).await?;
+                let costume = match self.costume_repo.find_by_id(*costume_id).await {
+                    Ok(c) => c,
+                    Err(_) => return Ok(None),
+                };
                 match costume.character_id {
                     Some(character_id) => {
-                        let ch = self.character_repo.find_by_id(character_id).await?;
-                        Ok(Some(
-                            self.season_repo.find_by_id(ch.season_id.0).await?.series_id,
-                        ))
+                        let ch = match self.character_repo.find_by_id(character_id).await {
+                            Ok(c) => c,
+                            Err(_) => return Ok(None),
+                        };
+                        match self.season_repo.find_by_id(ch.season_id.0).await {
+                            Ok(s) => Ok(Some(s.series_id)),
+                            Err(_) => Ok(None),
+                        }
                     }
                     None => Ok(None),
                 }
             }
             PhotoBinding::Continuity { scene_shoot_id, .. } => {
-                let ss = self.scene_shoot_repo.find_by_id(*scene_shoot_id).await?;
-                let sc = self.scene_repo.find_by_id(ss.scene_id).await?;
-                Ok(Some(
-                    self.episode_repo
-                        .find_by_id(sc.episode_id.0)
-                        .await?
-                        .series_id,
-                ))
+                let ss = match self.scene_shoot_repo.find_by_id(*scene_shoot_id).await {
+                    Ok(s) => s,
+                    Err(_) => return Ok(None),
+                };
+                let sc = match self.scene_repo.find_by_id(ss.scene_id).await {
+                    Ok(s) => s,
+                    Err(_) => return Ok(None),
+                };
+                match self.episode_repo.find_by_id(sc.episode_id.0).await {
+                    Ok(e) => Ok(Some(e.series_id)),
+                    Err(_) => Ok(None),
+                }
             }
         }
     }
@@ -1317,8 +1377,16 @@ impl PhotoCommands for PhotoCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let binding = self.photo_repo.find_by_id(cmd.id).await?.binding;
-        let series_id = self.resolve_series_id_for_binding(&binding).await?;
+        let binding = self
+            .photo_repo
+            .find_by_id(cmd.id)
+            .await
+            .ok()
+            .map(|p| p.binding);
+        let series_id = match binding.as_ref() {
+            Some(b) => self.resolve_series_id_for_binding(b).await?,
+            None => None,
+        };
         let result = PhotoAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(
                 domain_to_stream(version).expect("guarded by check_nonzero_version"),
@@ -1340,8 +1408,16 @@ impl PhotoCommands for PhotoCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let binding = self.photo_repo.find_by_id(cmd.id).await?.binding;
-        let series_id = self.resolve_series_id_for_binding(&binding).await?;
+        let binding = self
+            .photo_repo
+            .find_by_id(cmd.id)
+            .await
+            .ok()
+            .map(|p| p.binding);
+        let series_id = match binding.as_ref() {
+            Some(b) => self.resolve_series_id_for_binding(b).await?,
+            None => None,
+        };
         let result = PhotoAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(
                 domain_to_stream(version).expect("guarded by check_nonzero_version"),
@@ -1363,8 +1439,16 @@ impl PhotoCommands for PhotoCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let binding = self.photo_repo.find_by_id(cmd.id).await?.binding;
-        let series_id = self.resolve_series_id_for_binding(&binding).await?;
+        let binding = self
+            .photo_repo
+            .find_by_id(cmd.id)
+            .await
+            .ok()
+            .map(|p| p.binding);
+        let series_id = match binding.as_ref() {
+            Some(b) => self.resolve_series_id_for_binding(b).await?,
+            None => None,
+        };
         let result = PhotoAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(
                 domain_to_stream(version).expect("guarded by check_nonzero_version"),
@@ -1386,8 +1470,16 @@ impl PhotoCommands for PhotoCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let binding = self.photo_repo.find_by_id(cmd.id).await?.binding;
-        let series_id = self.resolve_series_id_for_binding(&binding).await?;
+        let binding = self
+            .photo_repo
+            .find_by_id(cmd.id)
+            .await
+            .ok()
+            .map(|p| p.binding);
+        let series_id = match binding.as_ref() {
+            Some(b) => self.resolve_series_id_for_binding(b).await?,
+            None => None,
+        };
         let result = PhotoAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(
                 domain_to_stream(version).expect("guarded by check_nonzero_version"),

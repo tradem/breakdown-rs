@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: qwen3.6-35b (neuralwatt)
 // Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: glm-5.2 (neuralwatt)
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -94,55 +95,52 @@ impl PhotoDeletionSaga {
         &self,
         photo_id: PhotoId,
     ) -> Result<Option<SeriesId>, anyhow::Error> {
-        let binding = self
-            .repo
-            .find_by_id(photo_id)
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?
-            .binding;
+        // Best-effort series_id resolution for the audit trail. Any projection
+        // miss (NotFound, lag, missing parent projector) yields Ok(None) rather
+        // than failing the saga — thumbnail/deletion processing must not be
+        // blocked by audit-metadata resolution.
+        let binding = self.repo.find_by_id(photo_id).await.ok().map(|p| p.binding);
+        let binding = match binding {
+            Some(b) => b,
+            None => return Ok(None),
+        };
         match binding {
             PhotoBinding::Costume { costume_id } => {
-                let costume = self
-                    .costume_repo
-                    .find_by_id(costume_id)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("{e}"))?;
+                let costume = match self.costume_repo.find_by_id(costume_id).await.ok() {
+                    Some(c) => c,
+                    None => return Ok(None),
+                };
                 match costume.character_id {
                     Some(character_id) => {
-                        let ch = self
-                            .character_repo
-                            .find_by_id(character_id)
+                        let ch = match self.character_repo.find_by_id(character_id).await.ok() {
+                            Some(c) => c,
+                            None => return Ok(None),
+                        };
+                        Ok(self
+                            .season_repo
+                            .find_by_id(ch.season_id.0)
                             .await
-                            .map_err(|e| anyhow::anyhow!("{e}"))?;
-                        Ok(Some(
-                            self.season_repo
-                                .find_by_id(ch.season_id.0)
-                                .await
-                                .map_err(|e| anyhow::anyhow!("{e}"))?
-                                .series_id,
-                        ))
+                            .ok()
+                            .map(|s| s.series_id))
                     }
                     None => Ok(None),
                 }
             }
             PhotoBinding::Continuity { scene_shoot_id, .. } => {
-                let ss = self
-                    .scene_shoot_repo
-                    .find_by_id(scene_shoot_id)
+                let ss = match self.scene_shoot_repo.find_by_id(scene_shoot_id).await.ok() {
+                    Some(s) => s,
+                    None => return Ok(None),
+                };
+                let sc = match self.scene_repo.find_by_id(ss.scene_id).await.ok() {
+                    Some(s) => s,
+                    None => return Ok(None),
+                };
+                Ok(self
+                    .episode_repo
+                    .find_by_id(sc.episode_id.0)
                     .await
-                    .map_err(|e| anyhow::anyhow!("{e}"))?;
-                let sc = self
-                    .scene_repo
-                    .find_by_id(ss.scene_id)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("{e}"))?;
-                Ok(Some(
-                    self.episode_repo
-                        .find_by_id(sc.episode_id.0)
-                        .await
-                        .map_err(|e| anyhow::anyhow!("{e}"))?
-                        .series_id,
-                ))
+                    .ok()
+                    .map(|e| e.series_id))
             }
         }
     }

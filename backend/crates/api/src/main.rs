@@ -342,7 +342,6 @@ async fn main() -> Result<()> {
         scene_shoot_repo.clone(),
         scene_repo.clone(),
         episode_repo.clone(),
-        pool.clone(),
         Arc::clone(&redis_client),
     )
     .await?;

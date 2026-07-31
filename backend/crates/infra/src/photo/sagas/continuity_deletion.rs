@@ -36,7 +36,6 @@ use kameo_es::{Entity, Event};
 use redis::Client as RedisClient;
 use sierradb_client::ExpectedVersion;
 use sierradb_client::SierraAsyncClientExt;
-use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
 use crate::event_store::map_version_only;
@@ -64,7 +63,6 @@ pub struct ContinuityDeletionSaga {
     scene_shoot_repo: SceneShootRepositoryImpl,
     scene_repo: SceneRepositoryImpl,
     episode_repo: EpisodeRepositoryImpl,
-    pg_pool: PgPool,
     /// In-memory continuity-photo refcounts keyed by `PhotoId`.
     refcounts: HashMap<Uuid, u64>,
 }
@@ -80,7 +78,6 @@ impl ContinuityDeletionSaga {
         scene_shoot_repo: SceneShootRepositoryImpl,
         scene_repo: SceneRepositoryImpl,
         episode_repo: EpisodeRepositoryImpl,
-        pg_pool: PgPool,
     ) -> Self {
         Self {
             cmd_service,
@@ -91,7 +88,6 @@ impl ContinuityDeletionSaga {
             scene_shoot_repo,
             scene_repo,
             episode_repo,
-            pg_pool,
             refcounts: HashMap::new(),
         }
     }
@@ -101,80 +97,52 @@ impl ContinuityDeletionSaga {
         &self,
         photo_id: PhotoId,
     ) -> Result<Option<SeriesId>, anyhow::Error> {
-        let binding = self
-            .repo
-            .find_by_id(photo_id)
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?
-            .binding;
+        // Best-effort series_id resolution for the audit trail. Any projection
+        // miss (NotFound, lag, missing parent projector) yields Ok(None) rather
+        // than failing the saga — thumbnail/deletion processing must not be
+        // blocked by audit-metadata resolution.
+        let binding = self.repo.find_by_id(photo_id).await.ok().map(|p| p.binding);
+        let binding = match binding {
+            Some(b) => b,
+            None => return Ok(None),
+        };
         match binding {
             PhotoBinding::Costume { costume_id } => {
-                let costume = self
-                    .costume_repo
-                    .find_by_id(costume_id)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("{e}"))?;
+                let costume = match self.costume_repo.find_by_id(costume_id).await.ok() {
+                    Some(c) => c,
+                    None => return Ok(None),
+                };
                 match costume.character_id {
                     Some(character_id) => {
-                        let ch = self
-                            .character_repo
-                            .find_by_id(character_id)
+                        let ch = match self.character_repo.find_by_id(character_id).await.ok() {
+                            Some(c) => c,
+                            None => return Ok(None),
+                        };
+                        Ok(self
+                            .season_repo
+                            .find_by_id(ch.season_id.0)
                             .await
-                            .map_err(|e| anyhow::anyhow!("{e}"))?;
-                        Ok(Some(
-                            self.season_repo
-                                .find_by_id(ch.season_id.0)
-                                .await
-                                .map_err(|e| anyhow::anyhow!("{e}"))?
-                                .series_id,
-                        ))
+                            .ok()
+                            .map(|s| s.series_id))
                     }
                     None => Ok(None),
                 }
             }
-            PhotoBinding::Continuity { .. } => {
-                // The binding in projection_photo is a generic marker.
-                // The actual scene_shoot_id is in projection_continuity_photo.
-                let row = sqlx::query(
-                    r#"
-                    SELECT scene_shoot_id
-                    FROM projection_continuity_photo
-                    WHERE photo_id = $1
-                    LIMIT 1
-                    "#,
-                )
-                .bind(photo_id.0)
-                .fetch_optional(&self.pg_pool)
-                .await
-                .map_err(|e| anyhow::anyhow!("{e}"))?;
-
-                let scene_shoot_id: Uuid = match row {
-                    Some(r) => r
-                        .try_get("scene_shoot_id")
-                        .map_err(|e| anyhow::anyhow!("{e}"))?,
-                    None => {
-                        // No continuity record — shouldn't happen for a continuity-bound photo.
-                        return Ok(None);
-                    }
+            PhotoBinding::Continuity { scene_shoot_id, .. } => {
+                let ss = match self.scene_shoot_repo.find_by_id(scene_shoot_id).await.ok() {
+                    Some(s) => s,
+                    None => return Ok(None),
                 };
-
-                let ss = self
-                    .scene_shoot_repo
-                    .find_by_id(SceneShootId(scene_shoot_id))
+                let sc = match self.scene_repo.find_by_id(ss.scene_id).await.ok() {
+                    Some(s) => s,
+                    None => return Ok(None),
+                };
+                Ok(self
+                    .episode_repo
+                    .find_by_id(sc.episode_id.0)
                     .await
-                    .map_err(|e| anyhow::anyhow!("{e}"))?;
-                let sc = self
-                    .scene_repo
-                    .find_by_id(ss.scene_id)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("{e}"))?;
-                Ok(Some(
-                    self.episode_repo
-                        .find_by_id(sc.episode_id.0)
-                        .await
-                        .map_err(|e| anyhow::anyhow!("{e}"))?
-                        .series_id,
-                ))
+                    .ok()
+                    .map(|e| e.series_id))
             }
         }
     }
@@ -295,7 +263,6 @@ pub async fn spawn_continuity_deletion_saga(
     scene_shoot_repo: SceneShootRepositoryImpl,
     scene_repo: SceneRepositoryImpl,
     episode_repo: EpisodeRepositoryImpl,
-    pg_pool: PgPool,
     redis_client: Arc<RedisClient>,
 ) -> Result<()> {
     let saga = ContinuityDeletionSaga::new(
@@ -307,7 +274,6 @@ pub async fn spawn_continuity_deletion_saga(
         scene_shoot_repo,
         scene_repo,
         episode_repo,
-        pg_pool,
     );
     let _handle = supervisor::run_with_restart("continuity_deletion_saga", move || {
         let mut saga = saga.clone();

@@ -378,7 +378,6 @@ async fn continuity_photo_delete_on_zero_refcount() -> Result<()> {
         infra::queries::SceneShootRepositoryImpl::new(pool.clone()),
         infra::queries::SceneRepositoryImpl::new(pool.clone()),
         infra::queries::EpisodeRepositoryImpl::new(pool.clone()),
-        pool.clone(),
         Arc::clone(&client),
     )
     .await?;
