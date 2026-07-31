@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 # Issue #147 — Carry `series_id` in command structs (CQRS)
 
@@ -160,12 +161,11 @@ sagas, `api/tests/common/mod.rs`, core/integration/fuzz test files.
 
 ## 8. Verification checklist
 
-- [ ] `cargo build --workspace` clean
-- [ ] `cargo clippy --workspace --all-targets -- -D warnings` clean
-- [ ] `cargo test -p core` (all aggregate tests green)
-- [ ] `cargo test -p api --tests` (handler tests green)
-- [ ] `cargo test -p integration-tests -- projector_tests` (Tier 1–3)
-- [ ] `cargo test -p integration-tests -- sierradb_round_trip` (Tier 4) if Docker available
-- [ ] `grep -rn "find_by_id" crates/infra/src/event_store/command_adapters.rs` → **0 matches**
-- [ ] `cargo test -p architecture_tests` (boundary rules intact)
-- [ ] `cargo deny check bans` if configured
+- [x] `cargo build --workspace` clean
+- [x] `cargo clippy --workspace --all-targets -- -D warnings` clean
+- [x] `cargo test -p core` (all aggregate tests green)
+- [x] `cargo test -p api --tests` (handler tests green)
+- [x] `cargo test -p integration-tests -- projector_tests` (Tier 1–3)
+- [x] `cargo test -p integration-tests -- sierradb_round_trip` (Tier 4)
+- [x] `grep -rn "find_by_id" crates/infra/src/event_store/command_adapters.rs` → **0 matches**
+- [x] `cargo test -p architecture_tests` (boundary rules intact)
