@@ -75,7 +75,7 @@ fluent-bundle = "0.16"
 icu = { version = "1.5", default-features = false, features = ["compiled_data"] }
 icu_datetime = { version = "1.5", default-features = false, features = ["compiled_data"] }
 icu_decimal = { version = "1.5", default-features = false, features = ["compiled_data"] }
-icu_provider = { version = "1.5", default-features = false }
+icu_provider = { version = "2.2", default-features = false }
 
 # Embedded font assets
 rust-embed = "8"

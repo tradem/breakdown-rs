@@ -3269,7 +3269,7 @@ dependencies = [
  "icu",
  "icu_datetime",
  "icu_decimal",
- "icu_provider 1.5.0",
+ "icu_provider 2.2.0",
  "image",
  "kamadak-exif",
  "kameo",
