@@ -11,7 +11,10 @@ and their consequences.
 - New ADRs are numbered sequentially (ADR-023, ADR-024, ...).
 - Every ADR carries an **Author** field. Retrospective ADRs (ADR-001 … ADR-019)
   are attributed to `Tobias Rademacher (@tradem)`; ADR-020 and ADR-021 were
-  co-authored with `GLM-5.2 (Zhipu, hosted by neuralwatt)`.
+  co-authored with `GLM-5.2 (Zhipu, hosted by neuralwatt)`. ADR-023 … ADR-029
+  form the Encryption & Secrets-Management ADR set (initiated from
+  `prompts/encryption-secrets-adr-prompt.md`) and were co-authored with
+  `glm-5.2 (neuralwatt)`.
 
 
 ## List of ADRs
@@ -40,6 +43,13 @@ and their consequences.
 | [020](ADR-020-rust-component-versioning.md) | Rust Component Versioning & Release Mechanics | Proposed | 2026-07-21 | Tobias Rademacher (@tradem); GLM-5.2 (Zhipu, hosted by neuralwatt) |
 | [021](ADR-021-api-versioning.md) | HTTP API Path Versioning & Deprecation Lifecycle | Proposed | 2026-07-21 | Tobias Rademacher (@tradem); GLM-5.2 (Zhipu, hosted by neuralwatt) |
 | [022](ADR-022-pdf-reporting-and-archival.md) | In-Process Typst for PDF Reporting and Report Archival | Proposed | 2026-07-27 | Tobias Rademacher (@tradem); gpt-5.6-sol (opencode) |
+| [023](ADR-023-database-encryption-at-rest.md) | Database Encryption at Rest (PostgreSQL + SierraDB) | Proposed | 2026-08-01 | Tobias Rademacher (@tradem); glm-5.2 (neuralwatt) |
+| [024](ADR-024-database-encryption-in-transit.md) | Database Encryption in Transit (TLS for Postgres & SierraDB) | Proposed | 2026-08-01 | Tobias Rademacher (@tradem); glm-5.2 (neuralwatt) |
+| [025](ADR-025-https-edge-and-cert-rotation.md) | HTTPS Edge Transport — Reverse Proxy & Certificate Issuance | Proposed | 2026-08-01 | Tobias Rademacher (@tradem); glm-5.2 (neuralwatt) |
+| [026](ADR-026-arch-linux-vps-hardening-baseline.md) | Hosting-Hardening Baseline for the Arch Linux VPS | Proposed | 2026-08-01 | Tobias Rademacher (@tradem); glm-5.2 (neuralwatt) |
+| [027](ADR-027-secrets-vault-for-external-credentials.md) | Secrets Vault for External Credentials (GDrive, AI Tokens) | Proposed | 2026-08-01 | Tobias Rademacher (@tradem); glm-5.2 (neuralwatt) |
+| [028](ADR-028-settings-aggregates-access-control.md) | Access Control for the Costume Designer / Costume Assistant Settings Aggregates View | Proposed | 2026-08-01 | Tobias Rademacher (@tradem); glm-5.2 (neuralwatt) |
+| [029](ADR-029-gdpr-right-to-erasure-append-only-log.md) | GDPR Art. 17 (Right to Erasure) in an Append-Only Event-Sourced System | Proposed | 2026-08-01 | Tobias Rademacher (@tradem); glm-5.2 (neuralwatt) |
 
 ## Creating a New ADR
 
