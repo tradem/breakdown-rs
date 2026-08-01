@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4-flash (opencode-go)
+
+# Local-development edge (docker-compose.caddy.yml overlay, ADR-025).
+#
+# Serves HTTPS with Caddy's *internal* CA (self-signed, trusted only on this
+# host — accept the browser warning or add the Caddy root CA to the OS trust
+# store) so the exact edge behaviour of production (HTTPS-only, HSTS,
+# request-body limit) can be exercised locally.
+#
+# The overlay runs Caddy with host networking (`network_mode: host`) and
+# proxies to the API started on the host: `cargo run -p api` (default
+# BIND_ADDR 0.0.0.0:3000). No host-gateway / bridge trickery is involved.
+#
+# Env: DOMAIN (default localhost), PHOTO_MAX_SIZE_MB (default 20).
+
+{$DOMAIN:localhost} {
+	tls internal
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+
+	request_body {
+		max_size {$PHOTO_MAX_SIZE_MB:20}MB
+	}
+
+	# Unknown paths are proxied to the API (404 there); unknown hosts on :80
+	# hit the 404 catch-all below. TLS-layer reject for unknown SNI on :443.
+	reverse_proxy 127.0.0.1:3000
+}
+
+# Default-deny for unknown hosts on :80 (see backend/Caddyfile for the
+# rationale; never add a :443 catch-all).
+:80 {
+	respond "Not Found" 404
+}

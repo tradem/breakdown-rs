@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4-flash (opencode-go)
+
+# Local HTTPS edge overlay (ADR-025 / issue #155) for development.
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml -f docker-compose.caddy.yml up -d
+#   (optionally add -f docker-compose.idp.yml for the OIDC overlay)
+#
+# Runs Caddy with TLS from its internal CA (`tls internal`, see Caddyfile.dev)
+# so the production edge behaviour (HTTPS-only, HSTS, request-body limit) can
+# be exercised locally against the API started on the host:
+#   cargo run -p api          # binds 0.0.0.0:3000
+#   open https://localhost    # accept the self-signed certificate warning
+#
+# `network_mode: host` lets Caddy reach 127.0.0.1:3000 directly (Linux; this
+# is also what ADR-026 targets). No `ports:` — Caddy binds the host's
+# :80/:443. Unlike the prod compose, the dev overlay may use a plain image
+# tag (issue #155); production pins the digest in docker-compose.prod.yml.
+
+services:
+  caddy:
+    image: caddy:2.9.1-alpine
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+      PHOTO_MAX_SIZE_MB: ${PHOTO_MAX_SIZE_MB:-20}
+    volumes:
+      - ./Caddyfile.dev:/etc/caddy/Caddyfile:ro
+      - caddy_dev_data:/data
+      - caddy_dev_config:/config
+
+volumes:
+  caddy_dev_data:
+  caddy_dev_config:

@@ -1,0 +1,57 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4-flash (opencode-go)
+
+# Production edge for Breakdown RS (ADR-025).
+#
+# Caddy is the *sole* public entry point: it terminates TLS with automatic
+# ACME issuance/rotation (HTTP-01 by default) and reverse-proxies to the `api`
+# service on the Docker-internal network. The API container publishes no host
+# ports (see docker-compose.prod.yml).
+#
+# Env substitutions (supplied by the `caddy` service in docker-compose.prod.yml):
+#   DOMAIN            – public site address, e.g. api.breakdown.example
+#   PHOTO_MAX_SIZE_MB – request-body ceiling; kept aligned with the API's
+#                       PHOTO_MAX_SIZE_MB so oversized uploads are rejected at
+#                       the edge before they reach Axum.
+
+{$DOMAIN} {
+	# Modern TLS baseline (ADR-025): Caddy's defaults are already modern
+	# (TLS 1.2+ with strong cipher suites, OCSP stapling). Make the protocol
+	# floor explicit. ACME issuance stays enabled (automatic HTTPS).
+	tls {
+		protocols tls1.2 tls1.3
+	}
+
+	# HSTS (ADR-025): force HTTPS for one year, including subdomains. Preload
+	# is left to the operator once the production domain is final.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+
+	# Edge request-body ceiling, aligned with the API's PHOTO_MAX_SIZE_MB
+	# (compose passes the same value to both services).
+	request_body {
+		max_size {$PHOTO_MAX_SIZE_MB:20}MB
+	}
+
+	# Default-deny posture: Caddy serves no static content. Unknown *paths*
+	# are proxied to the API, which answers 404 with its own fallback — there
+	# is deliberately no `file_server` and no catch-all that returns 200.
+	#
+	# Unknown hosts on :443 are rejected at the TLS layer (no certificate is
+	# served for an unknown SNI); on :80 they hit the explicit 404 catch-all
+	# below. Automatic HTTPS (HTTP-01 challenge + the HTTP->HTTPS redirect for
+	# {$DOMAIN}) takes precedence over the catch-all and stays unaffected.
+	reverse_proxy api:3000
+}
+
+# Default-deny for unknown hosts on :80 (any Host that does not match the site
+# above) — answered 404 instead of being redirected. Do NOT add a catch-all on
+# :443: that would make Caddy attempt ACME issuance for every unknown SNI and
+# exhaust Let's Encrypt rate limits.
+:80 {
+	respond "Not Found" 404
+}
