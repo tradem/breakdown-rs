@@ -30,10 +30,16 @@ utils:
       - pattern: $TYPE::aggressive_test_flush($$$ARGS)
   with_config_without_default:
     all:
-      - pattern: spawn_$NAME_with_config($$$ARGS)
+      # Metavariables cannot appear inside identifiers, so identify
+      # spawn_*_with_config calls via a regex on the call node text.
+      - pattern: $FUNC($$$ARGS)
+      - regex: '^spawn_[a-z0-9_]*_with_config\s*\('
       - not:
           has:
+            # stopBy: end — ProjectorFlushConfig::default() is an argument
+            # expression, i.e. a descendant (not a direct child) of the call.
             pattern: ProjectorFlushConfig::default()
+            stopBy: end
 rule:
   any:
     - matches: known_test_helpers

@@ -205,6 +205,16 @@ Add a subsection to AGENTS.md §3 (Workflow & Best Practices):
   production api files.
 - ast-grep 0.45.0 is installed in CI from a SHA256-pinned release zip (no
   third-party action; matches the repo's SHA-pinning hardening rules).
+- The `backend/git-hooks/pre-commit` hook runs both rules on **staged** files
+  (same path scoping as the CI jobs): `cqrs-boundary` for staged write-side
+  files, `test-shim-leak` for staged production api files. If ast-grep is not
+  installed locally it warns and skips — CI remains the authoritative gate.
+- Rule bug fixed during hook review: metavariables cannot appear *inside*
+  identifiers, so `spawn_$NAME_with_config($$$)` never matched. The rule now
+  identifies `spawn_*_with_config` calls via `regex: '^spawn_[a-z0-9_]*_with_config\s*\('`
+  on the call node and excludes `ProjectorFlushConfig::default()` with
+  `has: { stopBy: end }` (the default argument is a descendant of the call,
+  not a direct child).
 - The `audit_cross_cutting_tests` pool-timeout flake observed during
   verification is pre-existing and tracked in issue #149 (not caused by this
   change); the three photo integration tests that exercise the migrated

@@ -126,6 +126,8 @@ membership check via the shooting_day → episode → block → season chain). T
   reads) and blocks test-only helpers in production api code (`test-shim-leak` job:
   `test_profile`/`aggressive_*`/`spawn_*_with_config` without
   `ProjectorFlushConfig::default()`, via `backend/rules/test-shim-leak.yml`) — issue #148.
+  The `backend/git-hooks/pre-commit` hook mirrors both rules on staged files (warning
+  only if ast-grep is not installed; CI remains the authoritative gate).
 
 ### Integration tests
 
