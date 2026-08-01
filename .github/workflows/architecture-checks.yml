@@ -146,14 +146,14 @@ jobs:
           set -e
           # Production files under crates/api/src — test modules excluded
           # (*_tests.rs, *_test.rs, test_helpers.rs, any tests/ dir).
-          FILES=$(find crates/api/src -name '*.rs' \
+          mapfile -t FILES < <(find crates/api/src -name '*.rs' \
             ! -name '*_tests.rs' ! -name '*_test.rs' ! -name 'test_helpers.rs' \
             ! -path '*/tests/*' ! -path '*/test_helpers/*')
           # AST-based rule: backend/rules/test-shim-leak.yml — denies test-only
           # helpers (test_profile / aggressive_*) and any spawn_*_with_config
           # call that does not pass ProjectorFlushConfig::default().
-          if [ -n "$FILES" ]; then
-            ast-grep scan -r rules/test-shim-leak.yml $FILES
+          if [ "${#FILES[@]}" -gt 0 ]; then
+            ast-grep scan -r rules/test-shim-leak.yml "${FILES[@]}"
           fi
           echo "OK: no test-only helpers reachable from production api code"
 
