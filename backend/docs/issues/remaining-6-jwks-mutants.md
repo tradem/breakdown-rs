@@ -62,10 +62,30 @@ second call re-fetches from the server. This exercises the `<`/`==`/`>`/`<=` ope
 
 Both approaches require `tokio` time-manipulation features and a controlled HTTP endpoint.
 
+## Systematic implementation plan
+
+1. **Make cache time controllable in tests without changing production behavior.**
+   Use Tokio's monotonic `time::Instant` for the cache timestamp; in production it
+   remains monotonic, while the test runtime can pause and advance it deterministically.
+2. **Build one realistic JWKS fixture.**
+   Generate a valid RSA public key and serve it from a local Axum endpoint together
+   with an encryption-purpose RSA key, a non-RSA key, and an RSA key without a `kid`.
+3. **Verify the key-filtering contract.**
+   Assert that `decoding_keys()` returns exactly the one RSA signing key with a `kid`.
+   This distinguishes each `!=`/`||`/`==` mutation from the intended predicate.
+4. **Verify all cache comparison boundaries.**
+   With Tokio time paused, call the provider at the initial instant, exactly at the
+   TTL, and after the TTL. Assert that the endpoint is called once, twice, and three
+   times respectively. This covers fresh-cache reuse, strict expiry, and post-expiry
+   refresh, including all three comparison mutants.
+5. **Run focused tests and formatting, then run the API mutation target.**
+   The focused test must pass before mutation testing; the final acceptance check is
+   zero missed `jwks.rs` mutants in the `mutate-security` scope.
+
 ## Acceptance criteria
 
-- [ ] `cargo mutants -p api -f 'crates/api/src/auth/**'` reports 0 missed mutants in `jwks.rs`
-- [ ] CI mutation-testing PR gate on auth paths passes (`mutate-security` job in `mutation-testing-pr.yml`)
+- [x] The local `jwks.rs` mutation run reports 0 missed mutants (19 tested: 13 caught, 6 unviable).
+- [ ] CI mutation-testing PR gate on auth paths passes (`mutate-security` job in `mutation-testing-pr.yml`).
 
 ---
 

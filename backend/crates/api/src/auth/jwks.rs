@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: gpt-5.6-luna (opencode-go)
 
 //! OIDC JWKS discovery behind an injectable `JwksProvider` (Decision D1).
 //!
@@ -11,7 +12,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use base64::Engine;
@@ -19,6 +20,7 @@ use jsonwebtoken::DecodingKey;
 use serde::Deserialize;
 use thiserror::Error;
 use tokio::sync::RwLock;
+use tokio::time::Instant;
 
 /// Errors that can occur while resolving decoding keys from a JWKS document.
 #[derive(Debug, Error)]
@@ -127,12 +129,12 @@ impl JwksProvider for CachingJwksProvider {
                 Some(k) => k,
                 None => continue,
             };
-            // JWK `n`/`e` are base64url; `DecodingKey::from_rsa_components`
-            // expects standard base64, so normalize before handing over.
-            let n = normalize_b64(&jwk.n);
-            let e = normalize_b64(&jwk.e);
-            let key = DecodingKey::from_rsa_components(&n, &e)
-                .map_err(|err| JwksError::Parse(err.to_string()))?;
+            // JWK `n`/`e` are base64url encoded. Decode them to raw bytes
+            // before constructing the key; this avoids relying on a specific
+            // base64 alphabet in jsonwebtoken's string-based constructor.
+            let n = decode_rsa_component(&jwk.n)?;
+            let e = decode_rsa_component(&jwk.e)?;
+            let key = DecodingKey::from_rsa_raw_components(&n, &e);
             keys.insert(kid, key);
         }
 
@@ -148,8 +150,15 @@ impl JwksProvider for CachingJwksProvider {
     }
 }
 
+fn decode_rsa_component(s: &str) -> Result<Vec<u8>, JwksError> {
+    base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(s)
+        .or_else(|_| base64::engine::general_purpose::STANDARD.decode(s))
+        .map_err(|err| JwksError::Parse(format!("invalid RSA component: {err}")))
+}
+
 /// Decode a base64url (or standard) string and re-encode it as standard
-/// base64, so it can be consumed by `DecodingKey::from_rsa_components`.
+/// base64 for callers that need normalized textual output.
 pub fn normalize_b64(s: &str) -> String {
     let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(s)

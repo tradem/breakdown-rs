@@ -31,7 +31,8 @@ utoipa.workspace = true
 utoipa-swagger-ui.workspace = true
 
 # OIDC / JWT validation (Decision D1)
-jsonwebtoken = "11"
+# Select the RustCrypto backend explicitly; v11 otherwise panics when JWTs are verified.
+jsonwebtoken = { version = "11", features = ["rust_crypto"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 base64 = "0.23"
 async-trait.workspace = true
@@ -49,6 +50,8 @@ opentelemetry_sdk.workspace = true
 tower-http.workspace = true
 
 [dev-dependencies]
+# `test-util` enables deterministic Tokio clock control for cache-expiry tests.
+tokio = { workspace = true, features = ["test-util"] }
 rsa = "0.9"
 rand_core = "0.6"
 hyper = { version = "1", features = ["server", "http1"] }
