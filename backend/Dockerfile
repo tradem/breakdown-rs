@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4-flash (opencode-go)
 
 # Multi-stage build for the Breakdown RS API binary.
 # Used by docker-compose.prod.yml (ADR-016). Builds the `api` crate from the

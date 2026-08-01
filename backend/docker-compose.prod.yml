@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4-flash (opencode-go)
 
 # Production runtime for the two-tier stack (ADR-015 / ADR-016) with
 # in-transit TLS on every DB / event-store / object-store link (ADR-024,
@@ -72,14 +73,12 @@ services:
     command: ["--dir", "/app/data"]
     volumes:
       - sierradb_data:/app/data
+      - ./scripts/sierradb-healthcheck.sh:/scripts/sierradb-healthcheck.sh:ro
     healthcheck:
-      # The image ships no redis-cli; probe RESP3 PING over raw TCP via perl
-      # (present in the bookworm base). SierraDB answers +PONG to a raw PING.
-      test:
-        [
-          "CMD-SHELL",
-          "timeout 5 perl -e 'use IO::Socket::INET; $$s=IO::Socket::INET->new(PeerAddr=>\"127.0.0.1:9090\",Proto=>\"tcp\",Timeout=>3) or exit 1; print $$s \"*1\\r\\n\" . chr(36) . \"4\\r\\nPING\\r\\n\"; $$r=<$$s>; exit($$r =~ /PONG/ ? 0 : 1)'",
-        ]
+      # The image ships no redis-cli/perl; the script probes RESP3 PING over
+      # raw TCP via bash (present in the base). SierraDB answers +PONG to a
+      # raw PING.
+      test: ["CMD-SHELL", "bash /scripts/sierradb-healthcheck.sh"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -213,35 +212,13 @@ services:
     # digest (issue #156).
     image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
     restart: "no"
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        mkdir -p /config
-        cat > /config/config.toml <<EOF
-        metadata_dir = "/var/lib/garage/meta"
-        data_dir = "/var/lib/garage/data"
-        db_engine = "lmdb"
-        block_size = 1048576
-        replication_factor = 1
-        rpc_bind_addr = "0.0.0.0:3901"
-        rpc_public_addr = "garage:3901"
-        rpc_secret = "$GARAGE_RPC_SECRET"
-        [s3_api]
-        s3_region = "garage"
-        api_bind_addr = "0.0.0.0:3900"
-        root_domain = ".s3.garage.localhost"
-        [admin]
-        api_bind_addr = "0.0.0.0:3902"
-        admin_token = "$GARAGE_ADMIN_TOKEN"
-        metrics_token = "$GARAGE_METRICS_TOKEN"
-        EOF
-        chmod 644 /config/config.toml
-        grep -q "admin_token" /config/config.toml
+    entrypoint: ["/bin/sh", "/scripts/garage-config.sh"]
     environment:
       GARAGE_ADMIN_TOKEN: ${GARAGE_ADMIN_TOKEN:?GARAGE_ADMIN_TOKEN is required}
       GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET:?GARAGE_RPC_SECRET is required}
       GARAGE_METRICS_TOKEN: ${GARAGE_METRICS_TOKEN:-}
     volumes:
+      - ./scripts/garage-config.sh:/scripts/garage-config.sh:ro
       - garage_config:/config
 
 

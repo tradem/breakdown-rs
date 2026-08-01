@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 #![cfg_attr(

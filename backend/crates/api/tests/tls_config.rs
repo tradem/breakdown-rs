@@ -1,0 +1,155 @@
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (opencode-go)
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+//! Integration tests for the startup in-transit TLS gate
+//! (ADR-024 / issue #156): production connection strings must carry
+//! `sslmode=verify-full` + a pinned `sslrootcert`, `SIERRADB_URL` must be
+//! `rediss://`, and the S3 endpoints must be `https://`.
+
+use api::tls_config::TlsConfig;
+
+fn cfg(db: &str, migrator: Option<&str>, sierra: &str, s3: &str) -> TlsConfig {
+    TlsConfig {
+        database_url: Some(db.into()),
+        migrator_database_url: migrator.map(str::to_string),
+        sierradb_url: Some(sierra.into()),
+        s3_endpoint: Some(s3.into()),
+        ..Default::default()
+    }
+}
+
+/// A fully valid production config.
+fn valid() -> TlsConfig {
+    cfg(
+        "postgres://app:secret@postgres:5432/breakdown?sslmode=verify-full&sslrootcert=/certs/root_ca.crt",
+        None,
+        "rediss://stunnel:9091/?protocol=resp3",
+        "https://caddy:9443",
+    )
+}
+
+#[test]
+fn valid_production_config_passes() {
+    assert_eq!(valid().violations(), Vec::<String>::new());
+}
+
+#[test]
+fn plaintext_database_url_is_rejected() {
+    let c = cfg(
+        "postgres://app:secret@postgres:5432/breakdown",
+        None,
+        "rediss://stunnel:9091/?protocol=resp3",
+        "https://caddy:9443",
+    );
+    let v = c.violations();
+    assert!(
+        v.iter().any(|v| v.contains("sslmode=verify-full")),
+        "expected sslmode violation, got: {v:?}"
+    );
+    assert!(
+        v.iter().any(|v| v.contains("sslrootcert")),
+        "expected sslrootcert violation, got: {v:?}"
+    );
+}
+
+#[test]
+fn sslmode_prefer_is_rejected() {
+    // verify-prefer / allow / disable all fail the prod gate.
+    let c = cfg(
+        "postgres://app:secret@postgres:5432/breakdown?sslmode=prefer&sslrootcert=/certs/root_ca.crt",
+        None,
+        "rediss://stunnel:9091/?protocol=resp3",
+        "https://caddy:9443",
+    );
+    assert!(c.violations().iter().any(|v| v.contains("sslmode")));
+}
+
+#[test]
+fn missing_pinned_root_is_rejected() {
+    let c = cfg(
+        "postgres://app:secret@postgres:5432/breakdown?sslmode=verify-full",
+        None,
+        "rediss://stunnel:9091/?protocol=resp3",
+        "https://caddy:9443",
+    );
+    assert!(c.violations().iter().any(|v| v.contains("sslrootcert")));
+}
+
+#[test]
+fn query_params_in_any_order_are_accepted() {
+    // The validator parses query params order-independently (sslrootcert
+    // before sslmode here).
+    let mut c = valid();
+    c.database_url = Some(
+        "postgres://app:secret@postgres:5432/breakdown?sslrootcert=/certs/root_ca.crt&sslmode=verify-full"
+            .into(),
+    );
+    assert_eq!(c.violations(), Vec::<String>::new());
+}
+
+#[test]
+fn migrator_url_is_checked_independently() {
+    let c = cfg(
+        "postgres://app:secret@postgres:5432/breakdown?sslmode=verify-full&sslrootcert=/certs/root_ca.crt",
+        Some("postgres://migrator:secret@postgres:5432/breakdown"),
+        "rediss://stunnel:9091/?protocol=resp3",
+        "https://caddy:9443",
+    );
+    let v = c.violations();
+    assert!(
+        v.iter().any(|v| v.contains("MIGRATOR_DATABASE_URL")),
+        "expected migrator violation, got: {v:?}"
+    );
+}
+
+#[test]
+fn migrator_falling_back_to_database_url_is_fine() {
+    // MIGRATOR_DATABASE_URL unset/equal to DATABASE_URL must not double-report.
+    let c = cfg(
+        "postgres://app:secret@postgres:5432/breakdown?sslmode=verify-full&sslrootcert=/certs/root_ca.crt",
+        Some(
+            "postgres://app:secret@postgres:5432/breakdown?sslmode=verify-full&sslrootcert=/certs/root_ca.crt",
+        ),
+        "rediss://stunnel:9091/?protocol=resp3",
+        "https://caddy:9443",
+    );
+    assert_eq!(c.violations(), Vec::<String>::new());
+}
+
+#[test]
+fn plaintext_sierradb_url_is_rejected() {
+    let c = cfg(
+        "postgres://app:secret@postgres:5432/breakdown?sslmode=verify-full&sslrootcert=/certs/root_ca.crt",
+        None,
+        "redis://sierradb:9090/?protocol=resp3",
+        "https://caddy:9443",
+    );
+    let v = c.violations();
+    assert!(v.iter().any(|v| v.contains("rediss")), "got: {v:?}");
+}
+
+#[test]
+fn plaintext_s3_endpoint_is_rejected() {
+    let c = cfg(
+        "postgres://app:secret@postgres:5432/breakdown?sslmode=verify-full&sslrootcert=/certs/root_ca.crt",
+        None,
+        "rediss://stunnel:9091/?protocol=resp3",
+        "http://garage:3900",
+    );
+    let v = c.violations();
+    assert!(v.iter().any(|v| v.contains("S3_ENDPOINT")), "got: {v:?}");
+}
+
+#[test]
+fn report_backup_endpoints_are_checked() {
+    let mut c = valid();
+    c.report_backup_endpoint = Some("http://backup.example".into());
+    let v = c.violations();
+    assert!(
+        v.iter().any(|v| v.contains("REPORT_BACKUP_ENDPOINT")),
+        "got: {v:?}"
+    );
+}

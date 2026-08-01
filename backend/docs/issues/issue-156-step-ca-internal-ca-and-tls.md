@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: glm-5.2 (neuralwatt)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 # Issue #156 — step-ca internal CA + TLS for DB links (ADR-024)
 
@@ -53,7 +53,7 @@ shipped mechanism (the ADR's documented fallback).
   `opendal::raw::HttpClient`; region from `S3_REGION`, default `garage`).
 - `crates/infra/src/photo/storage.rs` + `reporting/storage.rs`: `from_env` /
   `build_s3_operator` now read `S3_TLS_ROOT_CERT` and use `s3_builder`.
-- `crates/api/src/tls_config.rs` (new, unit-tested): `TlsConfig::violations()`
+- `crates/api/src/tls_config.rs` (unit-tested via `crates/api/tests/tls_config.rs`, ADR-024): `TlsConfig::violations()`
   enforces `sslmode=verify-full` **and** `sslrootcert=…` on
   `DATABASE_URL`/`MIGRATOR_DATABASE_URL`, `rediss://` on `SIERRADB_URL`,
   `https://` on `S3_ENDPOINT` + `REPORT_BACKUP_*_ENDPOINT`.
@@ -99,13 +99,17 @@ shipped mechanism (the ADR's documented fallback).
 
 ### 3.4 Pre-existing blockers fixed along the way (required for the stack to boot)
 
-- **SierraDB healthcheck**: image ships no `redis-cli` → RESP3 PING via `perl`
-  over raw TCP (both dev + prod compose; runbooks updated).
+- **SierraDB healthcheck**: image ships no `redis-cli` → RESP3 PING via a
+  bash script (`scripts/sierradb-healthcheck.sh`) — no perl, no inline
+  compose commands (dev + prod compose).
 - **Garage config + healthcheck**: the `dxflrs/garage` image is a bare static
   binary (no shell, no env-var config, `-c` required). New `garage-config`
-  one-shot (alpine, digest-pinned) renders `config.toml` from `$GARAGE_*` into
-  the `garage_config` volume; garage healthcheck is exec-form
-  (`/garage -c /etc/garage/config.toml status`).
+  one-shot (alpine, digest-pinned) renders `config.toml` from `$GARAGE_*` via
+  `scripts/garage-config.sh` into the `garage_config` volume; garage
+  healthcheck is exec-form (`/garage -c /etc/garage/config.toml status`).
+- **Long compose commands → scripts** (cleanup): the SierraDB healthcheck and
+  the Garage config renderer are the only multi-line shell snippets and both
+  live in `scripts/` now — no inline heredocs / inline perl in compose YAML.
 - **`api` Docker build**: Dockerfile now copies `.patches/` + `config/`
   (needed by the workspace manifest and the embedded seed TOML) and pins
   `rust:1.94-bookworm` (locked deps — e.g. `sqlx 0.9` — require ≥1.94).

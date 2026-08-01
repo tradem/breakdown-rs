@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4-flash (opencode-go)
 
 # Breakdown RS operations runbooks
 
@@ -153,10 +154,10 @@ To upgrade SierraDB:
 ## 4. Healthchecks
 
 - Postgres: `pg_isready -U postgres` (10s interval).
-- SierraDB: RESP3 `PING` over raw TCP via `perl` (10s interval; the image
-  ships no `redis-cli` — the historical `redis-cli -3 PING` check never
-  worked, fixed in issue #156). **Must speak RESP3**; SierraDB does not answer
-  RESP2 `PING`.
+- SierraDB: RESP3 `PING` over raw TCP via a bash script
+  (`scripts/sierradb-healthcheck.sh`, 10s interval; the image ships no
+  `redis-cli` — the historical `redis-cli -3 PING` check never worked, fixed
+  in issue #156). **Must speak RESP3**; SierraDB does not answer RESP2 `PING`.
 - stunnel: `nc -z 127.0.0.1 9091` (TLS listener reachable).
 - step-ca: `curl -kfsS https://127.0.0.1:9000/health` (the CA cert has DNS
   SANs only — no IP SAN — so `-k` is required).

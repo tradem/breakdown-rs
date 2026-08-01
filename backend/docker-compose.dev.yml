@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4-flash (opencode-go)
 
 # Developer runtime for the full two-tier stack (ADR-015 / ADR-016):
 #   * Postgres  — CQRS projections (read model)
@@ -41,16 +42,13 @@ services:
       - "9090:9090"
     volumes:
       - sierradb_dev_data:/app/data
+      - ./scripts/sierradb-healthcheck.sh:/scripts/sierradb-healthcheck.sh:ro
     healthcheck:
-      # The image ships no redis-cli; probe RESP3 PING over raw TCP via perl
-      # (present in the bookworm base). SierraDB answers +PONG to a raw PING.
-      # (issue #156: the historical redis-cli check never worked — the binary
-      # is absent from tqwewe/sierradb:0.3.1.)
-      test:
-        [
-          "CMD-SHELL",
-          "timeout 5 perl -e 'use IO::Socket::INET; $$s=IO::Socket::INET->new(PeerAddr=>\"127.0.0.1:9090\",Proto=>\"tcp\",Timeout=>3) or exit 1; print $$s \"*1\\r\\n\" . chr(36) . \"4\\r\\nPING\\r\\n\"; $$r=<$$s>; exit($$r =~ /PONG/ ? 0 : 1)'",
-        ]
+      # The image ships no redis-cli/perl; the script probes RESP3 PING over
+      # raw TCP via bash (present in the base). SierraDB answers +PONG to a
+      # raw PING. (issue #156: the historical redis-cli check never worked —
+      # the binary is absent from tqwewe/sierradb:0.3.1.)
+      test: ["CMD-SHELL", "bash /scripts/sierradb-healthcheck.sh"]
       interval: 5s
       timeout: 3s
       retries: 5
