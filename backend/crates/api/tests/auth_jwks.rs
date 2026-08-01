@@ -10,10 +10,17 @@
 use api::auth::JwksProvider;
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: gpt-5.6-luna (opencode-go)
 
 use api::auth::jwks::{CachingJwksProvider, StaticJwksProvider, normalize_b64};
-use jsonwebtoken::DecodingKey;
+use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
+use rand_core::OsRng;
+use rsa::{RsaPrivateKey, pkcs1::EncodeRsaPrivateKey, traits::PublicKeyParts};
 use std::collections::HashMap;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 use std::time::Duration;
 
 #[tokio::test]
@@ -104,4 +111,102 @@ fn normalize_b64_converts_base64url_to_standard() {
         result3.is_empty(),
         "invalid base64 must produce empty string"
     );
+}
+
+#[tokio::test]
+async fn caching_provider_only_accepts_rsa_signing_keys_with_kids() {
+    let (jwks, private_key) = test_jwks();
+    let (url, request_count, server) = spawn_jwks_server(jwks).await;
+    let provider = CachingJwksProvider::new(url, reqwest::Client::new(), Duration::from_secs(3600));
+
+    let keys = provider.decoding_keys().await.unwrap();
+
+    assert_eq!(request_count.load(Ordering::SeqCst), 1);
+    assert_eq!(keys.len(), 1);
+    let signing_key = keys.get("signing").unwrap();
+
+    // Verify that the accepted key is not merely syntactically decodable: it
+    // must also be the public key corresponding to the generated private key.
+    let private_key_der = private_key.to_pkcs1_der().unwrap();
+    let token = encode(
+        &Header::new(Algorithm::RS256),
+        &serde_json::json!({ "sub": "test", "exp": 4_000_000_000_u64 }),
+        &EncodingKey::from_rsa_der(private_key_der.as_bytes()),
+    )
+    .unwrap();
+    let decoded =
+        decode::<serde_json::Value>(&token, signing_key, &Validation::new(Algorithm::RS256))
+            .unwrap();
+    assert_eq!(decoded.claims["sub"], "test");
+    server.abort();
+}
+
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn caching_provider_refreshes_at_and_after_ttl_boundary() {
+    let ttl = Duration::from_secs(60);
+    let (jwks, _) = test_jwks();
+    let (url, request_count, server) = spawn_jwks_server(jwks).await;
+    let provider = CachingJwksProvider::new(url, reqwest::Client::new(), ttl);
+
+    provider.decoding_keys().await.unwrap();
+    assert_eq!(request_count.load(Ordering::SeqCst), 1);
+
+    // The comparison is intentionally strict: at exactly the TTL the cache is
+    // stale and must be fetched again.
+    tokio::time::advance(ttl).await;
+    provider.decoding_keys().await.unwrap();
+    assert_eq!(request_count.load(Ordering::SeqCst), 2);
+
+    // A cache that is older than the TTL must also be refreshed. This catches
+    // the inverse (`>`) mutation independently of the exact-boundary check.
+    tokio::time::advance(ttl + Duration::from_nanos(1)).await;
+    provider.decoding_keys().await.unwrap();
+    assert_eq!(request_count.load(Ordering::SeqCst), 3);
+    server.abort();
+}
+
+fn test_jwks() -> (serde_json::Value, RsaPrivateKey) {
+    let private_key = RsaPrivateKey::new(&mut OsRng, 2048).unwrap();
+    let n = base64::Engine::encode(
+        &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+        private_key.n().to_bytes_be(),
+    );
+    let e = base64::Engine::encode(
+        &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+        private_key.e().to_bytes_be(),
+    );
+
+    (
+        serde_json::json!({
+            "keys": [
+                { "kty": "RSA", "kid": "signing", "use": "sig", "n": n, "e": e },
+                { "kty": "RSA", "kid": "encryption", "use": "enc", "n": n, "e": e },
+                { "kty": "EC", "kid": "elliptic", "use": "sig", "n": n, "e": e },
+                { "kty": "RSA", "use": "sig", "n": n, "e": e }
+            ]
+        }),
+        private_key,
+    )
+}
+
+async fn spawn_jwks_server(
+    body: serde_json::Value,
+) -> (String, Arc<AtomicUsize>, tokio::task::JoinHandle<()>) {
+    let request_count = Arc::new(AtomicUsize::new(0));
+    let request_count_for_handler = Arc::clone(&request_count);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let app = axum::Router::new().route(
+        "/jwks",
+        axum::routing::get(move || {
+            request_count_for_handler.fetch_add(1, Ordering::SeqCst);
+            let body = body.clone();
+            async move { axum::Json(body) }
+        }),
+    );
+    let server = tokio::spawn(async move {
+        let _ = axum::serve(listener, app.into_make_service()).await;
+    });
+
+    (format!("http://{address}/jwks"), request_count, server)
 }
