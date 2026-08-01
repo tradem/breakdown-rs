@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
+// Co-authored-by: gpt-5.6-luna (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -78,10 +79,10 @@ pub fn build_postgres_container_request() -> ContainerRequest<PostgresImage> {
     };
     // Allow enough connections for many projectors to hold long-lived
     // transactions simultaneously + concurrent test queries.
-    // The Postgres default max_connections=100 is too low for 11+ projectors
-    // each spawning up to 16 workers (each worker holds 1-2 connections).
-    base.with_startup_timeout(Duration::from_secs(120))
-        .with_env_var("POSTGRES_MAX_CONNECTIONS", "600")
+    // The official Postgres image ignores POSTGRES_MAX_CONNECTIONS, so pass
+    // max_connections to the server command instead of setting an env var.
+    base.with_cmd(["-c", "fsync=off", "-c", "max_connections=600"])
+        .with_startup_timeout(Duration::from_secs(120))
 }
 
 // ---------------------------------------------------------------------------

@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: glm-5.2 (neuralwatt)
+// Co-authored-by: gpt-5.6-luna (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -326,6 +327,16 @@ fn human_metadata(actor: UserId, series_id: Option<SeriesId>) -> Result<Vec<u8>>
 // Read helpers
 // ---------------------------------------------------------------------------
 
+/// Return whether an error is a transient SQLx pool acquisition failure.
+///
+/// Projector transactions can briefly consume all server-side connections while
+/// a test-side query is acquiring one. The query should remain within the
+/// projection deadline instead of turning that transient condition into a test
+/// failure.
+fn is_retryable_pool_error(message: &str) -> bool {
+    message.contains("pool timed out") || message.contains("PoolTimedOut")
+}
+
 /// Read `provenance` directly from `projection_audit` (the `AuditEntry` view
 /// does not yet expose this column).
 async fn read_provenance(
@@ -333,17 +344,30 @@ async fn read_provenance(
     entity_type: &str,
     entity_id: Uuid,
 ) -> Result<Option<String>> {
-    let row: Option<(String,)> = sqlx::query_as(
-        "SELECT provenance FROM projection_audit \
-         WHERE entity_type = $1 AND entity_id = $2 \
-         ORDER BY occurred_at DESC, id DESC LIMIT 1",
-    )
-    .bind(entity_type)
-    .bind(entity_id.to_string())
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| anyhow!("SQL error: {e}"))?;
-    Ok(row.map(|(p,)| p))
+    let deadline = Instant::now() + PROJECTION_DEADLINE;
+    loop {
+        let result: Result<Option<(String,)>, sqlx::Error> = sqlx::query_as(
+            "SELECT provenance FROM projection_audit \
+             WHERE entity_type = $1 AND entity_id = $2 \
+             ORDER BY occurred_at DESC, id DESC LIMIT 1",
+        )
+        .bind(entity_type)
+        .bind(entity_id.to_string())
+        .fetch_optional(pool)
+        .await;
+
+        match result {
+            Ok(row) => return Ok(row.map(|(p,)| p)),
+            Err(e) => {
+                let message = e.to_string();
+                if is_retryable_pool_error(&message) && Instant::now() < deadline {
+                    tokio::time::sleep(POLL_INTERVAL).await;
+                    continue;
+                }
+                return Err(anyhow!("SQL error: {e}"));
+            }
+        }
+    }
 }
 
 /// Wait until the audit projection has at least `min` matching rows for the
@@ -373,7 +397,9 @@ async fn await_audit_rows(
             }
             Err(ref e) => {
                 let msg = e.to_string();
-                if msg.contains("NotFound") && Instant::now() < deadline {
+                if (msg.contains("NotFound") || is_retryable_pool_error(&msg))
+                    && Instant::now() < deadline
+                {
                     tokio::time::sleep(POLL_INTERVAL).await;
                     continue;
                 }
@@ -409,7 +435,9 @@ async fn await_audit_by_series(
             Ok(_) => {}
             Err(ref e) => {
                 let msg = e.to_string();
-                if msg.contains("NotFound") && Instant::now() < deadline {
+                if (msg.contains("NotFound") || is_retryable_pool_error(&msg))
+                    && Instant::now() < deadline
+                {
                     tokio::time::sleep(POLL_INTERVAL).await;
                     continue;
                 }
