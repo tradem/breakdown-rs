@@ -9,19 +9,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result;
-use breakdown_core::character::ports::CharacterRepository;
 use breakdown_core::costume::aggregate::CostumeAggregate;
 use breakdown_core::costume::events::CostumeEvent;
-use breakdown_core::costume::ports::CostumeRepository;
-use breakdown_core::episode::ports::EpisodeRepository;
 use breakdown_core::photo::aggregate::PhotoAggregate;
-use breakdown_core::photo::binding::PhotoBinding;
 use breakdown_core::photo::commands::DeletePhoto;
 use breakdown_core::photo::ports::PhotoRepository;
-use breakdown_core::scene::ports::SceneRepository;
-use breakdown_core::scene_shoot::ports::SceneShootRepository;
-use breakdown_core::season::ports::SeasonRepository;
-use breakdown_core::shared::{EventMetadata, PhotoId, Provenance, SeriesId};
+use breakdown_core::shared::{EventMetadata, PhotoId, Provenance};
 use kameo_es::command_service::CommandService;
 use kameo_es::command_service::ExecuteExt;
 use kameo_es::event_handler::EventHandlerStreamBuilder;
@@ -36,10 +29,6 @@ use uuid::Uuid;
 use crate::event_store::map_version_only;
 use crate::photo::repository::PhotoRepositoryImpl;
 use crate::projectors::supervisor;
-use crate::queries::{
-    CharacterRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl, SceneRepositoryImpl,
-    SceneShootRepositoryImpl, SeasonRepositoryImpl,
-};
 
 /// Saga that reacts to `PhotoUnlinked` events on the `costume` stream.
 /// When the refcount reaches zero, dispatches `DeletePhoto` on the `Photo`
@@ -54,12 +43,6 @@ use crate::queries::{
 pub struct PhotoDeletionSaga {
     cmd_service: CommandService,
     repo: PhotoRepositoryImpl,
-    costume_repo: CostumeRepositoryImpl,
-    character_repo: CharacterRepositoryImpl,
-    season_repo: SeasonRepositoryImpl,
-    scene_shoot_repo: SceneShootRepositoryImpl,
-    scene_repo: SceneRepositoryImpl,
-    episode_repo: EpisodeRepositoryImpl,
     /// In-memory photo-link refcounts keyed by `PhotoId`.
     /// Incremented on `PhotoLinked`, decremented on `PhotoUnlinked`.
     /// When a count reaches 0, `DeletePhoto` is dispatched.
@@ -67,82 +50,11 @@ pub struct PhotoDeletionSaga {
 }
 
 impl PhotoDeletionSaga {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        cmd_service: CommandService,
-        repo: PhotoRepositoryImpl,
-        costume_repo: CostumeRepositoryImpl,
-        character_repo: CharacterRepositoryImpl,
-        season_repo: SeasonRepositoryImpl,
-        scene_shoot_repo: SceneShootRepositoryImpl,
-        scene_repo: SceneRepositoryImpl,
-        episode_repo: EpisodeRepositoryImpl,
-    ) -> Self {
+    pub fn new(cmd_service: CommandService, repo: PhotoRepositoryImpl) -> Self {
         Self {
             cmd_service,
             repo,
-            costume_repo,
-            character_repo,
-            season_repo,
-            scene_shoot_repo,
-            scene_repo,
-            episode_repo,
             refcounts: HashMap::new(),
-        }
-    }
-
-    /// Resolve `series_id` from the photo's binding.
-    async fn resolve_series_id(
-        &self,
-        photo_id: PhotoId,
-    ) -> Result<Option<SeriesId>, anyhow::Error> {
-        // Best-effort series_id resolution for the audit trail. Any projection
-        // miss (NotFound, lag, missing parent projector) yields Ok(None) rather
-        // than failing the saga — thumbnail/deletion processing must not be
-        // blocked by audit-metadata resolution.
-        let binding = self.repo.find_by_id(photo_id).await.ok().map(|p| p.binding);
-        let binding = match binding {
-            Some(b) => b,
-            None => return Ok(None),
-        };
-        match binding {
-            PhotoBinding::Costume { costume_id } => {
-                let costume = match self.costume_repo.find_by_id(costume_id).await.ok() {
-                    Some(c) => c,
-                    None => return Ok(None),
-                };
-                match costume.character_id {
-                    Some(character_id) => {
-                        let ch = match self.character_repo.find_by_id(character_id).await.ok() {
-                            Some(c) => c,
-                            None => return Ok(None),
-                        };
-                        Ok(self
-                            .season_repo
-                            .find_by_id(ch.season_id.0)
-                            .await
-                            .ok()
-                            .map(|s| s.series_id))
-                    }
-                    None => Ok(None),
-                }
-            }
-            PhotoBinding::Continuity { scene_shoot_id, .. } => {
-                let ss = match self.scene_shoot_repo.find_by_id(scene_shoot_id).await.ok() {
-                    Some(s) => s,
-                    None => return Ok(None),
-                };
-                let sc = match self.scene_repo.find_by_id(ss.scene_id).await.ok() {
-                    Some(s) => s,
-                    None => return Ok(None),
-                };
-                Ok(self
-                    .episode_repo
-                    .find_by_id(sc.episode_id.0)
-                    .await
-                    .ok()
-                    .map(|e| e.series_id))
-            }
         }
     }
 }
@@ -170,16 +82,27 @@ impl EntityEventHandler<CostumeAggregate, ()> for PhotoDeletionSaga {
                     self.refcounts.remove(&photo_id);
 
                     // Fetch the current version to dispatch delete with the
-                    // correct expected version.
+                    // correct expected version. This read-model lookup is a
+                    // concurrency guard (ExpectedVersion::Exact for
+                    // DeletePhoto), NOT audit-context resolution — series_id
+                    // below comes from the event data. (Suppression directive
+                    // on the find_by_id line below.)
                     let photo_id = PhotoId::from_uuid(photo_id);
-                    let version = match self.repo.find_by_id(photo_id).await {
-                        Ok(view) => view.version,
-                        Err(_) => {
-                            // Photo not found in projections — skip.
-                            return Ok(());
-                        }
+                    let Some(photo_view) = self
+                        .repo
+                        .find_by_id(photo_id) // ast-grep-ignore: cqrs-boundary
+                        .await
+                        .ok()
+                    else {
+                        // Photo not found in projections — skip.
+                        return Ok(());
                     };
-                    let series_id = self.resolve_series_id(photo_id).await?;
+                    let version = photo_view.version;
+                    // CQRS boundary: audit context comes from the event data
+                    // (populated by the Link/UnlinkPhoto command at the API
+                    // edge), never from a read-model projection. Missing
+                    // metadata yields None — same tolerant best-effort path.
+                    let series_id = event.metadata.data.as_ref().and_then(|m| m.series_id);
                     let stream_version =
                         crate::event_store::domain_to_stream(version).ok_or_else(|| {
                             anyhow::anyhow!(
@@ -245,28 +168,12 @@ impl EventProcessor<(CostumeAggregate,), PhotoDeletionSaga> for PhotoDeletionSag
 /// Spawn the deletion saga subscription loop (supervised, background).
 ///
 /// Subscribes to the `costume` stream and processes `PhotoUnlinked` events.
-#[allow(clippy::too_many_arguments)]
 pub async fn spawn_photo_deletion_saga(
     cmd_service: CommandService,
     repo: PhotoRepositoryImpl,
-    costume_repo: CostumeRepositoryImpl,
-    character_repo: CharacterRepositoryImpl,
-    season_repo: SeasonRepositoryImpl,
-    scene_shoot_repo: SceneShootRepositoryImpl,
-    scene_repo: SceneRepositoryImpl,
-    episode_repo: EpisodeRepositoryImpl,
     redis_client: Arc<RedisClient>,
 ) -> Result<()> {
-    let saga = PhotoDeletionSaga::new(
-        cmd_service,
-        repo,
-        costume_repo,
-        character_repo,
-        season_repo,
-        scene_shoot_repo,
-        scene_repo,
-        episode_repo,
-    );
+    let saga = PhotoDeletionSaga::new(cmd_service, repo);
     let _handle = supervisor::run_with_restart("photo_deletion_saga", move || {
         let mut saga = saga.clone();
         let client = redis_client.clone();

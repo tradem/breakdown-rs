@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4-flash (opencode-go)
+
+# ast-grep project config for the architecture guardrails.
+# Rules are run by the `architecture-checks.yml` workflow (cqrs-boundary and
+# test-shim-leak jobs), which restrict the scan paths to the write-side dirs /
+# production api files respectively.
+ruleDirs:
+  - rules

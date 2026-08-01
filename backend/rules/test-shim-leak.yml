@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4-flash (opencode-go)
+
+# Test-shim leak: production api code must never call test-only helpers
+# (aggressive_test_flush / test_profile) and must never use spawn_*_with_config
+# without ProjectorFlushConfig::default(). Production boot uses the plain
+# spawn_* wrapper with ProjectorFlushConfig::default() (commit 96fbd47).
+#
+# Scan scope is restricted to production files under crates/api/src (test
+# modules *_tests.rs / *_test.rs / test_helpers.rs are excluded by the CI job).
+#
+# Add any new test-only helper function name to `known_test_helpers` below.
+id: test-shim-leak
+message: >-
+  Production api code calls a test-only helper or a spawn_*_with_config
+  variant without ProjectorFlushConfig::default(). 'test_profile' /
+  'aggressive_*' must never be used outside tests; production boot must use the
+  plain spawn_* wrapper or pass ProjectorFlushConfig::default() explicitly.
+severity: error
+language: Rust
+utils:
+  known_test_helpers:
+    any:
+      - pattern: test_profile($$$ARGS)
+      - pattern: $SELF.test_profile($$$ARGS)
+      - pattern: $TYPE::test_profile($$$ARGS)
+      - pattern: aggressive_test_flush($$$ARGS)
+      - pattern: $SELF.aggressive_test_flush($$$ARGS)
+      - pattern: $TYPE::aggressive_test_flush($$$ARGS)
+  with_config_without_default:
+    all:
+      # Metavariables cannot appear inside identifiers, so identify
+      # spawn_*_with_config calls via a regex on the call node text.
+      - pattern: $FUNC($$$ARGS)
+      - regex: '^spawn_[a-z0-9_]*_with_config\s*\('
+      - not:
+          has:
+            # stopBy: end — ProjectorFlushConfig::default() is an argument
+            # expression, i.e. a descendant (not a direct child) of the call.
+            pattern: ProjectorFlushConfig::default()
+            stopBy: end
+rule:
+  any:
+    - matches: known_test_helpers
+    - matches: with_config_without_default

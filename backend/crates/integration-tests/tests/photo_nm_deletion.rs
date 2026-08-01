@@ -155,25 +155,12 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
     infra::photo::sagas::spawn_photo_thumbnail_saga(
         cmd_service.clone(),
         storage.clone(),
-        PhotoRepositoryImpl::new(pool.clone()),
-        infra::queries::CostumeRepositoryImpl::new(pool.clone()),
-        infra::queries::CharacterRepositoryImpl::new(pool.clone()),
-        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
-        infra::queries::SceneShootRepositoryImpl::new(pool.clone()),
-        infra::queries::SceneRepositoryImpl::new(pool.clone()),
-        infra::queries::EpisodeRepositoryImpl::new(pool.clone()),
         Arc::clone(&redis_client),
     )
     .await?;
     infra::photo::sagas::spawn_photo_deletion_saga(
         cmd_service.clone(),
         photo_repo.clone(),
-        infra::queries::CostumeRepositoryImpl::new(pool.clone()),
-        infra::queries::CharacterRepositoryImpl::new(pool.clone()),
-        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
-        infra::queries::SceneShootRepositoryImpl::new(pool.clone()),
-        infra::queries::SceneRepositoryImpl::new(pool.clone()),
-        infra::queries::EpisodeRepositoryImpl::new(pool.clone()),
         Arc::clone(&redis_client),
     )
     .await?;

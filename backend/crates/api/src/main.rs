@@ -304,25 +304,12 @@ async fn main() -> Result<()> {
     infra::photo::sagas::spawn_photo_thumbnail_saga(
         cmd_service.clone(),
         photo_storage.clone(),
-        photo_repo.clone(),
-        costume_repo.clone(),
-        character_repo.clone(),
-        season_repo.clone(),
-        scene_shoot_repo.clone(),
-        scene_repo.clone(),
-        episode_repo.clone(),
         Arc::clone(&redis_client),
     )
     .await?;
     infra::photo::sagas::spawn_photo_deletion_saga(
         cmd_service.clone(),
         photo_repo.clone(),
-        costume_repo.clone(),
-        character_repo.clone(),
-        season_repo.clone(),
-        scene_shoot_repo.clone(),
-        scene_repo.clone(),
-        episode_repo.clone(),
         Arc::clone(&redis_client),
     )
     .await?;
@@ -334,12 +321,6 @@ async fn main() -> Result<()> {
     infra::photo::sagas::spawn_continuity_deletion_saga(
         cmd_service.clone(),
         photo_repo.clone(),
-        costume_repo.clone(),
-        character_repo.clone(),
-        season_repo.clone(),
-        scene_shoot_repo.clone(),
-        scene_repo.clone(),
-        episode_repo.clone(),
         Arc::clone(&redis_client),
     )
     .await?;

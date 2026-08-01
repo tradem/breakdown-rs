@@ -7,7 +7,7 @@ You are the primary coding agent for `breakdown-rs` – a collaborative costume 
 - **CQRS & Event Sourcing:**
   - **Write Side:** All state changes occur via **Commands** sent to **Aggregates**. Aggregates validate commands and emit **Events**. State is never updated directly; it is rebuilt by replaying past events.
   - **Read Side:** **Queries** read from flat PostgreSQL **Projections**. Event Handlers asynchronously update these projections when new events occur. Never query aggregates directly for views.
-  - **CQRS Boundary (hard rule):** Write-side code — Command adapters (`*CommandsImpl`), Sagas, Aggregates — must **never** query a read-model projection (`*Repository::find_by_id`) to resolve audit/derived context such as `series_id`. Such context must come from the **event data itself** (e.g. `SeasonCreated.series_id`) or from a **command field** populated at the API edge. The API layer (handlers) is the *only* legitimate consumer of read-model queries and may enrich commands before dispatch. Violating this creates a hidden coupling to projector presence and projection lag that breaks tests and, in production, risks silent audit gaps when a parent projector lags. (See issue #147 for the known backlog.)
+  - **CQRS Boundary (hard rule):** Write-side code — Command adapters (`*CommandsImpl`), Sagas, Aggregates — must **never** query a read-model projection (`*Repository::find_by_id`) to resolve audit/derived context such as `series_id`. Such context must come from the **event data itself** (e.g. `SeasonCreated.series_id`) or from a **command field** populated at the API edge. The API layer (handlers) is the *only* legitimate consumer of read-model queries and may enrich commands before dispatch. Violating this creates a hidden coupling to projector presence and projection lag that breaks tests and, in production, risks silent audit gaps when a parent projector lags. The `cqrs-boundary` job in `architecture-checks.yml` enforces this mechanically for `crates/infra/src/event_store/`, `crates/infra/src/sagas/`, and `crates/infra/src/photo/sagas/` via the AST-based ast-grep rule `backend/rules/cqrs-boundary.yml` (issue #148). A non-audit read-model lookup (e.g. the `ExpectedVersion` concurrency guard in the photo deletion sagas) is permitted only with an explicit `// ast-grep-ignore: cqrs-boundary` suppression on the call line, carrying a justification comment above it.
 - **kameo_es (Actors):** We use `kameo_es` for Event-Sourced aggregates. Each aggregate is a `kameo::Actor` implementing `kameo_es::Entity`. Commands act as `kameo_es::Command`.
 
 ## 2. Workspace Structure
@@ -103,11 +103,31 @@ membership check via the shooting_day → episode → block → season chain). T
   that performs a privileged action MUST follow the same pattern — add a `// AUTHZ-GATE:`
   comment and call the appropriate policy method. Reviewers `grep` for `AUTHZ-GATE` to
   verify no handler has missed its gate.
+- **Handoff-Prompt / Task-Spec Architecture Review (pre-implementation checklist):**
+  Every handoff prompt or task spec MUST pass this review **before** it is dispatched to an
+  agent. A human reviewer applies each item; any "yes" to a forbidden pattern means the spec
+  must be rewritten before implementation starts (issues #147/#148):
+  - [ ] Does the plan have the write-side query a read-model projection? (CQRS violation —
+        reject unless at the API edge.)
+  - [ ] Does the plan introduce `unwrap`/`expect`/`panic` in hot paths (adapters, sagas,
+        projectors, handlers)?
+  - [ ] Does the plan call test-only helpers from production spawn paths?
+  - [ ] Does the plan carry audit metadata (`series_id`) in a way that couples to projector
+        presence?
 
 ## 4. Testing & Guardrails
 - **Unit/Integration Tests:** Write deterministic tests for domain logic in `core`.
 - **Mutation Testing:** Run `cargo mutants` ([crate](https://crates.io/crates/cargo-mutants) • [GitHub](https://github.com/sourcefrog/cargo-mutants)). Improve test coverage if mutants survive. Use `cargo mutants --in-diff` to only test changed code. The mutation configuration lives in `.cargo/mutants.toml` — a top-level `.mutants.toml` is **not** read by cargo-mutants, so any settings placed there are silently ignored.
 - **Architecture Tests:** We use `rust_arkitect` (source-level) and `cargo-deny` (dependency-level) to enforce boundary rules (ADR-017). Run `cargo test -p architecture_tests` and `cargo deny check bans` to ensure core does not depend on infra/api.
+- **Mechanical Guardrails (CI):** The `architecture-checks.yml` workflow enforces the
+  write-side CQRS boundary (`cqrs-boundary` job: no `find_by_id` in
+  `crates/infra/src/event_store/` + `**/sagas/`, via the AST-based ast-grep rule
+  `backend/rules/cqrs-boundary.yml`; `// ast-grep-ignore: cqrs-boundary` for non-audit
+  reads) and blocks test-only helpers in production api code (`test-shim-leak` job:
+  `test_profile`/`aggressive_*`/`spawn_*_with_config` without
+  `ProjectorFlushConfig::default()`, via `backend/rules/test-shim-leak.yml`) — issue #148.
+  The `backend/git-hooks/pre-commit` hook mirrors both rules on staged files (warning
+  only if ast-grep is not installed; CI remains the authoritative gate).
 
 ### Integration tests
 

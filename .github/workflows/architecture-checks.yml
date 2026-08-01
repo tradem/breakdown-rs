@@ -1,13 +1,19 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4-flash (opencode-go)
+
 name: Architecture Checks
 
 permissions:
   contents: read
 
-# Four-layer enforcement:
+# Six-layer enforcement:
 #   Layer 1: cargo-deny — checks advisories, bans, licenses, and sources
 #   Layer 2: rust_arkitect — inspects actual `use` statements for boundary violations
 #   Layer 3: no-string-interpolation-sql — forbids dynamic SQL construction in repository adapters
-#   Layer 4: gitleaks — blocks accidental secret commits against 150+ patterns
+#   Layer 4: cqrs-boundary — ast-grep: write-side code (adapters, sagas) must not query read-model projections
+#   Layer 5: test-shim-leak — ast-grep: production api code must not call test-only helpers
+#   Layer 6: gitleaks — blocks accidental secret commits against 150+ patterns
 #
 # See backend/AGENTS.md § Testing & Guardrails and § Security
 # See backend/docs/architecture/adrs/ADR-017-architecture-testing-strategy.md
@@ -19,6 +25,8 @@ on:
       - "backend/Cargo.toml"
       - "backend/Cargo.lock"
       - "backend/deny.toml"
+      - "backend/rules/**"
+      - "backend/sgconfig.yml"
       - ".gitleaks.toml"
       - ".github/workflows/architecture-checks.yml"
   workflow_dispatch:
@@ -72,6 +80,82 @@ jobs:
             exit 1
           fi
           echo "OK: no string-interpolated SQL found in $DIR"
+
+  cqrs-boundary:
+    name: CQRS boundary (no read-model queries in write-side)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install ast-grep 0.45.0 (SHA-pinned)
+        run: |
+          set -e
+          curl -fsSL -o /tmp/ast-grep.zip https://github.com/ast-grep/ast-grep/releases/download/0.45.0/app-x86_64-unknown-linux-gnu.zip
+          echo "78931ae35ebac33d9a72b3aecea3e3d62d6e5b0b718ac8bbedfbe69d68421e41  /tmp/ast-grep.zip" | sha256sum -c -
+          unzip -q /tmp/ast-grep.zip -d /tmp/ast-grep-install
+          sudo mv /tmp/ast-grep-install/ast-grep /usr/local/bin/
+          ast-grep --version
+
+      - name: Forbid read-model find_by_id in write-side code (ast-grep)
+        run: |
+          set -e
+          # Write-side code (command adapters, sagas, aggregates) must never
+          # resolve audit/derived context (e.g. series_id for EventMetadata)
+          # from read-model projections — CQRS-boundary rule (AGENTS.md §1).
+          # The API layer (handlers) is the only legitimate consumer.
+          #
+          # AST-based rule: backend/rules/cqrs-boundary.yml. A non-audit
+          # read-model lookup (e.g. the ExpectedVersion concurrency guard in
+          # the photo deletion sagas) is permitted only with an explicit
+          # `// ast-grep-ignore: cqrs-boundary` suppression on the call line
+          # and a justification comment above it.
+          # Scan scope = the write-side directories only.
+          ast-grep scan -r rules/cqrs-boundary.yml \
+            crates/infra/src/event_store \
+            crates/infra/src/sagas \
+            crates/infra/src/photo/sagas
+          echo "OK: no CQRS-boundary violations found"
+
+  test-shim-leak:
+    name: Test-shim leak (no test helpers in production)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install ast-grep 0.45.0 (SHA-pinned)
+        run: |
+          set -e
+          curl -fsSL -o /tmp/ast-grep.zip https://github.com/ast-grep/ast-grep/releases/download/0.45.0/app-x86_64-unknown-linux-gnu.zip
+          echo "78931ae35ebac33d9a72b3aecea3e3d62d6e5b0b718ac8bbedfbe69d68421e41  /tmp/ast-grep.zip" | sha256sum -c -
+          unzip -q /tmp/ast-grep.zip -d /tmp/ast-grep-install
+          sudo mv /tmp/ast-grep-install/ast-grep /usr/local/bin/
+          ast-grep --version
+
+      - name: Forbid test-only helpers in production api code (ast-grep)
+        run: |
+          set -e
+          # Production files under crates/api/src — test modules excluded
+          # (*_tests.rs, *_test.rs, test_helpers.rs, any tests/ dir).
+          mapfile -t FILES < <(find crates/api/src -name '*.rs' \
+            ! -name '*_tests.rs' ! -name '*_test.rs' ! -name 'test_helpers.rs' \
+            ! -path '*/tests/*' ! -path '*/test_helpers/*')
+          # AST-based rule: backend/rules/test-shim-leak.yml — denies test-only
+          # helpers (test_profile / aggressive_*) and any spawn_*_with_config
+          # call that does not pass ProjectorFlushConfig::default().
+          if [ "${#FILES[@]}" -gt 0 ]; then
+            ast-grep scan -r rules/test-shim-leak.yml "${FILES[@]}"
+          fi
+          echo "OK: no test-only helpers reachable from production api code"
 
   gitleaks:
     name: Gitleaks (secrets)

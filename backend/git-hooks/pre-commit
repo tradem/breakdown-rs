@@ -1,7 +1,15 @@
 #!/bin/bash
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4-flash (opencode-go)
+
 # Pre-commit hook for Breakdown RS Backend
-# Runs: gitleaks, rustfmt, clippy, cargo check
+# Runs: gitleaks, rustfmt, clippy, cargo check, ast-grep guardrails
 # To install: cd backend && ln -sf ../../git-hooks/pre-commit .git/hooks/pre-commit
+#
+# The ast-grep steps mirror the cqrs-boundary / test-shim-leak jobs in
+# .github/workflows/architecture-checks.yml. Keep the path scoping in sync
+# with backend/rules/*.yml and the CI jobs.
 
 set -e
 
@@ -13,7 +21,6 @@ cd "$(git rev-parse --show-toplevel)/backend"
 
 # Get list of staged Rust files
 STAGED_RS_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.rs$' || true)
-STAGED_TOML_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.toml$' || true)
 
 # 1. Run gitleaks on all staged files
 echo "📝 Checking for secrets with gitleaks..."
@@ -51,6 +58,30 @@ if [ -n "$STAGED_RS_FILES" ]; then
     echo "✓ Running cargo check..."
     cargo check --all-targets --all-features
     echo "✓ Cargo check passed"
+    echo ""
+fi
+
+# 5. Run ast-grep guardrails on staged files (mirrors the CI jobs)
+if [ -n "$STAGED_RS_FILES" ]; then
+    echo "🛡️  Running ast-grep guardrails (cqrs-boundary / test-shim-leak)..."
+    if command -v ast-grep &> /dev/null; then
+        # Write-side dirs → cqrs-boundary rule (see backend/rules/cqrs-boundary.yml)
+        WRITE_SIDE_FILES=$(echo "$STAGED_RS_FILES" | grep -E '^crates/infra/src/(event_store|sagas|photo/sagas)/' || true)
+        if [ -n "$WRITE_SIDE_FILES" ]; then
+            echo "$WRITE_SIDE_FILES" | xargs -r ast-grep scan -r rules/cqrs-boundary.yml
+        fi
+        # Production api files (test modules excluded) → test-shim-leak rule
+        API_PROD_FILES=$(echo "$STAGED_RS_FILES" | grep '^crates/api/src/' \
+            | grep -vE '_tests\.rs$|_test\.rs$|test_helpers\.rs$|/tests/|/test_helpers/' || true)
+        if [ -n "$API_PROD_FILES" ]; then
+            echo "$API_PROD_FILES" | xargs -r ast-grep scan -r rules/test-shim-leak.yml
+        fi
+        echo "✓ ast-grep guardrails passed"
+    else
+        echo "⚠️  Warning: ast-grep not installed. Install with: cargo install ast-grep"
+        echo "   Or download from: https://github.com/ast-grep/ast-grep/releases"
+        echo "   (CI enforces these rules; the hook is a fast local pre-check.)"
+    fi
     echo ""
 fi
 
