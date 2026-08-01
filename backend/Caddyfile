@@ -55,3 +55,21 @@
 :80 {
 	respond "Not Found" 404
 }
+
+# Internal TLS front for Garage S3 (ADR-024 / issue #156).
+#
+# Garage (`dxflrs/garage:v1.0.1`) has no built-in TLS on its S3 API endpoint,
+# so the same Caddy instance terminates TLS for the photo/archival S3 links on
+# an internal-only listener. The `api` container reaches it as
+# `https://caddy:9443` (cert SAN `caddy`, issued by the `tls-provision` loop
+# from the internal step-ca into the `tls_data` volume mounted at /certs).
+# Garage's plaintext `:3900` stays Docker-internal and is never published.
+#
+# This block is deliberately file-certificate based (not ACME): step-ca's ACME
+# challenge routing inside the Docker network would require DNS/SNI wiring for
+# a hostname that only exists on the compose network; the provision loop keeps
+# the short-TTL files fresh and Caddy reloads them on change/restart.
+https://caddy:9443 {
+	tls /certs/caddy.crt /certs/caddy.key
+	reverse_proxy garage:3900
+}

@@ -312,11 +312,21 @@ fn build_s3_operator(
     secret_key: &str,
     bucket: &str,
 ) -> Result<Operator, ReportStorageError> {
-    let builder = opendal::services::S3::default()
-        .endpoint(endpoint)
-        .access_key_id(access_key)
-        .secret_access_key(secret_key)
-        .bucket(bucket);
+    // Pin the internal step-ca root on https:// endpoints (ADR-024): both the
+    // photo storage and the report-archival S3 links run through the Caddy
+    // internal TLS site, whose cert is signed by the private CA.
+    let root_cert = crate::tls::root_cert_from_env("S3_TLS_ROOT_CERT").map_err(|e| {
+        ReportStorageError::provider_failure(format!("invalid S3_TLS_ROOT_CERT: {e}"))
+    })?;
+
+    let builder = crate::tls::s3_builder(
+        endpoint,
+        access_key,
+        secret_key,
+        bucket,
+        root_cert.as_deref(),
+    )
+    .map_err(ReportStorageError::provider_failure)?;
 
     Operator::new(builder)
         .map_err(|e| {

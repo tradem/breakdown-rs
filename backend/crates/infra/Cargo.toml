@@ -34,6 +34,11 @@ toml = "1.1"
 # services-gdrive: report archival external provider (ADR-022 D6 spike).
 opendal = { version = "0.52", features = ["services-s3", "services-gdrive"] }
 
+# HTTP client used to pin the step-ca root CA on the https:// Garage/Caddy
+# endpoint (ADR-024 / issue #156). Same version + TLS backend as OpenDAL's
+# reqwest (feature-unified via Cargo), passed through `opendal::raw::HttpClient`.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+
 # SHA-256 content digests for report archival staging/retry verification.
 sha2 = "0.10"
 

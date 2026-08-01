@@ -119,3 +119,15 @@ reconnect / pool refresh.
   unverified, ship the `stunnel` sidecar as the documented recommendation;
   downgrade to native TLS only after a verified upstream capability. (Garage
   TLS support is already resolved: **not built-in** — front it with Caddy.)
+
+## Verification note (issue #156, 2026-08-01)
+
+**The SierraDB TLS assumption is resolved: `tqwewe/sierradb:0.3.1` has NO
+native TLS listener.** Verified against the upstream sources (`AppConfig` in
+`crates/sierradb-server/src/config.rs` carries no TLS options; unknown config
+keys are silently ignored — a `tls = true` probe config is accepted and does
+nothing) and by probing the image. The **`stunnel` sidecar is therefore the
+shipped mechanism** (docker-compose.prod.yml, `rediss://stunnel:9091`);
+native RESP3 TLS remains an upstream-tracking follow-up. The Garage link is
+fronted by Caddy on the internal `:9443` site with a step-ca-issued cert;
+OpenDAL pins the step-ca root.

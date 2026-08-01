@@ -11,6 +11,7 @@ pub mod auth;
 pub mod handlers;
 pub mod routes;
 pub mod state;
+pub mod tls_config;
 
 use utoipa::OpenApi;
 

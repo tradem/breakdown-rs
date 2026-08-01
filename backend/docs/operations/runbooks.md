@@ -1,37 +1,70 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4-flash (opencode-go)
 
 # Breakdown RS operations runbooks
 
-Runtime tiers (ADR-015 / ADR-016 / ADR-025):
+Runtime tiers (ADR-015 / ADR-016 / ADR-025 / ADR-024):
 
-| Tier      | Image                        | Port      | Role                                        | Volume              |
-|-----------|------------------------------|-----------|---------------------------------------------|---------------------|
-| Postgres  | `postgres:16-alpine`         | 5432      | CQRS read-model projections                 | `postgres_data`     |
-| SierraDB  | `tqwewe/sierradb:0.3.1`      | 9090      | RESP3 event store (write model)             | `sierradb_data`     |
-| Caddy     | `caddy:2.9.1-alpine`         | 80 / 443  | HTTPS edge / ACME TLS termination (ADR-025) | `caddy_data`        |
+| Tier           | Image                                  | Port      | Role                                            | Volume               |
+|----------------|----------------------------------------|-----------|-------------------------------------------------|----------------------|
+| Postgres       | `postgres:16-alpine`                   | 5432      | CQRS read-model projections (native TLS)        | `postgres_data`      |
+| SierraDB       | `tqwewe/sierradb:0.3.1`                | 9090      | RESP3 event store (write model), internal-only  | `sierradb_data`      |
+| stunnel        | `dweomer/stunnel` (digest-pinned)      | 9091      | TLS sidecar fronting SierraDB (ADR-024)         | —                    |
+| step-ca        | `smallstep/step-ca:0.28.4` (digest)    | 9000      | Internal CA, short-TTL certs (ADR-024)          | `step_ca_data`       |
+| tls-provision  | `smallstep/step-ca:0.28.4` (digest)    | —         | Cert provision loop for the internal mesh       | `tls_data` (shared)  |
+| Garage         | `dxflrs/garage:v1.0.1`                 | 3900      | S3 photo storage, internal-only (TLS via Caddy) | `garage_data`        |
+| Caddy          | `caddy:2.9.1-alpine` (digest)          | 80 / 443  | HTTPS edge / ACME (ADR-025) + internal :9443    | `caddy_data`         |
 
 Runtime compose files:
 
 - `backend/docker-compose.dev.yml` — minimal dev surface (no `api` service).
 - `backend/docker-compose.prod.yml` — production (adds the `api` service, restart
-  policies, OTEL env, `depends_on` health gating, the `caddy` HTTPS edge).
+  policies, OTEL env, `depends_on` health gating, the `caddy` HTTPS edge, and
+  the internal TLS mesh: `step-ca` + `tls-provision` + `stunnel` sidecar,
+  ADR-024).
 - `backend/docker-compose.caddy.yml` — dev-only HTTPS edge overlay (ADR-025);
   pairs with `backend/Caddyfile.dev` (prod edge: `backend/Caddyfile`).
 - `backend/docker-compose.idp.yml` — dev-only OIDC overlay (ADR-010).
 
+## 0. In-transit TLS (ADR-024 / issue #156)
+
+Every DB / event-store / object-store link is TLS-encrypted and pinned to the
+internal `step-ca` root:
+
+| Link                | Mechanism                                                                                 |
+|---------------------|-------------------------------------------------------------------------------------------|
+| API ↔ Postgres      | native TLS (`ssl=on`), `sslmode=verify-full` + `sslrootcert=/certs/root_ca.crt`           |
+| migrator ↔ Postgres | same URL params on `MIGRATOR_DATABASE_URL` (validated at startup)                          |
+| API ↔ SierraDB      | `rediss://stunnel:9091` — stunnel sidecar terminates TLS, plaintext RESP3 only to SierraDB |
+| API ↔ Garage (S3)   | `https://caddy:9443` — Caddy internal site terminates TLS, OpenDAL pins the root           |
+
+First boot bootstraps the CA automatically from `STEP_CA_PASSWORD` (the one
+allowed `.env` bootstrap secret, ADR-027); `tls-provision` then issues 24h
+leaf certs (postgres, stunnel, caddy) into the `tls_data` volume and renews
+them every 12h. Old certs stay valid until their TTL, so rotating servers
+never break clients; Postgres picks up the renewed server cert on
+`pg_ctl reload` / restart (a documented ops step — clients keep trusting the
+old cert until its TTL either way).
+
+The API refuses plaintext prod URLs when `REQUIRE_IN_TRANSIT_TLS=true` (set by
+`docker-compose.prod.yml`): missing `sslmode=verify-full`, a `redis://`
+`SIERRADB_URL`, or an `http://` `S3_ENDPOINT` fail startup fast.
+
 ## 1. Boot / shutdown
 
 ```bash
-# Production (DOMAIN is required — see § HTTPS edge below)
-POSTGRES_PASSWORD=... DOMAIN=api.breakdown.example \
+# Production (DOMAIN + STEP_CA_PASSWORD are required — see §0 and § HTTPS edge below)
+POSTGRES_PASSWORD=... STEP_CA_PASSWORD=... DOMAIN=api.breakdown.example \
   docker compose -f docker-compose.prod.yml up -d
 docker compose -f docker-compose.prod.yml down       # keep volumes
-docker compose -f docker-compose.prod.yml down -v    # DESTROY volumes
+docker compose -f docker-compose.prod.yml down -v    # DESTROY volumes (incl. CA key!)
 ```
 
-Boot order: `postgres`/`sierradb`/`garage` must be healthy, then the `api`
-binary starts (migrations via `sqlx::migrate!` at boot), then `caddy` starts.
+Boot order: `step-ca` (CA bootstrap) → `tls-provision` (issues certs) →
+`postgres`/`sierradb`/`garage` healthy (garage config rendered by the
+`garage-config` one-shot) → `stunnel` → `api` binary starts (migrations via
+`sqlx::migrate!` at boot over TLS) → `caddy` starts.
 
 The `api` container is **Docker-internal only** — it publishes no host port
 (issue #155 / ADR-025). The only host-published ports are Caddy's `:80`
@@ -82,12 +115,29 @@ docker run --rm -v caddy_data:/data -v "$PWD/backups":/backup alpine \
 docker compose -f docker-compose.prod.yml start caddy
 ```
 
+### step-ca / tls_data (internal PKI, ADR-024)
+`step_ca_data` holds the CA key material — **the** high-blast-radius volume
+(compromise = the whole internal PKI). Back it up alongside the databases and
+keep the offline copy separated (ADR-023):
+```bash
+docker compose -f docker-compose.prod.yml stop step-ca
+docker run --rm -v step_ca_data:/data -v "$PWD/backups":/backup alpine \
+  tar czf /backup/step_ca_data_$(date +%F).tgz -C /data .
+docker compose -f docker-compose.prod.yml start step-ca
+```
+`tls_data` holds only short-TTL leaf certs (re-issuable) — no backup needed.
+
 ## 3. Version pinning
 
-Both tiers are pinned (ADR-016):
+All tiers are pinned (ADR-016 / ADR-024):
 
 - `postgres:16-alpine`
 - `tqwewe/sierradb:0.3.1`
+- `dxflrs/garage:v1.0.1`
+- `dweomer/stunnel` — pinned **by digest** in `docker-compose.prod.yml`
+  (issue #156); upstream publishes only `latest`, the digest is the pin.
+- `smallstep/step-ca:0.28.4` — pinned **by digest** (issue #156).
+- `alpine:3.20` — `garage-config` renderer, pinned **by digest** (issue #156).
 - `caddy:2.9.1-alpine` — pinned **by digest** in `docker-compose.prod.yml`
   (issue #155); the dev overlay may use the plain tag.
 
@@ -104,8 +154,18 @@ To upgrade SierraDB:
 ## 4. Healthchecks
 
 - Postgres: `pg_isready -U postgres` (10s interval).
-- SierraDB: `redis-cli -h 127.0.0.1 -p 9090 -3 PING` (10s interval). **Must use
-  RESP3** (`-3`); SierraDB does not answer RESP2 `PING`.
+- SierraDB: RESP3 `PING` over raw TCP via a bash script
+  (`scripts/sierradb-healthcheck.sh`, 10s interval; the image ships no
+  `redis-cli` — the historical `redis-cli -3 PING` check never worked, fixed
+  in issue #156). **Must speak RESP3**; SierraDB does not answer RESP2 `PING`.
+- stunnel: `nc -z 127.0.0.1 9091` (TLS listener reachable).
+- step-ca: `curl -kfsS https://127.0.0.1:9000/health` (the CA cert has DNS
+  SANs only — no IP SAN — so `-k` is required).
+- tls-provision: certificate files exist in the `tls_data` volume
+  (`root_ca.crt`, `postgres.*`, `stunnel.*`, `caddy.*`).
+- Garage: `garage -c /etc/garage/config.toml status` in exec form (the image
+  is a bare static binary — no shell, so `CMD-SHELL` healthchecks cannot
+  work; fixed in issue #156).
 - Caddy: no healthcheck configured. A malformed Caddyfile makes Caddy exit on
   startup (visible in `docker compose logs caddy`; `restart: unless-stopped`
   keeps retrying), so `docker compose config` + a `caddy validate` pass in CI
@@ -135,10 +195,29 @@ Prerequisites before first prod boot:
    open `:80`/`:443` in the host firewall (ADR-026). HTTP-01 requires both
    ports reachable from the internet.
 2. **Persistent, encrypted volume** — `caddy_data`/`caddy_config` must live on
-   the LUKS-protected volume (ADR-023), like the DB volumes.
-3. **Swagger UI lockdown** — `/swagger-ui` remains reachable via the edge;
+   the LUKS-protected volume (ADR-023), like the DB volumes and `step_ca_data`
+   (the CA key).
+3. **`STEP_CA_PASSWORD`** — the internal CA bootstraps on first boot from this
+   env var (the one allowed `.env` bootstrap secret, ADR-027). Rotating it
+   later requires re-initialising the CA; keep it in the secrets store.
+4. **Swagger UI lockdown** — `/swagger-ui` remains reachable via the edge;
    gating it (basic-auth / allowlist) is a separate deployment concern
    (ADR-025) and not part of this transport change.
+
+### Internal TLS mesh (ADR-024)
+
+- The `caddy` service also fronts the Garage S3 API on `:9443`
+  (`https://caddy:9443` — see `backend/Caddyfile`, internal site); the `api`
+  pins the step-ca root via `S3_TLS_ROOT_CERT` and `S3_ENDPOINT` is the Caddy
+  TLS URL. Garage's plaintext `:3900` is never published to the host.
+- SierraDB is **not published** in the prod compose; the `stunnel` sidecar is
+  the only TLS entry point (`rediss://stunnel:9091`). The upstream image has
+  **no native TLS listener** (verified against the upstream sources in
+  issue #156 — ADR-024's "assume" is resolved).
+- Cert rotation is automatic (24h TTL, 12h renewal loop in `tls-provision`);
+  clients reconnect transparently. Postgres serves the renewed server cert
+  after `docker compose exec postgres pg_ctl reload` (or a restart) — a
+  documented ops step, never a breaking one.
 
 DNS-01 (wildcard certs, or when the hoster firewall blocks HTTP-01) is a
 **documented follow-up**, not part of this change: it requires a Caddy DNS
@@ -176,4 +255,5 @@ vars to export spans/metrics for both tiers' traffic.
   `ESCAN`, subscriptions, `PING`, `HELLO`); arbitrary Redis commands (e.g.
   `SET`/`GET`/`EVAL`) are **not** implemented.
 - Connection strings MUST include `?protocol=resp3`
-  (e.g. `redis://sierradb:9090/?protocol=resp3`).
+  (e.g. `rediss://stunnel:9091/?protocol=resp3` in production, ADR-024; dev:
+  `redis://127.0.0.1:9090/?protocol=resp3`).

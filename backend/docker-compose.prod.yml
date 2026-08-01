@@ -1,7 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4-flash (opencode-go)
 
-# Production runtime for the two-tier stack (ADR-015 / ADR-016).
+# Production runtime for the two-tier stack (ADR-015 / ADR-016) with
+# in-transit TLS on every DB / event-store / object-store link (ADR-024,
+# issue #156).
 #
 # Choice recorded in ADR-016: docker-compose (not k8s) for v1. Symmetric with the
 # dev surface; upgradeable to k8s later without changing the pinned-tag/policy
@@ -9,10 +12,21 @@
 #
 # Covers: Postgres (read-model projections) + SierraDB (RESP3 event store) with
 # pinned tags, persistent named volumes, healthchecks, OpenTelemetry hooks
-# (ADR-011), and backup/recovery (see docs/operations/runbooks.md).
+# (ADR-011), backup/recovery (see docs/operations/runbooks.md), the Caddy edge
+# (ADR-025) and the internal TLS mesh (ADR-024):
+#
+#   step-ca (internal CA, first-boot bootstrap from $STEP_CA_PASSWORD)
+#     -> tls-provision loop issues 24h leaf certs into the tls_data volume
+#        (postgres, stunnel, caddy)
+#     -> postgres: native TLS (ssl=on)
+#     -> stunnel sidecar: TLS termination for the SierraDB RESP3 link
+#     -> caddy: TLS termination for the Garage S3 link (internal :9443 site)
+#     -> api: verify-full + sslrootcert (Postgres), rediss:// (SierraDB),
+#        https:// (Garage) — pinned to the step-ca root
 #
 # Usage:
-#   docker compose -f docker-compose.prod.yml up -d
+#   STEP_CA_PASSWORD=... POSTGRES_PASSWORD=... DOMAIN=... \
+#     docker compose -f docker-compose.prod.yml up -d
 #
 # Configure via the `.env` file or real env vars before booting the API binary
 # (see `services.api.environment`).
@@ -21,6 +35,17 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    # Native TLS (ADR-024): server cert + key issued by the internal step-ca
+    # (tls-provision loop) and mounted read-only from the shared tls_data
+    # volume. Clients must connect with sslmode=verify-full + the pinned root.
+    command:
+      - postgres
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/tls/postgres.crt
+      - -c
+      - ssl_key_file=/tls/postgres.key
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
@@ -29,6 +54,10 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - tls_data:/tls:ro
+    depends_on:
+      tls-provision:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 10s
@@ -37,36 +66,161 @@ services:
 
   sierradb:
     # Pinned upstream image (ADR-016). SierraDB speaks RESP3 only.
+    # Internal-only (ADR-024): no host port — the event store is reachable
+    # exclusively from the `stunnel` sidecar over the Docker network.
     image: tqwewe/sierradb:0.3.1
     restart: unless-stopped
     command: ["--dir", "/app/data"]
-    ports:
-      - "${SIERRADB_PORT:-9090}:9090"
     volumes:
       - sierradb_data:/app/data
+      - ./scripts/sierradb-healthcheck.sh:/scripts/sierradb-healthcheck.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -h 127.0.0.1 -p 9090 -3 PING | grep -q PONG"]
+      # The image ships no redis-cli/perl; the script probes RESP3 PING over
+      # raw TCP via bash (present in the base). SierraDB answers +PONG to a
+      # raw PING.
+      test: ["CMD-SHELL", "bash /scripts/sierradb-healthcheck.sh"]
       interval: 10s
       timeout: 5s
       retries: 5
 
+  stunnel:
+    # TLS sidecar for SierraDB (ADR-024, fallback branch): `tqwewe/sierradb`
+    # ships no native TLS listener (verified against upstream sources), so TLS
+    # for the event-store link terminates here. The API connects rediss:// to
+    # this sidecar; plaintext RESP3 flows only stunnel -> sierradb on the
+    # Docker-internal network. Image pinned by digest (issue #156); upstream
+    # publishes only `latest`, the digest is the pin.
+    image: dweomer/stunnel:latest@sha256:c46e11e6cc135275566de318d739f815c272c23084fc1e65704f7e228992e9ef
+    restart: unless-stopped
+    # The image entrypoint (/srv/stunnel.sh) is an env-var-driven generator
+    # that demands STUNNEL_* vars and writes a self-signed fallback cert;
+    # override it and drive stunnel from our versioned config + step-ca certs.
+    entrypoint: ["/usr/bin/stunnel"]
+    command: ["/etc/stunnel/stunnel.conf"]
+    volumes:
+      - ./tls/stunnel.conf:/etc/stunnel/stunnel.conf:ro
+      - tls_data:/tls:ro
+    depends_on:
+      sierradb:
+        condition: service_healthy
+      tls-provision:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 9091"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  step-ca:
+    # Internal certificate authority (ADR-024 / issue #156). First boot
+    # bootstraps the CA from $STEP_CA_PASSWORD (the only allowed `.env` use,
+    # ADR-027); the CA key material lives on the LUKS-protected step_ca_data
+    # volume (ADR-023). The built-in image entrypoint runs `step ca init`
+    # non-interactively when no CA exists yet. Image pinned by digest.
+    image: smallstep/step-ca:0.28.4@sha256:0f88382ac5af5c6b7bbba0c6e8fcefef52aee6f22ea364df8e02a09ffd0d22f3
+    restart: unless-stopped
+    environment:
+      # CA name + DNS must include the compose service name (`step-ca`):
+      # clients (tls-provision loop) verify the CA URL hostname against the
+      # CA's own certificate SANs.
+      DOCKER_STEPCA_INIT_NAME: ${STEP_CA_NAME:-Breakdown Internal CA}
+      DOCKER_STEPCA_INIT_DNS_NAMES: step-ca,localhost
+      DOCKER_STEPCA_INIT_PROVISIONER_NAME: ${STEP_CA_PROVISIONER:-admin}
+      DOCKER_STEPCA_INIT_ADDRESS: :9000
+      DOCKER_STEPCA_INIT_PASSWORD: ${STEP_CA_PASSWORD:?STEP_CA_PASSWORD is required}
+    volumes:
+      - step_ca_data:/home/step
+    healthcheck:
+      # The CA cert carries DNS SANs (step-ca, localhost) but no IP SAN, so
+      # verification against https://127.0.0.1 would fail; probe with curl -k.
+      test: ["CMD-SHELL", "curl -kfsS https://127.0.0.1:9000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  tls-provision:
+    # Certificate provision loop (ADR-024 / issue #156): copies the step-ca
+    # root into the shared tls_data volume, issues short-TTL (24h) leaf certs
+    # for postgres/stunnel/caddy, then re-issues every 12h so rotation is
+    # automatic and transparent (old certs stay valid until their TTL, so
+    # servers keep serving a trusted chain until restarted/reloaded).
+    image: smallstep/step-ca:0.28.4@sha256:0f88382ac5af5c6b7bbba0c6e8fcefef52aee6f22ea364df8e02a09ffd0d22f3
+    restart: unless-stopped
+    # The step-ca image runs as non-root (uid 1000) by default, but this
+    # provisioner must write the shared tls_data volume (root-owned) and the
+    # step CLI only touches files — no privileged syscalls.
+    user: "0:0"
+    entrypoint: ["/bin/sh", "/tls/provision.sh"]
+    environment:
+      STEP_CA_PASSWORD: ${STEP_CA_PASSWORD:?STEP_CA_PASSWORD is required}
+      CA_URL: https://step-ca:9000
+      PROVISIONER: ${STEP_CA_PROVISIONER:-admin}
+      TLS_CERT_TTL: ${TLS_CERT_TTL:-24h}
+      TLS_RENEW_INTERVAL: ${TLS_RENEW_INTERVAL:-12h}
+    volumes:
+      - ./tls/provision.sh:/tls/provision.sh:ro
+      - step_ca_data:/home/step:ro
+      - tls_data:/tls
+    depends_on:
+      step-ca:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "test -f /tls/root_ca.crt -a -f /tls/postgres.crt -a -f /tls/postgres.key -a -f /tls/stunnel.crt -a -f /tls/stunnel.key -a -f /tls/caddy.crt -a -f /tls/caddy.key",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
   garage:
     # Garage is an S3-compatible object store for costume-photo bytes (ADR-019).
-    # Internal-only: no host port mapping; only the API binary reaches it.
+    # Internal-only: no host port mapping; only the Caddy internal TLS site
+    # (and the provisioning tooling) reach it. The plaintext :3900 endpoint is
+    # never published to the host (ADR-024).
+    #
+    # The `dxflrs/garage` image is a bare static binary (no shell, no
+    # env-var config) — the TOML is rendered into the garage_config volume by
+    # the `garage-config` one-shot service from $GARAGE_* (gitleaks-clean).
     image: dxflrs/garage:v1.0.1
     restart: unless-stopped
+    # The image CMD (`/garage server`) uses the default config search path;
+    # point it at the rendered TOML explicitly.
+    command: ["/garage", "-c", "/etc/garage/config.toml", "server"]
+    volumes:
+      - garage_data:/var/lib/garage
+      - garage_config:/etc/garage:ro
+    depends_on:
+      garage-config:
+        condition: service_completed_successfully
+    healthcheck:
+      # Exec form (no shell in the image): `garage status` against the local
+      # admin endpoint answers 0 while the S3/API server is up.
+      test: ["CMD", "/garage", "-c", "/etc/garage/config.toml", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  garage-config:
+    # One-shot: renders the Garage TOML config from $GARAGE_* env vars into
+    # the shared garage_config volume (Garage does not interpolate env in its
+    # config file, and the image has no shell to generate it). Image pinned by
+    # digest (issue #156).
+    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    restart: "no"
+    entrypoint: ["/bin/sh", "/scripts/garage-config.sh"]
     environment:
       GARAGE_ADMIN_TOKEN: ${GARAGE_ADMIN_TOKEN:?GARAGE_ADMIN_TOKEN is required}
       GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET:?GARAGE_RPC_SECRET is required}
       GARAGE_METRICS_TOKEN: ${GARAGE_METRICS_TOKEN:-}
     volumes:
-      - garage_data:/var/lib/garage
-    healthcheck:
-      test: ["CMD-SHELL", "garage -c /etc/garage/config.toml status 2>&1 | head -1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
+      - ./scripts/garage-config.sh:/scripts/garage-config.sh:ro
+      - garage_config:/config
+
 
   api:
     build:
@@ -76,21 +230,35 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      stunnel:
+        condition: service_healthy
       sierradb:
+        condition: service_healthy
+      tls-provision:
         condition: service_healthy
       garage:
         condition: service_healthy
     environment:
-      # App role (DML only) – connects as breakdown_app in production.
-      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-breakdown}
+      # App role (DML only) – connects as breakdown_app in production. TLS is
+      # mandatory: sslmode=verify-full + the pinned step-ca root (ADR-024).
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-breakdown}?sslmode=verify-full&sslrootcert=/certs/root_ca.crt
       # Migrator role (DDL) – connects as breakdown_migrator; used only during
       # boot migration, then the pool is dropped. Falls back to DATABASE_URL.
-      # In production, set MIGRATOR_DATABASE_URL as a separate secret.
+      # In production, set MIGRATOR_DATABASE_URL as a separate secret AND with
+      # the same sslmode=verify-full&sslrootcert=… query params (main.rs
+      # validates this when REQUIRE_IN_TRANSIT_TLS=true).
       MIGRATOR_DATABASE_URL: ${MIGRATOR_DATABASE_URL:-}
-      SIERRADB_URL: redis://sierradb:9090/?protocol=resp3
+      # SierraDB link terminates TLS at the stunnel sidecar (ADR-024). The
+      # root is pinned via SIERRADB_TLS_ROOT_CERT (rediss:// + build_with_tls).
+      SIERRADB_URL: rediss://stunnel:9091/?protocol=resp3
+      SIERRADB_TLS_ROOT_CERT: /certs/root_ca.crt
       BIND_ADDR: "0.0.0.0:3000"
-      # --- Photo storage (Garage / S3) ---
-      S3_ENDPOINT: http://garage:3900
+      # Startup gate: refuses plaintext prod URLs (missing sslmode,
+      # redis:// SIERRADB_URL, http:// S3_ENDPOINT).
+      REQUIRE_IN_TRANSIT_TLS: "true"
+      # --- Photo storage (Garage / S3 via Caddy internal TLS site) ---
+      S3_ENDPOINT: https://caddy:9443
+      S3_TLS_ROOT_CERT: /certs/root_ca.crt
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:?S3_ACCESS_KEY is required}
       S3_SECRET_KEY: ${S3_SECRET_KEY:?S3_SECRET_KEY is required}
       S3_BUCKET: ${S3_BUCKET:-costume-photos}
@@ -109,6 +277,10 @@ services:
       OTEL_METRICS_EXPORTER: ${OTEL_METRICS_EXPORTER:-otlp}
       OTEL_LOGS_EXPORTER: ${OTEL_LOGS_EXPORTER:-none}
       RUST_LOG: ${RUST_LOG:-info,breakdown=info,sqlx=warn}
+    volumes:
+      # Pinned step-ca root, mounted read-only (ADR-024): the app never
+      # writes certificates itself.
+      - tls_data:/certs:ro
     # Internal-only (ADR-025 / issue #155): no `ports:` — the API is reachable
     # only on the Docker network from the `caddy` edge. The public internet
     # reaches the stack exclusively through Caddy on :80/:443.
@@ -116,7 +288,8 @@ services:
   caddy:
     # Edge reverse proxy / TLS termination (ADR-025). Sole public entry point:
     # only Caddy's :80/:443 are published to the host; the `api` service above
-    # is Docker-internal only. Image pinned by digest (issue #155).
+    # is Docker-internal only. Also fronts the Garage S3 API on the internal
+    # :9443 TLS site (ADR-024 / issue #156). Image pinned by digest.
     #
     # ACME account state + issued certificates live in the caddy_data volume
     # (on the LUKS-encrypted volume, ADR-023) so renewal survives restarts and
@@ -126,6 +299,8 @@ services:
     depends_on:
       api:
         condition: service_started
+      tls-provision:
+        condition: service_healthy
     ports:
       - "${CADDY_HTTP_PORT:-80}:80"
       - "${CADDY_HTTPS_PORT:-443}:443"
@@ -142,6 +317,8 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+      # step-ca-issued cert for the internal Garage site (ADR-024).
+      - tls_data:/certs:ro
 
 volumes:
   postgres_data:
@@ -151,3 +328,12 @@ volumes:
   # Must live on the LUKS-encrypted volume (ADR-023).
   caddy_data:
   caddy_config:
+  # step-ca CA key material (ADR-024). MUST live on the LUKS-encrypted volume
+  # (ADR-023): compromise of this volume compromises the whole internal PKI.
+  step_ca_data:
+  # Shared leaf-cert mesh: step-ca root + postgres/stunnel/caddy certs issued
+  # by the tls-provision loop, mounted read-only into the consumers (ADR-024).
+  tls_data:
+  # Rendered Garage TOML (ADR-019): written by the garage-config one-shot
+  # from $GARAGE_* env vars, mounted read-only into the garage container.
+  garage_config:
