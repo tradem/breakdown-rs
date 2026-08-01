@@ -343,15 +343,19 @@ projectors that subscribe to SierraDB and update the Postgres projections.
 ### Environment variables used by the API binary
 - `DATABASE_URL` – Postgres app-role connection string (DML only). Default: `postgres://postgres:postgres@localhost:5432/breakdown`. In production, connect as `breakdown_app` (least-privilege).
 - `MIGRATOR_DATABASE_URL` – Postgres migrator-role connection string (DDL, schema owner). Used only during boot migration, then dropped. Falls back to `DATABASE_URL` when unset or empty (single-role dev mode). In production, connect as `breakdown_migrator`.
-- `SIERRADB_URL` – SierraDB RESP3 connection string (default: `redis://127.0.0.1:9090/?protocol=resp3`). SierraDB speaks RESP3 only — keep `?protocol=resp3` (ADR-016).
+- `SIERRADB_URL` – SierraDB RESP3 connection string (default: `redis://127.0.0.1:9090/?protocol=resp3`). SierraDB speaks RESP3 only — keep `?protocol=resp3` (ADR-016). In production this is `rediss://stunnel:9091/?protocol=resp3` (TLS via the stunnel sidecar, ADR-024).
+- `SIERRADB_TLS_ROOT_CERT` – optional PEM path of the pinned root CA for the SierraDB link (the internal step-ca root in production). When set, the redis client is built with `Client::build_with_tls` and the URL must use `rediss://`.
 - `BIND_ADDR` – HTTP bind address (default: `0.0.0.0:3000`)
+- `REQUIRE_IN_TRANSIT_TLS` – startup gate (default off). When `true`/`1`, `main.rs` refuses a production config whose `DATABASE_URL`/`MIGRATOR_DATABASE_URL` lack `sslmode=verify-full` + `sslrootcert`, whose `SIERRADB_URL` is not `rediss://`, or whose `S3_ENDPOINT`/`REPORT_BACKUP_*_ENDPOINT` are not `https://` (ADR-024). Set by `docker-compose.prod.yml`; never inferred from `OIDC_ISS` because the local IdP overlay must keep working against plaintext dev URLs.
 - OpenAPI/Swagger UI is served at `http://localhost:3000/swagger-ui`
 
 #### Photo storage (Garage / S3)
-- `S3_ENDPOINT` – Garage S3 API endpoint (e.g. `http://garage:3900`)
+- `S3_ENDPOINT` – Garage S3 API endpoint (e.g. `http://garage:3900` in dev; `https://caddy:9443` in production — the Caddy internal TLS site, ADR-024)
 - `S3_ACCESS_KEY` – Garage access key
 - `S3_SECRET_KEY` – Garage secret key
 - `S3_BUCKET` – S3 bucket name (default: `costume-photos`)
+- `S3_REGION` – S3 region for OpenDAL (default: `garage`; override for AWS-style external buckets)
+- `S3_TLS_ROOT_CERT` – optional PEM path of the pinned root CA for `https://` S3 endpoints (the internal step-ca root in production); OpenDAL pins it via a custom reqwest client
 - `PHOTO_MAX_SIZE_MB` – maximum upload size in MB (default: `20`)
 - `PHOTO_GC_ENABLED` – enable periodic orphan GC (default: `true`)
 - `PHOTO_GC_INTERVAL_SECS` – GC sweep interval (default: `3600`)

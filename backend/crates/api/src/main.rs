@@ -139,6 +139,24 @@ async fn main() -> Result<()> {
         "redis://127.0.0.1:9090/?protocol=resp3".into()
     });
 
+    // --- In-transit TLS gate (ADR-024 / issue #156) ---
+    //
+    // Explicitly opt-in via REQUIRE_IN_TRANSIT_TLS=true (set by
+    // docker-compose.prod.yml). When on, every DB / event-store / object-store
+    // link must be TLS-encrypted and pinned to the internal step-ca root;
+    // plaintext prod URLs fail startup fast. Dev defaults (flag unset) are
+    // untouched. Never inferred from OIDC_ISS: the documented local IdP
+    // overlay (docker-compose.idp.yml) runs the API against plaintext dev
+    // URLs and must keep working.
+    let require_in_transit_tls = env::var("REQUIRE_IN_TRANSIT_TLS")
+        .is_ok_and(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes"));
+    if require_in_transit_tls {
+        api::tls_config::TlsConfig::from_env()
+            .validate()
+            .map_err(anyhow::Error::msg)?;
+        info!("in-transit TLS configuration validated (REQUIRE_IN_TRANSIT_TLS=true)");
+    }
+
     // --- Two-pool Postgres connection (DDL migrator + DML app) ---
     //
     // MIGRATOR_DATABASE_URL is used only during boot to apply DDL (migrations),
@@ -193,7 +211,34 @@ async fn main() -> Result<()> {
         .await?;
     info!("app database pool connected");
 
-    let redis_client: Arc<RedisClient> = Arc::new(RedisClient::open(sierradb_url)?);
+    // SierraDB link (ADR-024): in production the API talks TLS to the stunnel
+    // sidecar (`rediss://stunnel:9091`). When SIERRADB_TLS_ROOT_CERT is set we
+    // pin the internal step-ca root via `build_with_tls`; otherwise the plain
+    // dev URL (`redis://…`) uses the plain client. The URL is
+    // environment-driven (gitleaks-clean) — never hardcoded beyond the dev
+    // default.
+    let redis_client: Arc<RedisClient> = {
+        let root_cert = infra::tls::root_cert_from_env("SIERRADB_TLS_ROOT_CERT")
+            .map_err(|e| anyhow::anyhow!("Invalid SIERRADB_TLS_ROOT_CERT: {e}"))?;
+        match root_cert {
+            Some(pem_path) => {
+                let pem = std::fs::read(&pem_path).map_err(|e| {
+                    anyhow::anyhow!(
+                        "Failed to read SIERRADB_TLS_ROOT_CERT {}: {e}",
+                        pem_path.display()
+                    )
+                })?;
+                Arc::new(RedisClient::build_with_tls(
+                    sierradb_url,
+                    redis::TlsCertificates {
+                        client_tls: None,
+                        root_cert: Some(pem),
+                    },
+                )?)
+            }
+            None => Arc::new(RedisClient::open(sierradb_url)?),
+        }
+    };
     let sierra_conn = redis_client.get_multiplexed_async_connection().await?;
     let cmd_service = CommandService::new(sierra_conn);
 

@@ -53,10 +53,13 @@ impl OpenDalPhotoStorage {
     }
 
     /// Build from environment variables:
-    /// - `S3_ENDPOINT` — Garage S3 API endpoint (e.g. `http://garage:3900`)
+    /// - `S3_ENDPOINT` — Garage S3 API endpoint (e.g. `http://garage:3900`,
+    ///   or `https://caddy:9443` with the Caddy TLS front, ADR-024)
     /// - `S3_ACCESS_KEY` — Garage access key
     /// - `S3_SECRET_KEY` — Garage secret key
     /// - `S3_BUCKET` — bucket name (default: `costume-photos`)
+    /// - `S3_TLS_ROOT_CERT` — optional PEM path of the pinned root CA (the
+    ///   internal step-ca root, ADR-024) for `https://` endpoints
     pub fn from_env() -> Result<Self, DomainError> {
         let endpoint = std::env::var("S3_ENDPOINT")
             .map_err(|_| DomainError::ValidationError("S3_ENDPOINT must be set".into()))?;
@@ -65,12 +68,17 @@ impl OpenDalPhotoStorage {
         let secret_key = std::env::var("S3_SECRET_KEY")
             .map_err(|_| DomainError::ValidationError("S3_SECRET_KEY must be set".into()))?;
         let bucket = std::env::var("S3_BUCKET").unwrap_or_else(|_| "costume-photos".into());
+        let root_cert = crate::tls::root_cert_from_env("S3_TLS_ROOT_CERT")
+            .map_err(|e| DomainError::ValidationError(format!("Invalid S3_TLS_ROOT_CERT: {e}")))?;
 
-        let builder = opendal::services::S3::default()
-            .endpoint(&endpoint)
-            .access_key_id(&access_key)
-            .secret_access_key(&secret_key)
-            .bucket(&bucket);
+        let builder = crate::tls::s3_builder(
+            &endpoint,
+            &access_key,
+            &secret_key,
+            &bucket,
+            root_cert.as_deref(),
+        )
+        .map_err(|e| DomainError::ValidationError(format!("Failed to configure S3: {e}")))?;
 
         let op = Operator::new(builder)
             .map_err(|e| {

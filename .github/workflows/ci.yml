@@ -81,10 +81,12 @@ jobs:
           workspaces: "backend"
       - run: cargo check --workspace --all-targets --all-features --exclude breakdown-fuzz-targets
 
-  # Compose + Caddyfile validation (issue #155 / ADR-025): `docker compose
-  # config` is daemon-free; the Caddy `caddy validate` steps pull the
-  # digest-pinned edge image once to catch Caddyfile errors before they reach
-  # a prod boot.
+  # Compose + Caddyfile validation (issue #155 / ADR-025 + issue #156 / ADR-024):
+  # `docker compose config` is daemon-free; the Caddy `caddy validate` steps
+  # pull the digest-pinned edge image once to catch Caddyfile errors before
+  # they reach a prod boot. The prod Caddyfile references the step-ca-issued
+  # internal-site certs (ADR-024), so validation generates throwaway
+  # self-signed placeholders into a /certs mount first.
   compose-config:
     name: Compose + Caddyfile validation
     runs-on: ubuntu-latest
@@ -98,9 +100,11 @@ jobs:
           export POSTGRES_PASSWORD=ci-placeholder
           export GARAGE_ADMIN_TOKEN=ci-placeholder
           export GARAGE_RPC_SECRET=ci-placeholder
+          export GARAGE_METRICS_TOKEN=ci-placeholder
           export S3_ACCESS_KEY=ci-placeholder
           export S3_SECRET_KEY=ci-placeholder
           export DOMAIN=ci.example.com
+          export STEP_CA_PASSWORD=ci-placeholder
           docker compose -f docker-compose.prod.yml config --quiet
           docker compose -f docker-compose.dev.yml -f docker-compose.idp.yml config --quiet
           docker compose -f docker-compose.dev.yml -f docker-compose.caddy.yml config --quiet
@@ -111,8 +115,16 @@ jobs:
         run: |
           set -e
           IMAGE="caddy:2.9.1-alpine@sha256:b4e3952384eb9524a887633ce65c752dd7c71314d2c2acf98cd5c715aaa534f0"
+          # The prod Caddyfile's internal Garage site (ADR-024) uses
+          # file-based certs from the tls_data volume; provide throwaway
+          # self-signed placeholders so `caddy validate` can provision them.
+          mkdir -p /tmp/certs
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -subj "/CN=caddy" -addext "subjectAltName=DNS:caddy,DNS:localhost" \
+            -keyout /tmp/certs/caddy.key -out /tmp/certs/caddy.crt 2>/dev/null
           docker run --rm -e DOMAIN=ci.example.com -e PHOTO_MAX_SIZE_MB=20 \
-            -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" "$IMAGE" \
+            -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            -v "/tmp/certs:/certs:ro" "$IMAGE" \
             caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
           docker run --rm -e DOMAIN=localhost -e PHOTO_MAX_SIZE_MB=20 \
             -v "$PWD/Caddyfile.dev:/etc/caddy/Caddyfile:ro" "$IMAGE" \

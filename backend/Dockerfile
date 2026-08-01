@@ -7,12 +7,14 @@
 
 # syntax=docker/dockerfile:1.7
 
-FROM rust:1.91-bookworm AS builder
+FROM rust:1.94-bookworm AS builder
 
 WORKDIR /build
 
 # Pre-copy manifests for better layer caching.
 COPY Cargo.toml Cargo.lock ./
+COPY .patches ./.patches
+COPY config ./config
 COPY crates/core/Cargo.toml crates/core/Cargo.toml
 COPY crates/infra/Cargo.toml crates/infra/Cargo.toml
 COPY crates/api/Cargo.toml crates/api/Cargo.toml

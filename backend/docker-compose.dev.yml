@@ -42,8 +42,15 @@ services:
     volumes:
       - sierradb_dev_data:/app/data
     healthcheck:
-      # SierraDB speaks RESP3; a successful PING means the RESP3 endpoint is up.
-      test: ["CMD-SHELL", "redis-cli -h 127.0.0.1 -p 9090 -3 PING | grep -q PONG"]
+      # The image ships no redis-cli; probe RESP3 PING over raw TCP via perl
+      # (present in the bookworm base). SierraDB answers +PONG to a raw PING.
+      # (issue #156: the historical redis-cli check never worked — the binary
+      # is absent from tqwewe/sierradb:0.3.1.)
+      test:
+        [
+          "CMD-SHELL",
+          "timeout 5 perl -e 'use IO::Socket::INET; $$s=IO::Socket::INET->new(PeerAddr=>\"127.0.0.1:9090\",Proto=>\"tcp\",Timeout=>3) or exit 1; print $$s \"*1\\r\\n\" . chr(36) . \"4\\r\\nPING\\r\\n\"; $$r=<$$s>; exit($$r =~ /PONG/ ? 0 : 1)'",
+        ]
       interval: 5s
       timeout: 3s
       retries: 5

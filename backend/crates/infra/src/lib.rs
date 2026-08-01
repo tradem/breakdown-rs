@@ -28,3 +28,4 @@ pub mod projectors;
 pub mod queries;
 pub mod reporting;
 pub mod sagas;
+pub mod tls;
