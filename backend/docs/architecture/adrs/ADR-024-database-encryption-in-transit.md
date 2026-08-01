@@ -31,6 +31,9 @@ Constraints:
   this image exposes a TLS listener cannot be verified from this repo's
   sources — flagged as **assumed**.
 - Postgres 16 supports TLS natively (`ssl=on`, server cert + CA).
+- Garage (`dxflrs/garage:v1.0.1`) has **no built-in TLS** on its S3 API
+  endpoint (confirmed by the upstream [encryption cookbook](https://garagehq.deuxfleurs.fr/documentation/cookbook/encryption/));
+  `S3_ENDPOINT` today is `http://garage:3900` (Docker-internal, plaintext).
 
 ## Decision
 
@@ -54,6 +57,15 @@ self-hostable, runs as a service in `docker-compose`, and supports short-lived
      sidecar over TLS, the sidecar connects to SierraDB over the loopback /
      Docker internal network only. SierraDB itself is never published and is
      reachable only from the sidecar.
+3. **Garage (API photo-storage connection).** Garage ships no TLS listener,
+   so the API↔Garage S3 link is encrypted by fronting Garage with the **Caddy**
+   reverse proxy (ADR-025) on a Docker-internal TLS port, using a
+   `step-ca`-issued server cert. `S3_ENDPOINT` becomes the Caddy TLS URL and
+   the OpenDAL S3 client is configured with the pinned `step-ca` root.
+   Garage's plaintext `:3900` is bound to the Docker internal network only
+   and is never published to the host. (Alternative, listed not chosen: a
+   `stunnel` sidecar dedicated to Garage, mirroring the SierraDB pattern; or
+   a WireGuard overlay — heavier than reusing the already-present Caddy.)
 
 `step-ca` runs as an additional `docker-compose` service with its own
 encrypted volume; its CA private key is provisioned on first boot from the
@@ -65,8 +77,8 @@ reconnect / pool refresh.
 ## Consequences
 
 ### Positive
-- All DB traffic is encrypted on the wire; a compromised container or
-  mispublished port cannot read or replay application traffic.
+- All DB and object-store traffic is encrypted on the wire; a compromised
+  container or mispublished port cannot read or replay application traffic.
 - Verifiable trust: `verify-full` + pinned root prevents MITM even inside the
   Docker network.
 - Short TTL + auto-rotation limits the value of a stolen cert.
@@ -97,10 +109,13 @@ reconnect / pool refresh.
 
 ## Security / Compliance Notes
 - All DB connection strings in production must enforce `sslmode=verify-full`
-  (Postgres) and TLS-on (SierraDB/sidecar). A missing `sslmode` or a
-  plaintext `SIERRADB_URL` should fail a startup config check in `main.rs`.
+  (Postgres) and TLS-on (SierraDB/sidecar). The OpenDAL S3 client must pin the
+  `step-ca` root for the Garage-via-Caddy endpoint. A missing `sslmode`, a
+  plaintext `SIERRADB_URL`, or an `http://` `S3_ENDPOINT` should fail a
+  startup config check in `main.rs`.
 - Cert/key paths are mounted read-only into containers from a single config
   volume; the app never writes certificates itself.
 - Open question: confirm whether `tqwewe/sierradb:0.3.1` supports TLS. While
   unverified, ship the `stunnel` sidecar as the documented recommendation;
-  downgrade to native TLS only after a verified upstream capability.
+  downgrade to native TLS only after a verified upstream capability. (Garage
+  TLS support is already resolved: **not built-in** — front it with Caddy.)

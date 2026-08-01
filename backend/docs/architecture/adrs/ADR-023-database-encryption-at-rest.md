@@ -68,6 +68,26 @@ protection of projections. Application-layer encryption of specific sensitive
 fields (credential material) is handled separately by the vault in ADR-027,
 not by DB crypto.
 
+### Garage (object store) — at-rest is LUKS-only; SSE-C is an optional add-on
+
+Garage (`dxflrs/garage:v1.0.1`) stores object bytes **in plaintext on the
+filesystem** for standard S3 requests; it offers **no SSE-S3** (automatic
+server-side encryption). Per the upstream
+[encryption cookbook](https://garagehq.deuxfleurs.fr/documentation/cookbook/encryption/),
+the supported at-rest option is exactly what this ADR decides: place Garage's
+data partition on an encrypted LUKS device. The previous "assume" flag on
+Garage at-rest capability is therefore **resolved**: LUKS is not a fallback
+here, it is the only Garage-native at-rest path, and it is what we ship.
+
+Garage also supports **SSE-C** (customer-provided keys): the client supplies
+a per-object key via S3 headers; Garage performs the encrypt/decrypt on the
+server, the key is never stored at Garage. This is **not** a replacement for
+LUKS — it protects a different threat (an attacker who obtains a valid S3
+credential or a disk image without the LUKS key material) — and it is **
+optional defense-in-depth**, scoped to a separate code-change follow-up
+(see ADR-027's vault pattern for key custody). It is called out here only so
+the at-rest decision for Garage is complete and honest.
+
 For SierraDB there is no verified at-rest feature in the `tqwewe/sierradb:0.3.1`
 image; we rely entirely on LUKS2 under its data directory. This is the
 "assume" flag called out by the prompt: if a future SierraDB build exposes its
