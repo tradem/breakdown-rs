@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
@@ -91,12 +92,6 @@ async fn photo_upload_then_delete_round_trip() -> Result<()> {
         CommandService::new(conn)
     };
     let photo_repo = PhotoRepositoryImpl::new(pg_pool.clone());
-    let costume_repo = infra::queries::CostumeRepositoryImpl::new(pg_pool.clone());
-    let character_repo = infra::queries::CharacterRepositoryImpl::new(pg_pool.clone());
-    let season_repo = infra::queries::SeasonRepositoryImpl::new(pg_pool.clone());
-    let scene_shoot_repo = infra::queries::SceneShootRepositoryImpl::new(pg_pool.clone());
-    let scene_repo = infra::queries::SceneRepositoryImpl::new(pg_pool.clone());
-    let episode_repo = infra::queries::EpisodeRepositoryImpl::new(pg_pool.clone());
 
     // Seed Season → Character → Costume before creating PhotoCommandsImpl.
     let season_id = seed_season(&pg_pool).await?;
@@ -118,13 +113,6 @@ async fn photo_upload_then_delete_round_trip() -> Result<()> {
     infra::photo::sagas::spawn_photo_thumbnail_saga(
         cmd_service.clone(),
         storage.clone(),
-        photo_repo.clone(),
-        costume_repo.clone(),
-        character_repo.clone(),
-        season_repo.clone(),
-        scene_shoot_repo.clone(),
-        scene_repo.clone(),
-        episode_repo.clone(),
         Arc::clone(&redis_client),
     )
     .await?;

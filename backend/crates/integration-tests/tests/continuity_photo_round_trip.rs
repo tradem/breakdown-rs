@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
@@ -137,7 +138,9 @@ async fn seed_parents(pool: &sqlx::PgPool, scene_id: Uuid, day_id: ShootingDayId
     .execute(pool)
     .await?;
 
-    // episode (required so photo upload resolve_series_id finds it)
+    // episode (required so the scene_shoot projector can resolve the parent
+    // chain — the saga now takes series_id from event metadata, not the
+    // projection)
     sqlx::query(
         r#"INSERT INTO projection_episode
             (id,block_id,series_id,number,name,version,updated_at)
@@ -364,12 +367,6 @@ async fn continuity_photo_delete_on_zero_refcount() -> Result<()> {
     infra::photo::sagas::spawn_continuity_deletion_saga(
         cmd_service.clone(),
         photo_repo.clone(),
-        infra::queries::CostumeRepositoryImpl::new(pool.clone()),
-        infra::queries::CharacterRepositoryImpl::new(pool.clone()),
-        infra::queries::SeasonRepositoryImpl::new(pool.clone()),
-        infra::queries::SceneShootRepositoryImpl::new(pool.clone()),
-        infra::queries::SceneRepositoryImpl::new(pool.clone()),
-        infra::queries::EpisodeRepositoryImpl::new(pool.clone()),
         Arc::clone(&client),
     )
     .await?;

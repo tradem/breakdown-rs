@@ -9,17 +9,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result;
-use breakdown_core::character::ports::CharacterRepository;
-use breakdown_core::costume::ports::CostumeRepository;
-use breakdown_core::episode::ports::EpisodeRepository;
 use breakdown_core::photo::aggregate::PhotoAggregate;
-use breakdown_core::photo::binding::PhotoBinding;
 use breakdown_core::photo::commands::{GenerateVariant, NormalizeOriginal};
 use breakdown_core::photo::events::PhotoEvent;
-use breakdown_core::photo::ports::{PhotoRepository, PhotoStorage};
-use breakdown_core::scene::ports::SceneRepository;
-use breakdown_core::scene_shoot::ports::SceneShootRepository;
-use breakdown_core::season::ports::SeasonRepository;
+use breakdown_core::photo::ports::PhotoStorage;
 use breakdown_core::shared::{
     AggregateVersion, EventMetadata, PhotoId, PhotoVariant, Provenance, SeriesId,
 };
@@ -34,13 +27,8 @@ use sierradb_client::ExpectedVersion;
 use sierradb_client::SierraAsyncClientExt;
 
 use crate::event_store::map_version_only;
-use crate::photo::repository::PhotoRepositoryImpl;
 use crate::photo::storage::OpenDalPhotoStorage;
 use crate::projectors::supervisor;
-use crate::queries::{
-    CharacterRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl, SceneRepositoryImpl,
-    SceneShootRepositoryImpl, SeasonRepositoryImpl,
-};
 
 /// Saga that reacts to `PhotoUploaded` events: fetches original bytes from
 /// storage, decodes them, applies EXIF orientation correction, re-encodes
@@ -51,98 +39,13 @@ use crate::queries::{
 pub struct PhotoThumbnailSaga {
     cmd_service: CommandService,
     storage: OpenDalPhotoStorage,
-    photo_repo: PhotoRepositoryImpl,
-    costume_repo: CostumeRepositoryImpl,
-    character_repo: CharacterRepositoryImpl,
-    season_repo: SeasonRepositoryImpl,
-    scene_shoot_repo: SceneShootRepositoryImpl,
-    scene_repo: SceneRepositoryImpl,
-    episode_repo: EpisodeRepositoryImpl,
 }
 
 impl PhotoThumbnailSaga {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        cmd_service: CommandService,
-        storage: OpenDalPhotoStorage,
-        photo_repo: PhotoRepositoryImpl,
-        costume_repo: CostumeRepositoryImpl,
-        character_repo: CharacterRepositoryImpl,
-        season_repo: SeasonRepositoryImpl,
-        scene_shoot_repo: SceneShootRepositoryImpl,
-        scene_repo: SceneRepositoryImpl,
-        episode_repo: EpisodeRepositoryImpl,
-    ) -> Self {
+    pub fn new(cmd_service: CommandService, storage: OpenDalPhotoStorage) -> Self {
         Self {
             cmd_service,
             storage,
-            photo_repo,
-            costume_repo,
-            character_repo,
-            season_repo,
-            scene_shoot_repo,
-            scene_repo,
-            episode_repo,
-        }
-    }
-
-    /// Resolve `series_id` from the photo's binding.
-    async fn resolve_series_id(
-        &self,
-        photo_id: PhotoId,
-    ) -> Result<Option<SeriesId>, anyhow::Error> {
-        // Best-effort series_id resolution for the audit trail. Any projection
-        // miss (NotFound, lag, missing parent projector) yields Ok(None) rather
-        // than failing the saga — thumbnail/deletion processing must not be
-        // blocked by audit-metadata resolution.
-        let binding = self
-            .photo_repo
-            .find_by_id(photo_id)
-            .await
-            .ok()
-            .map(|p| p.binding);
-        let binding = match binding {
-            Some(b) => b,
-            None => return Ok(None),
-        };
-        match binding {
-            PhotoBinding::Costume { costume_id } => {
-                let costume = match self.costume_repo.find_by_id(costume_id).await.ok() {
-                    Some(c) => c,
-                    None => return Ok(None),
-                };
-                match costume.character_id {
-                    Some(character_id) => {
-                        let ch = match self.character_repo.find_by_id(character_id).await.ok() {
-                            Some(c) => c,
-                            None => return Ok(None),
-                        };
-                        Ok(self
-                            .season_repo
-                            .find_by_id(ch.season_id.0)
-                            .await
-                            .ok()
-                            .map(|s| s.series_id))
-                    }
-                    None => Ok(None),
-                }
-            }
-            PhotoBinding::Continuity { scene_shoot_id, .. } => {
-                let ss = match self.scene_shoot_repo.find_by_id(scene_shoot_id).await.ok() {
-                    Some(s) => s,
-                    None => return Ok(None),
-                };
-                let sc = match self.scene_repo.find_by_id(ss.scene_id).await.ok() {
-                    Some(s) => s,
-                    None => return Ok(None),
-                };
-                Ok(self
-                    .episode_repo
-                    .find_by_id(sc.episode_id.0)
-                    .await
-                    .ok()
-                    .map(|e| e.series_id))
-            }
         }
     }
 }
@@ -159,14 +62,19 @@ impl EntityEventHandler<PhotoAggregate, ()> for PhotoThumbnailSaga {
         event: Event<PhotoEvent, EventMetadata>,
     ) -> Result<(), Self::Error> {
         if let PhotoEvent::PhotoUploaded { id, .. } = event.data {
-            self.process_upload(id).await?;
+            // CQRS boundary: audit context must come from the event data
+            // (populated at the API edge), never from a read-model projection.
+            // Missing metadata yields None — same tolerant best-effort path as
+            // the old projection-based resolution.
+            let series_id = event.metadata.data.as_ref().and_then(|m| m.series_id);
+            self.process_upload(id, series_id).await?;
         }
         Ok(())
     }
 }
 
 impl PhotoThumbnailSaga {
-    async fn process_upload(&self, id: PhotoId) -> Result<()> {
+    async fn process_upload(&self, id: PhotoId, series_id: Option<SeriesId>) -> Result<()> {
         // Fetch the original bytes from storage.
         let photo_bytes = self
             .storage
@@ -208,9 +116,6 @@ impl PhotoThumbnailSaga {
             )
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))?;
-
-        // Resolve series_id from the photo's binding.
-        let series_id = self.resolve_series_id(id).await?;
 
         // Dispatch the normalization command via Aggregate::execute.
         let norm_id = id;
@@ -365,30 +270,12 @@ impl EventProcessor<(PhotoAggregate,), PhotoThumbnailSaga> for PhotoThumbnailSag
 /// Spawn the thumbnail saga subscription loop (supervised, background).
 ///
 /// Subscribes to the `photo` stream and processes `PhotoUploaded` events.
-#[allow(clippy::too_many_arguments)]
 pub async fn spawn_photo_thumbnail_saga(
     cmd_service: CommandService,
     storage: OpenDalPhotoStorage,
-    photo_repo: PhotoRepositoryImpl,
-    costume_repo: CostumeRepositoryImpl,
-    character_repo: CharacterRepositoryImpl,
-    season_repo: SeasonRepositoryImpl,
-    scene_shoot_repo: SceneShootRepositoryImpl,
-    scene_repo: SceneRepositoryImpl,
-    episode_repo: EpisodeRepositoryImpl,
     redis_client: Arc<RedisClient>,
 ) -> Result<()> {
-    let saga = PhotoThumbnailSaga::new(
-        cmd_service,
-        storage,
-        photo_repo,
-        costume_repo,
-        character_repo,
-        season_repo,
-        scene_shoot_repo,
-        scene_repo,
-        episode_repo,
-    );
+    let saga = PhotoThumbnailSaga::new(cmd_service, storage);
     let _handle = supervisor::run_with_restart("photo_thumbnail_saga", move || {
         let mut saga = saga.clone();
         let client = redis_client.clone();
