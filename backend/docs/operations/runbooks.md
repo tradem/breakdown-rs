@@ -228,6 +228,87 @@ bootstrap seed is mounted as a Docker secret, while the generated unseal key
 and app token are stored in separate volumes. The unseal volume is not part of
 ordinary Vault data backups.
 
+### Garage photo SSE-C key (Issue #159 / ADR-023)
+
+Photo storage uses one stable 256-bit DEK for the `costume-photos` bucket. The
+DEK is generated through Vault Transit key `photo-sse-c`; only its wrapped form
+is stored at KV-v2 path `kv/data/photo-sse-c`. The API unwraps it at boot and
+passes it to OpenDAL in memory. Never put the plaintext key in `.env`, a shell
+argument, a log, an event, a projection, or Garage metadata. The API starts
+without photo storage when Vault is unavailable and photo operations return
+503; it never falls back to plaintext S3.
+
+#### Initial provisioning and verification
+
+1. Start `vault` and `vault-bootstrap` and verify that the bootstrap job
+   completed successfully; do not print the app token or any Vault response.
+2. Start the API and inspect only redacted startup status/logs. A healthy photo
+   adapter reports configuration state, not key material.
+3. In staging, upload one test photo through the API and verify the round trip
+   through the API. A direct S3 GET/HEAD using a valid Garage access-key and
+   secret-key pair, but omitting all SSE-C headers, must fail with
+   `InvalidRequest`/`InvalidArgument`; do not dump the object or key.
+4. Keep the Garage volume on the LUKS-protected data volume. SSE-C is defense
+   in depth, not a replacement for the LUKS control.
+
+#### Two-key bucket rotation
+
+Changing the bucket DEK before rewriting existing objects makes those objects
+unreadable. Perform rotation in a maintenance window with all API/photo
+workers stopped or quiesced, and explicitly verify operator release before any
+key destruction:
+
+1. Generate a candidate datakey through the Vault Transit `photo-sse-c` key
+   and store its wrapped ciphertext at
+   `kv/data/photo-sse-c-rotation/<rotation-id>/candidate`. Copy the current
+   active wrapped DEK and KV version to
+   `kv/data/photo-sse-c-rotation/<rotation-id>/rollback`; this is the rollback
+   custody record used to recreate the old operator after promotion. The
+   least-privilege app policy permits only these rotation paths. Keep the
+   current `kv/data/photo-sse-c` record active. Never export or print either
+   plaintext DEK.
+2. Create a durable rollback copy of every old original/thumb/medium ciphertext
+   plus a manifest mapping canonical keys to rollback objects. Then use two S3
+   operators to read old objects and write candidate ciphertext under a staging
+   prefix. Read each staged object back with the candidate operator and verify
+   content length and digest. Do not rely on retaining the old key alone: the
+   old ciphertext must remain recoverable if canonical objects are overwritten.
+3. Cut over the canonical objects from the verified staging prefix while the
+   rollback copy and manifest remain intact. If cutover fails partway, restore
+   canonical objects from the rollback copy and keep the old KV record active.
+   After every canonical object is verified with the candidate operator, read
+   the active KV-v2 version immediately before promotion and write the candidate
+   wrapped DEK to `kv/data/photo-sse-c` with
+   `options.cas=<expected-active-version>`. A successful CAS write promotes the
+   candidate; restart the API workers and confirm new uploads, thumbnail
+   generation, downloads, deletion, and GC all succeed.
+4. If the CAS write conflicts, do not overwrite the winner: re-read the active
+   record, stop the migration, and reconcile against the winner's manifest. If
+   the migration is not accepted, load the old wrapped DEK from the rollback
+   KV record, ask Transit to unwrap it, restore canonical objects from the
+   durable rollback copy, then restore the old wrapped DEK to
+   `kv/data/photo-sse-c` with `options.cas=<promoted-candidate-version>`. Verify
+   that CAS write; if it conflicts, stop and reconcile before serving photo
+   operations. Keep the staging objects, rollback copy, manifest, candidate
+   record, and rollback DEK record until the outcome is known. Delete both KV metadata records and object
+   artifacts only after the migration outcome and rollback window are complete.
+   Before cleanup, a Vault operator creates a short-lived cleanup policy/token
+   with `delete` only on
+   `kv/metadata/photo-sse-c-rotation/<rotation-id>/candidate` and
+   `/rollback` (never a wildcard), uses it for the two metadata deletes, and
+   revokes the token and policy immediately afterward. The long-lived
+   `breakdown-app` token cannot delete rotation metadata.
+5. Before intentional crypto-shredding, stop the API, photo sagas, and GC
+   scheduler and explicitly verify that every OpenDAL operator clone has been
+   released. Destroy the active `photo-sse-c` Transit key, restart the API, and
+   verify that it cannot reload the DEK and photo operations return 503. Never
+   destroy the active key for ordinary rotation.
+
+The repository supplies the SSE-C operator and contract tests; the staging
+backfill job must be exercised and signed off before production rotation.
+Per-photo/per-season key rotation is not supported until OpenDAL provides a
+safe per-request SSE-C header seam.
+
 ### Internal TLS mesh (ADR-024)
 
 - The `caddy` service also fronts the Garage S3 API on `:9443`

@@ -80,13 +80,31 @@ Garage at-rest capability is therefore **resolved**: LUKS is not a fallback
 here, it is the only Garage-native at-rest path, and it is what we ship.
 
 Garage also supports **SSE-C** (customer-provided keys): the client supplies
-a per-object key via S3 headers; Garage performs the encrypt/decrypt on the
-server, the key is never stored at Garage. This is **not** a replacement for
-LUKS — it protects a different threat (an attacker who obtains a valid S3
-credential or a disk image without the LUKS key material) — and it is **
-optional defense-in-depth**, scoped to a separate code-change follow-up
-(see ADR-027's vault pattern for key custody). It is called out here only so
-the at-rest decision for Garage is complete and honest.
+the key via S3 headers; Garage performs the encrypt/decrypt on the server and
+the key is never stored at Garage. Issue #159 implements this as defense in
+depth on top of LUKS: the API uses one stable 256-bit DEK for the
+`costume-photos` bucket, generated and Transit-wrapped by Vault under the
+non-secret key id `photo-sse-c`. The wrapped DEK is stored only in Vault
+KV-v2; the plaintext key exists only in the API/OpenDAL process memory.
+
+This is **not** a replacement for LUKS — it protects a different threat (an
+attacker who obtains a valid S3 credential or a disk image without the LUKS
+key material). OpenDAL 0.52.0 exposes SSE-C only at operator configuration
+scope, so per-photo/per-season keys are explicitly deferred until a safe
+per-request header seam is available. Before destroying `photo-sse-c`, stop all
+API, photo-saga, and GC workers; if a quiescence procedure is used instead,
+explicitly verify release of every OpenDAL operator. After restart, verify that
+the API cannot reload the DEK and photo operations return 503. Destroying
+`photo-sse-c` therefore crypto-shreds the whole bucket and is an intentional
+nuke-all-photos operation. Rotation requires staged candidate objects plus a
+durable old-ciphertext rollback copy and manifest. The old wrapped DEK and
+active version must remain in a least-privilege Vault KV-v2 rollback record
+until the rollback window ends. A rollback must restore canonical objects and
+CAS-write that old wrapped DEK to `kv/data/photo-sse-c` using the promoted
+candidate version, verify the write, and stop on conflict before serving
+operations. Cleanup of the rotation records uses a short-lived,
+per-rotation-scoped Vault credential. See the operations runbook and ADR-027
+for custody.
 
 For SierraDB there is no verified at-rest feature in the `tqwewe/sierradb:0.3.1`
 image; we rely entirely on LUKS2 under its data directory. This is the

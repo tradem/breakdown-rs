@@ -143,6 +143,24 @@ path "kv/data/settings-secrets/*" {
 path "kv/metadata/settings-secrets/*" {
   capabilities = ["read", "delete"]
 }
+path "transit/keys/photo-sse-c" {
+  capabilities = ["create", "read"]
+}
+path "transit/datakey/plaintext/photo-sse-c" {
+  capabilities = ["update"]
+}
+path "transit/decrypt/photo-sse-c" {
+  capabilities = ["update"]
+}
+path "kv/data/photo-sse-c" {
+  capabilities = ["create", "read", "update"]
+}
+path "kv/data/photo-sse-c-rotation/*" {
+  capabilities = ["create", "read", "update"]
+}
+# Rotation metadata deletion is intentionally excluded from the app token.
+# An operator creates a short-lived, per-rotation cleanup token for the exact
+# candidate and rollback metadata paths after the rollback window.
 POLICY
 
 # Keep a short-lived, least-privilege token in a separate named volume. If the

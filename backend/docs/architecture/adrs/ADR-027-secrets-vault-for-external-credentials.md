@@ -88,6 +88,50 @@ requirement for GDPR Art. 17 (ADR-029).
    `Revoked`; the vault key may be retained until the defensible retention
    window closes, then destroyed.
 
+### Photo SSE-C bucket key (Issue #159)
+
+The photo object-store encryption path uses the same Vault custody pattern but
+has a deliberately separate, bucket-scoped record. The fixed Transit key id is
+`photo-sse-c`; the API requests one random 256-bit datakey, stores only its
+Transit-wrapped ciphertext in KV-v2 at `photo-sse-c`, and loads the plaintext
+only at API boot to configure the OpenDAL S3 operator with AES256 SSE-C. The
+plaintext key is never an environment variable, event field, projection,
+Garage metadata value, log field, or API response.
+
+The bucket scope is a conscious OpenDAL 0.52.0 limitation: its SSE-C support
+is configured on the S3 operator rather than per request. Per-photo or
+per-season crypto-shredding is therefore a follow-up that requires a safe
+per-request header seam and a new rotation/concurrency design. Before
+destroying `photo-sse-c`, stop all API/photo workers; if a quiescence procedure
+is used instead, explicitly verify release of every OpenDAL operator. After
+restart, verify that the API cannot reload the DEK and photo operations return
+503.
+Destroying `photo-sse-c` then renders the entire `costume-photos` bucket
+undecryptable and is an intentional whole-bucket purge, not ordinary photo
+deletion.
+
+If Vault is unavailable at boot, the API still serves unrelated routes, but
+constructs an unavailable photo adapter. HTTP photo handlers map its typed
+dependency-unavailable error to HTTP 503. Sagas and GC do not produce HTTP
+responses; they surface the same typed failure to their supervisors, which
+retry or log a visible failure according to the worker policy. The code never
+falls back to plaintext S3. Bucket-key rotation is a two-key operational
+backfill: preserve the old ciphertext in a durable rollback copy with a
+manifest, and store both wrapped DEKs in least-privilege KV-v2 rotation
+records: `kv/data/photo-sse-c-rotation/<rotation-id>/candidate` and
+`/rollback`. The rollback record also stores the old active version so Transit
+can recreate the old operator after promotion. Rewrite and verify staged
+candidate objects, promote the candidate by writing the same KV-v2 path with
+the expected active-version CAS, then restart the API. A CAS conflict leaves
+the winning record active and requires reconciliation. The rollback copy,
+manifest, candidate record, and rollback-DEK record remain available until the
+migration outcome and rollback window are complete. A rollback restores
+canonical objects, CAS-writes the old wrapped DEK to the active
+`kv/data/photo-sse-c` path using the promoted candidate version, verifies the
+write, and stops on conflict before serving operations. Cleanup uses a
+short-lived Vault credential scoped exactly to that rotation's candidate and
+rollback metadata paths; the credential is revoked immediately after cleanup.
+
 ### Compatibility with event sourcing
 
 The aggregate's **events store only references** (`vault_key_id`,

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: gpt-5.6-luna (opencode-go)
 
 //! In-transit TLS helpers shared by the S3 adapters (ADR-024 / issue #156).
 //!
@@ -58,7 +59,37 @@ pub fn from_value(value: &str) -> Result<Option<std::path::PathBuf>, String> {
 /// The S3 region is read from `S3_REGION` (default `garage`, matching the
 /// Garage `s3_region` config and the integration-test convention); OpenDAL
 /// refuses to build an S3 operator without an explicit region.
+/// Build the non-SSE S3 service used by report archival.
 pub fn s3_builder(
+    endpoint: &str,
+    access_key: &str,
+    secret_key: &str,
+    bucket: &str,
+    root_cert: Option<&std::path::Path>,
+) -> Result<S3, String> {
+    s3_builder_base(endpoint, access_key, secret_key, bucket, root_cert)
+}
+
+/// Build the photo S3 service with mandatory AES256 SSE-C.
+///
+/// The customer key is accepted as bytes so OpenDAL computes the required
+/// base64 and MD5 headers without exposing either representation to callers.
+pub fn s3_builder_with_customer_key(
+    endpoint: &str,
+    access_key: &str,
+    secret_key: &str,
+    bucket: &str,
+    root_cert: Option<&std::path::Path>,
+    customer_key: &[u8],
+) -> Result<S3, String> {
+    if customer_key.len() != 32 {
+        return Err("SSE-C customer key must be exactly 32 bytes".into());
+    }
+    let builder = s3_builder_base(endpoint, access_key, secret_key, bucket, root_cert)?;
+    Ok(builder.server_side_encryption_with_customer_key("AES256", customer_key))
+}
+
+fn s3_builder_base(
     endpoint: &str,
     access_key: &str,
     secret_key: &str,
