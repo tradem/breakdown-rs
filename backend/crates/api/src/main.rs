@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
 
@@ -20,7 +21,7 @@ use breakdown_core::membership::policy::AuthorizationPolicy;
 use infra::event_store::{
     BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl, CostumeCommandsImpl,
     EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl, SceneCommandsImpl,
-    SceneShootCommandsImpl, SeasonCommandsImpl, ShootingDayCommandsImpl,
+    SceneShootCommandsImpl, SeasonCommandsImpl, SettingsCommandsImpl, ShootingDayCommandsImpl,
 };
 use infra::photo::{
     gc::spawn_gc_scheduler, repository::PhotoRepositoryImpl, storage::OpenDalPhotoStorage,
@@ -29,7 +30,8 @@ use infra::queries::{
     AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl,
     CostumeCategoryRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl,
     MembershipRepositoryImpl, SceneRepositoryImpl, SceneShootReportRepositoryImpl,
-    SceneShootRepositoryImpl, SeasonRepositoryImpl, ShootingDayRepositoryImpl,
+    SceneShootRepositoryImpl, SeasonRepositoryImpl, SettingsRepositoryImpl,
+    ShootingDayRepositoryImpl,
 };
 use infra::reporting::{
     BackupWorkerConfig, MemoryReportArchiveStorage, OpenDalReportArchiveStorage,
@@ -306,6 +308,12 @@ async fn main() -> Result<()> {
         infra::projectors::ProjectorFlushConfig::default(),
     )
     .await?;
+    let _settings_projector = infra::projectors::spawn_settings_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::default(),
+    )
+    .await?;
     let _scene_shoot_projector = infra::projectors::spawn_scene_shoot_projector(
         pool.clone(),
         Arc::clone(&redis_client),
@@ -338,6 +346,9 @@ async fn main() -> Result<()> {
     let costume_category_repo = CostumeCategoryRepositoryImpl::new(pool.clone());
     let block_repo = BlockRepositoryImpl::new(pool.clone());
     let membership_repo_impl = MembershipRepositoryImpl::new(pool.clone());
+    let settings_repo = SettingsRepositoryImpl::new(pool.clone());
+    let credential_vault =
+        infra::vault::VaultClient::from_env().map_err(|err| anyhow::anyhow!(err.to_string()))?;
     let audit_repo = AuditRepositoryImpl::new(pool.clone());
 
     // Create command adapters with repository dependencies
@@ -450,6 +461,9 @@ async fn main() -> Result<()> {
         episode_repo,
         MembershipCommandsImpl::new(cmd_service.clone()),
         membership_repo_impl.clone(),
+        SettingsCommandsImpl::new(cmd_service.clone()),
+        settings_repo,
+        credential_vault,
         audit_repo.clone(),
         photo_storage,
         photo_commands,

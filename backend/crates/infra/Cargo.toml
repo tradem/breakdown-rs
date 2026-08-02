@@ -37,7 +37,7 @@ opendal = { version = "0.52", features = ["services-s3", "services-gdrive"] }
 # HTTP client used to pin the step-ca root CA on the https:// Garage/Caddy
 # endpoint (ADR-024 / issue #156). Same version + TLS backend as OpenDAL's
 # reqwest (feature-unified via Cargo), passed through `opendal::raw::HttpClient`.
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 # SHA-256 content digests for report archival staging/retry verification.
 sha2 = "0.10"
@@ -62,6 +62,10 @@ anyhow.workspace = true
 
 # Async traits (object-safe, mockable ports)
 async-trait.workspace = true
+zeroize.workspace = true
+aes-gcm.workspace = true
+base64.workspace = true
+getrandom.workspace = true
 
 # Random jitter for backoff
 rand.workspace = true

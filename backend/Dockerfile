@@ -41,7 +41,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /usr/local/bin/breakdown-api /usr/local/bin/breakdown-api
 
 # Non-root user.
-RUN useradd -r -m -s /bin/false breakdown
+RUN useradd -r -u 1000 -U -m -s /bin/false breakdown
 USER breakdown
 
 EXPOSE 3000

@@ -32,6 +32,50 @@
 # (see `services.api.environment`).
 
 services:
+  vault:
+    # HashiCorp Vault OSS (ADR-027). The image is pinned by digest and the
+    # service is Docker-internal only; no Vault port is published to the host.
+    image: hashicorp/vault:1.20.4@sha256:3d6aade4847c9642ac7ef1ab770cfa46f47874a24996dfde5d9cfb48f4118a73
+    restart: unless-stopped
+    cap_add:
+      - IPC_LOCK
+    environment:
+      # Also configures the Vault CLI used by the healthcheck; this is not a
+      # credential and is not exposed outside the Docker network.
+      VAULT_ADDR: http://127.0.0.1:8200
+    # The official entrypoint loads all files from /vault/config.
+    command: ["server"]
+    volumes:
+      - vault_data:/vault/file
+      - ./vault/config.hcl:/vault/config/config.hcl:ro
+    healthcheck:
+      # Vault returns 1 while initialized but sealed; that is still a healthy
+      # service because vault-bootstrap performs the unseal operation.
+      test: ["CMD-SHELL", "vault status >/dev/null 2>&1; code=$$?; test $$code -eq 0 -o $$code -eq 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  vault-bootstrap:
+    # One-shot first-boot setup. The root/bootstrap token is scoped to this
+    # service only and is not present in vault or api environment.
+    image: hashicorp/vault:1.20.4@sha256:3d6aade4847c9642ac7ef1ab770cfa46f47874a24996dfde5d9cfb48f4118a73
+    restart: "no"
+    # The helper writes the app-token file for the non-root API uid (1000).
+    user: "0:0"
+    entrypoint: ["/bin/sh", "/scripts/vault-bootstrap.sh"]
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_BOOTSTRAP_TOKEN: ${VAULT_BOOTSTRAP_TOKEN:?VAULT_BOOTSTRAP_TOKEN is required for first boot}
+    volumes:
+      - vault_data:/vault/data
+      - vault_app_token:/vault/app-token
+      - ./scripts/vault-bootstrap.sh:/scripts/vault-bootstrap.sh:ro
+    depends_on:
+      vault:
+        condition: service_started
+
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -239,6 +283,10 @@ services:
       garage:
         condition: service_healthy
     environment:
+      # Vault is optional at API boot. Credential endpoints return 503 until
+      # the bootstrap helper has produced a valid app token.
+      VAULT_ADDR: http://vault:8200
+      VAULT_APP_TOKEN_FILE: /run/secrets-vault/app.token
       # App role (DML only) – connects as breakdown_app in production. TLS is
       # mandatory: sslmode=verify-full + the pinned step-ca root (ADR-024).
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-breakdown}?sslmode=verify-full&sslrootcert=/certs/root_ca.crt
@@ -281,6 +329,9 @@ services:
       # Pinned step-ca root, mounted read-only (ADR-024): the app never
       # writes certificates itself.
       - tls_data:/certs:ro
+      # Only the least-privilege Vault app token is visible to the API. The
+      # bootstrap/unseal/root material is in a different volume.
+      - vault_app_token:/run/secrets-vault:ro
     # Internal-only (ADR-025 / issue #155): no `ports:` — the API is reachable
     # only on the Docker network from the `caddy` edge. The public internet
     # reaches the stack exclusively through Caddy on :80/:443.
@@ -337,3 +388,8 @@ volumes:
   # Rendered Garage TOML (ADR-019): written by the garage-config one-shot
   # from $GARAGE_* env vars, mounted read-only into the garage container.
   garage_config:
+  # Vault file storage and its generated unseal material. The production host
+  # must place named volumes on the LUKS-protected data device (ADR-023).
+  vault_data:
+  # Separate least-privilege app-token volume; never share vault_data with api.
+  vault_app_token:

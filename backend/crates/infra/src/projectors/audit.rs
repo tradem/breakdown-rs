@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
+// Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: qwen3.6-35b (neuralwatt)
 // Co-authored-by: glm-5.2 (neuralwatt)
 //! Generic audit / journal projector.
@@ -33,6 +34,7 @@ use breakdown_core::{
     scene::{aggregate::SceneAggregate, events::SceneEvent},
     scene_shoot::{aggregate::SceneShootAggregate, events::SceneShootEvent},
     season::{aggregate::SeasonAggregate, events::SeasonEvent},
+    settings::{aggregate::SettingsAggregate, events::SettingsEvent},
     shooting_day::{aggregate::ShootingDayAggregate, events::ShootingDayEvent},
 };
 use sqlx::{self as sqlx, Postgres, Transaction};
@@ -68,6 +70,7 @@ pub enum AuditCategory {
     CostumeCategory,
     Photo,
     Membership,
+    Settings,
 }
 
 impl AuditCategory {
@@ -85,6 +88,7 @@ impl AuditCategory {
             AuditCategory::CostumeCategory => "costume_category",
             AuditCategory::Photo => "photo",
             AuditCategory::Membership => "membership",
+            AuditCategory::Settings => "settings",
         }
     }
 
@@ -102,6 +106,7 @@ impl AuditCategory {
             AuditCategory::CostumeCategory => "CostumeCategory",
             AuditCategory::Photo => "Photo",
             AuditCategory::Membership => "Membership",
+            AuditCategory::Settings => "Settings",
         }
     }
 }
@@ -718,6 +723,47 @@ impl<'a> EntityEventHandler<BlockMembership, Transaction<'a, Postgres>>
     }
 }
 
+// ── Category: settings ────────────────────────────────────────────────
+
+#[derive(Clone, Default, Debug)]
+pub struct SettingsAuditProjector;
+
+impl<'a> EventHandler<Transaction<'a, Postgres>> for SettingsAuditProjector {
+    type Error = sqlx::Error;
+}
+
+impl<'a> EntityEventHandler<SettingsAggregate, Transaction<'a, Postgres>>
+    for SettingsAuditProjector
+{
+    async fn handle(
+        &mut self,
+        ctx: &mut Transaction<'a, Postgres>,
+        _id: uuid::Uuid,
+        event: Event<SettingsEvent, EventMetadata>,
+    ) -> Result<(), Self::Error> {
+        let entity_id = match &event.data {
+            SettingsEvent::CredentialBound { id, .. }
+            | SettingsEvent::CredentialRevoked { id, .. } => id.to_string(),
+        };
+        let event_type = event.data.event_type().to_string();
+        let (actor, provenance, series_id) = extract_metadata(&event);
+        write_audit_row(
+            ctx,
+            "settings",
+            &entity_id,
+            &event_type,
+            actor,
+            &provenance,
+            series_id,
+            &event.data,
+            event.timestamp,
+            event.id,
+        )
+        .await?;
+        Ok(())
+    }
+}
+
 // ── Test: compile-time-exhaustive coverage guard ──────────────────────
 
 /// Asserts that every aggregate category has a corresponding `AuditCategory`
@@ -743,7 +789,7 @@ fn audit_category_coverage_is_exhaustive() {
     // This const list is the source-of-truth for expected variants.
     // Adding a new aggregate MUST add a variant here AND in the enum
     // AND in the supervisor exhaustive match in mod.rs.
-    let expected: [AuditCategory; 11] = [
+    let expected: [AuditCategory; 12] = [
         AuditCategory::Season,
         AuditCategory::Block,
         AuditCategory::Episode,
@@ -755,10 +801,11 @@ fn audit_category_coverage_is_exhaustive() {
         AuditCategory::CostumeCategory,
         AuditCategory::Photo,
         AuditCategory::Membership,
+        AuditCategory::Settings,
     ];
 
     // Verify: every category has a known entity_type string.
-    let types: [&str; 11] = [
+    let types: [&str; 12] = [
         "season",
         "block",
         "episode",
@@ -770,6 +817,7 @@ fn audit_category_coverage_is_exhaustive() {
         "costume_category",
         "photo",
         "membership",
+        "settings",
     ];
 
     for (cat, expected_type) in expected.iter().copied().zip(types.iter().copied()) {
@@ -785,7 +833,7 @@ fn audit_category_coverage_is_exhaustive() {
     // There should be exactly 11 variants — no more, no fewer.
     assert_eq!(
         expected.len(),
-        11,
-        "AuditCategory count is not 11 — did someone add or remove a variant?"
+        12,
+        "AuditCategory count is not 12 — did someone add or remove a variant?"
     );
 }

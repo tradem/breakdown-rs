@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! Zentrale Domain-Fehler
@@ -16,6 +17,7 @@ use crate::photo::error::PhotoError;
 use crate::scene::error::SceneError;
 use crate::scene_shoot::error::SceneShootError;
 use crate::season::error::SeasonError;
+use crate::settings::error::SettingsError;
 use crate::shared::AggregateVersion;
 use crate::shooting_day::error::ShootingDayError;
 
@@ -32,6 +34,9 @@ pub enum DomainError {
 
     #[error("Conflict: {0}")]
     Conflict(String),
+
+    #[error("Service unavailable: {0}")]
+    ServiceUnavailable(String),
 
     #[error("Version conflict on {entity}: expected {expected:?}, current {current:?}")]
     VersionConflict {
@@ -208,6 +213,28 @@ impl From<SceneShootError> for DomainError {
             SceneShootError::TerminalState { status } => {
                 DomainError::Conflict(format!("SceneShoot is in terminal state {status:?}"))
             }
+        }
+    }
+}
+
+impl From<SettingsError> for DomainError {
+    fn from(err: SettingsError) -> Self {
+        match err {
+            SettingsError::EmptyProvider => {
+                DomainError::ValidationError("credential provider must not be empty".into())
+            }
+            SettingsError::EmptyVaultKey => {
+                DomainError::ValidationError("vault key reference must not be empty".into())
+            }
+            SettingsError::NotFound => DomainError::NotFound("Settings credential".into()),
+            SettingsError::AlreadyRevoked => {
+                DomainError::Conflict("credential binding is already revoked".into())
+            }
+            SettingsError::VersionMismatch { expected, actual } => DomainError::VersionConflict {
+                entity: "Settings".into(),
+                expected,
+                current: actual,
+            },
         }
     }
 }

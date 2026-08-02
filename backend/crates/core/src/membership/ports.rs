@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: gpt-5.6-luna (opencode-go)
 
 //! Hexagonal ports for the membership context.
 //!
@@ -90,4 +91,9 @@ pub trait MembershipRepository: Send + Sync {
         season_id: SeasonId,
         user_id: UserId,
     ) -> Result<bool, DomainError>;
+
+    /// Check whether `user_id` is an active CostumeDesigner or
+    /// CostumeAssistant in any block. This is the settings credential gate;
+    /// WardrobeSupervisor is intentionally excluded by ADR-027.
+    async fn has_active_credential_role(&self, user_id: UserId) -> Result<bool, DomainError>;
 }

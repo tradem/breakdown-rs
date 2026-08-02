@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
@@ -74,6 +75,9 @@ use utoipa::OpenApi;
         handlers::shoot_day_report_pdf,
         handlers::planned_vs_actual_report_pdf,
         handlers::manual_archive_reports,
+        handlers::create_credential,
+        handlers::get_settings,
+        handlers::revoke_settings,
     ),
     components(schemas(
         handlers::IdVersionResponse,
@@ -113,6 +117,9 @@ use utoipa::OpenApi;
         handlers::AddCostumeDetailRequest,
         handlers::CreateShootingDayRequest,
         handlers::UpdateShootingDayRequest,
+        handlers::CreateCredentialRequest,
+        breakdown_core::settings::views::SettingsView,
+        breakdown_core::settings::views::CredentialBindingState,
         handlers::ScheduleSceneRequest,
         breakdown_core::membership::views::MembershipView,
         breakdown_core::membership::Role,
