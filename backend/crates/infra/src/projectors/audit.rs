@@ -830,7 +830,7 @@ fn audit_category_coverage_is_exhaustive() {
         );
     }
 
-    // There should be exactly 11 variants — no more, no fewer.
+    // There should be exactly 12 variants — no more, no fewer.
     assert_eq!(
         expected.len(),
         12,

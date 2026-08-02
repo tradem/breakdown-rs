@@ -3770,11 +3770,18 @@ pub async fn create_credential<P: Ports>(
             // Compensate the Vault write if event persistence failed. The
             // error response remains the command error; the secret is never
             // included in it.
-            let _ = state
+            if let Err(destroy_err) = state
                 .ports
                 .credential_vault()
-                .destroy(&binding.vault_key_id)
-                .await;
+                .destroy(id, &binding.vault_key_id)
+                .await
+            {
+                tracing::error!(
+                    vault_key_id = %binding.vault_key_id,
+                    error = %destroy_err,
+                    "failed to compensate Vault write after command persistence failure"
+                );
+            }
             Err(map_err(err))
         }
     }
@@ -3856,12 +3863,6 @@ pub async fn revoke_settings<P: Ports>(
         .find_by_id(id)
         .await
         .map_err(map_err)?;
-    state
-        .ports
-        .credential_vault()
-        .destroy(&view.vault_key_id)
-        .await
-        .map_err(map_err)?;
     let version = state
         .ports
         .settings_commands()
@@ -3874,6 +3875,20 @@ pub async fn revoke_settings<P: Ports>(
         )
         .await
         .map_err(map_err)?;
+    // The binding is now revoked in the aggregate. Destroy the Vault secret
+    // best-effort; cleanup failure must not undo the successful revocation.
+    if let Err(err) = state
+        .ports
+        .credential_vault()
+        .destroy(id, &view.vault_key_id)
+        .await
+    {
+        tracing::error!(
+            vault_key_id = %view.vault_key_id,
+            error = %err,
+            "failed to destroy revoked credential secret in Vault"
+        );
+    }
     Ok((StatusCode::OK, Json(version)))
 }
 

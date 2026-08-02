@@ -5,15 +5,22 @@
 # Co-authored-by: glm-5.2 (neuralwatt)
 
 # Idempotent first-boot bootstrap for the internal Vault service.
-# VAULT_BOOTSTRAP_TOKEN is supplied only to this one-shot container. It is a
-# recovery seed for an already-initialized Vault; the API never receives it.
+# VAULT_BOOTSTRAP_TOKEN_FILE points to a Docker secret mounted only into this
+# one-shot container. The API never receives the bootstrap seed.
 set -eu
 
-: "${VAULT_ADDR:=http://vault:8200}"
+: "${VAULT_ADDR:=https://vault:8200}"
+: "${VAULT_CACERT:=/tls/root_ca.crt}"
+: "${VAULT_BOOTSTRAP_TOKEN_FILE:=/run/secrets/vault_bootstrap_token}"
+if [ ! -r "$VAULT_BOOTSTRAP_TOKEN_FILE" ]; then
+  echo "Vault bootstrap failed: bootstrap secret file is not readable" >&2
+  exit 1
+fi
+VAULT_BOOTSTRAP_TOKEN=$(cat "$VAULT_BOOTSTRAP_TOKEN_FILE")
 : "${VAULT_BOOTSTRAP_TOKEN:?VAULT_BOOTSTRAP_TOKEN is required}"
-export VAULT_ADDR
+export VAULT_ADDR VAULT_CACERT
 
-bootstrap_dir=/vault/data/bootstrap
+bootstrap_dir=/vault/unseal/bootstrap
 unseal_file="$bootstrap_dir/unseal.key"
 token_file=/vault/app-token/app.token
 mkdir -p "$bootstrap_dir" /vault/app-token
@@ -62,7 +69,27 @@ if ! vault status >/dev/null 2>&1; then
     echo "Vault bootstrap failed: sealed Vault has no persisted unseal key" >&2
     exit 1
   fi
-  vault operator unseal "$(cat "$unseal_file")" >/dev/null
+  # The Vault CLI only accepts an unseal key as an argument or interactively;
+  # its non-interactive stdin mode fails without a TTY. Use the local HTTPS
+  # API with a short-lived request file so the key never appears in argv.
+  unseal_payload="$bootstrap_dir/.unseal-request.$$"
+  umask 077
+  printf '{"key":"%s"}\n' "$(cat "$unseal_file")" > "$unseal_payload"
+  # BusyBox wget in the pinned Vault image has HTTPS support but no
+  # --ca-certificate option. Extend its container-local CA bundle with the
+  # public step-ca root; this does not modify the mounted host volume.
+  if [ -f /etc/ssl/certs/ca-certificates.crt ]; then
+    cat "$VAULT_CACERT" >> /etc/ssl/certs/ca-certificates.crt
+  fi
+  if ! wget --quiet \
+      --header='Content-Type: application/json' \
+      --post-file="$unseal_payload" -O /dev/null \
+      "$VAULT_ADDR/v1/sys/unseal"; then
+    rm -f "$unseal_payload"
+    echo "Vault bootstrap failed: unseal request failed" >&2
+    exit 1
+  fi
+  rm -f "$unseal_payload"
 fi
 
 # On normal restarts no root token is available or needed. Renew the existing
@@ -136,6 +163,6 @@ mv "$tmp_token" "$token_file"
 # Revoke the administrative token and remove it from this process. The only
 # surviving credential is the least-privilege app token in its own volume.
 VAULT_TOKEN="$root_token" vault token revoke -self >/dev/null 2>&1 || true
-unset VAULT_TOKEN VAULT_BOOTSTRAP_TOKEN root_token generated_root unseal_key init_json init_one_line app_token
+unset VAULT_TOKEN VAULT_BOOTSTRAP_TOKEN VAULT_BOOTSTRAP_TOKEN_FILE root_token generated_root unseal_key init_json init_one_line app_token
 
 echo "Vault bootstrap complete (Transit, KV-v2, and app policy ready)"

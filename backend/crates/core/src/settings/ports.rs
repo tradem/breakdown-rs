@@ -25,6 +25,12 @@ impl SecretValue {
     }
 }
 
+impl std::fmt::Debug for SecretValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SecretValue(<redacted>)")
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VaultBinding {
     pub vault_key_id: String,
@@ -46,7 +52,7 @@ pub trait CredentialVault: Send + Sync {
         vault_key_id: &str,
     ) -> Result<SecretValue, DomainError>;
 
-    async fn destroy(&self, vault_key_id: &str) -> Result<(), DomainError>;
+    async fn destroy(&self, settings_id: Uuid, vault_key_id: &str) -> Result<(), DomainError>;
 
     async fn check(&self) -> Result<(), DomainError>;
 }

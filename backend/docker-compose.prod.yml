@@ -43,12 +43,17 @@ services:
     environment:
       # Also configures the Vault CLI used by the healthcheck; this is not a
       # credential and is not exposed outside the Docker network.
-      VAULT_ADDR: http://127.0.0.1:8200
+      VAULT_ADDR: https://localhost:8200
+      VAULT_CACERT: /tls/root_ca.crt
     # The official entrypoint loads all files from /vault/config.
     command: ["server"]
     volumes:
       - vault_data:/vault/file
+      - tls_data:/tls:ro
       - ./vault/config.hcl:/vault/config/config.hcl:ro
+    depends_on:
+      tls-provision:
+        condition: service_healthy
     healthcheck:
       # Vault returns 1 while initialized but sealed; that is still a healthy
       # service because vault-bootstrap performs the unseal operation.
@@ -67,15 +72,21 @@ services:
     user: "0:0"
     entrypoint: ["/bin/sh", "/scripts/vault-bootstrap.sh"]
     environment:
-      VAULT_ADDR: http://vault:8200
+      VAULT_ADDR: https://vault:8200
+      VAULT_CACERT: /tls/root_ca.crt
       # Keep interpolation optional so static `docker compose config` CI gates
       # can validate the file without receiving a production secret. The
       # mounted bootstrap script still rejects an empty value at runtime.
-      VAULT_BOOTSTRAP_TOKEN: ${VAULT_BOOTSTRAP_TOKEN:-}
+      VAULT_BOOTSTRAP_TOKEN_FILE: /run/secrets/vault_bootstrap_token
     volumes:
       - vault_data:/vault/data
+      - vault_unseal:/vault/unseal
       - vault_app_token:/vault/app-token
+      - tls_data:/tls:ro
       - ./scripts/vault-bootstrap.sh:/scripts/vault-bootstrap.sh:ro
+    secrets:
+      - source: vault_bootstrap_token
+        target: vault_bootstrap_token
     depends_on:
       vault:
         condition: service_started
@@ -217,7 +228,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "test -f /tls/root_ca.crt -a -f /tls/postgres.crt -a -f /tls/postgres.key -a -f /tls/stunnel.crt -a -f /tls/stunnel.key -a -f /tls/caddy.crt -a -f /tls/caddy.key",
+          "test -f /tls/root_ca.crt -a -f /tls/postgres.crt -a -f /tls/postgres.key -a -f /tls/stunnel.crt -a -f /tls/stunnel.key -a -f /tls/caddy.crt -a -f /tls/caddy.key -a -f /tls/vault.crt -a -f /tls/vault.key",
         ]
       interval: 10s
       timeout: 5s
@@ -289,7 +300,8 @@ services:
     environment:
       # Vault is optional at API boot. Credential endpoints return 503 until
       # the bootstrap helper has produced a valid app token.
-      VAULT_ADDR: http://vault:8200
+      VAULT_ADDR: https://vault:8200
+      VAULT_TLS_ROOT_CERT: /certs/root_ca.crt
       VAULT_APP_TOKEN_FILE: /run/secrets-vault/app.token
       # App role (DML only) – connects as breakdown_app in production. TLS is
       # mandatory: sslmode=verify-full + the pinned step-ca root (ADR-024).
@@ -392,8 +404,18 @@ volumes:
   # Rendered Garage TOML (ADR-019): written by the garage-config one-shot
   # from $GARAGE_* env vars, mounted read-only into the garage container.
   garage_config:
-  # Vault file storage and its generated unseal material. The production host
-  # must place named volumes on the LUKS-protected data device (ADR-023).
+  # Vault file storage. The production host must place named volumes on the
+  # LUKS-protected data device (ADR-023).
   vault_data:
+  # Separate persistent unseal-key volume. Back it up only as encrypted,
+  # offline key custody; never include it in ordinary Vault data snapshots.
+  vault_unseal:
   # Separate least-privilege app-token volume; never share vault_data with api.
   vault_app_token:
+
+secrets:
+  # The bootstrap seed is mounted as a file and is never placed in
+  # vault-bootstrap's Config.Env. Static Compose validation works when the
+  # host variable is absent; the bootstrap script then fails closed at runtime.
+  vault_bootstrap_token:
+    environment: VAULT_BOOTSTRAP_TOKEN

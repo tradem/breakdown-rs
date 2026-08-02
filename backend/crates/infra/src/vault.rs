@@ -14,7 +14,8 @@ use breakdown_core::settings::ports::{CredentialVault, SecretValue, VaultBinding
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use std::time::Duration;
 use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
 
@@ -44,7 +45,26 @@ impl VaultClient {
             .ok()
             .filter(|path| !path.trim().is_empty())
             .map(PathBuf::from);
-        let http = Client::builder()
+        let mut http_builder = Client::builder()
+            .connect_timeout(Duration::from_secs(2))
+            .timeout(Duration::from_secs(5));
+        if let Some(cert_path) = std::env::var("VAULT_TLS_ROOT_CERT")
+            .ok()
+            .filter(|path| !path.trim().is_empty())
+        {
+            let pem = std::fs::read(&cert_path).map_err(|err| {
+                DomainError::ServiceUnavailable(format!(
+                    "Vault TLS root certificate {cert_path}: {err}"
+                ))
+            })?;
+            let certificate = reqwest::Certificate::from_pem(&pem).map_err(|err| {
+                DomainError::ServiceUnavailable(format!(
+                    "Vault TLS root certificate {cert_path}: {err}"
+                ))
+            })?;
+            http_builder = http_builder.add_root_certificate(certificate);
+        }
+        let http = http_builder
             .build()
             .map_err(|err| DomainError::ServiceUnavailable(format!("Vault client: {err}")))?;
         Ok(Self {
@@ -54,11 +74,23 @@ impl VaultClient {
         })
     }
 
-    fn current_token(&self) -> Option<Zeroizing<String>> {
-        self.token_file
-            .as_deref()
-            .and_then(read_token_file)
-            .map(Zeroizing::new)
+    async fn current_token(&self) -> Option<Zeroizing<String>> {
+        let path = self.token_file.as_deref()?;
+        match tokio::fs::read_to_string(path).await {
+            Ok(value) => {
+                let value = value.trim().to_owned();
+                if value.is_empty() {
+                    tracing::warn!(path = %path.display(), "Vault app-token file is empty");
+                    None
+                } else {
+                    Some(Zeroizing::new(value))
+                }
+            }
+            Err(error) => {
+                tracing::warn!(path = %path.display(), error = %error, "failed to read Vault app-token file");
+                None
+            }
+        }
     }
 
     fn unavailable(detail: impl Into<String>) -> DomainError {
@@ -73,6 +105,7 @@ impl VaultClient {
     ) -> Result<reqwest::Response, DomainError> {
         let token = self
             .current_token()
+            .await
             .ok_or_else(|| Self::unavailable("app token is not configured"))?;
         let url = format!("{}/v1/{}", self.addr, path.trim_start_matches('/'));
         let mut request = self
@@ -115,7 +148,7 @@ impl VaultClient {
                 }),
             )
             .await?;
-        if response.status().is_success() || response.status() == StatusCode::BAD_REQUEST {
+        if response.status().is_success() {
             Ok(())
         } else {
             Err(Self::unavailable(format!(
@@ -225,6 +258,7 @@ struct KvEnvelope {
 
 #[derive(Deserialize)]
 struct KvDataOwned {
+    vault_key_id: String,
     wrapped_dek: String,
     ciphertext: String,
 }
@@ -247,16 +281,8 @@ impl CredentialVault for VaultClient {
                 .map_err(|err| Self::unavailable(format!("invalid datakey encoding: {err}")))?,
         );
         encoded_key.zeroize();
-        let cipher = Aes256Gcm::new_from_slice(&key)
-            .map_err(|_| Self::unavailable("Vault returned an invalid DEK"))?;
-        let mut nonce_bytes = [0_u8; 12];
-        getrandom::fill(&mut nonce_bytes)
-            .map_err(|err| Self::unavailable(format!("nonce generation failed: {err}")))?;
-        let encrypted = cipher
-            .encrypt(Nonce::from_slice(&nonce_bytes), secret.as_str().as_bytes())
-            .map_err(|_| Self::unavailable("credential encryption failed"))?;
-        let mut payload = nonce_bytes.to_vec();
-        payload.extend(encrypted);
+        let payload =
+            encrypt_envelope(&key, secret.as_str().as_bytes()).map_err(Self::unavailable)?;
         let ciphertext = BASE64.encode(payload);
         let response = self
             .send(
@@ -306,28 +332,30 @@ impl CredentialVault for VaultClient {
             .json::<KvEnvelope>()
             .await
             .map_err(|err| Self::unavailable(format!("invalid KV response: {err}")))?;
+        let expected_key_id = format!("settings-{settings_id}");
+        if envelope.data.vault_key_id != vault_key_id || vault_key_id != expected_key_id {
+            return Err(Self::unavailable(
+                "credential binding does not match the Vault record",
+            ));
+        }
         let key = Zeroizing::new(
             self.decrypt_datakey(vault_key_id, &envelope.data.wrapped_dek)
                 .await?,
         );
-        let cipher = Aes256Gcm::new_from_slice(&key)
-            .map_err(|_| Self::unavailable("Vault returned an invalid DEK"))?;
         let payload = BASE64
             .decode(envelope.data.ciphertext)
             .map_err(|err| Self::unavailable(format!("invalid ciphertext encoding: {err}")))?;
-        if payload.len() < 12 {
-            return Err(Self::unavailable("stored ciphertext is truncated"));
-        }
-        let (nonce, encrypted) = payload.split_at(12);
-        let plaintext = cipher
-            .decrypt(Nonce::from_slice(nonce), encrypted)
-            .map_err(|_| Self::unavailable("credential decryption failed"))?;
+        let plaintext = decrypt_envelope(&key, &payload).map_err(Self::unavailable)?;
         let plaintext = String::from_utf8(plaintext)
             .map_err(|_| Self::unavailable("credential is not valid UTF-8"))?;
         Ok(SecretValue::new(plaintext))
     }
 
-    async fn destroy(&self, vault_key_id: &str) -> Result<(), DomainError> {
+    async fn destroy(&self, settings_id: Uuid, vault_key_id: &str) -> Result<(), DomainError> {
+        let expected_key_id = format!("settings-{settings_id}");
+        if vault_key_id != expected_key_id {
+            return Err(Self::unavailable("invalid credential Vault key reference"));
+        }
         let config = self
             .send(
                 reqwest::Method::POST,
@@ -354,6 +382,19 @@ impl CredentialVault for VaultClient {
                 response.status()
             )));
         }
+        let metadata = self
+            .send::<()>(
+                reqwest::Method::DELETE,
+                &format!("kv/metadata/settings-secrets/{settings_id}"),
+                None,
+            )
+            .await?;
+        if !metadata.status().is_success() {
+            return Err(Self::unavailable(format!(
+                "KV metadata deletion returned {}",
+                metadata.status()
+            )));
+        }
         Ok(())
     }
 
@@ -364,29 +405,60 @@ impl CredentialVault for VaultClient {
             .send()
             .await
             .map_err(|err| Self::unavailable(err.to_string()))?;
-        // Vault's documented 200/429/472/473/501 health responses all mean the
-        // service is reachable; sealed/uninitialized states are reported as
-        // unavailable so handlers can expose `unreachable` without secrets.
+        // Vault's documented active/standby responses mean the service is
+        // reachable; sealed and uninitialized states are unavailable.
         match response.status().as_u16() {
-            200 | 429 | 472 | 473 | 501 => Ok(()),
+            200 | 429 | 472 | 473 => Ok(()),
             status => Err(Self::unavailable(format!("health returned {status}"))),
         }
     }
 }
 
-fn read_token_file(path: &Path) -> Option<String> {
-    std::fs::read_to_string(path)
-        .ok()
-        .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty())
+fn encrypt_envelope(dek: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, &'static str> {
+    let cipher = Aes256Gcm::new_from_slice(dek).map_err(|_| "invalid DEK")?;
+    let mut nonce_bytes = [0_u8; 12];
+    getrandom::fill(&mut nonce_bytes).map_err(|_| "nonce generation failed")?;
+    let encrypted = cipher
+        .encrypt(Nonce::from_slice(&nonce_bytes), plaintext)
+        .map_err(|_| "credential encryption failed")?;
+    let mut payload = nonce_bytes.to_vec();
+    payload.extend(encrypted);
+    Ok(payload)
+}
+
+fn decrypt_envelope(dek: &[u8], payload: &[u8]) -> Result<Vec<u8>, &'static str> {
+    if payload.len() < 12 {
+        return Err("stored ciphertext is truncated");
+    }
+    let cipher = Aes256Gcm::new_from_slice(dek).map_err(|_| "invalid DEK")?;
+    let (nonce, encrypted) = payload.split_at(12);
+    cipher
+        .decrypt(Nonce::from_slice(nonce), encrypted)
+        .map_err(|_| "credential decryption failed")
 }
 
 #[cfg(test)]
 mod tests {
-    use super::read_token_file;
+    use super::{decrypt_envelope, encrypt_envelope};
 
     #[test]
-    fn missing_token_file_is_unavailable_without_panicking() {
-        assert!(read_token_file(std::path::Path::new("/does/not/exist")).is_none());
+    fn envelope_round_trip_preserves_plaintext() {
+        let dek = [7_u8; 32];
+        let payload = encrypt_envelope(&dek, b"refresh-token").unwrap();
+        assert_eq!(decrypt_envelope(&dek, &payload).unwrap(), b"refresh-token");
+    }
+
+    #[test]
+    fn envelope_rejects_truncated_payload() {
+        assert!(decrypt_envelope(&[7_u8; 32], &[0_u8; 11]).is_err());
+    }
+
+    #[test]
+    fn envelope_rejects_modified_ciphertext() {
+        let dek = [7_u8; 32];
+        let mut payload = encrypt_envelope(&dek, b"secret").unwrap();
+        let last = payload.len() - 1;
+        payload[last] ^= 1;
+        assert!(decrypt_envelope(&dek, &payload).is_err());
     }
 }

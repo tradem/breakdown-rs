@@ -1,13 +1,14 @@
 #!/usr/bin/env sh
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: gpt-5.6-luna (opencode-go)
 # Co-authored-by: deepseek-v4-flash (opencode-go)
 
 # Certificate provision loop for the internal TLS mesh (ADR-024 / issue #156).
 #
 # Runs inside the `tls-provision` compose service (smallstep/step-ca image).
 # On boot it copies the step-ca root into the shared `tls_data` volume and
-# issues short-TTL leaf certificates (postgres, stunnel, caddy) signed by the
+# issues short-TTL leaf certificates (postgres, stunnel, caddy, vault) signed by the
 # internal CA; then it keeps re-issuing on a `TLS_RENEW_INTERVAL` loop so
 # certs rotate automatically (old certs stay valid for `TLS_CERT_TTL`, so
 # servers that load their cert at startup keep serving a trusted chain until
@@ -81,15 +82,17 @@ issue() {
     #  - stunnel/caddy run as root in their containers: 0600.
     case "${subject}" in
         postgres) chown 0:70 "/tls/${subject}.key" && chmod 640 "/tls/${subject}.key" ;;
+        vault)    chown 100:1000 "/tls/${subject}.key" && chmod 640 "/tls/${subject}.key" ;;
         *)        chmod 600 "/tls/${subject}.key" ;;
     esac
 }
 
-# Issue once so dependent services can start (postgres/stunnel/caddy gate on
+# Issue once so dependent services can start (postgres/stunnel/caddy/vault gate on
 # `tls-provision` becoming healthy, which checks these files exist).
 issue postgres
 issue stunnel
 issue caddy
+issue vault
 
 while true; do
     echo "Sleeping ${TLS_RENEW_INTERVAL} before re-issuing certificates..."
@@ -97,4 +100,5 @@ while true; do
     issue postgres
     issue stunnel
     issue caddy
+    issue vault
 done

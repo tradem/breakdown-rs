@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! Startup in-transit TLS configuration validation (ADR-024 / issue #156).
@@ -14,6 +15,8 @@
 //!   the upstream sources; see ADR-024 open question).
 //! - The Garage S3 link uses `https://` (Caddy internal site) with the
 //!   OpenDAL client pinned to the step-ca root via `S3_TLS_ROOT_CERT`.
+//! - The Vault link uses `https://` with `VAULT_TLS_ROOT_CERT`, and the
+//!   `VAULT_APP_TOKEN_FILE` path must be configured in production.
 //!
 //! The check is **explicitly opt-in** via `REQUIRE_IN_TRANSIT_TLS=true`
 //! (set by `docker-compose.prod.yml`). It is deliberately *not* inferred from
@@ -34,6 +37,8 @@ pub struct TlsConfig {
     pub s3_endpoint: Option<String>,
     pub report_backup_endpoint: Option<String>,
     pub report_staging_endpoint: Option<String>,
+    pub vault_addr: Option<String>,
+    pub vault_app_token_file: Option<String>,
 }
 
 impl TlsConfig {
@@ -46,6 +51,8 @@ impl TlsConfig {
             s3_endpoint: env_var("S3_ENDPOINT"),
             report_backup_endpoint: env_var("REPORT_BACKUP_ENDPOINT"),
             report_staging_endpoint: env_var("REPORT_BACKUP_STAGING_ENDPOINT"),
+            vault_addr: env_var("VAULT_ADDR"),
+            vault_app_token_file: env_var("VAULT_APP_TOKEN_FILE"),
         }
     }
 
@@ -75,6 +82,24 @@ impl TlsConfig {
             out.push(format!(
                 "SIERRADB_URL must use the TLS scheme 'rediss://' (stunnel sidecar, ADR-024), got: {url}"
             ));
+        }
+
+        // Vault links: HTTPS with a separately pinned internal CA. The
+        // token path is a configuration contract; the file itself may be
+        // populated asynchronously by the bootstrap service.
+        match self.vault_addr.as_deref() {
+            Some(url) if url.starts_with("https://") => {}
+            Some(url) => out.push(format!(
+                "VAULT_ADDR must use the TLS scheme 'https://' (internal Vault link, ADR-027), got: {url}"
+            )),
+            None => out.push(
+                "VAULT_ADDR must be set when in-transit TLS is required (ADR-027)".into(),
+            ),
+        }
+        if self.vault_app_token_file.is_none() {
+            out.push(
+                "VAULT_APP_TOKEN_FILE must be set when in-transit TLS is required (ADR-027)".into(),
+            );
         }
 
         // Object-store links: `https://` (Caddy internal site, ADR-024).

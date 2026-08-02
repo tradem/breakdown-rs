@@ -453,6 +453,7 @@ impl MembershipRepository for FakeMembershipRepo {
     }
 
     async fn has_active_credential_role(&self, _user_id: UserId) -> Result<bool, DomainError> {
+        // Default test fake admits credential roles (designer/assistant).
         Ok(true)
     }
 }
@@ -1111,20 +1112,38 @@ impl ReportArchivalQueue for FakeReportArchivalQueue {
     }
 }
 
-#[derive(Clone, Default, Debug)]
+type SettingsCreateResult = Arc<Mutex<Option<Result<(Uuid, AggregateVersion), DomainError>>>>;
+type SettingsRevokeResult = Arc<Mutex<Option<Result<AggregateVersion, DomainError>>>>;
+
+#[derive(Clone, Debug)]
 #[allow(dead_code)]
-pub struct FakeSettingsCommands;
+pub struct FakeSettingsCommands {
+    pub create_result: SettingsCreateResult,
+    pub revoke_result: SettingsRevokeResult,
+}
+
+impl Default for FakeSettingsCommands {
+    fn default() -> Self {
+        Self {
+            create_result: Arc::new(Mutex::new(None)),
+            revoke_result: Arc::new(Mutex::new(None)),
+        }
+    }
+}
 
 #[async_trait]
 impl SettingsCommands for FakeSettingsCommands {
     async fn create(
         &self,
         _actor: UserId,
-        _cmd: CreateCredentialBinding,
+        cmd: CreateCredentialBinding,
     ) -> Result<(Uuid, AggregateVersion), DomainError> {
-        Err(DomainError::ServiceUnavailable(
-            "fake settings command".into(),
-        ))
+        self.create_result.lock().await.take().unwrap_or_else(|| {
+            Err(DomainError::ServiceUnavailable(format!(
+                "fake settings command for {}",
+                cmd.id
+            )))
+        })
     }
 
     async fn revoke(
@@ -1132,26 +1151,57 @@ impl SettingsCommands for FakeSettingsCommands {
         _actor: UserId,
         _cmd: RevokeCredential,
     ) -> Result<AggregateVersion, DomainError> {
-        Err(DomainError::ServiceUnavailable(
-            "fake settings command".into(),
-        ))
+        self.revoke_result.lock().await.take().unwrap_or_else(|| {
+            Err(DomainError::ServiceUnavailable(
+                "fake settings command".into(),
+            ))
+        })
     }
 }
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Debug)]
 #[allow(dead_code)]
-pub struct FakeSettingsRepo;
+pub struct FakeSettingsRepo {
+    pub view: Arc<Mutex<Option<SettingsView>>>,
+}
+
+impl Default for FakeSettingsRepo {
+    fn default() -> Self {
+        Self {
+            view: Arc::new(Mutex::new(None)),
+        }
+    }
+}
 
 #[async_trait]
 impl SettingsRepository for FakeSettingsRepo {
     async fn find_by_id(&self, id: Uuid) -> Result<SettingsView, DomainError> {
-        Err(DomainError::NotFound(format!("Settings({id})")))
+        self.view
+            .lock()
+            .await
+            .clone()
+            .ok_or_else(|| DomainError::NotFound(format!("Settings({id})")))
     }
 }
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Debug)]
 #[allow(dead_code)]
-pub struct FakeCredentialVault;
+pub struct FakeCredentialVault {
+    /// `false` by default so Vault-unavailable handler tests remain explicit.
+    pub available: Arc<Mutex<bool>>,
+    pub binding: Arc<Mutex<Option<breakdown_core::settings::ports::VaultBinding>>>,
+    pub secret: Arc<Mutex<Option<String>>>,
+}
+
+impl Default for FakeCredentialVault {
+    fn default() -> Self {
+        Self {
+            available: Arc::new(Mutex::new(false)),
+            binding: Arc::new(Mutex::new(None)),
+            secret: Arc::new(Mutex::new(None)),
+        }
+    }
+}
 
 #[async_trait]
 impl CredentialVault for FakeCredentialVault {
@@ -1161,7 +1211,12 @@ impl CredentialVault for FakeCredentialVault {
         _provider: &str,
         _secret: SecretValue,
     ) -> Result<breakdown_core::settings::ports::VaultBinding, DomainError> {
-        Err(DomainError::ServiceUnavailable("fake vault".into()))
+        if !*self.available.lock().await {
+            return Err(DomainError::ServiceUnavailable("fake vault".into()));
+        }
+        self.binding.lock().await.clone().ok_or_else(|| {
+            DomainError::ServiceUnavailable("fake vault binding not configured".into())
+        })
     }
 
     async fn fetch(
@@ -1169,15 +1224,34 @@ impl CredentialVault for FakeCredentialVault {
         _settings_id: Uuid,
         _vault_key_id: &str,
     ) -> Result<SecretValue, DomainError> {
-        Err(DomainError::ServiceUnavailable("fake vault".into()))
+        if !*self.available.lock().await {
+            return Err(DomainError::ServiceUnavailable("fake vault".into()));
+        }
+        self.secret
+            .lock()
+            .await
+            .clone()
+            .map(SecretValue::new)
+            .ok_or_else(|| {
+                DomainError::ServiceUnavailable("fake vault secret not configured".into())
+            })
     }
 
-    async fn destroy(&self, _vault_key_id: &str) -> Result<(), DomainError> {
-        Err(DomainError::ServiceUnavailable("fake vault".into()))
+    async fn destroy(&self, _settings_id: Uuid, _vault_key_id: &str) -> Result<(), DomainError> {
+        if !*self.available.lock().await {
+            return Err(DomainError::ServiceUnavailable("fake vault".into()));
+        }
+        *self.binding.lock().await = None;
+        *self.secret.lock().await = None;
+        Ok(())
     }
 
     async fn check(&self) -> Result<(), DomainError> {
-        Err(DomainError::ServiceUnavailable("fake vault".into()))
+        if *self.available.lock().await {
+            Ok(())
+        } else {
+            Err(DomainError::ServiceUnavailable("fake vault".into()))
+        }
     }
 }
 

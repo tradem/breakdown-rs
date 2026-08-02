@@ -56,9 +56,9 @@ all files introduced by this change (including the bootstrap script) scan clean.
    Vault init generates a root token in-memory (Vault 1.20 removed the
    caller-supplied root-token flag), revokes it after provisioning, and keeps
    only the unseal key plus orphaned app token on their dedicated volumes.
-3. Vault HTTP is Docker-network internal in this change. TLS for the Vault link
-   can be added to the existing step-ca mesh without affecting the domain/API
-   contract.
+3. Vault uses the existing step-ca mesh for native internal TLS. The API and
+   bootstrap client pin the step-ca root; the unseal key and app token remain in
+   separate persistent volumes with separate backup/custody rules.
 4. Destruction is a per-credential Transit-key operation. Shared-key
    reference-counting is intentionally not introduced because #157 creates one
    key per binding.
