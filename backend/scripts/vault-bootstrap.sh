@@ -143,6 +143,18 @@ path "kv/data/settings-secrets/*" {
 path "kv/metadata/settings-secrets/*" {
   capabilities = ["read", "delete"]
 }
+path "transit/keys/photo-sse-c" {
+  capabilities = ["create", "read"]
+}
+path "transit/datakey/plaintext/photo-sse-c" {
+  capabilities = ["update"]
+}
+path "transit/decrypt/photo-sse-c" {
+  capabilities = ["update"]
+}
+path "kv/data/photo-sse-c" {
+  capabilities = ["create", "read", "update"]
+}
 POLICY
 
 # Keep a short-lived, least-privilege token in a separate named volume. If the

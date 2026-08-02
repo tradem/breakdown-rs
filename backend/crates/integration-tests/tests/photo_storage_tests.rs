@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: gpt-5.6-luna (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -21,7 +22,7 @@ mod fixtures;
 use anyhow::Result;
 use breakdown_core::photo::ports::PhotoStorage;
 use breakdown_core::shared::{PhotoId, PhotoVariant};
-use fixtures::{GarageCredentials, spawn_garage, spawn_postgres};
+use fixtures::{GarageCredentials, PHOTO_TEST_SSE_C_KEY, spawn_garage, spawn_postgres};
 use infra::photo::storage::OpenDalPhotoStorage;
 
 /// Helper to build an `OpenDalPhotoStorage` from test Garage credentials.
@@ -31,7 +32,8 @@ fn build_storage(creds: &GarageCredentials) -> OpenDalPhotoStorage {
         .access_key_id(&creds.access_key)
         .secret_access_key(&creds.secret_key)
         .region("garage")
-        .bucket(&creds.bucket);
+        .bucket(&creds.bucket)
+        .server_side_encryption_with_customer_key("AES256", &PHOTO_TEST_SSE_C_KEY);
 
     let op = opendal::Operator::new(builder)
         .expect("Failed to build S3 operator")
@@ -101,6 +103,55 @@ async fn photo_storage_store_fetch_delete_round_trip() -> Result<()> {
     assert_eq!(fetched.content_type, content_type);
     assert!(fetched.etag.is_some());
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn photo_storage_direct_read_without_customer_key_is_rejected() -> Result<()> {
+    let (_pg_pool, _pg_guard) = spawn_postgres().await?;
+    let (creds, _garage_guard) = spawn_garage().await?;
+
+    let storage = build_storage(&creds);
+    let photo_id = PhotoId::new();
+    storage
+        .store(
+            photo_id,
+            PhotoVariant::Original,
+            test_image_bytes(),
+            "image/jpeg".into(),
+        )
+        .await?;
+
+    let plain_builder = opendal::services::S3::default()
+        .endpoint(&creds.endpoint)
+        .access_key_id(&creds.access_key)
+        .secret_access_key(&creds.secret_key)
+        .region("garage")
+        .bucket(&creds.bucket);
+    let plain_operator = opendal::Operator::new(plain_builder)?.finish();
+    let result = plain_operator
+        .read(&format!("{}/original", photo_id.0))
+        .await;
+    assert!(
+        result.is_err(),
+        "SSE-C object must not be readable without the key"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn unavailable_photo_storage_does_not_write() -> Result<()> {
+    let storage = OpenDalPhotoStorage::unavailable("Vault unavailable");
+    let result = storage
+        .store(
+            PhotoId::new(),
+            PhotoVariant::Original,
+            b"must-not-be-written".to_vec(),
+            "image/jpeg".into(),
+        )
+        .await;
+    assert!(result.is_err());
     Ok(())
 }
 

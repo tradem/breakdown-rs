@@ -88,6 +88,31 @@ requirement for GDPR Art. 17 (ADR-029).
    `Revoked`; the vault key may be retained until the defensible retention
    window closes, then destroyed.
 
+### Photo SSE-C bucket key (Issue #159)
+
+The photo object-store encryption path uses the same Vault custody pattern but
+has a deliberately separate, bucket-scoped record. The fixed Transit key id is
+`photo-sse-c`; the API requests one random 256-bit datakey, stores only its
+Transit-wrapped ciphertext in KV-v2 at `photo-sse-c`, and loads the plaintext
+only at API boot to configure the OpenDAL S3 operator with AES256 SSE-C. The
+plaintext key is never an environment variable, event field, projection,
+Garage metadata value, log field, or API response.
+
+The bucket scope is a conscious OpenDAL 0.52.0 limitation: its SSE-C support
+is configured on the S3 operator rather than per request. Per-photo or
+per-season crypto-shredding is therefore a follow-up that requires a safe
+per-request header seam and a new rotation/concurrency design. Destroying
+`photo-sse-c` renders the entire `costume-photos` bucket undecryptable and is
+an intentional whole-bucket purge, not ordinary photo deletion.
+
+If Vault is unavailable at boot, the API still serves unrelated routes, but
+constructs an unavailable photo adapter. Photo reads, writes, sagas, and GC
+return a dependency-unavailable error (HTTP 503 at the edge); the code never
+falls back to plaintext S3. Bucket-key rotation is a two-key operational
+backfill: rewrite and verify every existing variant with old-key reads and
+new-key writes, commit the new wrapped KV record, then restart the API. The
+old key remains available until verification and the rollback window finish.
+
 ### Compatibility with event sourcing
 
 The aggregate's **events store only references** (`vault_key_id`,

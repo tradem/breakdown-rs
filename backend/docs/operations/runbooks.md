@@ -228,6 +228,55 @@ bootstrap seed is mounted as a Docker secret, while the generated unseal key
 and app token are stored in separate volumes. The unseal volume is not part of
 ordinary Vault data backups.
 
+### Garage photo SSE-C key (Issue #159 / ADR-023)
+
+Photo storage uses one stable 256-bit DEK for the `costume-photos` bucket. The
+DEK is generated through Vault Transit key `photo-sse-c`; only its wrapped form
+is stored at KV-v2 path `kv/data/photo-sse-c`. The API unwraps it at boot and
+passes it to OpenDAL in memory. Never put the plaintext key in `.env`, a shell
+argument, a log, an event, a projection, or Garage metadata. The API starts
+without photo storage when Vault is unavailable and photo operations return
+503; it never falls back to plaintext S3.
+
+#### Initial provisioning and verification
+
+1. Start `vault` and `vault-bootstrap` and verify that the bootstrap job
+   completed successfully; do not print the app token or any Vault response.
+2. Start the API and inspect only redacted startup status/logs. A healthy photo
+   adapter reports configuration state, not key material.
+3. In staging, upload one test photo through the API and verify the round trip
+   through the API. A direct S3 GET/HEAD using only the Garage access key must
+   fail with `InvalidRequest`/`InvalidArgument`; do not dump the object or key.
+4. Keep the Garage volume on the LUKS-protected data volume. SSE-C is defense
+   in depth, not a replacement for the LUKS control.
+
+#### Two-key bucket rotation
+
+Changing the bucket DEK before rewriting existing objects makes those objects
+unreadable. Perform rotation in a maintenance window with the API photo
+workers stopped or quiesced:
+
+1. Generate a candidate datakey through the Vault Transit `photo-sse-c` key
+   and store its wrapped ciphertext in a staging KV record. Never export or
+   print the plaintext candidate.
+2. Run a backfill job with two S3 operators: read each original/thumb/medium
+   object with the old key, write it to the same object key with the candidate
+   key, then read it back with the candidate operator and verify content length
+   and digest. Keep the old wrapped record active during this step.
+3. After every object is verified, atomically make the candidate wrapped record
+   the active `photo-sse-c` KV record and restart the API workers. Confirm new
+   uploads, thumbnail generation, downloads, deletion, and GC all succeed.
+4. If any rewrite or verification fails, leave the old record active, discard
+   the candidate record, and restart workers with the old key.
+5. After the rollback window, destroy only retired Transit key material if it
+   is no longer needed. Do **not** destroy the active `photo-sse-c` key unless
+   the intentional goal is to crypto-shred every photo in the bucket.
+
+The repository supplies the SSE-C operator and contract tests; the staging
+backfill job must be exercised and signed off before production rotation.
+Per-photo/per-season key rotation is not supported until OpenDAL provides a
+safe per-request SSE-C header seam.
+
 ### Internal TLS mesh (ADR-024)
 
 - The `caddy` service also fronts the Garage S3 API on `:9443`
