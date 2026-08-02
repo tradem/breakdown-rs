@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: gpt-5.6-luna (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -79,7 +80,7 @@ fn staging_and_external_keys_are_deterministic() {
 #[test]
 fn errors_never_embed_credentials_in_debug() {
     let err = ReportStorageError::CredentialMissing {
-        detail: "REPORT_BACKUP_GDRIVE_CLIENT_SECRET must be set".into(),
+        detail: "GDrive Settings binding is unavailable".into(),
     };
     // Detail names the env var, not the secret value — acceptable.
     assert!(!format!("{err:?}").contains("super-secret"));

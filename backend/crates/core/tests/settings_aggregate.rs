@@ -6,8 +6,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use breakdown_core::settings::{
-    CreateCredentialBinding, CredentialBindingState, RevokeCredential, SettingsAggregate,
-    SettingsEvent,
+    CreateCredentialBinding, CredentialBindingState, GDriveCredentialBundle, RevokeCredential,
+    RotateCredentialBinding, SettingsAggregate, SettingsEvent,
 };
 use breakdown_core::shared::AggregateVersion;
 use kameo_es::{Apply, Command, Metadata};
@@ -80,6 +80,52 @@ fn invalid_binding_is_rejected() {
             .handle(command, make_ctx())
             .is_err()
     );
+}
+
+#[test]
+fn gdrive_bundle_roundtrips_without_exposing_material_in_events() {
+    let bundle = GDriveCredentialBundle::try_new(
+        "client-id".into(),
+        "client-secret".into(),
+        "refresh-token".into(),
+        Some("root-folder".into()),
+    )
+    .unwrap();
+    let encoded = bundle.into_secret_value().unwrap();
+    assert!(encoded.as_str().contains("client-id"));
+    assert!(encoded.as_str().contains("refresh-token"));
+    let decoded = GDriveCredentialBundle::from_secret_value(encoded).unwrap();
+    assert_eq!(decoded.client_id(), "client-id");
+    assert_eq!(decoded.client_secret(), "client-secret");
+    assert_eq!(decoded.refresh_token(), "refresh-token");
+    assert_eq!(decoded.root_folder_id(), Some("root-folder"));
+}
+
+#[test]
+fn rotate_event_replaces_reference_and_keeps_secret_free_payload() {
+    let command = binding();
+    let id = command.id;
+    let mut aggregate = SettingsAggregate::default();
+    let events = aggregate.handle(command, make_ctx()).unwrap();
+    aggregate.apply(events.into_iter().next().unwrap(), Metadata::default());
+    let rotated = aggregate
+        .handle(
+            RotateCredentialBinding {
+                id,
+                provider: "gdrive".into(),
+                vault_key_id: "settings-new-key".into(),
+                vault_version: 2,
+                version: AggregateVersion::INITIAL,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    let encoded = to_string(&rotated).unwrap();
+    assert!(encoded.contains("settings-new-key"));
+    assert!(!encoded.contains("refresh_token"));
+    aggregate.apply(rotated.into_iter().next().unwrap(), Metadata::default());
+    assert_eq!(aggregate.vault_key_id, "settings-new-key");
+    assert_eq!(aggregate.version, AggregateVersion(2));
 }
 
 #[test]

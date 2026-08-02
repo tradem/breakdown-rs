@@ -331,6 +331,11 @@ services:
       PHOTO_GC_MAX_AGE_SECS: ${PHOTO_GC_MAX_AGE_SECS:-86400}
       PHOTO_GC_BATCH_SIZE: ${PHOTO_GC_BATCH_SIZE:-1000}
       PHOTO_GC_DRY_RUN: ${PHOTO_GC_DRY_RUN:-false}
+      # --- Report archival destination (credentials live only in Vault) ---
+      REPORT_BACKUP_PROVIDER: ${REPORT_BACKUP_PROVIDER:-s3}
+      # Opaque Settings aggregate id; never put GDrive credential fields here.
+      REPORT_BACKUP_SETTINGS_ID: ${REPORT_BACKUP_SETTINGS_ID:-}
+      REPORT_BACKUP_PREFIX: ${REPORT_BACKUP_PREFIX:-report-backup/}
       # --- OpenTelemetry hooks (ADR-011) ---
       # Enable OTEL export by setting OTEL_EXPORTER_OTLP_ENDPOINT.
       OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-breakdown-rs}

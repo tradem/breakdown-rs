@@ -391,17 +391,18 @@ struct PhotoKeyKvDataOwned {
     wrapped_dek: String,
 }
 
-#[async_trait::async_trait]
-impl CredentialVault for VaultClient {
-    async fn store(
+impl VaultClient {
+    async fn store_secret(
         &self,
         settings_id: Uuid,
+        key_id: &str,
+        record_id: &str,
         provider: &str,
         secret: SecretValue,
     ) -> Result<VaultBinding, DomainError> {
-        let key_id = format!("settings-{settings_id}");
-        self.ensure_key(&key_id).await?;
-        let datakey = self.datakey(&key_id).await?;
+        validate_binding_key(settings_id, key_id)?;
+        self.ensure_key(key_id).await?;
+        let datakey = self.datakey(key_id).await?;
         let mut encoded_key = datakey.plaintext;
         let key = Zeroizing::new(
             BASE64
@@ -415,11 +416,11 @@ impl CredentialVault for VaultClient {
         let response = self
             .send(
                 reqwest::Method::POST,
-                &format!("kv/data/settings-secrets/{settings_id}"),
+                &format!("kv/data/settings-secrets/{record_id}"),
                 Some(&KvRequest {
                     data: KvData {
                         provider,
-                        vault_key_id: &key_id,
+                        vault_key_id: key_id,
                         wrapped_dek: &datakey.ciphertext,
                         ciphertext: &ciphertext,
                     },
@@ -433,9 +434,42 @@ impl CredentialVault for VaultClient {
             )));
         }
         Ok(VaultBinding {
-            vault_key_id: key_id,
+            vault_key_id: key_id.to_owned(),
             vault_version: 1,
         })
+    }
+}
+
+#[async_trait::async_trait]
+impl CredentialVault for VaultClient {
+    async fn store(
+        &self,
+        settings_id: Uuid,
+        provider: &str,
+        secret: SecretValue,
+    ) -> Result<VaultBinding, DomainError> {
+        let key_id = format!("settings-{settings_id}");
+        self.store_secret(
+            settings_id,
+            &key_id,
+            &settings_id.to_string(),
+            provider,
+            secret,
+        )
+        .await
+    }
+
+    async fn store_gdrive(
+        &self,
+        settings_id: Uuid,
+        bundle: breakdown_core::settings::ports::GDriveCredentialBundle,
+    ) -> Result<VaultBinding, DomainError> {
+        // A new opaque key per rotation preserves the old binding until the
+        // reference-only rotation event has been accepted.
+        let key_id = format!("settings-{settings_id}-{}", Uuid::now_v7());
+        let secret = bundle.into_secret_value()?;
+        self.store_secret(settings_id, &key_id, &key_id, "gdrive", secret)
+            .await
     }
 
     async fn fetch(
@@ -443,10 +477,16 @@ impl CredentialVault for VaultClient {
         settings_id: Uuid,
         vault_key_id: &str,
     ) -> Result<SecretValue, DomainError> {
+        validate_binding_key(settings_id, vault_key_id)?;
+        let record_id = if vault_key_id == format!("settings-{settings_id}") {
+            settings_id.to_string()
+        } else {
+            vault_key_id.to_owned()
+        };
         let response = self
             .send::<()>(
                 reqwest::Method::GET,
-                &format!("kv/data/settings-secrets/{settings_id}"),
+                &format!("kv/data/settings-secrets/{record_id}"),
                 None,
             )
             .await?;
@@ -460,8 +500,7 @@ impl CredentialVault for VaultClient {
             .json::<KvEnvelope>()
             .await
             .map_err(|err| Self::unavailable(format!("invalid KV response: {err}")))?;
-        let expected_key_id = format!("settings-{settings_id}");
-        if envelope.data.vault_key_id != vault_key_id || vault_key_id != expected_key_id {
+        if envelope.data.vault_key_id != vault_key_id {
             return Err(Self::unavailable(
                 "credential binding does not match the Vault record",
             ));
@@ -483,10 +522,12 @@ impl CredentialVault for VaultClient {
     }
 
     async fn destroy(&self, settings_id: Uuid, vault_key_id: &str) -> Result<(), DomainError> {
-        let expected_key_id = format!("settings-{settings_id}");
-        if vault_key_id != expected_key_id {
-            return Err(Self::unavailable("invalid credential Vault key reference"));
-        }
+        validate_binding_key(settings_id, vault_key_id)?;
+        let record_id = if vault_key_id == format!("settings-{settings_id}") {
+            settings_id.to_string()
+        } else {
+            vault_key_id.to_owned()
+        };
         let config = self
             .send(
                 reqwest::Method::POST,
@@ -516,7 +557,7 @@ impl CredentialVault for VaultClient {
         let metadata = self
             .send::<()>(
                 reqwest::Method::DELETE,
-                &format!("kv/metadata/settings-secrets/{settings_id}"),
+                &format!("kv/metadata/settings-secrets/{record_id}"),
                 None,
             )
             .await?;
@@ -542,6 +583,24 @@ impl CredentialVault for VaultClient {
             200 | 429 | 472 | 473 => Ok(()),
             status => Err(Self::unavailable(format!("health returned {status}"))),
         }
+    }
+}
+
+fn validate_binding_key(settings_id: Uuid, key_id: &str) -> Result<(), DomainError> {
+    let prefix = format!("settings-{settings_id}");
+    let valid = if key_id == prefix {
+        true
+    } else if let Some(suffix) = key_id.strip_prefix(&format!("{prefix}-")) {
+        Uuid::parse_str(suffix).is_ok()
+    } else {
+        false
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(VaultClient::unavailable(
+            "invalid credential Vault key reference",
+        ))
     }
 }
 

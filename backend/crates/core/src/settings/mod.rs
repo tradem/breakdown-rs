@@ -9,8 +9,11 @@ pub mod ports;
 pub mod views;
 
 pub use aggregate::SettingsAggregate;
-pub use commands::{CreateCredentialBinding, RevokeCredential};
+pub use commands::{CreateCredentialBinding, RevokeCredential, RotateCredentialBinding};
 pub use error::SettingsError;
 pub use events::SettingsEvent;
-pub use ports::{CredentialVault, SecretValue, SettingsCommands, SettingsRepository, VaultBinding};
+pub use ports::{
+    CredentialVault, GDriveCredentialBundle, SecretValue, SettingsCommands, SettingsRepository,
+    VaultBinding,
+};
 pub use views::{CredentialBindingState, SettingsView};

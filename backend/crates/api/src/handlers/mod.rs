@@ -66,9 +66,11 @@ use breakdown_core::scene_shoot::views::{DispoRow, SceneShootView, ShootDayRow, 
 use breakdown_core::season::commands::{CreateSeason, RenameSeason};
 use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
 use breakdown_core::season::views::SeasonView;
-use breakdown_core::settings::commands::{CreateCredentialBinding, RevokeCredential};
+use breakdown_core::settings::commands::{
+    CreateCredentialBinding, RevokeCredential, RotateCredentialBinding,
+};
 use breakdown_core::settings::ports::{
-    CredentialVault, SecretValue, SettingsCommands, SettingsRepository,
+    CredentialVault, GDriveCredentialBundle, SecretValue, SettingsCommands, SettingsRepository,
 };
 use breakdown_core::settings::views::SettingsView;
 use breakdown_core::shared::{
@@ -228,12 +230,35 @@ pub struct VersionRequest {
     pub version: AggregateVersion,
 }
 
-/// Credential submission. The secret is write-only: no response or event
-/// contains this field.
+/// Generic credential submission kept for non-GDrive providers. GDrive uses
+/// the typed write-only request below so its complete bundle is stored as one
+/// Vault binding.
 #[derive(Clone, Deserialize, ToSchema)]
 pub struct CreateCredentialRequest {
     pub provider: String,
     pub secret: String,
+}
+
+/// Write-only GDrive credentials. This type intentionally does not implement
+/// `Debug` or `Serialize`; it is converted immediately at the API edge into a
+/// non-serializable `GDriveCredentialBundle`.
+#[derive(Clone, Deserialize, ToSchema)]
+pub struct GDriveCredentialRequest {
+    pub client_id: String,
+    pub client_secret: String,
+    pub refresh_token: String,
+    pub root_folder_id: Option<String>,
+}
+
+impl GDriveCredentialRequest {
+    fn into_bundle(self) -> Result<GDriveCredentialBundle, DomainError> {
+        GDriveCredentialBundle::try_new(
+            self.client_id,
+            self.client_secret,
+            self.refresh_token,
+            self.root_folder_id,
+        )
+    }
 }
 
 /// Request body for creating a `ShootingDay` (a Drehtag) inside an Episode.
@@ -3710,6 +3735,212 @@ pub async fn manual_archive_reports<P: Ports>(
 
 #[utoipa::path(
     post,
+    path = "/settings/gdrive",
+    request_body = GDriveCredentialRequest,
+    responses(
+        (status = 201, description = "GDrive credential reference created", body = IdVersionResponse),
+        (status = 503, description = "Vault unavailable", body = ErrorResponse)
+    )
+)]
+pub async fn create_gdrive_credential<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Json(req): Json<GDriveCredentialRequest>,
+) -> ApiResult<IdVersionResponse> {
+    // AUTHZ-GATE: only active CostumeDesigner/CostumeAssistant members may
+    // create GDrive credentials. The bundle is handed to Vault immediately.
+    let authorized = state
+        .ports
+        .membership_repo()
+        .has_active_credential_role(current_user.sub.clone())
+        .await
+        .unwrap_or(false);
+    if !authorized {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                message: "not authorized to manage external credentials".into(),
+            }),
+        ));
+    }
+    let id = Uuid::now_v7();
+    let bundle = req.into_bundle().map_err(map_err)?;
+    let binding = state
+        .ports
+        .credential_vault()
+        .store_gdrive(id, bundle)
+        .await
+        .map_err(map_err)?;
+    let cmd = CreateCredentialBinding {
+        id,
+        provider: "gdrive".into(),
+        vault_key_id: binding.vault_key_id.clone(),
+        vault_version: binding.vault_version,
+    };
+    match state
+        .ports
+        .settings_commands()
+        .create(current_user.sub.clone(), cmd)
+        .await
+    {
+        Ok((id, version)) => Ok((StatusCode::CREATED, Json(IdVersionResponse { id, version }))),
+        Err(err) => {
+            if let Err(destroy_err) = state
+                .ports
+                .credential_vault()
+                .destroy(id, &binding.vault_key_id)
+                .await
+            {
+                tracing::error!(
+                    vault_key_id = %binding.vault_key_id,
+                    error = %destroy_err,
+                    "failed to compensate GDrive Vault write"
+                );
+            }
+            Err(map_err(err))
+        }
+    }
+}
+
+#[utoipa::path(
+    patch,
+    path = "/settings/{id}/gdrive",
+    request_body = GDriveCredentialUpdateRequest,
+    params(("id" = Uuid, Path, description = "Settings id")),
+    responses(
+        (status = 200, description = "GDrive credential reference rotated", body = IdVersionResponse),
+        (status = 404, body = ErrorResponse),
+        (status = 503, description = "Vault unavailable", body = ErrorResponse)
+    )
+)]
+pub async fn rotate_gdrive_credential<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<Uuid>,
+    Json(req): Json<GDriveCredentialUpdateRequest>,
+) -> ApiResult<IdVersionResponse> {
+    // AUTHZ-GATE: only active CostumeDesigner/CostumeAssistant members may
+    // rotate GDrive credentials.
+    let authorized = state
+        .ports
+        .membership_repo()
+        .has_active_credential_role(current_user.sub.clone())
+        .await
+        .unwrap_or(false);
+    if !authorized {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                message: "not authorized to manage external credentials".into(),
+            }),
+        ));
+    }
+    let view = state
+        .ports
+        .settings_repo()
+        .find_by_id(id)
+        .await
+        .map_err(map_err)?;
+    if view.provider != "gdrive"
+        || view.binding_state != breakdown_core::settings::views::CredentialBindingState::Active
+    {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(ErrorResponse {
+                message: "active GDrive credential binding required".into(),
+            }),
+        ));
+    }
+    let bundle = req.bundle.into_bundle().map_err(map_err)?;
+    let binding = state
+        .ports
+        .credential_vault()
+        .store_gdrive(id, bundle)
+        .await
+        .map_err(map_err)?;
+    let binding_ref = breakdown_core::settings::ports::VaultBinding {
+        vault_key_id: binding.vault_key_id.clone(),
+        vault_version: binding.vault_version,
+    };
+    // Validate construction of the new provider adapter before replacing the
+    // reference. If Vault/provider validation fails, the old binding remains
+    // untouched and the candidate binding is compensated below.
+    if let Err(error) = infra::reporting::OpenDalReportArchiveStorage::validate_from_vault(
+        state.ports.credential_vault(),
+        id,
+        &binding_ref,
+    )
+    .await
+    {
+        let _ = state
+            .ports
+            .credential_vault()
+            .destroy(id, &binding.vault_key_id)
+            .await;
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse {
+                message: error.to_string(),
+            }),
+        ));
+    }
+    let cmd = RotateCredentialBinding {
+        id,
+        provider: "gdrive".into(),
+        vault_key_id: binding.vault_key_id.clone(),
+        vault_version: binding.vault_version,
+        version: req.version,
+    };
+    match state
+        .ports
+        .settings_commands()
+        .rotate(current_user.sub.clone(), cmd)
+        .await
+    {
+        Ok(version) => {
+            // The new binding is now referenceable. Destroying the old key is
+            // best-effort and happens only after the reference event succeeds.
+            if let Err(err) = state
+                .ports
+                .credential_vault()
+                .destroy(id, &view.vault_key_id)
+                .await
+            {
+                tracing::error!(
+                    vault_key_id = %view.vault_key_id,
+                    error = %err,
+                    "failed to destroy superseded GDrive Vault binding"
+                );
+            }
+            Ok((StatusCode::OK, Json(IdVersionResponse { id, version })))
+        }
+        Err(err) => {
+            if let Err(destroy_err) = state
+                .ports
+                .credential_vault()
+                .destroy(id, &binding.vault_key_id)
+                .await
+            {
+                tracing::error!(
+                    vault_key_id = %binding.vault_key_id,
+                    error = %destroy_err,
+                    "failed to compensate rotated GDrive Vault binding"
+                );
+            }
+            Err(map_err(err))
+        }
+    }
+}
+
+#[derive(Clone, Deserialize, ToSchema)]
+pub struct GDriveCredentialUpdateRequest {
+    #[serde(flatten)]
+    pub bundle: GDriveCredentialRequest,
+    pub version: AggregateVersion,
+}
+
+#[utoipa::path(
+    post,
     path = "/settings/credentials",
     request_body = CreateCredentialRequest,
     responses(
@@ -3895,6 +4126,14 @@ pub async fn revoke_settings<P: Ports>(
 /// Build the full Axum router using the concrete `ProductionPorts` bundle.
 pub fn routes() -> Router<AppState<ProductionPorts>> {
     Router::new()
+        .route(
+            "/settings/gdrive",
+            routing::post(create_gdrive_credential::<ProductionPorts>),
+        )
+        .route(
+            "/settings/{id}/gdrive",
+            routing::patch(rotate_gdrive_credential::<ProductionPorts>),
+        )
         .route("/settings/credentials", routing::post(create_credential::<ProductionPorts>))
         .route(
             "/settings/{id}",

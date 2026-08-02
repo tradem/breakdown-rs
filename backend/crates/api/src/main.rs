@@ -18,6 +18,7 @@ use api::auth::{AuthState, AuthorizationState};
 use api::routes::app_router;
 use api::state::{AppState, Ports, ProductionPorts};
 use breakdown_core::membership::policy::AuthorizationPolicy;
+use breakdown_core::settings::ports::SettingsRepository;
 use infra::event_store::{
     BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl, CostumeCommandsImpl,
     EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl, SceneCommandsImpl,
@@ -410,7 +411,60 @@ async fn main() -> Result<()> {
                 std::sync::Arc::new(MemoryReportArchiveStorage::new())
             }
         };
-    let report_external: std::sync::Arc<dyn breakdown_core::reporting::ReportArchiveStorage> =
+    let report_provider = env::var("REPORT_BACKUP_PROVIDER")
+        .unwrap_or_else(|_| "s3".into())
+        .to_ascii_lowercase();
+    let report_external: std::sync::Arc<dyn breakdown_core::reporting::ReportArchiveStorage> = if matches!(
+        report_provider.as_str(),
+        "gdrive" | "google" | "google-drive"
+    ) {
+        let storage = async {
+            let settings_id = env::var("REPORT_BACKUP_SETTINGS_ID")
+                .ok()
+                .and_then(|value| uuid::Uuid::parse_str(&value).ok())
+                .ok_or_else(|| {
+                    infra::reporting::UnavailableReportArchiveStorage::new(
+                        "GDrive Settings binding id is not configured",
+                    )
+                })?;
+            let view = settings_repo
+                .find_by_id(settings_id)
+                .await
+                .map_err(|error| {
+                    infra::reporting::UnavailableReportArchiveStorage::new(format!(
+                        "GDrive Settings binding unavailable: {error}"
+                    ))
+                })?;
+            if view.provider != "gdrive"
+                || view.binding_state
+                    != breakdown_core::settings::views::CredentialBindingState::Active
+            {
+                return Err(infra::reporting::UnavailableReportArchiveStorage::new(
+                    "GDrive Settings binding is not active",
+                ));
+            }
+            OpenDalReportArchiveStorage::external_from_vault(
+                &credential_vault,
+                settings_id,
+                &breakdown_core::settings::ports::VaultBinding {
+                    vault_key_id: view.vault_key_id,
+                    vault_version: view.vault_version,
+                },
+            )
+            .await
+            .map_err(|error| {
+                infra::reporting::UnavailableReportArchiveStorage::new(error.to_string())
+            })
+        }
+        .await;
+        match storage {
+            Ok(storage) => std::sync::Arc::new(storage),
+            Err(storage) => {
+                warn!(error = ?storage, "GDrive report storage unavailable; jobs will retry");
+                std::sync::Arc::new(storage)
+            }
+        }
+    } else {
         match OpenDalReportArchiveStorage::external_from_env() {
             Ok(s) => std::sync::Arc::new(s),
             Err(e) => {
@@ -420,7 +474,8 @@ async fn main() -> Result<()> {
                 );
                 std::sync::Arc::new(MemoryReportArchiveStorage::new())
             }
-        };
+        }
+    };
     // Shared renderer (process-wide semaphore budget for HTTP + backup).
     let report_renderer: std::sync::Arc<dyn breakdown_core::reporting::ReportRenderer> =
         std::sync::Arc::new(TypstReportRenderer::with_defaults().unwrap_or_else(|e| {

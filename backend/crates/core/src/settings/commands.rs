@@ -20,6 +20,15 @@ pub struct CreateCredentialBinding {
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct RotateCredentialBinding {
+    pub id: Uuid,
+    pub provider: String,
+    pub vault_key_id: String,
+    pub vault_version: u64,
+    pub version: AggregateVersion,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct RevokeCredential {
     pub id: Uuid,
     pub version: AggregateVersion,
@@ -28,6 +37,12 @@ pub struct RevokeCredential {
 impl kameo_es::CommandName for CreateCredentialBinding {
     fn command_name() -> &'static str {
         "CreateCredentialBinding"
+    }
+}
+
+impl kameo_es::CommandName for RotateCredentialBinding {
+    fn command_name() -> &'static str {
+        "RotateCredentialBinding"
     }
 }
 

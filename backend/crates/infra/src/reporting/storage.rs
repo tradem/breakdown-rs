@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: grok-4.5 (opencode-go)
+// Co-authored-by: gpt-5.6-luna (opencode-go)
 
 //! OpenDAL-backed `ReportArchiveStorage` adapters.
 //!
@@ -21,9 +22,11 @@ use async_trait::async_trait;
 use breakdown_core::reporting::{
     ContentDigest, ReportArchiveStorage, ReportArtifact, ReportArtifactKey, ReportStorageError,
 };
+use breakdown_core::settings::ports::{CredentialVault, GDriveCredentialBundle, VaultBinding};
 use opendal::Operator;
 use tokio::sync::Mutex;
 use tracing::{debug, warn};
+use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
 // OpenDAL adapter (Garage/S3 staging + generic external backends)
@@ -124,7 +127,9 @@ impl OpenDalReportArchiveStorage {
 
         match provider.as_str() {
             "s3" | "garage" => Self::external_s3_from_env(),
-            "gdrive" | "google" | "google-drive" => Self::external_gdrive_from_env(),
+            "gdrive" | "google" | "google-drive" => Err(ReportStorageError::CredentialMissing {
+                detail: "GDrive credentials must be loaded from the Settings/Vault binding".into(),
+            }),
             other => Err(ReportStorageError::CredentialMissing {
                 detail: format!("unknown REPORT_BACKUP_PROVIDER: {other}"),
             }),
@@ -157,48 +162,62 @@ impl OpenDalReportArchiveStorage {
         Ok(Self::with_prefix(op, StorageRole::External, prefix))
     }
 
-    fn external_gdrive_from_env() -> Result<Self, ReportStorageError> {
-        // OpenDAL services-gdrive configuration.
-        // Required env (never logged):
-        //   REPORT_BACKUP_GDRIVE_CLIENT_ID
-        //   REPORT_BACKUP_GDRIVE_CLIENT_SECRET
-        //   REPORT_BACKUP_GDRIVE_REFRESH_TOKEN
-        // Optional:
-        //   REPORT_BACKUP_GDRIVE_ROOT (folder id)
-        //   REPORT_BACKUP_PREFIX
-        let client_id = std::env::var("REPORT_BACKUP_GDRIVE_CLIENT_ID").map_err(|_| {
-            ReportStorageError::CredentialMissing {
-                detail: "REPORT_BACKUP_GDRIVE_CLIENT_ID must be set".into(),
-            }
-        })?;
-        let client_secret = std::env::var("REPORT_BACKUP_GDRIVE_CLIENT_SECRET").map_err(|_| {
-            ReportStorageError::CredentialMissing {
-                detail: "REPORT_BACKUP_GDRIVE_CLIENT_SECRET must be set".into(),
-            }
-        })?;
-        let refresh_token = std::env::var("REPORT_BACKUP_GDRIVE_REFRESH_TOKEN").map_err(|_| {
-            ReportStorageError::CredentialMissing {
-                detail: "REPORT_BACKUP_GDRIVE_REFRESH_TOKEN must be set".into(),
-            }
-        })?;
-        let root = std::env::var("REPORT_BACKUP_GDRIVE_ROOT").unwrap_or_default();
+    /// Build the GDrive external storage from an opaque Settings binding.
+    ///
+    /// The Vault fetch is asynchronous and therefore happens before the
+    /// synchronous OpenDAL builder is invoked. The credentials are borrowed
+    /// only while constructing the operator and never enter this adapter's
+    /// `Debug` output or an error value.
+    pub async fn external_from_vault(
+        vault: &dyn CredentialVault,
+        settings_id: Uuid,
+        binding: &VaultBinding,
+    ) -> Result<Self, ReportStorageError> {
+        let bundle = vault
+            .fetch_gdrive(settings_id, &binding.vault_key_id)
+            .await
+            .map_err(|error| {
+                ReportStorageError::provider_failure(format!(
+                    "GDrive credential binding unavailable: {error}"
+                ))
+            })?;
         let prefix =
             std::env::var("REPORT_BACKUP_PREFIX").unwrap_or_else(|_| "report-backup/".into());
+        Self::from_gdrive_bundle(&bundle, prefix)
+    }
 
-        // Build via OpenDAL Gdrive service. Feature-gated at Cargo level.
+    /// Validate a Vault-backed binding with a non-mutating provider check.
+    /// This is used before Settings rotation/migration; normal API boot can
+    /// use `external_from_vault` without making GDrive availability a boot
+    /// dependency.
+    pub async fn validate_from_vault(
+        vault: &dyn CredentialVault,
+        settings_id: Uuid,
+        binding: &VaultBinding,
+    ) -> Result<(), ReportStorageError> {
+        let storage = Self::external_from_vault(vault, settings_id, binding).await?;
+        storage.op.check().await.map_err(|error| {
+            let _ = error;
+            ReportStorageError::provider_failure("GDrive provider validation failed")
+        })
+    }
+
+    fn from_gdrive_bundle(
+        bundle: &GDriveCredentialBundle,
+        prefix: String,
+    ) -> Result<Self, ReportStorageError> {
         let mut builder = opendal::services::Gdrive::default()
-            .client_id(&client_id)
-            .client_secret(&client_secret)
-            .refresh_token(&refresh_token);
-        if !root.is_empty() {
-            builder = builder.root(&root);
+            .client_id(bundle.client_id())
+            .client_secret(bundle.client_secret())
+            .refresh_token(bundle.refresh_token());
+        if let Some(root) = bundle.root_folder_id() {
+            builder = builder.root(root);
         }
 
         let op = Operator::new(builder)
-            .map_err(|e| {
-                // Never include the original error string wholesale — it may echo tokens.
-                let _ = e;
-                ReportStorageError::provider_failure("failed to create gdrive operator")
+            .map_err(|error| {
+                let _ = error;
+                ReportStorageError::provider_failure("failed to create GDrive operator")
             })?
             .finish();
 
@@ -303,6 +322,52 @@ impl ReportArchiveStorage for OpenDalReportArchiveStorage {
                 Err(ReportStorageError::provider_failure("exists/stat failed"))
             }
         }
+    }
+}
+
+/// Fail-closed storage used when a configured external provider cannot be
+/// constructed. In particular, GDrive never falls back to memory storage when
+/// Vault or its Settings binding is unavailable; queued jobs can retry through
+/// the normal worker policy instead.
+#[derive(Clone, Debug)]
+pub struct UnavailableReportArchiveStorage {
+    detail: String,
+}
+
+impl UnavailableReportArchiveStorage {
+    pub fn new(detail: impl Into<String>) -> Self {
+        Self {
+            detail: detail.into(),
+        }
+    }
+
+    fn error(&self) -> ReportStorageError {
+        ReportStorageError::provider_failure(self.detail.clone())
+    }
+}
+
+#[async_trait]
+impl ReportArchiveStorage for UnavailableReportArchiveStorage {
+    async fn put(
+        &self,
+        _key: &ReportArtifactKey,
+        _bytes: &[u8],
+        _content_type: &str,
+        _digest: &ContentDigest,
+    ) -> Result<(), ReportStorageError> {
+        Err(self.error())
+    }
+
+    async fn fetch(&self, _key: &ReportArtifactKey) -> Result<ReportArtifact, ReportStorageError> {
+        Err(self.error())
+    }
+
+    async fn delete(&self, _key: &ReportArtifactKey) -> Result<(), ReportStorageError> {
+        Err(self.error())
+    }
+
+    async fn exists(&self, _key: &ReportArtifactKey) -> Result<bool, ReportStorageError> {
+        Err(self.error())
     }
 }
 

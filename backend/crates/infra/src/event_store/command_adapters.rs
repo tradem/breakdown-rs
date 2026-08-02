@@ -73,7 +73,9 @@ use breakdown_core::season::aggregate::SeasonAggregate;
 use breakdown_core::season::commands::{CreateSeason, RenameSeason};
 use breakdown_core::season::ports::SeasonCommands;
 use breakdown_core::settings::aggregate::SettingsAggregate;
-use breakdown_core::settings::commands::{CreateCredentialBinding, RevokeCredential};
+use breakdown_core::settings::commands::{
+    CreateCredentialBinding, RevokeCredential, RotateCredentialBinding,
+};
 use breakdown_core::settings::ports::SettingsCommands;
 use breakdown_core::shared::{
     AggregateVersion, EventMetadata, Provenance, SceneShootId, ShootingDayId, UserId,
@@ -384,6 +386,25 @@ impl SettingsCommands for SettingsCommandsImpl {
             })
             .await;
         map_executed(id, result)
+    }
+
+    async fn rotate(
+        &self,
+        actor: UserId,
+        cmd: RotateCredentialBinding,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let result = SettingsAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id: None,
+            })
+            .await;
+        map_version_only(result)
     }
 
     async fn revoke(

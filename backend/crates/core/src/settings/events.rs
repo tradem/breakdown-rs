@@ -19,6 +19,13 @@ pub enum SettingsEvent {
         vault_version: u64,
         version: AggregateVersion,
     },
+    CredentialRotated {
+        id: Uuid,
+        provider: String,
+        vault_key_id: String,
+        vault_version: u64,
+        version: AggregateVersion,
+    },
     CredentialRevoked {
         id: Uuid,
         version: AggregateVersion,
@@ -29,6 +36,7 @@ impl kameo_es::EventType for SettingsEvent {
     fn event_type(&self) -> &'static str {
         match self {
             Self::CredentialBound { .. } => "CredentialBound",
+            Self::CredentialRotated { .. } => "CredentialRotated",
             Self::CredentialRevoked { .. } => "CredentialRevoked",
         }
     }
