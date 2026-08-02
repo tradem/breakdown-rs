@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: gpt-5.6-luna (opencode-go)
 
 //! `sqlx`-backed implementation of the `MembershipRepository` port.
 
@@ -137,6 +138,24 @@ impl MembershipRepository for MembershipRepositoryImpl {
         .await
         .map_err(|e| DomainError::Conflict(e.to_string()))?;
 
+        Ok(row.is_some())
+    }
+
+    async fn has_active_credential_role(&self, user_id: UserId) -> Result<bool, DomainError> {
+        let row: Option<(String,)> = sqlx::query_as(
+            r#"
+            SELECT role
+            FROM projection_membership
+            WHERE user_id = $1
+              AND role IN ('costume_designer', 'costume_assistant')
+              AND state = 'active'
+            LIMIT 1
+            "#,
+        )
+        .bind(user_id.as_str())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|err| DomainError::Conflict(err.to_string()))?;
         Ok(row.is_some())
     }
 }

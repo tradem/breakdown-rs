@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! AppState – Composition-Root (manuelles DI)
@@ -23,11 +24,12 @@ use breakdown_core::scene_shoot::{
     SceneShootCommands, SceneShootReportRepository, SceneShootRepository,
 };
 use breakdown_core::season::{SeasonCommands, SeasonRepository};
+use breakdown_core::settings::{CredentialVault, SettingsCommands, SettingsRepository};
 use breakdown_core::shooting_day::{ShootingDayCommands, ShootingDayRepository};
 use infra::event_store::{
     BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl, CostumeCommandsImpl,
     EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl, SceneCommandsImpl,
-    SceneShootCommandsImpl, SeasonCommandsImpl, ShootingDayCommandsImpl,
+    SceneShootCommandsImpl, SeasonCommandsImpl, SettingsCommandsImpl, ShootingDayCommandsImpl,
 };
 use infra::photo::repository::PhotoRepositoryImpl;
 use infra::photo::storage::OpenDalPhotoStorage;
@@ -35,9 +37,11 @@ use infra::queries::{
     AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl,
     CostumeCategoryRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl,
     MembershipRepositoryImpl, SceneRepositoryImpl, SceneShootReportRepositoryImpl,
-    SceneShootRepositoryImpl, SeasonRepositoryImpl, ShootingDayRepositoryImpl,
+    SceneShootRepositoryImpl, SeasonRepositoryImpl, SettingsRepositoryImpl,
+    ShootingDayRepositoryImpl,
 };
 use infra::reporting::PgReportArchivalQueue;
+use infra::vault::VaultClient;
 
 /// The hexagonal seam surface used by API handlers. Production implements it
 /// with the concrete `kameo_es` write adapters and `sqlx` read adapters.
@@ -60,6 +64,9 @@ pub trait Ports: Clone + Send + Sync + 'static {
     type EpisodeRepo: EpisodeRepository;
     type MembershipCommands: MembershipCommands;
     type MembershipRepo: MembershipRepository;
+    type SettingsCommands: SettingsCommands;
+    type SettingsRepo: SettingsRepository;
+    type CredentialVault: CredentialVault;
     type AuditRepo: AuditRepository;
     type PhotoStorage: PhotoStorage;
     type PhotoCommands: PhotoCommands;
@@ -91,6 +98,9 @@ pub trait Ports: Clone + Send + Sync + 'static {
     fn episode_repo(&self) -> &Self::EpisodeRepo;
     fn membership_commands(&self) -> &Self::MembershipCommands;
     fn membership_repo(&self) -> &Self::MembershipRepo;
+    fn settings_commands(&self) -> &Self::SettingsCommands;
+    fn settings_repo(&self) -> &Self::SettingsRepo;
+    fn credential_vault(&self) -> &Self::CredentialVault;
     fn audit_repo(&self) -> &Self::AuditRepo;
     fn photo_storage(&self) -> &Self::PhotoStorage;
     fn photo_commands(&self) -> &Self::PhotoCommands;
@@ -133,6 +143,9 @@ pub struct ProductionPorts {
     episode_repo: EpisodeRepositoryImpl,
     membership_commands: MembershipCommandsImpl,
     membership_repo: MembershipRepositoryImpl,
+    settings_commands: SettingsCommandsImpl,
+    settings_repo: SettingsRepositoryImpl,
+    credential_vault: VaultClient,
     audit_repo: AuditRepositoryImpl,
     photo_storage: OpenDalPhotoStorage,
     photo_commands: PhotoCommandsImpl,
@@ -166,6 +179,9 @@ impl ProductionPorts {
         episode_repo: EpisodeRepositoryImpl,
         membership_commands: MembershipCommandsImpl,
         membership_repo: MembershipRepositoryImpl,
+        settings_commands: SettingsCommandsImpl,
+        settings_repo: SettingsRepositoryImpl,
+        credential_vault: VaultClient,
         audit_repo: AuditRepositoryImpl,
         photo_storage: OpenDalPhotoStorage,
         photo_commands: PhotoCommandsImpl,
@@ -195,6 +211,9 @@ impl ProductionPorts {
             episode_repo,
             membership_commands,
             membership_repo,
+            settings_commands,
+            settings_repo,
+            credential_vault,
             audit_repo,
             photo_storage,
             photo_commands,
@@ -227,6 +246,9 @@ impl Ports for ProductionPorts {
     type EpisodeRepo = EpisodeRepositoryImpl;
     type MembershipCommands = MembershipCommandsImpl;
     type MembershipRepo = MembershipRepositoryImpl;
+    type SettingsCommands = SettingsCommandsImpl;
+    type SettingsRepo = SettingsRepositoryImpl;
+    type CredentialVault = VaultClient;
     type AuditRepo = AuditRepositoryImpl;
     type PhotoStorage = OpenDalPhotoStorage;
     type PhotoCommands = PhotoCommandsImpl;
@@ -290,6 +312,15 @@ impl Ports for ProductionPorts {
     }
     fn membership_repo(&self) -> &Self::MembershipRepo {
         &self.membership_repo
+    }
+    fn settings_commands(&self) -> &Self::SettingsCommands {
+        &self.settings_commands
+    }
+    fn settings_repo(&self) -> &Self::SettingsRepo {
+        &self.settings_repo
+    }
+    fn credential_vault(&self) -> &Self::CredentialVault {
+        &self.credential_vault
     }
     fn audit_repo(&self) -> &Self::AuditRepo {
         &self.audit_repo

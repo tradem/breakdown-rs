@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: gpt-5.6-luna (opencode-go)
 
 use std::sync::Arc;
 
@@ -306,6 +307,11 @@ impl MembershipRepository for MockSeasonMembershipRepo {
     ) -> Result<bool, DomainError> {
         // Mirror costume-role mock behaviour for archive-role checks.
         self.has_active_costume_role_in_season(season_id, user_id)
+            .await
+    }
+
+    async fn has_active_credential_role(&self, user_id: UserId) -> Result<bool, DomainError> {
+        self.has_active_costume_role_in_season(SeasonId::new(), user_id)
             .await
     }
 }

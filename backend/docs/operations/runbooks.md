@@ -15,6 +15,8 @@ Runtime tiers (ADR-015 / ADR-016 / ADR-025 / ADR-024):
 | tls-provision  | `smallstep/step-ca:0.28.4` (digest)    | —         | Cert provision loop for the internal mesh       | `tls_data` (shared)  |
 | Garage         | `dxflrs/garage:v1.0.1`                 | 3900      | S3 photo storage, internal-only (TLS via Caddy) | `garage_data`        |
 | Caddy          | `caddy:2.9.1-alpine` (digest)          | 80 / 443  | HTTPS edge / ACME (ADR-025) + internal :9443    | `caddy_data`         |
+| Vault          | `hashicorp/vault:1.20.4` (digest)      | 8200      | Internal Transit + KV-v2 credential vault       | `vault_data`         |
+| Vault bootstrap | same Vault image (one-shot)             | —         | Unseal + engines + least-privilege app token    | `vault_unseal`, `vault_app_token` |
 
 Runtime compose files:
 
@@ -63,8 +65,12 @@ docker compose -f docker-compose.prod.yml down -v    # DESTROY volumes (incl. CA
 
 Boot order: `step-ca` (CA bootstrap) → `tls-provision` (issues certs) →
 `postgres`/`sierradb`/`garage` healthy (garage config rendered by the
-`garage-config` one-shot) → `stunnel` → `api` binary starts (migrations via
-`sqlx::migrate!` at boot over TLS) → `caddy` starts.
+`garage-config` one-shot) → `stunnel` → `vault` + the independent
+`vault-bootstrap` one-shot (unseal, Transit/KV-v2, app policy/token) → `api`
+binary starts (migrations via `sqlx::migrate!` at boot over TLS) → `caddy`
+starts. The API does not depend on successful Vault bootstrap: it remains
+available while credential routes report `503` and the settings projection
+reports `unreachable`.
 
 The `api` container is **Docker-internal only** — it publishes no host port
 (issue #155 / ADR-025). The only host-published ports are Caddy's `:80`
@@ -191,18 +197,36 @@ Caddy is the sole public entry point:
 
 Prerequisites before first prod boot:
 
-1. **Domain + DNS** — point the A/AAAA record(s) of `$DOMAIN` at the VPS and
+1. **Vault bootstrap token** — provide `VAULT_BOOTSTRAP_TOKEN` only as the
+   Docker secret consumed by the one-shot `vault-bootstrap` service. It is not
+   placed in a container environment and is never passed to `api`. The
+   generated app token is stored separately in `vault_app_token` with
+   restrictive file permissions. The API runtime image uses uid 1000 to read
+   only this separate token volume; it never receives `vault_data`.
+2. **Domain + DNS** — point the A/AAAA record(s) of `$DOMAIN` at the VPS and
    open `:80`/`:443` in the host firewall (ADR-026). HTTP-01 requires both
    ports reachable from the internet.
-2. **Persistent, encrypted volume** — `caddy_data`/`caddy_config` must live on
-   the LUKS-protected volume (ADR-023), like the DB volumes and `step_ca_data`
-   (the CA key).
-3. **`STEP_CA_PASSWORD`** — the internal CA bootstraps on first boot from this
+3. **Persistent, encrypted volume** — `caddy_data`/`caddy_config`,
+   `vault_data`, `vault_unseal`, and `vault_app_token` must live on the
+   LUKS-protected volume (ADR-023), like the DB volumes and `step_ca_data`
+   (the CA key). `vault_unseal` must be excluded from routine Vault data
+   snapshots and handled as separate encrypted/offline key custody; losing it
+   intentionally requires an operator recovery/unseal procedure.
+4. **`STEP_CA_PASSWORD`** — the internal CA bootstraps on first boot from this
    env var (the one allowed `.env` bootstrap secret, ADR-027). Rotating it
    later requires re-initialising the CA; keep it in the secrets store.
-4. **Swagger UI lockdown** — `/swagger-ui` remains reachable via the edge;
+5. **Swagger UI lockdown** — `/swagger-ui` remains reachable via the edge;
    gating it (basic-auth / allowlist) is a separate deployment concern
    (ADR-025) and not part of this transport change.
+
+### Vault internal TLS and credential custody (ADR-027)
+
+Vault listens on `https://vault:8200` with a short-TTL certificate issued by
+`step-ca`; the API pins `/certs/root_ca.crt` through `VAULT_TLS_ROOT_CERT`.
+The bootstrap container uses the same pinned root via `VAULT_CACERT`. The
+bootstrap seed is mounted as a Docker secret, while the generated unseal key
+and app token are stored in separate volumes. The unseal volume is not part of
+ordinary Vault data backups.
 
 ### Internal TLS mesh (ADR-024)
 

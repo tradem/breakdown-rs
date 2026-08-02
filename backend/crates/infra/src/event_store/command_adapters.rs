@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
@@ -71,6 +72,9 @@ use breakdown_core::scene_shoot::ports::SceneShootCommands;
 use breakdown_core::season::aggregate::SeasonAggregate;
 use breakdown_core::season::commands::{CreateSeason, RenameSeason};
 use breakdown_core::season::ports::SeasonCommands;
+use breakdown_core::settings::aggregate::SettingsAggregate;
+use breakdown_core::settings::commands::{CreateCredentialBinding, RevokeCredential};
+use breakdown_core::settings::ports::SettingsCommands;
 use breakdown_core::shared::{
     AggregateVersion, EventMetadata, Provenance, SceneShootId, ShootingDayId, UserId,
 };
@@ -345,6 +349,57 @@ impl ShootingDayCommands for ShootingDayCommandsImpl {
                 actor: Some(actor),
                 provenance: Provenance::Human,
                 series_id,
+            })
+            .await;
+        map_version_only(result)
+    }
+}
+
+/// Command adapter for the Settings aggregate.
+#[derive(Clone, Debug)]
+pub struct SettingsCommandsImpl {
+    cmd_service: CommandService,
+}
+
+impl SettingsCommandsImpl {
+    pub fn new(cmd_service: CommandService) -> Self {
+        Self { cmd_service }
+    }
+}
+
+#[async_trait]
+impl SettingsCommands for SettingsCommandsImpl {
+    async fn create(
+        &self,
+        actor: UserId,
+        cmd: CreateCredentialBinding,
+    ) -> Result<(Uuid, AggregateVersion), DomainError> {
+        let id = cmd.id;
+        let result = SettingsAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Empty)
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id: None,
+            })
+            .await;
+        map_executed(id, result)
+    }
+
+    async fn revoke(
+        &self,
+        actor: UserId,
+        cmd: RevokeCredential,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let result = SettingsAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id: None,
             })
             .await;
         map_version_only(result)

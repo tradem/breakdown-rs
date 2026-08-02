@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -17,6 +18,8 @@ fn cfg(db: &str, migrator: Option<&str>, sierra: &str, s3: &str) -> TlsConfig {
         migrator_database_url: migrator.map(str::to_string),
         sierradb_url: Some(sierra.into()),
         s3_endpoint: Some(s3.into()),
+        vault_addr: Some("https://vault:8200".into()),
+        vault_app_token_file: Some("/run/secrets-vault/app.token".into()),
         ..Default::default()
     }
 }
@@ -141,6 +144,25 @@ fn plaintext_s3_endpoint_is_rejected() {
     );
     let v = c.violations();
     assert!(v.iter().any(|v| v.contains("S3_ENDPOINT")), "got: {v:?}");
+}
+
+#[test]
+fn plaintext_vault_addr_is_rejected() {
+    let mut c = valid();
+    c.vault_addr = Some("http://vault:8200".into());
+    let v = c.violations();
+    assert!(v.iter().any(|v| v.contains("VAULT_ADDR")), "got: {v:?}");
+}
+
+#[test]
+fn missing_vault_token_path_is_rejected() {
+    let mut c = valid();
+    c.vault_app_token_file = None;
+    let v = c.violations();
+    assert!(
+        v.iter().any(|v| v.contains("VAULT_APP_TOKEN_FILE")),
+        "got: {v:?}"
+    );
 }
 
 #[test]

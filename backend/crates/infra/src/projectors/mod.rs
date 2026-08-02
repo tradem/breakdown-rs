@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: qwen3.6-35b (neuralwatt)
 // Co-authored-by: glm-5.2 (neuralwatt)
 
@@ -18,6 +19,7 @@ mod membership;
 mod scene;
 mod scene_shoot;
 mod season;
+mod settings;
 mod shooting_day;
 pub mod supervisor;
 
@@ -26,7 +28,7 @@ pub use audit::{
     AuditCategory, AuditProjector, BlockAuditProjector, CharacterAuditProjector,
     CostumeAuditProjector, CostumeCategoryAuditProjector, EpisodeAuditProjector,
     MembershipAuditProjector, PhotoAuditProjector, SceneAuditProjector, SceneShootAuditProjector,
-    SeasonAuditProjector, ShootingDayAuditProjector,
+    SeasonAuditProjector, SettingsAuditProjector, ShootingDayAuditProjector,
 };
 pub use block::BlockProjector;
 pub use character::CharacterProjector;
@@ -37,6 +39,7 @@ pub use membership::MembershipProjector;
 pub use scene::SceneProjector;
 pub use scene_shoot::SceneShootProjector;
 pub use season::SeasonProjector;
+pub use settings::SettingsProjector;
 pub use shooting_day::ShootingDayProjector;
 
 use std::sync::Arc;
@@ -52,6 +55,7 @@ use breakdown_core::photo::aggregate::PhotoAggregate;
 use breakdown_core::scene::aggregate::SceneAggregate;
 use breakdown_core::scene_shoot::aggregate::SceneShootAggregate;
 use breakdown_core::season::aggregate::SeasonAggregate;
+use breakdown_core::settings::aggregate::SettingsAggregate;
 use breakdown_core::shooting_day::aggregate::ShootingDayAggregate;
 use kameo::actor::{ActorRef, Spawn};
 use kameo_es::event_handler::EventHandlerStreamBuilder;
@@ -143,6 +147,7 @@ type SeasonProcessor = PostgresProcessor<(SeasonAggregate,), SeasonProjector>;
 type BlockProcessor = PostgresProcessor<(BlockAggregate,), BlockProjector>;
 type EpisodeProcessor = PostgresProcessor<(EpisodeAggregate,), EpisodeProjector>;
 type MembershipProcessor = PostgresProcessor<(BlockMembership,), MembershipProjector>;
+type SettingsProcessor = PostgresProcessor<(SettingsAggregate,), SettingsProjector>;
 // Category-specific audit processors (one per aggregate).
 // These subscribe to SierraDB streams per-aggregate so the
 // generalized auditor covers all 11 entity categories.
@@ -159,6 +164,7 @@ type CostumeCategoryAuditProcessor =
     PostgresProcessor<(CostumeCategoryAggregate,), CostumeCategoryAuditProjector>;
 type PhotoAuditProcessor = PostgresProcessor<(PhotoAggregate,), PhotoAuditProjector>;
 type MembershipAuditProcessor = PostgresProcessor<(BlockMembership,), MembershipAuditProjector>;
+type SettingsAuditProcessor = PostgresProcessor<(SettingsAggregate,), SettingsAuditProjector>;
 
 // Backward-compat alias — the original v1 used a single `BlockMembership` stream.
 // (Already re-exported via the block above; left here for clarity.)
@@ -228,7 +234,7 @@ macro_rules! run_projection_stream_handle {
 /// all projector subscription loops.
 #[must_use = "Projector handles must be kept alive to prevent suppression"]
 pub struct AuditProjectorHandles {
-    pub handles: [Option<tokio::task::JoinHandle<()>>; 11],
+    pub handles: [Option<tokio::task::JoinHandle<()>>; 12],
 }
 
 impl Default for AuditProjectorHandles {
@@ -241,13 +247,13 @@ impl AuditProjectorHandles {
     pub fn new() -> Self {
         Self {
             handles: [
-                None, None, None, None, None, None, None, None, None, None, None,
+                None, None, None, None, None, None, None, None, None, None, None, None,
             ],
         }
     }
 
     pub fn store(&mut self, idx: usize, handle: tokio::task::JoinHandle<()>) {
-        debug_assert!(idx < 11);
+        debug_assert!(idx < 12);
         self.handles[idx] = Some(handle);
     }
 }
@@ -772,6 +778,7 @@ pub async fn spawn_all_audit_projectors(
         AuditCategory::CostumeCategory,
         AuditCategory::Photo,
         AuditCategory::Membership,
+        AuditCategory::Settings,
     ];
     let mut handles = AuditProjectorHandles::new();
     for category in categories {
@@ -1032,6 +1039,27 @@ pub async fn spawn_single_audit_projector(
             )?;
             handlers.store(AuditCategory::Membership as usize, handle);
         }
+        AuditCategory::Settings => {
+            let conn = redis_client.get_multiplexed_async_connection().await?;
+            let processor = config.apply(
+                SettingsAuditProcessor::new(
+                    pool,
+                    conn,
+                    CHECKPOINTS_TABLE,
+                    "audit:settings",
+                    SettingsAuditProjector,
+                )
+                .await?,
+            );
+            let ar = SettingsAuditProcessor::spawn(processor);
+            let handle = run_projection_stream_handle!(
+                SettingsAggregate,
+                "audit:settings",
+                redis_client,
+                ar.clone()
+            )?;
+            handlers.store(AuditCategory::Settings as usize, handle);
+        }
     }
     Ok(())
 }
@@ -1057,6 +1085,27 @@ pub async fn spawn_membership_audit_projector(
     run_projection_stream!(
         BlockMembership,
         "audit:membership",
+        redis_client,
+        actor_ref.clone()
+    )?;
+    Ok(actor_ref)
+}
+
+/// Spawn the Settings projector actor and start its SierraDB subscription loop.
+pub async fn spawn_settings_projector(
+    pool: PgPool,
+    redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
+) -> Result<ActorRef<SettingsProcessor>> {
+    let conn = redis_client.get_multiplexed_async_connection().await?;
+    let processor = config.apply(
+        SettingsProcessor::new(pool, conn, CHECKPOINTS_TABLE, "settings", SettingsProjector)
+            .await?,
+    );
+    let actor_ref = SettingsProcessor::spawn(processor);
+    run_projection_stream!(
+        SettingsAggregate,
+        "settings",
         redis_client,
         actor_ref.clone()
     )?;

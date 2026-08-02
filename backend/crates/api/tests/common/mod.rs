@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
@@ -55,6 +56,11 @@ use breakdown_core::scene_shoot::views::{DispoRow, SceneShootView, ShootDayRow, 
 use breakdown_core::season::commands::{CreateSeason, RenameSeason};
 use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
 use breakdown_core::season::views::SeasonView;
+use breakdown_core::settings::commands::{CreateCredentialBinding, RevokeCredential};
+use breakdown_core::settings::ports::{
+    CredentialVault, SecretValue, SettingsCommands, SettingsRepository,
+};
+use breakdown_core::settings::views::SettingsView;
 use breakdown_core::shared::{
     AggregateVersion, BlockId, EpisodeId, PhotoId, PhotoVariant, SceneShootId, SeasonId, SeriesId,
     ShootingDayId,
@@ -443,6 +449,11 @@ impl MembershipRepository for FakeMembershipRepo {
     ) -> Result<bool, DomainError> {
         // Default test fake admits archive roles (designer/supervisor).
         let _ = (season_id, user_id);
+        Ok(true)
+    }
+
+    async fn has_active_credential_role(&self, _user_id: UserId) -> Result<bool, DomainError> {
+        // Default test fake admits credential roles (designer/assistant).
         Ok(true)
     }
 }
@@ -1101,6 +1112,149 @@ impl ReportArchivalQueue for FakeReportArchivalQueue {
     }
 }
 
+type SettingsCreateResult = Arc<Mutex<Option<Result<(Uuid, AggregateVersion), DomainError>>>>;
+type SettingsRevokeResult = Arc<Mutex<Option<Result<AggregateVersion, DomainError>>>>;
+
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+pub struct FakeSettingsCommands {
+    pub create_result: SettingsCreateResult,
+    pub revoke_result: SettingsRevokeResult,
+}
+
+impl Default for FakeSettingsCommands {
+    fn default() -> Self {
+        Self {
+            create_result: Arc::new(Mutex::new(None)),
+            revoke_result: Arc::new(Mutex::new(None)),
+        }
+    }
+}
+
+#[async_trait]
+impl SettingsCommands for FakeSettingsCommands {
+    async fn create(
+        &self,
+        _actor: UserId,
+        cmd: CreateCredentialBinding,
+    ) -> Result<(Uuid, AggregateVersion), DomainError> {
+        self.create_result.lock().await.take().unwrap_or_else(|| {
+            Err(DomainError::ServiceUnavailable(format!(
+                "fake settings command for {}",
+                cmd.id
+            )))
+        })
+    }
+
+    async fn revoke(
+        &self,
+        _actor: UserId,
+        _cmd: RevokeCredential,
+    ) -> Result<AggregateVersion, DomainError> {
+        self.revoke_result.lock().await.take().unwrap_or_else(|| {
+            Err(DomainError::ServiceUnavailable(
+                "fake settings command".into(),
+            ))
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+pub struct FakeSettingsRepo {
+    pub view: Arc<Mutex<Option<SettingsView>>>,
+}
+
+impl Default for FakeSettingsRepo {
+    fn default() -> Self {
+        Self {
+            view: Arc::new(Mutex::new(None)),
+        }
+    }
+}
+
+#[async_trait]
+impl SettingsRepository for FakeSettingsRepo {
+    async fn find_by_id(&self, id: Uuid) -> Result<SettingsView, DomainError> {
+        self.view
+            .lock()
+            .await
+            .clone()
+            .ok_or_else(|| DomainError::NotFound(format!("Settings({id})")))
+    }
+}
+
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+pub struct FakeCredentialVault {
+    /// `false` by default so Vault-unavailable handler tests remain explicit.
+    pub available: Arc<Mutex<bool>>,
+    pub binding: Arc<Mutex<Option<breakdown_core::settings::ports::VaultBinding>>>,
+    pub secret: Arc<Mutex<Option<String>>>,
+}
+
+impl Default for FakeCredentialVault {
+    fn default() -> Self {
+        Self {
+            available: Arc::new(Mutex::new(false)),
+            binding: Arc::new(Mutex::new(None)),
+            secret: Arc::new(Mutex::new(None)),
+        }
+    }
+}
+
+#[async_trait]
+impl CredentialVault for FakeCredentialVault {
+    async fn store(
+        &self,
+        _settings_id: Uuid,
+        _provider: &str,
+        _secret: SecretValue,
+    ) -> Result<breakdown_core::settings::ports::VaultBinding, DomainError> {
+        if !*self.available.lock().await {
+            return Err(DomainError::ServiceUnavailable("fake vault".into()));
+        }
+        self.binding.lock().await.clone().ok_or_else(|| {
+            DomainError::ServiceUnavailable("fake vault binding not configured".into())
+        })
+    }
+
+    async fn fetch(
+        &self,
+        _settings_id: Uuid,
+        _vault_key_id: &str,
+    ) -> Result<SecretValue, DomainError> {
+        if !*self.available.lock().await {
+            return Err(DomainError::ServiceUnavailable("fake vault".into()));
+        }
+        self.secret
+            .lock()
+            .await
+            .clone()
+            .map(SecretValue::new)
+            .ok_or_else(|| {
+                DomainError::ServiceUnavailable("fake vault secret not configured".into())
+            })
+    }
+
+    async fn destroy(&self, _settings_id: Uuid, _vault_key_id: &str) -> Result<(), DomainError> {
+        if !*self.available.lock().await {
+            return Err(DomainError::ServiceUnavailable("fake vault".into()));
+        }
+        *self.binding.lock().await = None;
+        *self.secret.lock().await = None;
+        Ok(())
+    }
+
+    async fn check(&self) -> Result<(), DomainError> {
+        if *self.available.lock().await {
+            Ok(())
+        } else {
+            Err(DomainError::ServiceUnavailable("fake vault".into()))
+        }
+    }
+}
+
 #[derive(Clone)]
 #[allow(dead_code)]
 pub struct FakePorts {
@@ -1120,6 +1274,9 @@ pub struct FakePorts {
     pub episode_repo: FakeEpisodeRepo,
     pub membership_commands: FakeMembershipCommands,
     pub membership_repo: FakeMembershipRepo,
+    pub settings_commands: FakeSettingsCommands,
+    pub settings_repo: FakeSettingsRepo,
+    pub credential_vault: FakeCredentialVault,
     pub audit_repo: FakeAuditRepo,
     pub shooting_day_commands: FakeShootingDayCommands,
     pub shooting_day_repo: FakeShootingDayRepo,
@@ -1156,6 +1313,9 @@ impl Default for FakePorts {
             episode_repo: Default::default(),
             membership_commands: Default::default(),
             membership_repo: Default::default(),
+            settings_commands: Default::default(),
+            settings_repo: Default::default(),
+            credential_vault: Default::default(),
             audit_repo: Default::default(),
             shooting_day_commands: Default::default(),
             shooting_day_repo: Default::default(),
@@ -1188,6 +1348,9 @@ impl Ports for FakePorts {
     type EpisodeRepo = FakeEpisodeRepo;
     type MembershipCommands = FakeMembershipCommands;
     type MembershipRepo = FakeMembershipRepo;
+    type SettingsCommands = FakeSettingsCommands;
+    type SettingsRepo = FakeSettingsRepo;
+    type CredentialVault = FakeCredentialVault;
     type AuditRepo = FakeAuditRepo;
     type ShootingDayCommands = FakeShootingDayCommands;
     type ShootingDayRepo = FakeShootingDayRepo;
@@ -1247,6 +1410,15 @@ impl Ports for FakePorts {
     }
     fn membership_repo(&self) -> &Self::MembershipRepo {
         &self.membership_repo
+    }
+    fn settings_commands(&self) -> &Self::SettingsCommands {
+        &self.settings_commands
+    }
+    fn settings_repo(&self) -> &Self::SettingsRepo {
+        &self.settings_repo
+    }
+    fn credential_vault(&self) -> &Self::CredentialVault {
+        &self.credential_vault
     }
     fn audit_repo(&self) -> &Self::AuditRepo {
         &self.audit_repo

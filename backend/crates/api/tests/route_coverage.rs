@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
 #![allow(
@@ -83,7 +84,7 @@ fn api_routes_are_behind_auth_middleware() {
     //  patterns, not method-verb pairs.)
     assert_eq!(
         api.len(),
-        45,
+        47,
         "number of API route path patterns has changed — \
          see doc comment above for update instructions"
     );
@@ -107,6 +108,9 @@ fn api_routes_have_deliberate_authorization_requirement() {
     //   `BlockMember`   — everything else: block-scoped read/write operations
     //                     that require active membership in the active block.
     let expected: &[(&str, Requirement)] = &[
+        // Settings — authenticated edge; ADR-028 adds role-specific checks.
+        ("/settings/credentials", Requirement::Authenticated),
+        ("/settings/{id}", Requirement::Authenticated),
         // Seasons — season context, not block-scoped
         ("/seasons", Requirement::Authenticated),
         ("/seasons/{id}", Requirement::Authenticated),

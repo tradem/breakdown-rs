@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
 
@@ -65,6 +66,11 @@ use breakdown_core::scene_shoot::views::{DispoRow, SceneShootView, ShootDayRow, 
 use breakdown_core::season::commands::{CreateSeason, RenameSeason};
 use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
 use breakdown_core::season::views::SeasonView;
+use breakdown_core::settings::commands::{CreateCredentialBinding, RevokeCredential};
+use breakdown_core::settings::ports::{
+    CredentialVault, SecretValue, SettingsCommands, SettingsRepository,
+};
+use breakdown_core::settings::views::SettingsView;
 use breakdown_core::shared::{
     AggregateVersion, BlockId, EpisodeId, LexicalSortKey, PhotoId, PhotoVariant, SceneShootId,
     SeasonId, SeriesId, ShootingDayId, UserId,
@@ -222,6 +228,14 @@ pub struct VersionRequest {
     pub version: AggregateVersion,
 }
 
+/// Credential submission. The secret is write-only: no response or event
+/// contains this field.
+#[derive(Clone, Deserialize, ToSchema)]
+pub struct CreateCredentialRequest {
+    pub provider: String,
+    pub secret: String,
+}
+
 /// Request body for creating a `ShootingDay` (a Drehtag) inside an Episode.
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct CreateShootingDayRequest {
@@ -290,6 +304,7 @@ fn map_err(err: DomainError) -> (StatusCode, Json<ErrorResponse>) {
         DomainError::Unauthorized(_) => StatusCode::FORBIDDEN,
         DomainError::ValidationError(_) => StatusCode::BAD_REQUEST,
         DomainError::Conflict(_) | DomainError::VersionConflict { .. } => StatusCode::CONFLICT,
+        DomainError::ServiceUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
     };
     (
         status,
@@ -3693,9 +3708,198 @@ pub async fn manual_archive_reports<P: Ports>(
     Ok((StatusCode::ACCEPTED, Json(ManualArchiveResponse { jobs })))
 }
 
+#[utoipa::path(
+    post,
+    path = "/settings/credentials",
+    request_body = CreateCredentialRequest,
+    responses(
+        (status = 201, description = "Credential reference created", body = IdVersionResponse),
+        (status = 503, description = "Vault unavailable", body = ErrorResponse)
+    )
+)]
+pub async fn create_credential<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Json(req): Json<CreateCredentialRequest>,
+) -> ApiResult<IdVersionResponse> {
+    // AUTHZ-GATE: only active CostumeDesigner/CostumeAssistant members may
+    // create external credentials (role-specific settings authz, ADR-027).
+    let authorized = state
+        .ports
+        .membership_repo()
+        .has_active_credential_role(current_user.sub.clone())
+        .await
+        .unwrap_or(false);
+    if !authorized {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                message: "not authorized to manage external credentials".into(),
+            }),
+        ));
+    }
+    if req.provider.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                message: "provider must not be empty".into(),
+            }),
+        ));
+    }
+    let id = Uuid::now_v7();
+    let binding = state
+        .ports
+        .credential_vault()
+        .store(id, &req.provider, SecretValue::new(req.secret))
+        .await
+        .map_err(map_err)?;
+    let cmd = CreateCredentialBinding {
+        id,
+        provider: req.provider,
+        vault_key_id: binding.vault_key_id.clone(),
+        vault_version: binding.vault_version,
+    };
+    match state
+        .ports
+        .settings_commands()
+        .create(current_user.sub.clone(), cmd)
+        .await
+    {
+        Ok((id, version)) => Ok((StatusCode::CREATED, Json(IdVersionResponse { id, version }))),
+        Err(err) => {
+            // Compensate the Vault write if event persistence failed. The
+            // error response remains the command error; the secret is never
+            // included in it.
+            if let Err(destroy_err) = state
+                .ports
+                .credential_vault()
+                .destroy(id, &binding.vault_key_id)
+                .await
+            {
+                tracing::error!(
+                    vault_key_id = %binding.vault_key_id,
+                    error = %destroy_err,
+                    "failed to compensate Vault write after command persistence failure"
+                );
+            }
+            Err(map_err(err))
+        }
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/settings/{id}",
+    params(("id" = Uuid, Path, description = "Settings id")),
+    responses((status = 200, body = SettingsView), (status = 404, body = ErrorResponse))
+)]
+pub async fn get_settings<P: Ports>(
+    State(state): State<AppState<P>>,
+    _current_user: CurrentUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<SettingsView> {
+    // AUTHZ-GATE: only active CostumeDesigner/CostumeAssistant members may
+    // read external credential binding metadata (never the secret).
+    let authorized = state
+        .ports
+        .membership_repo()
+        .has_active_credential_role(_current_user.sub.clone())
+        .await
+        .unwrap_or(false);
+    if !authorized {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                message: "not authorized to manage external credentials".into(),
+            }),
+        ));
+    }
+    let mut view = state
+        .ports
+        .settings_repo()
+        .find_by_id(id)
+        .await
+        .map_err(map_err)?;
+    if view.binding_state == breakdown_core::settings::views::CredentialBindingState::Active
+        && state.ports.credential_vault().check().await.is_err()
+    {
+        view.binding_state = breakdown_core::settings::views::CredentialBindingState::Unreachable;
+    }
+    Ok((StatusCode::OK, Json(view)))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/settings/{id}",
+    params(("id" = Uuid, Path, description = "Settings id")),
+    request_body = VersionRequest,
+    responses((status = 200, body = AggregateVersion), (status = 503, body = ErrorResponse))
+)]
+pub async fn revoke_settings<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<Uuid>,
+    Json(req): Json<VersionRequest>,
+) -> ApiResult<AggregateVersion> {
+    // AUTHZ-GATE: only active CostumeDesigner/CostumeAssistant members may
+    // revoke external credentials; Vault destruction happens after this gate.
+    let authorized = state
+        .ports
+        .membership_repo()
+        .has_active_credential_role(current_user.sub.clone())
+        .await
+        .unwrap_or(false);
+    if !authorized {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                message: "not authorized to manage external credentials".into(),
+            }),
+        ));
+    }
+    let view = state
+        .ports
+        .settings_repo()
+        .find_by_id(id)
+        .await
+        .map_err(map_err)?;
+    let version = state
+        .ports
+        .settings_commands()
+        .revoke(
+            current_user.sub,
+            RevokeCredential {
+                id,
+                version: req.version,
+            },
+        )
+        .await
+        .map_err(map_err)?;
+    // The binding is now revoked in the aggregate. Destroy the Vault secret
+    // best-effort; cleanup failure must not undo the successful revocation.
+    if let Err(err) = state
+        .ports
+        .credential_vault()
+        .destroy(id, &view.vault_key_id)
+        .await
+    {
+        tracing::error!(
+            vault_key_id = %view.vault_key_id,
+            error = %err,
+            "failed to destroy revoked credential secret in Vault"
+        );
+    }
+    Ok((StatusCode::OK, Json(version)))
+}
+
 /// Build the full Axum router using the concrete `ProductionPorts` bundle.
 pub fn routes() -> Router<AppState<ProductionPorts>> {
     Router::new()
+        .route("/settings/credentials", routing::post(create_credential::<ProductionPorts>))
+        .route(
+            "/settings/{id}",
+            routing::get(get_settings::<ProductionPorts>).delete(revoke_settings::<ProductionPorts>),
+        )
         .route("/seasons", routing::post(create_season::<ProductionPorts>))
         .route("/seasons/{id}", routing::get(get_season::<ProductionPorts>))
         .route(
