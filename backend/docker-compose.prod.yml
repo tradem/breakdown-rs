@@ -79,7 +79,6 @@ services:
       # mounted bootstrap script still rejects an empty value at runtime.
       VAULT_BOOTSTRAP_TOKEN_FILE: /run/secrets/vault_bootstrap_token
     volumes:
-      - vault_data:/vault/data
       - vault_unseal:/vault/unseal
       - vault_app_token:/vault/app-token
       - tls_data:/tls:ro

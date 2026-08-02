@@ -96,7 +96,11 @@ impl TlsConfig {
                 "VAULT_ADDR must be set when in-transit TLS is required (ADR-027)".into(),
             ),
         }
-        if self.vault_app_token_file.is_none() {
+        if self
+            .vault_app_token_file
+            .as_deref()
+            .is_none_or(|path| path.trim().is_empty())
+        {
             out.push(
                 "VAULT_APP_TOKEN_FILE must be set when in-transit TLS is required (ADR-027)".into(),
             );

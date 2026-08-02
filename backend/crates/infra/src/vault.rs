@@ -346,8 +346,11 @@ impl CredentialVault for VaultClient {
             .decode(envelope.data.ciphertext)
             .map_err(|err| Self::unavailable(format!("invalid ciphertext encoding: {err}")))?;
         let plaintext = decrypt_envelope(&key, &payload).map_err(Self::unavailable)?;
-        let plaintext = String::from_utf8(plaintext)
-            .map_err(|_| Self::unavailable("credential is not valid UTF-8"))?;
+        let plaintext = String::from_utf8(plaintext).map_err(|error| {
+            let mut bytes = error.into_bytes();
+            bytes.zeroize();
+            Self::unavailable("credential is not valid UTF-8")
+        })?;
         Ok(SecretValue::new(plaintext))
     }
 
