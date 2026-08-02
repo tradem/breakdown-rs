@@ -125,8 +125,12 @@ candidate objects, promote the candidate by writing the same KV-v2 path with
 the expected active-version CAS, then restart the API. A CAS conflict leaves
 the winning record active and requires reconciliation. The rollback copy,
 manifest, candidate record, and rollback-DEK record remain available until the
-migration outcome and rollback window are complete; cleanup uses the narrowly
-scoped KV-v2 metadata delete capability.
+migration outcome and rollback window are complete. A rollback restores
+canonical objects, CAS-writes the old wrapped DEK to the active
+`kv/data/photo-sse-c` path using the promoted candidate version, verifies the
+write, and stops on conflict before serving operations. Cleanup uses a
+short-lived Vault credential scoped exactly to that rotation's candidate and
+rollback metadata paths; the credential is revoked immediately after cleanup.
 
 ### Compatibility with event sourcing
 

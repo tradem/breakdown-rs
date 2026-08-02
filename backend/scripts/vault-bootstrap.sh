@@ -158,9 +158,9 @@ path "kv/data/photo-sse-c" {
 path "kv/data/photo-sse-c-rotation/*" {
   capabilities = ["create", "read", "update"]
 }
-path "kv/metadata/photo-sse-c-rotation/*" {
-  capabilities = ["read", "delete"]
-}
+# Rotation metadata deletion is intentionally excluded from the app token.
+# An operator creates a short-lived, per-rotation cleanup token for the exact
+# candidate and rollback metadata paths after the rollback window.
 POLICY
 
 # Keep a short-lived, least-privilege token in a separate named volume. If the

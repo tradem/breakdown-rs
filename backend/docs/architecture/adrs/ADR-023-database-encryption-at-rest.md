@@ -99,8 +99,12 @@ the API cannot reload the DEK and photo operations return 503. Destroying
 nuke-all-photos operation. Rotation requires staged candidate objects plus a
 durable old-ciphertext rollback copy and manifest. The old wrapped DEK and
 active version must remain in a least-privilege Vault KV-v2 rollback record
-until the rollback window ends, followed by same-path KV-v2 CAS promotion; see
-the operations runbook and ADR-027 for custody.
+until the rollback window ends. A rollback must restore canonical objects and
+CAS-write that old wrapped DEK to `kv/data/photo-sse-c` using the promoted
+candidate version, verify the write, and stop on conflict before serving
+operations. Cleanup of the rotation records uses a short-lived,
+per-rotation-scoped Vault credential. See the operations runbook and ADR-027
+for custody.
 
 For SierraDB there is no verified at-rest feature in the `tqwewe/sierradb:0.3.1`
 image; we rely entirely on LUKS2 under its data directory. This is the

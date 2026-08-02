@@ -286,11 +286,18 @@ key destruction:
    record, stop the migration, and reconcile against the winner's manifest. If
    the migration is not accepted, load the old wrapped DEK from the rollback
    KV record, ask Transit to unwrap it, restore canonical objects from the
-   durable rollback copy, and leave the old active record in place. Keep the
-   staging objects, rollback copy, manifest, candidate record, and rollback DEK
-   record until the outcome is known; after successful promotion, clean up both
-   KV-v2 rotation records with the metadata delete operation and remove the
-   object artifacts only after the rollback window.
+   durable rollback copy, then restore the old wrapped DEK to
+   `kv/data/photo-sse-c` with `options.cas=<promoted-candidate-version>`. Verify
+   that CAS write; if it conflicts, stop and reconcile before serving photo
+   operations. Keep the staging objects, rollback copy, manifest, candidate
+   record, and rollback DEK record until the outcome is known. Delete both KV metadata records and object
+   artifacts only after the migration outcome and rollback window are complete.
+   Before cleanup, a Vault operator creates a short-lived cleanup policy/token
+   with `delete` only on
+   `kv/metadata/photo-sse-c-rotation/<rotation-id>/candidate` and
+   `/rollback` (never a wildcard), uses it for the two metadata deletes, and
+   revokes the token and policy immediately afterward. The long-lived
+   `breakdown-app` token cannot delete rotation metadata.
 5. Before intentional crypto-shredding, stop the API, photo sagas, and GC
    scheduler and explicitly verify that every OpenDAL operator clone has been
    released. Destroy the active `photo-sse-c` Transit key, restart the API, and
