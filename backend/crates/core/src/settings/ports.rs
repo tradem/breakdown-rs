@@ -3,13 +3,14 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use subtle::ConstantTimeEq;
 use uuid::Uuid;
 use zeroize::Zeroize;
 
 use crate::error::DomainError;
 use crate::shared::{AggregateVersion, UserId};
 
-use super::commands::{CreateCredentialBinding, RevokeCredential};
+use super::commands::{CreateCredentialBinding, RevokeCredential, RotateCredentialBinding};
 use super::views::SettingsView;
 
 /// A secret value that cannot be serialized or formatted for logs and is
@@ -50,14 +51,9 @@ impl GDriveCredentialBundle {
         refresh_token: String,
         root_folder_id: Option<String>,
     ) -> Result<Self, DomainError> {
-        if client_id.trim().is_empty()
-            || client_secret.trim().is_empty()
-            || refresh_token.trim().is_empty()
-        {
-            return Err(DomainError::ValidationError(
-                "GDrive client_id, client_secret and refresh_token must not be empty".into(),
-            ));
-        }
+        let client_id = normalize_required(client_id)?;
+        let client_secret = normalize_required(client_secret)?;
+        let refresh_token = normalize_required(refresh_token)?;
         let root_folder_id = root_folder_id
             .map(|value| value.trim().to_owned())
             .filter(|value| !value.is_empty());
@@ -87,8 +83,16 @@ impl GDriveCredentialBundle {
 
     pub fn has_same_material(&self, other: &Self) -> bool {
         self.client_id() == other.client_id()
-            && self.client_secret() == other.client_secret()
-            && self.refresh_token() == other.refresh_token()
+            && self
+                .client_secret()
+                .as_bytes()
+                .ct_eq(other.client_secret().as_bytes())
+                .into()
+            && self
+                .refresh_token()
+                .as_bytes()
+                .ct_eq(other.refresh_token().as_bytes())
+                .into()
             && self.root_folder_id() == other.root_folder_id()
     }
 
@@ -146,6 +150,18 @@ impl Drop for GDriveCredentialWire {
     fn drop(&mut self) {
         self.zeroize();
     }
+}
+
+fn normalize_required(value: String) -> Result<String, DomainError> {
+    let normalized = value.trim().to_owned();
+    let mut value = value;
+    value.zeroize();
+    if normalized.is_empty() {
+        return Err(DomainError::ValidationError(
+            "GDrive client_id, client_secret and refresh_token must not be empty".into(),
+        ));
+    }
+    Ok(normalized)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -206,13 +222,9 @@ pub trait SettingsCommands: Send + Sync {
 
     async fn rotate(
         &self,
-        _actor: UserId,
-        _cmd: super::commands::RotateCredentialBinding,
-    ) -> Result<AggregateVersion, DomainError> {
-        Err(DomainError::ServiceUnavailable(
-            "settings rotation is not supported by this adapter".into(),
-        ))
-    }
+        actor: UserId,
+        cmd: RotateCredentialBinding,
+    ) -> Result<AggregateVersion, DomainError>;
 
     async fn revoke(
         &self,

@@ -242,7 +242,7 @@ pub struct CreateCredentialRequest {
 /// Write-only GDrive credentials. This type intentionally does not implement
 /// `Debug` or `Serialize`; it is converted immediately at the API edge into a
 /// non-serializable `GDriveCredentialBundle`.
-#[derive(Clone, Deserialize, ToSchema)]
+#[derive(Deserialize, ToSchema)]
 pub struct GDriveCredentialRequest {
     pub client_id: String,
     pub client_secret: String,
@@ -3739,6 +3739,8 @@ pub async fn manual_archive_reports<P: Ports>(
     request_body = GDriveCredentialRequest,
     responses(
         (status = 201, description = "GDrive credential reference created", body = IdVersionResponse),
+        (status = 400, description = "Invalid GDrive credential bundle", body = ErrorResponse),
+        (status = 403, description = "Credential management forbidden", body = ErrorResponse),
         (status = 503, description = "Vault unavailable", body = ErrorResponse)
     )
 )]
@@ -3809,7 +3811,10 @@ pub async fn create_gdrive_credential<P: Ports>(
     params(("id" = Uuid, Path, description = "Settings id")),
     responses(
         (status = 200, description = "GDrive credential reference rotated", body = IdVersionResponse),
+        (status = 400, description = "Invalid GDrive credential bundle", body = ErrorResponse),
+        (status = 403, description = "Credential management forbidden", body = ErrorResponse),
         (status = 404, body = ErrorResponse),
+        (status = 409, description = "GDrive binding cannot be rotated", body = ErrorResponse),
         (status = 503, description = "Vault unavailable", body = ErrorResponse)
     )
 )]
@@ -3842,12 +3847,12 @@ pub async fn rotate_gdrive_credential<P: Ports>(
         .await
         .map_err(map_err)?;
     if view.provider != "gdrive"
-        || view.binding_state != breakdown_core::settings::views::CredentialBindingState::Active
+        || view.binding_state == breakdown_core::settings::views::CredentialBindingState::Revoked
     {
         return Err((
             StatusCode::CONFLICT,
             Json(ErrorResponse {
-                message: "active GDrive credential binding required".into(),
+                message: "non-revoked GDrive credential binding required".into(),
             }),
         ));
     }
@@ -3872,11 +3877,18 @@ pub async fn rotate_gdrive_credential<P: Ports>(
     )
     .await
     {
-        let _ = state
+        if let Err(destroy_err) = state
             .ports
             .credential_vault()
             .destroy(id, &binding.vault_key_id)
-            .await;
+            .await
+        {
+            tracing::error!(
+                vault_key_id = %binding.vault_key_id,
+                error = %destroy_err,
+                "failed to compensate unvalidated GDrive Vault binding"
+            );
+        }
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
             Json(ErrorResponse {
@@ -3932,7 +3944,7 @@ pub async fn rotate_gdrive_credential<P: Ports>(
     }
 }
 
-#[derive(Clone, Deserialize, ToSchema)]
+#[derive(Deserialize, ToSchema)]
 pub struct GDriveCredentialUpdateRequest {
     #[serde(flatten)]
     pub bundle: GDriveCredentialRequest,

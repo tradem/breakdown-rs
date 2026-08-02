@@ -101,11 +101,17 @@ impl Command<RotateCredentialBinding> for SettingsAggregate {
         cmd: RotateCredentialBinding,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
-        if self.binding_state != Some(CredentialBindingState::Active) {
+        if self.binding_state.is_none() {
             return Err(SettingsError::NotFound);
+        }
+        if self.binding_state == Some(CredentialBindingState::Revoked) {
+            return Err(SettingsError::AlreadyRevoked);
         }
         if cmd.provider.trim().is_empty() {
             return Err(SettingsError::EmptyProvider);
+        }
+        if cmd.provider != self.provider {
+            return Err(SettingsError::ProviderMismatch);
         }
         if cmd.vault_key_id.trim().is_empty() {
             return Err(SettingsError::EmptyVaultKey);
@@ -117,7 +123,7 @@ impl Command<RotateCredentialBinding> for SettingsAggregate {
             });
         }
         Ok(vec![SettingsEvent::CredentialRotated {
-            id: cmd.id,
+            id: self.id,
             provider: cmd.provider,
             vault_key_id: cmd.vault_key_id,
             vault_version: cmd.vault_version,

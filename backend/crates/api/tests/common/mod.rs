@@ -1123,6 +1123,7 @@ type SettingsRevokeResult = Arc<Mutex<Option<Result<AggregateVersion, DomainErro
 pub struct FakeSettingsCommands {
     pub create_result: SettingsCreateResult,
     pub rotate_result: SettingsRotateResult,
+    pub last_rotate: Arc<Mutex<Option<RotateCredentialBinding>>>,
     pub revoke_result: SettingsRevokeResult,
 }
 
@@ -1131,6 +1132,7 @@ impl Default for FakeSettingsCommands {
         Self {
             create_result: Arc::new(Mutex::new(None)),
             rotate_result: Arc::new(Mutex::new(None)),
+            last_rotate: Arc::new(Mutex::new(None)),
             revoke_result: Arc::new(Mutex::new(None)),
         }
     }
@@ -1154,8 +1156,9 @@ impl SettingsCommands for FakeSettingsCommands {
     async fn rotate(
         &self,
         _actor: UserId,
-        _cmd: RotateCredentialBinding,
+        cmd: RotateCredentialBinding,
     ) -> Result<AggregateVersion, DomainError> {
+        *self.last_rotate.lock().await = Some(cmd);
         self.rotate_result.lock().await.take().unwrap_or_else(|| {
             Err(DomainError::ServiceUnavailable(
                 "fake settings rotation".into(),

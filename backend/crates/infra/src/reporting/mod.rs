@@ -23,6 +23,7 @@ pub use backup::{
 pub use jobs::PgReportArchivalQueue;
 pub use storage::{
     MemoryReportArchiveStorage, OpenDalReportArchiveStorage, UnavailableReportArchiveStorage,
+    VaultBackedReportArchiveStorage,
 };
 pub use triggers::{ScheduleConfig, spawn_schedule_ticker, spawn_wrap_archival_saga};
 pub use typst_renderer::TypstReportRenderer;

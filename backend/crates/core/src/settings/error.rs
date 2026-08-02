@@ -11,6 +11,8 @@ pub enum SettingsError {
     EmptyProvider,
     #[error("vault key reference must not be empty")]
     EmptyVaultKey,
+    #[error("credential provider cannot change during rotation")]
+    ProviderMismatch,
     #[error("credential binding not found")]
     NotFound,
     #[error("credential binding is already revoked")]

@@ -22,9 +22,11 @@ use async_trait::async_trait;
 use breakdown_core::reporting::{
     ContentDigest, ReportArchiveStorage, ReportArtifact, ReportArtifactKey, ReportStorageError,
 };
-use breakdown_core::settings::ports::{CredentialVault, GDriveCredentialBundle, VaultBinding};
+use breakdown_core::settings::ports::{
+    CredentialVault, GDriveCredentialBundle, SettingsRepository, VaultBinding,
+};
 use opendal::Operator;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tracing::{debug, warn};
 use uuid::Uuid;
 
@@ -322,6 +324,120 @@ impl ReportArchiveStorage for OpenDalReportArchiveStorage {
                 Err(ReportStorageError::provider_failure("exists/stat failed"))
             }
         }
+    }
+}
+
+/// Report storage that refreshes its OpenDAL operator when the referenced
+/// Settings binding changes. Each operation re-reads the reference, so a
+/// running worker observes credential rotation/revocation without a process
+/// restart. A Vault/read-model outage fails closed instead of using a stale
+/// operator.
+#[derive(Clone)]
+pub struct VaultBackedReportArchiveStorage {
+    vault: Arc<dyn CredentialVault>,
+    settings_repo: Arc<dyn SettingsRepository>,
+    settings_id: Uuid,
+    cached: Arc<RwLock<Option<CachedVaultStorage>>>,
+}
+
+struct CachedVaultStorage {
+    vault_key_id: String,
+    vault_version: u64,
+    storage: OpenDalReportArchiveStorage,
+}
+
+impl fmt::Debug for VaultBackedReportArchiveStorage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("VaultBackedReportArchiveStorage")
+            .field("settings_id", &self.settings_id)
+            .finish_non_exhaustive()
+    }
+}
+
+impl VaultBackedReportArchiveStorage {
+    pub fn new(
+        vault: Arc<dyn CredentialVault>,
+        settings_repo: Arc<dyn SettingsRepository>,
+        settings_id: Uuid,
+    ) -> Self {
+        Self {
+            vault,
+            settings_repo,
+            settings_id,
+            cached: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    async fn resolve(&self) -> Result<OpenDalReportArchiveStorage, ReportStorageError> {
+        let view = self
+            .settings_repo
+            .find_by_id(self.settings_id)
+            .await
+            .map_err(|error| {
+                ReportStorageError::provider_failure(format!(
+                    "GDrive Settings binding unavailable: {error}"
+                ))
+            })?;
+        if view.provider != "gdrive"
+            || view.binding_state
+                == breakdown_core::settings::views::CredentialBindingState::Revoked
+        {
+            return Err(ReportStorageError::provider_failure(
+                "GDrive Settings binding is not active",
+            ));
+        }
+
+        if let Some(cached) = self.cached.read().await.as_ref()
+            && cached.vault_key_id == view.vault_key_id
+            && cached.vault_version == view.vault_version
+        {
+            return Ok(cached.storage.clone());
+        }
+
+        let storage = OpenDalReportArchiveStorage::external_from_vault(
+            &*self.vault,
+            self.settings_id,
+            &VaultBinding {
+                vault_key_id: view.vault_key_id.clone(),
+                vault_version: view.vault_version,
+            },
+        )
+        .await?;
+        let mut cached = self.cached.write().await;
+        *cached = Some(CachedVaultStorage {
+            vault_key_id: view.vault_key_id,
+            vault_version: view.vault_version,
+            storage: storage.clone(),
+        });
+        Ok(storage)
+    }
+}
+
+#[async_trait]
+impl ReportArchiveStorage for VaultBackedReportArchiveStorage {
+    async fn put(
+        &self,
+        key: &ReportArtifactKey,
+        bytes: &[u8],
+        content_type: &str,
+        digest: &ContentDigest,
+    ) -> Result<(), ReportStorageError> {
+        self.resolve()
+            .await?
+            .put(key, bytes, content_type, digest)
+            .await
+    }
+
+    async fn fetch(&self, key: &ReportArtifactKey) -> Result<ReportArtifact, ReportStorageError> {
+        self.resolve().await?.fetch(key).await
+    }
+
+    async fn delete(&self, key: &ReportArtifactKey) -> Result<(), ReportStorageError> {
+        self.resolve().await?.delete(key).await
+    }
+
+    async fn exists(&self, key: &ReportArtifactKey) -> Result<bool, ReportStorageError> {
+        self.resolve().await?.exists(key).await
     }
 }
 

@@ -226,6 +226,9 @@ impl From<SettingsError> for DomainError {
             SettingsError::EmptyVaultKey => {
                 DomainError::ValidationError("vault key reference must not be empty".into())
             }
+            SettingsError::ProviderMismatch => {
+                DomainError::Conflict("credential provider cannot change during rotation".into())
+            }
             SettingsError::NotFound => DomainError::NotFound("Settings credential".into()),
             SettingsError::AlreadyRevoked => {
                 DomainError::Conflict("credential binding is already revoked".into())

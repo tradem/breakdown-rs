@@ -12,6 +12,7 @@
 use std::env;
 
 use anyhow::{Context, Result, bail};
+use breakdown_core::error::DomainError;
 use breakdown_core::settings::ports::{CredentialVault, SettingsCommands, SettingsRepository};
 use breakdown_core::settings::{CreateCredentialBinding, RotateCredentialBinding};
 use breakdown_core::shared::UserId;
@@ -109,7 +110,11 @@ async fn run() -> Result<()> {
     let settings_commands = SettingsCommandsImpl::new(command_service);
     let vault = VaultClient::from_env().map_err(anyhow::Error::msg)?;
 
-    let existing = settings_repo.find_by_id(options.settings_id).await.ok();
+    let existing = match settings_repo.find_by_id(options.settings_id).await {
+        Ok(view) => Some(view),
+        Err(DomainError::NotFound(_)) => None,
+        Err(error) => return Err(anyhow::Error::msg(error)),
+    };
     if let Some(view) = &existing {
         if view.provider != "gdrive" {
             bail!("the Settings id is already bound to another provider");

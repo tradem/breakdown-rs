@@ -124,7 +124,7 @@ impl VaultClient {
             .map_err(|err| Self::unavailable(err.to_string()))
     }
 
-    async fn ensure_key(&self, key_id: &str) -> Result<(), DomainError> {
+    async fn ensure_key(&self, key_id: &str) -> Result<bool, DomainError> {
         let response = self
             .send::<()>(
                 reqwest::Method::GET,
@@ -133,7 +133,7 @@ impl VaultClient {
             )
             .await?;
         if response.status().is_success() {
-            return Ok(());
+            return Ok(false);
         }
         if response.status() != StatusCode::NOT_FOUND {
             return Err(Self::unavailable(format!(
@@ -152,7 +152,7 @@ impl VaultClient {
             )
             .await?;
         if response.status().is_success() {
-            Ok(())
+            Ok(true)
         } else {
             Err(Self::unavailable(format!(
                 "key creation returned {}",
@@ -396,12 +396,35 @@ impl VaultClient {
         &self,
         settings_id: Uuid,
         key_id: &str,
-        record_id: &str,
         provider: &str,
         secret: SecretValue,
     ) -> Result<VaultBinding, DomainError> {
         validate_binding_key(settings_id, key_id)?;
-        self.ensure_key(key_id).await?;
+        let key_created = self.ensure_key(key_id).await?;
+        let result = self
+            .store_secret_inner(settings_id, key_id, provider, secret)
+            .await;
+        if key_created
+            && result.is_err()
+            && let Err(cleanup_error) = self.destroy(settings_id, key_id).await
+        {
+            tracing::error!(
+                vault_key_id = %key_id,
+                error = %cleanup_error,
+                "failed to clean up unreferenced Vault binding"
+            );
+        }
+        result
+    }
+
+    async fn store_secret_inner(
+        &self,
+        settings_id: Uuid,
+        key_id: &str,
+        provider: &str,
+        secret: SecretValue,
+    ) -> Result<VaultBinding, DomainError> {
+        let record_id = record_id_for(settings_id, key_id);
         let datakey = self.datakey(key_id).await?;
         let mut encoded_key = datakey.plaintext;
         let key = Zeroizing::new(
@@ -449,14 +472,8 @@ impl CredentialVault for VaultClient {
         secret: SecretValue,
     ) -> Result<VaultBinding, DomainError> {
         let key_id = format!("settings-{settings_id}");
-        self.store_secret(
-            settings_id,
-            &key_id,
-            &settings_id.to_string(),
-            provider,
-            secret,
-        )
-        .await
+        self.store_secret(settings_id, &key_id, provider, secret)
+            .await
     }
 
     async fn store_gdrive(
@@ -468,7 +485,7 @@ impl CredentialVault for VaultClient {
         // reference-only rotation event has been accepted.
         let key_id = format!("settings-{settings_id}-{}", Uuid::now_v7());
         let secret = bundle.into_secret_value()?;
-        self.store_secret(settings_id, &key_id, &key_id, "gdrive", secret)
+        self.store_secret(settings_id, &key_id, "gdrive", secret)
             .await
     }
 
@@ -478,11 +495,7 @@ impl CredentialVault for VaultClient {
         vault_key_id: &str,
     ) -> Result<SecretValue, DomainError> {
         validate_binding_key(settings_id, vault_key_id)?;
-        let record_id = if vault_key_id == format!("settings-{settings_id}") {
-            settings_id.to_string()
-        } else {
-            vault_key_id.to_owned()
-        };
+        let record_id = record_id_for(settings_id, vault_key_id);
         let response = self
             .send::<()>(
                 reqwest::Method::GET,
@@ -523,11 +536,7 @@ impl CredentialVault for VaultClient {
 
     async fn destroy(&self, settings_id: Uuid, vault_key_id: &str) -> Result<(), DomainError> {
         validate_binding_key(settings_id, vault_key_id)?;
-        let record_id = if vault_key_id == format!("settings-{settings_id}") {
-            settings_id.to_string()
-        } else {
-            vault_key_id.to_owned()
-        };
+        let record_id = record_id_for(settings_id, vault_key_id);
         let config = self
             .send(
                 reqwest::Method::POST,
@@ -586,6 +595,16 @@ impl CredentialVault for VaultClient {
     }
 }
 
+/// Resolve the KV record id for a validated binding key. Legacy bindings use
+/// the bare Settings UUID; rotation bindings use their opaque key id.
+fn record_id_for(settings_id: Uuid, vault_key_id: &str) -> String {
+    if vault_key_id == format!("settings-{settings_id}") {
+        settings_id.to_string()
+    } else {
+        vault_key_id.to_owned()
+    }
+}
+
 fn validate_binding_key(settings_id: Uuid, key_id: &str) -> Result<(), DomainError> {
     let prefix = format!("settings-{settings_id}");
     let valid = if key_id == prefix {
@@ -629,7 +648,9 @@ fn decrypt_envelope(dek: &[u8], payload: &[u8]) -> Result<Vec<u8>, &'static str>
 
 #[cfg(test)]
 mod tests {
-    use super::{PHOTO_SSE_C_KEY_ID, VaultClient, decrypt_envelope, encrypt_envelope};
+    use super::{
+        PHOTO_SSE_C_KEY_ID, VaultClient, decrypt_envelope, encrypt_envelope, validate_binding_key,
+    };
     use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
     use std::io::{BufRead, BufReader, Read, Write};
     use std::net::TcpListener;
@@ -785,6 +806,19 @@ mod tests {
         let last = payload.len() - 1;
         payload[last] ^= 1;
         assert!(decrypt_envelope(&dek, &payload).is_err());
+    }
+
+    #[test]
+    fn binding_key_from_another_settings_id_is_rejected() {
+        let settings_id = uuid::Uuid::now_v7();
+        let other_id = uuid::Uuid::now_v7();
+        let key_id = format!("settings-{other_id}");
+        let error = validate_binding_key(settings_id, &key_id).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("invalid credential Vault key reference")
+        );
     }
 
     #[test]

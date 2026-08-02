@@ -31,7 +31,9 @@ nur `vault_key_id`, Version, Provider und Binding-Status.
 - [x] **Fail closed** – bei fehlender Settings-Referenz oder Vault-Ausfall wird
       ein unavailable Storage injiziert. Der Backup-Worker kann dadurch normal
       retry/dead-letter anwenden; es gibt keinen Memory- oder Plaintext-Fallback
-      für GDrive.
+      für GDrive. Der laufende Worker verwendet einen Vault-backed Resolver,
+      der die aktuelle Settings-Referenz pro Operation prüft und Rotation bzw.
+      Revocation ohne API-Neustart übernimmt.
 - [x] **Composition root** – bei `REPORT_BACKUP_PROVIDER=gdrive` wird nur die
       opake `REPORT_BACKUP_SETTINGS_ID`-Referenz verwendet. S3 bleibt für den
       nicht-GDrive-Zweig unverändert.
@@ -54,7 +56,9 @@ nur `vault_key_id`, Version, Provider und Binding-Status.
    des GDrive-Operators. Erst danach wird das reference-only Rotation-Event
    geschrieben; Cleanup des alten Keys erfolgt best-effort anschließend.
 3. Vault-Fehler verhindern den API-Boot nicht. Nur GDrive-Archivjobs sind
-   unavailable und folgen der vorhandenen Worker-Retry-Policy.
+   unavailable und folgen der vorhandenen Worker-Retry-Policy. Die aktuelle
+   GDrive-Operator-Konfiguration wird im laufenden Worker bei einem Binding-
+   Wechsel ersetzt; ein Neustart ist für Credential-Rotation nicht erforderlich.
 4. Das generische `/settings/credentials`-Endpoint bleibt für zukünftige
    Provider rückwärtskompatibel. Der produktive GDrive-Reportpfad verwendet es
    nicht und liest keine Legacy-Credentials.

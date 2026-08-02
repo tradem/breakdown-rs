@@ -24,6 +24,7 @@ utoipa.workspace = true
 # Async traits für Ports (object-safe, mockierbar)
 async-trait.workspace = true
 zeroize.workspace = true
+subtle = "2.6"
 
 # JSON-Werte für die generische Audit/Journal-Projektion (core::audit)
 serde_json.workspace = true

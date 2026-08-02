@@ -18,7 +18,6 @@ use api::auth::{AuthState, AuthorizationState};
 use api::routes::app_router;
 use api::state::{AppState, Ports, ProductionPorts};
 use breakdown_core::membership::policy::AuthorizationPolicy;
-use breakdown_core::settings::ports::SettingsRepository;
 use infra::event_store::{
     BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl, CostumeCommandsImpl,
     EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl, SceneCommandsImpl,
@@ -37,7 +36,8 @@ use infra::queries::{
 use infra::reporting::{
     BackupWorkerConfig, MemoryReportArchiveStorage, OpenDalReportArchiveStorage,
     PgReportArchivalQueue, SceneShootReportDataLoader, ScheduleConfig, TypstReportRenderer,
-    spawn_backup_worker, spawn_schedule_ticker, spawn_wrap_archival_saga,
+    VaultBackedReportArchiveStorage, spawn_backup_worker, spawn_schedule_ticker,
+    spawn_wrap_archival_saga,
 };
 use kameo_es::command_service::CommandService;
 use opentelemetry::trace::TracerProvider as _;
@@ -112,6 +112,25 @@ fn init_otel_tracer() -> Option<opentelemetry_sdk::trace::SdkTracer> {
     opentelemetry::global::set_tracer_provider(tracer_provider);
 
     Some(tracer)
+}
+
+fn resolve_gdrive_storage(
+    settings_repo: &SettingsRepositoryImpl,
+    credential_vault: &infra::vault::VaultClient,
+) -> Result<VaultBackedReportArchiveStorage, infra::reporting::UnavailableReportArchiveStorage> {
+    let settings_id = env::var("REPORT_BACKUP_SETTINGS_ID")
+        .ok()
+        .and_then(|value| uuid::Uuid::parse_str(&value).ok())
+        .ok_or_else(|| {
+            infra::reporting::UnavailableReportArchiveStorage::new(
+                "GDrive Settings binding id is not configured",
+            )
+        })?;
+    Ok(VaultBackedReportArchiveStorage::new(
+        Arc::new(credential_vault.clone()),
+        Arc::new(settings_repo.clone()),
+        settings_id,
+    ))
 }
 
 #[tokio::main]
@@ -418,46 +437,7 @@ async fn main() -> Result<()> {
         report_provider.as_str(),
         "gdrive" | "google" | "google-drive"
     ) {
-        let storage = async {
-            let settings_id = env::var("REPORT_BACKUP_SETTINGS_ID")
-                .ok()
-                .and_then(|value| uuid::Uuid::parse_str(&value).ok())
-                .ok_or_else(|| {
-                    infra::reporting::UnavailableReportArchiveStorage::new(
-                        "GDrive Settings binding id is not configured",
-                    )
-                })?;
-            let view = settings_repo
-                .find_by_id(settings_id)
-                .await
-                .map_err(|error| {
-                    infra::reporting::UnavailableReportArchiveStorage::new(format!(
-                        "GDrive Settings binding unavailable: {error}"
-                    ))
-                })?;
-            if view.provider != "gdrive"
-                || view.binding_state
-                    != breakdown_core::settings::views::CredentialBindingState::Active
-            {
-                return Err(infra::reporting::UnavailableReportArchiveStorage::new(
-                    "GDrive Settings binding is not active",
-                ));
-            }
-            OpenDalReportArchiveStorage::external_from_vault(
-                &credential_vault,
-                settings_id,
-                &breakdown_core::settings::ports::VaultBinding {
-                    vault_key_id: view.vault_key_id,
-                    vault_version: view.vault_version,
-                },
-            )
-            .await
-            .map_err(|error| {
-                infra::reporting::UnavailableReportArchiveStorage::new(error.to_string())
-            })
-        }
-        .await;
-        match storage {
+        match resolve_gdrive_storage(&settings_repo, &credential_vault) {
             Ok(storage) => std::sync::Arc::new(storage),
             Err(storage) => {
                 warn!(error = ?storage, "GDrive report storage unavailable; jobs will retry");
