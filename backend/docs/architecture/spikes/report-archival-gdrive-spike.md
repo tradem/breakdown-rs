@@ -40,21 +40,22 @@ In-tree unit/contract tests exercise the port semantics without live Google cred
 - Staging-reuse-on-retry (backup worker unit tests): external failure keeps staged bytes; renderer is not re-invoked
 - Dedup key stability across triggers
 
-Live Google Drive integration (upload → idempotent-overwrite → fetch → delete) runs when
-GitHub Secrets `GDRIVE_CLIENT_ID` / `GDRIVE_CLIENT_SECRET` / `GDRIVE_REFRESH_TOKEN`
-are configured in the repository (`.github/workflows/integration-tests.yml`).
-The test skips gracefully when secrets are absent — it never fails on missing credentials.
+Live Google Drive integration (upload → idempotent-overwrite → fetch → delete)
+uses a dedicated Settings/Vault binding and must never receive credentials as
+GitHub Actions or API process environment variables. The test environment may
+provide only the opaque `REPORT_BACKUP_SETTINGS_ID`; the Vault app token is
+mounted through the normal runtime secret volume.
 
-Locally:
+For an existing deployment, run the explicit one-time importer first:
 
 ```bash
-REPORT_BACKUP_PROVIDER=gdrive \
-REPORT_BACKUP_GDRIVE_CLIENT_ID=… \
-REPORT_BACKUP_GDRIVE_CLIENT_SECRET=… \
-REPORT_BACKUP_GDRIVE_REFRESH_TOKEN=… \
-REPORT_BACKUP_GDRIVE_ROOT=<folder-id> \
-cargo test -p infra -- reporting::storage_contract_test::gdrive_contract -- --nocapture
+cargo run -p api --bin migrate_gdrive_credentials -- \
+  --confirm-legacy-env --settings-id <uuid> --actor <oidc-sub>
+# remove the legacy variables from .env, CI and deployment secrets afterwards
 ```
+
+The live contract test is intentionally not enabled by generic unit-test runs;
+it requires an operator-managed Vault binding and a dedicated Drive folder.
 
 ## Gate decision
 
@@ -69,6 +70,7 @@ Rationale:
 
 ## Follow-ups
 
-- [ ] Run the ignored live gdrive contract test against a dedicated test shared drive before production enablement.
+- [ ] Run the live GDrive contract test against a dedicated test shared drive
+      using a Settings/Vault binding before production enablement.
 - [ ] Confirm least-privilege OAuth scope (`drive.file` vs `drive`) with the operator.
 - [ ] If shared-drive folder writes fail under OpenDAL, execute the adapter-only fallback.

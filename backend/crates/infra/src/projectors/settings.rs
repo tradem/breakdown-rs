@@ -56,6 +56,34 @@ impl<'a> EntityEventHandler<SettingsAggregate, Transaction<'a, Postgres>> for Se
                 .execute(&mut **ctx)
                 .await?;
             }
+            SettingsEvent::CredentialRotated {
+                id,
+                provider,
+                vault_key_id,
+                vault_version,
+                version,
+            } => {
+                sqlx::query(
+                    r#"
+                    UPDATE projection_settings
+                    SET provider = $2,
+                        vault_key_id = $3,
+                        vault_version = $4,
+                        binding_state = 'active',
+                        version = $5,
+                        updated_at = $6
+                    WHERE id = $1 AND version < $5
+                    "#,
+                )
+                .bind(id)
+                .bind(provider)
+                .bind(vault_key_id)
+                .bind(vault_version as i64)
+                .bind(version.0 as i64)
+                .bind(updated_at)
+                .execute(&mut **ctx)
+                .await?;
+            }
             SettingsEvent::CredentialRevoked { id, version } => {
                 sqlx::query(
                     r#"

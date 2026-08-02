@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: grok-4.5 (opencode-go)
+// Co-authored-by: gpt-5.6-luna (opencode-go)
 
 //! Report rendering + archival infrastructure.
 //!
@@ -20,6 +21,9 @@ pub use backup::{
     BackupWorkerConfig, ReportBackupWorker, SceneShootReportDataLoader, spawn_backup_worker,
 };
 pub use jobs::PgReportArchivalQueue;
-pub use storage::{MemoryReportArchiveStorage, OpenDalReportArchiveStorage};
+pub use storage::{
+    MemoryReportArchiveStorage, OpenDalReportArchiveStorage, UnavailableReportArchiveStorage,
+    VaultBackedReportArchiveStorage,
+};
 pub use triggers::{ScheduleConfig, spawn_schedule_ticker, spawn_wrap_archival_saga};
 pub use typst_renderer::TypstReportRenderer;

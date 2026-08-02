@@ -56,7 +56,9 @@ use breakdown_core::scene_shoot::views::{DispoRow, SceneShootView, ShootDayRow, 
 use breakdown_core::season::commands::{CreateSeason, RenameSeason};
 use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
 use breakdown_core::season::views::SeasonView;
-use breakdown_core::settings::commands::{CreateCredentialBinding, RevokeCredential};
+use breakdown_core::settings::commands::{
+    CreateCredentialBinding, RevokeCredential, RotateCredentialBinding,
+};
 use breakdown_core::settings::ports::{
     CredentialVault, SecretValue, SettingsCommands, SettingsRepository,
 };
@@ -1113,12 +1115,15 @@ impl ReportArchivalQueue for FakeReportArchivalQueue {
 }
 
 type SettingsCreateResult = Arc<Mutex<Option<Result<(Uuid, AggregateVersion), DomainError>>>>;
+type SettingsRotateResult = Arc<Mutex<Option<Result<AggregateVersion, DomainError>>>>;
 type SettingsRevokeResult = Arc<Mutex<Option<Result<AggregateVersion, DomainError>>>>;
 
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
 pub struct FakeSettingsCommands {
     pub create_result: SettingsCreateResult,
+    pub rotate_result: SettingsRotateResult,
+    pub last_rotate: Arc<Mutex<Option<RotateCredentialBinding>>>,
     pub revoke_result: SettingsRevokeResult,
 }
 
@@ -1126,6 +1131,8 @@ impl Default for FakeSettingsCommands {
     fn default() -> Self {
         Self {
             create_result: Arc::new(Mutex::new(None)),
+            rotate_result: Arc::new(Mutex::new(None)),
+            last_rotate: Arc::new(Mutex::new(None)),
             revoke_result: Arc::new(Mutex::new(None)),
         }
     }
@@ -1143,6 +1150,19 @@ impl SettingsCommands for FakeSettingsCommands {
                 "fake settings command for {}",
                 cmd.id
             )))
+        })
+    }
+
+    async fn rotate(
+        &self,
+        _actor: UserId,
+        cmd: RotateCredentialBinding,
+    ) -> Result<AggregateVersion, DomainError> {
+        *self.last_rotate.lock().await = Some(cmd);
+        self.rotate_result.lock().await.take().unwrap_or_else(|| {
+            Err(DomainError::ServiceUnavailable(
+                "fake settings rotation".into(),
+            ))
         })
     }
 

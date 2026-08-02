@@ -36,7 +36,8 @@ use infra::queries::{
 use infra::reporting::{
     BackupWorkerConfig, MemoryReportArchiveStorage, OpenDalReportArchiveStorage,
     PgReportArchivalQueue, SceneShootReportDataLoader, ScheduleConfig, TypstReportRenderer,
-    spawn_backup_worker, spawn_schedule_ticker, spawn_wrap_archival_saga,
+    VaultBackedReportArchiveStorage, spawn_backup_worker, spawn_schedule_ticker,
+    spawn_wrap_archival_saga,
 };
 use kameo_es::command_service::CommandService;
 use opentelemetry::trace::TracerProvider as _;
@@ -111,6 +112,25 @@ fn init_otel_tracer() -> Option<opentelemetry_sdk::trace::SdkTracer> {
     opentelemetry::global::set_tracer_provider(tracer_provider);
 
     Some(tracer)
+}
+
+fn resolve_gdrive_storage(
+    settings_repo: &SettingsRepositoryImpl,
+    credential_vault: &infra::vault::VaultClient,
+) -> Result<VaultBackedReportArchiveStorage, infra::reporting::UnavailableReportArchiveStorage> {
+    let settings_id = env::var("REPORT_BACKUP_SETTINGS_ID")
+        .ok()
+        .and_then(|value| uuid::Uuid::parse_str(&value).ok())
+        .ok_or_else(|| {
+            infra::reporting::UnavailableReportArchiveStorage::new(
+                "GDrive Settings binding id is not configured",
+            )
+        })?;
+    Ok(VaultBackedReportArchiveStorage::new(
+        Arc::new(credential_vault.clone()),
+        Arc::new(settings_repo.clone()),
+        settings_id,
+    ))
 }
 
 #[tokio::main]
@@ -410,7 +430,21 @@ async fn main() -> Result<()> {
                 std::sync::Arc::new(MemoryReportArchiveStorage::new())
             }
         };
-    let report_external: std::sync::Arc<dyn breakdown_core::reporting::ReportArchiveStorage> =
+    let report_provider = env::var("REPORT_BACKUP_PROVIDER")
+        .unwrap_or_else(|_| "s3".into())
+        .to_ascii_lowercase();
+    let report_external: std::sync::Arc<dyn breakdown_core::reporting::ReportArchiveStorage> = if matches!(
+        report_provider.as_str(),
+        "gdrive" | "google" | "google-drive"
+    ) {
+        match resolve_gdrive_storage(&settings_repo, &credential_vault) {
+            Ok(storage) => std::sync::Arc::new(storage),
+            Err(storage) => {
+                warn!(error = ?storage, "GDrive report storage unavailable; jobs will retry");
+                std::sync::Arc::new(storage)
+            }
+        }
+    } else {
         match OpenDalReportArchiveStorage::external_from_env() {
             Ok(s) => std::sync::Arc::new(s),
             Err(e) => {
@@ -420,7 +454,8 @@ async fn main() -> Result<()> {
                 );
                 std::sync::Arc::new(MemoryReportArchiveStorage::new())
             }
-        };
+        }
+    };
     // Shared renderer (process-wide semaphore budget for HTTP + backup).
     let report_renderer: std::sync::Arc<dyn breakdown_core::reporting::ReportRenderer> =
         std::sync::Arc::new(TypstReportRenderer::with_defaults().unwrap_or_else(|e| {

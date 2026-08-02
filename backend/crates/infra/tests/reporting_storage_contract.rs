@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: gpt-5.6-luna (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -13,12 +14,11 @@
 //! Contract tests for `ReportArchiveStorage` semantics.
 //!
 //! These run against the in-memory adapter (always) and optionally against a
-//! live Google Drive target when `REPORT_BACKUP_PROVIDER=gdrive` and the
-//! required credentials are present (`#[ignore]` by default).
+//! a fail-closed GDrive target when the Settings/Vault binding is unavailable.
 
 use breakdown_core::reporting::{ReportArchiveStorage, ReportArtifactKey, ReportStorageError};
 use infra::reporting::storage::{
-    MemoryReportArchiveStorage, OpenDalReportArchiveStorage, sha256_hex,
+    MemoryReportArchiveStorage, UnavailableReportArchiveStorage, sha256_hex,
 };
 
 async fn contract_upload_overwrite_fetch_delete<S: ReportArchiveStorage>(store: &S) {
@@ -54,25 +54,18 @@ async fn memory_contract_upload_overwrite_fetch_delete() {
     contract_upload_overwrite_fetch_delete(&store).await;
 }
 
-/// Live Google Drive contract — skips gracefully when credentials are absent.
-///
-/// In CI, the workflow passes `REPORT_BACKUP_GDRIVE_*` secrets via env vars
-/// (see `.github/workflows/integration-tests.yml`). When unset, the test
-/// prints a skip message and returns — it never fails on missing credentials.
+/// GDrive must be configured through Settings/Vault, never through process
+/// environment credentials. The legacy constructor fails closed.
 #[tokio::test]
-async fn gdrive_contract_upload_overwrite_fetch_delete() {
-    // Check that the env var is both present AND non-empty.
-    // An empty string (e.g. from a missing GitHub secret) is treated as unconfigured.
-    if !std::env::var("REPORT_BACKUP_GDRIVE_CLIENT_ID")
-        .map(|v| !v.is_empty())
-        .unwrap_or(false)
-    {
-        println!("SKIP: GDrive credentials not configured (set REPORT_BACKUP_GDRIVE_* env vars)");
-        return;
-    }
-    let store = OpenDalReportArchiveStorage::external_from_env()
-        .expect("external_from_env with gdrive credentials");
-    contract_upload_overwrite_fetch_delete(&store).await;
+async fn gdrive_unavailable_storage_fails_closed() {
+    let store = UnavailableReportArchiveStorage::new("Vault unavailable");
+    let key = ReportArtifactKey::new("contract/test-report.pdf").unwrap();
+    let digest = sha256_hex(b"pdf");
+    let error = store
+        .put(&key, b"pdf", "application/pdf", &digest)
+        .await
+        .expect_err("unavailable provider must fail closed");
+    assert!(error.to_string().contains("Vault unavailable"));
 }
 
 #[test]

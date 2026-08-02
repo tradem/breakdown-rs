@@ -743,6 +743,7 @@ impl<'a> EntityEventHandler<SettingsAggregate, Transaction<'a, Postgres>>
     ) -> Result<(), Self::Error> {
         let entity_id = match &event.data {
             SettingsEvent::CredentialBound { id, .. }
+            | SettingsEvent::CredentialRotated { id, .. }
             | SettingsEvent::CredentialRevoked { id, .. } => id.to_string(),
         };
         let event_type = event.data.event_type().to_string();

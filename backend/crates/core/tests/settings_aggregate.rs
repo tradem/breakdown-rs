@@ -6,8 +6,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use breakdown_core::settings::{
-    CreateCredentialBinding, CredentialBindingState, RevokeCredential, SettingsAggregate,
-    SettingsEvent,
+    CreateCredentialBinding, CredentialBindingState, GDriveCredentialBundle, RevokeCredential,
+    RotateCredentialBinding, SettingsAggregate, SettingsError, SettingsEvent,
 };
 use breakdown_core::shared::AggregateVersion;
 use kameo_es::{Apply, Command, Metadata};
@@ -80,6 +80,175 @@ fn invalid_binding_is_rejected() {
             .handle(command, make_ctx())
             .is_err()
     );
+}
+
+#[test]
+fn gdrive_bundle_round_trips_through_vault_encoding() {
+    let bundle = GDriveCredentialBundle::try_new(
+        " client-id\n".into(),
+        "client-secret\t".into(),
+        "refresh-token ".into(),
+        Some("root-folder".into()),
+    )
+    .unwrap();
+    let encoded = bundle.into_secret_value().unwrap();
+    assert!(encoded.as_str().contains("client-id"));
+    assert!(encoded.as_str().contains("refresh-token"));
+    let decoded = GDriveCredentialBundle::from_secret_value(encoded).unwrap();
+    assert_eq!(decoded.client_id(), "client-id");
+    assert_eq!(decoded.client_secret(), "client-secret");
+    assert_eq!(decoded.refresh_token(), "refresh-token");
+    assert_eq!(decoded.root_folder_id(), Some("root-folder"));
+}
+
+#[test]
+fn gdrive_bundle_rejects_blank_required_fields() {
+    assert!(
+        GDriveCredentialBundle::try_new(
+            "  ".into(),
+            "client-secret".into(),
+            "refresh-token".into(),
+            None,
+        )
+        .is_err()
+    );
+    assert!(
+        GDriveCredentialBundle::try_new(
+            "client-id".into(),
+            "client-secret".into(),
+            "\t\n".into(),
+            None,
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn gdrive_bundle_normalizes_blank_root_folder_to_none() {
+    let bundle = GDriveCredentialBundle::try_new(
+        "client-id".into(),
+        "client-secret".into(),
+        "refresh-token".into(),
+        Some("   ".into()),
+    )
+    .unwrap();
+    assert_eq!(bundle.root_folder_id(), None);
+}
+
+#[test]
+fn rotate_event_replaces_reference_and_keeps_secret_free_payload() {
+    let command = binding();
+    let id = command.id;
+    let mut aggregate = SettingsAggregate::default();
+    let events = aggregate.handle(command, make_ctx()).unwrap();
+    aggregate.apply(events.into_iter().next().unwrap(), Metadata::default());
+    let rotated = aggregate
+        .handle(
+            RotateCredentialBinding {
+                id,
+                provider: "gdrive".into(),
+                vault_key_id: "settings-new-key".into(),
+                vault_version: 2,
+                version: AggregateVersion::INITIAL,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    let encoded = serde_json::to_value(&rotated[0]).unwrap();
+    let payload = encoded
+        .get("CredentialRotated")
+        .unwrap()
+        .as_object()
+        .unwrap();
+    let mut fields: Vec<&str> = payload.keys().map(String::as_str).collect();
+    fields.sort_unstable();
+    assert_eq!(
+        fields,
+        vec!["id", "provider", "vault_key_id", "vault_version", "version"]
+    );
+    assert_eq!(payload["vault_key_id"], "settings-new-key");
+    aggregate.apply(rotated.into_iter().next().unwrap(), Metadata::default());
+    assert_eq!(aggregate.vault_key_id, "settings-new-key");
+    assert_eq!(aggregate.version, AggregateVersion(2));
+}
+
+#[test]
+fn rotate_rejects_missing_revoked_and_invalid_bindings() {
+    let command = RotateCredentialBinding {
+        id: Uuid::now_v7(),
+        provider: "gdrive".into(),
+        vault_key_id: "settings-new-key".into(),
+        vault_version: 2,
+        version: AggregateVersion::INITIAL,
+    };
+    assert!(matches!(
+        SettingsAggregate::default().handle(command.clone(), make_ctx()),
+        Err(SettingsError::NotFound)
+    ));
+
+    let initial = binding();
+    let id = initial.id;
+    let mut revoked = SettingsAggregate::default();
+    let created = revoked.handle(initial, make_ctx()).unwrap();
+    revoked.apply(created.into_iter().next().unwrap(), Metadata::default());
+    let event = revoked
+        .handle(
+            RevokeCredential {
+                id,
+                version: AggregateVersion::INITIAL,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    revoked.apply(event.into_iter().next().unwrap(), Metadata::default());
+    assert!(matches!(
+        revoked.handle(command.clone(), make_ctx()),
+        Err(SettingsError::AlreadyRevoked)
+    ));
+
+    let mut active = SettingsAggregate::default();
+    let created = active.handle(binding(), make_ctx()).unwrap();
+    active.apply(created.into_iter().next().unwrap(), Metadata::default());
+    assert!(matches!(
+        active.handle(
+            RotateCredentialBinding {
+                provider: "other".into(),
+                ..command.clone()
+            },
+            make_ctx(),
+        ),
+        Err(SettingsError::ProviderMismatch)
+    ));
+    assert!(matches!(
+        active.handle(
+            RotateCredentialBinding {
+                provider: "".into(),
+                ..command.clone()
+            },
+            make_ctx(),
+        ),
+        Err(SettingsError::EmptyProvider)
+    ));
+    assert!(matches!(
+        active.handle(
+            RotateCredentialBinding {
+                vault_key_id: "".into(),
+                ..command.clone()
+            },
+            make_ctx(),
+        ),
+        Err(SettingsError::EmptyVaultKey)
+    ));
+    assert!(matches!(
+        active.handle(
+            RotateCredentialBinding {
+                version: AggregateVersion(99),
+                ..command
+            },
+            make_ctx(),
+        ),
+        Err(SettingsError::VersionMismatch { .. })
+    ));
 }
 
 #[test]
