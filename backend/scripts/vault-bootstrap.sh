@@ -1,7 +1,7 @@
 #!/bin/sh
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: gpt-5.6-luna (opencode-go)
+# Co-authored-by: gpt-5.6-luna (opencode-go)
 # Co-authored-by: glm-5.2 (neuralwatt)
 
 # Idempotent first-boot bootstrap for the internal Vault service.

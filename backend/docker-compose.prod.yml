@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: gpt-5.6-luna (opencode-go)
 # Co-authored-by: deepseek-v4-flash (opencode-go)
 
 # Production runtime for the two-tier stack (ADR-015 / ADR-016) with
@@ -67,7 +68,10 @@ services:
     entrypoint: ["/bin/sh", "/scripts/vault-bootstrap.sh"]
     environment:
       VAULT_ADDR: http://vault:8200
-      VAULT_BOOTSTRAP_TOKEN: ${VAULT_BOOTSTRAP_TOKEN:?VAULT_BOOTSTRAP_TOKEN is required for first boot}
+      # Keep interpolation optional so static `docker compose config` CI gates
+      # can validate the file without receiving a production secret. The
+      # mounted bootstrap script still rejects an empty value at runtime.
+      VAULT_BOOTSTRAP_TOKEN: ${VAULT_BOOTSTRAP_TOKEN:-}
     volumes:
       - vault_data:/vault/data
       - vault_app_token:/vault/app-token
