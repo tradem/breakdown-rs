@@ -259,9 +259,14 @@ workers stopped or quiesced, and explicitly verify operator release before any
 key destruction:
 
 1. Generate a candidate datakey through the Vault Transit `photo-sse-c` key
-   and store its wrapped ciphertext in an operator-controlled staging record.
-   Keep the current `kv/data/photo-sse-c` record active. Never export or print
-   the plaintext candidate.
+   and store its wrapped ciphertext at
+   `kv/data/photo-sse-c-rotation/<rotation-id>/candidate`. Copy the current
+   active wrapped DEK and KV version to
+   `kv/data/photo-sse-c-rotation/<rotation-id>/rollback`; this is the rollback
+   custody record used to recreate the old operator after promotion. The
+   least-privilege app policy permits only these rotation paths. Keep the
+   current `kv/data/photo-sse-c` record active. Never export or print either
+   plaintext DEK.
 2. Create a durable rollback copy of every old original/thumb/medium ciphertext
    plus a manifest mapping canonical keys to rollback objects. Then use two S3
    operators to read old objects and write candidate ciphertext under a staging
@@ -279,10 +284,13 @@ key destruction:
    generation, downloads, deletion, and GC all succeed.
 4. If the CAS write conflicts, do not overwrite the winner: re-read the active
    record, stop the migration, and reconcile against the winner's manifest. If
-   the migration is not accepted, restore canonical objects from the durable
-   rollback copy and leave the old record active. Keep the staging objects,
-   rollback copy, manifest, and candidate record until the outcome is known;
-   clean them up only after successful promotion and the rollback window.
+   the migration is not accepted, load the old wrapped DEK from the rollback
+   KV record, ask Transit to unwrap it, restore canonical objects from the
+   durable rollback copy, and leave the old active record in place. Keep the
+   staging objects, rollback copy, manifest, candidate record, and rollback DEK
+   record until the outcome is known; after successful promotion, clean up both
+   KV-v2 rotation records with the metadata delete operation and remove the
+   object artifacts only after the rollback window.
 5. Before intentional crypto-shredding, stop the API, photo sagas, and GC
    scheduler and explicitly verify that every OpenDAL operator clone has been
    released. Destroy the active `photo-sse-c` Transit key, restart the API, and

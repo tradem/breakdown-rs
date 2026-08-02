@@ -97,8 +97,10 @@ explicitly verify release of every OpenDAL operator. After restart, verify that
 the API cannot reload the DEK and photo operations return 503. Destroying
 `photo-sse-c` therefore crypto-shreds the whole bucket and is an intentional
 nuke-all-photos operation. Rotation requires staged candidate objects plus a
-durable old-ciphertext rollback copy and manifest, followed by same-path KV-v2
-CAS promotion; see the operations runbook and ADR-027 for custody.
+durable old-ciphertext rollback copy and manifest. The old wrapped DEK and
+active version must remain in a least-privilege Vault KV-v2 rollback record
+until the rollback window ends, followed by same-path KV-v2 CAS promotion; see
+the operations runbook and ADR-027 for custody.
 
 For SierraDB there is no verified at-rest feature in the `tqwewe/sierradb:0.3.1`
 image; we rely entirely on LUKS2 under its data directory. This is the

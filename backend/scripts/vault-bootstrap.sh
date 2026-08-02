@@ -155,6 +155,12 @@ path "transit/decrypt/photo-sse-c" {
 path "kv/data/photo-sse-c" {
   capabilities = ["create", "read", "update"]
 }
+path "kv/data/photo-sse-c-rotation/*" {
+  capabilities = ["create", "read", "update"]
+}
+path "kv/metadata/photo-sse-c-rotation/*" {
+  capabilities = ["read", "delete"]
+}
 POLICY
 
 # Keep a short-lived, least-privilege token in a separate named volume. If the

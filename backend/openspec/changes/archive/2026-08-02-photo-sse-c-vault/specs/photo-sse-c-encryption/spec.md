@@ -67,7 +67,7 @@ The system SHALL NOT place the plaintext photo key in environment variables, sou
 - **THEN** the output contains no endpoint credentials, customer key, base64 key, or key digest
 
 ### Requirement: Bucket key rotation is operationally safe
-The system SHALL document rotation as a two-key migration: create a candidate wrapped DEK, preserve every old ciphertext in a durable rollback copy with a manifest, rewrite and verify staged candidate objects, promote the candidate by writing it to `kv/data/photo-sse-c` with KV-v2 `options.cas` set to the expected active version, and restart photo workers. A CAS conflict SHALL leave the winning active record untouched and require reconciliation. Staging objects, the rollback copy, manifest, and candidate record SHALL remain available until the migration outcome and rollback retention complete. Before destroying any bucket Transit key, all API/photo workers SHALL be stopped or quiesced and release of every OpenDAL operator SHALL be explicitly verified. Destroying the bucket Transit key SHALL be documented as whole-bucket crypto-shredding followed by restart verification.
+The system SHALL document rotation as a two-key migration: create a candidate wrapped DEK, preserve every old ciphertext in a durable rollback copy with a manifest, store the candidate and old wrapped DEK in least-privilege KV-v2 rotation records at `kv/data/photo-sse-c-rotation/<rotation-id>/candidate` and `/rollback`, rewrite and verify staged candidate objects, promote the candidate by writing it to `kv/data/photo-sse-c` with KV-v2 `options.cas` set to the expected active version, and restart photo workers. The rollback record SHALL retain the old active KV version so Transit can recreate the old operator after promotion. A CAS conflict SHALL leave the winning active record untouched and require reconciliation. Staging objects, the rollback copy, manifest, and both wrapped-DEK records SHALL remain available until the migration outcome and rollback retention complete; cleanup SHALL use the narrowly scoped KV-v2 metadata delete capability. Before destroying any bucket Transit key, all API/photo workers SHALL be stopped or quiesced and release of every OpenDAL operator SHALL be explicitly verified. Destroying the bucket Transit key SHALL be documented as whole-bucket crypto-shredding followed by restart verification.
 
 #### Scenario: Rotation completes successfully
 
@@ -83,7 +83,8 @@ The system SHALL document rotation as a two-key migration: create a candidate wr
 - **THEN** the old or winning KV-v2 record remains active
 - **AND** the candidate key is not used by normal photo workers
 - **AND** canonical objects can be restored from the durable rollback copy
-- **AND** staging objects, the rollback copy, manifest, and candidate record remain until the outcome is known
+- **AND** staging objects, the rollback copy, manifest, candidate record, and rollback-DEK record remain until the outcome is known
+- **AND** rollback loads the old wrapped DEK from the rollback record and asks Transit to recreate the old operator
 
 #### Scenario: Crypto-shredding is requested
 

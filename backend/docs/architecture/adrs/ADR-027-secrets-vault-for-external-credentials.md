@@ -117,11 +117,16 @@ responses; they surface the same typed failure to their supervisors, which
 retry or log a visible failure according to the worker policy. The code never
 falls back to plaintext S3. Bucket-key rotation is a two-key operational
 backfill: preserve the old ciphertext in a durable rollback copy with a
-manifest, rewrite and verify staged candidate objects, promote the candidate by
-writing the same KV-v2 path with the expected active-version CAS, then restart
-the API. A CAS conflict leaves the winning record active and requires
-reconciliation. The rollback copy, manifest, and candidate artifacts remain
-available until the migration outcome and rollback window are complete.
+manifest, and store both wrapped DEKs in least-privilege KV-v2 rotation
+records: `kv/data/photo-sse-c-rotation/<rotation-id>/candidate` and
+`/rollback`. The rollback record also stores the old active version so Transit
+can recreate the old operator after promotion. Rewrite and verify staged
+candidate objects, promote the candidate by writing the same KV-v2 path with
+the expected active-version CAS, then restart the API. A CAS conflict leaves
+the winning record active and requires reconciliation. The rollback copy,
+manifest, candidate record, and rollback-DEK record remain available until the
+migration outcome and rollback window are complete; cleanup uses the narrowly
+scoped KV-v2 metadata delete capability.
 
 ### Compatibility with event sourcing
 
