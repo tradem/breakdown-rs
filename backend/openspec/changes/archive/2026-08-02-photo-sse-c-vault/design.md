@@ -38,15 +38,15 @@ A per-photo or per-season key was rejected for this release because OpenDAL 0.52
 
 `OpenDalPhotoStorage` gains an explicit unavailable state. `main.rs` constructs `VaultClient` before photo storage, attempts to load/provision the bucket DEK, and constructs an SSE-C operator only on success. If Vault is unavailable, it logs only the dependency error and installs the unavailable adapter. All four `PhotoStorage` operations return `DomainError::ServiceUnavailable`; existing HTTP error mapping exposes 503 for photo endpoints and background jobs retry/fail visibly rather than writing plaintext.
 
-The legacy operator constructors used by tests remain available only for callers that supply an already-configured operator. Production's environment constructor is changed to require the Vault-derived key; it cannot silently create a plaintext S3 operator. Test fixtures explicitly configure a deterministic SSE-C key.
+Raw-operator constructors are compiled only with the `test-support` feature and are therefore unavailable to the production API dependency. Production's environment constructor requires the Vault-derived key; it cannot silently create a plaintext S3 operator. Test fixtures explicitly configure a deterministic SSE-C key through the production S3 builder.
 
 ### 3. Keep shared TLS builder behavior unchanged for reports
 
-Add an SSE-C-specific S3 builder helper (or an optional customer-key argument with a non-SSE default for report storage) while preserving the report archival adapter's current behavior. Only the photo boot path supplies the customer key. The helper uses OpenDAL's `server_side_encryption_with_customer_key("AES256", key)` so OpenDAL computes the base64 key and MD5 and marks sensitive headers appropriately.
+Keep a separate non-SSE `s3_builder` for report archival and expose a photo-specific `s3_builder_with_customer_key` that requires a validated 32-byte key. Only the photo boot path supplies the customer key. The photo helper uses OpenDAL's `server_side_encryption_with_customer_key("AES256", key)` so OpenDAL computes the base64 key and MD5 and marks sensitive headers appropriately.
 
 ### 4. Rotation is an explicit two-key operational migration
 
-Rotation is not an in-place Transit version bump: changing the bucket-level DEK makes existing objects unreadable. The runbook therefore requires a maintenance/backfill job that can read with the old operator and write each object with a new operator, verifies the rewritten object, then atomically commits the new wrapped DEK to Vault and restarts/reloads API workers. During the migration, the old key must remain available. A failed backfill leaves the old KV record active and is rolled back by deleting only the uncommitted candidate. The runbook records that destroying `photo-sse-c` before backfill is a deliberate whole-bucket crypto-shred operation.
+Rotation is not an in-place Transit version bump: changing the bucket-level DEK makes existing objects unreadable. The runbook therefore requires a maintenance/backfill job that can read with the old operator and write each object with a new operator, verifies the rewritten object, then promotes the candidate by writing it to the same `kv/data/photo-sse-c` path with `options.cas=<expected-active-version>`. A CAS conflict leaves the winner active and requires reconciliation; a failed backfill leaves the old record active and cleans up only the staged candidate. During migration and before any key destruction, all API/photo workers must be stopped or quiesced so every OpenDAL operator is released. The runbook records that destroying `photo-sse-c` before backfill and operator shutdown is a deliberate whole-bucket crypto-shred operation.
 
 ### 5. Bootstrap policy and secret hygiene
 
@@ -59,7 +59,7 @@ Extend the least-privilege Vault policy with only the paths needed to read/creat
 - **[Vault outage]** Existing photo reads/writes fail while the API remains available. → Return a typed `ServiceUnavailable`, preserve the no-plaintext invariant, and document recovery/health checks.
 - **[First-boot race]** Multiple API instances could generate different candidates. → Use KV-v2 `cas=0`, discard the losing candidate, and reload the committed record.
 - **[Key rotation interruption]** A mixed old/new bucket can be unreadable by one operator. → Require a maintenance window/two-key backfill and verification before committing the new record; keep rollback instructions.
-- **[Legacy/test operators]** A manually constructed operator could omit SSE-C. → Production construction is fail-closed and all maintained Garage integration fixtures are changed to use SSE-C; future public constructors should be treated as test seams.
+- **[Legacy/test operators]** A manually constructed operator could omit SSE-C. → Raw constructors are behind the explicit `test-support` feature; production construction is fail-closed and maintained Garage fixtures use the production SSE-C builder.
 - **[Garage compatibility]** SSE-C behavior depends on Garage's S3 implementation. → Add a real Garage contract test for PUT/HEAD/GET without and with the key; keep LUKS as the baseline if the target runtime rejects SSE-C.
 
 ## Migration Plan
@@ -68,7 +68,7 @@ Extend the least-privilege Vault policy with only the paths needed to read/creat
 2. Provision `photo-sse-c` and a wrapped bucket DEK. Existing objects are not readable through the new SSE-C operator until they are migrated; stage the rollout with no photo traffic or a maintenance window.
 3. Backfill/rewrite existing original/thumb/medium objects with the new SSE-C operator, verify reads, and then enable the SSE-C-only API workers.
 4. New uploads and generated variants use SSE-C automatically. Monitor 503s and Garage `InvalidRequest`/`InvalidArgument` errors.
-5. For rotation, create a candidate wrapped DEK, run the two-key backfill, verify all objects, commit the candidate KV record, and restart the API. Retain the previous wrapped record only for the documented rollback window.
+5. For rotation, create a candidate wrapped DEK, run the two-key backfill, verify all objects, and promote the candidate by writing the same KV record with the expected active-version CAS. On CAS conflict, leave the winner active and reconcile before restarting the API. Retain the previous wrapped record/key only for the documented rollback window.
 6. Rollback before migration completion by restoring the old KV record and restarting. Do not destroy the old Transit key until verification and the rollback window have passed.
 
 ## Open Questions

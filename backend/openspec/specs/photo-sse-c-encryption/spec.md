@@ -73,21 +73,24 @@ The system SHALL NOT place the plaintext photo key in environment variables, sou
 - **THEN** the output contains no endpoint credentials, customer key, base64 key, or key digest
 
 ### Requirement: Bucket key rotation is operationally safe
-The system SHALL document rotation as a two-key migration: create a candidate wrapped DEK, rewrite and verify every existing photo variant using old-key read and new-key write operators, commit the new wrapped record, and restart photo workers. The old key SHALL remain available until verification and rollback retention complete. Destroying the bucket Transit key SHALL be documented as whole-bucket crypto-shredding.
+The system SHALL document rotation as a two-key migration: create a candidate wrapped DEK, rewrite and verify every existing photo variant using old-key read and new-key write operators, promote the candidate by writing it to `kv/data/photo-sse-c` with KV-v2 `options.cas` set to the expected active version, and restart photo workers. A CAS conflict SHALL leave the winning active record untouched and require reconciliation. The old key SHALL remain available until verification and rollback retention complete. Before destroying any bucket Transit key, all API/photo workers SHALL be stopped or quiesced and every OpenDAL operator SHALL be released. Destroying the bucket Transit key SHALL be documented as whole-bucket crypto-shredding followed by restart verification.
 
 #### Scenario: Rotation completes successfully
 - **WHEN** an operator has rewritten and verified all photo variants with a candidate key
-- **THEN** the candidate wrapped record becomes the active KV-v2 record
+- **AND** the candidate is written to `kv/data/photo-sse-c` with the expected active-version CAS
+- **THEN** the CAS succeeds and the candidate becomes the active KV-v2 record
 - **AND** a restarted API reads all migrated objects with the new key
 - **AND** the old key is retained only for the documented rollback window
 
 #### Scenario: Rotation is interrupted
-- **WHEN** a rewrite or verification fails before commit
-- **THEN** the old KV-v2 record remains active
+- **WHEN** a rewrite or verification fails before promotion, or the CAS promotion conflicts
+- **THEN** the old or winning KV-v2 record remains active
 - **AND** the candidate key is not used by normal photo workers
-- **AND** the operator can roll back without destroying the old key
+- **AND** the staged candidate is cleaned up without destroying the active rollback key
 
 #### Scenario: Crypto-shredding is requested
-- **WHEN** the `photo-sse-c` Transit key is intentionally destroyed
+- **WHEN** all API/photo workers are stopped or quiesced and every OpenDAL operator is released
+- **AND** the `photo-sse-c` Transit key is intentionally destroyed
 - **THEN** all objects encrypted with the bucket key become permanently undecryptable
+- **AND** after restart the API cannot reload the DEK and photo operations return HTTP 503
 - **AND** the operation is treated as a deliberate whole-bucket photo purge

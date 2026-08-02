@@ -22,25 +22,8 @@ mod fixtures;
 use anyhow::Result;
 use breakdown_core::photo::ports::PhotoStorage;
 use breakdown_core::shared::{PhotoId, PhotoVariant};
-use fixtures::{GarageCredentials, PHOTO_TEST_SSE_C_KEY, spawn_garage, spawn_postgres};
+use fixtures::{build_storage, spawn_garage, spawn_postgres};
 use infra::photo::storage::OpenDalPhotoStorage;
-
-/// Helper to build an `OpenDalPhotoStorage` from test Garage credentials.
-fn build_storage(creds: &GarageCredentials) -> OpenDalPhotoStorage {
-    let builder = opendal::services::S3::default()
-        .endpoint(&creds.endpoint)
-        .access_key_id(&creds.access_key)
-        .secret_access_key(&creds.secret_key)
-        .region("garage")
-        .bucket(&creds.bucket)
-        .server_side_encryption_with_customer_key("AES256", &PHOTO_TEST_SSE_C_KEY);
-
-    let op = opendal::Operator::new(builder)
-        .expect("Failed to build S3 operator")
-        .finish();
-
-    OpenDalPhotoStorage::new(op)
-}
 
 /// Generate a deterministic JPEG-like byte sequence for testing.
 fn test_image_bytes() -> Vec<u8> {
@@ -108,7 +91,6 @@ async fn photo_storage_store_fetch_delete_round_trip() -> Result<()> {
 
 #[tokio::test]
 async fn photo_storage_direct_read_without_customer_key_is_rejected() -> Result<()> {
-    let (_pg_pool, _pg_guard) = spawn_postgres().await?;
     let (creds, _garage_guard) = spawn_garage().await?;
 
     let storage = build_storage(&creds);
@@ -132,9 +114,14 @@ async fn photo_storage_direct_read_without_customer_key_is_rejected() -> Result<
     let result = plain_operator
         .read(&format!("{}/original", photo_id.0))
         .await;
+    let error = result.expect_err("SSE-C object must not be readable without the key");
     assert!(
-        result.is_err(),
-        "SSE-C object must not be readable without the key"
+        matches!(
+            error.kind(),
+            opendal::ErrorKind::PermissionDenied | opendal::ErrorKind::Unexpected
+        ),
+        "unexpected error kind for an SSE-C read without the key: {:?}",
+        error.kind()
     );
 
     Ok(())
@@ -151,7 +138,10 @@ async fn unavailable_photo_storage_does_not_write() -> Result<()> {
             "image/jpeg".into(),
         )
         .await;
-    assert!(result.is_err());
+    assert!(matches!(
+        result,
+        Err(breakdown_core::error::DomainError::ServiceUnavailable(_))
+    ));
     Ok(())
 }
 

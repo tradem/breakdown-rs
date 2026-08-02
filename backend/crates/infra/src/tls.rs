@@ -59,6 +59,7 @@ pub fn from_value(value: &str) -> Result<Option<std::path::PathBuf>, String> {
 /// The S3 region is read from `S3_REGION` (default `garage`, matching the
 /// Garage `s3_region` config and the integration-test convention); OpenDAL
 /// refuses to build an S3 operator without an explicit region.
+/// Build the non-SSE S3 service used by report archival.
 pub fn s3_builder(
     endpoint: &str,
     access_key: &str,
@@ -66,22 +67,34 @@ pub fn s3_builder(
     bucket: &str,
     root_cert: Option<&std::path::Path>,
 ) -> Result<S3, String> {
-    s3_builder_with_customer_key(endpoint, access_key, secret_key, bucket, root_cert, None)
+    s3_builder_base(endpoint, access_key, secret_key, bucket, root_cert)
 }
 
-/// Build an OpenDAL S3 service builder with an optional customer-provided key.
+/// Build the photo S3 service with mandatory AES256 SSE-C.
 ///
-/// The customer key is intentionally accepted as bytes so OpenDAL can compute
-/// the required base64 and MD5 headers without exposing either representation
-/// to callers. Report archival uses [`s3_builder`] without a key; photo
-/// storage is the only caller that enables SSE-C.
+/// The customer key is accepted as bytes so OpenDAL computes the required
+/// base64 and MD5 headers without exposing either representation to callers.
 pub fn s3_builder_with_customer_key(
     endpoint: &str,
     access_key: &str,
     secret_key: &str,
     bucket: &str,
     root_cert: Option<&std::path::Path>,
-    customer_key: Option<&[u8]>,
+    customer_key: &[u8],
+) -> Result<S3, String> {
+    if customer_key.len() != 32 {
+        return Err("SSE-C customer key must be exactly 32 bytes".into());
+    }
+    let builder = s3_builder_base(endpoint, access_key, secret_key, bucket, root_cert)?;
+    Ok(builder.server_side_encryption_with_customer_key("AES256", customer_key))
+}
+
+fn s3_builder_base(
+    endpoint: &str,
+    access_key: &str,
+    secret_key: &str,
+    bucket: &str,
+    root_cert: Option<&std::path::Path>,
 ) -> Result<S3, String> {
     let region = std::env::var("S3_REGION").unwrap_or_else(|_| "garage".to_string());
     let mut builder = S3::default()
@@ -90,13 +103,6 @@ pub fn s3_builder_with_customer_key(
         .access_key_id(access_key)
         .secret_access_key(secret_key)
         .bucket(bucket);
-
-    if let Some(key) = customer_key {
-        if key.len() != 32 {
-            return Err("SSE-C customer key must be exactly 32 bytes".into());
-        }
-        builder = builder.server_side_encryption_with_customer_key("AES256", key);
-    }
 
     if let Some(root) = root_cert {
         let pem = std::fs::read(root).map_err(|e| {

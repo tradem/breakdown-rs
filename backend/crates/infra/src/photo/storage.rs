@@ -43,10 +43,10 @@ impl fmt::Debug for OpenDalPhotoStorage {
 impl OpenDalPhotoStorage {
     /// Build a new storage adapter from an already-configured OpenDAL operator.
     ///
-    /// The operator MUST be configured with the S3 service, a valid bucket,
-    /// access key, secret key, and the matching SSE-C customer key. Production
-    /// code uses `from_env_with_customer_key`; this constructor is a test seam
-    /// for an already-configured operator.
+    /// This constructor is available only to the integration-test feature. The
+    /// operator MUST be configured with the S3 service, a valid bucket, access
+    /// key, secret key, and the matching SSE-C customer key.
+    #[cfg(feature = "test-support")]
     pub fn new(op: Operator) -> Self {
         Self {
             op: Some(op),
@@ -56,6 +56,7 @@ impl OpenDalPhotoStorage {
     }
 
     /// Build a new storage adapter with an explicit bucket name.
+    #[cfg(feature = "test-support")]
     pub fn with_bucket(op: Operator, bucket: String) -> Self {
         Self {
             op: Some(op),
@@ -82,11 +83,6 @@ impl OpenDalPhotoStorage {
     /// - `S3_TLS_ROOT_CERT` — optional PEM path of the pinned root CA (the
     ///   internal step-ca root, ADR-024) for `https://` endpoints
     pub fn from_env_with_customer_key(customer_key: &[u8]) -> Result<Self, DomainError> {
-        if customer_key.len() != 32 {
-            return Err(DomainError::ValidationError(
-                "photo SSE-C key must be exactly 32 bytes".into(),
-            ));
-        }
         let endpoint = std::env::var("S3_ENDPOINT")
             .map_err(|_| DomainError::ValidationError("S3_ENDPOINT must be set".into()))?;
         let access_key = std::env::var("S3_ACCESS_KEY")
@@ -103,7 +99,7 @@ impl OpenDalPhotoStorage {
             &secret_key,
             &bucket,
             root_cert.as_deref(),
-            Some(customer_key),
+            customer_key,
         )
         .map_err(|e| DomainError::ValidationError(format!("Failed to configure S3: {e}")))?;
 

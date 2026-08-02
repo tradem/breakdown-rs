@@ -245,8 +245,9 @@ without photo storage when Vault is unavailable and photo operations return
 2. Start the API and inspect only redacted startup status/logs. A healthy photo
    adapter reports configuration state, not key material.
 3. In staging, upload one test photo through the API and verify the round trip
-   through the API. A direct S3 GET/HEAD using only the Garage access key must
-   fail with `InvalidRequest`/`InvalidArgument`; do not dump the object or key.
+   through the API. A direct S3 GET/HEAD using a valid Garage access-key and
+   secret-key pair, but omitting all SSE-C headers, must fail with
+   `InvalidRequest`/`InvalidArgument`; do not dump the object or key.
 4. Keep the Garage volume on the LUKS-protected data volume. SSE-C is defense
    in depth, not a replacement for the LUKS control.
 
@@ -257,20 +258,29 @@ unreadable. Perform rotation in a maintenance window with the API photo
 workers stopped or quiesced:
 
 1. Generate a candidate datakey through the Vault Transit `photo-sse-c` key
-   and store its wrapped ciphertext in a staging KV record. Never export or
-   print the plaintext candidate.
+   and store its wrapped ciphertext in an operator-controlled staging record.
+   Keep the current `kv/data/photo-sse-c` record active. Never export or print
+   the plaintext candidate.
 2. Run a backfill job with two S3 operators: read each original/thumb/medium
    object with the old key, write it to the same object key with the candidate
    key, then read it back with the candidate operator and verify content length
-   and digest. Keep the old wrapped record active during this step.
-3. After every object is verified, atomically make the candidate wrapped record
-   the active `photo-sse-c` KV record and restart the API workers. Confirm new
-   uploads, thumbnail generation, downloads, deletion, and GC all succeed.
-4. If any rewrite or verification fails, leave the old record active, discard
-   the candidate record, and restart workers with the old key.
-5. After the rollback window, destroy only retired Transit key material if it
-   is no longer needed. Do **not** destroy the active `photo-sse-c` key unless
-   the intentional goal is to crypto-shred every photo in the bucket.
+   and digest. Keep the old active record and key available during this step.
+3. Read the active KV-v2 version immediately before promotion. Write the
+   candidate wrapped DEK to the same `kv/data/photo-sse-c` path with
+   `options.cas=<expected-active-version>`. A successful CAS write promotes the
+   candidate; restart the API workers and confirm new uploads, thumbnail
+   generation, downloads, deletion, and GC all succeed.
+4. If the CAS write conflicts, do not overwrite the winner: re-read the active
+   record, stop the migration, and either verify the winner's backfill or roll
+   back using the still-retained old key. If any rewrite or verification fails
+   before promotion, leave the old record active and delete the staged
+   candidate record.
+5. Before destroying any retired or active key, stop/quiesce the API, photo
+   sagas, and GC scheduler so every OpenDAL operator clone is released. For an
+   intentional whole-bucket crypto-shred, destroy the active `photo-sse-c`
+   Transit key, restart the API, and verify that it cannot reload the DEK and
+   photo operations return 503. Never destroy the active key for ordinary
+   rotation.
 
 The repository supplies the SSE-C operator and contract tests; the staging
 backfill job must be exercised and signed off before production rotation.

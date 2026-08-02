@@ -408,13 +408,15 @@ pub const PHOTO_TEST_SSE_C_KEY: [u8; 32] = [0x42; 32];
 
 /// Build a storage adapter from test Garage credentials.
 pub fn build_storage(creds: &GarageCredentials) -> OpenDalPhotoStorage {
-    let builder = opendal::services::S3::default()
-        .endpoint(&creds.endpoint)
-        .access_key_id(&creds.access_key)
-        .secret_access_key(&creds.secret_key)
-        .region("garage")
-        .bucket(&creds.bucket)
-        .server_side_encryption_with_customer_key("AES256", &PHOTO_TEST_SSE_C_KEY);
+    let builder = infra::tls::s3_builder_with_customer_key(
+        &creds.endpoint,
+        &creds.access_key,
+        &creds.secret_key,
+        &creds.bucket,
+        None,
+        &PHOTO_TEST_SSE_C_KEY,
+    )
+    .expect("Failed to build SSE-C S3 builder");
 
     let op = opendal::Operator::new(builder)
         .expect("Failed to build S3 operator")
