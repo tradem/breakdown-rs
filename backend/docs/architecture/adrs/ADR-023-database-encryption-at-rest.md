@@ -91,14 +91,14 @@ This is **not** a replacement for LUKS — it protects a different threat (an
 attacker who obtains a valid S3 credential or a disk image without the LUKS
 key material). OpenDAL 0.52.0 exposes SSE-C only at operator configuration
 scope, so per-photo/per-season keys are explicitly deferred until a safe
-per-request header seam is available. Before destroying `photo-sse-c`, all API,
-photo-saga, and GC workers must be stopped or quiesced so every OpenDAL
-operator releases its in-memory key; after restart, verify that the API cannot
-reload the DEK and photo operations return 503. Destroying `photo-sse-c`
-therefore crypto-shreds the whole bucket and is an intentional nuke-all-photos
-operation. Rotation requires a two-key rewrite/verification backfill followed
-by same-path KV-v2 CAS promotion; see the operations runbook and ADR-027 for
-custody.
+per-request header seam is available. Before destroying `photo-sse-c`, stop all
+API, photo-saga, and GC workers; if a quiescence procedure is used instead,
+explicitly verify release of every OpenDAL operator. After restart, verify that
+the API cannot reload the DEK and photo operations return 503. Destroying
+`photo-sse-c` therefore crypto-shreds the whole bucket and is an intentional
+nuke-all-photos operation. Rotation requires staged candidate objects plus a
+durable old-ciphertext rollback copy and manifest, followed by same-path KV-v2
+CAS promotion; see the operations runbook and ADR-027 for custody.
 
 For SierraDB there is no verified at-rest feature in the `tqwewe/sierradb:0.3.1`
 image; we rely entirely on LUKS2 under its data directory. This is the

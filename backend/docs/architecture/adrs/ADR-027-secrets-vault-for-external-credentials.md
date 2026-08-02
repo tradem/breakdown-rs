@@ -101,12 +101,14 @@ Garage metadata value, log field, or API response.
 The bucket scope is a conscious OpenDAL 0.52.0 limitation: its SSE-C support
 is configured on the S3 operator rather than per request. Per-photo or
 per-season crypto-shredding is therefore a follow-up that requires a safe
-per-request header seam and a new rotation/concurrency design. Destroying
-Before destroying `photo-sse-c`, all API/photo workers must be stopped or
-quiesced and every OpenDAL operator released; after restart, verify that the
-API cannot reload the DEK and photo operations return 503. Destroying
-`photo-sse-c` then renders the entire `costume-photos` bucket undecryptable and
-is an intentional whole-bucket purge, not ordinary photo deletion.
+per-request header seam and a new rotation/concurrency design. Before
+destroying `photo-sse-c`, stop all API/photo workers; if a quiescence procedure
+is used instead, explicitly verify release of every OpenDAL operator. After
+restart, verify that the API cannot reload the DEK and photo operations return
+503.
+Destroying `photo-sse-c` then renders the entire `costume-photos` bucket
+undecryptable and is an intentional whole-bucket purge, not ordinary photo
+deletion.
 
 If Vault is unavailable at boot, the API still serves unrelated routes, but
 constructs an unavailable photo adapter. HTTP photo handlers map its typed
@@ -114,11 +116,12 @@ dependency-unavailable error to HTTP 503. Sagas and GC do not produce HTTP
 responses; they surface the same typed failure to their supervisors, which
 retry or log a visible failure according to the worker policy. The code never
 falls back to plaintext S3. Bucket-key rotation is a two-key operational
-backfill: rewrite and verify every existing variant with old-key reads and
-new-key writes, promote the candidate by writing the same KV-v2 path with the
-expected active-version CAS, then restart the API. A CAS conflict leaves the
-winning record active and requires reconciliation. The old key remains
-available until the rollback window finishes.
+backfill: preserve the old ciphertext in a durable rollback copy with a
+manifest, rewrite and verify staged candidate objects, promote the candidate by
+writing the same KV-v2 path with the expected active-version CAS, then restart
+the API. A CAS conflict leaves the winning record active and requires
+reconciliation. The rollback copy, manifest, and candidate artifacts remain
+available until the migration outcome and rollback window are complete.
 
 ### Compatibility with event sourcing
 
