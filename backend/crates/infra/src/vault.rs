@@ -544,7 +544,7 @@ impl CredentialVault for VaultClient {
                 Some(&serde_json::json!({ "deletion_allowed": true })),
             )
             .await?;
-        if !config.status().is_success() {
+        if !config.status().is_success() && config.status() != StatusCode::NOT_FOUND {
             return Err(Self::unavailable(format!(
                 "key configuration returned {}",
                 config.status()
@@ -557,7 +557,7 @@ impl CredentialVault for VaultClient {
                 None,
             )
             .await?;
-        if !response.status().is_success() {
+        if !response.status().is_success() && response.status() != StatusCode::NOT_FOUND {
             return Err(Self::unavailable(format!(
                 "key destruction returned {}",
                 response.status()
@@ -570,7 +570,7 @@ impl CredentialVault for VaultClient {
                 None,
             )
             .await?;
-        if !metadata.status().is_success() {
+        if !metadata.status().is_success() && metadata.status() != StatusCode::NOT_FOUND {
             return Err(Self::unavailable(format!(
                 "KV metadata deletion returned {}",
                 metadata.status()
