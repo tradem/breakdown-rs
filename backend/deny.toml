@@ -14,6 +14,11 @@ all-features = true
 
 [bans]
 multiple-versions = "warn"
+# `version = "*"` wildcard specs are forbidden: every workspace / crate
+# dependency must pin a concrete version so supply-chain diffs are reviewable
+# and reproducible builds stay byte-stable (ADR-017). No wildcard exists in
+# the tree today, so this fails closed on the first regression.
+wildcards = "deny"
 
 [licenses]
 # Allow-list for common open-source licenses used by the dependency tree.
@@ -38,6 +43,17 @@ allow = [
     "MPL-2.0",
     "AGPL-3.0",
 ]
+
+[sources]
+# Fail closed on any dependency sourced from a non-crates.io registry or a
+# git URL. All deps are crates.io except `.patches/kameo_es`, which is a PATH
+# dependency (not a git source) and therefore unaffected. A future `git =
+# "..."` dep must be explicitly allow-listed here before it can ship
+# (ADR-017 supply-chain gate).
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
 
 [advisories]
 # unmaintained = "none" preserves the old rustsec/audit-check behaviour

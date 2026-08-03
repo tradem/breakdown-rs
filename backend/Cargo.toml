@@ -84,3 +84,16 @@ panic = "deny"
 dbg_macro = "deny"
 print_stdout = "deny"
 print_stderr = "deny"
+
+# No abrupt process termination in a server with structured shutdown / Drop
+# (AGENTS.md §3 no-panics rule). `std::process::exit` bypasses Drop, so
+# zeroize-on-drop secrets and graceful projector flush never run.
+exit = "deny"
+# Holding a std::sync guard across `.await` deadlocks the async runtime;
+# event-sourced projectors/sagas are async by design — catch the mistake here
+# rather than at a production deadlock (no std::sync::Mutex/RwLock in tree).
+await_holding_lock = "deny"
+await_holding_refcell_ref = "deny"
+# `mem::forget` silently drops values, defeating `zeroize`-on-Drop for
+# secrets (security: credential material would linger in freed memory).
+mem_forget = "deny"
