@@ -225,12 +225,21 @@ fn test_profile_is_fast() {
     let c = BackoffConfig::test_profile();
     assert!(c.max_delay < Duration::from_secs(1));
     // Sum of worst-case backoff for `max_attempts` retries must be
-    // comfortably under the 200 ms test budget used by callers.
+    // comfortably under the 200 ms test budget used by callers. Compute the
+    // worst case analytically (base + max jitter of base/4, capped) instead
+    // of sampling random jitter, so the assertion is deterministic.
+    let max_delay_ms = c.max_delay.as_millis() as u64;
     let total: u128 = (1..=c.max_attempts)
-        .map(|a| c.compute_backoff(a).as_millis())
+        .map(|a| {
+            let base = c
+                .base_ms
+                .saturating_mul(2_u64.saturating_pow(a as u32))
+                .min(max_delay_ms);
+            u128::from(base.saturating_add(base / 4).min(max_delay_ms))
+        })
         .sum();
     assert!(
-        total < 300,
+        total < 200,
         "test_profile total backoff {total:?} ms too slow"
     );
 }

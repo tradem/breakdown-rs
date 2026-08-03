@@ -322,14 +322,25 @@ impl PhotoStorage for OpenDalPhotoStorage {
 
     async fn delete_all(&self, id: PhotoId) -> Result<(), DomainError> {
         let op = self.operator().await?;
-        // Delete all three variants individually.
+        // Delete all three variants individually. Ignore only not-found
+        // errors (already-absent keys); propagate everything else so
+        // transient storage failures surface to the caller's retry logic
+        // instead of being silently discarded (issue #165 ack semantics:
+        // the event must not be acknowledged when the delete never ran).
         for variant in &[
             PhotoVariant::Original,
             PhotoVariant::Thumb,
             PhotoVariant::Medium,
         ] {
             let key = Self::object_key(id, *variant);
-            let _ = op.delete(&key).await; // Ignore errors for already-absent keys
+            if let Err(e) = op.delete(&key).await {
+                let msg = e.to_string();
+                if !(msg.contains("Not Found") || msg.contains("ObjectNotExist")) {
+                    return Err(DomainError::ValidationError(format!(
+                        "Failed to delete photo object {key}: {e}"
+                    )));
+                }
+            }
         }
         Ok(())
     }

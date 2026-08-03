@@ -8,7 +8,7 @@ Standardisierung aller Backend-Tests auf `tests/`-Verzeichnisse innerhalb ihrer 
 
 ### Requirement: All tests in tests/ directories
 
-All test functions MUST reside in the crate's `tests/` directory. Only `#[cfg(test)]` blocks that contain no test functions (e.g. `mod` declarations) are allowed in `src/`.
+All test functions MUST reside in the crate's `tests/` directory. Only `#[cfg(test)]` blocks that contain no test functions (e.g. `mod` declarations) and narrowly scoped test-only accessors behind `#[cfg(feature = "test-support")]` (e.g. `SceneRepositoryImpl::pool`) are allowed in `src/`.
 
 #### Scenario: New test added to src/ directory
 

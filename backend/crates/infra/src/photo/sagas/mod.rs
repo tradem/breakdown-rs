@@ -24,6 +24,11 @@ pub use thumbnail::{PhotoThumbnailSaga, spawn_photo_thumbnail_saga};
 /// Upper bound for a single backoff delay when retrying transient saga work.
 const TRANSIENT_MAX_DELAY: Duration = Duration::from_secs(30);
 
+/// Every N consecutive transient attempts, escalate the log level so
+/// operators can distinguish a saga stuck in a prolonged retry loop from a
+/// one-off transient blip.
+const TRANSIENT_ESCALATION_ATTEMPTS: usize = 10;
+
 /// Retry an operation while it fails with a transient
 /// `DomainError::ServiceUnavailable` (e.g. Vault unavailable for the photo
 /// SSE-C key).
@@ -46,12 +51,21 @@ where
             Err(err) if is_transient(&err) => {
                 attempt += 1;
                 let delay = supervisor::compute_backoff(attempt, TRANSIENT_MAX_DELAY);
-                tracing::warn!(
-                    attempt,
-                    delay_ms = delay.as_millis(),
-                    error = %err,
-                    "transient storage dependency failure; retrying saga work"
-                );
+                if attempt.is_multiple_of(TRANSIENT_ESCALATION_ATTEMPTS) {
+                    tracing::error!(
+                        attempt,
+                        delay_ms = delay.as_millis(),
+                        error = %err,
+                        "dependency has been unavailable for {attempt} consecutive attempts; saga work is stalled"
+                    );
+                } else {
+                    tracing::warn!(
+                        attempt,
+                        delay_ms = delay.as_millis(),
+                        error = %err,
+                        "transient storage dependency failure; retrying saga work"
+                    );
+                }
                 tokio::time::sleep(delay).await;
             }
             Err(err) => return Err(err),

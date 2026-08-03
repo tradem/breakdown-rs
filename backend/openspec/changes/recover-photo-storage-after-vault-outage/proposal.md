@@ -20,10 +20,12 @@ silently drop thumbnail or bytes-cleanup work.
   drop saga work.
 - Change the patched `kameo_es` event-handler acknowledgement behavior so the
   SierraDB cursor is **acknowledged only after successful handler processing**
-  (per-event post-processing ack, replacing the pre-processing batch ack).
+  (post-processing batch ack via `AckTracker`, replacing the pre-processing batch ack).
 - Add **deterministic unit tests** for Vault recovery (lazy key re-resolution
-  succeeds after the key source recovers) and for failed-event redelivery
-  (a failed handler does not advance the acknowledged cursor).
+  succeeds after the key source recovers) and for acknowledgement safety (a
+  failed handler does not advance the acknowledged cursor; the in-loop retry
+  and ack-after-success guarantees are covered without claiming observed
+  resubscription redelivery).
 - **BREAKING (ops semantics):** the `photo-sse-c-encryption` spec's
   "unavailable until the next restart" behavior changes to "recovers without
   restart". Fail-closed remains: the implementation never falls back to

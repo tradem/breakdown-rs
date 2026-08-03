@@ -26,5 +26,5 @@
 ## 5. Specs, docs, verification
 
 - [x] 5.1 Sync delta specs to `openspec/specs/photo-sse-c-encryption`
-- [x] 5.2 Run `cargo build` + unit tests (`cargo test -p infra -p core`) + `cargo clippy --workspace --all-targets -- -D warnings` + `cargo fmt --all -- --check`
+- [x] 5.2 Run `cargo build` + unit tests (`cargo test -p infra --features test-support -p breakdown_core`; `cargo test --manifest-path .patches/kameo_es/Cargo.toml --test ack_tracker` for the non-workspace patched crate) + `cargo clippy --workspace --all-targets -- -D warnings` + `cargo fmt --all -- --check`
 - [x] 5.3 Run `cargo test -p architecture_tests` and `cargo deny check bans`; run OpenSpec validation

@@ -87,7 +87,7 @@ A helper in `crates/infra/src/photo/sagas/mod.rs`:
 ```rust
 pub async fn retry_transient<F, Fut>(op: F) -> anyhow::Result<()>
 where
-    F: Fn() -> Fut,
+    F: FnMut() -> Fut,
     Fut: Future<Output = anyhow::Result<()>>,
 ```
 

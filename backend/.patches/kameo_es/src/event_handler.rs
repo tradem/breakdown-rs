@@ -158,7 +158,11 @@ impl<E> EventHandlerStream<E> {
             .await
             .map_err(EventHandlerError::Processor)?;
         let subscription = manager
-            .subscribe_to_all_partitions_flexible(start_from, Some(0), Some(10_000))
+            .subscribe_to_all_partitions_flexible(
+                start_from,
+                Some(0),
+                Some(AckTracker::SUBSCRIPTION_WINDOW),
+            )
             .await?;
 
         Ok(EventHandlerStream {
@@ -195,6 +199,15 @@ impl<E> EventHandlerStream<E> {
         while let Some(unprocessed_event) = self.next().await.transpose()? {
             self.process_event_and_ack(processor, unprocessed_event)
                 .await?;
+        }
+        // Flush the final partial acknowledgement batch before a clean exit
+        // so already-processed events are not replayed after a restart.
+        if let Some(ack_cursor) = self.ack.flush() {
+            trace!("acknowledging up to cursor {ack_cursor} on clean exit");
+            self.subscription
+                .acknowledge_up_to_cursor(ack_cursor)
+                .await
+                .map_err(EventHandlerError::from)?;
         }
         Ok(())
     }
@@ -317,12 +330,21 @@ impl<E> UnprocessedEvent<E> {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct AckTracker {
     events_since_ack: u64,
+    last_processed_cursor: Option<u64>,
 }
 
 impl AckTracker {
-    /// Batch size for flow-control acknowledgement. Kept below the SierraDB
-    /// subscription window so delivery never stalls behind the ack.
+    /// SierraDB subscription delivery window; the ack batch size must stay
+    /// below it so delivery never stalls behind the acknowledgement.
+    pub const SUBSCRIPTION_WINDOW: u32 = 10_000;
+
+    /// Batch size for flow-control acknowledgement. Kept below
+    /// [`Self::SUBSCRIPTION_WINDOW`] so delivery never stalls behind the ack.
     pub const BATCH_SIZE: u64 = 8_000;
+
+    /// Compile-time enforcement of the [`Self::BATCH_SIZE`] /
+    /// [`Self::SUBSCRIPTION_WINDOW`] invariant.
+    const _WINDOW_INVARIANT: () = assert!(Self::BATCH_SIZE < Self::SUBSCRIPTION_WINDOW as u64);
 
     /// Record a successfully processed event at `cursor`.
     ///
@@ -331,9 +353,24 @@ impl AckTracker {
     /// received-but-unprocessed one.
     pub fn processed(&mut self, cursor: u64) -> Option<u64> {
         self.events_since_ack += 1;
+        self.last_processed_cursor = Some(cursor);
         if self.events_since_ack >= Self::BATCH_SIZE {
             self.events_since_ack = 0;
             Some(cursor)
+        } else {
+            None
+        }
+    }
+
+    /// Flush a pending partial batch, returning the highest successfully
+    /// processed cursor that has not been acknowledged yet. Used at the end
+    /// of a clean subscription run so a stream shorter than
+    /// [`Self::BATCH_SIZE`] does not replay already-processed events on
+    /// restart. Returns `None` when nothing is pending.
+    pub fn flush(&mut self) -> Option<u64> {
+        if self.events_since_ack > 0 {
+            self.events_since_ack = 0;
+            self.last_processed_cursor
         } else {
             None
         }

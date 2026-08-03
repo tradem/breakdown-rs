@@ -47,7 +47,7 @@ The production photo storage adapter SHALL configure the OpenDAL S3 operator wit
 - **AND** no plaintext photo bytes are returned
 
 ### Requirement: Vault outage fails closed for photos
-The API SHALL remain bootable when Vault is unavailable, but SHALL construct an explicitly unavailable photo storage adapter rather than a plaintext-capable operator. All photo storage operations SHALL return a dependency-unavailable error until the key can be loaded. Photo HTTP endpoints SHALL map that error to HTTP 503.
+The API SHALL remain bootable when Vault is unavailable, but SHALL construct `OpenDalPhotoStorage::recoverable(...)` with an empty SSE-C operator cache that fails closed rather than a plaintext-capable operator. All photo storage operations SHALL return a dependency-unavailable error until the key can be loaded and the operator is constructed. Photo HTTP endpoints SHALL map that error to HTTP 503.
 
 #### Scenario: Vault is unavailable at API boot
 - **WHEN** the API cannot reach Vault or cannot read the app token/key record

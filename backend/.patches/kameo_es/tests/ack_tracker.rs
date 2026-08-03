@@ -40,3 +40,47 @@ fn a_failed_event_never_becomes_the_ack_cursor() {
         .expect("boundary reached after the next successful event");
     assert_eq!(acked, AckTracker::BATCH_SIZE + 1);
 }
+
+#[test]
+fn flush_acknowledges_final_partial_batch() {
+    let mut ack = AckTracker::default();
+    // A stream shorter than BATCH_SIZE must still be acknowledged on flush:
+    // the clean-exit path acknowledges the highest processed cursor so a
+    // restart does not replay already-processed events.
+    let mut last = 0;
+    for cursor in 1..AckTracker::BATCH_SIZE {
+        assert_eq!(ack.processed(cursor), None);
+        last = cursor;
+    }
+    assert_eq!(ack.flush(), Some(last));
+    // Nothing is left to flush afterwards.
+    assert_eq!(ack.flush(), None);
+}
+
+#[test]
+fn flush_after_complete_batch_is_noop() {
+    let mut ack = AckTracker::default();
+    // A full batch boundary already acknowledged the cursor; the subsequent
+    // clean exit has nothing to flush.
+    for cursor in 1..=AckTracker::BATCH_SIZE {
+        let acked = ack.processed(cursor);
+        if cursor == AckTracker::BATCH_SIZE {
+            assert_eq!(acked, Some(cursor));
+        } else {
+            assert_eq!(acked, None);
+        }
+    }
+    assert_eq!(ack.flush(), None);
+}
+
+#[test]
+fn flush_after_failed_event_acknowledges_only_successful_cursor() {
+    let mut ack = AckTracker::default();
+    // A failed event is never recorded, so the flush high-water mark is the
+    // last *successfully processed* cursor and never the failed one.
+    for cursor in 1..=3 {
+        assert_eq!(ack.processed(cursor), None);
+    }
+    // Event 4 "fails" (processed is never called for it).
+    assert_eq!(ack.flush(), Some(3));
+}

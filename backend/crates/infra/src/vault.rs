@@ -45,8 +45,11 @@ impl VaultClient {
     /// environment variables.
     ///
     /// `#[doc(hidden)]`: only used by the external tests in `tests/` (Issue
-    /// #127 test layout) to point a client at an in-process HTTP stub.
+    /// #127 test layout) to point a client at an in-process HTTP stub. Gated
+    /// behind `test-support` so production builds never expose the
+    /// arbitrary-address constructor.
     #[doc(hidden)]
+    #[cfg(feature = "test-support")]
     pub fn for_test(addr: String, token_file: Option<PathBuf>) -> Self {
         Self {
             http: Client::new(),
