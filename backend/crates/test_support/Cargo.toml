@@ -10,3 +10,6 @@ kameo.workspace = true
 kameo_es.workspace = true
 chrono.workspace = true
 breakdown_core = { path = "../core", version = "0.2.0" }
+
+[lints]
+workspace = true

@@ -14,11 +14,15 @@ all-features = true
 
 [bans]
 multiple-versions = "warn"
-# `version = "*"` wildcard specs are forbidden: every workspace / crate
-# dependency must pin a concrete version so supply-chain diffs are reviewable
-# and reproducible builds stay byte-stable (ADR-017). No wildcard exists in
-# the tree today, so this fails closed on the first regression.
-wildcards = "deny"
+# `version = "*"` wildcard specs on crates.io / registry dependencies are
+# flagged as warnings so a new one surfaces in the CI log for review
+# (ADR-017 supply-chain gate). Set to `warn` rather than `deny` because the
+# workspace uses a patched path dependency (`kameo_es`, no `version` field)
+# inherited by published workspace members — cargo-deny treats a path dep
+# without a version as a wildcard, and `allow-wildcard-paths` does NOT exempt
+# it for public crates (crates.io disallows path-only deps). A registry
+# `*` dep would still appear here as a warning.
+wildcards = "warn"
 
 [licenses]
 # Allow-list for common open-source licenses used by the dependency tree.

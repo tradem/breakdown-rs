@@ -7,9 +7,9 @@
 # Runs: gitleaks, rustfmt, clippy, cargo check, ast-grep guardrails
 # To install: cd backend && ln -sf ../../git-hooks/pre-commit .git/hooks/pre-commit
 #
-# The ast-grep steps mirror the cqrs-boundary / test-shim-leak jobs in
-# .github/workflows/architecture-checks.yml. Keep the path scoping in sync
-# with backend/rules/*.yml and the CI jobs.
+# The ast-grep steps mirror the cqrs-boundary / test-shim-leak / error-hygiene
+# jobs in .github/workflows/architecture-checks.yml. Keep the path scoping in
+# sync with backend/rules/*.yml and the CI jobs.
 
 set -e
 
@@ -63,7 +63,7 @@ fi
 
 # 5. Run ast-grep guardrails on staged files (mirrors the CI jobs)
 if [ -n "$STAGED_RS_FILES" ]; then
-    echo "🛡️  Running ast-grep guardrails (cqrs-boundary / test-shim-leak / discard-result / test-helper-gate)..."
+    echo "🛡️  Running ast-grep guardrails (cqrs-boundary / test-shim-leak / discard-result / test-helper-gate / uuid-v7-only / allow-panic-lint-justification)..."
     if command -v ast-grep &> /dev/null; then
         # Write-side dirs → cqrs-boundary rule (see backend/rules/cqrs-boundary.yml)
         WRITE_SIDE_FILES=$(echo "$STAGED_RS_FILES" | grep -E '^crates/infra/src/(event_store|sagas|photo/sagas)/' || true)
@@ -77,12 +77,16 @@ if [ -n "$STAGED_RS_FILES" ]; then
             echo "$API_PROD_FILES" | xargs -r ast-grep scan -r rules/test-shim-leak.yml
         fi
         # All production source files (tests excluded) → discard-result +
-        # test-helper-gate rules (issue #165 review learnings)
+        # test-helper-gate rules (issue #165 review learnings) + uuid-v7-only
+        # (AGENTS.md §3 "No UUIDv4") + allow-panic-lint-justification (§3
+        # escape-hatch comment requirement).
         PROD_FILES=$(echo "$STAGED_RS_FILES" | grep '^crates/.*/src/' \
             | grep -vE '_tests\.rs$|_test\.rs$|test_helpers\.rs$|/tests/|/test_helpers/' || true)
         if [ -n "$PROD_FILES" ]; then
             echo "$PROD_FILES" | xargs -r ast-grep scan -r rules/discard-result.yml
             echo "$PROD_FILES" | xargs -r ast-grep scan -r rules/test-helper-gate.yml
+            echo "$PROD_FILES" | xargs -r ast-grep scan -r rules/uuid-v7-only.yml
+            echo "$PROD_FILES" | xargs -r ast-grep scan -r rules/allow-panic-lint-justification.yml
         fi
         echo "✓ ast-grep guardrails passed"
     else

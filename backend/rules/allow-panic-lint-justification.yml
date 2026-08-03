@@ -10,16 +10,26 @@
 # carry a justification comment on the same line.
 #
 # clippy cannot enforce "every allow has a comment" (it has no such lint),
-# so this gate checks the structural sibling adjacency: an `#[allow(...)]`
-# for the panic/unsafe family MUST be immediately followed by a `// ...`
-# comment node. The constrained LINT set is the panic/unsafe family only —
-# `#[allow(dead_code)]`, `#[allow(async_fn_in_trait)]`, `#[allow(too_many_arguments)]`
-# etc. are intentionally NOT in scope (they are style/perf escapes with no
-# panic-safety implication and may stand without a comment).
+# so this gate checks the structural sibling adjacency: any `#[allow(...)]`
+# whose argument list contains a panic/unsafe-family lint MUST be immediately
+# followed by a `// ...` comment node. The `has.regex` constraint requires at
+# least one panic/unsafe-family lint anywhere in the allow argument list, so
+# BOTH single-lint (`#[allow(clippy::unwrap_used)]`) AND grouped/list-form
+# allows (`#[allow(clippy::unwrap_used, clippy::expect_used)]`,
+# `#[allow(unsafe_code, clippy::unwrap_used)]`) are covered. Style allows
+# (`#[allow(dead_code)]`, `#[allow(async_fn_in_trait)]`,
+# `#[allow(too_many_arguments)]`, …) are intentionally NOT in scope — they
+# are style/perf escapes with no panic-safety implication and may stand
+# without a comment.
 #
 # Scan scope is restricted to production source files (crates/*/src, test
-# modules excluded) — test code may use bare allows freely. Bins are
-# included.
+# modules *_tests.rs / *_test.rs / test_helpers.rs excluded by the CI job's
+# `find` and the pre-commit hook) — test code may use bare allows freely.
+# Inline `#[cfg(test)] mod` blocks within production files share the same
+# scan-scope limitation as the existing discard-result / test-helper-gate
+# rules (a deliberate, consistent trade-off: structural `inside` exclusions
+# for cfg(test) modules are fragile across ast-grep versions); the rationale
+# comments there document the same scope.
 #
 # If a bare allow is genuinely intentional and the justification is better
 # placed above the attribute as a `///` doc-comment rather than trailing,
@@ -28,10 +38,6 @@
 #   #[allow(clippy::expect_used)] // ast-grep-ignore: allow-panic-lint-justification
 # (the suppression itself documents intent; the comment above is the
 # standing rationale reviewed at audit time).
-#
-# The `not.precedes` relational with `stopBy: neighbor` mirrors the proven
-# sibling traversal in test-helper-gate.yml (which uses `not.follows` +
-# `stopBy: neighbor` on the `#[cfg(feature = "test-support")]` attribute).
 id: allow-panic-lint-justification
 message: >-
   An `#[allow(...)]` for a panic/unsafe-family lint (unwrap_used / expect_used
@@ -45,24 +51,23 @@ severity: error
 language: Rust
 rule:
   all:
-    - any:
-        # Path-qualified clippy lint allows (e.g. `#[allow(clippy::unwrap_used)]`)
-        # — the `$LINT` metavariable captures the trailing path segment so the
-        # constraint below matches the lint name without the `clippy::` prefix.
-        - pattern: '#[allow(clippy::$LINT)]'
-        # Bare rustc lint allows (e.g. `#[allow(unsafe_code)]`). ast-grep's
-        # `#[allow($LINT)]` matches only the bare-ident form, so the clippy
-        # variant is matched separately above (verified against ast-grep 0.44).
-        - pattern: '#[allow($LINT)]'
+    # `#[allow($$$ARGS)]` matches both single-lint and grouped/list-form
+    # allows (e.g. `#[allow(clippy::unwrap_used, clippy::expect_used)]`),
+    # covering both the `clippy::` path-qualified and bare rustc forms.
+    - pattern: '#[allow($$$ARGS)]'
+    # Require at least one panic/unsafe-family lint token anywhere in the
+    # allow argument list. `has.regex` operates on the matched attribute's
+    # text, so it catches a panic-family lint whether it is the sole arg or
+    # one of several (grouped). `panic` also catches `panic_in_result_fn` /
+    # `panicking_unwrap`; style lints (too_many_arguments, dead_code, …)
+    # contain none of these tokens and are correctly excluded.
+    - has:
+        regex: 'unsafe_code|unwrap_used|expect_used|panic|unimplemented|unreachable|todo'
+    # A trailing `//` comment on the same line satisfies the AGENTS.md §3
+    # justification requirement; its absence is the violation. Mirrors the
+    # `not.follows` + `stopBy: neighbor` sibling traversal used in
+    # test-helper-gate.yml (for the `#[cfg(feature = "test-support")]` attr).
     - not:
         precedes:
           regex: '^//'
           stopBy: neighbor
-constraints:
-  LINT:
-    # Substring regex on the lint name segment (no `clippy::` prefix).
-    # Excludes `too_many_arguments`, `async_fn_in_trait`, `type_complexity`,
-    # `dead_code` etc. — only the panic/unsafe family requires a comment.
-    # `panic` deliberately also catches `panic_in_result_fn` /
-    # `panicking_unwrap` (same family, same comment requirement).
-    regex: 'unsafe_code|unwrap_used|expect_used|panic|unimplemented|unreachable|todo'

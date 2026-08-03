@@ -61,3 +61,6 @@ rust_decimal.workspace = true
 
 # Deterministic random for supervisor budget test
 fastrand = "2"
+
+[lints]
+workspace = true
