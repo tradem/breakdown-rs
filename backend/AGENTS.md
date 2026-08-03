@@ -103,6 +103,24 @@ membership check via the shooting_day → episode → block → season chain). T
   that performs a privileged action MUST follow the same pattern — add a `// AUTHZ-GATE:`
   comment and call the appropriate policy method. Reviewers `grep` for `AUTHZ-GATE` to
   verify no handler has missed its gate.
+- **Reliability & error handling (issue #165 review lessons):**
+  - **Never discard fallible results with `let _ = <call>`** in production code:
+    a swallowed error defeats `retry_transient` and ack-after-success
+    redelivery (a delete that never ran is acknowledged and lost). Propagate
+    (`?` / `.map_err`), handle explicitly (`if let Err(e) = ... { warn!(...) }`),
+    or suppress with `// ast-grep-ignore: discard-result` + justification. The
+    `discard-result` rule in `architecture-checks.yml` enforces this.
+  - **Classify transient storage errors:** map OpenDAL errors with
+    `is_temporary() == true` to `DomainError::ServiceUnavailable` so the saga
+    `retry_transient` loop retries them in-loop; map permanent errors to
+    `ValidationError` (reach ack-after-success redelivery). Ignore only
+    not-found errors in delete paths.
+  - **Couple config invariants in code:** when two constants must stay ordered
+    (e.g. batch size vs. subscription window), derive both from one shared
+    named constant and add a compile-time assertion
+    (`const _INVARIANT: () = assert!(...)`).
+  - **Flush partial batches on graceful shutdown:** any ack tracker must flush
+    its final partial batch before `run()` returns `Ok(())`.
 - **Handoff-Prompt / Task-Spec Architecture Review (pre-implementation checklist):**
   Every handoff prompt or task spec MUST pass this review **before** it is dispatched to an
   agent. A human reviewer applies each item; any "yes" to a forbidden pattern means the spec
@@ -114,9 +132,18 @@ membership check via the shooting_day → episode → block → season chain). T
   - [ ] Does the plan call test-only helpers from production spawn paths?
   - [ ] Does the plan carry audit metadata (`series_id`) in a way that couples to projector
         presence?
+  - [ ] Does the plan discard a fallible result with `let _ = <call>` (swallowing
+        an error the retry/redelivery machinery would otherwise see)?
+  - [ ] Does the plan expose a test-only helper (`*_for_test`) without
+        `#[cfg(feature = "test-support")]` gating?
+
 
 ## 4. Testing & Guardrails
 - **Unit/Integration Tests:** Write deterministic tests for domain logic in `core`.
+- **Deterministic (timing-safe) tests:** Never gate a test on wall-clock timing or
+  sleep-with-jitter budgets. Compute the worst case analytically against the test
+  budget instead (e.g. `test_profile_is_fast` derives the max backoff from the
+  jitter constants rather than sleeping to "observe" it).
 - **Mutation Testing:** Run `cargo mutants` ([crate](https://crates.io/crates/cargo-mutants) • [GitHub](https://github.com/sourcefrog/cargo-mutants)). Improve test coverage if mutants survive. Use `cargo mutants --in-diff` to only test changed code. The mutation configuration lives in `.cargo/mutants.toml` — a top-level `.mutants.toml` is **not** read by cargo-mutants, so any settings placed there are silently ignored.
 - **Architecture Tests:** We use `rust_arkitect` (source-level) and `cargo-deny` (dependency-level) to enforce boundary rules (ADR-017). Run `cargo test -p architecture_tests` and `cargo deny check bans` to ensure core does not depend on infra/api.
 - **Mechanical Guardrails (CI):** The `architecture-checks.yml` workflow enforces the
@@ -126,8 +153,14 @@ membership check via the shooting_day → episode → block → season chain). T
   reads) and blocks test-only helpers in production api code (`test-shim-leak` job:
   `test_profile`/`aggressive_*`/`spawn_*_with_config` without
   `ProjectorFlushConfig::default()`, via `backend/rules/test-shim-leak.yml`) — issue #148.
-  The `backend/git-hooks/pre-commit` hook mirrors both rules on staged files (warning
-  only if ast-grep is not installed; CI remains the authoritative gate).
+  The `error-hygiene` job additionally enforces, on all production `crates/*/src` files
+  (test modules excluded), that no fallible result is discarded with `let _ = <call>`
+  (`backend/rules/discard-result.yml`) and that `*_for_test` helpers are gated behind
+  `#[cfg(feature = "test-support")]` (`backend/rules/test-helper-gate.yml`) — issue #165
+  review lessons. All rules accept an explicit `// ast-grep-ignore: <rule-id>` suppression
+  with a justification comment. The `backend/git-hooks/pre-commit` hook mirrors all four
+  rules on staged files (warning only if ast-grep is not installed; CI remains the
+  authoritative gate).
 
 ### Integration tests
 

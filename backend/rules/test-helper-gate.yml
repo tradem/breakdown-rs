@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4-flash-free (opencode)
+
+# Test-helper gate: test-only constructors/helpers (named *_for_test / for_test)
+# must never be buildable in production. Learned from review (issue #165):
+# `VaultClient::for_test` was a public constructor reachable from production
+# builds; it is now gated behind `#[cfg(feature = "test-support")]`.
+#
+# Scan scope is restricted to production source files (crates/*/src, test
+# modules excluded) in the CI job and pre-commit hook.
+#
+# A helper that must ship in production for a legitimate reason is permitted
+# only with an explicit suppression:
+#   // ast-grep-ignore: test-helper-gate
+# on the definition line, carrying a justification comment above it.
+#
+# If a test-only helper needs a different marker name, extend `helper_names`.
+id: test-helper-gate
+message: >-
+  A test-only helper (named *_for_test / for_test) is not gated behind
+  #[cfg(feature = "test-support")]. Test-only constructors must never be
+  buildable in production (issue #165 review lesson: VaultClient::for_test was
+  exposed unconditionally). Add #[cfg(feature = "test-support")] directly
+  above the definition, or — if this is intentional — suppress with an
+  explicit `// ast-grep-ignore: test-helper-gate` comment and a justification.
+severity: error
+language: Rust
+utils:
+  helper_names:
+    any:
+      - regex: 'for_test'
+rule:
+  all:
+    - any:
+        - pattern: pub fn $FN($$$ARGS) -> $RET { $$$ }
+        - pattern: fn $FN($$$ARGS) -> $RET { $$$ }
+    - matches: helper_names
+    - not:
+        follows:
+          pattern: '#[cfg(feature = "test-support")]'
+          stopBy: neighbor
