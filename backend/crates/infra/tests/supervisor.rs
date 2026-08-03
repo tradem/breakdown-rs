@@ -11,8 +11,8 @@
     clippy::dbg_macro
 )]
 use infra::projectors::supervisor::{
-    BACKOFF_BASE_MS, BACKOFF_MAX_DELAY_MS, BackoffConfig, MAX_ATTEMPTS, compute_backoff,
-    run_with_restart_with_config,
+    BACKOFF_BASE_MS, BACKOFF_MAX_DELAY_MS, BackoffConfig, MAX_ATTEMPTS, RESET_WINDOW_SECS,
+    compute_backoff, run_with_restart_with_config,
 };
 use std::future::Future;
 use std::pin::Pin;
@@ -209,4 +209,28 @@ async fn panic_is_caught_and_retried() {
 
     handle.abort();
     let _ = handle.await;
+}
+
+#[test]
+fn default_matches_production_constants() {
+    let c = BackoffConfig::default();
+    assert_eq!(c.base_ms, BACKOFF_BASE_MS);
+    assert_eq!(c.max_delay, Duration::from_millis(BACKOFF_MAX_DELAY_MS));
+    assert_eq!(c.max_attempts, MAX_ATTEMPTS);
+    assert_eq!(c.reset_window, Duration::from_secs(RESET_WINDOW_SECS));
+}
+
+#[test]
+fn test_profile_is_fast() {
+    let c = BackoffConfig::test_profile();
+    assert!(c.max_delay < Duration::from_secs(1));
+    // Sum of worst-case backoff for `max_attempts` retries must be
+    // comfortably under the 200 ms test budget used by callers.
+    let total: u128 = (1..=c.max_attempts)
+        .map(|a| c.compute_backoff(a).as_millis())
+        .sum();
+    assert!(
+        total < 300,
+        "test_profile total backoff {total:?} ms too slow"
+    );
 }

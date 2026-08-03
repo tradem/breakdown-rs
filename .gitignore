@@ -37,6 +37,10 @@ temp/
 # binary), so its Cargo.lock is committed for reproducible builds and to let the
 # security audit (`.github/workflows/audit.yml`) trigger on lockfile changes.
 # **/Cargo.lock
+# Machine-local cargo config (e.g. `[build] jobs` cap to protect low-RAM hosts
+# from OOM during full-workspace builds). Never commit per-machine settings;
+# CI and other contributors must not inherit them.
+**/.cargo/config.toml
 
 # Test coverage
 coverage/

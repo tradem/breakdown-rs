@@ -21,6 +21,15 @@ impl SceneRepositoryImpl {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
+
+    /// Test-only access to the underlying pool (e.g. for Tier-4 round-trip
+    /// tests that need to open transactions against the same pool the read
+    /// adapter uses). Only compiled when the `test-support` feature is on
+    /// (integration-tests crate); never in default builds.
+    #[cfg(feature = "test-support")]
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
+    }
 }
 
 impl SceneRepository for SceneRepositoryImpl {
@@ -155,7 +164,3 @@ fn map_scene_row(row: sqlx::postgres::PgRow) -> Result<SceneView, DomainError> {
 fn map_err(e: sqlx::Error) -> DomainError {
     DomainError::Conflict(e.to_string())
 }
-
-#[cfg(test)]
-#[path = "scene_test.rs"]
-mod tests;

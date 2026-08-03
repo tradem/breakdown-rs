@@ -69,7 +69,7 @@ impl BackoffConfig {
 
     /// Compute the delay for a given 0-indexed attempt with exponential
     /// backoff, cap, and random jitter.
-    fn compute_backoff(&self, attempt: usize) -> Duration {
+    pub fn compute_backoff(&self, attempt: usize) -> Duration {
         let base = std::cmp::min(
             self.base_ms * 2_u64.saturating_pow(attempt as u32),
             self.max_delay.as_millis() as u64,
@@ -220,34 +220,5 @@ where
                 sleep(delay).await;
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn default_matches_production_constants() {
-        let c = BackoffConfig::default();
-        assert_eq!(c.base_ms, BACKOFF_BASE_MS);
-        assert_eq!(c.max_delay, Duration::from_millis(BACKOFF_MAX_DELAY_MS));
-        assert_eq!(c.max_attempts, MAX_ATTEMPTS);
-        assert_eq!(c.reset_window, Duration::from_secs(RESET_WINDOW_SECS));
-    }
-
-    #[test]
-    fn test_profile_is_fast() {
-        let c = BackoffConfig::test_profile();
-        assert!(c.max_delay < Duration::from_secs(1));
-        // Sum of worst-case backoff for `max_attempts` retries must be
-        // comfortably under the 200 ms test budget used by callers.
-        let total: u128 = (1..=c.max_attempts)
-            .map(|a| c.compute_backoff(a).as_millis())
-            .sum();
-        assert!(
-            total < 300,
-            "test_profile total backoff {total:?} ms too slow"
-        );
     }
 }
