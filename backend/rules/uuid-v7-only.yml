@@ -10,10 +10,16 @@
 # invariant that clippy cannot express (there is no lint for "which UUID
 # version"), so it lives here as an AST gate.
 #
-# Scan scope is restricted to production source files (crates/*/src, test
-# modules excluded) in the CI job and pre-commit hook — test fixtures may
-# seed deterministic UUIDs of any version. The api binary (main.rs) is
-# production code and is included.
+# Scan scope is restricted to production source files (crates/*/src, with
+# test-named files `*_tests.rs` / `*_test.rs` / `test_helpers.rs` and `tests/`
+# dirs excluded by the CI job's `find` and the pre-commit hook) — test
+# fixtures may seed deterministic UUIDs of any version. Inline `#[cfg(test)]
+# mod` blocks within production-named files share the same scan-scope
+# limitation as the existing discard-result / test-helper-gate rules (a
+# deliberate, consistent trade-off: structural `inside` exclusions for
+# cfg(test) modules are fragile across ast-grep versions); 0 false positives
+# on the real production tree today. The api binary (main.rs) is production
+# code and is included.
 #
 # A legitimately non-v7 UUID (e.g. parsing an externally-supplied v4 from a
 # legacy migration import) is permitted only with an explicit suppression:

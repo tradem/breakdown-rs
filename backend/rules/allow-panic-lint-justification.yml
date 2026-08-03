@@ -63,11 +63,14 @@ rule:
     # contain none of these tokens and are correctly excluded.
     - has:
         regex: 'unsafe_code|unwrap_used|expect_used|panic|unimplemented|unreachable|todo'
-    # A trailing `//` comment on the same line satisfies the AGENTS.md §3
-    # justification requirement; its absence is the violation. Mirrors the
+    # A trailing `//` comment carrying actual justification text on the
+    # same line satisfies the AGENTS.md §3 requirement; a BLANK `//`
+    # (no text) does not. `^//\s*\S` requires `//` followed by optional
+    # whitespace and at least one non-whitespace char, so a bare `//` cannot
+    # bypass the guardrail. Its absence is the violation. Mirrors the
     # `not.follows` + `stopBy: neighbor` sibling traversal used in
     # test-helper-gate.yml (for the `#[cfg(feature = "test-support")]` attr).
     - not:
         precedes:
-          regex: '^//'
+          regex: '^//\s*\S'
           stopBy: neighbor
