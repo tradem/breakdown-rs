@@ -68,6 +68,12 @@ utoipa-swagger-ui = { version = "9", features = ["axum"] }
 # binaries that need `unsafe` for legit reasons (JWT/socket stubs in
 # auth tests) can `#![allow(unsafe_code)]` locally. `forbid` is un-overridable.
 unsafe_code = "deny"
+# Predeclare the `fuzzing` cfg so `cfg(fuzzing)` (cargo-fuzz targets) does
+# not trigger `unexpected_cfgs` warnings. Hoisted to the workspace so the
+# fuzz-targets crate can inherit all lints via `[lints] workspace = true`
+# (cargo disallows mixing `workspace = true` with a local `[lints.rust]`
+# override). Harmless for non-fuzz crates — they simply learn the cfg name.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
 
 # Panics are the "safe" equivalent of `unsafe` for crashing production:
 # they bypass structured error handling, produce no tracing span, and (in
@@ -84,3 +90,17 @@ panic = "deny"
 dbg_macro = "deny"
 print_stdout = "deny"
 print_stderr = "deny"
+
+# No abrupt process termination in a server with structured shutdown / Drop
+# (AGENTS.md §3 no-panics rule). `std::process::exit` bypasses Drop, so
+# zeroize-on-drop secrets and graceful projector flush never run.
+exit = "deny"
+# Holding a std::sync guard across `.await` deadlocks the async runtime;
+# event-sourced projectors/sagas are async by design — catch the mistake here
+# rather than at a production deadlock (no std::sync::Mutex/RwLock in tree).
+await_holding_lock = "deny"
+await_holding_refcell_ref = "deny"
+# `mem::forget` prevents destructors from running, so `zeroize`-on-Drop
+# never executes and credential material lingers in leaked storage
+# (security: secrets would not be wiped on drop).
+mem_forget = "deny"

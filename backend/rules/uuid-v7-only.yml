@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: glm-5.2 (neuralwatt)
+
+# UUID generation: every entity and event ID must be a UUIDv7
+# (`uuid::Uuid::now_v7()`). UUIDv4 is forbidden in production because its
+# random ordering defeats index locality in the event-store append path and
+# the projection `WHERE id = $1` lookups (AGENTS.md §3 — "ID Generation:
+# Strictly use UUIDv7 ... No UUIDv4"). This is the same class of structural
+# invariant that clippy cannot express (there is no lint for "which UUID
+# version"), so it lives here as an AST gate.
+#
+# Scan scope is restricted to production source files (crates/*/src, with
+# test-named files `*_tests.rs` / `*_test.rs` / `test_helpers.rs` and `tests/`
+# dirs excluded by the CI job's `find` and the pre-commit hook) — test
+# fixtures may seed deterministic UUIDs of any version. Inline `#[cfg(test)]
+# mod` blocks within production-named files share the same scan-scope
+# limitation as the existing discard-result / test-helper-gate rules (a
+# deliberate, consistent trade-off: structural `inside` exclusions for
+# cfg(test) modules are fragile across ast-grep versions); 0 false positives
+# on the real production tree today. The api binary (main.rs) is production
+# code and is included.
+#
+# A legitimately non-v7 UUID (e.g. parsing an externally-supplied v4 from a
+# legacy migration import) is permitted only with an explicit suppression:
+#   // ast-grep-ignore: uuid-v7-only
+# on the same line as the call, carrying a justification comment above.
+#
+# Suppression example (legacy import boundary at the API edge):
+#   // RUSTSEC-legacy: IdP-issued subject IDs are v4 from the upstream IdP;
+#   // parse, never generate. Revisit on IdP migration to v7.
+#   let sub = Uuid::parse_str(&raw)?; // ast-grep-ignore: uuid-v7-only
+id: uuid-v7-only
+message: >-
+  Code generates a UUIDv4 via Uuid::new_v4. Every entity/event ID must be a
+  UUIDv7 (uuid::Uuid::now_v7()) for index locality in the event store and
+  projections (AGENTS.md §3 — "No UUIDv4"). Use now_v7(); if this UUID is
+  parsed from external input rather than generated, use Uuid::parse_str — or
+  suppress with an explicit `// ast-grep-ignore: uuid-v7-only` comment and a
+  justification above the call.
+severity: error
+language: Rust
+rule:
+  any:
+    - pattern: Uuid::new_v4($$$ARGS)
+    - pattern: uuid::Uuid::new_v4($$$ARGS)
