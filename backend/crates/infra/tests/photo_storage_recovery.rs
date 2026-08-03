@@ -90,9 +90,10 @@ async fn storage_recovers_after_key_source_becomes_available() {
     assert!(matches!(err, DomainError::ServiceUnavailable(_)));
 
     // The key source recovers: the SSE-C operator is now built (S3 connects
-    // lazily, so the build itself succeeds) and cached. The op fails at the
-    // network layer (unroutable endpoint), not at key resolution — the Vault
-    // outage no longer blocks storage.
+    // lazily, so the build itself succeeds) and cached. The op now fails at
+    // the network layer (unroutable endpoint), which OpenDAL flags as a
+    // temporary error — the error message proves the storage op ran instead
+    // of failing at key resolution ("vault down").
     let err = storage
         .store(
             id,
@@ -103,8 +104,8 @@ async fn storage_recovers_after_key_source_becomes_available() {
         .await
         .unwrap_err();
     assert!(
-        !matches!(err, DomainError::ServiceUnavailable(_)),
-        "key resolution must have recovered"
+        err.to_string().contains("Temporary storage failure for "),
+        "storage op must reach the S3 network layer after key recovery, got: {err}"
     );
 
     // The cached operator is reused: a further op does not trigger another

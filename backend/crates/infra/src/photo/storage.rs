@@ -18,6 +18,23 @@ use tokio::sync::Mutex;
 use tracing::warn;
 use zeroize::Zeroizing;
 
+/// Map an OpenDAL storage error to a domain error.
+///
+/// Errors flagged as temporary by OpenDAL (`is_temporary()`) map to
+/// [`DomainError::ServiceUnavailable`] so the saga retry logic
+/// (`retry_transient`) retries them in-loop instead of failing the event;
+/// all other errors map to [`DomainError::ValidationError`] and surface to
+/// the ack-after-success redelivery path. `pub` so the external tests in
+/// `tests/` can verify the classification deterministically (Issue #127 test
+/// layout).
+pub fn map_storage_error(key: &str, e: opendal::Error) -> DomainError {
+    if e.is_temporary() {
+        DomainError::ServiceUnavailable(format!("Temporary storage failure for {key}: {e}"))
+    } else {
+        DomainError::ValidationError(format!("Failed to access storage object {key}: {e}"))
+    }
+}
+
 /// Resolves the SSE-C customer key for photo storage on demand.
 ///
 /// Resolution is deliberately retried on every call: a failed resolution is
@@ -288,9 +305,7 @@ impl PhotoStorage for OpenDalPhotoStorage {
             .content_type(&content_type)
             .user_metadata([("stored_at".to_string(), Utc::now().to_rfc3339())])
             .await
-            .map_err(|e| {
-                DomainError::ValidationError(format!("Failed to store object {key}: {e}"))
-            })?;
+            .map_err(|e| map_storage_error(&key, e))?;
         Ok(())
     }
 
@@ -336,9 +351,7 @@ impl PhotoStorage for OpenDalPhotoStorage {
             if let Err(e) = op.delete(&key).await {
                 let msg = e.to_string();
                 if !(msg.contains("Not Found") || msg.contains("ObjectNotExist")) {
-                    return Err(DomainError::ValidationError(format!(
-                        "Failed to delete photo object {key}: {e}"
-                    )));
+                    return Err(map_storage_error(&key, e));
                 }
             }
         }
