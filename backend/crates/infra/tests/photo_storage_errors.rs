@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash-free (opencode)
 
 //! Deterministic classification tests for the photo-storage OpenDAL error
 //! boundary (issue #165 ack semantics): temporary storage failures must
