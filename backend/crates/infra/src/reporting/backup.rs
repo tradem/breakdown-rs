@@ -418,9 +418,15 @@ impl<L: ReportDataLoader + 'static> ReportBackupWorker<L> {
                             && let Ok(key) = ReportArtifactKey::new(handle.clone())
                         {
                             if let Err(e) = self.staging.delete(&key).await {
-                                warn!(job_id = %job.id, error = %e, "failed to delete staged artifact");
-                            }
-                            if let Err(e) = self.queue.clear_staged_handle(job.id).await {
+                                // Keep the staged handle: the artifact may still
+                                // exist in staging, and the handle is the only
+                                // reference a later cleanup attempt can use.
+                                warn!(
+                                    job_id = %job.id,
+                                    error = %e,
+                                    "failed to delete staged artifact; keeping staged handle"
+                                );
+                            } else if let Err(e) = self.queue.clear_staged_handle(job.id).await {
                                 warn!(job_id = %job.id, error = %e, "failed to clear staged handle");
                             }
                         }

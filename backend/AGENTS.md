@@ -139,6 +139,7 @@ membership check via the shooting_day → episode → block → season chain). T
 
 
 ## 4. Testing & Guardrails
+
 - **Unit/Integration Tests:** Write deterministic tests for domain logic in `core`.
 - **Deterministic (timing-safe) tests:** Never gate a test on wall-clock timing or
   sleep-with-jitter budgets. Compute the worst case analytically against the test
