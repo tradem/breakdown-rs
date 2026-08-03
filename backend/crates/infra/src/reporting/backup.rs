@@ -228,10 +228,13 @@ impl<L: ReportDataLoader + 'static> ReportBackupWorker<L> {
                 let art = self.staging.fetch(&key).await.map_err(|e| e.to_string())?;
                 let actual = sha256_hex(&art.bytes);
                 if actual.as_str() != digest.as_str() {
-                    let _ = self
+                    if let Err(e) = self
                         .queue
                         .mark_terminal_failure(job.id, "staged digest mismatch")
-                        .await;
+                        .await
+                    {
+                        warn!(job_id = %job.id, error = %e, "failed to record terminal failure");
+                    }
                     return Err("staged digest mismatch".into());
                 }
                 (key, digest)
@@ -241,10 +244,13 @@ impl<L: ReportDataLoader + 'static> ReportBackupWorker<L> {
                 let data = match self.loader.load(job.kind, job.shooting_day_id).await {
                     Ok(d) => d,
                     Err(e) => {
-                        let _ = self
+                        if let Err(err) = self
                             .queue
                             .mark_terminal_failure(job.id, &format!("data load failed: {e}"))
-                            .await;
+                            .await
+                        {
+                            warn!(job_id = %job.id, error = %err, "failed to record terminal failure");
+                        }
                         return Err(format!("data load failed: {e}"));
                     }
                 };
@@ -265,7 +271,9 @@ impl<L: ReportDataLoader + 'static> ReportBackupWorker<L> {
                         // Render failures (bounds, timeout, compiler) are terminal —
                         // do not stage partial bytes.
                         let summary = render_error_summary(&e);
-                        let _ = self.queue.mark_terminal_failure(job.id, &summary).await;
+                        if let Err(err) = self.queue.mark_terminal_failure(job.id, &summary).await {
+                            warn!(job_id = %job.id, error = %err, "failed to record terminal failure");
+                        }
                         return Err(summary);
                     }
                 };
@@ -315,10 +323,13 @@ impl<L: ReportDataLoader + 'static> ReportBackupWorker<L> {
         // Digest verification before external upload.
         let actual = sha256_hex(&staged.bytes);
         if actual.as_str() != digest.as_str() {
-            let _ = self
+            if let Err(e) = self
                 .queue
                 .mark_terminal_failure(job.id, "digest mismatch before external upload")
-                .await;
+                .await
+            {
+                warn!(job_id = %job.id, error = %e, "failed to record terminal failure");
+            }
             return Err("digest mismatch before external upload".into());
         }
 
@@ -353,8 +364,8 @@ impl<L: ReportDataLoader + 'static> ReportBackupWorker<L> {
             if let Err(e) = self.staging.delete(&staged_key).await {
                 // Non-fatal: recon will clean up later.
                 warn!(job_id = %job.id, error = %e, "staging delete after success failed");
-            } else {
-                let _ = self.queue.clear_staged_handle(job.id).await;
+            } else if let Err(e) = self.queue.clear_staged_handle(job.id).await {
+                warn!(job_id = %job.id, error = %e, "failed to clear staged handle");
             }
         }
 
@@ -406,8 +417,18 @@ impl<L: ReportDataLoader + 'static> ReportBackupWorker<L> {
                         if let Some(handle) = &job.staged_handle
                             && let Ok(key) = ReportArtifactKey::new(handle.clone())
                         {
-                            let _ = self.staging.delete(&key).await;
-                            let _ = self.queue.clear_staged_handle(job.id).await;
+                            if let Err(e) = self.staging.delete(&key).await {
+                                // Keep the staged handle: the artifact may still
+                                // exist in staging, and the handle is the only
+                                // reference a later cleanup attempt can use.
+                                warn!(
+                                    job_id = %job.id,
+                                    error = %e,
+                                    "failed to delete staged artifact; keeping staged handle"
+                                );
+                            } else if let Err(e) = self.queue.clear_staged_handle(job.id).await {
+                                warn!(job_id = %job.id, error = %e, "failed to clear staged handle");
+                            }
                         }
                     }
                 }

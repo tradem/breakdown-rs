@@ -4,11 +4,11 @@
 
 Standardisierung aller Backend-Tests auf `tests/`-Verzeichnisse innerhalb ihrer Crates. Kein Test-Code mehr in Produktivcode (`src/`).
 
-## Requirements
+## ADDED Requirements
 
 ### Requirement: All tests in tests/ directories
 
-Alle Testfunktionen MÜSSEN in `tests/`-Verzeichnissen des jeweiligen Crates liegen. Ausnahmen sind nur `#[cfg(test)]`-Blöcke die KEINE Testfunktionen enthalten (z.B. `mod`-Deklarationen).
+All test functions MUST reside in the crate's `tests/` directory. Only `#[cfg(test)]` blocks that contain no test functions (e.g. `mod` declarations) and narrowly scoped test-only accessors behind `#[cfg(feature = "test-support")]` (e.g. `SceneRepositoryImpl::pool`) are allowed in `src/`.
 
 #### Scenario: New test added to src/ directory
 
@@ -22,7 +22,7 @@ Alle Testfunktionen MÜSSEN in `tests/`-Verzeichnissen des jeweiligen Crates lie
 
 ### Requirement: No path-based test modules
 
-`#[path = "..."]`-Attribute zum Einbinden von Testdateien sind ABGESCHAFFT. Testdateien werden nicht über `#[path]` sondern als separate Dateien in `tests/` eingebunden.
+`#[path = "..."]` attributes for wiring up test modules MUST NOT be used. Test files SHALL be standalone files in `tests/`, never included via `#[path]` modules from `src/`.
 
 #### Scenario: #[path] test module in source
 
@@ -31,7 +31,7 @@ Alle Testfunktionen MÜSSEN in `tests/`-Verzeichnissen des jeweiligen Crates lie
 
 ### Requirement: Shared test helpers
 
-Gemeinsame Test-Helfer werden als `pub` aus `test_support` exportiert oder in `tests/common/mod.rs` des jeweiligen Crates geteilt. Keine Duplikierung.
+Shared test helpers MUST be exported as `pub` from `test_support` or shared via a crate's `tests/common/mod.rs`. Helpers MUST NOT be duplicated across test files.
 
 #### Scenario: Multiple test files need same helper
 
@@ -40,7 +40,7 @@ Gemeinsame Test-Helfer werden als `pub` aus `test_support` exportiert oder in `t
 
 ### Requirement: Visibility adjustments
 
-`pub(crate)`-Items die von externen Tests (`tests/`) benötigt werden, MÜSSEN auf `pub` gehoben werden. Die Änderung muss minimale Sichtbarkeit verwenden.
+Items required by external tests MUST be lifted from `pub(crate)` to `pub` using the minimal visibility that satisfies the test. The change MUST use the least visible level that compiles.
 
 #### Scenario: Test needs pub(crate) function
 
@@ -77,7 +77,11 @@ Gemeinsame Test-Helfer werden als `pub` aus `test_support` exportiert oder in `t
 | `src/event_store/adapter_mapping_tests.rs` | `tests/adapter_mapping.rs` | Verschiebung |
 | `src/event_store/translation_tests.rs` | `tests/translation.rs` | Verschiebung |
 | `src/projectors/supervisor_test.rs` | `tests/supervisor.rs` | Verschiebung |
-| `src/queries/scene_test.rs` | `tests/scene_query.rs` | Verschiebung |
+| `src/queries/scene_test.rs` | *gelöscht* | Entfernung |
+
+> Hinweis: `scene_test.rs` enthielt keine Testfunktionen, sondern nur den
+test-only `pool()`-Accessor. Der Accessor wurde in `scene.rs` hinter das
+`test-support`-Feature verschoben; die Datei selbst wurde entfernt.
 | `src/reporting/storage_contract_test.rs` | `tests/reporting_storage_contract.rs` | Verschiebung |
 | `src/reporting/backup.rs` inline | `tests/reporting_backup.rs` | Extraktion |
 | `src/reporting/jobs.rs` inline | `tests/reporting_jobs.rs` | Extraktion |

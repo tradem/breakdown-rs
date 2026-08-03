@@ -63,7 +63,7 @@ fi
 
 # 5. Run ast-grep guardrails on staged files (mirrors the CI jobs)
 if [ -n "$STAGED_RS_FILES" ]; then
-    echo "🛡️  Running ast-grep guardrails (cqrs-boundary / test-shim-leak)..."
+    echo "🛡️  Running ast-grep guardrails (cqrs-boundary / test-shim-leak / discard-result / test-helper-gate)..."
     if command -v ast-grep &> /dev/null; then
         # Write-side dirs → cqrs-boundary rule (see backend/rules/cqrs-boundary.yml)
         WRITE_SIDE_FILES=$(echo "$STAGED_RS_FILES" | grep -E '^crates/infra/src/(event_store|sagas|photo/sagas)/' || true)
@@ -75,6 +75,14 @@ if [ -n "$STAGED_RS_FILES" ]; then
             | grep -vE '_tests\.rs$|_test\.rs$|test_helpers\.rs$|/tests/|/test_helpers/' || true)
         if [ -n "$API_PROD_FILES" ]; then
             echo "$API_PROD_FILES" | xargs -r ast-grep scan -r rules/test-shim-leak.yml
+        fi
+        # All production source files (tests excluded) → discard-result +
+        # test-helper-gate rules (issue #165 review learnings)
+        PROD_FILES=$(echo "$STAGED_RS_FILES" | grep '^crates/.*/src/' \
+            | grep -vE '_tests\.rs$|_test\.rs$|test_helpers\.rs$|/tests/|/test_helpers/' || true)
+        if [ -n "$PROD_FILES" ]; then
+            echo "$PROD_FILES" | xargs -r ast-grep scan -r rules/discard-result.yml
+            echo "$PROD_FILES" | xargs -r ast-grep scan -r rules/test-helper-gate.yml
         fi
         echo "✓ ast-grep guardrails passed"
     else

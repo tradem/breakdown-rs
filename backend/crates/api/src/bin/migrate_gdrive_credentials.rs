@@ -151,9 +151,16 @@ async fn run() -> Result<()> {
         OpenDalReportArchiveStorage::validate_from_vault(&vault, options.settings_id, &binding_ref)
             .await
     {
-        let _ = vault
+        if let Err(destroy_err) = vault
             .destroy(options.settings_id, &binding.vault_key_id)
-            .await;
+            .await
+        {
+            tracing::warn!(
+                vault_key_id = %binding.vault_key_id,
+                error = %destroy_err,
+                "failed to destroy superseded GDrive binding"
+            );
+        }
         bail!("GDrive provider validation failed: {error}");
     }
 
@@ -201,9 +208,16 @@ async fn run() -> Result<()> {
             Ok(())
         }
         Err(error) => {
-            let _ = vault
+            if let Err(destroy_err) = vault
                 .destroy(options.settings_id, &binding.vault_key_id)
-                .await;
+                .await
+            {
+                tracing::warn!(
+                    vault_key_id = %binding.vault_key_id,
+                    error = %destroy_err,
+                    "failed to destroy superseded GDrive binding"
+                );
+            }
             Err(error)
         }
     }

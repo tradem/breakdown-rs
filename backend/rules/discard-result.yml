@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4-flash-free (opencode)
+
+# Discarded results: `let _ = <fallible-call>` silently swallows errors,
+# defeating retry (retry_transient) and ack-after-success redelivery
+# (issue #165). Learned from review: `let _ = op.delete(&key).await` hid
+# delete failures that the saga could never retry.
+#
+# Scan scope is restricted to production source files (crates/*/src, test
+# modules excluded) in the CI job and pre-commit hook — test code may discard
+# freely.
+#
+# A genuinely intentional discard (e.g. best-effort cleanup that already logs
+# elsewhere) is permitted only with an explicit suppression:
+#   // ast-grep-ignore: discard-result
+# on the same line as the statement, carrying a justification comment above.
+#
+# Note: discards that propagate the error via `?` (e.g. `let _ = foo()?;`)
+# are deliberately NOT matched — the error path is explicit there; only the
+# Ok value is dropped.
+id: discard-result
+message: >-
+  A fallible expression's result is discarded with `let _ =`. This silently
+  swallows errors (issue #165 lesson: `let _ = op.delete(...)` hid delete
+  failures) and defeats retry / ack-after-success redelivery. Propagate the
+  error (`?` / `.map_err`), handle it explicitly (e.g. `if let Err(e) = ... {
+  warn!(...) }`), or — if the discard is intentional — suppress with an
+  explicit `// ast-grep-ignore: discard-result` comment and a justification
+  above the statement.
+severity: error
+language: Rust
+rule:
+  any:
+    - pattern: let _ = $FUNC($$$ARGS);
+    - pattern: let _ = $RECV.$METHOD($$$ARGS);
+    - pattern: let _ = $X.await;

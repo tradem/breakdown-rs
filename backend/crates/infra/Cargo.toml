@@ -7,6 +7,13 @@ license.workspace = true
 [features]
 test-support = []
 
+# The vault integration test uses VaultClient::for_test, which is gated
+# behind the test-support feature; run infra tests with
+# `--features test-support` (CI does this explicitly) so the target is built.
+[[test]]
+name = "vault"
+required-features = ["test-support"]
+
 [dependencies]
 # Core-Domäne
 breakdown_core = { path = "../core", version = "0.2.0" }

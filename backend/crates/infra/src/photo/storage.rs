@@ -4,7 +4,9 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 
 use std::fmt;
+use std::sync::Arc;
 
+use async_trait::async_trait;
 use breakdown_core::error::DomainError;
 use breakdown_core::photo::ports::PhotoStorage;
 use breakdown_core::photo::views::PhotoBytes;
@@ -12,7 +14,59 @@ use breakdown_core::shared::{PhotoId, PhotoVariant};
 use chrono::{DateTime, Utc};
 use futures::StreamExt;
 use opendal::Operator;
+use tokio::sync::Mutex;
 use tracing::warn;
+use zeroize::Zeroizing;
+
+/// Map an OpenDAL storage error to a domain error.
+///
+/// Errors flagged as temporary by OpenDAL (`is_temporary()`) map to
+/// [`DomainError::ServiceUnavailable`] so the saga retry logic
+/// (`retry_transient`) retries them in-loop instead of failing the event;
+/// all other errors map to [`DomainError::ValidationError`] and surface to
+/// the ack-after-success redelivery path. `pub` so the external tests in
+/// `tests/` can verify the classification deterministically (Issue #127 test
+/// layout).
+pub fn map_storage_error(key: &str, e: opendal::Error) -> DomainError {
+    if e.is_temporary() {
+        DomainError::ServiceUnavailable(format!("Temporary storage failure for {key}: {e}"))
+    } else {
+        DomainError::ValidationError(format!("Failed to access storage object {key}: {e}"))
+    }
+}
+
+/// Resolves the SSE-C customer key for photo storage on demand.
+///
+/// Resolution is deliberately retried on every call: a failed resolution is
+/// never cached, so the adapter recovers automatically once the key source
+/// (Vault) becomes reachable again — no API restart required.
+#[async_trait]
+pub trait PhotoStorageKeySource: Send + Sync + fmt::Debug {
+    async fn resolve(&self) -> Result<Zeroizing<Vec<u8>>, DomainError>;
+}
+
+/// Key source used by the fail-closed `unavailable` adapter and as a
+/// never-reached placeholder for pre-configured (test) operators.
+#[derive(Debug)]
+struct NoKeySource;
+
+#[async_trait]
+impl PhotoStorageKeySource for NoKeySource {
+    async fn resolve(&self) -> Result<Zeroizing<Vec<u8>>, DomainError> {
+        Err(DomainError::ServiceUnavailable(
+            "photo storage is not configured with a key source".to_owned(),
+        ))
+    }
+}
+
+/// Shared lazy state: caches the SSE-C operator and re-resolves the key on
+/// demand, so a Vault outage at boot does not permanently disable storage.
+struct RecoverableInner {
+    /// Cached SSE-C operator; `None` until the first successful key
+    /// resolution. A failed resolution is never cached.
+    op: Mutex<Option<Operator>>,
+    key_source: Arc<dyn PhotoStorageKeySource>,
+}
 
 /// OpenDAL-backed photo storage adapter configured against an S3-compatible
 /// backend (Garage).
@@ -21,9 +75,7 @@ use tracing::warn;
 /// `{photo_id}/{variant}` — flat prefix-less key space.
 #[derive(Clone)]
 pub struct OpenDalPhotoStorage {
-    /// OpenDAL operator (S3-compatible backend), absent when Vault was
-    /// unavailable during API boot.
-    op: Option<Operator>,
+    inner: Arc<RecoverableInner>,
     /// Optional bucket override; when `None` the operator's configured bucket
     /// is used.
     bucket: Option<String>,
@@ -35,7 +87,7 @@ impl fmt::Debug for OpenDalPhotoStorage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OpenDalPhotoStorage")
             .field("bucket", &self.bucket)
-            .field("configured", &self.op.is_some())
+            .field("configured", &self.is_configured())
             .finish_non_exhaustive()
     }
 }
@@ -49,7 +101,10 @@ impl OpenDalPhotoStorage {
     #[cfg(feature = "test-support")]
     pub fn new(op: Operator) -> Self {
         Self {
-            op: Some(op),
+            inner: Arc::new(RecoverableInner {
+                op: Mutex::new(Some(op)),
+                key_source: Arc::new(NoKeySource),
+            }),
             bucket: None,
             unavailable_reason: None,
         }
@@ -59,7 +114,10 @@ impl OpenDalPhotoStorage {
     #[cfg(feature = "test-support")]
     pub fn with_bucket(op: Operator, bucket: String) -> Self {
         Self {
-            op: Some(op),
+            inner: Arc::new(RecoverableInner {
+                op: Mutex::new(Some(op)),
+                key_source: Arc::new(NoKeySource),
+            }),
             bucket: Some(bucket),
             unavailable_reason: None,
         }
@@ -68,10 +126,64 @@ impl OpenDalPhotoStorage {
     /// Construct an adapter that fails closed until the next successful boot.
     pub fn unavailable(reason: impl Into<String>) -> Self {
         Self {
-            op: None,
+            inner: Arc::new(RecoverableInner {
+                op: Mutex::new(None),
+                key_source: Arc::new(NoKeySource),
+            }),
             bucket: None,
             unavailable_reason: Some(reason.into()),
         }
+    }
+
+    /// Construct a recoverable adapter that resolves the SSE-C customer key
+    /// lazily via `key_source` on first use and re-resolves it on demand
+    /// after a failure. A Vault outage at boot therefore disables photo
+    /// operations (fail-closed, HTTP 503) only until Vault becomes reachable
+    /// again — no API restart required.
+    pub fn recoverable(key_source: Arc<dyn PhotoStorageKeySource>) -> Self {
+        Self {
+            inner: Arc::new(RecoverableInner {
+                op: Mutex::new(None),
+                key_source,
+            }),
+            bucket: None,
+            unavailable_reason: None,
+        }
+    }
+
+    /// Whether an SSE-C operator has been successfully constructed and cached.
+    fn is_configured(&self) -> bool {
+        self.inner
+            .op
+            .try_lock()
+            .map(|guard| guard.is_some())
+            .unwrap_or(false)
+    }
+
+    /// Return the cached SSE-C operator, or resolve the customer key and
+    /// construct one on demand. Resolution failures are **not** cached, so
+    /// the next call retries automatically once the key source recovers.
+    async fn operator(&self) -> Result<Operator, DomainError> {
+        if let Some(op) = self.inner.op.lock().await.as_ref() {
+            return Ok(op.clone());
+        }
+
+        let key = self.inner.key_source.resolve().await.map_err(|e| {
+            // Prefer the boot-time fail-closed reason when present.
+            match &self.unavailable_reason {
+                Some(reason) => DomainError::ServiceUnavailable(reason.clone()),
+                None => e,
+            }
+        })?;
+        let op = Self::build_operator(key.as_slice())?;
+
+        let mut guard = self.inner.op.lock().await;
+        if let Some(existing) = guard.as_ref() {
+            // Another caller won the resolution race; reuse its operator.
+            return Ok(existing.clone());
+        }
+        *guard = Some(op.clone());
+        Ok(op)
     }
 
     /// Build from environment variables and a Vault-derived SSE-C key:
@@ -83,6 +195,23 @@ impl OpenDalPhotoStorage {
     /// - `S3_TLS_ROOT_CERT` — optional PEM path of the pinned root CA (the
     ///   internal step-ca root, ADR-024) for `https://` endpoints
     pub fn from_env_with_customer_key(customer_key: &[u8]) -> Result<Self, DomainError> {
+        let op = Self::build_operator(customer_key)?;
+        let bucket = std::env::var("S3_BUCKET").unwrap_or_else(|_| "costume-photos".into());
+        Ok(Self {
+            inner: Arc::new(RecoverableInner {
+                op: Mutex::new(Some(op)),
+                key_source: Arc::new(NoKeySource),
+            }),
+            bucket: Some(bucket),
+            unavailable_reason: None,
+        })
+    }
+
+    /// Build the SSE-C OpenDAL operator from environment variables and a
+    /// customer key. Fail-closed by construction: this is the only path that
+    /// ever creates a photo operator, and it always sets the AES256 SSE-C
+    /// customer key — never plaintext or SSE-S3.
+    fn build_operator(customer_key: &[u8]) -> Result<Operator, DomainError> {
         let endpoint = std::env::var("S3_ENDPOINT")
             .map_err(|_| DomainError::ValidationError("S3_ENDPOINT must be set".into()))?;
         let access_key = std::env::var("S3_ACCESS_KEY")
@@ -108,23 +237,7 @@ impl OpenDalPhotoStorage {
                 DomainError::ValidationError(format!("Failed to create S3 operator: {e}"))
             })?
             .finish();
-
-        Ok(Self {
-            op: Some(op),
-            bucket: Some(bucket),
-            unavailable_reason: None,
-        })
-    }
-
-    fn operator(&self) -> Result<&Operator, DomainError> {
-        self.op.as_ref().ok_or_else(|| {
-            DomainError::ServiceUnavailable(
-                self.unavailable_reason
-                    .as_deref()
-                    .unwrap_or("photo storage is unavailable")
-                    .to_owned(),
-            )
-        })
+        Ok(op)
     }
 
     /// Fetch the `stored_at` timestamp from user metadata for a given photo variant.
@@ -138,7 +251,7 @@ impl OpenDalPhotoStorage {
         variant: PhotoVariant,
     ) -> Result<Option<DateTime<Utc>>, DomainError> {
         let key = Self::object_key(id, variant);
-        match self.operator()?.stat(&key).await {
+        match self.operator().await?.stat(&key).await {
             Ok(meta) => {
                 if let Some(metadata_map) = meta.user_metadata() {
                     if let Some(stored_at_str) = metadata_map.get("stored_at") {
@@ -186,27 +299,27 @@ impl PhotoStorage for OpenDalPhotoStorage {
         content_type: String,
     ) -> Result<(), DomainError> {
         let key = Self::object_key(id, variant);
-        self.operator()?
+        self.operator()
+            .await?
             .write_with(&key, bytes)
             .content_type(&content_type)
             .user_metadata([("stored_at".to_string(), Utc::now().to_rfc3339())])
             .await
-            .map_err(|e| {
-                DomainError::ValidationError(format!("Failed to store object {key}: {e}"))
-            })?;
+            .map_err(|e| map_storage_error(&key, e))?;
         Ok(())
     }
 
     async fn fetch(&self, id: PhotoId, variant: PhotoVariant) -> Result<PhotoBytes, DomainError> {
         let key = Self::object_key(id, variant);
-        let meta = self.operator()?.stat(&key).await.map_err(|e| {
+        let op = self.operator().await?;
+        let meta = op.stat(&key).await.map_err(|e| {
             if e.to_string().contains("Not Found") || e.to_string().contains("ObjectNotExist") {
                 DomainError::NotFound(format!("Photo {id:?} variant {variant:?}"))
             } else {
                 DomainError::ValidationError(format!("Failed to stat object {key}: {e}"))
             }
         })?;
-        let buf = self.operator()?.read(&key).await.map_err(|e| {
+        let buf = op.read(&key).await.map_err(|e| {
             DomainError::ValidationError(format!("Failed to read object {key}: {e}"))
         })?;
         let content_type = meta
@@ -223,14 +336,24 @@ impl PhotoStorage for OpenDalPhotoStorage {
     }
 
     async fn delete_all(&self, id: PhotoId) -> Result<(), DomainError> {
-        // Delete all three variants individually.
+        let op = self.operator().await?;
+        // Delete all three variants individually. Ignore only not-found
+        // errors (already-absent keys); propagate everything else so
+        // transient storage failures surface to the caller's retry logic
+        // instead of being silently discarded (issue #165 ack semantics:
+        // the event must not be acknowledged when the delete never ran).
         for variant in &[
             PhotoVariant::Original,
             PhotoVariant::Thumb,
             PhotoVariant::Medium,
         ] {
             let key = Self::object_key(id, *variant);
-            let _ = self.operator()?.delete(&key).await; // Ignore errors for already-absent keys
+            if let Err(e) = op.delete(&key).await {
+                let msg = e.to_string();
+                if !(msg.contains("Not Found") || msg.contains("ObjectNotExist")) {
+                    return Err(map_storage_error(&key, e));
+                }
+            }
         }
         Ok(())
     }
@@ -238,7 +361,8 @@ impl PhotoStorage for OpenDalPhotoStorage {
     async fn list(&self) -> Result<Vec<PhotoId>, DomainError> {
         let mut photo_ids = Vec::new();
         let mut lister = self
-            .operator()?
+            .operator()
+            .await?
             .lister_with("")
             .limit(1000)
             .await

@@ -165,7 +165,10 @@ async fn run_schedule_once(pool: &PgPool, queue: &PgReportArchivalQueue) -> Resu
     .await?;
 
     for id in rows {
-        let _ = enqueue_for_day(queue, ShootingDayId(id), ArchivalTrigger::Schedule).await;
+        if let Err(e) = enqueue_for_day(queue, ShootingDayId(id), ArchivalTrigger::Schedule).await {
+            // The sweep runs periodically; the next pass re-enqueues missing jobs.
+            warn!(shooting_day_id = %id, error = %e, "failed to enqueue archival jobs");
+        }
     }
     Ok(())
 }

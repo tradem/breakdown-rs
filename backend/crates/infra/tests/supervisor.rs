@@ -11,8 +11,8 @@
     clippy::dbg_macro
 )]
 use infra::projectors::supervisor::{
-    BACKOFF_BASE_MS, BACKOFF_MAX_DELAY_MS, BackoffConfig, MAX_ATTEMPTS, compute_backoff,
-    run_with_restart_with_config,
+    BACKOFF_BASE_MS, BACKOFF_MAX_DELAY_MS, BackoffConfig, MAX_ATTEMPTS, RESET_WINDOW_SECS,
+    compute_backoff, run_with_restart_with_config,
 };
 use std::future::Future;
 use std::pin::Pin;
@@ -209,4 +209,37 @@ async fn panic_is_caught_and_retried() {
 
     handle.abort();
     let _ = handle.await;
+}
+
+#[test]
+fn default_matches_production_constants() {
+    let c = BackoffConfig::default();
+    assert_eq!(c.base_ms, BACKOFF_BASE_MS);
+    assert_eq!(c.max_delay, Duration::from_millis(BACKOFF_MAX_DELAY_MS));
+    assert_eq!(c.max_attempts, MAX_ATTEMPTS);
+    assert_eq!(c.reset_window, Duration::from_secs(RESET_WINDOW_SECS));
+}
+
+#[test]
+fn test_profile_is_fast() {
+    let c = BackoffConfig::test_profile();
+    assert!(c.max_delay < Duration::from_secs(1));
+    // Sum of worst-case backoff for `max_attempts` retries must be
+    // comfortably under the 200 ms test budget used by callers. Compute the
+    // worst case analytically (base + max jitter of base/4, capped) instead
+    // of sampling random jitter, so the assertion is deterministic.
+    let max_delay_ms = c.max_delay.as_millis() as u64;
+    let total: u128 = (1..=c.max_attempts)
+        .map(|a| {
+            let base = c
+                .base_ms
+                .saturating_mul(2_u64.saturating_pow(a as u32))
+                .min(max_delay_ms);
+            u128::from(base.saturating_add(base / 4).min(max_delay_ms))
+        })
+        .sum();
+    assert!(
+        total < 200,
+        "test_profile total backoff {total:?} ms too slow"
+    );
 }

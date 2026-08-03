@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 //! HashiCorp Vault adapter for external credential material (ADR-027).
 //!
 //! The client is deliberately lazy: an unavailable Vault must not prevent the
@@ -19,7 +20,8 @@ use std::time::Duration;
 use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
 
-const PHOTO_SSE_C_KEY_ID: &str = "photo-sse-c";
+/// Fixed non-secret identifier of the bucket-level photo SSE-C key.
+pub const PHOTO_SSE_C_KEY_ID: &str = "photo-sse-c";
 const PHOTO_SSE_C_KV_PATH: &str = "kv/data/photo-sse-c";
 
 #[derive(Clone)]
@@ -39,6 +41,23 @@ impl fmt::Debug for VaultClient {
 }
 
 impl VaultClient {
+    /// Build a client against an explicit address + token file without reading
+    /// environment variables.
+    ///
+    /// `#[doc(hidden)]`: only used by the external tests in `tests/` (Issue
+    /// #127 test layout) to point a client at an in-process HTTP stub. Gated
+    /// behind `test-support` so production builds never expose the
+    /// arbitrary-address constructor.
+    #[doc(hidden)]
+    #[cfg(feature = "test-support")]
+    pub fn for_test(addr: String, token_file: Option<PathBuf>) -> Self {
+        Self {
+            http: Client::new(),
+            addr: addr.trim_end_matches('/').to_owned(),
+            token_file,
+        }
+    }
+
     pub fn from_env() -> Result<Self, DomainError> {
         let addr = std::env::var("VAULT_ADDR")
             .unwrap_or_else(|_| "http://127.0.0.1:8200".to_owned())
@@ -282,7 +301,11 @@ impl VaultClient {
         Ok(Some(envelope.data.data.wrapped_dek))
     }
 
-    fn decode_datakey(encoded: String) -> Result<Vec<u8>, DomainError> {
+    /// Decode the base64 plaintext of a Vault Transit datakey response.
+    ///
+    /// Zeroizes the input buffer after decoding. `pub` so the external tests
+    /// in `tests/` can verify key validation (Issue #127 test layout).
+    pub fn decode_datakey(encoded: String) -> Result<Vec<u8>, DomainError> {
         let mut encoded = encoded;
         let decoded = BASE64
             .decode(&encoded)
@@ -291,12 +314,26 @@ impl VaultClient {
         Ok(decoded)
     }
 
-    fn validated_photo_key(key: Vec<u8>) -> Result<Zeroizing<Vec<u8>>, DomainError> {
+    /// Validate that a photo SSE-C datakey is exactly 32 bytes.
+    ///
+    /// `pub` so the external tests in `tests/` can verify key validation
+    /// (Issue #127 test layout).
+    pub fn validated_photo_key(key: Vec<u8>) -> Result<Zeroizing<Vec<u8>>, DomainError> {
         let key = Zeroizing::new(key);
         if key.len() != 32 {
             return Err(Self::unavailable("photo SSE-C datakey must be 32 bytes"));
         }
         Ok(key)
+    }
+}
+
+// Recoverable photo key source (issue #165): `OpenDalPhotoStorage` calls
+// `resolve` lazily on demand and retries after a failure, so a Vault outage
+// at boot does not permanently disable photo storage.
+#[async_trait::async_trait]
+impl crate::photo::storage::PhotoStorageKeySource for VaultClient {
+    async fn resolve(&self) -> Result<Zeroizing<Vec<u8>>, DomainError> {
+        self.photo_sse_c_key().await
     }
 }
 
@@ -605,7 +642,8 @@ fn record_id_for(settings_id: Uuid, vault_key_id: &str) -> String {
     }
 }
 
-fn validate_binding_key(settings_id: Uuid, key_id: &str) -> Result<(), DomainError> {
+/// Validate that a settings secret references the settings-scoped key id.
+pub fn validate_binding_key(settings_id: Uuid, key_id: &str) -> Result<(), DomainError> {
     let prefix = format!("settings-{settings_id}");
     let valid = if key_id == prefix {
         true
@@ -623,7 +661,12 @@ fn validate_binding_key(settings_id: Uuid, key_id: &str) -> Result<(), DomainErr
     }
 }
 
-fn encrypt_envelope(dek: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, &'static str> {
+/// Encrypt a plaintext into a nonce-prefixed AES-256-GCM envelope.
+///
+/// Used by the settings `CredentialVault` adapter to store secrets at rest in
+/// Vault KV. `pub` so the external tests in `tests/` can verify the round trip
+/// (Issue #127 test layout).
+pub fn encrypt_envelope(dek: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, &'static str> {
     let cipher = Aes256Gcm::new_from_slice(dek).map_err(|_| "invalid DEK")?;
     let mut nonce_bytes = [0_u8; 12];
     getrandom::fill(&mut nonce_bytes).map_err(|_| "nonce generation failed")?;
@@ -635,7 +678,12 @@ fn encrypt_envelope(dek: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, &'static st
     Ok(payload)
 }
 
-fn decrypt_envelope(dek: &[u8], payload: &[u8]) -> Result<Vec<u8>, &'static str> {
+/// Decrypt a nonce-prefixed AES-256-GCM envelope produced by
+/// [`encrypt_envelope`].
+///
+/// `pub` so the external tests in `tests/` can verify the round trip
+/// (Issue #127 test layout).
+pub fn decrypt_envelope(dek: &[u8], payload: &[u8]) -> Result<Vec<u8>, &'static str> {
     if payload.len() < 12 {
         return Err("stored ciphertext is truncated");
     }
@@ -644,192 +692,4 @@ fn decrypt_envelope(dek: &[u8], payload: &[u8]) -> Result<Vec<u8>, &'static str>
     cipher
         .decrypt(Nonce::from_slice(nonce), encrypted)
         .map_err(|_| "credential decryption failed")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{
-        PHOTO_SSE_C_KEY_ID, VaultClient, decrypt_envelope, encrypt_envelope, validate_binding_key,
-    };
-    use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-    use std::io::{BufRead, BufReader, Read, Write};
-    use std::net::TcpListener;
-    use std::path::PathBuf;
-    use std::sync::{Arc, Mutex};
-    use std::thread;
-
-    fn response(status: &str, body: &str) -> String {
-        format!(
-            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-            body.len()
-        )
-    }
-
-    fn stub_client(
-        conflict: bool,
-    ) -> (
-        VaultClient,
-        thread::JoinHandle<()>,
-        PathBuf,
-        Arc<Mutex<Vec<String>>>,
-    ) {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        let token_path = std::env::temp_dir().join(format!("vault-test-{}", uuid::Uuid::now_v7()));
-        std::fs::write(&token_path, "test-token").unwrap();
-        let request_bodies = Arc::new(Mutex::new(Vec::new()));
-        let captured_bodies = request_bodies.clone();
-        let handle = thread::spawn(move || {
-            let mut kv_reads = 0_u8;
-            for incoming in listener.incoming().take(if conflict { 7 } else { 5 }) {
-                let mut stream = incoming.unwrap();
-                let mut reader = BufReader::new(stream.try_clone().unwrap());
-                let mut request_line = String::new();
-                reader.read_line(&mut request_line).unwrap();
-                let mut header = String::new();
-                let mut content_length = 0_usize;
-                while reader.read_line(&mut header).unwrap_or(0) > 0 && header != "\r\n" {
-                    if let Some((name, value)) = header.split_once(':')
-                        && name.eq_ignore_ascii_case("content-length")
-                    {
-                        content_length = value.trim().parse().unwrap_or(0);
-                    }
-                    header.clear();
-                }
-                let mut request_body = vec![0_u8; content_length];
-                reader.read_exact(&mut request_body).unwrap();
-                let mut parts = request_line.split_whitespace();
-                let method = parts.next().unwrap_or_default();
-                let path = parts.next().unwrap_or_default();
-                if method == "POST" && path == "/v1/kv/data/photo-sse-c" {
-                    captured_bodies
-                        .lock()
-                        .unwrap()
-                        .push(String::from_utf8(request_body).unwrap());
-                }
-                let (status, body): (&str, String) = match (method, path) {
-                    ("GET", "/v1/kv/data/photo-sse-c") if kv_reads == 0 => {
-                        kv_reads += 1;
-                        ("404 Not Found", "{}".into())
-                    }
-                    ("GET", "/v1/kv/data/photo-sse-c") => (
-                        "200 OK",
-                        r#"{"data":{"data":{"vault_key_id":"photo-sse-c","wrapped_dek":"winner-wrapped"}}}"#
-                            .into(),
-                    ),
-                    ("GET", "/v1/transit/keys/photo-sse-c") => ("404 Not Found", "{}".into()),
-                    ("POST", "/v1/transit/keys/photo-sse-c") => ("204 No Content", "".into()),
-                    ("POST", "/v1/transit/datakey/plaintext/photo-sse-c") => (
-                        "200 OK",
-                        format!(
-                            r#"{{"data":{{"ciphertext":"candidate-wrapped","plaintext":"{}"}}}}"#,
-                            BASE64.encode([7_u8; 32])
-                        ),
-                    ),
-                    ("POST", "/v1/kv/data/photo-sse-c") if conflict => {
-                        ("400 Bad Request", "{}".into())
-                    }
-                    ("POST", "/v1/kv/data/photo-sse-c") => ("200 OK", "{}".into()),
-                    ("POST", "/v1/transit/decrypt/photo-sse-c") => (
-                        "200 OK",
-                        format!(
-                            r#"{{"data":{{"plaintext":"{}"}}}}"#,
-                            BASE64.encode([9_u8; 32])
-                        ),
-                    ),
-                    _ => ("500 Internal Server Error", "{}".into()),
-                };
-                stream
-                    .write_all(response(status, &body).as_bytes())
-                    .unwrap();
-            }
-        });
-        let client = VaultClient {
-            http: reqwest::Client::new(),
-            addr: format!("http://{}", address),
-            token_file: Some(token_path.clone()),
-        };
-        (client, handle, token_path, request_bodies)
-    }
-
-    #[tokio::test]
-    async fn photo_key_is_provisioned_and_plaintext_is_not_persisted() {
-        let (client, handle, token_path, request_bodies) = stub_client(false);
-        let key = client.photo_sse_c_key().await.unwrap();
-        assert_eq!(key.as_slice(), &[7_u8; 32]);
-        handle.join().unwrap();
-        let body = request_bodies.lock().unwrap().first().cloned().unwrap();
-        assert!(body.contains("wrapped_dek"));
-        assert!(!body.contains(&BASE64.encode([7_u8; 32])));
-        std::fs::remove_file(token_path).unwrap();
-    }
-
-    #[tokio::test]
-    async fn photo_key_uses_winner_after_kv_cas_conflict() {
-        let (client, handle, token_path, _request_bodies) = stub_client(true);
-        let key = client.photo_sse_c_key().await.unwrap();
-        assert_eq!(key.as_slice(), &[9_u8; 32]);
-        handle.join().unwrap();
-        std::fs::remove_file(token_path).unwrap();
-    }
-
-    #[tokio::test]
-    async fn photo_key_without_vault_token_is_unavailable() {
-        let client = VaultClient {
-            http: reqwest::Client::new(),
-            addr: "http://127.0.0.1:1".into(),
-            token_file: None,
-        };
-        let result = client.photo_sse_c_key().await;
-        assert!(matches!(
-            result,
-            Err(breakdown_core::error::DomainError::ServiceUnavailable(_))
-        ));
-    }
-
-    #[test]
-    fn envelope_round_trip_preserves_plaintext() {
-        let dek = [7_u8; 32];
-        let payload = encrypt_envelope(&dek, b"refresh-token").unwrap();
-        assert_eq!(decrypt_envelope(&dek, &payload).unwrap(), b"refresh-token");
-    }
-
-    #[test]
-    fn envelope_rejects_truncated_payload() {
-        assert!(decrypt_envelope(&[7_u8; 32], &[0_u8; 11]).is_err());
-    }
-
-    #[test]
-    fn envelope_rejects_modified_ciphertext() {
-        let dek = [7_u8; 32];
-        let mut payload = encrypt_envelope(&dek, b"secret").unwrap();
-        let last = payload.len() - 1;
-        payload[last] ^= 1;
-        assert!(decrypt_envelope(&dek, &payload).is_err());
-    }
-
-    #[test]
-    fn binding_key_from_another_settings_id_is_rejected() {
-        let settings_id = uuid::Uuid::now_v7();
-        let other_id = uuid::Uuid::now_v7();
-        let key_id = format!("settings-{other_id}");
-        let error = validate_binding_key(settings_id, &key_id).unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("invalid credential Vault key reference")
-        );
-    }
-
-    #[test]
-    fn photo_datakey_requires_exactly_32_bytes() {
-        let valid = BASE64.encode([7_u8; 32]);
-        let decoded = VaultClient::decode_datakey(valid).unwrap();
-        assert!(VaultClient::validated_photo_key(decoded).is_ok());
-
-        let invalid = BASE64.encode([7_u8; 31]);
-        let decoded = VaultClient::decode_datakey(invalid).unwrap();
-        assert!(VaultClient::validated_photo_key(decoded).is_err());
-        assert_eq!(PHOTO_SSE_C_KEY_ID, "photo-sse-c");
-    }
 }

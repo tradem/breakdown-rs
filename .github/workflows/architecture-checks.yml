@@ -13,7 +13,8 @@ permissions:
 #   Layer 3: no-string-interpolation-sql — forbids dynamic SQL construction in repository adapters
 #   Layer 4: cqrs-boundary — ast-grep: write-side code (adapters, sagas) must not query read-model projections
 #   Layer 5: test-shim-leak — ast-grep: production api code must not call test-only helpers
-#   Layer 6: gitleaks — blocks accidental secret commits against 150+ patterns
+#   Layer 6: error-hygiene — ast-grep: no discarded results (`let _ = <call>`), test helpers must be cfg-gated
+#   Layer 7: gitleaks — blocks accidental secret commits against 150+ patterns
 #
 # See backend/AGENTS.md § Testing & Guardrails and § Security
 # See backend/docs/architecture/adrs/ADR-017-architecture-testing-strategy.md
@@ -91,6 +92,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Read-only job: no authenticated git commands are run after checkout.
+          persist-credentials: false
 
       - name: Install ast-grep 0.45.0 (SHA-pinned)
         run: |
@@ -131,6 +135,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Read-only job: no authenticated git commands are run after checkout.
+          persist-credentials: false
 
       - name: Install ast-grep 0.45.0 (SHA-pinned)
         run: |
@@ -156,6 +163,49 @@ jobs:
             ast-grep scan -r rules/test-shim-leak.yml "${FILES[@]}"
           fi
           echo "OK: no test-only helpers reachable from production api code"
+
+  error-hygiene:
+    name: Error hygiene (no discarded results, test helpers cfg-gated)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Read-only job: no authenticated git commands are run after checkout.
+          persist-credentials: false
+
+      - name: Install ast-grep 0.45.0 (SHA-pinned)
+        run: |
+          set -e
+          curl -fsSL -o /tmp/ast-grep.zip https://github.com/ast-grep/ast-grep/releases/download/0.45.0/app-x86_64-unknown-linux-gnu.zip
+          echo "78931ae35ebac33d9a72b3aecea3e3d62d6e5b0b718ac8bbedfbe69d68421e41  /tmp/ast-grep.zip" | sha256sum -c -
+          unzip -q /tmp/ast-grep.zip -d /tmp/ast-grep-install
+          sudo mv /tmp/ast-grep-install/ast-grep /usr/local/bin/
+          ast-grep --version
+
+      - name: Forbid discarded results and ungated test helpers (ast-grep)
+        run: |
+          set -e
+          # Production source files under crates/*/src — test modules excluded
+          # (*_tests.rs, *_test.rs, test_helpers.rs, any tests/ dir). Bins are
+          # included (they are production code).
+          mapfile -t FILES < <(find crates -path '*/src/*' -name '*.rs' \
+            ! -name '*_tests.rs' ! -name '*_test.rs' ! -name 'test_helpers.rs' \
+            ! -path '*/tests/*' ! -path '*/test_helpers/*')
+          # AST-based rules: backend/rules/discard-result.yml — `let _ = <call>`
+          # silently swallows errors (issue #165: delete failures were hidden);
+          # backend/rules/test-helper-gate.yml — *_for_test helpers must be
+          # gated behind #[cfg(feature = "test-support")]. Intentional cases
+          # require an explicit `// ast-grep-ignore: <rule-id>` + justification.
+          if [ "${#FILES[@]}" -gt 0 ]; then
+            ast-grep scan -r rules/discard-result.yml "${FILES[@]}"
+            ast-grep scan -r rules/test-helper-gate.yml "${FILES[@]}"
+          fi
+          echo "OK: no discarded results / ungated test helpers found"
 
   gitleaks:
     name: Gitleaks (secrets)

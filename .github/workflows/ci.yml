@@ -40,7 +40,10 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: "backend"
-      - run: cargo test --workspace --exclude integration-tests --exclude breakdown-fuzz-targets
+      - run: cargo test --workspace --features infra/test-support --exclude integration-tests --exclude breakdown-fuzz-targets
+      # The patched kameo_es crate is not a workspace member, so its ack
+      # tracker tests are run explicitly here (issue #165 ack semantics).
+      - run: cargo test --manifest-path .patches/kameo_es/Cargo.toml --test ack_tracker
 
   clippy:
     name: Clippy

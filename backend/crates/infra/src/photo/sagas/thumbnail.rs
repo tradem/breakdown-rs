@@ -27,6 +27,7 @@ use sierradb_client::ExpectedVersion;
 use sierradb_client::SierraAsyncClientExt;
 
 use crate::event_store::map_version_only;
+use crate::photo::sagas::retry_transient;
 use crate::photo::storage::OpenDalPhotoStorage;
 use crate::projectors::supervisor;
 
@@ -67,20 +68,29 @@ impl EntityEventHandler<PhotoAggregate, ()> for PhotoThumbnailSaga {
             // Missing metadata yields None — same tolerant best-effort path as
             // the old projection-based resolution.
             let series_id = event.metadata.data.as_ref().and_then(|m| m.series_id);
-            self.process_upload(id, series_id).await?;
+            self.process_upload_with_recovery(id, series_id).await?;
         }
         Ok(())
     }
 }
 
 impl PhotoThumbnailSaga {
+    /// [`Self::process_upload`] wrapped in transient `ServiceUnavailable`
+    /// retry (Vault recovery, issue #165). Retrying the action as a whole is
+    /// safe: a `ServiceUnavailable` can only be raised while the SSE-C
+    /// operator is not yet constructed — i.e. no storage operation has
+    /// succeeded — so there is no partial progress to corrupt on retry.
+    async fn process_upload_with_recovery(
+        &self,
+        id: PhotoId,
+        series_id: Option<SeriesId>,
+    ) -> Result<()> {
+        retry_transient(|| self.process_upload(id, series_id)).await
+    }
+
     async fn process_upload(&self, id: PhotoId, series_id: Option<SeriesId>) -> Result<()> {
         // Fetch the original bytes from storage.
-        let photo_bytes = self
-            .storage
-            .fetch(id, PhotoVariant::Original)
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let photo_bytes = self.storage.fetch(id, PhotoVariant::Original).await?;
 
         // Decode the image, read EXIF orientation, and re-encode.
         let (re_encoded, rotated, thumb_bytes, medium_bytes) =
@@ -94,8 +104,7 @@ impl PhotoThumbnailSaga {
                 re_encoded,
                 photo_bytes.content_type.clone(),
             )
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+            .await?;
 
         // Store the generated variants.
         self.storage
@@ -105,8 +114,7 @@ impl PhotoThumbnailSaga {
                 thumb_bytes,
                 "image/jpeg".to_string(),
             )
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+            .await?;
         self.storage
             .store(
                 id,
@@ -114,8 +122,7 @@ impl PhotoThumbnailSaga {
                 medium_bytes,
                 "image/jpeg".to_string(),
             )
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+            .await?;
 
         // Dispatch the normalization command via Aggregate::execute.
         let norm_id = id;
@@ -134,7 +141,7 @@ impl PhotoThumbnailSaga {
                 series_id,
             })
             .await;
-        map_version_only(result).map_err(|e| anyhow::anyhow!("{e}"))?;
+        map_version_only(result)?;
 
         // Dispatch the Thumb variant generation command.
         let thumb_id = id;
@@ -153,7 +160,7 @@ impl PhotoThumbnailSaga {
                 series_id,
             })
             .await;
-        map_version_only(result).map_err(|e| anyhow::anyhow!("{e}"))?;
+        map_version_only(result)?;
 
         // Dispatch the Medium variant generation command.
         let med_id = id;
@@ -172,7 +179,7 @@ impl PhotoThumbnailSaga {
                 series_id,
             })
             .await;
-        map_version_only(result).map_err(|e| anyhow::anyhow!("{e}"))?;
+        map_version_only(result)?;
 
         Ok(())
     }

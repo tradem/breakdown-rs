@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4-flash-free (opencode)
+
+# Test-helper gate: test-only constructors/helpers (named *_for_test / for_test)
+# must never be buildable in production. Learned from review (issue #165):
+# `VaultClient::for_test` was a public constructor reachable from production
+# builds; it is now gated behind `#[cfg(feature = "test-support")]`.
+#
+# Scan scope is restricted to production source files (crates/*/src, test
+# modules excluded) in the CI job and pre-commit hook.
+#
+# A helper that must ship in production for a legitimate reason is permitted
+# only with an explicit suppression:
+#   // ast-grep-ignore: test-helper-gate
+# on the definition line, carrying a justification comment above it.
+#
+# The declaration patterns cover the helper forms observed in the codebase:
+# plain / pub / pub(crate), sync / async, with and without an explicit return
+# type. The `constraints` block anchors the `for_test` regex on the function
+# NAME only (not the body text), and the `not.follows` excludes helpers
+# directly preceded by the `test-support` cfg attribute.
+id: test-helper-gate
+message: >-
+  A test-only helper (named *_for_test / for_test) is not gated behind
+  #[cfg(feature = "test-support")]. Test-only constructors must never be
+  buildable in production (issue #165 review lesson: VaultClient::for_test was
+  exposed unconditionally). Add #[cfg(feature = "test-support")] directly
+  above the definition, or — if this is intentional — suppress with an
+  explicit `// ast-grep-ignore: test-helper-gate` comment and a justification.
+severity: error
+language: Rust
+rule:
+  all:
+    - any:
+        - pattern: fn $FN($$$ARGS) -> $RET { $$$ }
+        - pattern: fn $FN($$$ARGS) { $$$ }
+        - pattern: async fn $FN($$$ARGS) -> $RET { $$$ }
+        - pattern: async fn $FN($$$ARGS) { $$$ }
+        - pattern: pub fn $FN($$$ARGS) -> $RET { $$$ }
+        - pattern: pub fn $FN($$$ARGS) { $$$ }
+        - pattern: pub(crate) fn $FN($$$ARGS) -> $RET { $$$ }
+        - pattern: pub(crate) fn $FN($$$ARGS) { $$$ }
+        - pattern: pub async fn $FN($$$ARGS) -> $RET { $$$ }
+        - pattern: pub async fn $FN($$$ARGS) { $$$ }
+        - pattern: pub(crate) async fn $FN($$$ARGS) -> $RET { $$$ }
+        - pattern: pub(crate) async fn $FN($$$ARGS) { $$$ }
+    - not:
+        follows:
+          pattern: '#[cfg(feature = "test-support")]'
+          stopBy: neighbor
+constraints:
+  FN:
+    regex: 'for_test'
