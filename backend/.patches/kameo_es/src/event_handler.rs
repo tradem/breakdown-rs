@@ -311,22 +311,25 @@ impl<E> UnprocessedEvent<E> {
 /// Events are processed strictly sequentially and cursors are a monotonic
 /// per-subscription sequence, so the cursor of the last processed event is
 /// also the highest cursor that may be acknowledged.
+///
+/// `pub` so the deterministic tests in `tests/` can verify the
+/// ack-after-processing contract without a live SierraDB subscription.
 #[derive(Debug, Default, Clone, Copy)]
-struct AckTracker {
+pub struct AckTracker {
     events_since_ack: u64,
 }
 
 impl AckTracker {
     /// Batch size for flow-control acknowledgement. Kept below the SierraDB
     /// subscription window so delivery never stalls behind the ack.
-    const BATCH_SIZE: u64 = 8_000;
+    pub const BATCH_SIZE: u64 = 8_000;
 
     /// Record a successfully processed event at `cursor`.
     ///
     /// Returns `Some(cursor)` when a batch acknowledgement should be sent —
     /// always the cursor of a *processed* event, never a
     /// received-but-unprocessed one.
-    fn processed(&mut self, cursor: u64) -> Option<u64> {
+    pub fn processed(&mut self, cursor: u64) -> Option<u64> {
         self.events_since_ack += 1;
         if self.events_since_ack >= Self::BATCH_SIZE {
             self.events_since_ack = 0;
@@ -334,43 +337,6 @@ impl AckTracker {
         } else {
             None
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::AckTracker;
-
-    #[test]
-    fn ack_fires_at_batch_boundary_with_the_processed_cursor() {
-        let mut ack = AckTracker::default();
-        for cursor in 1..AckTracker::BATCH_SIZE {
-            assert_eq!(ack.processed(cursor), None);
-        }
-        // The 8000th processed event triggers the batch ack at its own cursor.
-        assert_eq!(
-            ack.processed(AckTracker::BATCH_SIZE),
-            Some(AckTracker::BATCH_SIZE)
-        );
-        // Counter resets: the next event does not immediately trigger an ack.
-        assert_eq!(ack.processed(AckTracker::BATCH_SIZE + 1), None);
-    }
-
-    #[test]
-    fn a_failed_event_never_becomes_the_ack_cursor() {
-        let mut ack = AckTracker::default();
-        for cursor in 1..AckTracker::BATCH_SIZE {
-            assert_eq!(ack.processed(cursor), None);
-        }
-        // The event at BATCH_SIZE fails: `processed` is NOT called for it
-        // (the handler returned an error and the run loop aborts), so the
-        // ack boundary is not reached. The next successful event triggers
-        // the ack at ITS OWN cursor — the acked cursor always corresponds to
-        // a successfully processed event.
-        let acked = ack
-            .processed(AckTracker::BATCH_SIZE + 1)
-            .expect("boundary reached after the next successful event");
-        assert_eq!(acked, AckTracker::BATCH_SIZE + 1);
     }
 }
 

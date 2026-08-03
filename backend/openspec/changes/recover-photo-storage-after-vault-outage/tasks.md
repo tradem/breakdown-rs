@@ -18,9 +18,10 @@
 
 ## 4. Deterministic tests
 
-- [x] 4.1 Add Vault-recovery unit test for `OpenDalPhotoStorage` with a fake key source (fails N times, then succeeds; operator cached after recovery)
-- [x] 4.2 Add `retry_transient` unit tests (retries ServiceUnavailable until success; propagates permanent errors immediately)
-- [x] 4.3 Keep/verify the existing fail-closed integration test (`unavailable_photo_storage_does_not_write`) still passes
+- [x] 4.1 Add Vault-recovery test for `OpenDalPhotoStorage` in `crates/infra/tests/photo_storage_recovery.rs` (fake key source that recovers; operator cached after recovery)
+- [x] 4.2 Add `retry_transient` tests in `crates/infra/tests/photo_saga_retry.rs` (retries ServiceUnavailable until success; propagates permanent errors immediately)
+- [x] 4.3 Add `AckTracker` ack-after-processing tests in `.patches/kameo_es/tests/ack_tracker.rs` (tests/ layout per Issue #127 Variante B)
+- [x] 4.4 Keep/verify the existing fail-closed integration test (`unavailable_photo_storage_does_not_write`) still passes
 
 ## 5. Specs, docs, verification
 
