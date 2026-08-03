@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 //! HashiCorp Vault adapter for external credential material (ADR-027).
 //!
 //! The client is deliberately lazy: an unavailable Vault must not prevent the
@@ -297,6 +298,16 @@ impl VaultClient {
             return Err(Self::unavailable("photo SSE-C datakey must be 32 bytes"));
         }
         Ok(key)
+    }
+}
+
+// Recoverable photo key source (issue #165): `OpenDalPhotoStorage` calls
+// `resolve` lazily on demand and retries after a failure, so a Vault outage
+// at boot does not permanently disable photo storage.
+#[async_trait::async_trait]
+impl crate::photo::storage::PhotoStorageKeySource for VaultClient {
+    async fn resolve(&self) -> Result<Zeroizing<Vec<u8>>, DomainError> {
+        self.photo_sse_c_key().await
     }
 }
 

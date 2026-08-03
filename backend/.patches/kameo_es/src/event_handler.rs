@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 #[cfg(feature = "postgres")]
 pub mod postgres;
@@ -136,7 +137,9 @@ impl<P, H> From<RedisError> for EventHandlerError<P, H> {
 /// A stream which processes events using an `EventProcessor`.
 pub struct EventHandlerStream<E> {
     subscription: EventSubscription,
-    events_since_ack: u64,
+    /// Tracks the high-water cursor of *successfully processed* events and
+    /// when a batch acknowledgement is due.
+    ack: AckTracker,
     phantom: PhantomData<fn() -> E>,
 }
 
@@ -160,7 +163,7 @@ impl<E> EventHandlerStream<E> {
 
         Ok(EventHandlerStream {
             subscription,
-            events_since_ack: 0,
+            ack: AckTracker::default(),
             phantom: PhantomData,
         })
     }
@@ -175,7 +178,7 @@ impl<E> EventHandlerStream<E> {
         H: EventHandler<P::Context>,
     {
         match self.next().await? {
-            Ok(event) => Some(event.process(processor).await),
+            Ok(event) => Some(self.process_event_and_ack(processor, event).await),
             Err(err) => Some(Err(err.into())),
         }
     }
@@ -190,7 +193,8 @@ impl<E> EventHandlerStream<E> {
         H: EventHandler<P::Context>,
     {
         while let Some(unprocessed_event) = self.next().await.transpose()? {
-            unprocessed_event.process(processor).await?;
+            self.process_event_and_ack(processor, unprocessed_event)
+                .await?;
         }
         Ok(())
     }
@@ -199,26 +203,44 @@ impl<E> EventHandlerStream<E> {
         while let Some(event) = self.subscription.next_message().await {
             match event {
                 SierraMessage::Event { event, cursor } => {
-                    self.events_since_ack += 1;
-                    if self.events_since_ack >= 8_000 {
-                        trace!("acknowledging up to cursor {cursor}");
-                        if let Err(err) = self.subscription.acknowledge_up_to_cursor(cursor).await {
-                            return Some(Err(err.into()));
-                        }
-                        self.events_since_ack = 0;
-                    }
-
                     let event = match event_from_sierra(event) {
                         Ok(event) => event,
                         Err(err) => return Some(Err(err.into())),
                     };
-                    return Some(Ok(UnprocessedEvent::new(event)));
+                    return Some(Ok(UnprocessedEvent::new(event, cursor)));
                 }
                 SierraMessage::SubscriptionConfirmed { .. } => {}
             }
         }
 
         None
+    }
+
+    /// Process a single event and, on success, acknowledge its SierraDB
+    /// cursor. The cursor is acknowledged **only after** the handler
+    /// completed, so a failed event is never acknowledged and can be
+    /// redelivered (projectors resume from their Postgres checkpoint) or
+    /// retried (sagas retry transient failures in-loop).
+    async fn process_event_and_ack<P, H>(
+        &mut self,
+        processor: &mut P,
+        event: UnprocessedEvent<E>,
+    ) -> Result<(), EventHandlerError<P::Error, H::Error>>
+    where
+        E: 'static,
+        P: EventProcessor<E, H>,
+        H: EventHandler<P::Context>,
+    {
+        let cursor = event.cursor;
+        event.process(processor).await?;
+        if let Some(ack_cursor) = self.ack.processed(cursor) {
+            trace!("acknowledging up to cursor {ack_cursor}");
+            self.subscription
+                .acknowledge_up_to_cursor(ack_cursor)
+                .await
+                .map_err(EventHandlerError::from)?;
+        }
+        Ok(())
     }
 }
 
@@ -248,13 +270,17 @@ impl<P, H> From<NextEventError> for EventHandlerError<P, H> {
 #[must_use = "the event has not been processed yet"]
 pub struct UnprocessedEvent<E> {
     pub event: Event,
+    /// SierraDB cursor for this event. Acknowledged only after the event was
+    /// processed successfully.
+    pub cursor: u64,
     phantom: PhantomData<fn() -> E>,
 }
 
 impl<E> UnprocessedEvent<E> {
-    fn new(event: Event) -> Self {
+    fn new(event: Event, cursor: u64) -> Self {
         UnprocessedEvent {
             event,
+            cursor,
             phantom: PhantomData,
         }
     }
@@ -276,6 +302,75 @@ impl<E> UnprocessedEvent<E> {
             self.event.name
         );
         processor.process_event(self.event).await
+    }
+}
+
+/// Tracks the high-water cursor of *successfully processed* events and
+/// decides when a batch acknowledgement is due.
+///
+/// Events are processed strictly sequentially and cursors are a monotonic
+/// per-subscription sequence, so the cursor of the last processed event is
+/// also the highest cursor that may be acknowledged.
+#[derive(Debug, Default, Clone, Copy)]
+struct AckTracker {
+    events_since_ack: u64,
+}
+
+impl AckTracker {
+    /// Batch size for flow-control acknowledgement. Kept below the SierraDB
+    /// subscription window so delivery never stalls behind the ack.
+    const BATCH_SIZE: u64 = 8_000;
+
+    /// Record a successfully processed event at `cursor`.
+    ///
+    /// Returns `Some(cursor)` when a batch acknowledgement should be sent —
+    /// always the cursor of a *processed* event, never a
+    /// received-but-unprocessed one.
+    fn processed(&mut self, cursor: u64) -> Option<u64> {
+        self.events_since_ack += 1;
+        if self.events_since_ack >= Self::BATCH_SIZE {
+            self.events_since_ack = 0;
+            Some(cursor)
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AckTracker;
+
+    #[test]
+    fn ack_fires_at_batch_boundary_with_the_processed_cursor() {
+        let mut ack = AckTracker::default();
+        for cursor in 1..AckTracker::BATCH_SIZE {
+            assert_eq!(ack.processed(cursor), None);
+        }
+        // The 8000th processed event triggers the batch ack at its own cursor.
+        assert_eq!(
+            ack.processed(AckTracker::BATCH_SIZE),
+            Some(AckTracker::BATCH_SIZE)
+        );
+        // Counter resets: the next event does not immediately trigger an ack.
+        assert_eq!(ack.processed(AckTracker::BATCH_SIZE + 1), None);
+    }
+
+    #[test]
+    fn a_failed_event_never_becomes_the_ack_cursor() {
+        let mut ack = AckTracker::default();
+        for cursor in 1..AckTracker::BATCH_SIZE {
+            assert_eq!(ack.processed(cursor), None);
+        }
+        // The event at BATCH_SIZE fails: `processed` is NOT called for it
+        // (the handler returned an error and the run loop aborts), so the
+        // ack boundary is not reached. The next successful event triggers
+        // the ack at ITS OWN cursor — the acked cursor always corresponds to
+        // a successfully processed event.
+        let acked = ack
+            .processed(AckTracker::BATCH_SIZE + 1)
+            .expect("boundary reached after the next successful event");
+        assert_eq!(acked, AckTracker::BATCH_SIZE + 1);
     }
 }
 

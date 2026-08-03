@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: qwen3.6-35b (neuralwatt)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -17,6 +18,7 @@ use kameo_es::{Entity, Event};
 use redis::Client as RedisClient;
 use sierradb_client::SierraAsyncClientExt;
 
+use crate::photo::sagas::retry_transient;
 use crate::photo::storage::OpenDalPhotoStorage;
 use crate::projectors::supervisor;
 
@@ -45,10 +47,13 @@ impl EntityEventHandler<PhotoAggregate, ()> for PhotoBytesCleanupSaga {
         event: Event<PhotoEvent, EventMetadata>,
     ) -> Result<(), Self::Error> {
         if let PhotoEvent::PhotoDeleted { id, .. } = event.data {
-            self.storage
-                .delete_all(id)
-                .await
-                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            // Retry transient ServiceUnavailable (Vault recovery, issue #165):
+            // a deletion that cannot reach storage must not be dropped.
+            retry_transient(|| async {
+                self.storage.delete_all(id).await?;
+                Ok(())
+            })
+            .await?;
         }
         Ok(())
     }

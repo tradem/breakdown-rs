@@ -368,18 +368,11 @@ async fn main() -> Result<()> {
     // --- Photo storage (Garage / S3) ---
     // Vault is deliberately not a process-wide boot dependency: unrelated API
     // routes remain available, while photo storage fails closed rather than
-    // ever constructing a plaintext S3 operator.
-    let photo_storage = match credential_vault.photo_sse_c_key().await {
-        Ok(key) => OpenDalPhotoStorage::from_env_with_customer_key(key.as_slice()).map_err(|e| {
-            anyhow::anyhow!(
-                "Failed to initialise SSE-C photo storage: {e}. Check S3_ENDPOINT, S3_ACCESS_KEY, S3_SECRET_KEY"
-            )
-        })?,
-        Err(error) => {
-            warn!(error = %error, "Vault unavailable; photo storage is disabled until the next API restart");
-            OpenDalPhotoStorage::unavailable("Vault unavailable for photo SSE-C key")
-        }
-    };
+    // ever constructing a plaintext S3 operator. The SSE-C key is resolved
+    // lazily and retried on demand (issue #165), so a Vault outage at boot
+    // disables photo operations only until Vault becomes reachable again —
+    // no API restart required.
+    let photo_storage = OpenDalPhotoStorage::recoverable(Arc::new(credential_vault.clone()));
     let audit_repo = AuditRepositoryImpl::new(pool.clone());
 
     // Create command adapters with repository dependencies
