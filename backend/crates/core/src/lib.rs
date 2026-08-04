@@ -8,6 +8,7 @@
     test,
     allow(clippy::print_stdout, clippy::print_stderr, clippy::dbg_macro)
 )]
+pub mod ai;
 pub mod audit;
 pub mod block;
 pub mod character;

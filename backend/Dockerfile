@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: deepseek-v4-flash (opencode-go)
+# Co-authored-by: gpt-5.6-luna (opencode-go)
 
 # Multi-stage build for the Breakdown RS API binary.
 # Used by docker-compose.prod.yml (ADR-016). Builds the `api` crate from the
@@ -34,8 +35,10 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 FROM debian:bookworm-slim AS runtime
 
 # Minimal runtime deps + tini for proper signal handling.
+# poppler-utils provides the `pdftotext` CLI wrapper used by the AI script
+# import (ADR-013 prefers the CLI over an in-process pdf crate).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates tini && \
+    ca-certificates tini poppler-utils && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /usr/local/bin/breakdown-api /usr/local/bin/breakdown-api

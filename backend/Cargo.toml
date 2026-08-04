@@ -63,6 +63,16 @@ getrandom = "0.3"
 utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
 utoipa-swagger-ui = { version = "9", features = ["axum"] }
 
+# JSON Schema generation for LLM schema-constrained decoding (ADR-013 / ai context).
+# Coexists with `utoipa`: utoipa documents the API, schemars derives the JSON
+# Schema fed to the provider `response_format` parameter. Core must NOT depend
+# on this crate (architecture-tested) — only infra generates schemas.
+schemars = "1"
+
+# Native parsing of CSV shooting schedules (Drehplan) in the ai context.
+csv = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
 [workspace.lints.rust]
 # `unsafe` is forbidden in production code. Use `deny` (not `forbid`) so test
 # binaries that need `unsafe` for legit reasons (JWT/socket stubs in

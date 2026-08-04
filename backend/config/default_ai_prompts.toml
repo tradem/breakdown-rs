@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: gpt-5.6-luna (opencode-go)
+
+[script]
+text = """
+<role>Extract scenes from the supplied script text.</role>
+<context>Return only the static ScriptContext JSON structure.</context>
+<edge-case>When a value cannot be read confidently, leave it null and add an uncertainty with a note. A suggested_value must be clearly marked for user confirmation.</edge-case>
+"""
+
+[schedule]
+text = """
+<role>Extract shooting schedule rows from the supplied document.</role>
+<context>Return only the static ShootingSchedule JSON structure.</context>
+<edge-case>Do not invent scene numbers or dates. Leave unreadable values empty for review.</edge-case>
+"""

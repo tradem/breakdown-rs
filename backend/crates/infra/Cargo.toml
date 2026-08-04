@@ -18,6 +18,11 @@ required-features = ["test-support"]
 # Core-Domäne
 breakdown_core = { path = "../core", version = "0.2.0" }
 
+# JSON Schema for provider response_format constraints (ADR-013).
+schemars.workspace = true
+# Native CSV schedule parsing (ADR-013).
+csv.workspace = true
+
 # Event Sourcing & Actor
 kameo.workspace = true
 kameo_es.workspace = true

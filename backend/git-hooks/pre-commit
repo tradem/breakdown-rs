@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: deepseek-v4-flash (opencode-go)
+# Co-authored-by: gpt-5.6-luna (opencode-go)
 
 # Pre-commit hook for Breakdown RS Backend
 # Runs: gitleaks, rustfmt, clippy, cargo check, ast-grep guardrails
@@ -65,8 +66,9 @@ fi
 if [ -n "$STAGED_RS_FILES" ]; then
     echo "🛡️  Running ast-grep guardrails (cqrs-boundary / test-shim-leak / discard-result / test-helper-gate / uuid-v7-only / allow-panic-lint-justification)..."
     if command -v ast-grep &> /dev/null; then
-        # Write-side dirs → cqrs-boundary rule (see backend/rules/cqrs-boundary.yml)
-        WRITE_SIDE_FILES=$(echo "$STAGED_RS_FILES" | grep -E '^crates/infra/src/(event_store|sagas|photo/sagas)/' || true)
+        # Write-side dirs → cqrs-boundary rule (see backend/rules/cqrs-boundary.yml).
+        # AI workers are write-side code too and must stay projection-free.
+        WRITE_SIDE_FILES=$(echo "$STAGED_RS_FILES" | grep -E '^crates/infra/src/(event_store|sagas|photo/sagas|ai)/' || true)
         if [ -n "$WRITE_SIDE_FILES" ]; then
             echo "$WRITE_SIDE_FILES" | xargs -r ast-grep scan -r rules/cqrs-boundary.yml
         fi

@@ -1,8 +1,13 @@
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+<!-- Co-authored-by: gpt-5.6-luna (opencode-go) -->
+
 # ADR-013: Hybrid Architecture for LLM-based Script Parsing
 
-**Status**: Proposed  
+**Status**: Accepted
 **Date**: 2026-06-17  
 **Author**: Tobias Rademacher (@tradem)
+**Reference**: OpenSpec change `add-ai-script-and-schedule-import`
 
 ---
 

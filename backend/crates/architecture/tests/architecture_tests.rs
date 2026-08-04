@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: gpt-5.6-luna (opencode-go)
 //
 // Architecture tests enforcing hexagonal boundary rules (ADR-017).
 // Replaces the defunct arch_test-based guardrail (Issue #27).
@@ -54,6 +55,8 @@ const FORBIDDEN_CORE_DEPS: &[&str] = &[
     "redis",
     "sierradb-client",
     "tokio",
+    "schemars",
+    "reqwest",
     // Reporting engine / locale crates — must stay in infra only
     "typst",
     "typst-pdf",
@@ -128,6 +131,8 @@ fn core_must_not_depend_on_infrastructure_crates() {
             "sierradb_client",
             "breakdown_infra",
             "api",
+            "schemars",
+            "reqwest",
             // Reporting engine / locale crates — must stay in infra only
             "typst",
             "typst_pdf",

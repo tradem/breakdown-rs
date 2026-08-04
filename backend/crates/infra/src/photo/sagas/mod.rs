@@ -3,6 +3,10 @@
 // Co-authored-by: glm-5.2 (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: gpt-5.6-luna (opencode-go)
+
 pub mod bytes_cleanup;
 pub mod continuity_deletion;
 pub mod deletion;
@@ -64,6 +68,43 @@ where
                         delay_ms = delay.as_millis(),
                         error = %err,
                         "transient storage dependency failure; retrying saga work"
+                    );
+                }
+                tokio::time::sleep(delay).await;
+            }
+            Err(err) => return Err(err),
+        }
+    }
+}
+
+/// Value-returning variant used by workers that need to retry an operation
+/// without storing a result in a closure-captured mutable variable.
+pub async fn retry_transient_value<F, Fut, T>(op: F) -> Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T>>,
+{
+    let mut op = op;
+    let mut attempt: usize = 0;
+    loop {
+        match op().await {
+            Ok(value) => return Ok(value),
+            Err(err) if is_transient(&err) => {
+                attempt += 1;
+                let delay = supervisor::compute_backoff(attempt, TRANSIENT_MAX_DELAY);
+                if attempt.is_multiple_of(TRANSIENT_ESCALATION_ATTEMPTS) {
+                    tracing::error!(
+                        attempt,
+                        delay_ms = delay.as_millis(),
+                        error = %err,
+                        "dependency has been unavailable for {attempt} consecutive attempts; work is stalled"
+                    );
+                } else {
+                    tracing::warn!(
+                        attempt,
+                        delay_ms = delay.as_millis(),
+                        error = %err,
+                        "transient dependency failure; retrying work"
                     );
                 }
                 tokio::time::sleep(delay).await;

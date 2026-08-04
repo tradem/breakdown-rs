@@ -114,11 +114,17 @@ pub trait Ports: Clone + Send + Sync + 'static {
 #[derive(Clone, Debug)]
 pub struct AppState<P: Ports> {
     pub ports: P,
+    /// Rollout switch for AI import routes/workers. It is explicitly enabled
+    /// by `AI_IMPORT_ENABLED`; the default is safe/off.
+    pub ai_import_enabled: bool,
 }
 
 impl<P: Ports> AppState<P> {
     pub fn new(ports: P) -> Self {
-        Self { ports }
+        Self {
+            ports,
+            ai_import_enabled: infra::ai::AiImportFeature::from_env().enabled,
+        }
     }
 }
 

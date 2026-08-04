@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: deepseek-v4-flash (opencode-go)
+# Co-authored-by: gpt-5.6-luna (opencode-go)
 
 # CQRS boundary: write-side code (command adapters, sagas, aggregates) must
 # never query a read-model projection to resolve audit/derived context (e.g.
@@ -8,7 +9,7 @@
 # or a command field populated at the API edge (AGENTS.md §1).
 #
 # Scan scope is restricted to the write-side dirs in the CI job:
-#   crates/infra/src/event_store crates/infra/src/sagas crates/infra/src/photo/sagas
+#   crates/infra/src/event_store crates/infra/src/sagas crates/infra/src/photo/sagas crates/infra/src/ai
 #
 # A non-audit read-model lookup (e.g. the ExpectedVersion concurrency guard in
 # the photo deletion sagas) is permitted only with an explicit suppression:

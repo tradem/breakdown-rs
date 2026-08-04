@@ -1,3 +1,7 @@
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+<!-- Co-authored-by: gpt-5.6-luna (opencode-go) -->
+
 # Architecture Decision Records (ADRs)
 
 This directory contains Architecture Decision Records (ADRs) for the Breakdown
@@ -33,7 +37,7 @@ and their consequences.
 | [010](ADR-010-authentication-with-oidc.md) | Authentication with OpenID Connect (OIDC) | Accepted | 2026-06-17 | Tobias Rademacher (@tradem) |
 | [011](ADR-011-observability-with-opentelemetry.md) | Observability with OpenTelemetry (Tracing & Logging) | Proposed | 2026-06-17 | Tobias Rademacher (@tradem) |
 | [012](ADR-012-error-handling-thiserror-anyhow.md) | Error Handling with thiserror and anyhow in Axum | Accepted | 2026-06-17 | Tobias Rademacher (@tradem) |
-| [013](ADR-013-hybrid-llm-script-parsing-architecture.md) | Hybrid Architecture for LLM-based Script Parsing | Proposed | 2026-06-17 | Tobias Rademacher (@tradem) |
+| [013](ADR-013-hybrid-llm-script-parsing-architecture.md) | Hybrid Architecture for LLM-based Script Parsing | Accepted | 2026-06-17 | Tobias Rademacher (@tradem) |
 | [014](ADR-014-testcontainers-integration-testing.md) | Testcontainers-based integration testing | Accepted | 2026-06-21 | Tobias Rademacher (@tradem) |
 | [015](ADR-015-sierradb-event-store-postgres-projections.md) | SierraDB event store + PostgreSQL projections (CQRS split) | Accepted | 2026-06-23 | Tobias Rademacher (@tradem) |
 | [016](ADR-016-sierradb-runtime-and-round-trip.md) | SierraDB runtime & round-trip (image path, dev/prod runtime, Tier-4 tests) | Accepted | 2026-06-26 | Tobias Rademacher (@tradem) |
@@ -50,6 +54,7 @@ and their consequences.
 | [027](ADR-027-secrets-vault-for-external-credentials.md) | Secrets Vault for External Credentials (GDrive, AI Tokens) | Proposed | 2026-08-01 | Tobias Rademacher (@tradem); glm-5.2 (neuralwatt) |
 | [028](ADR-028-settings-aggregates-access-control.md) | Access Control for the Costume Designer / Costume Assistant Settings Aggregates View | Proposed | 2026-08-01 | Tobias Rademacher (@tradem); glm-5.2 (neuralwatt) |
 | [029](ADR-029-gdpr-right-to-erasure-append-only-log.md) | GDPR Art. 17 (Right to Erasure) in an Append-Only Event-Sourced System | Proposed | 2026-08-01 | Tobias Rademacher (@tradem); glm-5.2 (neuralwatt) |
+| [030](ADR-030-ai-import-bounded-context.md) | AI Import Bounded Context | Accepted | 2026-08-02 | Tobias Rademacher (@tradem); gpt-5.6-luna (opencode-go) |
 
 ## Creating a New ADR
 
