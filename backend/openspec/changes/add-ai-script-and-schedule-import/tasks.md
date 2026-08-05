@@ -72,7 +72,7 @@
 - [ ] 7.3 Idempotency: re-apply same preview → no duplicate aggregates (mapping hit)
 - [ ] 7.4 Resilience: simulate 5xx → `retry_transient` retries → success; 4xx → `Failed`
 - [ ] 7.5 Cost cap: oversized script → job `Failed` at `max_chunks_per_script`
-- [ ] 7.6 Ordering: schedule import before script apply → merge blocked
+- [x] 7.6 Ordering: schedule import before script apply → merge blocked
 - [ ] 7.7 Telemetry: `accept_as_is` recorded true on no-edit apply; `edit_distance` recorded on correction; no script text persisted
 
 ## 8. Guardrails, docs, security
