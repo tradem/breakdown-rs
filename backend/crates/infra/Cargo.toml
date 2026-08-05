@@ -1,6 +1,6 @@
 [package]
 name = "infra"
-version = "0.2.0"
+version = "0.3.0"
 edition.workspace = true
 license.workspace = true
 
@@ -16,7 +16,7 @@ required-features = ["test-support"]
 
 [dependencies]
 # Core-Domäne
-breakdown_core = { path = "../core", version = "0.2.0" }
+breakdown_core = { path = "../core", version = "0.3.0" }
 
 # JSON Schema for provider response_format constraints (ADR-013).
 schemars.workspace = true

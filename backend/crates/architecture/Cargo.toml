@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4-flash (opencode-go)
 #
 # Architecture tests expressing hexagonal-boundary rules (ADR-017).
 # Replaces the defunct arch_test-based guardrail (Issue #27).
@@ -12,9 +13,9 @@ license.workspace = true
 publish = false
 
 [dependencies]
-api = { path = "../api", version = "0.2.0" }
-breakdown_core = { path = "../core", version = "0.2.0" }
-infra = { path = "../infra", version = "0.2.0" }
+api = { path = "../api", version = "0.3.0" }
+breakdown_core = { path = "../core", version = "0.3.0" }
+infra = { path = "../infra", version = "0.3.0" }
 rust_arkitect = "0.3.7"
 toml = "1.1"
 
