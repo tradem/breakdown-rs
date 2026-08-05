@@ -59,10 +59,10 @@
 
 - [x] 6.1 Add `/v1/ai-import/providers` (GET curated enum) and `/v1/ai-import/providers/{provider}/models` (GET curated catalog) — read-only, requires `has_active_credential_role`
 - [x] 6.2 Add `AiConfig` CRUD handlers under `/v1/ai-import/config` — gated `has_active_credential_role`, `// AUTHZ-GATE:` comments
-- [ ] 6.3 Add `POST /v1/ai-import/scripts` (upload PDF → enqueue ScriptImportJob; dedup) and `POST /v1/ai-import/schedules` (upload CSV/DOC → enqueue ScheduleImportJob) — active costume-dept membership, `// AUTHZ-GATE:`
-- [ ] 6.4 Add `GET /v1/ai-import/jobs/{id}` and `GET /v1/ai-import/jobs/{id}/preview` (ScriptContext / ShootingSchedule / merged) — membership gate
-- [ ] 6.5 Add `POST /v1/ai-import/jobs/{id}/apply` (reviewed rows + per-row mapping decision → ApplyWorker dispatch) — membership gate, resolve `series_id` at edge, `// AUTHZ-GATE:`
-- [ ] 6.6 Register all routes on the production router + `ApiDoc` (utoipa) OpenAPI surface
+- [x] 6.3 Add `POST /v1/ai-import/scripts` (upload PDF → enqueue ScriptImportJob; dedup) and `POST /v1/ai-import/schedules` (upload CSV/DOC → enqueue ScheduleImportJob) — active costume-dept membership, `// AUTHZ-GATE:`
+- [x] 6.4 Add `GET /v1/ai-import/jobs/{id}` and `GET /v1/ai-import/jobs/{id}/preview` (ScriptContext / ShootingSchedule / merged) — membership gate
+- [x] 6.5 Add `POST /v1/ai-import/jobs/{id}/apply` (reviewed rows + per-row mapping decision → ApplyWorker dispatch) — membership gate, resolve `series_id` at edge, `// AUTHZ-GATE:`
+- [x] 6.6 Register all routes on the production router + `ApiDoc` (utoipa) OpenAPI surface
 - [ ] 6.7 Handler tests: dedup on re-upload, 403 for non-members, apply-gate rejections, crash-retry idempotency
 
 ## 7. Integration tests (crates/integration-tests)

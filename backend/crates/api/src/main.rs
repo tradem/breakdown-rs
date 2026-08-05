@@ -18,6 +18,7 @@ use api::auth::{AuthState, AuthorizationState};
 use api::routes::app_router;
 use api::state::{AppState, Ports, ProductionPorts};
 use breakdown_core::membership::policy::AuthorizationPolicy;
+use infra::ai::MemoryAiPreviewStore;
 use infra::event_store::{
     AiConfigCommandsImpl, BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl,
     CostumeCommandsImpl, EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl,
@@ -420,6 +421,9 @@ async fn main() -> Result<()> {
 
     // --- Report archival (staging + external + worker + triggers) ---
     let report_archival_queue = PgReportArchivalQueue::new(pool.clone());
+    let ai_import_queue = infra::ai::PgAiImportQueue::new(pool.clone());
+    let ai_import_mapping = infra::ai::PgAiImportMappingRepository::new(pool.clone());
+    let ai_preview_store = MemoryAiPreviewStore::default();
     let report_staging: std::sync::Arc<dyn breakdown_core::reporting::ReportArchiveStorage> =
         match OpenDalReportArchiveStorage::staging_from_env() {
             Ok(s) => std::sync::Arc::new(s),
@@ -522,6 +526,9 @@ async fn main() -> Result<()> {
         report_renderer,
         AiConfigCommandsImpl::new(cmd_service.clone()),
         ai_config_repo,
+        ai_import_queue,
+        ai_import_mapping,
+        ai_preview_store,
     );
     let app_state = AppState::new(ports);
 

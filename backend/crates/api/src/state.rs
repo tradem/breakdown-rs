@@ -26,6 +26,7 @@ use breakdown_core::scene_shoot::{
 use breakdown_core::season::{SeasonCommands, SeasonRepository};
 use breakdown_core::settings::{CredentialVault, SettingsCommands, SettingsRepository};
 use breakdown_core::shooting_day::{ShootingDayCommands, ShootingDayRepository};
+use infra::ai::{MemoryAiPreviewStore, PgAiImportMappingRepository, PgAiImportQueue};
 use infra::event_store::{
     AiConfigCommandsImpl, BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl,
     CostumeCommandsImpl, EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl,
@@ -164,6 +165,9 @@ pub struct ProductionPorts {
     report_renderer: Arc<dyn ReportRenderer>,
     ai_config_commands: AiConfigCommandsImpl,
     ai_config_repo: AiConfigRepositoryImpl,
+    ai_import_queue: PgAiImportQueue,
+    ai_import_mapping: PgAiImportMappingRepository,
+    ai_preview_store: MemoryAiPreviewStore,
 }
 
 impl ProductionPorts {
@@ -202,6 +206,9 @@ impl ProductionPorts {
         report_renderer: Arc<dyn ReportRenderer>,
         ai_config_commands: AiConfigCommandsImpl,
         ai_config_repo: AiConfigRepositoryImpl,
+        ai_import_queue: PgAiImportQueue,
+        ai_import_mapping: PgAiImportMappingRepository,
+        ai_preview_store: MemoryAiPreviewStore,
     ) -> Self {
         Self {
             scene_commands,
@@ -236,7 +243,22 @@ impl ProductionPorts {
             report_renderer,
             ai_config_commands,
             ai_config_repo,
+            ai_import_queue,
+            ai_import_mapping,
+            ai_preview_store,
         }
+    }
+
+    pub fn ai_import_queue(&self) -> &PgAiImportQueue {
+        &self.ai_import_queue
+    }
+
+    pub fn ai_import_mapping(&self) -> &PgAiImportMappingRepository {
+        &self.ai_import_mapping
+    }
+
+    pub fn ai_preview_store(&self) -> &MemoryAiPreviewStore {
+        &self.ai_preview_store
     }
 
     pub fn ai_config_commands(&self) -> &AiConfigCommandsImpl {

@@ -7,13 +7,17 @@
 //! Axum-Handler (Request → Command / Query)
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
+use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::{Json, Router, routing};
 use breakdown_core::ai::{
-    AiConfigCommands, AiConfigRepository, AiConfigView, CreateAiConfig, DocumentKind, LlmProvider,
-    ModelInfo, RevokeAiConfig, UpdateAiConfig,
+    AiConfigCommands, AiConfigRepository, AiConfigView, AiImportEnqueueRequest,
+    AiImportEnqueueResult, AiImportJobId, AiImportQueue, ApplyMapping, CreateAiConfig,
+    DocumentKind, LlmProvider, MergedPreview, ModelInfo, RevokeAiConfig, ScriptContext, Telemetry,
+    UpdateAiConfig,
 };
 use breakdown_core::audit::{AuditEntry, AuditRepository};
 use breakdown_core::block::commands::{CreateBlock, UpdateBlockTimeSpan};
@@ -91,8 +95,13 @@ use breakdown_core::shooting_day::events::ShootingDaySource;
 use breakdown_core::shooting_day::ports::{ShootingDayCommands, ShootingDayRepository};
 use breakdown_core::shooting_day::views::ShootingDayView;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
+
+use infra::ai::{
+    AiPreviewStore, ApplyScriptRequest, ApplyWorker, ScheduleApplyRequest, ScheduleApplyWorker,
+};
 
 use crate::auth::CurrentUser;
 use crate::state::{AppState, Ports, ProductionPorts};
@@ -4141,6 +4150,410 @@ pub async fn revoke_settings<P: Ports>(
     Ok((StatusCode::OK, Json(version)))
 }
 
+async fn authorize_ai_block(
+    state: &AppState<ProductionPorts>,
+    current_user: &CurrentUser,
+    headers: &HeaderMap,
+) -> Result<BlockId, (StatusCode, Json<ErrorResponse>)> {
+    let raw = headers
+        .get("x-active-block")
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| {
+            map_err(DomainError::ValidationError(
+                "X-Active-Block header is required for AI import".to_owned(),
+            ))
+        })?;
+    let uuid = Uuid::parse_str(raw).map_err(|error| {
+        map_err(DomainError::ValidationError(format!(
+            "invalid X-Active-Block header: {error}"
+        )))
+    })?;
+    let block_id = BlockId::from_uuid(uuid);
+    let block = state
+        .ports
+        .block_repo()
+        .find_by_id(uuid)
+        .await
+        .map_err(map_err)?;
+    let authorized = state
+        .ports
+        .membership_repo()
+        .has_active_costume_role_in_season(block.season_id, current_user.sub.clone())
+        .await
+        .unwrap_or(false);
+    if !authorized {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                message: "not authorized for this production block".to_owned(),
+            }),
+        ));
+    }
+    Ok(block_id)
+}
+
+async fn authorize_ai_job(
+    state: &AppState<ProductionPorts>,
+    current_user: &CurrentUser,
+    job: &breakdown_core::ai::AiImportJob,
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    if job.user_id != current_user.sub {
+        return Err(forbidden_ai_config());
+    }
+    if let Some(block_id) = job.block_id {
+        let block = state
+            .ports
+            .block_repo()
+            .find_by_id(block_id.0)
+            .await
+            .map_err(map_err)?;
+        let authorized = state
+            .ports
+            .membership_repo()
+            .has_active_costume_role_in_season(block.season_id, current_user.sub.clone())
+            .await
+            .unwrap_or(false);
+        if !authorized {
+            return Err(forbidden_ai_config());
+        }
+    }
+    Ok(())
+}
+
+fn digest_hex(body: &[u8]) -> String {
+    let digest = Sha256::digest(body);
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+async fn enqueue_ai_upload(
+    state: &AppState<ProductionPorts>,
+    current_user: CurrentUser,
+    headers: HeaderMap,
+    body: Bytes,
+    kind: DocumentKind,
+) -> ApiResult<AiImportJobId> {
+    if !state.ai_import_enabled {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                message: "AI import is disabled".to_owned(),
+            }),
+        ));
+    }
+    let block_id = authorize_ai_block(state, &current_user, &headers).await?;
+    let bounds = infra::ai::AiImportFeature::from_env().bounds;
+    if body.len() as u64 > bounds.max_document_bytes {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(ErrorResponse {
+                message: "AI import document exceeds the configured size limit".to_owned(),
+            }),
+        ));
+    }
+    let digest = digest_hex(&body);
+    let job_id = AiImportJobId::new();
+    let source_handle = state
+        .ports
+        .ai_preview_store()
+        .put(job_id, body.to_vec())
+        .await
+        .map_err(map_err)?;
+    let result = state
+        .ports
+        .ai_import_queue()
+        .enqueue(AiImportEnqueueRequest {
+            id: job_id,
+            user_id: current_user.sub.clone(),
+            document_kind: kind,
+            block_id: Some(block_id),
+            dedup_key: format!("{}|{}|{}", current_user.sub.as_str(), kind.as_str(), digest),
+            document_digest: digest,
+            source_handle,
+        })
+        .await
+        .map_err(map_err)?;
+    let (status, id) = match result {
+        AiImportEnqueueResult::Enqueued(id) => (StatusCode::ACCEPTED, id),
+        AiImportEnqueueResult::Existing(id) => (StatusCode::OK, id),
+    };
+    Ok((status, Json(id)))
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/ai-import/scripts",
+    request_body(content = String, content_type = "application/pdf"),
+    responses((status = 202, body = AiImportJobId), (status = 403, body = ErrorResponse))
+)]
+pub async fn upload_ai_script(
+    State(state): State<AppState<ProductionPorts>>,
+    current_user: CurrentUser,
+    headers: HeaderMap,
+    body: Bytes,
+) -> ApiResult<AiImportJobId> {
+    // AUTHZ-GATE: script uploads require active costume-department membership.
+    let content_type = headers
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .split(';')
+        .next()
+        .unwrap_or_default();
+    if content_type != "application/pdf" {
+        return Err((
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            Json(ErrorResponse {
+                message: "script imports require application/pdf".to_owned(),
+            }),
+        ));
+    }
+    enqueue_ai_upload(&state, current_user, headers, body, DocumentKind::Script).await
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/ai-import/schedules",
+    request_body(content = String, content_type = "application/pdf"),
+    responses((status = 202, body = AiImportJobId), (status = 403, body = ErrorResponse))
+)]
+pub async fn upload_ai_schedule(
+    State(state): State<AppState<ProductionPorts>>,
+    current_user: CurrentUser,
+    headers: HeaderMap,
+    body: Bytes,
+) -> ApiResult<AiImportJobId> {
+    // AUTHZ-GATE: schedule uploads require active costume-department membership.
+    let content_type = headers
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .split(';')
+        .next()
+        .unwrap_or_default();
+    if !matches!(content_type, "application/pdf" | "text/csv" | "text/plain") {
+        return Err((
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            Json(ErrorResponse {
+                message: "schedule imports require PDF or CSV content".to_owned(),
+            }),
+        ));
+    }
+    enqueue_ai_upload(&state, current_user, headers, body, DocumentKind::Schedule).await
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct AiImportJobResponse {
+    pub job: breakdown_core::ai::AiImportJob,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/ai-import/jobs/{id}",
+    params(("id" = Uuid, Path)),
+    responses((status = 200, body = AiImportJobResponse), (status = 404, body = ErrorResponse))
+)]
+pub async fn get_ai_import_job(
+    State(state): State<AppState<ProductionPorts>>,
+    current_user: CurrentUser,
+    Path(id): Path<AiImportJobId>,
+) -> ApiResult<AiImportJobResponse> {
+    // AUTHZ-GATE: job status is visible only to its submitting user.
+    let job = state
+        .ports
+        .ai_import_queue()
+        .get(id)
+        .await
+        .map_err(map_err)?;
+    let job = job.ok_or_else(|| {
+        map_err(DomainError::NotFound(format!(
+            "AiImportJob({})",
+            id.as_uuid()
+        )))
+    })?;
+    authorize_ai_job(&state, &current_user, &job).await?;
+    Ok((StatusCode::OK, Json(AiImportJobResponse { job })))
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/ai-import/jobs/{id}/preview",
+    params(("id" = Uuid, Path)),
+    responses((status = 200, body = Object), (status = 404, body = ErrorResponse))
+)]
+pub async fn get_ai_import_preview(
+    State(state): State<AppState<ProductionPorts>>,
+    current_user: CurrentUser,
+    Path(id): Path<AiImportJobId>,
+) -> ApiResult<serde_json::Value> {
+    // AUTHZ-GATE: preview content is visible only to its submitting user.
+    let job = state
+        .ports
+        .ai_import_queue()
+        .get(id)
+        .await
+        .map_err(map_err)?;
+    let job = job.ok_or_else(|| {
+        map_err(DomainError::NotFound(format!(
+            "AiImportJob({})",
+            id.as_uuid()
+        )))
+    })?;
+    authorize_ai_job(&state, &current_user, &job).await?;
+    let handle = job
+        .preview_handle
+        .ok_or_else(|| map_err(DomainError::NotFound("AI preview".to_owned())))?;
+    let payload = state
+        .ports
+        .ai_preview_store()
+        .get(&handle)
+        .await
+        .map_err(map_err)?
+        .ok_or_else(|| map_err(DomainError::NotFound("AI preview".to_owned())))?;
+    let value = serde_json::from_slice(&payload).map_err(|error| {
+        map_err(DomainError::ValidationError(format!(
+            "invalid AI preview JSON: {error}"
+        )))
+    })?;
+    Ok((StatusCode::OK, Json(value)))
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct ApplyAiImportRequest {
+    pub episode_id: EpisodeId,
+    pub series_id: Option<SeriesId>,
+    pub mappings: Vec<ApplyMapping>,
+    pub accept_as_is: bool,
+    pub edit_distance: u32,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ApplyAiImportResponse {
+    pub applied_count: u32,
+    pub created_days: u32,
+    pub planned_scene_shoots: u32,
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/ai-import/jobs/{id}/apply",
+    params(("id" = Uuid, Path)),
+    request_body = ApplyAiImportRequest,
+    responses((status = 200, body = ApplyAiImportResponse), (status = 403, body = ErrorResponse))
+)]
+pub async fn apply_ai_import(
+    State(state): State<AppState<ProductionPorts>>,
+    current_user: CurrentUser,
+    Path(id): Path<AiImportJobId>,
+    Json(request): Json<ApplyAiImportRequest>,
+) -> ApiResult<ApplyAiImportResponse> {
+    // AUTHZ-GATE: applying an AI preview is a privileged production mutation.
+    let job = state
+        .ports
+        .ai_import_queue()
+        .get(id)
+        .await
+        .map_err(map_err)?;
+    let job = job.ok_or_else(|| {
+        map_err(DomainError::NotFound(format!(
+            "AiImportJob({})",
+            id.as_uuid()
+        )))
+    })?;
+    authorize_ai_job(&state, &current_user, &job).await?;
+    if job.status != breakdown_core::ai::JobStatus::Succeeded {
+        return Err(map_err(DomainError::Conflict(
+            "only a succeeded AI preview can be applied".to_owned(),
+        )));
+    }
+    let handle = job
+        .preview_handle
+        .as_deref()
+        .ok_or_else(|| map_err(DomainError::NotFound("AI preview".to_owned())))?;
+    let payload = state
+        .ports
+        .ai_preview_store()
+        .get(handle)
+        .await
+        .map_err(map_err)?
+        .ok_or_else(|| map_err(DomainError::NotFound("AI preview".to_owned())))?;
+    let telemetry = Telemetry {
+        doc_kind: Some(job.document_kind),
+        accept_as_is: Some(request.accept_as_is),
+        edit_distance: request.edit_distance,
+        ..Telemetry::default()
+    };
+    match job.document_kind {
+        DocumentKind::Script => {
+            let preview: ScriptContext = serde_json::from_slice(&payload).map_err(|error| {
+                map_err(DomainError::ValidationError(format!(
+                    "invalid ScriptContext preview: {error}"
+                )))
+            })?;
+            let worker = ApplyWorker {
+                scene_commands: Arc::new(state.ports.scene_commands().clone()),
+                mappings: Arc::new(state.ports.ai_import_mapping().clone()),
+                queue: Arc::new(state.ports.ai_import_queue().clone()),
+            };
+            let applied = worker
+                .apply_script(ApplyScriptRequest {
+                    actor: current_user.sub,
+                    preview_id: id,
+                    preview: &preview,
+                    decisions: &request.mappings,
+                    episode_id: request.episode_id,
+                    series_id: request.series_id,
+                    telemetry: Some(telemetry),
+                })
+                .await
+                .map_err(map_err)?;
+            Ok((
+                StatusCode::OK,
+                Json(ApplyAiImportResponse {
+                    applied_count: applied.len() as u32,
+                    created_days: 0,
+                    planned_scene_shoots: 0,
+                }),
+            ))
+        }
+        DocumentKind::Schedule => {
+            let preview: MergedPreview = serde_json::from_slice(&payload).map_err(|error| {
+                map_err(DomainError::ValidationError(format!(
+                    "invalid merged preview: {error}"
+                )))
+            })?;
+            let worker = ScheduleApplyWorker {
+                scene_commands: Arc::new(state.ports.scene_commands().clone()),
+                shooting_day_commands: Arc::new(state.ports.shooting_day_commands().clone()),
+                scene_shoot_commands: Arc::new(state.ports.scene_shoot_commands().clone()),
+                mappings: Arc::new(state.ports.ai_import_mapping().clone()),
+            };
+            let result = worker
+                .apply(ScheduleApplyRequest {
+                    actor: current_user.sub,
+                    preview_id: id,
+                    preview: &preview,
+                    series_id: request.series_id,
+                })
+                .await
+                .map_err(map_err)?;
+            state
+                .ports
+                .ai_import_queue()
+                .record_telemetry(id, telemetry)
+                .await
+                .map_err(map_err)?;
+            Ok((
+                StatusCode::OK,
+                Json(ApplyAiImportResponse {
+                    applied_count: 0,
+                    created_days: result.created_days,
+                    planned_scene_shoots: result.planned_scene_shoots,
+                }),
+            ))
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct CreateAiConfigRequest {
     pub provider: LlmProvider,
@@ -4428,6 +4841,26 @@ fn parse_ai_provider(value: &str) -> Result<LlmProvider, DomainError> {
 /// Build the full Axum router using the concrete `ProductionPorts` bundle.
 pub fn routes() -> Router<AppState<ProductionPorts>> {
     Router::new()
+        .route(
+            "/v1/ai-import/scripts",
+            routing::post(upload_ai_script),
+        )
+        .route(
+            "/v1/ai-import/schedules",
+            routing::post(upload_ai_schedule),
+        )
+        .route(
+            "/v1/ai-import/jobs/{id}",
+            routing::get(get_ai_import_job),
+        )
+        .route(
+            "/v1/ai-import/jobs/{id}/preview",
+            routing::get(get_ai_import_preview),
+        )
+        .route(
+            "/v1/ai-import/jobs/{id}/apply",
+            routing::post(apply_ai_import),
+        )
         .route(
             "/v1/ai-import/config",
             routing::post(create_ai_config),

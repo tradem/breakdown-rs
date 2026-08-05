@@ -86,13 +86,13 @@ pub struct ShootingScheduleRow {
     pub order: Option<u32>,
 }
 
-#[derive(Debug, Clone, Serialize, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct MergedScene {
     pub scene: SceneView,
     pub schedule_rows: Vec<ShootingScheduleRow>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, ToSchema)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, ToSchema)]
 pub struct MergedPreview {
     pub scenes: Vec<MergedScene>,
     pub unmatched_schedule_rows: Vec<ShootingScheduleRow>,

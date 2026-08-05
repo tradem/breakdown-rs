@@ -18,7 +18,7 @@ pub trait AiPreviewStore: Send + Sync {
 
 /// Small in-memory preview store for unit tests and local development. The
 /// production composition root can replace it with an object-store adapter.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct MemoryAiPreviewStore {
     values: Arc<RwLock<HashMap<String, Vec<u8>>>>,
 }
@@ -33,6 +33,15 @@ impl AiPreviewStore for MemoryAiPreviewStore {
 
     async fn get(&self, handle: &str) -> Result<Option<Vec<u8>>, DomainError> {
         Ok(self.values.read().await.get(handle).cloned())
+    }
+}
+
+#[async_trait]
+impl AiDocumentSource for MemoryAiPreviewStore {
+    async fn load(&self, handle: &str) -> Result<Vec<u8>, DomainError> {
+        self.get(handle)
+            .await?
+            .ok_or_else(|| DomainError::NotFound(format!("AI document source {handle}")))
     }
 }
 
