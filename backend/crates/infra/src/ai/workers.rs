@@ -82,12 +82,7 @@ where
                 "script chunk count exceeds telemetry range: {error}"
             ))
         })?;
-        if chunks.len() > self.bounds.max_chunks_per_script as usize {
-            let error = DomainError::ValidationError(format!(
-                "script contains {} chunks, exceeding max_chunks_per_script {}",
-                chunks.len(),
-                self.bounds.max_chunks_per_script
-            ));
+        if let Err(error) = validate_chunk_count(chunks.len(), self.bounds.max_chunks_per_script) {
             self.fail(job.id, &error).await?;
             return Err(error);
         }
@@ -405,6 +400,15 @@ pub struct ApplyScriptRequest<'a> {
 pub struct UuidVersion {
     pub aggregate_id: uuid::Uuid,
     pub version: breakdown_core::shared::AggregateVersion,
+}
+
+pub fn validate_chunk_count(chunk_count: usize, max_chunks: u32) -> Result<(), DomainError> {
+    if chunk_count > max_chunks as usize {
+        return Err(DomainError::ValidationError(format!(
+            "script contains {chunk_count} chunks, exceeding max_chunks_per_script {max_chunks}"
+        )));
+    }
+    Ok(())
 }
 
 async fn retry_chat<C>(client: &C, request: LlmChatRequest) -> Result<ScriptContext, DomainError>

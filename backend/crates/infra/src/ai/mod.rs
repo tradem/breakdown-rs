@@ -48,10 +48,13 @@ pub use schedule_apply::{
 pub use shutdown::{AiJobGuard, AiWorkerLifecycle};
 pub use workers::{
     ApplyScriptRequest, ApplyWorker, MergeWorker, ScheduleImportWorker, ScriptImportWorker,
-    UuidVersion,
+    UuidVersion, validate_chunk_count,
 };
 
 use breakdown_core::ai::{AiImportBounds, CuratedLlmProvider, LlmProvider, ModelInfo};
+
+#[cfg(test)]
+mod tests;
 
 /// Environment-gated rollout switch. It is off unless explicitly enabled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
