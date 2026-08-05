@@ -3,5 +3,6 @@
 -- Co-authored-by: gpt-5.6-luna (opencode-go)
 
 DROP TABLE IF EXISTS ai_import.projection_ai_import_mapping;
+DROP TABLE IF EXISTS ai_import.concurrency_counter;
 DROP TABLE IF EXISTS ai_import.ai_import_job;
 DROP SCHEMA IF EXISTS ai_import;

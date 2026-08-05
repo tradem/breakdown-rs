@@ -17,9 +17,11 @@ pub mod mapping;
 pub mod merge_worker;
 pub mod ollama;
 pub mod pdf;
+pub mod pg_concurrency;
 pub mod preview_store;
 pub mod prompts;
 pub mod queue;
+pub mod schedule_apply;
 pub mod shutdown;
 pub mod workers;
 
@@ -32,9 +34,13 @@ pub use mapping::PgAiImportMappingRepository;
 pub use merge_worker::{QueueMergeWorker, merge_loaded_schedule};
 pub use ollama::OllamaChatClient;
 pub use pdf::PdfTextExtractor;
+pub use pg_concurrency::{PgAiConcurrencyLimiter, PgAiConcurrencyPermit};
 pub use preview_store::{AiDocumentSource, AiPreviewStore, MemoryAiPreviewStore};
 pub use prompts::default_prompt;
 pub use queue::PgAiImportQueue;
+pub use schedule_apply::{
+    AppliedDay, ScheduleApplyRequest, ScheduleApplyResult, ScheduleApplyWorker,
+};
 pub use shutdown::{AiJobGuard, AiWorkerLifecycle};
 pub use workers::{
     ApplyScriptRequest, ApplyWorker, MergeWorker, ScheduleImportWorker, ScriptImportWorker,

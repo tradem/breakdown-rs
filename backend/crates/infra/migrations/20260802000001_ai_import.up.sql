@@ -39,6 +39,17 @@ CREATE INDEX idx_ai_import_job_claim
 CREATE INDEX idx_ai_import_job_block
     ON ai_import.ai_import_job (block_id);
 
+CREATE TABLE ai_import.concurrency_counter (
+    scope               TEXT NOT NULL,
+    user_id             TEXT NOT NULL DEFAULT '',
+    in_flight           INT NOT NULL DEFAULT 0 CHECK (in_flight >= 0),
+    PRIMARY KEY (scope, user_id)
+);
+
+INSERT INTO ai_import.concurrency_counter (scope, user_id, in_flight)
+VALUES ('global', '', 0)
+ON CONFLICT (scope, user_id) DO NOTHING;
+
 CREATE TABLE ai_import.projection_ai_import_mapping (
     preview_id          UUID NOT NULL,
     draft_ref           TEXT NOT NULL,
