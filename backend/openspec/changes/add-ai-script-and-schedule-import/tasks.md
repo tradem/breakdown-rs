@@ -47,9 +47,9 @@
 - [x] 5.1 New PG migration: `ai_import` schema with `ai_import_job` table + `projection_ai_import_mapping` table (dedup_key, status enum, telemetry columns; mirroring report-archival layout)
 - [x] 5.2 Implement `AiImportQueue` adapter (PG; enqueue dedup by doc hash + user; claim/status transitions; `DeadLetter`)
 - [x] 5.3 Implement `AiImportMappingRepository` adapter (PG; `WHERE` version-guard-style idempotent insert)
-- [ ] 5.4 Implement `ScriptImportWorker`: dequeue → pdftotext → chunk → per-chunk `LlmClient` (bounded by `max_chunks_per_script`) → assemble `ScriptContext` preview blob → store + project preview + telemetry
-- [ ] 5.5 Implement `ScheduleImportWorker`: dequeue → CSV parse or LLM → `ShootingSchedule` preview blob → telemetry
-- [ ] 5.6 Implement `MergeWorker`: dequeue → load schedule preview + Scene read-model projection by block → `merge_schedule_to_scenes` → block until block has applied scenes → store merged preview + unmatched lists
+- [x] 5.4 Implement `ScriptImportWorker`: dequeue → pdftotext → chunk → per-chunk `LlmClient` (bounded by `max_chunks_per_script`) → assemble `ScriptContext` preview blob → store + project preview + telemetry
+- [x] 5.5 Implement `ScheduleImportWorker`: dequeue → CSV parse or LLM → `ShootingSchedule` preview blob → telemetry
+- [x] 5.6 Implement `MergeWorker`: dequeue → load schedule preview + Scene read-model projection by block → `merge_schedule_to_scenes` → block until block has applied scenes → store merged preview + unmatched lists
 - [ ] 5.7 Implement `ApplyWorker`: reviewed rows → planner → dispatch existing commands (source: `AiExtracted`); per-row mapping check before Create; `series_id` resolved at the API edge (no write-side projection lookup)
 - [ ] 5.8 Per-user in-flight concurrency cap (advisory lock / PG counter); global concurrency cap from `AiImportBounds`
 - [ ] 5.9 Graceful shutdown: drain in-flight jobs to terminal state before `run()` returns `Ok(())`

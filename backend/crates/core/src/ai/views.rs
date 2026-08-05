@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, UserId};
+use crate::shared::{AggregateVersion, BlockId, UserId};
 
 use super::ports::LlmProvider;
 
@@ -98,8 +98,10 @@ pub struct AiImportJob {
     pub id: AiImportJobId,
     pub user_id: UserId,
     pub document_kind: DocumentKind,
+    pub block_id: Option<BlockId>,
     pub dedup_key: String,
     pub document_digest: String,
+    pub source_handle: String,
     pub status: JobStatus,
     pub preview_handle: Option<String>,
     pub last_error: Option<String>,

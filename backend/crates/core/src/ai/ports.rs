@@ -8,7 +8,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::error::DomainError;
-use crate::shared::{AggregateVersion, UserId};
+use crate::shared::{AggregateVersion, BlockId, UserId};
 
 use super::preview::{ScriptContext, ShootingSchedule};
 use super::views::{AiImportJob, AiImportJobId, DocumentKind, Telemetry};
@@ -94,6 +94,7 @@ pub struct AiImportEnqueueRequest {
     pub id: AiImportJobId,
     pub user_id: UserId,
     pub document_kind: DocumentKind,
+    pub block_id: Option<BlockId>,
     pub dedup_key: String,
     pub document_digest: String,
     pub source_handle: String,
@@ -112,6 +113,17 @@ pub trait AiImportQueue: Send + Sync {
         request: AiImportEnqueueRequest,
     ) -> Result<AiImportEnqueueResult, DomainError>;
     async fn claim_next(&self, worker_id: &str) -> Result<Option<AiImportJob>, DomainError>;
+
+    /// Claim only jobs for a worker's document kind. The default keeps simple
+    /// fakes compatible; production adapters should apply the filter in SQL.
+    async fn claim_next_kind(
+        &self,
+        worker_id: &str,
+        _kind: DocumentKind,
+    ) -> Result<Option<AiImportJob>, DomainError> {
+        self.claim_next(worker_id).await
+    }
+
     async fn get(&self, id: AiImportJobId) -> Result<Option<AiImportJob>, DomainError>;
     async fn mark_running(&self, id: AiImportJobId) -> Result<(), DomainError>;
     async fn mark_succeeded(

@@ -9,6 +9,7 @@ CREATE TABLE ai_import.ai_import_job (
     id                  UUID PRIMARY KEY,
     user_id             TEXT NOT NULL,
     document_kind       TEXT NOT NULL CHECK (document_kind IN ('script', 'schedule')),
+    block_id            UUID,
     dedup_key           TEXT NOT NULL,
     document_digest     TEXT NOT NULL,
     source_handle       TEXT NOT NULL,
@@ -34,6 +35,9 @@ CREATE TABLE ai_import.ai_import_job (
 
 CREATE INDEX idx_ai_import_job_claim
     ON ai_import.ai_import_job (status, next_attempt_at, created_at);
+
+CREATE INDEX idx_ai_import_job_block
+    ON ai_import.ai_import_job (block_id);
 
 CREATE TABLE ai_import.projection_ai_import_mapping (
     preview_id          UUID NOT NULL,

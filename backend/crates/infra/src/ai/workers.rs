@@ -3,6 +3,7 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::Error as AnyhowError;
 use breakdown_core::ai::{
@@ -19,7 +20,7 @@ use serde_json::to_vec;
 use uuid::Uuid;
 
 use super::pdf::PdfTextExtractor;
-use super::preview_store::AiPreviewStore;
+use super::preview_store::{AiDocumentSource, AiPreviewStore};
 use crate::photo::sagas::retry_transient_value;
 
 /// Script import pipeline. It is deliberately independent of HTTP and can be
@@ -41,6 +42,28 @@ where
     C: LlmClient + 'static,
     S: AiPreviewStore + 'static,
 {
+    pub async fn run_once(
+        &self,
+        worker_id: &str,
+        source: &dyn AiDocumentSource,
+    ) -> Result<bool, DomainError> {
+        let Some(job) = self
+            .queue
+            .claim_next_kind(worker_id, DocumentKind::Script)
+            .await?
+        else {
+            return Ok(false);
+        };
+        let bytes = match source.load(&job.source_handle).await {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                self.fail(job.id, &error).await?;
+                return Err(error);
+            }
+        };
+        self.process(&job, &bytes).await.map(|_| true)
+    }
+
     pub async fn process(
         &self,
         job: &AiImportJob,
@@ -51,8 +74,14 @@ where
                 "script worker received a non-script job".to_owned(),
             ));
         }
+        let started = Instant::now();
         let text = self.extractor.extract(pdf_bytes).await?;
         let chunks = extract_scenes(&text);
+        let chunk_count = u32::try_from(chunks.len()).map_err(|error| {
+            DomainError::ValidationError(format!(
+                "script chunk count exceeds telemetry range: {error}"
+            ))
+        })?;
         if chunks.len() > self.bounds.max_chunks_per_script as usize {
             let error = DomainError::ValidationError(format!(
                 "script contains {} chunks, exceeding max_chunks_per_script {}",
@@ -99,6 +128,19 @@ where
             DomainError::ValidationError(format!("could not serialize script preview: {error}"))
         })?;
         let handle = self.previews.put(job.id, payload).await?;
+        self.queue
+            .record_telemetry(
+                job.id,
+                Telemetry {
+                    provider: Some(self.provider),
+                    model: Some(self.model.clone()),
+                    doc_kind: Some(DocumentKind::Script),
+                    chunk_count,
+                    latency_total: started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+                    ..Telemetry::default()
+                },
+            )
+            .await?;
         self.queue.mark_succeeded(job.id, &handle).await?;
         Ok(handle)
     }
@@ -132,6 +174,29 @@ where
     C: LlmClient + 'static,
     S: AiPreviewStore + 'static,
 {
+    pub async fn run_once(
+        &self,
+        worker_id: &str,
+        source: &dyn AiDocumentSource,
+        native_csv: bool,
+    ) -> Result<bool, DomainError> {
+        let Some(job) = self
+            .queue
+            .claim_next_kind(worker_id, DocumentKind::Schedule)
+            .await?
+        else {
+            return Ok(false);
+        };
+        let bytes = match source.load(&job.source_handle).await {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                self.fail(job.id, &error).await?;
+                return Err(error);
+            }
+        };
+        self.process(&job, &bytes, native_csv).await.map(|_| true)
+    }
+
     pub async fn process(
         &self,
         job: &AiImportJob,
@@ -143,7 +208,8 @@ where
                 "schedule worker received a non-schedule job".to_owned(),
             ));
         }
-        let schedule = if native_csv {
+        let started = Instant::now();
+        let mut schedule = if native_csv {
             super::csv_schedule::parse_schedule_csv(bytes)?
         } else {
             let source_text = String::from_utf8(bytes.to_vec()).map_err(|error| {
@@ -161,12 +227,37 @@ where
             };
             retry_schedule(self.client.as_ref(), request).await?
         };
+        if schedule.block_id.is_none() {
+            schedule.block_id = job.block_id;
+        }
         let payload = to_vec(&schedule).map_err(|error| {
             DomainError::ValidationError(format!("could not serialize schedule preview: {error}"))
         })?;
         let handle = self.previews.put(job.id, payload).await?;
+        self.queue
+            .record_telemetry(
+                job.id,
+                Telemetry {
+                    provider: (!native_csv).then_some(self.provider),
+                    model: (!native_csv).then(|| self.model.clone()),
+                    doc_kind: Some(DocumentKind::Schedule),
+                    latency_total: started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+                    ..Telemetry::default()
+                },
+            )
+            .await?;
         self.queue.mark_succeeded(job.id, &handle).await?;
         Ok(handle)
+    }
+
+    async fn fail(&self, id: AiImportJobId, error: &DomainError) -> Result<(), DomainError> {
+        self.queue
+            .mark_failed(
+                id,
+                &error.to_string(),
+                matches!(error, DomainError::ServiceUnavailable(_)),
+            )
+            .await
     }
 }
 
@@ -343,5 +434,18 @@ async fn retry_schedule<C>(
 where
     C: LlmClient + ?Sized,
 {
-    client.extract_schedule(request).await
+    let outcome = retry_transient_value(|| async {
+        client
+            .extract_schedule(request.clone())
+            .await
+            .map_err(AnyhowError::new)
+    })
+    .await;
+    match outcome {
+        Ok(value) => Ok(value),
+        Err(error) => match error.downcast::<DomainError>() {
+            Ok(domain_error) => Err(domain_error),
+            Err(other) => Err(DomainError::ValidationError(other.to_string())),
+        },
+    }
 }

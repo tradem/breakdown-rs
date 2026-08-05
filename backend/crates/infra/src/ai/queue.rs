@@ -35,14 +35,15 @@ impl AiImportQueue for PgAiImportQueue {
         let result = sqlx::query(
             r#"
             INSERT INTO ai_import.ai_import_job
-                (id, user_id, document_kind, dedup_key, document_digest, source_handle)
-            VALUES ($1, $2, $3, $4, $5, $6)
+                (id, user_id, document_kind, block_id, dedup_key, document_digest, source_handle)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (user_id, dedup_key) DO NOTHING
             "#,
         )
         .bind(request.id.as_uuid())
         .bind(request.user_id.as_str())
         .bind(request.document_kind.as_str())
+        .bind(request.block_id.map(|block_id| block_id.0))
         .bind(&request.dedup_key)
         .bind(&request.document_digest)
         .bind(&request.source_handle)
@@ -90,6 +91,38 @@ impl AiImportQueue for PgAiImportQueue {
             RETURNING job.*
             "#,
         )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        row.map(map_job_row).transpose()
+    }
+
+    async fn claim_next_kind(
+        &self,
+        _worker_id: &str,
+        kind: DocumentKind,
+    ) -> Result<Option<AiImportJob>, DomainError> {
+        let row = sqlx::query(
+            r#"
+            WITH next_job AS (
+                SELECT id
+                FROM ai_import.ai_import_job
+                WHERE document_kind = $1
+                  AND (status = 'pending'
+                   OR (status = 'failed' AND
+                       (next_attempt_at IS NULL OR next_attempt_at <= now())))
+                ORDER BY created_at, id
+                FOR UPDATE SKIP LOCKED
+                LIMIT 1
+            )
+            UPDATE ai_import.ai_import_job AS job
+            SET status = 'running', updated_at = now()
+            FROM next_job
+            WHERE job.id = next_job.id
+            RETURNING job.*
+            "#,
+        )
+        .bind(kind.as_str())
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -238,8 +271,13 @@ fn map_job_row(row: sqlx::postgres::PgRow) -> Result<AiImportJob, DomainError> {
         id: AiImportJobId::from_uuid(id),
         user_id: breakdown_core::shared::UserId::from_sub(user_id),
         document_kind: kind,
+        block_id: row
+            .try_get::<Option<Uuid>, _>("block_id")
+            .map_err(map_sqlx_error)?
+            .map(breakdown_core::shared::BlockId::from_uuid),
         dedup_key: row.try_get("dedup_key").map_err(map_sqlx_error)?,
         document_digest: row.try_get("document_digest").map_err(map_sqlx_error)?,
+        source_handle: row.try_get("source_handle").map_err(map_sqlx_error)?,
         status,
         preview_handle: row.try_get("preview_handle").map_err(map_sqlx_error)?,
         last_error: row.try_get("last_error").map_err(map_sqlx_error)?,
