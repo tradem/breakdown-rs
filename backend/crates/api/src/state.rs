@@ -27,14 +27,15 @@ use breakdown_core::season::{SeasonCommands, SeasonRepository};
 use breakdown_core::settings::{CredentialVault, SettingsCommands, SettingsRepository};
 use breakdown_core::shooting_day::{ShootingDayCommands, ShootingDayRepository};
 use infra::event_store::{
-    BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl, CostumeCommandsImpl,
-    EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl, SceneCommandsImpl,
-    SceneShootCommandsImpl, SeasonCommandsImpl, SettingsCommandsImpl, ShootingDayCommandsImpl,
+    AiConfigCommandsImpl, BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl,
+    CostumeCommandsImpl, EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl,
+    SceneCommandsImpl, SceneShootCommandsImpl, SeasonCommandsImpl, SettingsCommandsImpl,
+    ShootingDayCommandsImpl,
 };
 use infra::photo::repository::PhotoRepositoryImpl;
 use infra::photo::storage::OpenDalPhotoStorage;
 use infra::queries::{
-    AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl,
+    AiConfigRepositoryImpl, AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl,
     CostumeCategoryRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl,
     MembershipRepositoryImpl, SceneRepositoryImpl, SceneShootReportRepositoryImpl,
     SceneShootRepositoryImpl, SeasonRepositoryImpl, SettingsRepositoryImpl,
@@ -161,6 +162,8 @@ pub struct ProductionPorts {
     scene_shoot_report_repo: SceneShootReportRepositoryImpl,
     report_archival_queue: PgReportArchivalQueue,
     report_renderer: Arc<dyn ReportRenderer>,
+    ai_config_commands: AiConfigCommandsImpl,
+    ai_config_repo: AiConfigRepositoryImpl,
 }
 
 impl ProductionPorts {
@@ -197,6 +200,8 @@ impl ProductionPorts {
         scene_shoot_report_repo: SceneShootReportRepositoryImpl,
         report_archival_queue: PgReportArchivalQueue,
         report_renderer: Arc<dyn ReportRenderer>,
+        ai_config_commands: AiConfigCommandsImpl,
+        ai_config_repo: AiConfigRepositoryImpl,
     ) -> Self {
         Self {
             scene_commands,
@@ -229,7 +234,17 @@ impl ProductionPorts {
             scene_shoot_report_repo,
             report_archival_queue,
             report_renderer,
+            ai_config_commands,
+            ai_config_repo,
         }
+    }
+
+    pub fn ai_config_commands(&self) -> &AiConfigCommandsImpl {
+        &self.ai_config_commands
+    }
+
+    pub fn ai_config_repo(&self) -> &AiConfigRepositoryImpl {
+        &self.ai_config_repo
     }
 }
 

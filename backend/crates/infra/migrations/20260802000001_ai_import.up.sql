@@ -39,6 +39,22 @@ CREATE INDEX idx_ai_import_job_claim
 CREATE INDEX idx_ai_import_job_block
     ON ai_import.ai_import_job (block_id);
 
+CREATE TABLE ai_import.projection_ai_config (
+    id                  UUID PRIMARY KEY,
+    user_id             TEXT NOT NULL,
+    provider            TEXT NOT NULL,
+    assistant_model     TEXT NOT NULL,
+    image_model         TEXT,
+    prompts             JSONB NOT NULL DEFAULT '{}'::jsonb,
+    vault_key_id        TEXT NOT NULL,
+    revoked             BOOLEAN NOT NULL DEFAULT FALSE,
+    version             BIGINT NOT NULL,
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_projection_ai_config_user
+    ON ai_import.projection_ai_config (user_id);
+
 CREATE TABLE ai_import.concurrency_counter (
     scope               TEXT NOT NULL,
     user_id             TEXT NOT NULL DEFAULT '',

@@ -4,6 +4,7 @@
 
 //! sqlx-Read-Queries für Projection-Tabellen
 
+mod ai_config;
 mod audit;
 mod block;
 mod character;
@@ -18,6 +19,7 @@ mod season;
 mod settings;
 mod shooting_day;
 
+pub use ai_config::AiConfigRepositoryImpl;
 pub use audit::AuditRepositoryImpl;
 pub use block::BlockRepositoryImpl;
 pub use character::CharacterRepositoryImpl;

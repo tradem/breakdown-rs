@@ -49,6 +49,30 @@ pub trait CuratedLlmProvider: Send + Sync {
     fn base_url(provider: LlmProvider) -> &'static str;
 }
 
+#[async_trait]
+pub trait AiConfigCommands: Send + Sync {
+    async fn create(
+        &self,
+        actor: UserId,
+        command: super::commands::CreateAiConfig,
+    ) -> Result<(Uuid, AggregateVersion), DomainError>;
+    async fn update(
+        &self,
+        actor: UserId,
+        command: super::commands::UpdateAiConfig,
+    ) -> Result<AggregateVersion, DomainError>;
+    async fn revoke(
+        &self,
+        actor: UserId,
+        command: super::commands::RevokeAiConfig,
+    ) -> Result<AggregateVersion, DomainError>;
+}
+
+#[async_trait]
+pub trait AiConfigRepository: Send + Sync {
+    async fn find_by_id(&self, id: Uuid) -> Result<super::views::AiConfigView, DomainError>;
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ModelInfo {
     pub id: String,

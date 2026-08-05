@@ -6,10 +6,15 @@
 
 //! Axum-Handler (Request → Command / Query)
 
+use std::collections::HashMap;
+
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::{Json, Router, routing};
-use breakdown_core::ai::{LlmProvider, ModelInfo};
+use breakdown_core::ai::{
+    AiConfigCommands, AiConfigRepository, AiConfigView, CreateAiConfig, DocumentKind, LlmProvider,
+    ModelInfo, RevokeAiConfig, UpdateAiConfig,
+};
 use breakdown_core::audit::{AuditEntry, AuditRepository};
 use breakdown_core::block::commands::{CreateBlock, UpdateBlockTimeSpan};
 use breakdown_core::block::ports::{BlockCommands, BlockRepository};
@@ -4136,6 +4141,198 @@ pub async fn revoke_settings<P: Ports>(
     Ok((StatusCode::OK, Json(version)))
 }
 
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct CreateAiConfigRequest {
+    pub provider: LlmProvider,
+    pub assistant_model: String,
+    pub image_model: Option<String>,
+    pub prompts: HashMap<DocumentKind, String>,
+    pub vault_key_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct UpdateAiConfigRequest {
+    pub provider: LlmProvider,
+    pub assistant_model: String,
+    pub image_model: Option<String>,
+    pub prompts: HashMap<DocumentKind, String>,
+    pub vault_key_id: String,
+    pub version: AggregateVersion,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct RevokeAiConfigRequest {
+    pub version: AggregateVersion,
+}
+
+async fn credential_role_gate<P: Ports>(state: &AppState<P>, user: &CurrentUser) -> bool {
+    state
+        .ports
+        .membership_repo()
+        .has_active_credential_role(user.sub.clone())
+        .await
+        .unwrap_or(false)
+}
+
+fn forbidden_ai_config() -> (StatusCode, Json<ErrorResponse>) {
+    (
+        StatusCode::FORBIDDEN,
+        Json(ErrorResponse {
+            message: "not authorized to manage AI configuration".to_owned(),
+        }),
+    )
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/ai-import/config",
+    request_body = CreateAiConfigRequest,
+    responses((status = 201, body = IdVersionResponse), (status = 403, body = ErrorResponse))
+)]
+pub async fn create_ai_config(
+    State(state): State<AppState<ProductionPorts>>,
+    current_user: CurrentUser,
+    Json(request): Json<CreateAiConfigRequest>,
+) -> ApiResult<IdVersionResponse> {
+    // AUTHZ-GATE: only active credential-role members may create AI config.
+    if !credential_role_gate(&state, &current_user).await {
+        return Err(forbidden_ai_config());
+    }
+    let id = Uuid::now_v7();
+    let (id, version) = state
+        .ports
+        .ai_config_commands()
+        .create(
+            current_user.sub.clone(),
+            CreateAiConfig {
+                id,
+                user_id: current_user.sub,
+                provider: request.provider,
+                assistant_model: request.assistant_model,
+                image_model: request.image_model,
+                prompts: request.prompts,
+                vault_key_id: request.vault_key_id,
+            },
+        )
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::CREATED, Json(IdVersionResponse { id, version })))
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/ai-import/config/{id}",
+    params(("id" = Uuid, Path)),
+    responses((status = 200, body = AiConfigView), (status = 403, body = ErrorResponse))
+)]
+pub async fn get_ai_config(
+    State(state): State<AppState<ProductionPorts>>,
+    current_user: CurrentUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<AiConfigView> {
+    // AUTHZ-GATE: AI configuration is a credential-role-only view.
+    if !credential_role_gate(&state, &current_user).await {
+        return Err(forbidden_ai_config());
+    }
+    let view = state
+        .ports
+        .ai_config_repo()
+        .find_by_id(id)
+        .await
+        .map_err(map_err)?;
+    if view.user_id != current_user.sub {
+        return Err(forbidden_ai_config());
+    }
+    Ok((StatusCode::OK, Json(view)))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/v1/ai-import/config/{id}",
+    params(("id" = Uuid, Path)),
+    request_body = UpdateAiConfigRequest,
+    responses((status = 200, body = AggregateVersion), (status = 403, body = ErrorResponse))
+)]
+pub async fn update_ai_config(
+    State(state): State<AppState<ProductionPorts>>,
+    current_user: CurrentUser,
+    Path(id): Path<Uuid>,
+    Json(request): Json<UpdateAiConfigRequest>,
+) -> ApiResult<AggregateVersion> {
+    // AUTHZ-GATE: AI configuration mutation requires credential role and ownership.
+    if !credential_role_gate(&state, &current_user).await {
+        return Err(forbidden_ai_config());
+    }
+    let view = state
+        .ports
+        .ai_config_repo()
+        .find_by_id(id)
+        .await
+        .map_err(map_err)?;
+    if view.user_id != current_user.sub {
+        return Err(forbidden_ai_config());
+    }
+    let version = state
+        .ports
+        .ai_config_commands()
+        .update(
+            current_user.sub,
+            UpdateAiConfig {
+                id,
+                provider: request.provider,
+                assistant_model: request.assistant_model,
+                image_model: request.image_model,
+                prompts: request.prompts,
+                vault_key_id: request.vault_key_id,
+                version: request.version,
+            },
+        )
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/ai-import/config/{id}/revoke",
+    params(("id" = Uuid, Path)),
+    request_body = RevokeAiConfigRequest,
+    responses((status = 200, body = AggregateVersion), (status = 403, body = ErrorResponse))
+)]
+pub async fn revoke_ai_config(
+    State(state): State<AppState<ProductionPorts>>,
+    current_user: CurrentUser,
+    Path(id): Path<Uuid>,
+    Json(request): Json<RevokeAiConfigRequest>,
+) -> ApiResult<AggregateVersion> {
+    // AUTHZ-GATE: revoking the AI credential binding requires credential role and ownership.
+    if !credential_role_gate(&state, &current_user).await {
+        return Err(forbidden_ai_config());
+    }
+    let view = state
+        .ports
+        .ai_config_repo()
+        .find_by_id(id)
+        .await
+        .map_err(map_err)?;
+    if view.user_id != current_user.sub {
+        return Err(forbidden_ai_config());
+    }
+    let version = state
+        .ports
+        .ai_config_commands()
+        .revoke(
+            current_user.sub,
+            RevokeAiConfig {
+                id,
+                version: request.version,
+            },
+        )
+        .await
+        .map_err(map_err)?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
 #[utoipa::path(
     get,
     path = "/v1/ai-import/providers",
@@ -4231,6 +4428,18 @@ fn parse_ai_provider(value: &str) -> Result<LlmProvider, DomainError> {
 /// Build the full Axum router using the concrete `ProductionPorts` bundle.
 pub fn routes() -> Router<AppState<ProductionPorts>> {
     Router::new()
+        .route(
+            "/v1/ai-import/config",
+            routing::post(create_ai_config),
+        )
+        .route(
+            "/v1/ai-import/config/{id}",
+            routing::get(get_ai_config).patch(update_ai_config),
+        )
+        .route(
+            "/v1/ai-import/config/{id}/revoke",
+            routing::post(revoke_ai_config),
+        )
         .route(
             "/v1/ai-import/providers",
             routing::get(list_ai_providers::<ProductionPorts>),
