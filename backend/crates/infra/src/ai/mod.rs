@@ -103,6 +103,27 @@ pub fn curated_models(provider: LlmProvider) -> Vec<ModelInfo> {
             "openai/gpt-4o",
             "meta-llama/llama-3.1-8b-instruct:free",
         ],
+        LlmProvider::Neuralwatt => &[
+            "deepseek-v4-flash",
+            "glm-5.2",
+            "glm-5.2-fast",
+            "kimi-k2.7-code",
+            "kimi-k3",
+            "qwen3.6-35b",
+        ],
+        LlmProvider::OpenCodeGo | LlmProvider::OpenCode => &[
+            "deepseek-v4-pro",
+            "deepseek-v4-flash",
+            "glm-5.2",
+            "glm-5.1",
+            "kimi-k3",
+            "kimi-k2.7-code",
+            "kimi-k2.6",
+            "minimax-m3",
+            "minimax-m2.7",
+            "mimo-v2.5",
+            "grok-4.5",
+        ],
         LlmProvider::Ollama => &["llama3.1:8b", "qwen2.5:7b"],
         _ => &[],
     };
@@ -120,6 +141,9 @@ impl CuratedLlmProvider for CuratedProviderUrls {
         match provider {
             LlmProvider::OpenAI => "https://api.openai.com/v1",
             LlmProvider::OpenRouterEU => "https://openrouter.ai/api/v1",
+            LlmProvider::Neuralwatt => "https://api.neuralwatt.com/v1",
+            LlmProvider::OpenCodeGo => "https://opencode.ai/zen/go/v1",
+            LlmProvider::OpenCode => "https://opencode.ai/zen/v1",
             LlmProvider::Ollama => "http://ollama:11434/api",
             _ => "",
         }

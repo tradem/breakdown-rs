@@ -102,6 +102,19 @@ fn default_allowlist() -> HashSet<String> {
         "openai/gpt-4o-mini",
         "openai/gpt-4o",
         "meta-llama/llama-3.1-8b-instruct:free",
+        "deepseek-v4-flash",
+        "glm-5.2",
+        "glm-5.2-fast",
+        "glm-5.1",
+        "kimi-k2.7-code",
+        "kimi-k3",
+        "kimi-k2.6",
+        "qwen3.6-35b",
+        "deepseek-v4-pro",
+        "minimax-m3",
+        "minimax-m2.7",
+        "mimo-v2.5",
+        "grok-4.5",
     ]
     .into_iter()
     .map(str::to_owned)

@@ -4784,6 +4784,9 @@ pub async fn list_ai_providers<P: Ports>(
         Json(vec![
             LlmProvider::OpenAI,
             LlmProvider::OpenRouterEU,
+            LlmProvider::Neuralwatt,
+            LlmProvider::OpenCodeGo,
+            LlmProvider::OpenCode,
             LlmProvider::Ollama,
         ]),
     ))
@@ -4830,7 +4833,10 @@ pub async fn list_ai_models<P: Ports>(
 fn parse_ai_provider(value: &str) -> Result<LlmProvider, DomainError> {
     match value {
         "openai" => Ok(LlmProvider::OpenAI),
-        "openrouter_eu" | "openrouter-eu" => Ok(LlmProvider::OpenRouterEU),
+        "openrouter_eu" | "openrouter-eu" | "openrouter" => Ok(LlmProvider::OpenRouterEU),
+        "neuralwatt" => Ok(LlmProvider::Neuralwatt),
+        "opencode-go" | "opencode_go" => Ok(LlmProvider::OpenCodeGo),
+        "opencode" => Ok(LlmProvider::OpenCode),
         "ollama" => Ok(LlmProvider::Ollama),
         other => Err(DomainError::ValidationError(format!(
             "unknown AI provider {other}"

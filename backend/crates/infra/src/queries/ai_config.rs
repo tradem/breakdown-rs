@@ -73,6 +73,9 @@ fn parse_provider(value: String) -> Result<LlmProvider, DomainError> {
     match value.as_str() {
         "openai" => Ok(LlmProvider::OpenAI),
         "openrouter_eu" => Ok(LlmProvider::OpenRouterEU),
+        "neuralwatt" => Ok(LlmProvider::Neuralwatt),
+        "opencode-go" => Ok(LlmProvider::OpenCodeGo),
+        "opencode" => Ok(LlmProvider::OpenCode),
         "ollama" => Ok(LlmProvider::Ollama),
         other => Err(DomainError::ValidationError(format!(
             "unknown AI provider projection {other}"
