@@ -31,6 +31,12 @@ async fn existing_gdrive_folder_is_readable_through_test_vault() -> Result<()> {
     let root = env::var("GDRIVE_ROOT")
         .map_err(|_| anyhow!("GDRIVE_ROOT is required when live GDrive testing is enabled"))?;
 
+    // Note: GDRIVE_ROOT is passed to OpenDAL's `services-gdrive` builder as its
+    // `root` setting, which resolves the folder by NAME/path (e.g.
+    // "breakdown-rs-test" or "parent/sub") — a Drive folder ID (e.g.
+    // 1IcJDk--K8HTi2pQoIO7RGdyO6ANgeDwy) will NOT resolve and the listing
+    // returns zero documents.
+
     let vault = fixtures::spawn_vault().await?;
     let client = vault.client();
     let settings_id = Uuid::now_v7();
