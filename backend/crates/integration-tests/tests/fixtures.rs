@@ -4,6 +4,10 @@
 // Co-authored-by: glm-5.2 (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: gpt-5.6-luna (opencode-go)
+
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -38,9 +42,11 @@ use sqlx::PgPool;
 use testcontainers::core::{ContainerPort, ExecCommand, Mount, WaitFor};
 use testcontainers::runners::AsyncRunner;
 use testcontainers::{ContainerAsync, ContainerRequest, Image, ImageExt, ReuseDirective};
+use testcontainers_modules::hashicorp_vault::HashicorpVault;
 use testcontainers_modules::postgres::Postgres as PostgresImage;
 
 use kameo_es::command_service::CommandService;
+use tempfile::NamedTempFile;
 
 // ---------------------------------------------------------------------------
 // Container helpers
@@ -546,4 +552,74 @@ impl TestScene {
 pub struct SierraConnGuard {
     pub conn: redis::aio::MultiplexedConnection,
     _container: ContainerAsync<SierraDbImage>,
+}
+
+/// Ephemeral Vault fixture configured for the production `VaultClient` API.
+/// The container is kept alive by the returned guard; the temporary token file
+/// is removed with the guard after the test.
+pub struct VaultFixture {
+    pub address: String,
+    pub token: String,
+    token_file: NamedTempFile,
+    _container: ContainerAsync<HashicorpVault>,
+}
+
+impl VaultFixture {
+    pub fn client(&self) -> infra::vault::VaultClient {
+        infra::vault::VaultClient::for_test(
+            self.address.clone(),
+            Some(self.token_file.path().to_path_buf()),
+        )
+    }
+}
+
+/// Start HashiCorp Vault in dev mode and enable the Transit and KV-v2 mounts
+/// expected by `infra::vault::VaultClient`.
+pub async fn spawn_vault() -> Result<VaultFixture> {
+    const ROOT_TOKEN: &str = "myroot";
+    let container = HashicorpVault::default()
+        .start()
+        .await
+        .map_err(|error| anyhow!("start Vault testcontainer: {error}"))?;
+    let host = container.get_host().await?;
+    let port = container.get_host_port_ipv4(8200).await?;
+    let address = format!("http://{host}:{port}");
+
+    vault_exec(&container, &["vault", "secrets", "enable", "transit"]).await?;
+    vault_exec(
+        &container,
+        &["vault", "secrets", "enable", "-path=kv", "kv-v2"],
+    )
+    .await?;
+
+    let mut token_file = NamedTempFile::new()?;
+    use std::io::Write;
+    token_file.write_all(ROOT_TOKEN.as_bytes())?;
+    token_file.as_file().sync_all()?;
+
+    Ok(VaultFixture {
+        address,
+        token: ROOT_TOKEN.to_owned(),
+        token_file,
+        _container: container,
+    })
+}
+
+async fn vault_exec(container: &ContainerAsync<HashicorpVault>, command: &[&str]) -> Result<()> {
+    let exec = ExecCommand::new(command.iter().copied()).with_env_vars([
+        ("VAULT_ADDR", "http://127.0.0.1:8200"),
+        ("VAULT_TOKEN", "myroot"),
+    ]);
+    let mut result = container.exec(exec).await?;
+    let stdout = result.stdout_to_vec().await?;
+    let stderr = result.stderr_to_vec().await?;
+    let exit_code = result.exit_code().await?;
+    if exit_code != Some(0) {
+        return Err(anyhow!(
+            "Vault command failed ({exit_code:?}): {} {}",
+            String::from_utf8_lossy(&stdout),
+            String::from_utf8_lossy(&stderr)
+        ));
+    }
+    Ok(())
 }
