@@ -11,6 +11,7 @@ use tokio::process::Command;
 
 /// Bounded `pdftotext` subprocess adapter. PDF bytes are sent through stdin so
 /// no temporary document is persisted by this adapter.
+#[derive(Clone, Debug)]
 pub struct PdfTextExtractor {
     pub max_output_bytes: usize,
     pub timeout: Duration,

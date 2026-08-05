@@ -689,6 +689,49 @@ fn tiny_script_pdf() -> Vec<u8> {
     pdf
 }
 
+/// Prove the extractor is safe under concurrent use: each call spawns its own
+/// pdftotext subprocess and drains stdin/stdout concurrently, so parallel
+/// extractions must all complete without deadlock or shared-state corruption.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn pdf_extractor_handles_concurrent_use_without_deadlock() {
+    let extractor = Arc::new(super::PdfTextExtractor::new(
+        1024 * 1024,
+        std::time::Duration::from_secs(30),
+    ));
+    let pdf = tiny_script_pdf();
+    let mut handles = Vec::new();
+    for _ in 0..8 {
+        let extractor = Arc::clone(&extractor);
+        let pdf = pdf.clone();
+        handles.push(tokio::spawn(async move { extractor.extract(&pdf).await }));
+    }
+    for handle in handles {
+        let text = handle
+            .await
+            .expect("extraction task panicked")
+            .expect("extraction failed");
+        assert!(
+            !text.is_empty(),
+            "concurrent extraction returned empty text"
+        );
+    }
+}
+
+/// The oversized-output path must kill the child and report the bound error
+/// promptly instead of letting the outer timeout fire with a misleading message.
+#[tokio::test]
+async fn pdf_extractor_rejects_oversized_output_with_bound_error() {
+    let extractor = super::PdfTextExtractor::new(1, std::time::Duration::from_secs(30));
+    let error = extractor
+        .extract(&tiny_script_pdf())
+        .await
+        .expect_err("oversized output must be rejected");
+    assert!(
+        error.to_string().contains("exceeds the configured bound"),
+        "unexpected error: {error}"
+    );
+}
+
 #[tokio::test]
 async fn script_pdf_round_trip_reaches_scene_apply() {
     let queue = Arc::new(FakeQueue::default());

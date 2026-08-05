@@ -127,7 +127,12 @@ jobs:
           GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
           GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
           GDRIVE_ROOT: ${{ secrets.GDRIVE_ROOT }}
-        run: cargo test -p integration-tests --test ai_gdrive_fixture_test -- --nocapture
+        run: |
+          # Diagnostic: GitHub masks the values but not the shell string
+          # lengths. Expected: client_id=72 secret=35 refresh=103 root=17
+          # (refresh=1//… is the working token; root=breakdown-rs-test).
+          echo "GDRIVE lengths: client_id=${#GDRIVE_CLIENT_ID} secret=${#GDRIVE_CLIENT_SECRET} refresh=${#GDRIVE_REFRESH_TOKEN} root=${#GDRIVE_ROOT}"
+          cargo test -p integration-tests --test ai_gdrive_fixture_test -- --nocapture
 
       - name: Postgres-only integration tests (parallel)
         env:
