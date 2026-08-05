@@ -90,12 +90,13 @@ impl GDriveDocumentSource {
                 self.max_document_bytes
             )));
         }
+        // The `stat` above already rejects oversized documents before any
+        // bytes are buffered, so a plain read is bounded. A `read_with`
+        // `.range(0..=max)` is NOT safe on GDrive: requesting a range end
+        // beyond EOF makes OpenDAL fail with "reader got too little data".
         let bytes = self
             .operator
-            .read_with(handle)
-            // Cap the buffered bytes: reject oversized documents after at most
-            // max_document_bytes + 1 bytes instead of downloading the whole file.
-            .range(0..=self.max_document_bytes)
+            .read(handle)
             .await
             .map_err(map_opendal_error)?
             .to_vec();
