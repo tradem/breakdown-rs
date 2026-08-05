@@ -13,6 +13,7 @@ pub mod client;
 pub mod concurrency;
 pub mod credentials;
 pub mod csv_schedule;
+pub mod gdrive_source;
 pub mod mapping;
 pub mod merge_worker;
 pub mod ollama;
@@ -30,6 +31,7 @@ pub use client::{OpenAiCompatibleChatClient, classify_http_status, classify_tran
 pub use concurrency::{AiConcurrencyLimiter, AiConcurrencyPermit};
 pub use credentials::AiCredentialResolver;
 pub use csv_schedule::parse_schedule_csv;
+pub use gdrive_source::{GDriveDocument, GDriveDocumentSource};
 pub use mapping::PgAiImportMappingRepository;
 pub use merge_worker::{QueueMergeWorker, merge_loaded_schedule};
 pub use ollama::OllamaChatClient;
