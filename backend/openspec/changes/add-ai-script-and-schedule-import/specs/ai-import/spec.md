@@ -22,7 +22,9 @@ an opaque `vault_key_id` it owns; no new secret store SHALL be introduced.
 
 ### Requirement: Curated LLM provider enum
 The system SHALL expose a `LlmProvider` enum (`#[non_exhaustive]`) curating the
-set of supported providers (OpenAI, OpenRouter EU zero-retention, Ollama).
+set of supported providers (OpenAI, OpenRouter, EURouter, Ollama). OpenRouter
+and EURouter SHALL be modeled as separate providers with separate curated URLs
+and credential bindings.
 Each provider's `base_url` SHALL be hardcoded in infra; the API SHALL NOT
 accept a user-supplied base URL for model-list or chat calls. Adding a
 provider SHALL be an additive, non-breaking change.

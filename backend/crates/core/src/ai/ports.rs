@@ -21,8 +21,10 @@ use super::views::{AiImportJob, AiImportJobId, DocumentKind, Telemetry};
 pub enum LlmProvider {
     #[serde(rename = "openai")]
     OpenAI,
-    #[serde(rename = "openrouter_eu", alias = "openrouter")]
-    OpenRouterEU,
+    #[serde(rename = "openrouter")]
+    OpenRouter,
+    #[serde(rename = "eurouter", alias = "openrouter_eu")]
+    EURouter,
     #[serde(rename = "neuralwatt")]
     Neuralwatt,
     #[serde(rename = "opencode-go")]
@@ -36,7 +38,8 @@ impl LlmProvider {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::OpenAI => "openai",
-            Self::OpenRouterEU => "openrouter_eu",
+            Self::OpenRouter => "openrouter",
+            Self::EURouter => "eurouter",
             Self::Neuralwatt => "neuralwatt",
             Self::OpenCodeGo => "opencode-go",
             Self::OpenCode => "opencode",

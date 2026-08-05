@@ -18,8 +18,8 @@ without ever bypassing existing command validation or the CQRS boundary.
   `vault_key_id` referencing an API key stored via the existing
   `CredentialVault` port (no `Settings` aggregate extension; the vault is shared,
   the aggregate is separate).
-- **Curated `LlmProvider` enum**: OpenAI / OpenRouter (EU, zero-retention) /
-  Ollama (dev/test fallback only). Hardcoded base URLs in infra so users never
+- **Curated `LlmProvider` enum**: OpenAI / OpenRouter / EURouter (EU-routed) /
+  Ollama (dev/test fallback only). OpenRouter and EURouter are separate providers. Hardcoded base URLs in infra so users never
   type a URL (no SSRF surface). Adding a provider is additive
   (`#[non_exhaustive]`).
 - **Provider model catalog port** `LlmModelCatalog::list` hitting the

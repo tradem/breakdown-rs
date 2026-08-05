@@ -102,6 +102,8 @@ fn default_allowlist() -> HashSet<String> {
         "openai/gpt-4o-mini",
         "openai/gpt-4o",
         "meta-llama/llama-3.1-8b-instruct:free",
+        "mistral-large-3",
+        "mistral-small-3.1",
         "deepseek-v4-flash",
         "glm-5.2",
         "glm-5.2-fast",

@@ -25,8 +25,8 @@ A. **Operational jobs, not aggregates.** Script, schedule, and merge work live
 B. **Preview before apply.** LLM output is stored as a reviewable static DTO.
    Applying a preview dispatches existing validated commands only.
 
-C. **Curated providers.** `LlmProvider` is non-exhaustive and contains OpenAI,
-   OpenRouter EU, and Ollama. Base URLs are hardcoded in infra; users cannot
+C. **Curated providers.** `LlmProvider` is non-exhaustive and contains OpenAI, OpenRouter, EURouter, and Ollama. OpenRouter and EURouter are
+   separate providers with separate hardcoded base URLs in infra; users cannot
    provide arbitrary URLs.
 
 D. **Static constrained output.** Infra derives the provider JSON schema from

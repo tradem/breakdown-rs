@@ -9,7 +9,7 @@
 ## 2. Core `ai` bounded context — types & ports
 
 - [x] 2.1 Create `crates/core/src/ai/mod.rs` module skeleton (namespaces: aggregate, commands, events, ports, views, preview, bounds)
-- [x] 2.2 Define `LlmProvider` enum (`#[non_exhaustive]`; OpenAI, OpenRouterEU, Ollama) with curated-base-url accessor contract
+- [x] 2.2 Define `LlmProvider` enum (`#[non_exhaustive]`; OpenAI, OpenRouter, EURouter, Ollama) with curated-base-url accessor contract
 - [x] 2.3 Define `AiConfig` aggregate: state (id, user_id, provider, assistant_model, image_model, prompts map, vault_key_id, version) + `CreateAiConfig`/`UpdateAiConfig`/`RevokeAiConfig` commands + events
 - [x] 2.4 Define `AiConfigError` (EmptyProvider, ProviderMismatch, NotFound, VersionMismatch, …) following existing `*Error` pattern
 - [x] 2.5 Define `AiConfigView` read-model DTO (no secrets)

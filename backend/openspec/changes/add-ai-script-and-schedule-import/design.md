@@ -33,7 +33,7 @@ utoipa present; schemars NOT a dep yet; reqwest + tower present.
 - Costume designers / disponents: receive documents; review and apply imports.
 - Operators: curate the provider enum and model allowlist; set bounds.
 - NDAs / EU AI Act: script data sensitive; providers must be EU-hosted or
-  self-hosted with zero-retention; ADR-013 prefers OpenRouter EU → Ollama.
+  self-hosted with zero-retention; ADR-013 prefers EURouter → Ollama.
 - Cost neutrality: dev involves hundreds of prompt-tuning runs; per-job request
   caps + provider-side dollar budgets (defense in depth).
 - CQRS hard rule (AGENTS.md §1): write-side code must never query read
@@ -99,8 +99,9 @@ preview-first it only burns tokens. The apply path is the existing handlers,
 so all validation and audit are reused unchanged.
 
 ### C — Curated provider enum + per-user key
-`LlmProvider` is a `#[non_exhaustive]` core enum (OpenAI, OpenRouter EU,
-Ollama) with hardcoded `base_url`s in infra. Users select a provider, supply
+`LlmProvider` is a `#[non_exhaustive]` core enum (OpenAI, OpenRouter,
+EURouter, Ollama) with hardcoded `base_url`s in infra. OpenRouter and EURouter
+are separate providers and credential bindings. Users select a provider, supply
 an API key (vaulted), pick a model (from a curated catalog subset) and edit
 prompt text. Users never type a URL → no SSRF surface on chat/model-list calls.
 
@@ -271,8 +272,8 @@ audit. An additional `originating_job_id` in `EventMetadata` would reconstruct
   concurrency cap, `AiImportBounds` ceilings; provider-side dollar budgets
   (defense in depth).
 - **[Risk] NDA / data-sovereignty breach via provider** → Mitigation: curated
-  enum (no arbitrary URLs); OpenRouter EU zero-retention default; the Ollama
-  self-host path remains available via the same trait if a deployment demands it.
+  enum (no arbitrary URLs); EURouter provides a dedicated EU-routed option; the
+  Ollama self-host path remains available via the same trait if a deployment demands it.
 - **[Risk] Apply crash mid-way → duplicate aggregates** → Mitigation:
   `AiImportMapping` checked before each dispatch; re-apply is idempotent by
   construction (mapped → Update, unmapped → Create+map).

@@ -4783,7 +4783,8 @@ pub async fn list_ai_providers<P: Ports>(
         StatusCode::OK,
         Json(vec![
             LlmProvider::OpenAI,
-            LlmProvider::OpenRouterEU,
+            LlmProvider::OpenRouter,
+            LlmProvider::EURouter,
             LlmProvider::Neuralwatt,
             LlmProvider::OpenCodeGo,
             LlmProvider::OpenCode,
@@ -4833,7 +4834,8 @@ pub async fn list_ai_models<P: Ports>(
 fn parse_ai_provider(value: &str) -> Result<LlmProvider, DomainError> {
     match value {
         "openai" => Ok(LlmProvider::OpenAI),
-        "openrouter_eu" | "openrouter-eu" | "openrouter" => Ok(LlmProvider::OpenRouterEU),
+        "openrouter" => Ok(LlmProvider::OpenRouter),
+        "eurouter" | "openrouter_eu" | "openrouter-eu" => Ok(LlmProvider::EURouter),
         "neuralwatt" => Ok(LlmProvider::Neuralwatt),
         "opencode-go" | "opencode_go" => Ok(LlmProvider::OpenCodeGo),
         "opencode" => Ok(LlmProvider::OpenCode),

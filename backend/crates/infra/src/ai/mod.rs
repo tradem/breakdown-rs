@@ -98,11 +98,12 @@ pub struct CuratedProviderUrls;
 pub fn curated_models(provider: LlmProvider) -> Vec<ModelInfo> {
     let ids: &[&str] = match provider {
         LlmProvider::OpenAI => &["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"],
-        LlmProvider::OpenRouterEU => &[
+        LlmProvider::OpenRouter => &[
             "openai/gpt-4o-mini",
             "openai/gpt-4o",
             "meta-llama/llama-3.1-8b-instruct:free",
         ],
+        LlmProvider::EURouter => &["mistral-large-3", "mistral-small-3.1", "deepseek-v4-flash"],
         LlmProvider::Neuralwatt => &[
             "deepseek-v4-flash",
             "glm-5.2",
@@ -140,7 +141,8 @@ impl CuratedLlmProvider for CuratedProviderUrls {
     fn base_url(provider: LlmProvider) -> &'static str {
         match provider {
             LlmProvider::OpenAI => "https://api.openai.com/v1",
-            LlmProvider::OpenRouterEU => "https://openrouter.ai/api/v1",
+            LlmProvider::OpenRouter => "https://openrouter.ai/api/v1",
+            LlmProvider::EURouter => "https://api.eurouter.ai/api/v1",
             LlmProvider::Neuralwatt => "https://api.neuralwatt.com/v1",
             LlmProvider::OpenCodeGo => "https://opencode.ai/zen/go/v1",
             LlmProvider::OpenCode => "https://opencode.ai/zen/v1",

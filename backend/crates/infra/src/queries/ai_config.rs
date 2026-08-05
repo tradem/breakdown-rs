@@ -72,7 +72,8 @@ impl AiConfigRepository for AiConfigRepositoryImpl {
 fn parse_provider(value: String) -> Result<LlmProvider, DomainError> {
     match value.as_str() {
         "openai" => Ok(LlmProvider::OpenAI),
-        "openrouter_eu" => Ok(LlmProvider::OpenRouterEU),
+        "openrouter" => Ok(LlmProvider::OpenRouter),
+        "eurouter" | "openrouter_eu" => Ok(LlmProvider::EURouter),
         "neuralwatt" => Ok(LlmProvider::Neuralwatt),
         "opencode-go" => Ok(LlmProvider::OpenCodeGo),
         "opencode" => Ok(LlmProvider::OpenCode),
