@@ -27,11 +27,10 @@ pub struct OpenAiCompatibleChatClient {
 }
 
 impl OpenAiCompatibleChatClient {
-    pub fn new(
-        provider: LlmProvider,
-        api_key: String,
-        timeout: Duration,
-    ) -> Result<Self, DomainError> {
+    /// Reject Ollama in this client: its curated base URL is plain HTTP and
+    /// sending vaulted bearer credentials there would leak them (CWE-319).
+    /// Ollama must be routed through `OllamaChatClient`.
+    fn reject_ollama(provider: LlmProvider) -> Result<(), DomainError> {
         if provider == LlmProvider::Ollama {
             return Err(DomainError::ValidationError(
                 "Ollama must be routed through OllamaChatClient — the \
@@ -40,6 +39,15 @@ impl OpenAiCompatibleChatClient {
                     .to_owned(),
             ));
         }
+        Ok(())
+    }
+
+    pub fn new(
+        provider: LlmProvider,
+        api_key: String,
+        timeout: Duration,
+    ) -> Result<Self, DomainError> {
+        Self::reject_ollama(provider)?;
         if api_key.trim().is_empty() {
             return Err(DomainError::ValidationError(
                 "LLM API key must not be empty".to_owned(),
@@ -67,14 +75,7 @@ impl OpenAiCompatibleChatClient {
         api_key: String,
         timeout: Duration,
     ) -> Result<Self, DomainError> {
-        if provider == LlmProvider::Ollama {
-            return Err(DomainError::ValidationError(
-                "Ollama must be routed through OllamaChatClient — the \
-                 OpenAI-compatible client would send bearer auth to its HTTP \
-                 base URL"
-                    .to_owned(),
-            ));
-        }
+        Self::reject_ollama(provider)?;
         if api_key.trim().is_empty() {
             return Err(DomainError::ValidationError(
                 "LLM API key must not be empty".to_owned(),

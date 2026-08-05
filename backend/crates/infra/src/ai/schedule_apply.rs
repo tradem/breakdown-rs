@@ -73,9 +73,12 @@ where
             .filter_map(|row| row.order)
             .max()
             .unwrap_or(0);
+        // Monotonic counter for fallback orders: `scene_index + row_index` is
+        // not unique across the nested loops (scene 0 row 1 == scene 1 row 0).
+        let mut fallback_order: u32 = max_supplied_order;
 
-        for (scene_index, merged) in request.preview.scenes.iter().enumerate() {
-            for (row_index, row) in merged.schedule_rows.iter().enumerate() {
+        for merged in request.preview.scenes.iter() {
+            for row in merged.schedule_rows.iter() {
                 let day_key = format!(
                     "shooting-day:{}:{}:{}",
                     merged.scene.episode_id.0,
@@ -144,11 +147,11 @@ where
                     .await?;
                 scene_versions.insert(merged.scene.id, scene_version);
 
-                let order = row.order.unwrap_or(
-                    max_supplied_order
-                        .saturating_add(1)
-                        .saturating_add((scene_index + row_index) as u32),
-                );
+                let order = row.order.unwrap_or_else(|| {
+                    // Offset above every supplied order and unique per fallback.
+                    fallback_order = fallback_order.saturating_add(1);
+                    fallback_order
+                });
                 let planned_order = LexicalSortKey::new(format!("{order:08}"))
                     .map_err(|error| DomainError::ValidationError(error.to_string()))?;
                 let (scene_shoot_id, version) = self

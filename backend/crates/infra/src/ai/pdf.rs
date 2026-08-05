@@ -74,6 +74,20 @@ impl PdfTextExtractor {
             read_result.map_err(|error| {
                 DomainError::ValidationError(format!("could not read pdftotext output: {error}"))
             })?;
+            // Oversized output: the limited reader stopped draining, so
+            // pdftotext may still be blocked writing to the full pipe. Kill it
+            // before waiting instead of letting the outer timeout fire.
+            if output.len() > self.max_output_bytes {
+                if let Err(error) = child.kill().await {
+                    tracing::warn!(%error, "failed to kill oversized pdftotext process");
+                }
+                if let Err(error) = child.wait().await {
+                    tracing::warn!(%error, "failed to reap oversized pdftotext process");
+                }
+                return Err(DomainError::ValidationError(
+                    "pdftotext output exceeds the configured bound".to_owned(),
+                ));
+            }
             let status = child.wait().await.map_err(|error| {
                 DomainError::ValidationError(format!("could not reap pdftotext process: {error}"))
             })?;
@@ -98,11 +112,6 @@ impl PdfTextExtractor {
             }
         };
 
-        if output.len() > self.max_output_bytes {
-            return Err(DomainError::ValidationError(
-                "pdftotext output exceeds the configured bound".to_owned(),
-            ));
-        }
         if !status.success() {
             return Err(DomainError::ValidationError(format!(
                 "pdftotext failed with status {status}"

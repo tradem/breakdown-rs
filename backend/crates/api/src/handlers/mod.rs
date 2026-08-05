@@ -4515,14 +4515,33 @@ pub async fn apply_ai_import(
             // resolving it here keeps the write side free of read-model lookups.
             let series_id = Some(episode.series_id);
 
+            let preview: ScriptContext = serde_json::from_slice(&payload).map_err(|error| {
+                map_err(DomainError::ValidationError(format!(
+                    "invalid ScriptContext preview: {error}"
+                )))
+            })?;
+
             // AUTHZ-GATE (CWE-639): the client may supply `Update` decisions
-            // referencing any aggregate id. Verify every update target is a
-            // scene in the job's resolved episode — otherwise a matching-
-            // version scene from another episode could receive the update.
+            // referencing any aggregate id. Reject duplicate draft_refs and
+            // mappings beyond the preview's scene count, then verify every
+            // distinct update target is a scene in the job's resolved episode.
+            // Duplicates are deduplicated so one apply cannot trigger an
+            // unbounded number of repository reads.
+            let mut seen_draft_refs = std::collections::HashSet::new();
+            let mut seen_update_ids = std::collections::HashSet::new();
             for mapping in &request.mappings {
+                if !seen_draft_refs.insert(mapping.draft_ref.clone()) {
+                    return Err(map_err(DomainError::ValidationError(format!(
+                        "duplicate mapping for draft row {}",
+                        mapping.draft_ref
+                    ))));
+                }
                 if let breakdown_core::ai::ApplyMappingDecision::Update { aggregate_id, .. } =
                     mapping.decision
                 {
+                    if !seen_update_ids.insert(aggregate_id) {
+                        continue;
+                    }
                     let scene = state
                         .ports
                         .scene_repo()
@@ -4534,12 +4553,13 @@ pub async fn apply_ai_import(
                     }
                 }
             }
-
-            let preview: ScriptContext = serde_json::from_slice(&payload).map_err(|error| {
-                map_err(DomainError::ValidationError(format!(
-                    "invalid ScriptContext preview: {error}"
-                )))
-            })?;
+            if request.mappings.len() > preview.scenes.len() {
+                return Err(map_err(DomainError::ValidationError(format!(
+                    "apply carries {} mappings for a {} scene preview",
+                    request.mappings.len(),
+                    preview.scenes.len()
+                ))));
+            }
             let worker = ApplyWorker {
                 scene_commands: Arc::new(state.ports.scene_commands().clone()),
                 mappings: Arc::new(state.ports.ai_import_mapping().clone()),

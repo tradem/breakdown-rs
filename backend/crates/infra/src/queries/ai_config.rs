@@ -62,9 +62,11 @@ impl AiConfigRepository for AiConfigRepositoryImpl {
             version: {
                 let raw: i64 = row.try_get("version").map_err(map_sqlx_error)?;
                 if raw < 0 {
-                    return Err(map_sqlx_error(sqlx::Error::Protocol(
+                    // Projection-integrity defect: a permanent condition, not a
+                    // transient service failure — retries cannot fix it.
+                    return Err(DomainError::ValidationError(
                         "AI config aggregate version cannot be negative".to_owned(),
-                    )));
+                    ));
                 }
                 AggregateVersion(raw as u64)
             },

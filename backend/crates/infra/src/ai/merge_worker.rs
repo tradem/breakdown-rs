@@ -80,10 +80,19 @@ where
         // Request one extra row per page so a truncated projection can be
         // detected: marking a partial merge as succeeded would silently drop
         // scenes beyond the page limit.
-        let episodes = self
+        let episodes = match self
             .episodes
             .list_by_block(block_id, MAX_EPISODES_PER_BLOCK + 1, 0)
-            .await?;
+            .await
+        {
+            Ok(episodes) => episodes,
+            Err(error) => {
+                // A transient projection error must not strand the claimed job
+                // in `running`; mark it failed+retryable first.
+                self.fail(job.id, &error, true).await?;
+                return Err(error);
+            }
+        };
         if episodes.len() > MAX_EPISODES_PER_BLOCK as usize {
             let error = DomainError::ValidationError(format!(
                 "block contains more than {MAX_EPISODES_PER_BLOCK} episodes; \
@@ -94,14 +103,21 @@ where
         }
         let mut scenes = Vec::new();
         for episode in episodes {
-            let episode_scenes = self
+            let episode_scenes = match self
                 .scenes
                 .list_by_episode(
                     EpisodeId::from_uuid(episode.id),
                     MAX_SCENES_PER_EPISODE + 1,
                     0,
                 )
-                .await?;
+                .await
+            {
+                Ok(episode_scenes) => episode_scenes,
+                Err(error) => {
+                    self.fail(job.id, &error, true).await?;
+                    return Err(error);
+                }
+            };
             if episode_scenes.len() > MAX_SCENES_PER_EPISODE as usize {
                 let error = DomainError::ValidationError(format!(
                     "episode contains more than {MAX_SCENES_PER_EPISODE} scenes; \
