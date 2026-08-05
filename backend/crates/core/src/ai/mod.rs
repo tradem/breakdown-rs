@@ -29,7 +29,7 @@ pub use ports::{
     LlmClient, LlmModelCatalog, ModelInfo,
 };
 pub use preview::{
-    ApplyGateError, ApplyMapping, ApplyMappingDecision, DraftScene, MergedPreview,
+    ApplyGateError, ApplyMapping, ApplyMappingDecision, DraftScene, MergedPreview, MergedScene,
     SceneApplyCommand, SceneChunk, ScriptContext, ShootingSchedule, ShootingScheduleRow,
     Uncertainty, ensure_merge_applyable, ensure_script_applyable, extract_scenes,
     merge_schedule_to_scenes, plan_scene_apply,

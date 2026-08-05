@@ -74,9 +74,15 @@ where
                 "script worker received a non-script job".to_owned(),
             ));
         }
-        let started = Instant::now();
         let text = self.extractor.extract(pdf_bytes).await?;
-        let chunks = extract_scenes(&text);
+        self.process_text(job, &text).await
+    }
+
+    /// Process already extracted text. This seam keeps PDF subprocess tests
+    /// separate from deterministic worker tests.
+    pub async fn process_text(&self, job: &AiImportJob, text: &str) -> Result<String, DomainError> {
+        let started = Instant::now();
+        let chunks = extract_scenes(text);
         let chunk_count = u32::try_from(chunks.len()).map_err(|error| {
             DomainError::ValidationError(format!(
                 "script chunk count exceeds telemetry range: {error}"

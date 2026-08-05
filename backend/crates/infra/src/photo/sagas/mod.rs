@@ -84,6 +84,24 @@ where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<T>>,
 {
+    retry_transient_value_with_delay(op, |attempt| {
+        supervisor::compute_backoff(attempt, TRANSIENT_MAX_DELAY)
+    })
+    .await
+}
+
+/// Retry a value-returning operation with an injected delay policy. Production
+/// callers use [`retry_transient_value`]; tests can provide zero delay without
+/// sleeping or relying on wall-clock timing.
+pub async fn retry_transient_value_with_delay<F, Fut, T, D>(
+    op: F,
+    delay_for_attempt: D,
+) -> Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T>>,
+    D: Fn(usize) -> Duration,
+{
     let mut op = op;
     let mut attempt: usize = 0;
     loop {
@@ -91,7 +109,7 @@ where
             Ok(value) => return Ok(value),
             Err(err) if is_transient(&err) => {
                 attempt += 1;
-                let delay = supervisor::compute_backoff(attempt, TRANSIENT_MAX_DELAY);
+                let delay = delay_for_attempt(attempt);
                 if attempt.is_multiple_of(TRANSIENT_ESCALATION_ATTEMPTS) {
                     tracing::error!(
                         attempt,

@@ -63,17 +63,17 @@
 - [x] 6.4 Add `GET /v1/ai-import/jobs/{id}` and `GET /v1/ai-import/jobs/{id}/preview` (ScriptContext / ShootingSchedule / merged) — membership gate
 - [x] 6.5 Add `POST /v1/ai-import/jobs/{id}/apply` (reviewed rows + per-row mapping decision → ApplyWorker dispatch) — membership gate, resolve `series_id` at edge, `// AUTHZ-GATE:`
 - [x] 6.6 Register all routes on the production router + `ApiDoc` (utoipa) OpenAPI surface
-- [ ] 6.7 Handler tests: dedup on re-upload, 403 for non-members, apply-gate rejections, crash-retry idempotency
+- [x] 6.7 Handler tests: dedup on re-upload, 403 for non-members, apply-gate rejections, crash-retry idempotency
 
 ## 7. Integration tests (crates/integration-tests)
 
-- [ ] 7.1 Round-trip: script PDF upload → job Succeeded → ScriptContext preview with uncertainties → resolve → apply → Scene created with `source: AiExtracted`
-- [ ] 7.2 Round-trip: schedule upload → merge (after script apply) → unmatched adjudication → schedule apply → ShootingDays/SceneShoots created
-- [ ] 7.3 Idempotency: re-apply same preview → no duplicate aggregates (mapping hit)
-- [ ] 7.4 Resilience: simulate 5xx → `retry_transient` retries → success; 4xx → `Failed`
-- [ ] 7.5 Cost cap: oversized script → job `Failed` at `max_chunks_per_script`
+- [x] 7.1 Round-trip: script PDF upload → job Succeeded → ScriptContext preview with uncertainties → resolve → apply → Scene created with `source: AiExtracted`
+- [x] 7.2 Round-trip: schedule upload → merge (after script apply) → unmatched adjudication → schedule apply → ShootingDays/SceneShoots created
+- [x] 7.3 Idempotency: re-apply same preview → no duplicate aggregates (mapping hit)
+- [x] 7.4 Resilience: simulate 5xx → `retry_transient` retries → success; 4xx → `Failed`
+- [x] 7.5 Cost cap: oversized script → job `Failed` at `max_chunks_per_script`
 - [x] 7.6 Ordering: schedule import before script apply → merge blocked
-- [ ] 7.7 Telemetry: `accept_as_is` recorded true on no-edit apply; `edit_distance` recorded on correction; no script text persisted
+- [x] 7.7 Telemetry: `accept_as_is` recorded true on no-edit apply; `edit_distance` recorded on correction; no script text persisted
 
 ## 8. Guardrails, docs, security
 

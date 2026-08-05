@@ -4225,6 +4225,10 @@ fn digest_hex(body: &[u8]) -> String {
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+fn ai_dedup_key(user_id: &UserId, kind: DocumentKind, digest: &str) -> String {
+    format!("{}|{}|{digest}", user_id.as_str(), kind.as_str())
+}
+
 async fn enqueue_ai_upload(
     state: &AppState<ProductionPorts>,
     current_user: CurrentUser,
@@ -4266,7 +4270,7 @@ async fn enqueue_ai_upload(
             user_id: current_user.sub.clone(),
             document_kind: kind,
             block_id: Some(block_id),
-            dedup_key: format!("{}|{}|{}", current_user.sub.as_str(), kind.as_str(), digest),
+            dedup_key: ai_dedup_key(&current_user.sub, kind, &digest),
             document_digest: digest,
             source_handle,
         })
@@ -4845,6 +4849,10 @@ fn parse_ai_provider(value: &str) -> Result<LlmProvider, DomainError> {
         ))),
     }
 }
+
+#[cfg(test)]
+#[path = "ai_import_tests.rs"]
+mod ai_import_tests;
 
 /// Build the full Axum router using the concrete `ProductionPorts` bundle.
 pub fn routes() -> Router<AppState<ProductionPorts>> {
