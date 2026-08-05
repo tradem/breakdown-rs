@@ -51,13 +51,13 @@
 - [x] 5.5 Implement `ScheduleImportWorker`: dequeue → CSV parse or LLM → `ShootingSchedule` preview blob → telemetry
 - [x] 5.6 Implement `MergeWorker`: dequeue → load schedule preview + Scene read-model projection by block → `merge_schedule_to_scenes` → block until block has applied scenes → store merged preview + unmatched lists
 - [x] 5.7 Implement `ApplyWorker`: reviewed rows → planner → dispatch existing commands (source: `AiExtracted`); per-row mapping check before Create; `series_id` resolved at the API edge (no write-side projection lookup)
-- [ ] 5.8 Per-user in-flight concurrency cap (advisory lock / PG counter); global concurrency cap from `AiImportBounds`
-- [ ] 5.9 Graceful shutdown: drain in-flight jobs to terminal state before `run()` returns `Ok(())`
+- [x] 5.8 Per-user in-flight concurrency cap (advisory lock / PG counter); global concurrency cap from `AiImportBounds`
+- [x] 5.9 Graceful shutdown: drain in-flight jobs to terminal state before `run()` returns `Ok(())`
 - [x] 5.10 Telemetry write at apply time: `accept_as_is` + content-free `edit_distance` (no script text)
 
 ## 6. API handlers & authorization
 
-- [ ] 6.1 Add `/v1/ai-import/providers` (GET curated enum) and `/v1/ai-import/providers/{provider}/models` (GET curated catalog) — read-only, requires `has_active_credential_role`
+- [x] 6.1 Add `/v1/ai-import/providers` (GET curated enum) and `/v1/ai-import/providers/{provider}/models` (GET curated catalog) — read-only, requires `has_active_credential_role`
 - [ ] 6.2 Add `AiConfig` CRUD handlers under `/v1/ai-import/config` — gated `has_active_credential_role`, `// AUTHZ-GATE:` comments
 - [ ] 6.3 Add `POST /v1/ai-import/scripts` (upload PDF → enqueue ScriptImportJob; dedup) and `POST /v1/ai-import/schedules` (upload CSV/DOC → enqueue ScheduleImportJob) — active costume-dept membership, `// AUTHZ-GATE:`
 - [ ] 6.4 Add `GET /v1/ai-import/jobs/{id}` and `GET /v1/ai-import/jobs/{id}/preview` (ScriptContext / ShootingSchedule / merged) — membership gate
@@ -81,7 +81,7 @@
 - [x] 8.2 Add `discard-result` rule coverage for new ai infra (no `let _ = <fallible>`)
 - [x] 8.3 Add `test-helper-gate` coverage for any `*_for_test` AI helpers
 - [x] 8.4 gitleaks scan: no provider keys, no prompt secrets in repo
-- [ ] 8.5 Confirm all AI handlers carry `// AUTHZ-GATE:` comments (grep audit)
+- [x] 8.5 Confirm all AI handlers carry `// AUTHZ-GATE:` comments (grep audit)
 - [x] 8.6 Timing-safe test for `AiImportBounds` worst-case cost (derive max backoff from constants; no sleep)
 - [x] 8.7 Update ADR-013 status Proposed→Accepted with reference to this change; add ADR-030 (AI bounded context) capturing decisions A–I
 - [x] 8.8 Document env vars (`AI_IMPORT_ENABLED`, bounds, default prompt config path) in AGENTS.md §6

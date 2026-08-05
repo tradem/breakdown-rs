@@ -9,6 +9,7 @@
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::{Json, Router, routing};
+use breakdown_core::ai::{LlmProvider, ModelInfo};
 use breakdown_core::audit::{AuditEntry, AuditRepository};
 use breakdown_core::block::commands::{CreateBlock, UpdateBlockTimeSpan};
 use breakdown_core::block::ports::{BlockCommands, BlockRepository};
@@ -4135,9 +4136,109 @@ pub async fn revoke_settings<P: Ports>(
     Ok((StatusCode::OK, Json(version)))
 }
 
+#[utoipa::path(
+    get,
+    path = "/v1/ai-import/providers",
+    responses((status = 200, body = [LlmProvider]), (status = 403, body = ErrorResponse))
+)]
+pub async fn list_ai_providers<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+) -> ApiResult<Vec<LlmProvider>> {
+    // AUTHZ-GATE: provider/model discovery is a credential-administration
+    // capability and must be checked inside the authenticated handler.
+    let authorized = state
+        .ports
+        .membership_repo()
+        .has_active_credential_role(current_user.sub)
+        .await
+        .unwrap_or(false);
+    if !authorized {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                message: "not authorized to discover AI providers".to_owned(),
+            }),
+        ));
+    }
+    if !state.ai_import_enabled {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                message: "AI import is disabled".to_owned(),
+            }),
+        ));
+    }
+    Ok((
+        StatusCode::OK,
+        Json(vec![
+            LlmProvider::OpenAI,
+            LlmProvider::OpenRouterEU,
+            LlmProvider::Ollama,
+        ]),
+    ))
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/ai-import/providers/{provider}/models",
+    params(("provider" = String, Path, description = "Curated provider key")),
+    responses((status = 200, body = [ModelInfo]), (status = 400, body = ErrorResponse), (status = 403, body = ErrorResponse))
+)]
+pub async fn list_ai_models<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(provider): Path<String>,
+) -> ApiResult<Vec<ModelInfo>> {
+    // AUTHZ-GATE: model discovery can reveal credential-backed integrations.
+    let authorized = state
+        .ports
+        .membership_repo()
+        .has_active_credential_role(current_user.sub)
+        .await
+        .unwrap_or(false);
+    if !authorized {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                message: "not authorized to discover AI models".to_owned(),
+            }),
+        ));
+    }
+    if !state.ai_import_enabled {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                message: "AI import is disabled".to_owned(),
+            }),
+        ));
+    }
+    let provider = parse_ai_provider(&provider).map_err(map_err)?;
+    Ok((StatusCode::OK, Json(infra::ai::curated_models(provider))))
+}
+
+fn parse_ai_provider(value: &str) -> Result<LlmProvider, DomainError> {
+    match value {
+        "openai" => Ok(LlmProvider::OpenAI),
+        "openrouter_eu" | "openrouter-eu" => Ok(LlmProvider::OpenRouterEU),
+        "ollama" => Ok(LlmProvider::Ollama),
+        other => Err(DomainError::ValidationError(format!(
+            "unknown AI provider {other}"
+        ))),
+    }
+}
+
 /// Build the full Axum router using the concrete `ProductionPorts` bundle.
 pub fn routes() -> Router<AppState<ProductionPorts>> {
     Router::new()
+        .route(
+            "/v1/ai-import/providers",
+            routing::get(list_ai_providers::<ProductionPorts>),
+        )
+        .route(
+            "/v1/ai-import/providers/{provider}/models",
+            routing::get(list_ai_models::<ProductionPorts>),
+        )
         .route(
             "/settings/gdrive",
             routing::post(create_gdrive_credential::<ProductionPorts>),

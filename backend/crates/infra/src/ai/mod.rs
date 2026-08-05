@@ -22,6 +22,7 @@ pub mod pg_concurrency;
 pub mod preview_store;
 pub mod prompts;
 pub mod queue;
+pub mod runtime;
 pub mod schedule_apply;
 pub mod shutdown;
 pub mod workers;
@@ -40,6 +41,7 @@ pub use pg_concurrency::{PgAiConcurrencyLimiter, PgAiConcurrencyPermit};
 pub use preview_store::{AiDocumentSource, AiPreviewStore, MemoryAiPreviewStore};
 pub use prompts::default_prompt;
 pub use queue::PgAiImportQueue;
+pub use runtime::AiWorkerRuntime;
 pub use schedule_apply::{
     AppliedDay, ScheduleApplyRequest, ScheduleApplyResult, ScheduleApplyWorker,
 };
@@ -49,7 +51,7 @@ pub use workers::{
     UuidVersion,
 };
 
-use breakdown_core::ai::{AiImportBounds, CuratedLlmProvider, LlmProvider};
+use breakdown_core::ai::{AiImportBounds, CuratedLlmProvider, LlmProvider, ModelInfo};
 
 /// Environment-gated rollout switch. It is off unless explicitly enabled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,6 +91,26 @@ impl AiImportFeature {
 /// Curated provider URL registry. User input is never used for these values.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CuratedProviderUrls;
+
+pub fn curated_models(provider: LlmProvider) -> Vec<ModelInfo> {
+    let ids: &[&str] = match provider {
+        LlmProvider::OpenAI => &["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"],
+        LlmProvider::OpenRouterEU => &[
+            "openai/gpt-4o-mini",
+            "openai/gpt-4o",
+            "meta-llama/llama-3.1-8b-instruct:free",
+        ],
+        LlmProvider::Ollama => &["llama3.1:8b", "qwen2.5:7b"],
+        _ => &[],
+    };
+    ids.iter()
+        .map(|id| ModelInfo {
+            id: (*id).to_owned(),
+            display_name: None,
+            provider,
+        })
+        .collect()
+}
 
 impl CuratedLlmProvider for CuratedProviderUrls {
     fn base_url(provider: LlmProvider) -> &'static str {
