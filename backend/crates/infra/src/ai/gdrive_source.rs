@@ -56,9 +56,17 @@ impl GDriveDocumentSource {
     }
 
     pub async fn list_documents(&self) -> Result<Vec<GDriveDocument>, DomainError> {
+        // Bound the listing: a Drive folder can hold an unbounded number of
+        // files, and draining the whole lister would produce an unbounded Vec
+        // plus unbounded round trips. Stop at a fixed maximum.
+        const MAX_LISTED: usize = 1000;
         let mut lister = self.operator.lister("").await.map_err(map_opendal_error)?;
         let mut documents = Vec::new();
-        while let Some(entry) = lister.try_next().await.map_err(map_opendal_error)? {
+        while documents.len() < MAX_LISTED {
+            let entry = match lister.try_next().await.map_err(map_opendal_error)? {
+                Some(entry) => entry,
+                None => break,
+            };
             let path = entry.path().to_owned();
             if is_supported_document(&path) {
                 let name = path.rsplit('/').next().unwrap_or(&path).to_owned();

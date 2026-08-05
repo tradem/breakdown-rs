@@ -402,6 +402,7 @@ projectors that subscribe to SierraDB and update the Postgres projections.
 - `PHOTO_GC_DRY_RUN` – log-only mode (default: `false`; set `true` for first rollout)
 
 #### AI import (`add-ai-script-and-schedule-import`)
+
 - `AI_IMPORT_ENABLED` – enable AI import routes/workers (default: `false`; accepted values: `true`, `1`, `yes`).
 - `AI_IMPORT_MAX_CHUNKS_PER_SCRIPT` – maximum script scene chunks per job (default: `128`; bounded to `1..=10000`).
 - `AI_IMPORT_MAX_TOKENS_PER_REQ` – maximum output tokens per LLM request (default: `8192`; bounded to `1..=1000000`).

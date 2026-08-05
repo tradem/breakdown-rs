@@ -112,6 +112,6 @@ without ever bypassing existing command validation or the CQRS boundary.
   `ReportArchivalQueue` pattern, `RenderBounds` pattern, existing Scene/
   Character/ShootingDay/SceneShoot commands, `ShootingDaySource::AiExtracted`
   (provenance seam already persisted).
-- **CQP boundaries enforced**: write-side apply dispatches only existing
+- **CQRS boundaries enforced**: write-side apply dispatches only existing
   commands (no read-projection lookup by write-side code); merge/preview
   reads hit the read model only at the operation/job API edge.

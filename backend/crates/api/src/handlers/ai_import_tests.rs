@@ -14,11 +14,16 @@ use super::{ai_dedup_key, forbidden_ai_config, parse_ai_provider};
 #[test]
 fn reupload_dedup_key_is_stable_and_kind_specific() {
     let user = UserId::from_sub("handler-test-user");
+    let other_user = UserId::from_sub("handler-test-other-user");
     let script = ai_dedup_key(&user, DocumentKind::Script, "digest");
     let same_script = ai_dedup_key(&user, DocumentKind::Script, "digest");
     let schedule = ai_dedup_key(&user, DocumentKind::Schedule, "digest");
+    let other = ai_dedup_key(&other_user, DocumentKind::Script, "digest");
     assert_eq!(script, same_script);
     assert_ne!(script, schedule);
+    // The user segment stops one user's upload from matching another user's
+    // job: the same document under a different user must never dedup.
+    assert_ne!(script, other);
 }
 
 #[test]
@@ -31,6 +36,20 @@ fn provider_parser_rejects_unknown_values() {
     assert!(parse_ai_provider("not-a-provider").is_err());
     assert!(parse_ai_provider("neuralwatt").is_ok());
     assert!(parse_ai_provider("eurouter").is_ok());
+    // Canonical keys and every curated alias must be accepted — these arms are
+    // the ones most likely to be dropped in a refactor.
+    for alias in [
+        "openrouter_eu",
+        "openrouter-eu",
+        "opencode_go",
+        "opencode-go",
+        "openai",
+        "openrouter",
+        "opencode",
+        "ollama",
+    ] {
+        assert!(parse_ai_provider(alias).is_ok(), "alias {alias} rejected");
+    }
 }
 
 #[test]

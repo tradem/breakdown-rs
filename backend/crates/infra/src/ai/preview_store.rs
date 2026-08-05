@@ -14,6 +14,10 @@ use tokio::sync::RwLock;
 pub trait AiPreviewStore: Send + Sync {
     async fn put(&self, job_id: AiImportJobId, payload: Vec<u8>) -> Result<String, DomainError>;
     async fn get(&self, handle: &str) -> Result<Option<Vec<u8>>, DomainError>;
+    /// Remove a stored payload. Used to clean up orphaned blobs when a
+    /// duplicate upload is deduplicated after storage. Missing handles are a
+    /// no-op (the caller treats removal as best-effort).
+    async fn delete(&self, handle: &str) -> Result<(), DomainError>;
 }
 
 /// Small in-memory preview store for unit tests and local development. The
@@ -33,6 +37,11 @@ impl AiPreviewStore for MemoryAiPreviewStore {
 
     async fn get(&self, handle: &str) -> Result<Option<Vec<u8>>, DomainError> {
         Ok(self.values.read().await.get(handle).cloned())
+    }
+
+    async fn delete(&self, handle: &str) -> Result<(), DomainError> {
+        self.values.write().await.remove(handle);
+        Ok(())
     }
 }
 

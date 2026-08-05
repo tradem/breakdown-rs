@@ -10,8 +10,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::body::Bytes;
-use axum::extract::{Path, Query, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::extract::{DefaultBodyLimit, Path, Query, State};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
+use axum::response::{IntoResponse, Response};
 use axum::{Json, Router, routing};
 use breakdown_core::ai::{
     AiConfigCommands, AiConfigRepository, AiConfigView, AiImportEnqueueRequest,
@@ -4180,7 +4181,7 @@ async fn authorize_ai_block(
         .membership_repo()
         .has_active_costume_role_in_season(block.season_id, current_user.sub.clone())
         .await
-        .unwrap_or(false);
+        .map_err(map_err)?;
     if !authorized {
         return Err((
             StatusCode::FORBIDDEN,
@@ -4212,7 +4213,7 @@ async fn authorize_ai_job(
             .membership_repo()
             .has_active_costume_role_in_season(block.season_id, current_user.sub.clone())
             .await
-            .unwrap_or(false);
+            .map_err(map_err)?;
         if !authorized {
             return Err(forbidden_ai_config());
         }
@@ -4272,20 +4273,39 @@ async fn enqueue_ai_upload(
             block_id: Some(block_id),
             dedup_key: ai_dedup_key(&current_user.sub, kind, &digest),
             document_digest: digest,
-            source_handle,
+            source_handle: source_handle.clone(),
         })
         .await
         .map_err(map_err)?;
     let (status, id) = match result {
         AiImportEnqueueResult::Enqueued(id) => (StatusCode::ACCEPTED, id),
-        AiImportEnqueueResult::Existing(id) => (StatusCode::OK, id),
+        AiImportEnqueueResult::Existing(id) => {
+            // The bytes were stored under the freshly generated `job_id` before
+            // the dedup lookup; the existing job references its own source
+            // document, so this new handle is orphaned — remove it to avoid
+            // leaking one full document per duplicate re-upload.
+            if let Err(error) = state.ports.ai_preview_store().delete(&source_handle).await {
+                tracing::warn!(%error, "failed to remove orphaned AI import source document");
+            }
+            (StatusCode::OK, id)
+        }
     };
     Ok((status, Json(id)))
 }
 
+fn request_content_type(headers: &HeaderMap) -> &str {
+    headers
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .split(';')
+        .next()
+        .unwrap_or_default()
+}
+
 #[utoipa::path(
     post,
-    path = "/v1/ai-import/scripts",
+    path = "/ai-import/scripts",
     request_body(content = String, content_type = "application/pdf"),
     responses((status = 202, body = AiImportJobId), (status = 403, body = ErrorResponse))
 )]
@@ -4296,13 +4316,7 @@ pub async fn upload_ai_script(
     body: Bytes,
 ) -> ApiResult<AiImportJobId> {
     // AUTHZ-GATE: script uploads require active costume-department membership.
-    let content_type = headers
-        .get("content-type")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default()
-        .split(';')
-        .next()
-        .unwrap_or_default();
+    let content_type = request_content_type(&headers);
     if content_type != "application/pdf" {
         return Err((
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
@@ -4316,7 +4330,7 @@ pub async fn upload_ai_script(
 
 #[utoipa::path(
     post,
-    path = "/v1/ai-import/schedules",
+    path = "/ai-import/schedules",
     request_body(content = String, content_type = "application/pdf"),
     responses((status = 202, body = AiImportJobId), (status = 403, body = ErrorResponse))
 )]
@@ -4327,13 +4341,7 @@ pub async fn upload_ai_schedule(
     body: Bytes,
 ) -> ApiResult<AiImportJobId> {
     // AUTHZ-GATE: schedule uploads require active costume-department membership.
-    let content_type = headers
-        .get("content-type")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default()
-        .split(';')
-        .next()
-        .unwrap_or_default();
+    let content_type = request_content_type(&headers);
     if !matches!(content_type, "application/pdf" | "text/csv" | "text/plain") {
         return Err((
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
@@ -4352,7 +4360,7 @@ pub struct AiImportJobResponse {
 
 #[utoipa::path(
     get,
-    path = "/v1/ai-import/jobs/{id}",
+    path = "/ai-import/jobs/{id}",
     params(("id" = Uuid, Path)),
     responses((status = 200, body = AiImportJobResponse), (status = 404, body = ErrorResponse))
 )]
@@ -4360,7 +4368,7 @@ pub async fn get_ai_import_job(
     State(state): State<AppState<ProductionPorts>>,
     current_user: CurrentUser,
     Path(id): Path<AiImportJobId>,
-) -> ApiResult<AiImportJobResponse> {
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     // AUTHZ-GATE: job status is visible only to its submitting user.
     let job = state
         .ports
@@ -4375,12 +4383,12 @@ pub async fn get_ai_import_job(
         )))
     })?;
     authorize_ai_job(&state, &current_user, &job).await?;
-    Ok((StatusCode::OK, Json(AiImportJobResponse { job })))
+    Ok(no_store_json(StatusCode::OK, AiImportJobResponse { job }))
 }
 
 #[utoipa::path(
     get,
-    path = "/v1/ai-import/jobs/{id}/preview",
+    path = "/ai-import/jobs/{id}/preview",
     params(("id" = Uuid, Path)),
     responses((status = 200, body = Object), (status = 404, body = ErrorResponse))
 )]
@@ -4388,7 +4396,7 @@ pub async fn get_ai_import_preview(
     State(state): State<AppState<ProductionPorts>>,
     current_user: CurrentUser,
     Path(id): Path<AiImportJobId>,
-) -> ApiResult<serde_json::Value> {
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     // AUTHZ-GATE: preview content is visible only to its submitting user.
     let job = state
         .ports
@@ -4413,12 +4421,12 @@ pub async fn get_ai_import_preview(
         .await
         .map_err(map_err)?
         .ok_or_else(|| map_err(DomainError::NotFound("AI preview".to_owned())))?;
-    let value = serde_json::from_slice(&payload).map_err(|error| {
+    let value: serde_json::Value = serde_json::from_slice(&payload).map_err(|error| {
         map_err(DomainError::ValidationError(format!(
             "invalid AI preview JSON: {error}"
         )))
     })?;
-    Ok((StatusCode::OK, Json(value)))
+    Ok(no_store_json(StatusCode::OK, value))
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -4439,7 +4447,7 @@ pub struct ApplyAiImportResponse {
 
 #[utoipa::path(
     post,
-    path = "/v1/ai-import/jobs/{id}/apply",
+    path = "/ai-import/jobs/{id}/apply",
     params(("id" = Uuid, Path)),
     request_body = ApplyAiImportRequest,
     responses((status = 200, body = ApplyAiImportResponse), (status = 403, body = ErrorResponse))
@@ -4488,6 +4496,23 @@ pub async fn apply_ai_import(
     };
     match job.document_kind {
         DocumentKind::Script => {
+            // AUTHZ-GATE: resolve the target episode at the API edge and require
+            // its block to match the job's block — a succeeded job in block A
+            // must not create scenes in an episode from block B (CWE-639 IDOR).
+            let episode = state
+                .ports
+                .episode_repo()
+                .find_by_id(request.episode_id.0)
+                .await
+                .map_err(map_err)?;
+            if let Some(job_block) = job.block_id
+                && episode.block_id != job_block
+            {
+                return Err(forbidden_ai_config());
+            }
+            // The episode is the authoritative source for the series seam;
+            // resolving it here keeps the write side free of read-model lookups.
+            let series_id = Some(episode.series_id);
             let preview: ScriptContext = serde_json::from_slice(&payload).map_err(|error| {
                 map_err(DomainError::ValidationError(format!(
                     "invalid ScriptContext preview: {error}"
@@ -4505,7 +4530,7 @@ pub async fn apply_ai_import(
                     preview: &preview,
                     decisions: &request.mappings,
                     episode_id: request.episode_id,
-                    series_id: request.series_id,
+                    series_id,
                     telemetry: Some(telemetry),
                 })
                 .await
@@ -4540,12 +4565,20 @@ pub async fn apply_ai_import(
                 })
                 .await
                 .map_err(map_err)?;
-            state
+            // Telemetry is not part of the apply success contract: the mutation
+            // already committed. Log a failed record so the client still sees
+            // the successful apply result (mirrors the script branch).
+            if let Err(error) = state
                 .ports
                 .ai_import_queue()
                 .record_telemetry(id, telemetry)
                 .await
-                .map_err(map_err)?;
+            {
+                tracing::warn!(
+                    %error,
+                    "failed to record AI import telemetry after successful schedule apply"
+                );
+            }
             Ok((
                 StatusCode::OK,
                 Json(ApplyAiImportResponse {
@@ -4582,13 +4615,16 @@ pub struct RevokeAiConfigRequest {
     pub version: AggregateVersion,
 }
 
-async fn credential_role_gate<P: Ports>(state: &AppState<P>, user: &CurrentUser) -> bool {
+async fn credential_role_gate<P: Ports>(
+    state: &AppState<P>,
+    user: &CurrentUser,
+) -> Result<bool, (StatusCode, Json<ErrorResponse>)> {
     state
         .ports
         .membership_repo()
         .has_active_credential_role(user.sub.clone())
         .await
-        .unwrap_or(false)
+        .map_err(map_err)
 }
 
 fn forbidden_ai_config() -> (StatusCode, Json<ErrorResponse>) {
@@ -4600,9 +4636,20 @@ fn forbidden_ai_config() -> (StatusCode, Json<ErrorResponse>) {
     )
 }
 
+/// Render a JSON response with `Cache-Control: no-store` — AI import job and
+/// preview payloads are user-specific and must not be retained by browsers or
+/// intermediary caches (CWE-525).
+fn no_store_json<T: serde::Serialize>(status: StatusCode, value: T) -> Response {
+    let mut response = (status, Json(value)).into_response();
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
 #[utoipa::path(
     post,
-    path = "/v1/ai-import/config",
+    path = "/ai-import/config",
     request_body = CreateAiConfigRequest,
     responses((status = 201, body = IdVersionResponse), (status = 403, body = ErrorResponse))
 )]
@@ -4612,7 +4659,7 @@ pub async fn create_ai_config(
     Json(request): Json<CreateAiConfigRequest>,
 ) -> ApiResult<IdVersionResponse> {
     // AUTHZ-GATE: only active credential-role members may create AI config.
-    if !credential_role_gate(&state, &current_user).await {
+    if !credential_role_gate(&state, &current_user).await? {
         return Err(forbidden_ai_config());
     }
     let id = Uuid::now_v7();
@@ -4638,7 +4685,7 @@ pub async fn create_ai_config(
 
 #[utoipa::path(
     get,
-    path = "/v1/ai-import/config/{id}",
+    path = "/ai-import/config/{id}",
     params(("id" = Uuid, Path)),
     responses((status = 200, body = AiConfigView), (status = 403, body = ErrorResponse))
 )]
@@ -4648,7 +4695,7 @@ pub async fn get_ai_config(
     Path(id): Path<Uuid>,
 ) -> ApiResult<AiConfigView> {
     // AUTHZ-GATE: AI configuration is a credential-role-only view.
-    if !credential_role_gate(&state, &current_user).await {
+    if !credential_role_gate(&state, &current_user).await? {
         return Err(forbidden_ai_config());
     }
     let view = state
@@ -4665,7 +4712,7 @@ pub async fn get_ai_config(
 
 #[utoipa::path(
     patch,
-    path = "/v1/ai-import/config/{id}",
+    path = "/ai-import/config/{id}",
     params(("id" = Uuid, Path)),
     request_body = UpdateAiConfigRequest,
     responses((status = 200, body = AggregateVersion), (status = 403, body = ErrorResponse))
@@ -4677,7 +4724,7 @@ pub async fn update_ai_config(
     Json(request): Json<UpdateAiConfigRequest>,
 ) -> ApiResult<AggregateVersion> {
     // AUTHZ-GATE: AI configuration mutation requires credential role and ownership.
-    if !credential_role_gate(&state, &current_user).await {
+    if !credential_role_gate(&state, &current_user).await? {
         return Err(forbidden_ai_config());
     }
     let view = state
@@ -4711,7 +4758,7 @@ pub async fn update_ai_config(
 
 #[utoipa::path(
     post,
-    path = "/v1/ai-import/config/{id}/revoke",
+    path = "/ai-import/config/{id}/revoke",
     params(("id" = Uuid, Path)),
     request_body = RevokeAiConfigRequest,
     responses((status = 200, body = AggregateVersion), (status = 403, body = ErrorResponse))
@@ -4723,7 +4770,7 @@ pub async fn revoke_ai_config(
     Json(request): Json<RevokeAiConfigRequest>,
 ) -> ApiResult<AggregateVersion> {
     // AUTHZ-GATE: revoking the AI credential binding requires credential role and ownership.
-    if !credential_role_gate(&state, &current_user).await {
+    if !credential_role_gate(&state, &current_user).await? {
         return Err(forbidden_ai_config());
     }
     let view = state
@@ -4752,7 +4799,7 @@ pub async fn revoke_ai_config(
 
 #[utoipa::path(
     get,
-    path = "/v1/ai-import/providers",
+    path = "/ai-import/providers",
     responses((status = 200, body = [LlmProvider]), (status = 403, body = ErrorResponse))
 )]
 pub async fn list_ai_providers<P: Ports>(
@@ -4766,7 +4813,7 @@ pub async fn list_ai_providers<P: Ports>(
         .membership_repo()
         .has_active_credential_role(current_user.sub)
         .await
-        .unwrap_or(false);
+        .map_err(map_err)?;
     if !authorized {
         return Err((
             StatusCode::FORBIDDEN,
@@ -4799,7 +4846,7 @@ pub async fn list_ai_providers<P: Ports>(
 
 #[utoipa::path(
     get,
-    path = "/v1/ai-import/providers/{provider}/models",
+    path = "/ai-import/providers/{provider}/models",
     params(("provider" = String, Path, description = "Curated provider key")),
     responses((status = 200, body = [ModelInfo]), (status = 400, body = ErrorResponse), (status = 403, body = ErrorResponse))
 )]
@@ -4814,7 +4861,7 @@ pub async fn list_ai_models<P: Ports>(
         .membership_repo()
         .has_active_credential_role(current_user.sub)
         .await
-        .unwrap_or(false);
+        .map_err(map_err)?;
     if !authorized {
         return Err((
             StatusCode::FORBIDDEN,
@@ -4856,45 +4903,55 @@ mod ai_import_tests;
 
 /// Build the full Axum router using the concrete `ProductionPorts` bundle.
 pub fn routes() -> Router<AppState<ProductionPorts>> {
+    // Axum's `Bytes` extractor enforces a default 2 MB request limit; the AI
+    // document bound is 20 MB by default. Raise the extractor limit to the same
+    // configured bound so uploads up to `max_document_bytes` reach the handler
+    // check (which returns PAYLOAD_TOO_LARGE for oversize bodies).
+    let ai_document_limit = infra::ai::AiImportFeature::from_env()
+        .bounds
+        .max_document_bytes as usize;
     Router::new()
         .route(
-            "/v1/ai-import/scripts",
+            "/ai-import/scripts",
             routing::post(upload_ai_script),
         )
         .route(
-            "/v1/ai-import/schedules",
+            "/ai-import/schedules",
             routing::post(upload_ai_schedule),
         )
+        // Raise the extractor limit only for the two AI upload routes; all other
+        // routes keep Axum's default body limit.
+        .route_layer(DefaultBodyLimit::max(ai_document_limit))
         .route(
-            "/v1/ai-import/jobs/{id}",
+            "/ai-import/jobs/{id}",
             routing::get(get_ai_import_job),
         )
         .route(
-            "/v1/ai-import/jobs/{id}/preview",
+            "/ai-import/jobs/{id}/preview",
             routing::get(get_ai_import_preview),
         )
         .route(
-            "/v1/ai-import/jobs/{id}/apply",
+            "/ai-import/jobs/{id}/apply",
             routing::post(apply_ai_import),
         )
         .route(
-            "/v1/ai-import/config",
+            "/ai-import/config",
             routing::post(create_ai_config),
         )
         .route(
-            "/v1/ai-import/config/{id}",
+            "/ai-import/config/{id}",
             routing::get(get_ai_config).patch(update_ai_config),
         )
         .route(
-            "/v1/ai-import/config/{id}/revoke",
+            "/ai-import/config/{id}/revoke",
             routing::post(revoke_ai_config),
         )
         .route(
-            "/v1/ai-import/providers",
+            "/ai-import/providers",
             routing::get(list_ai_providers::<ProductionPorts>),
         )
         .route(
-            "/v1/ai-import/providers/{provider}/models",
+            "/ai-import/providers/{provider}/models",
             routing::get(list_ai_models::<ProductionPorts>),
         )
         .route(

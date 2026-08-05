@@ -7,6 +7,7 @@ use breakdown_core::ai::{LlmChatRequest, LlmClient, LlmProvider, ScriptContext};
 use breakdown_core::error::DomainError;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::time::Duration;
 
 use super::client::{classify_http_status, classify_transport_error};
 use super::{CuratedLlmProvider, CuratedProviderUrls};
@@ -16,33 +17,47 @@ use super::{CuratedLlmProvider, CuratedProviderUrls};
 pub struct OllamaChatClient {
     http: reqwest::Client,
     max_parse_retries: u32,
+    timeout: Duration,
 }
 
 impl OllamaChatClient {
-    pub fn new(http: reqwest::Client, max_parse_retries: u32) -> Self {
+    pub fn new(http: reqwest::Client, max_parse_retries: u32, timeout: Duration) -> Self {
         Self {
             http,
             max_parse_retries: max_parse_retries.min(3),
+            timeout,
         }
     }
 
-    pub fn with_default_client(max_parse_retries: u32) -> Result<Self, DomainError> {
-        let http = reqwest::Client::builder().build().map_err(|error| {
-            DomainError::ValidationError(format!("invalid HTTP client: {error}"))
-        })?;
-        Ok(Self::new(http, max_parse_retries))
+    pub fn with_default_client(
+        max_parse_retries: u32,
+        timeout: Duration,
+    ) -> Result<Self, DomainError> {
+        let http = reqwest::Client::builder()
+            .timeout(timeout)
+            .build()
+            .map_err(|error| {
+                DomainError::ValidationError(format!("invalid HTTP client: {error}"))
+            })?;
+        Ok(Self::new(http, max_parse_retries, timeout))
     }
 
     async fn request_once(&self, req: &LlmChatRequest) -> Result<String, DomainError> {
         let body = OllamaRequest {
             model: req.model.clone(),
-            messages: vec![OllamaMessage {
-                role: "user".to_owned(),
-                content: format!(
-                    "{}\n\n<context>\n{}\n</context>",
-                    req.prompt, req.source_text
-                ),
-            }],
+            // Same system/user split as the OpenAI-compatible adapter: the
+            // configured prompt stays in a system message so the untrusted
+            // source document cannot override instructions via delimiters.
+            messages: vec![
+                OllamaMessage {
+                    role: "system".to_owned(),
+                    content: req.prompt.clone(),
+                },
+                OllamaMessage {
+                    role: "user".to_owned(),
+                    content: format!("<context>\n{}\n</context>", req.source_text),
+                },
+            ],
             format: json!("json"),
             stream: false,
             options: OllamaOptions {
@@ -56,6 +71,7 @@ impl OllamaChatClient {
         let response = self
             .http
             .post(endpoint)
+            .timeout(self.timeout)
             .json(&body)
             .send()
             .await

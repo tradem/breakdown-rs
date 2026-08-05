@@ -23,6 +23,7 @@ pub struct OpenAiCompatibleChatClient {
     http: reqwest::Client,
     provider: LlmProvider,
     api_key: SecretValue,
+    timeout: Duration,
 }
 
 impl OpenAiCompatibleChatClient {
@@ -46,13 +47,17 @@ impl OpenAiCompatibleChatClient {
             http,
             provider,
             api_key: SecretValue::new(api_key),
+            timeout,
         })
     }
 
+    /// Test seam: inject a prebuilt client while still enforcing the request
+    /// deadline per call (the injected client may not carry one).
     pub fn with_http(
         http: reqwest::Client,
         provider: LlmProvider,
         api_key: String,
+        timeout: Duration,
     ) -> Result<Self, DomainError> {
         if api_key.trim().is_empty() {
             return Err(DomainError::ValidationError(
@@ -63,6 +68,7 @@ impl OpenAiCompatibleChatClient {
             http,
             provider,
             api_key: SecretValue::new(api_key),
+            timeout,
         })
     }
 
@@ -80,13 +86,19 @@ impl OpenAiCompatibleChatClient {
             .unwrap_or_else(|| schemars::schema_for!(ScriptContextSchema).to_value());
         let body = ChatCompletionRequest {
             model: req.model.clone(),
-            messages: vec![ChatMessage {
-                role: "user".to_owned(),
-                content: format!(
-                    "{}\n\n<context>\n{}\n</context>",
-                    req.prompt, req.source_text
-                ),
-            }],
+            // The configured prompt (instructions) is carried in a system
+            // message; the source document is untrusted user data in its own
+            // message so it cannot override prompt directives via delimiters.
+            messages: vec![
+                ChatMessage {
+                    role: "system".to_owned(),
+                    content: req.prompt.clone(),
+                },
+                ChatMessage {
+                    role: "user".to_owned(),
+                    content: format!("<context>\n{}\n</context>", req.source_text),
+                },
+            ],
             max_tokens: req.max_tokens,
             response_format: Some(json!({
                 "type": "json_schema",
@@ -100,6 +112,7 @@ impl OpenAiCompatibleChatClient {
         let response = self
             .http
             .post(self.endpoint())
+            .timeout(self.timeout)
             .bearer_auth(self.api_key.as_str())
             .json(&body)
             .send()

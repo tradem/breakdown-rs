@@ -4,8 +4,13 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 use tokio::sync::Notify;
+
+/// Graceful-shutdown budget for draining in-flight AI import jobs. A stuck
+/// worker must not block shutdown forever (the orchestrator would SIGKILL).
+const DRAIN_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Tracks jobs that have been claimed but have not yet reached a terminal
 /// queue transition. Shutdown waits for this count to reach zero.
@@ -29,14 +34,26 @@ impl AiWorkerLifecycle {
     }
 
     /// Wait until every claimed job has dropped its guard after a terminal
-    /// success, failure, or dead-letter transition.
+    /// success, failure, or dead-letter transition. Bounded by [`DRAIN_TIMEOUT`]
+    /// so a job that never reaches a terminal state cannot block shutdown
+    /// indefinitely.
     pub async fn drain(&self) {
+        let deadline = tokio::time::sleep(DRAIN_TIMEOUT);
+        tokio::pin!(deadline);
         loop {
-            let notified = self.drained.notified();
             if self.in_flight() == 0 {
                 return;
             }
-            notified.await;
+            tokio::select! {
+                _ = self.drained.notified() => {}
+                _ = &mut deadline => {
+                    tracing::warn!(
+                        in_flight = self.in_flight(),
+                        "AI import drain timed out; proceeding with shutdown"
+                    );
+                    return;
+                }
+            }
         }
     }
 }

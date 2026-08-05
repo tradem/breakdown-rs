@@ -20,14 +20,16 @@ echo ""
 # Change to backend directory
 cd "$(git rev-parse --show-toplevel)/backend"
 
-# Get list of staged Rust files
-STAGED_RS_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.rs$' || true)
+# Get list of staged Rust files. `--relative` is required: the hook has
+# cd'ed into backend/, so plain `--name-only` would emit repo-root paths
+# (backend/crates/...) that the ^crates/ filters and gitleaks could not match.
+STAGED_RS_FILES=$(git diff --cached --relative --name-only --diff-filter=ACM | grep '\.rs$' || true)
 
 # 1. Run gitleaks on all staged files
 echo "📝 Checking for secrets with gitleaks..."
 if command -v gitleaks &> /dev/null; then
-    # Only check staged files
-    STAGED_FILES=$(git diff --cached --name-only)
+    # Only check staged files (backend-relative paths so gitleaks can find them)
+    STAGED_FILES=$(git diff --cached --relative --name-only)
     if [ -n "$STAGED_FILES" ]; then
         echo "$STAGED_FILES" | xargs -r gitleaks protect --verbose --redact --staged
     fi

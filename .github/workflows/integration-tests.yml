@@ -112,6 +112,16 @@ jobs:
         run: cargo test -p integration-tests --test vault_fixture_test -- --nocapture
 
       - name: AI GDrive fixture smoke test
+        # CWE-522 / CWE-200: the step injects live GDrive credentials into code
+        # that runs the PR's merge ref. Only run it for trusted contexts —
+        # pushes to main, or PRs authored by an OWNER/MEMBER/COLLABORATOR — so
+        # untrusted PR code cannot exfiltrate the secrets (they are masked in
+        # logs, but an attacker could encode and exfiltrate them).
+        if: >-
+          github.event_name == 'push' ||
+          (github.event_name == 'pull_request' &&
+           contains(fromJson('["OWNER", "MEMBER", "COLLABORATOR"]'),
+                    github.event.pull_request.author_association))
         env:
           GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
           GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
@@ -170,9 +180,15 @@ jobs:
             --nocapture
 
       # GDrive archival provider contract test.
-      # Only runs when the GDRIVE_CLIENT_ID secret is configured.
+      # Only runs when the GDRIVE_CLIENT_ID secret is configured AND the PR is
+      # trusted (same trust gate as the AI GDrive fixture step above).
       - name: GDrive archival provider contract test
-        if: env.REPORT_BACKUP_GDRIVE_CLIENT_ID != ''
+        if: >-
+          env.REPORT_BACKUP_GDRIVE_CLIENT_ID != '' &&
+          (github.event_name == 'push' ||
+           (github.event_name == 'pull_request' &&
+            contains(fromJson('["OWNER", "MEMBER", "COLLABORATOR"]'),
+                     github.event.pull_request.author_association)))
         env:
           REPORT_BACKUP_PROVIDER: gdrive
           REPORT_BACKUP_GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
@@ -183,7 +199,12 @@ jobs:
         run: cargo test -p infra -- reporting::storage_contract_test::gdrive_contract -- --nocapture
 
       - name: GDrive archival provider contract test (skipped)
-        if: env.REPORT_BACKUP_GDRIVE_CLIENT_ID == ''
+        if: >-
+          env.REPORT_BACKUP_GDRIVE_CLIENT_ID == '' &&
+          (github.event_name == 'push' ||
+           (github.event_name == 'pull_request' &&
+            contains(fromJson('["OWNER", "MEMBER", "COLLABORATOR"]'),
+                     github.event.pull_request.author_association)))
         env:
           REPORT_BACKUP_GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
         run: echo SKIP - GDrive contract test - set GDRIVE_CLIENT_ID secret to enable

@@ -29,3 +29,8 @@ rule:
   any:
     - pattern: $REPO.find_by_id($$$ARGS)
     - pattern: $REPO::find_by_id($$$ARGS)
+    # The AI idempotency mapping lookup (`AiImportMappingRepository::find`) also
+    # reads a projection. It is a documented non-audit read: the spec requires
+    # it for crash-safe re-apply idempotency, and each call site carries an
+    # explicit `// ast-grep-ignore: cqrs-boundary` suppression.
+    - pattern: self.mappings.find($$$ARGS)

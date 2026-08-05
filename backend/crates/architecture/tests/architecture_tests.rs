@@ -57,6 +57,7 @@ const FORBIDDEN_CORE_DEPS: &[&str] = &[
     "tokio",
     "schemars",
     "reqwest",
+    "csv",
     // Reporting engine / locale crates — must stay in infra only
     "typst",
     "typst-pdf",
@@ -133,6 +134,7 @@ fn core_must_not_depend_on_infrastructure_crates() {
             "api",
             "schemars",
             "reqwest",
+            "csv",
             // Reporting engine / locale crates — must stay in infra only
             "typst",
             "typst_pdf",

@@ -32,12 +32,19 @@ impl AiImportQueue for PgAiImportQueue {
         &self,
         request: AiImportEnqueueRequest,
     ) -> Result<AiImportEnqueueResult, DomainError> {
-        let result = sqlx::query(
+        // One statement does the insert-or-conflict and returns the row with an
+        // `inserted` flag (`xmax = 0` is true only for a freshly inserted
+        // tuple). A separate SELECT after the INSERT could miss a concurrently
+        // committed row (RowNotFound -> spurious ServiceUnavailable) — see
+        // review comment on the previous two-statement enqueue.
+        let row = sqlx::query(
             r#"
             INSERT INTO ai_import.ai_import_job
                 (id, user_id, document_kind, block_id, dedup_key, document_digest, source_handle)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
-            ON CONFLICT (user_id, dedup_key) DO NOTHING
+            ON CONFLICT (user_id, dedup_key) DO UPDATE
+                SET dedup_key = EXCLUDED.dedup_key
+            RETURNING id, (xmax = 0) AS inserted
             "#,
         )
         .bind(request.id.as_uuid())
@@ -47,24 +54,12 @@ impl AiImportQueue for PgAiImportQueue {
         .bind(&request.dedup_key)
         .bind(&request.document_digest)
         .bind(&request.source_handle)
-        .execute(&self.pool)
-        .await
-        .map_err(map_sqlx_error)?;
-
-        let row = sqlx::query(
-            r#"
-            SELECT id
-            FROM ai_import.ai_import_job
-            WHERE user_id = $1 AND dedup_key = $2
-            "#,
-        )
-        .bind(request.user_id.as_str())
-        .bind(&request.dedup_key)
         .fetch_one(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
         let id = AiImportJobId::from_uuid(row.try_get::<Uuid, _>("id").map_err(map_sqlx_error)?);
-        if result.rows_affected() == 1 {
+        let inserted = row.try_get::<bool, _>("inserted").map_err(map_sqlx_error)?;
+        if inserted {
             Ok(AiImportEnqueueResult::Enqueued(id))
         } else {
             Ok(AiImportEnqueueResult::Existing(id))
@@ -196,7 +191,14 @@ impl AiImportQueue for PgAiImportQueue {
                 END,
                 last_error = LEFT($2, 1000),
                 next_attempt_at = CASE
-                    WHEN $3 AND retries + 1 < max_retries THEN now() + interval '1 minute'
+                    WHEN $3 AND retries + 1 < max_retries
+                        -- Exponential backoff: 1min * 2^retries, capped at
+                        -- ~5.3h after 8 retries, so a failing dependency is not
+                        -- hammered at a fixed one-minute cadence.
+                        THEN now() + LEAST(
+                            interval '1 minute' * power(2, retries)::int,
+                            interval '6 hours'
+                        )
                     ELSE NULL
                 END,
                 updated_at = now()
@@ -318,5 +320,8 @@ fn parse_status(value: String) -> Result<JobStatus, DomainError> {
 }
 
 fn map_sqlx_error(error: sqlx::Error) -> DomainError {
-    DomainError::ServiceUnavailable(format!("AI import database error: {error}"))
+    // Log the raw error (with bound values) internally; the HTTP-facing message
+    // must not leak SQL details or bound values (CWE-209).
+    tracing::error!(%error, "AI import database error");
+    DomainError::ServiceUnavailable("AI import database error".to_owned())
 }

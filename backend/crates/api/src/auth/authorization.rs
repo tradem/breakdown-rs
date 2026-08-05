@@ -186,6 +186,13 @@ pub fn requirement_for(path: &str) -> Requirement {
     if path.contains("/photos") {
         return Requirement::Authenticated;
     }
+
+    // AI import endpoints are gated by `Authenticated`; each handler performs
+    // handler-internal authorization (costume-dept membership / credential
+    // role) and carries an `// AUTHZ-GATE:` comment (mirrors photo handlers).
+    if path.starts_with("/ai-import") {
+        return Requirement::Authenticated;
+    }
     // PDF report endpoints use handler-internal season-scoped auth gates
     // (// AUTHZ-GATE:), just like photo endpoints.
     if path.ends_with(".pdf") && path.contains("/report/") {

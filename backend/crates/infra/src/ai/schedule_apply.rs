@@ -94,9 +94,14 @@ where
                 };
 
                 let pair_key = format!("scene-shoot:{}:{}", merged.scene.id, day.id.0);
+                // Read the idempotency projection (non-audit): the spec requires
+                // the mapping lookup so a retried apply dispatches Update…
+                // instead of duplicating a scene shoot. Not audit-context
+                // resolution — series_id comes from the API edge request.
+                // (Suppression directive on the find line below.)
                 if self
                     .mappings
-                    .find(request.preview_id, &pair_key)
+                    .find(request.preview_id, &pair_key) // ast-grep-ignore: cqrs-boundary
                     .await?
                     .is_some()
                 {
@@ -163,9 +168,13 @@ where
     }
 
     async fn resolve_day(&self, actor: UserId, draft: DayDraft) -> Result<AppliedDay, DomainError> {
+        // Read the idempotency projection (non-audit): a retried apply must
+        // reuse the previously created shooting day instead of creating a
+        // duplicate. series_id comes from the API edge request, not this read.
+        // (Suppression directive on the find line below.)
         if let Some(mapping) = self
             .mappings
-            .find(draft.preview_id, &draft.draft_ref)
+            .find(draft.preview_id, &draft.draft_ref) // ast-grep-ignore: cqrs-boundary
             .await?
         {
             return Ok(AppliedDay {

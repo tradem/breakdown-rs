@@ -320,7 +320,10 @@ where
             } else {
                 draft.draft_ref.clone()
             };
-            let stored = self.mappings.find(preview_id, &draft_ref).await?;
+            let stored = self
+                .mappings
+                .find(preview_id, &draft_ref) // ast-grep-ignore: cqrs-boundary
+                .await?;
             let decision = stored
                 .map(|mapping| ApplyMappingDecision::Update {
                     aggregate_id: mapping.aggregate_id,

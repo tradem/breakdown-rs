@@ -59,7 +59,16 @@ impl AiImportMappingRepository for PgAiImportMappingRepository {
         .bind(&mapping.draft_ref)
         .bind(&mapping.aggregate_kind)
         .bind(mapping.aggregate_id)
-        .bind(mapping.aggregate_version.0 as i64)
+        .bind(
+            // Checked conversion: `u64 -> i64` via `as` would silently wrap
+            // above `i64::MAX` and persist a negative row that the read path
+            // rejects (map_mapping) — fail loudly instead.
+            i64::try_from(mapping.aggregate_version.0).map_err(|error| {
+                DomainError::ValidationError(format!(
+                    "AI mapping aggregate version exceeds database range: {error}"
+                ))
+            })?,
+        )
         .execute(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -104,5 +113,8 @@ fn map_mapping(row: sqlx::postgres::PgRow) -> Result<AiImportMapping, DomainErro
 }
 
 fn map_sqlx_error(error: sqlx::Error) -> DomainError {
-    DomainError::ServiceUnavailable(format!("AI mapping database error: {error}"))
+    // Log the raw error (with bound values) internally; the HTTP-facing message
+    // must not leak SQL details or bound values (CWE-209).
+    tracing::error!(%error, "AI mapping database error");
+    DomainError::ServiceUnavailable("AI mapping database error".to_owned())
 }
