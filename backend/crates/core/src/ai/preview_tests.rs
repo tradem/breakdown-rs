@@ -118,4 +118,24 @@ fn open_uncertainties_and_unmatched_rows_block_apply() {
         ensure_merge_applyable(&merged),
         Err(ApplyGateError::UnmatchedScheduleRows(1))
     ));
+
+    // Remaining apply-gate branches: unmatched script scenes and a missing
+    // mapping must also block the mutation.
+    let unmatched_scenes = MergedPreview {
+        unmatched_script_scenes: vec![scene(1)],
+        ..Default::default()
+    };
+    assert!(matches!(
+        ensure_merge_applyable(&unmatched_scenes),
+        Err(ApplyGateError::UnmatchedScriptScenes(1))
+    ));
+
+    let unmapped = ScriptContext {
+        scenes: vec![DraftScene::default()],
+        ..Default::default()
+    };
+    assert!(matches!(
+        plan_scene_apply(&unmapped, &[], EpisodeId::new(), None),
+        Err(ApplyGateError::MissingMapping(_))
+    ));
 }

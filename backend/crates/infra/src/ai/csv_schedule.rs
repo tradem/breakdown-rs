@@ -21,6 +21,28 @@ pub fn parse_schedule_csv(bytes: &[u8]) -> Result<ShootingSchedule, DomainError>
         })?
         .clone();
 
+    // Fail fast on a document with no supported header (wrong column names or
+    // data-as-first-row): every value() lookup would otherwise return None and
+    // the merge would later mark every row unmatched.
+    const SUPPORTED_HEADERS: [&str; 6] = [
+        "scene_number",
+        "shooting_day_label",
+        "shooting_day",
+        "date",
+        "location",
+        "order",
+    ];
+    if !headers.iter().any(|header| {
+        SUPPORTED_HEADERS
+            .iter()
+            .any(|supported| header.eq_ignore_ascii_case(supported))
+    }) {
+        return Err(DomainError::ValidationError(format!(
+            "schedule CSV has no supported header; expected one of {}",
+            SUPPORTED_HEADERS.join(", ")
+        )));
+    }
+
     let mut rows = Vec::new();
     for (index, record) in reader.records().enumerate() {
         let record = record.map_err(|error| {

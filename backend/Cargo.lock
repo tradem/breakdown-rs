@@ -242,7 +242,7 @@ dependencies = [
 
 [[package]]
 name = "architecture_tests"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "api",
  "breakdown_core",
@@ -3128,7 +3128,7 @@ dependencies = [
 
 [[package]]
 name = "integration-tests"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "breakdown_core",
@@ -6697,7 +6697,7 @@ dependencies = [
 
 [[package]]
 name = "test_support"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "breakdown_core",
  "chrono",

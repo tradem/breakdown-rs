@@ -21,7 +21,8 @@ use uuid::Uuid;
 
 use super::pdf::PdfTextExtractor;
 use super::preview_store::{AiDocumentSource, AiPreviewStore};
-use crate::photo::sagas::retry_transient_value;
+use crate::photo::sagas::is_transient;
+use crate::projectors::supervisor;
 
 /// Script import pipeline. It is deliberately independent of HTTP and can be
 /// driven by a queue worker or deterministic integration tests.
@@ -110,7 +111,12 @@ where
                 max_tokens: self.bounds.max_tokens_per_req,
                 response_schema: None,
             };
-            let partial = retry_chat(self.client.as_ref(), request).await;
+            let partial = retry_chat(
+                self.client.as_ref(),
+                request,
+                self.bounds.max_retries as usize,
+            )
+            .await;
             match partial {
                 Ok(partial) => {
                     if context.title.is_none() {
@@ -226,7 +232,12 @@ where
                 max_tokens: self.bounds.max_tokens_per_req,
                 response_schema: None,
             };
-            retry_schedule(self.client.as_ref(), request).await?
+            retry_schedule(
+                self.client.as_ref(),
+                request,
+                self.bounds.max_retries as usize,
+            )
+            .await?
         };
         if schedule.block_id.is_none() {
             schedule.block_id = job.block_id;
@@ -420,16 +431,49 @@ pub fn validate_chunk_count(chunk_count: usize, max_chunks: u32) -> Result<(), D
     Ok(())
 }
 
-async fn retry_chat<C>(client: &C, request: LlmChatRequest) -> Result<ScriptContext, DomainError>
+/// Retry a transient LLM provider failure at most `max_retries` times with
+/// backoff, then return the last error. The shared saga retry helper loops
+/// forever on transient errors; a provider outage must not retry without bound
+/// (unbounded cost, and the concurrency permit is held for the whole outage).
+async fn retry_bounded<F, Fut, T>(mut op: F, max_retries: usize) -> Result<T, AnyhowError>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, AnyhowError>>,
+{
+    let mut attempt: usize = 0;
+    loop {
+        match op().await {
+            Ok(value) => return Ok(value),
+            Err(error) if is_transient(&error) && attempt < max_retries => {
+                attempt += 1;
+                tokio::time::sleep(supervisor::compute_backoff(
+                    attempt,
+                    std::time::Duration::from_secs(30),
+                ))
+                .await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+async fn retry_chat<C>(
+    client: &C,
+    request: LlmChatRequest,
+    max_retries: usize,
+) -> Result<ScriptContext, DomainError>
 where
     C: LlmClient + ?Sized,
 {
-    let outcome = retry_transient_value(|| async {
-        client
-            .chat_constrained(request.clone())
-            .await
-            .map_err(AnyhowError::new)
-    })
+    let outcome = retry_bounded(
+        || async {
+            client
+                .chat_constrained(request.clone())
+                .await
+                .map_err(AnyhowError::new)
+        },
+        max_retries,
+    )
     .await;
     match outcome {
         Ok(value) => Ok(value),
@@ -443,16 +487,20 @@ where
 async fn retry_schedule<C>(
     client: &C,
     request: LlmChatRequest,
+    max_retries: usize,
 ) -> Result<ShootingSchedule, DomainError>
 where
     C: LlmClient + ?Sized,
 {
-    let outcome = retry_transient_value(|| async {
-        client
-            .extract_schedule(request.clone())
-            .await
-            .map_err(AnyhowError::new)
-    })
+    let outcome = retry_bounded(
+        || async {
+            client
+                .extract_schedule(request.clone())
+                .await
+                .map_err(AnyhowError::new)
+        },
+        max_retries,
+    )
     .await;
     match outcome {
         Ok(value) => Ok(value),

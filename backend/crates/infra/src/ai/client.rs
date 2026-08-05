@@ -32,6 +32,14 @@ impl OpenAiCompatibleChatClient {
         api_key: String,
         timeout: Duration,
     ) -> Result<Self, DomainError> {
+        if provider == LlmProvider::Ollama {
+            return Err(DomainError::ValidationError(
+                "Ollama must be routed through OllamaChatClient — the \
+                 OpenAI-compatible client would send bearer auth to its HTTP \
+                 base URL"
+                    .to_owned(),
+            ));
+        }
         if api_key.trim().is_empty() {
             return Err(DomainError::ValidationError(
                 "LLM API key must not be empty".to_owned(),
@@ -59,6 +67,14 @@ impl OpenAiCompatibleChatClient {
         api_key: String,
         timeout: Duration,
     ) -> Result<Self, DomainError> {
+        if provider == LlmProvider::Ollama {
+            return Err(DomainError::ValidationError(
+                "Ollama must be routed through OllamaChatClient — the \
+                 OpenAI-compatible client would send bearer auth to its HTTP \
+                 base URL"
+                    .to_owned(),
+            ));
+        }
         if api_key.trim().is_empty() {
             return Err(DomainError::ValidationError(
                 "LLM API key must not be empty".to_owned(),

@@ -92,7 +92,10 @@ impl GDriveDocumentSource {
         }
         let bytes = self
             .operator
-            .read(handle)
+            .read_with(handle)
+            // Cap the buffered bytes: reject oversized documents after at most
+            // max_document_bytes + 1 bytes instead of downloading the whole file.
+            .range(0..=self.max_document_bytes)
             .await
             .map_err(map_opendal_error)?
             .to_vec();

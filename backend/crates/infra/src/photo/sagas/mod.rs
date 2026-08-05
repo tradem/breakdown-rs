@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.2 (neuralwatt)
+// Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
 // SPDX-License-Identifier: AGPL-3.0
@@ -47,34 +48,10 @@ where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<()>>,
 {
-    let mut op = op;
-    let mut attempt: usize = 0;
-    loop {
-        match op().await {
-            Ok(()) => return Ok(()),
-            Err(err) if is_transient(&err) => {
-                attempt += 1;
-                let delay = supervisor::compute_backoff(attempt, TRANSIENT_MAX_DELAY);
-                if attempt.is_multiple_of(TRANSIENT_ESCALATION_ATTEMPTS) {
-                    tracing::error!(
-                        attempt,
-                        delay_ms = delay.as_millis(),
-                        error = %err,
-                        "dependency has been unavailable for {attempt} consecutive attempts; saga work is stalled"
-                    );
-                } else {
-                    tracing::warn!(
-                        attempt,
-                        delay_ms = delay.as_millis(),
-                        error = %err,
-                        "transient storage dependency failure; retrying saga work"
-                    );
-                }
-                tokio::time::sleep(delay).await;
-            }
-            Err(err) => return Err(err),
-        }
-    }
+    // Thin wrapper over the shared retry loop so the attempt counter,
+    // transient classification, escalation logging, and backoff stay in one
+    // place.
+    retry_transient_value(op).await
 }
 
 /// Value-returning variant used by workers that need to retry an operation

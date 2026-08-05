@@ -119,13 +119,18 @@ pub struct AppState<P: Ports> {
     /// Rollout switch for AI import routes/workers. It is explicitly enabled
     /// by `AI_IMPORT_ENABLED`; the default is safe/off.
     pub ai_import_enabled: bool,
+    /// AI document size bound, resolved once from `AiImportFeature` at state
+    /// construction so the handler and the extractor share one value.
+    pub ai_import_max_document_bytes: u64,
 }
 
 impl<P: Ports> AppState<P> {
     pub fn new(ports: P) -> Self {
+        let feature = infra::ai::AiImportFeature::from_env();
         Self {
             ports,
-            ai_import_enabled: infra::ai::AiImportFeature::from_env().enabled,
+            ai_import_enabled: feature.enabled,
+            ai_import_max_document_bytes: feature.bounds.max_document_bytes,
         }
     }
 }

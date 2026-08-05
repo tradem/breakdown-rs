@@ -62,6 +62,18 @@ where
         let mut created_days = 0u32;
         let mut planned_scene_shoots = 0u32;
 
+        // Fallback order keys must live above every supplied order, otherwise a
+        // missing `row.order` can collide with (or reorder before) an explicit
+        // one.
+        let max_supplied_order = request
+            .preview
+            .scenes
+            .iter()
+            .flat_map(|merged| merged.schedule_rows.iter())
+            .filter_map(|row| row.order)
+            .max()
+            .unwrap_or(0);
+
         for (scene_index, merged) in request.preview.scenes.iter().enumerate() {
             for (row_index, row) in merged.schedule_rows.iter().enumerate() {
                 let day_key = format!(
@@ -132,7 +144,11 @@ where
                     .await?;
                 scene_versions.insert(merged.scene.id, scene_version);
 
-                let order = row.order.unwrap_or((scene_index + row_index) as u32);
+                let order = row.order.unwrap_or(
+                    max_supplied_order
+                        .saturating_add(1)
+                        .saturating_add((scene_index + row_index) as u32),
+                );
                 let planned_order = LexicalSortKey::new(format!("{order:08}"))
                     .map_err(|error| DomainError::ValidationError(error.to_string()))?;
                 let (scene_shoot_id, version) = self

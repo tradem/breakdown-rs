@@ -60,26 +60,57 @@ where
             self.fail(job.id, &error, true).await?;
             return Err(error);
         };
-        let schedule: ShootingSchedule = from_slice(&payload).map_err(|error| {
-            DomainError::ValidationError(format!("invalid schedule preview: {error}"))
-        })?;
+        let schedule: ShootingSchedule = match from_slice(&payload) {
+            Ok(schedule) => schedule,
+            Err(error) => {
+                // A malformed payload must not leave the job stuck in `running`
+                // (the queue has no running-job reclaim path).
+                let error =
+                    DomainError::ValidationError(format!("invalid schedule preview: {error}"));
+                self.fail(job.id, &error, false).await?;
+                return Err(error);
+            }
+        };
         let Some(block_id) = schedule.block_id else {
             let error =
                 DomainError::ValidationError("schedule preview has no target block".to_owned());
             self.fail(job.id, &error, false).await?;
             return Err(error);
         };
+        // Request one extra row per page so a truncated projection can be
+        // detected: marking a partial merge as succeeded would silently drop
+        // scenes beyond the page limit.
         let episodes = self
             .episodes
-            .list_by_block(block_id, MAX_EPISODES_PER_BLOCK, 0)
+            .list_by_block(block_id, MAX_EPISODES_PER_BLOCK + 1, 0)
             .await?;
+        if episodes.len() > MAX_EPISODES_PER_BLOCK as usize {
+            let error = DomainError::ValidationError(format!(
+                "block contains more than {MAX_EPISODES_PER_BLOCK} episodes; \
+                 refusing a partial merge"
+            ));
+            self.fail(job.id, &error, false).await?;
+            return Err(error);
+        }
         let mut scenes = Vec::new();
         for episode in episodes {
-            scenes.extend(
-                self.scenes
-                    .list_by_episode(EpisodeId::from_uuid(episode.id), MAX_SCENES_PER_EPISODE, 0)
-                    .await?,
-            );
+            let episode_scenes = self
+                .scenes
+                .list_by_episode(
+                    EpisodeId::from_uuid(episode.id),
+                    MAX_SCENES_PER_EPISODE + 1,
+                    0,
+                )
+                .await?;
+            if episode_scenes.len() > MAX_SCENES_PER_EPISODE as usize {
+                let error = DomainError::ValidationError(format!(
+                    "episode contains more than {MAX_SCENES_PER_EPISODE} scenes; \
+                     refusing a partial merge"
+                ));
+                self.fail(job.id, &error, false).await?;
+                return Err(error);
+            }
+            scenes.extend(episode_scenes);
         }
         if scenes.is_empty() {
             let error =

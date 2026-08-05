@@ -73,7 +73,9 @@ where
         settings_id: Uuid,
         vault_key_id: &str,
     ) -> Result<SecretValue, DomainError> {
-        self.vault.fetch(settings_id, vault_key_id).await
+        // Route through fetch_key so the blank-key validation applies on both
+        // entry points.
+        self.fetch_key(settings_id, vault_key_id).await
     }
 
     async fn destroy(&self, settings_id: Uuid, vault_key_id: &str) -> Result<(), DomainError> {

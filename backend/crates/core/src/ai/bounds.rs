@@ -50,7 +50,7 @@ impl AiImportBounds {
     /// excessively large values fall back to the safe default.
     pub fn from_env() -> Self {
         let defaults = Self::default();
-        Self {
+        let mut bounds = Self {
             max_chunks_per_script: bounded_u32(
                 "AI_IMPORT_MAX_CHUNKS_PER_SCRIPT",
                 defaults.max_chunks_per_script,
@@ -88,7 +88,14 @@ impl AiImportBounds {
                 3_600,
             ),
             max_retries: bounded_u32("AI_IMPORT_MAX_RETRIES", defaults.max_retries, 0, 20),
-        }
+        };
+        // Cross-field invariant (enforced by validate()): the per-user ceiling
+        // must never exceed the global ceiling, or a per-user config could
+        // admit more concurrent jobs than the global pool allows.
+        bounds.max_concurrent_jobs_per_user = bounds
+            .max_concurrent_jobs_per_user
+            .min(bounds.max_concurrent_jobs_global);
+        bounds
     }
 
     /// Worst-case token budget for one script before provider-side spend

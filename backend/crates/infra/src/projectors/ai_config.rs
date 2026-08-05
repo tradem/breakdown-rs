@@ -65,7 +65,11 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                 .bind(image_model)
                 .bind(prompts)
                 .bind(vault_key_id)
-                .bind(version.0 as i64)
+                .bind(i64::try_from(version.0).map_err(|error| {
+                    sqlx::Error::Protocol(format!(
+                        "AI config aggregate version exceeds database range: {error}"
+                    ))
+                })?)
                 .bind(updated_at)
                 .execute(&mut **ctx)
                 .await?;
@@ -97,7 +101,11 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                 .bind(image_model)
                 .bind(prompts)
                 .bind(vault_key_id)
-                .bind(version.0 as i64)
+                .bind(i64::try_from(version.0).map_err(|error| {
+                    sqlx::Error::Protocol(format!(
+                        "AI config aggregate version exceeds database range: {error}"
+                    ))
+                })?)
                 .bind(updated_at)
                 .execute(&mut **ctx)
                 .await?;
@@ -111,7 +119,11 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                     "#,
                 )
                 .bind(id)
-                .bind(version.0 as i64)
+                .bind(i64::try_from(version.0).map_err(|error| {
+                    sqlx::Error::Protocol(format!(
+                        "AI config aggregate version exceeds database range: {error}"
+                    ))
+                })?)
                 .bind(updated_at)
                 .execute(&mut **ctx)
                 .await?;

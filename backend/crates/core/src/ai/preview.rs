@@ -259,13 +259,33 @@ pub fn merge_schedule_to_scenes(
     let mut rows = schedule.rows.clone();
     rows.sort_by_key(|row| (row.scene_number, row.row_ref.clone()));
 
+    // Group scene indices by number so duplicate scene numbers (e.g. "12" and
+    // "12A" both parsed as 12) all receive rows instead of the first scene
+    // capturing every row and the duplicates landing in unmatched_script_scenes.
+    let mut number_to_indices: std::collections::HashMap<Option<u32>, Vec<usize>> =
+        std::collections::HashMap::new();
+    for (index, scene) in ordered_scenes.iter().enumerate() {
+        number_to_indices
+            .entry(scene.scene_number)
+            .or_default()
+            .push(index);
+    }
+    let mut next_for_number: std::collections::HashMap<Option<u32>, usize> =
+        std::collections::HashMap::new();
+
     let mut matched: Vec<Vec<ShootingScheduleRow>> = vec![Vec::new(); ordered_scenes.len()];
     let mut unmatched_schedule_rows = Vec::new();
     for row in rows {
-        let index = ordered_scenes
-            .iter()
-            .position(|scene| scene.scene_number == row.scene_number && row.scene_number.is_some());
-        if let Some(index) = index {
+        let group = row
+            .scene_number
+            .and_then(|number| number_to_indices.get(&Some(number)))
+            .filter(|indices| !indices.is_empty());
+        if let Some(indices) = group {
+            let cursor = next_for_number.entry(row.scene_number).or_insert(0);
+            // Round-robin over the group: deterministic and keeps every
+            // duplicate-numbered scene populated.
+            let index = indices[*cursor % indices.len()];
+            *cursor += 1;
             matched[index].push(row);
         } else {
             unmatched_schedule_rows.push(row);

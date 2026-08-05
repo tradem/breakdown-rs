@@ -130,6 +130,14 @@ impl AiImportQueue for FakeQueue {
         Ok(None)
     }
 
+    async fn claim_next_kind(
+        &self,
+        _worker_id: &str,
+        _kind: DocumentKind,
+    ) -> Result<Option<AiImportJob>, DomainError> {
+        Ok(None)
+    }
+
     async fn get(&self, _id: AiImportJobId) -> Result<Option<AiImportJob>, DomainError> {
         Ok(None)
     }
@@ -216,7 +224,7 @@ fn script_worker(
         queue,
         client: Arc::new(FakeLlmClient),
         previews,
-        extractor: super::PdfTextExtractor::new(1024 * 1024),
+        extractor: super::PdfTextExtractor::new(1024 * 1024, std::time::Duration::from_secs(30)),
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),

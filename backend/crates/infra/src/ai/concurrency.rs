@@ -40,6 +40,14 @@ impl AiConcurrencyLimiter {
         let user_id = user_id.into();
         let user_semaphore = {
             let mut users = self.per_user.lock().await;
+            // Prune idle per-user entries while the lock is held: an entry is
+            // idle when the map holds the only Arc and all permits are
+            // available. Without this, the map grows with the number of users
+            // that ever started an import, not the number of in-flight jobs.
+            users.retain(|_, semaphore| {
+                Arc::strong_count(semaphore) > 1
+                    || semaphore.available_permits() < self.per_user_limit
+            });
             Arc::clone(
                 users
                     .entry(user_id)

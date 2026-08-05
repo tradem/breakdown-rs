@@ -59,11 +59,15 @@ impl AiConfigRepository for AiConfigRepositoryImpl {
             image_model: row.try_get("image_model").map_err(map_sqlx_error)?,
             prompt_kinds,
             vault_key_id: row.try_get("vault_key_id").map_err(map_sqlx_error)?,
-            version: AggregateVersion(
-                row.try_get::<i64, _>("version")
-                    .map_err(map_sqlx_error)?
-                    .max(0) as u64,
-            ),
+            version: {
+                let raw: i64 = row.try_get("version").map_err(map_sqlx_error)?;
+                if raw < 0 {
+                    return Err(map_sqlx_error(sqlx::Error::Protocol(
+                        "AI config aggregate version cannot be negative".to_owned(),
+                    )));
+                }
+                AggregateVersion(raw as u64)
+            },
             revoked: row.try_get("revoked").map_err(map_sqlx_error)?,
         })
     }

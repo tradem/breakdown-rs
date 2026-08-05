@@ -41,11 +41,17 @@ impl AiWorkerLifecycle {
         let deadline = tokio::time::sleep(DRAIN_TIMEOUT);
         tokio::pin!(deadline);
         loop {
+            // Create and pin the Notified future BEFORE checking in_flight: a
+            // guard dropped between the count check and future creation would
+            // lose its notify_waiters and make drain wait the full timeout with
+            // no jobs remaining.
+            let notified = self.drained.notified();
+            tokio::pin!(notified);
             if self.in_flight() == 0 {
                 return;
             }
             tokio::select! {
-                _ = self.drained.notified() => {}
+                _ = &mut notified => {}
                 _ = &mut deadline => {
                     tracing::warn!(
                         in_flight = self.in_flight(),

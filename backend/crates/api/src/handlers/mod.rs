@@ -4246,8 +4246,9 @@ async fn enqueue_ai_upload(
         ));
     }
     let block_id = authorize_ai_block(state, &current_user, &headers).await?;
-    let bounds = infra::ai::AiImportFeature::from_env().bounds;
-    if body.len() as u64 > bounds.max_document_bytes {
+    // Use the bound resolved once into AppState (shared with the extractor
+    // limit in `routes()`); no per-request environment reads.
+    if body.len() as u64 > state.ai_import_max_document_bytes {
         return Err((
             StatusCode::PAYLOAD_TOO_LARGE,
             Json(ErrorResponse {
@@ -4513,6 +4514,27 @@ pub async fn apply_ai_import(
             // The episode is the authoritative source for the series seam;
             // resolving it here keeps the write side free of read-model lookups.
             let series_id = Some(episode.series_id);
+
+            // AUTHZ-GATE (CWE-639): the client may supply `Update` decisions
+            // referencing any aggregate id. Verify every update target is a
+            // scene in the job's resolved episode — otherwise a matching-
+            // version scene from another episode could receive the update.
+            for mapping in &request.mappings {
+                if let breakdown_core::ai::ApplyMappingDecision::Update { aggregate_id, .. } =
+                    mapping.decision
+                {
+                    let scene = state
+                        .ports
+                        .scene_repo()
+                        .find_by_id(aggregate_id)
+                        .await
+                        .map_err(map_err)?;
+                    if scene.episode_id != EpisodeId::from_uuid(episode.id) {
+                        return Err(forbidden_ai_config());
+                    }
+                }
+            }
+
             let preview: ScriptContext = serde_json::from_slice(&payload).map_err(|error| {
                 map_err(DomainError::ValidationError(format!(
                     "invalid ScriptContext preview: {error}"

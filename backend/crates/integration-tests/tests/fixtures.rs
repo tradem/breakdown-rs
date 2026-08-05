@@ -573,10 +573,12 @@ impl VaultFixture {
     }
 }
 
+/// Dev-mode root token supplied by `HashicorpVault::default()`.
+const VAULT_ROOT_TOKEN: &str = "myroot";
+
 /// Start HashiCorp Vault in dev mode and enable the Transit and KV-v2 mounts
 /// expected by `infra::vault::VaultClient`.
 pub async fn spawn_vault() -> Result<VaultFixture> {
-    const ROOT_TOKEN: &str = "myroot";
     let container = HashicorpVault::default()
         .start()
         .await
@@ -594,12 +596,12 @@ pub async fn spawn_vault() -> Result<VaultFixture> {
 
     let mut token_file = NamedTempFile::new()?;
     use std::io::Write;
-    token_file.write_all(ROOT_TOKEN.as_bytes())?;
+    token_file.write_all(VAULT_ROOT_TOKEN.as_bytes())?;
     token_file.as_file().sync_all()?;
 
     Ok(VaultFixture {
         address,
-        token: ROOT_TOKEN.to_owned(),
+        token: VAULT_ROOT_TOKEN.to_owned(),
         token_file,
         _container: container,
     })
@@ -608,7 +610,7 @@ pub async fn spawn_vault() -> Result<VaultFixture> {
 async fn vault_exec(container: &ContainerAsync<HashicorpVault>, command: &[&str]) -> Result<()> {
     let exec = ExecCommand::new(command.iter().copied()).with_env_vars([
         ("VAULT_ADDR", "http://127.0.0.1:8200"),
-        ("VAULT_TOKEN", "myroot"),
+        ("VAULT_TOKEN", VAULT_ROOT_TOKEN),
     ]);
     let mut result = container.exec(exec).await?;
     let stdout = result.stdout_to_vec().await?;

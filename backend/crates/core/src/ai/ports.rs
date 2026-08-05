@@ -152,15 +152,14 @@ pub trait AiImportQueue: Send + Sync {
     ) -> Result<AiImportEnqueueResult, DomainError>;
     async fn claim_next(&self, worker_id: &str) -> Result<Option<AiImportJob>, DomainError>;
 
-    /// Claim only jobs for a worker's document kind. The default keeps simple
-    /// fakes compatible; production adapters should apply the filter in SQL.
+    /// Claim only jobs for a worker's document kind. Production adapters must
+    /// apply the filter atomically in SQL so a worker never claims a job for a
+    /// different worker type.
     async fn claim_next_kind(
         &self,
         worker_id: &str,
-        _kind: DocumentKind,
-    ) -> Result<Option<AiImportJob>, DomainError> {
-        self.claim_next(worker_id).await
-    }
+        kind: DocumentKind,
+    ) -> Result<Option<AiImportJob>, DomainError>;
 
     async fn get(&self, id: AiImportJobId) -> Result<Option<AiImportJob>, DomainError>;
     async fn mark_running(&self, id: AiImportJobId) -> Result<(), DomainError>;

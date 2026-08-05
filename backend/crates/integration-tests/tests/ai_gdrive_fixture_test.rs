@@ -43,8 +43,12 @@ async fn existing_gdrive_folder_is_readable_through_test_vault() -> Result<()> {
     let bundle =
         GDriveCredentialBundle::try_new(client_id, client_secret, refresh_token, Some(root))?;
     let binding = client.store_gdrive(settings_id, bundle).await?;
+    // Track the production default bound so the fixture stays in sync when
+    // AiImportBounds changes.
+    let max_document_bytes = breakdown_core::ai::AiImportBounds::default().max_document_bytes;
     let source =
-        GDriveDocumentSource::from_vault(&client, settings_id, &binding, 20 * 1024 * 1024).await?;
+        GDriveDocumentSource::from_vault(&client, settings_id, &binding, max_document_bytes)
+            .await?;
     let documents = source.list_documents().await?;
     let pdfs: Vec<_> = documents
         .iter()
