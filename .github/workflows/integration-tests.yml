@@ -111,6 +111,14 @@ jobs:
           RUST_LOG: info
         run: cargo test -p integration-tests --test vault_fixture_test -- --nocapture
 
+      - name: AI GDrive fixture smoke test
+        env:
+          GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+          GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+          GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+          GDRIVE_ROOT: ${{ secrets.GDRIVE_ROOT }}
+        run: cargo test -p integration-tests --test ai_gdrive_fixture_test -- --nocapture
+
       - name: Postgres-only integration tests (parallel)
         env:
           RUST_LOG: info
