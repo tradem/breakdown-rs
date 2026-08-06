@@ -123,6 +123,26 @@ where
                     continue;
                 }
 
+                // Compute the order BEFORE any command dispatch: the fallback
+                // can fail (u32::MAX supplied order leaves no unique fallback
+                // value) and must not leave the scene already scheduled.
+                let order = match row.order {
+                    Some(order) => order,
+                    None => {
+                        // checked_add: a supplied order of u32::MAX leaves no
+                        // unique fallback value above it — fail loudly instead
+                        // of saturating onto a duplicate order key.
+                        fallback_order = fallback_order.checked_add(1).ok_or_else(|| {
+                            DomainError::ValidationError(
+                                "cannot allocate a unique fallback planned order".to_owned(),
+                            )
+                        })?;
+                        fallback_order
+                    }
+                };
+                let planned_order = LexicalSortKey::new(format!("{order:08}"))
+                    .map_err(|error| DomainError::ValidationError(error.to_string()))?;
+
                 let scene_version =
                     scene_versions
                         .get(&merged.scene.id)
@@ -146,23 +166,6 @@ where
                     )
                     .await?;
                 scene_versions.insert(merged.scene.id, scene_version);
-
-                let order = match row.order {
-                    Some(order) => order,
-                    None => {
-                        // checked_add: a supplied order of u32::MAX leaves no
-                        // unique fallback value above it — fail loudly instead
-                        // of saturating onto a duplicate order key.
-                        fallback_order = fallback_order.checked_add(1).ok_or_else(|| {
-                            DomainError::ValidationError(
-                                "cannot allocate a unique fallback planned order".to_owned(),
-                            )
-                        })?;
-                        fallback_order
-                    }
-                };
-                let planned_order = LexicalSortKey::new(format!("{order:08}"))
-                    .map_err(|error| DomainError::ValidationError(error.to_string()))?;
                 let (scene_shoot_id, version) = self
                     .scene_shoot_commands
                     .plan(
