@@ -22,10 +22,11 @@ commits (ADR-020 D5).
 - **DNS-rebinding guard (hosted regime):** every hosted destination is
   resolved before connecting and rejected unless **all** resolved addresses
   are globally routable — private, loopback, link-local, unique-local,
-  CGNAT, multicast, documentation, the RFC 2544 benchmarking range
-  (198.18.0.0/15) and the Class E reserved range (240.0.0.0/4) are blocked
-  even when the hostname and scheme are otherwise allowed; IPv4-compatible
-  IPv6 forms (`::a.b.c.d`) are classified by the IPv4 policy
+  CGNAT, multicast, documentation, the 0.0.0.0/8 "this network" range,
+  the RFC 2544 benchmarking range (198.18.0.0/15), the Class E reserved
+  range (240.0.0.0/4) and the deprecated site-local prefix fec0::/10 are
+  blocked even when the hostname and scheme are otherwise allowed;
+  IPv4-compatible IPv6 forms (`::a.b.c.d`) are classified by the IPv4 policy
   (`transport::validate_public_resolution`). The validated addresses are
   pinned for the whole request chain (initial request + same-origin
   redirects) via `ClientBuilder::resolve_to_addrs` and system proxies are

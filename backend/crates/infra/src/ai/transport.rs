@@ -215,7 +215,10 @@ fn is_local_domain(domain: &str) -> bool {
 /// globally routable.
 fn is_local_ipv4(address: Ipv4Addr) -> bool {
     let octets = address.octets();
-    address.is_loopback()
+    // 0.0.0.0/8 ("this network on this host", RFC 1122 §3.2.1.3) is not
+    // globally routable; `is_unspecified()` covers only 0.0.0.0 itself.
+    octets[0] == 0
+        || address.is_loopback()
         || address.is_private()
         || address.is_link_local()
         || address.is_unspecified()
@@ -253,6 +256,9 @@ fn is_rfc6598_shared(address: Ipv4Addr) -> bool {
 fn is_local_ipv6(address: Ipv6Addr) -> bool {
     address.is_loopback()
         || address.is_unique_local()
+        // Deprecated site-local prefix fec0::/10 (RFC 3879): not globally
+        // routable, `is_unique_local()` covers only fc00::/7.
+        || (address.segments()[0] & 0xffc0) == 0xfec0
         || address.is_unicast_link_local()
         || address.is_unspecified()
         || address.is_multicast()
@@ -510,10 +516,10 @@ mod tests {
 
     #[tokio::test]
     async fn hosted_resolution_rejects_private_ipv4() {
-        // Loopback, RFC 1918, link-local, CGNAT (RFC 6598), the unspecified
-        // address, the RFC 2544 benchmarking range and the Class E reserved
-        // range must all be rejected even though an allowlisted *hostname*
-        // could resolve to any of them (DNS rebinding).
+        // Loopback, RFC 1918, link-local, CGNAT (RFC 6598), the 0.0.0.0/8
+        // "this network" range, the RFC 2544 benchmarking range and the
+        // Class E reserved range must all be rejected even though an
+        // allowlisted *hostname* could resolve to any of them (DNS rebinding).
         for host in [
             "127.0.0.1",
             "10.0.0.5",
@@ -522,6 +528,8 @@ mod tests {
             "169.254.1.1",
             "100.64.0.1",
             "0.0.0.0",
+            "0.0.0.1",
+            "0.255.255.255",
             "198.18.0.1",
             "198.19.255.255",
             "240.0.0.1",
@@ -540,10 +548,13 @@ mod tests {
         // IPv4-mapped (::ffff:) and the deprecated IPv4-compatible form
         // (::a.b.c.d) must both be classified by the IPv4 policy —
         // `::127.0.0.1` would otherwise slip through `to_ipv4_mapped`.
+        // fec0::/10 (deprecated site-local, RFC 3879) is not globally
+        // routable and outside is_unique_local()'s fc00::/7.
         for host in [
             "::1",
             "fd00::1",
             "fe80::1",
+            "fec0::1",
             "::ffff:127.0.0.1",
             "::127.0.0.1",
             "::ffff:10.0.0.5",
