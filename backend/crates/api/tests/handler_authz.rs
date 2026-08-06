@@ -9,6 +9,7 @@
 )]
 mod common;
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 // Section 6.4: API-layer test asserting authorized / non-authorized
 // dispatch through the real auth + authorization middleware stack.

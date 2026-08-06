@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: qwen3.6-35b (neuralwatt)
 // Co-authored-by: moonshotai/kimi-k3 (openrouter)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! SceneShoot projection handler: `SceneShootEvent` -> `projection_scene_shoot`.
 
