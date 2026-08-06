@@ -61,8 +61,8 @@ use breakdown_core::scene::events::{SceneDetails, SceneEvent};
 use breakdown_core::scene_shoot::events::SceneShootEvent;
 use breakdown_core::season::events::SeasonEvent;
 use breakdown_core::shared::{
-    AggregateVersion, BlockId, EpisodeId, EventMetadata, LexicalSortKey, SceneShootId,
-    SceneShootStatus, SeasonId, SeriesId, ShootingDayId,
+    AggregateVersion, BlockId, EpisodeId, EventMetadata, LexicalSortKey, Provenance, SceneShootId,
+    SceneShootStatus, SeasonId, SeriesId, ShootingDayId, UserId,
 };
 use breakdown_core::shooting_day::events::{ShootingDayEvent, ShootingDaySource};
 use chrono::{DateTime, TimeZone, Utc};
@@ -98,16 +98,26 @@ struct EventFixture {
     timestamp: DateTime<Utc>,
     stream_version: u64,
     projector_version: i64,
+    /// The event-envelope metadata (actor / provenance / series_id) exactly
+    /// as captured — replayed alongside the payload so drift in the metadata
+    /// shape is detected too (ADR-020 D4).
+    metadata: Value,
 }
 
 impl EventFixture {
-    fn new<E: Serialize>(event: E, aggregate_id: Uuid, timestamp: DateTime<Utc>) -> Result<Self> {
+    fn new<E: Serialize, M: Serialize>(
+        event: E,
+        aggregate_id: Uuid,
+        timestamp: DateTime<Utc>,
+        metadata: M,
+    ) -> Result<Self> {
         Ok(Self {
             event: serde_json::to_value(event)?,
             aggregate_id,
             timestamp,
             stream_version: 1,
             projector_version: PROJECTOR_VERSION,
+            metadata: serde_json::to_value(metadata)?,
         })
     }
 
@@ -292,42 +302,65 @@ fn sample_chain() -> SampleChain {
 
 fn sample_fixtures(chain: &SampleChain) -> Result<Vec<(&'static str, EventFixture)>> {
     let t = chain.timestamp;
+    // The fixture envelope captures the full EventMetadata (actor,
+    // provenance, tenant series_id) — the replay deserializes it back and
+    // feeds it to the projectors, so metadata drift is a contract failure.
+    let metadata = EventMetadata {
+        actor: Some(UserId::from_sub("fixture-owner")),
+        provenance: Provenance::Human,
+        series_id: Some(SeriesId(chain.series_id)),
+    };
     Ok(vec![
         (
             "season_created",
-            EventFixture::new(chain.season.clone(), chain.season_id, t)?,
+            EventFixture::new(chain.season.clone(), chain.season_id, t, metadata.clone())?,
         ),
         (
             "block_created",
-            EventFixture::new(chain.block.clone(), chain.block_id, t)?,
+            EventFixture::new(chain.block.clone(), chain.block_id, t, metadata.clone())?,
         ),
         (
             "episode_created",
-            EventFixture::new(chain.episode.clone(), chain.episode_id, t)?,
+            EventFixture::new(chain.episode.clone(), chain.episode_id, t, metadata.clone())?,
         ),
         (
             "scene_created",
-            EventFixture::new(chain.scene.clone(), chain.scene_id, t)?,
+            EventFixture::new(chain.scene.clone(), chain.scene_id, t, metadata.clone())?,
         ),
         (
             "character_created",
-            EventFixture::new(chain.character.clone(), chain.character_id, t)?,
+            EventFixture::new(
+                chain.character.clone(),
+                chain.character_id,
+                t,
+                metadata.clone(),
+            )?,
         ),
         (
             "costume_created",
-            EventFixture::new(chain.costume.clone(), chain.costume_id, t)?,
+            EventFixture::new(chain.costume.clone(), chain.costume_id, t, metadata.clone())?,
         ),
         (
             "shooting_day_created",
-            EventFixture::new(chain.shooting_day.clone(), chain.shooting_day_id, t)?,
+            EventFixture::new(
+                chain.shooting_day.clone(),
+                chain.shooting_day_id,
+                t,
+                metadata.clone(),
+            )?,
         ),
         (
             "costume_category_created",
-            EventFixture::new(chain.costume_category.clone(), chain.category_id, t)?,
+            EventFixture::new(
+                chain.costume_category.clone(),
+                chain.category_id,
+                t,
+                metadata.clone(),
+            )?,
         ),
         (
             "scene_shoot_planned",
-            EventFixture::new(chain.scene_shoot.clone(), chain.scene_shoot_id, t)?,
+            EventFixture::new(chain.scene_shoot.clone(), chain.scene_shoot_id, t, metadata)?,
         ),
     ])
 }
@@ -392,7 +425,11 @@ fn captured_event_fixtures_still_deserialize() {
              drift (release-runbook §5)",
             on_disk.projector_version
         );
-        // The serde gate: deserialize the wire snapshot into the current type.
+        // The serde gate: deserialize the wire snapshot (payload AND envelope
+        // metadata) into the current types. Drift in the event enum or in
+        // EventMetadata (actor / provenance / series_id) fails here.
+        serde_json::from_value::<EventMetadata>(on_disk.metadata.clone())
+            .expect("EventMetadata must deserialize");
         let _: () = match *name {
             "season_created" => {
                 serde_json::from_value::<SeasonEvent>(on_disk.event.clone()).expect("SeasonEvent");
@@ -440,9 +477,11 @@ fn captured_event_fixtures_still_deserialize() {
 fn event_of<E, M>(fixture: &EventFixture) -> Event<E, M>
 where
     E: serde::de::DeserializeOwned,
-    M: serde::de::DeserializeOwned + Default,
+    M: serde::de::DeserializeOwned,
 {
     let data: E = serde_json::from_value(fixture.event.clone()).expect("event must deserialize");
+    let metadata: M =
+        serde_json::from_value(fixture.metadata.clone()).expect("event metadata must deserialize");
     Event {
         id: Uuid::now_v7(),
         partition_key: Uuid::now_v7(),
@@ -456,7 +495,7 @@ where
         metadata: kameo_es::Metadata {
             causation_command: None,
             causation_event: None,
-            data: Some(M::default()),
+            data: Some(metadata),
         },
         timestamp: fixture.timestamp,
     }
@@ -483,6 +522,19 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
         .expect("fixture must parse")
     };
 
+    // Load every archived fixture ONCE; the envelope's aggregate_id and
+    // metadata drive each projector invocation below (never sample_chain()
+    // values), so drift in either is detected by the replay.
+    let season_fx = by_name("season_created");
+    let block_fx = by_name("block_created");
+    let episode_fx = by_name("episode_created");
+    let scene_fx = by_name("scene_created");
+    let character_fx = by_name("character_created");
+    let costume_fx = by_name("costume_created");
+    let shooting_day_fx = by_name("shooting_day_created");
+    let category_fx = by_name("costume_category_created");
+    let scene_shoot_fx = by_name("scene_shoot_planned");
+
     let mut tx = pool.begin().await?;
 
     // Dependency order: season → block → episode → scene → character →
@@ -491,72 +543,72 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
     season
         .handle(
             &mut tx,
-            chain.season_id,
-            event_of::<SeasonEvent, EventMetadata>(&by_name("season_created")),
+            season_fx.aggregate_id,
+            event_of::<SeasonEvent, EventMetadata>(&season_fx),
         )
         .await?;
     let mut block = BlockProjector;
     block
         .handle(
             &mut tx,
-            chain.block_id,
-            event_of::<BlockEvent, EventMetadata>(&by_name("block_created")),
+            block_fx.aggregate_id,
+            event_of::<BlockEvent, EventMetadata>(&block_fx),
         )
         .await?;
     let mut episode = EpisodeProjector;
     episode
         .handle(
             &mut tx,
-            chain.episode_id,
-            event_of::<EpisodeEvent, EventMetadata>(&by_name("episode_created")),
+            episode_fx.aggregate_id,
+            event_of::<EpisodeEvent, EventMetadata>(&episode_fx),
         )
         .await?;
     let mut scene = SceneProjector;
     scene
         .handle(
             &mut tx,
-            chain.scene_id,
-            event_of::<SceneEvent, EventMetadata>(&by_name("scene_created")),
+            scene_fx.aggregate_id,
+            event_of::<SceneEvent, EventMetadata>(&scene_fx),
         )
         .await?;
     let mut character = CharacterProjector;
     character
         .handle(
             &mut tx,
-            chain.character_id,
-            event_of::<CharacterEvent, EventMetadata>(&by_name("character_created")),
+            character_fx.aggregate_id,
+            event_of::<CharacterEvent, EventMetadata>(&character_fx),
         )
         .await?;
     let mut costume = CostumeProjector;
     costume
         .handle(
             &mut tx,
-            chain.costume_id,
-            event_of::<CostumeEvent, EventMetadata>(&by_name("costume_created")),
+            costume_fx.aggregate_id,
+            event_of::<CostumeEvent, EventMetadata>(&costume_fx),
         )
         .await?;
     let mut shooting_day = ShootingDayProjector;
     shooting_day
         .handle(
             &mut tx,
-            ShootingDayId(chain.shooting_day_id),
-            event_of::<ShootingDayEvent, EventMetadata>(&by_name("shooting_day_created")),
+            ShootingDayId(shooting_day_fx.aggregate_id),
+            event_of::<ShootingDayEvent, EventMetadata>(&shooting_day_fx),
         )
         .await?;
     let mut costume_category = CostumeCategoryProjector;
     costume_category
         .handle(
             &mut tx,
-            chain.category_id,
-            event_of::<CostumeCategoryEvent, EventMetadata>(&by_name("costume_category_created")),
+            category_fx.aggregate_id,
+            event_of::<CostumeCategoryEvent, EventMetadata>(&category_fx),
         )
         .await?;
     let mut scene_shoot = SceneShootProjector;
     scene_shoot
         .handle(
             &mut tx,
-            SceneShootId(chain.scene_shoot_id),
-            event_of::<SceneShootEvent, EventMetadata>(&by_name("scene_shoot_planned")),
+            SceneShootId(scene_shoot_fx.aggregate_id),
+            event_of::<SceneShootEvent, EventMetadata>(&scene_shoot_fx),
         )
         .await?;
 
@@ -571,9 +623,9 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
         &pool,
         "SELECT to_jsonb(projection_season) - 'updated_at' FROM projection_season WHERE id = $1",
         "SELECT (updated_at = $1) FROM projection_season WHERE id = $2",
-        chain.season_id,
+        season_fx.aggregate_id,
         json!({
-            "id": chain.season_id,
+            "id": season_fx.aggregate_id,
             "series_id": chain.series_id,
             "number": 1,
             "title": "Staffel 1",
@@ -587,10 +639,10 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
         &pool,
         "SELECT to_jsonb(projection_block) - 'updated_at' FROM projection_block WHERE id = $1",
         "SELECT (updated_at = $1) FROM projection_block WHERE id = $2",
-        chain.block_id,
+        block_fx.aggregate_id,
         json!({
-            "id": chain.block_id,
-            "season_id": chain.season_id,
+            "id": block_fx.aggregate_id,
+            "season_id": season_fx.aggregate_id,
             "series_id": chain.series_id,
             "number": 1,
             "start_date": null,
@@ -605,10 +657,10 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
         &pool,
         "SELECT to_jsonb(projection_episode) - 'updated_at' FROM projection_episode WHERE id = $1",
         "SELECT (updated_at = $1) FROM projection_episode WHERE id = $2",
-        chain.episode_id,
+        episode_fx.aggregate_id,
         json!({
-            "id": chain.episode_id,
-            "block_id": chain.block_id,
+            "id": episode_fx.aggregate_id,
+            "block_id": block_fx.aggregate_id,
             "series_id": chain.series_id,
             "number": 1,
             "name": "Block 1 Episode 1",
@@ -622,10 +674,10 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
         &pool,
         "SELECT to_jsonb(projection_scene) - 'updated_at' FROM projection_scene WHERE id = $1",
         "SELECT (updated_at = $1) FROM projection_scene WHERE id = $2",
-        chain.scene_id,
+        scene_fx.aggregate_id,
         json!({
-            "id": chain.scene_id,
-            "episode_id": chain.episode_id,
+            "id": scene_fx.aggregate_id,
+            "episode_id": episode_fx.aggregate_id,
             "scene_number": 1,
             "location": "Set A",
             "mood": "Tag",
@@ -642,10 +694,10 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
         &pool,
         "SELECT to_jsonb(projection_character) - 'updated_at' FROM projection_character WHERE id = $1",
         "SELECT (updated_at = $1) FROM projection_character WHERE id = $2",
-        chain.character_id,
+        character_fx.aggregate_id,
         json!({
-            "id": chain.character_id,
-            "season_id": chain.season_id,
+            "id": character_fx.aggregate_id,
+            "season_id": season_fx.aggregate_id,
             "name": "Hauptrolle",
             "category": "main_cast",
             "measurements": {
@@ -663,10 +715,10 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
         &pool,
         "SELECT to_jsonb(projection_costume) - 'updated_at' FROM projection_costume WHERE id = $1",
         "SELECT (updated_at = $1) FROM projection_costume WHERE id = $2",
-        chain.costume_id,
+        costume_fx.aggregate_id,
         json!({
-            "id": chain.costume_id,
-            "character_id": chain.character_id,
+            "id": costume_fx.aggregate_id,
+            "character_id": character_fx.aggregate_id,
             "notes": "Rote Lederjacke",
             "version": 1,
             "projector_version": PROJECTOR_VERSION,
@@ -680,10 +732,10 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
          FROM projection_shooting_day WHERE id = $1",
         "SELECT (updated_at = $1 AND wrapped_at IS NULL) \
          FROM projection_shooting_day WHERE id = $2",
-        chain.shooting_day_id,
+        shooting_day_fx.aggregate_id,
         json!({
-            "id": chain.shooting_day_id,
-            "episode_id": chain.episode_id,
+            "id": shooting_day_fx.aggregate_id,
+            "episode_id": episode_fx.aggregate_id,
             "label": "Drehtag 1",
             "order_key": "!a",
             "date": null,
@@ -700,10 +752,10 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
         "SELECT to_jsonb(projection_costume_category) - 'updated_at' \
          FROM projection_costume_category WHERE id = $1",
         "SELECT (updated_at = $1) FROM projection_costume_category WHERE id = $2",
-        chain.category_id,
+        category_fx.aggregate_id,
         json!({
-            "id": chain.category_id,
-            "season_id": chain.season_id,
+            "id": category_fx.aggregate_id,
+            "season_id": season_fx.aggregate_id,
             "name": "Oberteil",
             "order_key": "!b",
             "archived": false,
@@ -719,11 +771,11 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
          FROM projection_scene_shoot WHERE id = $1",
         "SELECT (updated_at = $1 AND start_dt IS NULL AND end_dt IS NULL) \
          FROM projection_scene_shoot WHERE id = $2",
-        chain.scene_shoot_id,
+        scene_shoot_fx.aggregate_id,
         json!({
-            "id": chain.scene_shoot_id,
-            "scene_id": chain.scene_id,
-            "shooting_day_id": chain.shooting_day_id,
+            "id": scene_shoot_fx.aggregate_id,
+            "scene_id": scene_fx.aggregate_id,
+            "shooting_day_id": shooting_day_fx.aggregate_id,
             "planned_order": "!c",
             "actual_order": null,
             "status": "Planned",

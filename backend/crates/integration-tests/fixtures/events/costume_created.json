@@ -12,5 +12,10 @@
   "aggregate_id": "019e7044-8800-7006-8000-000000000006",
   "timestamp": "2026-08-06T09:00:00Z",
   "stream_version": 1,
-  "projector_version": 1
+  "projector_version": 1,
+  "metadata": {
+    "actor": "fixture-owner",
+    "provenance": "Human",
+    "series_id": "019e7044-8800-700a-8000-00000000000a"
+  }
 }
