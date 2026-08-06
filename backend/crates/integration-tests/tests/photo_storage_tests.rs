@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -110,7 +111,7 @@ async fn photo_storage_direct_read_without_customer_key_is_rejected() -> Result<
         .secret_access_key(&creds.secret_key)
         .region("garage")
         .bucket(&creds.bucket);
-    let plain_operator = opendal::Operator::new(plain_builder)?.finish();
+    let plain_operator = opendal::Operator::new(plain_builder)?;
     let result = plain_operator
         .read(&format!("{}/original", photo_id.0))
         .await;

@@ -216,12 +216,10 @@ impl OpenDalReportArchiveStorage {
             builder = builder.root(root);
         }
 
-        let op = Operator::new(builder)
-            .map_err(|error| {
-                let _ = error;
-                ReportStorageError::provider_failure("failed to create GDrive operator")
-            })?
-            .finish();
+        let op = Operator::new(builder).map_err(|error| {
+            let _ = error;
+            ReportStorageError::provider_failure("failed to create GDrive operator")
+        })?;
 
         Ok(Self::with_prefix(op, StorageRole::External, prefix))
     }
@@ -500,21 +498,14 @@ fn build_s3_operator(
         ReportStorageError::provider_failure(format!("invalid S3_TLS_ROOT_CERT: {e}"))
     })?;
 
-    let builder = crate::tls::s3_builder(
+    crate::tls::s3_builder(
         endpoint,
         access_key,
         secret_key,
         bucket,
         root_cert.as_deref(),
     )
-    .map_err(ReportStorageError::provider_failure)?;
-
-    Operator::new(builder)
-        .map_err(|e| {
-            let _ = e;
-            ReportStorageError::provider_failure("failed to create S3 operator")
-        })
-        .map(|b| b.finish())
+    .map_err(ReportStorageError::provider_failure)
 }
 
 fn env_first(keys: &[&str]) -> Option<String> {

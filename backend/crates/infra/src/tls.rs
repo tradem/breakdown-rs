@@ -12,12 +12,27 @@
 //! `step-ca`, so the OpenDAL S3 client must **pin the step-ca root** instead
 //! of trusting the system store.
 //!
-//! OpenDAL only exposes the HTTP stack through `opendal::raw::HttpClient`, so
-//! we build a `reqwest::Client` carrying the pinned root (via
-//! `add_root_certificate`) and hand it to the S3 builder with `http_client`.
+//! OpenDAL 0.58 replaced the builder-level `http_client` hook (which accepted
+//! an `opendal::raw::HttpClient`) with a per-operator HTTP stack: an
+//! [`opendal::HttpTransporter`] attached via [`opendal::OperationContext`].
+//! We therefore build a `reqwest::Client` carrying the pinned root (via
+//! `add_root_certificate`) and wrap it in a small [`opendal::HttpTransport`]
+//! implementation ([`PinnedRootTransport`]) that mirrors the reference
+//! `opendal-http-transport-reqwest` adapter. Operators built without a root
+//! cert keep the process-wide default transport installed by the `opendal`
+//! facade.
 
-use opendal::raw::HttpClient;
+use std::mem;
+
+use futures::TryStreamExt;
+use futures::future;
+use http::{Request, Response};
+use opendal::raw::{parse_content_encoding, parse_content_length};
 use opendal::services::S3;
+use opendal::{
+    Buffer, Error, ErrorKind, HttpBody, HttpTransport, HttpTransporter, OperationContext, Operator,
+    Result,
+};
 
 /// Read the PEM-encoded root CA file referenced by an env var, if set.
 ///
@@ -50,27 +65,119 @@ pub fn from_value(value: &str) -> Result<Option<std::path::PathBuf>, String> {
     Ok(Some(path))
 }
 
-/// Build an OpenDAL S3 service builder pinned to the given root CA.
+/// An [`opendal::HttpTransport`] backed by a `reqwest::Client` pinned to the
+/// internal step-ca root (ADR-024).
 ///
-/// When `root_cert` is `Some(pem_path)` the returned builder pins that CA on
-/// the HTTPS endpoint via a custom reqwest client; otherwise it behaves like
-/// the default S3 builder (system trust / plaintext dev endpoints).
+/// Mirrors the request/response mapping of `opendal-http-transport-reqwest`
+/// (the process-wide default transport) so pinned operators behave
+/// identically, only with the added root certificate.
+#[derive(Clone)]
+struct PinnedRootTransport {
+    client: reqwest::Client,
+}
+
+impl HttpTransport for PinnedRootTransport {
+    async fn fetch(&self, req: Request<Buffer>) -> Result<Response<HttpBody>> {
+        let uri = req.uri().clone();
+        let is_head = req.method() == http::Method::HEAD;
+
+        let (parts, body) = req.into_parts();
+
+        let url = reqwest::Url::parse(&uri.to_string()).map_err(|err| {
+            Error::new(ErrorKind::Unexpected, "request url is invalid")
+                .with_operation("pinned_reqwest::fetch")
+                .with_context("url", uri.to_string())
+                .set_source(err)
+        })?;
+
+        let mut req_builder = self
+            .client
+            .request(parts.method, url)
+            .headers(parts.headers)
+            .version(parts.version);
+
+        if !body.is_empty() {
+            req_builder = req_builder.body(reqwest::Body::from(body.to_vec()));
+        }
+
+        let mut resp = req_builder.send().await.map_err(|err| {
+            Error::new(ErrorKind::Unexpected, "send http request")
+                .with_operation("pinned_reqwest::send")
+                .with_context("url", uri.to_string())
+                .with_temporary(is_temporary_error(&err))
+                .set_source(err)
+        })?;
+
+        // The declared content length only matches the decoded body when no
+        // content-encoding was applied (and never for HEAD responses); mirror
+        // the reference transport's guard so `HttpBody`'s size check does not
+        // reject compressed or header-only responses.
+        let content_length = if is_head || parse_content_encoding(resp.headers())?.is_some() {
+            None
+        } else {
+            parse_content_length(resp.headers())?
+        };
+
+        let status = resp.status();
+        let version = resp.version();
+        let headers = mem::take(resp.headers_mut());
+
+        let stream = resp
+            .bytes_stream()
+            .try_filter(|v| future::ready(!v.is_empty()))
+            .map_ok(Buffer::from)
+            .map_err({
+                let uri = uri.clone();
+                move |err| {
+                    Error::new(ErrorKind::Unexpected, "read data from http response")
+                        .with_operation("pinned_reqwest::fetch")
+                        .with_context("url", uri.to_string())
+                        .with_temporary(is_temporary_error(&err))
+                        .set_source(err)
+                }
+            });
+
+        let mut http_resp = Response::builder()
+            .status(status)
+            .version(version)
+            .extension(uri)
+            .body(HttpBody::new(stream, content_length))
+            .map_err(|err| {
+                Error::new(ErrorKind::Unexpected, "failed to build http response").set_source(err)
+            })?;
+        *http_resp.headers_mut() = headers;
+        Ok(http_resp)
+    }
+}
+
+/// Classify a reqwest failure as temporary (retryable), mirroring the
+/// reference `opendal-http-transport-reqwest` adapter.
+fn is_temporary_error(err: &reqwest::Error) -> bool {
+    err.is_request() || err.is_body() || err.is_decode()
+}
+
+/// Build an OpenDAL S3 operator pinned to the given root CA.
+///
+/// When `root_cert` is `Some(pem_path)` the returned operator pins that CA on
+/// the HTTPS endpoint via a custom reqwest transport; otherwise it behaves
+/// like the default S3 operator (system trust / plaintext dev endpoints).
 ///
 /// The S3 region is read from `S3_REGION` (default `garage`, matching the
 /// Garage `s3_region` config and the integration-test convention); OpenDAL
 /// refuses to build an S3 operator without an explicit region.
-/// Build the non-SSE S3 service used by report archival.
+/// Build the non-SSE S3 operator used by report archival.
 pub fn s3_builder(
     endpoint: &str,
     access_key: &str,
     secret_key: &str,
     bucket: &str,
     root_cert: Option<&std::path::Path>,
-) -> Result<S3, String> {
-    s3_builder_base(endpoint, access_key, secret_key, bucket, root_cert)
+) -> Result<Operator, String> {
+    let builder = s3_builder_base(endpoint, access_key, secret_key, bucket)?;
+    build_operator(builder, root_cert)
 }
 
-/// Build the photo S3 service with mandatory AES256 SSE-C.
+/// Build the photo S3 operator with mandatory AES256 SSE-C.
 ///
 /// The customer key is accepted as bytes so OpenDAL computes the required
 /// base64 and MD5 headers without exposing either representation to callers.
@@ -81,12 +188,13 @@ pub fn s3_builder_with_customer_key(
     bucket: &str,
     root_cert: Option<&std::path::Path>,
     customer_key: &[u8],
-) -> Result<S3, String> {
+) -> Result<Operator, String> {
     if customer_key.len() != 32 {
         return Err("SSE-C customer key must be exactly 32 bytes".into());
     }
-    let builder = s3_builder_base(endpoint, access_key, secret_key, bucket, root_cert)?;
-    Ok(builder.server_side_encryption_with_customer_key("AES256", customer_key))
+    let builder = s3_builder_base(endpoint, access_key, secret_key, bucket)?;
+    let builder = builder.server_side_encryption_with_customer_key("AES256", customer_key);
+    build_operator(builder, root_cert)
 }
 
 fn s3_builder_base(
@@ -94,35 +202,41 @@ fn s3_builder_base(
     access_key: &str,
     secret_key: &str,
     bucket: &str,
-    root_cert: Option<&std::path::Path>,
 ) -> Result<S3, String> {
     let region = std::env::var("S3_REGION").unwrap_or_else(|_| "garage".to_string());
-    let mut builder = S3::default()
+    Ok(S3::default()
         .endpoint(endpoint)
         .region(&region)
         .access_key_id(access_key)
         .secret_access_key(secret_key)
-        .bucket(bucket);
+        .bucket(bucket))
+}
 
-    if let Some(root) = root_cert {
-        let pem = std::fs::read(root).map_err(|e| {
-            format!(
-                "failed to read TLS root certificate {}: {e}",
-                root.display()
-            )
-        })?;
-        let cert = reqwest::Certificate::from_pem(&pem).map_err(|e| {
-            format!(
-                "failed to parse TLS root certificate {}: {e}",
-                root.display()
-            )
-        })?;
-        let client = reqwest::Client::builder()
-            .add_root_certificate(cert)
-            .build()
-            .map_err(|e| format!("failed to build pinned-root HTTP client: {e}"))?;
-        builder = builder.http_client(HttpClient::with(client));
-    }
+/// Wrap an S3 service builder in an [`Operator`], attaching the pinned-root
+/// reqwest transport when a root certificate is configured.
+fn build_operator(builder: S3, root_cert: Option<&std::path::Path>) -> Result<Operator, String> {
+    let op = Operator::new(builder).map_err(|e| format!("Failed to create S3 operator: {e}"))?;
+    let Some(root) = root_cert else {
+        return Ok(op);
+    };
 
-    Ok(builder)
+    let pem = std::fs::read(root).map_err(|e| {
+        format!(
+            "failed to read TLS root certificate {}: {e}",
+            root.display()
+        )
+    })?;
+    let cert = reqwest::Certificate::from_pem(&pem).map_err(|e| {
+        format!(
+            "failed to parse TLS root certificate {}: {e}",
+            root.display()
+        )
+    })?;
+    let client = reqwest::Client::builder()
+        .add_root_certificate(cert)
+        .build()
+        .map_err(|e| format!("failed to build pinned-root HTTP client: {e}"))?;
+
+    let transport = HttpTransporter::new(PinnedRootTransport { client });
+    Ok(op.with_context(OperationContext::new().with_http_transport(transport)))
 }
