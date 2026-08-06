@@ -222,7 +222,7 @@ impl OpenDalPhotoStorage {
         let root_cert = crate::tls::root_cert_from_env("S3_TLS_ROOT_CERT")
             .map_err(|e| DomainError::ValidationError(format!("Invalid S3_TLS_ROOT_CERT: {e}")))?;
 
-        let builder = crate::tls::s3_builder_with_customer_key(
+        let op = crate::tls::s3_builder_with_customer_key(
             &endpoint,
             &access_key,
             &secret_key,
@@ -232,11 +232,6 @@ impl OpenDalPhotoStorage {
         )
         .map_err(|e| DomainError::ValidationError(format!("Failed to configure S3: {e}")))?;
 
-        let op = Operator::new(builder)
-            .map_err(|e| {
-                DomainError::ValidationError(format!("Failed to create S3 operator: {e}"))
-            })?
-            .finish();
         Ok(op)
     }
 
