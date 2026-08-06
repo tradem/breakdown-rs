@@ -65,7 +65,7 @@ async-trait = "0.1"
 zeroize = "1.8"
 aes-gcm = "0.10"
 base64 = "0.22"
-getrandom = "0.3"
+getrandom = "0.4"
 
 # OpenAPI generation (ADR-006)
 utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
