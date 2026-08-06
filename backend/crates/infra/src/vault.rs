@@ -675,8 +675,9 @@ pub fn encrypt_envelope(dek: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, &'stati
     let cipher = Aes256Gcm::new_from_slice(dek).map_err(|_| "invalid DEK")?;
     let mut nonce_bytes = [0_u8; 12];
     getrandom::fill(&mut nonce_bytes).map_err(|_| "nonce generation failed")?;
+    let nonce = Nonce::try_from(&nonce_bytes[..]).map_err(|_| "invalid nonce")?;
     let encrypted = cipher
-        .encrypt(Nonce::from_slice(&nonce_bytes), plaintext)
+        .encrypt(&nonce, plaintext)
         .map_err(|_| "credential encryption failed")?;
     let mut payload = nonce_bytes.to_vec();
     payload.extend(encrypted);
@@ -693,8 +694,9 @@ pub fn decrypt_envelope(dek: &[u8], payload: &[u8]) -> Result<Vec<u8>, &'static 
         return Err("stored ciphertext is truncated");
     }
     let cipher = Aes256Gcm::new_from_slice(dek).map_err(|_| "invalid DEK")?;
-    let (nonce, encrypted) = payload.split_at(12);
+    let (nonce_bytes, encrypted) = payload.split_at(12);
+    let nonce = Nonce::try_from(nonce_bytes).map_err(|_| "invalid nonce")?;
     cipher
-        .decrypt(Nonce::from_slice(nonce), encrypted)
+        .decrypt(&nonce, encrypted)
         .map_err(|_| "credential decryption failed")
 }
