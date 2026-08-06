@@ -65,7 +65,6 @@ tower-http.workspace = true
 # `test-util` enables deterministic Tokio clock control for cache-expiry tests.
 tokio = { workspace = true, features = ["test-util"] }
 rsa = "0.9"
-rand_core = "0.6"
 hyper = { version = "1", features = ["server", "http1"] }
 http-body-util = "0.1"
 tower = "0.5"
