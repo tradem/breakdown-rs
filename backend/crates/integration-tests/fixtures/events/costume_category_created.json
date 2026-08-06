@@ -1,0 +1,15 @@
+{
+  "event": {
+    "CostumeCategoryCreated": {
+      "id": "00000000-0000-0008-0000-000000000001",
+      "name": "Oberteil",
+      "order_key": "!b",
+      "season_id": "00000000-0000-0001-0000-000000000001",
+      "version": 1
+    }
+  },
+  "aggregate_id": "00000000-0000-0008-0000-000000000001",
+  "timestamp": "2026-08-06T09:00:00Z",
+  "stream_version": 1,
+  "projector_version": 1
+}

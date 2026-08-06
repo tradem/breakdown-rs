@@ -46,13 +46,14 @@ impl<'a> EntityEventHandler<PhotoAggregate, Transaction<'a, Postgres>> for Photo
                 sqlx::query(
                     r#"
                     INSERT INTO projection_photo
-                        (photo_id, content_type, size_bytes, created_at, updated_at, binding)
-                    VALUES ($1, $2, $3, $4, $5, $6)
+                        (photo_id, content_type, size_bytes, created_at, updated_at, binding, projector_version)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
                     ON CONFLICT (photo_id) DO UPDATE SET
                         content_type = EXCLUDED.content_type,
                         size_bytes = EXCLUDED.size_bytes,
                         updated_at = EXCLUDED.updated_at,
-                        binding = EXCLUDED.binding
+                        binding = EXCLUDED.binding,
+                        projector_version = EXCLUDED.projector_version
                     "#,
                 )
                 .bind(id.0)
@@ -61,6 +62,7 @@ impl<'a> EntityEventHandler<PhotoAggregate, Transaction<'a, Postgres>> for Photo
                 .bind(updated_at)
                 .bind(updated_at)
                 .bind(binding_json)
+                .bind(crate::projectors::PROJECTOR_VERSION)
                 .execute(&mut **ctx)
                 .await?;
 

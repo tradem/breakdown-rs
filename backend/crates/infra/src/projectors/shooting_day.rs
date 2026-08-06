@@ -4,6 +4,7 @@
 
 //! ShootingDay projection handler: `ShootingDayEvent` -> `projection_shooting_day`.
 
+use super::PROJECTOR_VERSION;
 use breakdown_core::shared::{EventMetadata, ShootingDayId};
 use breakdown_core::shooting_day::aggregate::ShootingDayAggregate;
 use breakdown_core::shooting_day::events::ShootingDayEvent;
@@ -45,8 +46,8 @@ impl<'a> EntityEventHandler<ShootingDayAggregate, Transaction<'a, Postgres>>
                 sqlx::query(
                     r#"
                     INSERT INTO projection_shooting_day
-                        (id, episode_id, label, order_key, date, source, archived, version, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, false, $7, $8)
+                        (id, episode_id, label, order_key, date, source, archived, version, projector_version, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, false, $7, $8, $9)
                     ON CONFLICT (id) DO UPDATE SET
                         episode_id = EXCLUDED.episode_id,
                         label = EXCLUDED.label,
@@ -54,6 +55,7 @@ impl<'a> EntityEventHandler<ShootingDayAggregate, Transaction<'a, Postgres>>
                         date = EXCLUDED.date,
                         source = EXCLUDED.source,
                         version = EXCLUDED.version,
+                        projector_version = EXCLUDED.projector_version,
                         updated_at = EXCLUDED.updated_at
                     "#,
                 )
@@ -64,6 +66,7 @@ impl<'a> EntityEventHandler<ShootingDayAggregate, Transaction<'a, Postgres>>
                 .bind(date)
                 .bind(source_json)
                 .bind(version)
+                .bind(PROJECTOR_VERSION)
                 .bind(updated_at)
                 .execute(&mut **ctx)
                 .await?;

@@ -28,9 +28,7 @@
 //! [`api::auth::authorization::requirement_for`]; this test then documents the
 //! chosen requirement level.
 
-use api::ApiDoc;
 use api::auth::authorization::{Requirement, requirement_for};
-use utoipa::OpenApi;
 
 /// Collect every path from the OpenAPI spec and return two lists:
 ///
@@ -38,7 +36,8 @@ use utoipa::OpenApi;
 /// 2. `swagger_routes` — paths under `/swagger-ui` or `/api-docs` (excluded
 ///    from auth).
 fn partition_paths() -> (Vec<String>, Vec<String>) {
-    let doc = ApiDoc::openapi();
+    // The served wire contract (ADR-021 D1): /v1 context-path-prefixed doc.
+    let doc = api::api_doc();
     let json = serde_json::to_value(&doc).expect("ApiDoc must serialize to JSON");
 
     let paths = json["paths"]
@@ -230,7 +229,11 @@ fn api_routes_have_deliberate_authorization_requirement() {
 
     // Every path from the OpenAPI spec must have a documented expectation.
     for path in &api {
-        if !documented.contains(path.as_str()) {
+        // ADR-021 D1: ApiDoc uses `context_path = "/v1"`, so every
+        // documented path carries the `/v1` prefix. The requirement table
+        // below is version-less; strip the prefix before comparing.
+        let normalized = path.strip_prefix("/v1").unwrap_or(path.as_str());
+        if !documented.contains(normalized) {
             failures.push(format!(
                 "  {:<55} MISSING from expected table — \
                  add entry with deliberate requirement",

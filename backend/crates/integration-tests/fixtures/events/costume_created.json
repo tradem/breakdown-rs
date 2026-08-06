@@ -1,0 +1,16 @@
+{
+  "event": {
+    "CostumeCreated": {
+      "character_id": "00000000-0000-0005-0000-000000000001",
+      "details": [],
+      "id": "00000000-0000-0006-0000-000000000001",
+      "notes": "Rote Lederjacke",
+      "photos": [],
+      "version": 1
+    }
+  },
+  "aggregate_id": "00000000-0000-0006-0000-000000000001",
+  "timestamp": "2026-08-06T09:00:00Z",
+  "stream_version": 1,
+  "projector_version": 1
+}

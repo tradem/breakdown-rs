@@ -4,6 +4,7 @@
 
 //! Episode projection handler: `EpisodeEvent` -> `projection_episode`.
 
+use super::PROJECTOR_VERSION;
 use breakdown_core::episode::aggregate::EpisodeAggregate;
 use breakdown_core::episode::events::EpisodeEvent;
 use breakdown_core::shared::EventMetadata;
@@ -42,14 +43,15 @@ impl<'a> EntityEventHandler<EpisodeAggregate, Transaction<'a, Postgres>> for Epi
                 sqlx::query(
                     r#"
                     INSERT INTO projection_episode
-                        (id, block_id, series_id, number, name, version, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                        (id, block_id, series_id, number, name, version, projector_version, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                     ON CONFLICT (id) DO UPDATE SET
                         block_id = EXCLUDED.block_id,
                         series_id = EXCLUDED.series_id,
                         number = EXCLUDED.number,
                         name = EXCLUDED.name,
                         version = EXCLUDED.version,
+                        projector_version = EXCLUDED.projector_version,
                         updated_at = EXCLUDED.updated_at
                     "#,
                 )
@@ -59,6 +61,7 @@ impl<'a> EntityEventHandler<EpisodeAggregate, Transaction<'a, Postgres>> for Epi
                 .bind(number)
                 .bind(name)
                 .bind(version)
+                .bind(PROJECTOR_VERSION)
                 .bind(updated_at)
                 .execute(&mut **ctx)
                 .await?;

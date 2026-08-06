@@ -11,10 +11,14 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 authors = ["Tobias Rademacher <your.email@example.com>"]
 license = "AGPL-3.0"
+# MSRV (ADR-020 D2/D5): the workspace dependency floor — matches the
+# Dockerfile builder image (rust:1.94-bookworm). A future bump is a MAJOR
+# change per crate and must be coordinated across core → infra → api (D3).
+rust-version = "1.94"
 
 [workspace.dependencies]
 # Web & API
@@ -41,7 +45,7 @@ tower-http = { version = "0.7", features = ["trace"] }
 
 # Event Sourcing (ES)
 kameo = "0.22"      # Das zugrundeliegende Actor-Framework
-kameo_es = { path = ".patches/kameo_es", features = ["postgres"] }
+kameo_es = { path = ".patches/kameo_es", version = "0.1.0", features = ["postgres"] }
 # SierraDB RESP3 client (used by kameo_es). TLS features power the
 # rediss:// link to the stunnel sidecar (ADR-024) with a pinned step-ca
 # root via `Client::build_with_tls` (issue #156).
@@ -72,6 +76,19 @@ schemars = "1"
 # Native parsing of CSV shooting schedules (Drehplan) in the ai context.
 csv = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# ─── ADR-020 D5: cargo-release, per-crate independent flow ────────────────
+#
+# The release owner runs `cargo release -p <crate> --dependent` locally (not
+# a CI/PR job). Each release cuts a per-crate tag `{crate}-v{version}`
+# (core-v0.3.0, infra-v…, api-v…) that the api Docker image build consumes
+# (ADR-020 D6). `shared-version = false`: crates diverge on individual
+# release. Releases are opt-in per crate: only crates with
+# `[package.metadata.release] release = true` (core, infra, api) are touched.
+[workspace.metadata.release]
+shared-version = false
+tag-name = "{{crate}}-v{{version}}"
+release = false
 
 [workspace.lints.rust]
 # `unsafe` is forbidden in production code. Use `deny` (not `forbid`) so test

@@ -89,6 +89,26 @@ jobs:
           workspaces: "backend"
       - run: cargo check --workspace --all-targets --all-features --exclude breakdown-fuzz-targets
 
+  # ADR-020 D2/D5: the declared MSRV floor (workspace rust-version = 1.94,
+  # matching the Dockerfile builder) is verified on every PR with the pinned
+  # 1.94.0 toolchain. A future MSRV bump is a MAJOR change per crate (D2).
+  msrv:
+    name: MSRV (rust-version 1.94)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.94
+        with:
+          toolchain: 1.94.0
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: "backend"
+      - uses: taiki-e/install-action@cb33e69fad06166ca28a42b2575e4dadabf62ee8
+        with:
+          tool: cargo-hack
+      - run: cargo hack check --workspace --all-targets --rust-version --exclude breakdown-fuzz-targets
+        working-directory: backend
+
   # Compose + Caddyfile validation (issue #155 / ADR-025 + issue #156 / ADR-024):
   # `docker compose config` is daemon-free; the Caddy `caddy validate` steps
   # pull the digest-pinned edge image once to catch Caddyfile errors before

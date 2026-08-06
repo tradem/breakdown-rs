@@ -4,6 +4,7 @@
 
 //! Costume projection handler: `CostumeEvent` -> `projection_costume` + details + photos.
 
+use super::PROJECTOR_VERSION;
 use breakdown_core::costume::aggregate::CostumeAggregate;
 use breakdown_core::costume::events::CostumeEvent;
 use breakdown_core::shared::EventMetadata;
@@ -42,12 +43,13 @@ impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for Cos
                 sqlx::query(
                     r#"
                     INSERT INTO projection_costume
-                        (id, character_id, notes, version, updated_at)
-                    VALUES ($1, $2, $3, $4, $5)
+                        (id, character_id, notes, version, projector_version, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6)
                     ON CONFLICT (id) DO UPDATE SET
                         character_id = EXCLUDED.character_id,
                         notes = EXCLUDED.notes,
                         version = EXCLUDED.version,
+                        projector_version = EXCLUDED.projector_version,
                         updated_at = EXCLUDED.updated_at
                     "#,
                 )
@@ -55,6 +57,7 @@ impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for Cos
                 .bind(character_id)
                 .bind(notes)
                 .bind(version)
+                .bind(PROJECTOR_VERSION)
                 .bind(updated_at)
                 .execute(&mut **ctx)
                 .await?;

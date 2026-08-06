@@ -3,6 +3,7 @@ name = "infra"
 version = "0.3.0"
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
 
 [features]
 test-support = []
@@ -100,3 +101,7 @@ rust-embed = "8"
 
 [lints]
 workspace = true
+
+# ADR-020 D5: infra is a release crate (per-crate tag infra-vX.Y.Z).
+[package.metadata.release]
+release = true

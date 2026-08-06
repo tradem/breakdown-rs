@@ -4,6 +4,7 @@
 
 //! Character projection handler: `CharacterEvent` -> `projection_character`.
 
+use super::PROJECTOR_VERSION;
 use breakdown_core::character::aggregate::CharacterAggregate;
 use breakdown_core::character::events::CharacterEvent;
 use breakdown_core::shared::EventMetadata;
@@ -47,8 +48,8 @@ impl<'a> EntityEventHandler<CharacterAggregate, Transaction<'a, Postgres>> for C
                 sqlx::query(
                     r#"
                     INSERT INTO projection_character
-                        (id, season_id, name, category, measurements, contact, version, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                        (id, season_id, name, category, measurements, contact, version, projector_version, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                     ON CONFLICT (id) DO UPDATE SET
                         season_id = EXCLUDED.season_id,
                         name = EXCLUDED.name,
@@ -56,6 +57,7 @@ impl<'a> EntityEventHandler<CharacterAggregate, Transaction<'a, Postgres>> for C
                         measurements = EXCLUDED.measurements,
                         contact = EXCLUDED.contact,
                         version = EXCLUDED.version,
+                        projector_version = EXCLUDED.projector_version,
                         updated_at = EXCLUDED.updated_at
                     "#,
                 )
@@ -66,6 +68,7 @@ impl<'a> EntityEventHandler<CharacterAggregate, Transaction<'a, Postgres>> for C
                 .bind(measurements_json)
                 .bind(contact_json)
                 .bind(version)
+                .bind(PROJECTOR_VERSION)
                 .bind(updated_at)
                 .execute(&mut **ctx)
                 .await?;

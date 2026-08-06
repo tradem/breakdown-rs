@@ -1,0 +1,28 @@
+{
+  "event": {
+    "CharacterCreated": {
+      "category": "main_cast",
+      "contact_info": {
+        "email": null,
+        "phone": "+49 000"
+      },
+      "id": "00000000-0000-0005-0000-000000000001",
+      "measurements": {
+        "chest": null,
+        "hat_size": null,
+        "height": null,
+        "hips": null,
+        "shoe_size": null,
+        "waist": null,
+        "weight": null
+      },
+      "name": "Hauptrolle",
+      "season_id": "00000000-0000-0001-0000-000000000001",
+      "version": 1
+    }
+  },
+  "aggregate_id": "00000000-0000-0005-0000-000000000001",
+  "timestamp": "2026-08-06T09:00:00Z",
+  "stream_version": 1,
+  "projector_version": 1
+}

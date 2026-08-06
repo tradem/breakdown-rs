@@ -7,12 +7,12 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::middleware;
-use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::auth::{AuthState, AuthorizationState, auth_middleware, authorize_middleware};
 use crate::handlers;
 use crate::state::{AppState, ProductionPorts};
+use crate::versioning::{DeprecationRegistry, deprecation_middleware};
 
 /// Build the full Axum application router including API routes and Swagger UI.
 ///
@@ -20,15 +20,29 @@ use crate::state::{AppState, ProductionPorts};
 /// attaches a `CurrentUser`. The `AuthorizationLayer` runs next and gates
 /// block-scoped endpoints by active membership in the active block. Both layers
 /// are supplied via `Arc` state so they are shareable across requests.
+///
+/// ADR-021 D1: every API route is mounted under the `/v1` path prefix (a
+/// one-time additive re-mount). Swagger UI stays outside the versioned tree.
+/// The `DeprecationLayer` (innermost) appends `Deprecation` / `Sunset` headers
+/// to deprecated `/v{n}` routes during an open deprecation window — the
+/// registry is empty while `/v1` is the only served version.
 pub fn app_router(
     auth: Arc<AuthState>,
     authz: Arc<AuthorizationState>,
 ) -> Router<AppState<ProductionPorts>> {
-    let api = handlers::routes()
+    // Empty while only `/v1` is served; populated when `/v{n+1}` ships
+    // (ADR-021 D4) — release-time configuration, not per-request.
+    let deprecations = DeprecationRegistry::new();
+    let api = Router::new()
+        .nest("/v1", handlers::routes())
         .layer(middleware::from_fn_with_state(auth, auth_middleware))
-        .layer(middleware::from_fn_with_state(authz, authorize_middleware));
+        .layer(middleware::from_fn_with_state(authz, authorize_middleware))
+        .layer(middleware::from_fn_with_state(
+            deprecations,
+            deprecation_middleware,
+        ));
 
-    let doc = crate::ApiDoc::openapi();
+    let doc = crate::api_doc();
     let swagger: Router<()> =
         Router::<()>::new().merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", doc));
 

@@ -1,7 +1,7 @@
 # ADR-020: Rust Component Versioning & Release Mechanics
 
-**Status**: Proposed
-**Date**: 2026-07-21
+**Status**: Accepted
+**Date**: 2026-07-21 (accepted 2026-08-06 via issue #123)
 **Author**: Tobias Rademacher (@tradem); GLM-5.2 (Zhipu, hosted by neuralwatt)
 **Supersedes**: —
 **Related**: ADR-001 (crate dependency direction), ADR-006 (introduced v1
@@ -14,9 +14,10 @@
 
 ## Context
 
-The workspace is `edition = "2024"`, today `version = "0.1.0"` for every
+The workspace is `edition = "2024"`, today `version = "0.3.0"` for every
 crate (`core`, `infra`, `api`, `integration-tests`, `test_support`,
-`architecture`, `fuzz-targets`). Dependency direction is fixed by ADR-001
+`architecture`, `fuzz-targets`) with explicit per-crate `version` fields
+and pinned `path` deps (issue #123). Dependency direction is fixed by ADR-001
 (core ← infra, core ← api) and enforced source- and dependency-level by
 ADR-017 (`rust_arkitect` + `cargo-deny`). The shipped artifact is the `api`
 binary Docker image; the other crates are internal libraries today but may be
@@ -152,8 +153,9 @@ change is a crate **PATCH** → new `api-vX.Y.Z` image.
 
 ### D8: 1.0.0 graduation criterion
 
-`0.1.0 → 0.2.0` is this proposal's first graduation step (additive contract
-refinements under the same major zero). `1.0.0` is reserved until the
+The first graduation step (`0.1.0 → 0.2.0 → 0.3.0`, additive contract
+refinements under the same major zero) is already exercised by the
+workspace (issue #123). `1.0.0` is reserved until the
 **Stable API contract** (ADR-021's `/v1` path version) is signed off by all
 first-party clients (Flutter app, Svelte web app) against a frozen read-model
 contract; `1.0.0` is *not* gated on code maturity alone.

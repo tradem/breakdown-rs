@@ -4,6 +4,7 @@
 
 //! Block projection handler: `BlockEvent` -> `projection_block`.
 
+use super::PROJECTOR_VERSION;
 use breakdown_core::block::aggregate::BlockAggregate;
 use breakdown_core::block::events::BlockEvent;
 use breakdown_core::shared::EventMetadata;
@@ -43,8 +44,8 @@ impl<'a> EntityEventHandler<BlockAggregate, Transaction<'a, Postgres>> for Block
                 sqlx::query(
                     r#"
                     INSERT INTO projection_block
-                        (id, season_id, series_id, number, start_date, end_date, version, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                        (id, season_id, series_id, number, start_date, end_date, version, projector_version, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                     ON CONFLICT (id) DO UPDATE SET
                         season_id = EXCLUDED.season_id,
                         series_id = EXCLUDED.series_id,
@@ -52,6 +53,7 @@ impl<'a> EntityEventHandler<BlockAggregate, Transaction<'a, Postgres>> for Block
                         start_date = EXCLUDED.start_date,
                         end_date = EXCLUDED.end_date,
                         version = EXCLUDED.version,
+                        projector_version = EXCLUDED.projector_version,
                         updated_at = EXCLUDED.updated_at
                     "#,
                 )
@@ -62,6 +64,7 @@ impl<'a> EntityEventHandler<BlockAggregate, Transaction<'a, Postgres>> for Block
                 .bind(start_date)
                 .bind(end_date)
                 .bind(version)
+                .bind(PROJECTOR_VERSION)
                 .bind(updated_at)
                 .execute(&mut **ctx)
                 .await?;

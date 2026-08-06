@@ -1,7 +1,7 @@
 # ADR-021: HTTP API Path Versioning & Deprecation Lifecycle
 
-**Status**: Proposed
-**Date**: 2026-07-21
+**Status**: Accepted
+**Date**: 2026-07-21 (accepted 2026-08-06 via issue #123)
 **Author**: Tobias Rademacher (@tradem); GLM-5.2 (Zhipu, hosted by neuralwatt)
 **Supersedes**: —
 **Related**: ADR-006 (introduced v1 endpoints — informal notion this ADR
@@ -13,10 +13,10 @@
 
 ## Context
 
-The API is Axum + utoipa (OpenAPI at `/swagger-ui`). ADR-006 informally
-labels the OpenAPI document "the persistence-layer v1 endpoints", but the
-real routes are *not* under a `/v1` prefix today — "v1" lives only in the doc
-title and comments. Multiple first-party clients (Flutter app, Svelte web
+The API is Axum + utoipa (OpenAPI at `/swagger-ui`). ADR-006 labels
+the OpenAPI document "the persistence-layer v1 endpoints"; since issue #123
+the real routes are mounted under a `/v1` prefix and the OpenAPI
+`info.version` is the path version `"v1"`. Multiple first-party clients (Flutter app, Svelte web
 app, future TUI/Slint app) update on independent cadences, so a breaking
 change to one route breaks clients that have not shipped a new build. The
 codebase already evolves additively: ADR-019's `SeasonCrew` v1→v2 migration

@@ -172,6 +172,10 @@ pub enum Requirement {
 /// active block conveyed by `X-Active-Block` (Decision D2). The active block is
 /// not derived from the data being mutated (action-scoped, not data-scoped).
 pub fn requirement_for(path: &str) -> Requirement {
+    // ADR-021 D1: routes are mounted under `/v1`. Strip the path version so
+    // the requirement classification is version-independent (a future `/v2`
+    // inherits the same policy until a route is deliberately reclassified).
+    let path = path.strip_prefix("/v1").unwrap_or(path);
     if path.starts_with("/seasons") || path.starts_with("/settings") {
         return Requirement::Authenticated;
     }

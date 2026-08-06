@@ -13,12 +13,24 @@ pub mod handlers;
 pub mod routes;
 pub mod state;
 pub mod tls_config;
+pub mod versioning;
 
 use utoipa::OpenApi;
 
-/// OpenAPI document for the persistence-layer v1 endpoints (ADR-006).
+/// OpenAPI document for the persistence-layer v1 endpoints (ADR-006),
+/// formalised by ADR-021: routes are mounted under `/v1` and `info.version`
+/// is the API path version string (`"v1"`).
+///
+/// The `/v1` path prefix is applied at runtime by [`api_doc`] (utoipa 5.5's
+/// `#[openapi]` derive does not support a global `context_path`), so the
+/// generated spec always matches the mounted wire contract.
 #[derive(OpenApi)]
 #[openapi(
+    info(
+        title = "Breakdown RS API",
+        description = "Costume scheduling API for Breakdown RS (ADR-006). Routes are mounted under the /v1 path prefix; the path version is bumped only on a breaking wire change (ADR-021).",
+        version = "v1"
+    ),
     paths(
         handlers::create_season,
         handlers::get_season,
@@ -181,3 +193,31 @@ use utoipa::OpenApi;
     )
 )]
 pub struct ApiDoc;
+
+/// Build the OpenAPI document for the served wire contract (ADR-021 D1).
+///
+/// `info.version` is the API path version string (`"v1"`) and every
+/// documented path is prefixed with the `/v1` context path, so the generated
+/// spec always matches the mounted routes exactly. utoipa 5.5's `#[openapi]`
+/// derive has no global `context_path`, so the prefix is applied here once
+/// (single source of truth shared by the Swagger UI and the route-coverage
+/// tests).
+pub fn api_doc() -> utoipa::openapi::OpenApi {
+    let mut doc = ApiDoc::openapi();
+    doc.info.version = "v1".to_string();
+    doc.info.title = "Breakdown RS API".to_string();
+    doc.info.description = Some(
+        "Costume scheduling API for Breakdown RS (ADR-006). Routes are mounted \
+         under the /v1 path prefix; the path version is bumped only on a \
+         breaking wire change (ADR-021)."
+            .to_string(),
+    );
+    // Prefix every documented path with the /v1 context path (ADR-021 D1).
+    doc.paths.paths = doc
+        .paths
+        .paths
+        .into_iter()
+        .map(|(path, item)| (format!("/v1{path}"), item))
+        .collect();
+    doc
+}

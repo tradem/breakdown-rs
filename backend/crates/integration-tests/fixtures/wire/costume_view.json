@@ -1,0 +1,17 @@
+{
+  "character_id": "00000000-0000-0005-0000-000000000001",
+  "details": [
+    {
+      "category_id": null,
+      "category_name": null,
+      "id": "00000000-0000-0009-0000-000000000001",
+      "subject": "Jacke",
+      "text": "Rote Lederjacke"
+    }
+  ],
+  "id": "00000000-0000-0006-0000-000000000001",
+  "notes": "Rote Lederjacke",
+  "photos": [],
+  "updated_at": "2026-08-06T09:00:00Z",
+  "version": 2
+}

@@ -3,6 +3,7 @@
 
 //! Membership projection handler: `MembershipEvent` -> `projection_membership`.
 
+use super::PROJECTOR_VERSION;
 use breakdown_core::membership::MembershipMetadata;
 use breakdown_core::membership::aggregate::BlockMembership;
 use breakdown_core::membership::events::MembershipEvent;
@@ -131,12 +132,13 @@ impl<'a> EntityEventHandler<BlockMembership, Transaction<'a, Postgres>> for Memb
                 sqlx::query(
                     r#"
                     INSERT INTO projection_membership
-                        (block_id, user_id, role, state, joined_at, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6)
+                        (block_id, user_id, role, state, joined_at, projector_version, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
                     ON CONFLICT (block_id, user_id) DO UPDATE SET
                         role = EXCLUDED.role,
                         state = EXCLUDED.state,
                         joined_at = EXCLUDED.joined_at,
+                        projector_version = EXCLUDED.projector_version,
                         updated_at = EXCLUDED.updated_at
                     "#,
                 )
@@ -145,6 +147,7 @@ impl<'a> EntityEventHandler<BlockMembership, Transaction<'a, Postgres>> for Memb
                 .bind(role_json)
                 .bind(state_json)
                 .bind(updated_at)
+                .bind(PROJECTOR_VERSION)
                 .bind(updated_at)
                 .execute(&mut **ctx)
                 .await?;

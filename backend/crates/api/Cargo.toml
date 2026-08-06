@@ -3,6 +3,7 @@ name = "api"
 version = "0.3.0"
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 # Domäne & Infrastruktur
@@ -61,3 +62,7 @@ tower = "0.5"
 
 [lints]
 workspace = true
+
+# ADR-020 D5: api is a release crate (per-crate tag api-vX.Y.Z).
+[package.metadata.release]
+release = true
