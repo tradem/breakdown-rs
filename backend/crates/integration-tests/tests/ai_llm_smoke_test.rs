@@ -53,7 +53,8 @@ async fn llm_reads_a_document_and_returns_script_context() -> Result<()> {
     let provider = provider_from_key(&provider_key)
         .with_context(|| format!("invalid AI_LLM_PROVIDER {provider_key}"))?;
 
-    let client = OpenAiCompatibleChatClient::new(provider, api_key, Duration::from_secs(120))?;
+    let client =
+        OpenAiCompatibleChatClient::new(provider, api_key, Duration::from_secs(120)).await?;
     let context = client
         .chat_constrained(LlmChatRequest {
             provider,

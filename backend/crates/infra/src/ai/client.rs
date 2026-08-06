@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use super::CuratedProviderUrls;
-use super::transport::hosted_provider_redirect_policy;
+use super::transport::build_hosted_client;
 
 /// OpenAI-compatible `/chat/completions` adapter. The provider URL is chosen
 /// exclusively from the curated provider registry; callers cannot supply one.
@@ -43,7 +43,7 @@ impl OpenAiCompatibleChatClient {
         Ok(())
     }
 
-    pub fn new(
+    pub async fn new(
         provider: LlmProvider,
         api_key: String,
         timeout: Duration,
@@ -54,22 +54,37 @@ impl OpenAiCompatibleChatClient {
                 "LLM API key must not be empty".to_owned(),
             ));
         }
-        // Transport policy (issue #170): HTTPS-only, same-origin redirects.
-        // Hosted-provider requests must never follow a redirect to a non-HTTPS
-        // or cross-host destination, so vaulted bearer credentials cannot be
-        // forwarded to an unapproved destination.
-        let http = reqwest::Client::builder()
-            .timeout(timeout)
-            .redirect(hosted_provider_redirect_policy())
-            .build()
-            .map_err(|error| {
-                DomainError::ValidationError(format!("invalid HTTP client: {error}"))
-            })?;
+        // Transport policy (issue #170): HTTPS-only, same-origin redirects
+        // AND a DNS-resolution guard — the curated provider hostname must
+        // resolve exclusively to globally routable addresses, which are then
+        // pinned for the whole request chain (initial request + same-origin
+        // redirects). Vaulted bearer credentials therefore never reach an
+        // internal service, even if the hostname text is allowlisted but
+        // resolves privately (DNS rebinding).
+        let host = Self::hosted_origin_host(provider)?;
+        let http = build_hosted_client(&host, timeout)
+            .await
+            .map_err(|violation| DomainError::ValidationError(violation.to_string()))?;
         Ok(Self {
             http,
             provider,
             api_key: SecretValue::new(api_key),
             timeout,
+        })
+    }
+
+    /// Host of the curated provider base URL. The base URLs are static
+    /// literals under our control; a parse failure is a programming error and
+    /// surfaces as a validation error (fail closed, no panic).
+    fn hosted_origin_host(provider: LlmProvider) -> Result<String, DomainError> {
+        let base = CuratedProviderUrls::base_url(provider);
+        let url = reqwest::Url::parse(base).map_err(|error| {
+            DomainError::ValidationError(format!(
+                "invalid curated base URL for {provider:?}: {error}"
+            ))
+        })?;
+        url.host_str().map(str::to_owned).ok_or_else(|| {
+            DomainError::ValidationError(format!("curated base URL for {provider:?} has no host"))
         })
     }
 
