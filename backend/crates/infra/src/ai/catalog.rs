@@ -12,6 +12,7 @@ use serde::Deserialize;
 
 use super::CuratedProviderUrls;
 use super::client::{classify_http_status, classify_transport_error};
+use super::transport::curated_provider_redirect_policy;
 
 /// Model catalog backed by a curated allowlist. The allowlist is an operator
 /// policy, not user input, and prevents arbitrary provider model selection.
@@ -21,13 +22,33 @@ pub struct OpenAiCompatibleModelCatalog {
 }
 
 impl OpenAiCompatibleModelCatalog {
-    pub fn new(http: reqwest::Client) -> Self {
+    /// Builds a catalog with its own HTTP client carrying the issue #170
+    /// redirect policy. The catalog serves both hosted and Ollama providers
+    /// from one client, so the policy dispatches on the original request URL:
+    /// the curated Ollama origin is local-only, everything else HTTPS-only.
+    pub fn new() -> Result<Self, DomainError> {
+        let http = reqwest::Client::builder()
+            .redirect(curated_provider_redirect_policy())
+            .build()
+            .map_err(|error| {
+                DomainError::ValidationError(format!("invalid HTTP client: {error}"))
+            })?;
+        Ok(Self {
+            http,
+            allowlist: default_allowlist(),
+        })
+    }
+
+    /// Test seam: inject a prebuilt client. Transport configuration is caller
+    /// owned; the production path ([`Self::new`]) applies the policy.
+    pub fn with_http(http: reqwest::Client) -> Self {
         Self {
             http,
             allowlist: default_allowlist(),
         }
     }
 
+    /// Test seam: inject a prebuilt client and a custom allowlist.
     pub fn with_allowlist(
         http: reqwest::Client,
         allowlist: impl IntoIterator<Item = String>,

@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use super::CuratedProviderUrls;
+use super::transport::hosted_provider_redirect_policy;
 
 /// OpenAI-compatible `/chat/completions` adapter. The provider URL is chosen
 /// exclusively from the curated provider registry; callers cannot supply one.
@@ -53,8 +54,13 @@ impl OpenAiCompatibleChatClient {
                 "LLM API key must not be empty".to_owned(),
             ));
         }
+        // Transport policy (issue #170): HTTPS-only, same-origin redirects.
+        // Hosted-provider requests must never follow a redirect to a non-HTTPS
+        // or cross-host destination, so vaulted bearer credentials cannot be
+        // forwarded to an unapproved destination.
         let http = reqwest::Client::builder()
             .timeout(timeout)
+            .redirect(hosted_provider_redirect_policy())
             .build()
             .map_err(|error| {
                 DomainError::ValidationError(format!("invalid HTTP client: {error}"))
@@ -68,7 +74,9 @@ impl OpenAiCompatibleChatClient {
     }
 
     /// Test seam: inject a prebuilt client while still enforcing the request
-    /// deadline per call (the injected client may not carry one).
+    /// deadline per call (the injected client may not carry one). The caller
+    /// owns transport configuration when injecting; the production path
+    /// ([`Self::new`]) applies the issue #170 redirect policy automatically.
     pub fn with_http(
         http: reqwest::Client,
         provider: LlmProvider,
@@ -241,6 +249,12 @@ pub fn classify_http_status(status: StatusCode) -> DomainError {
 pub fn classify_transport_error(error: reqwest::Error) -> DomainError {
     if error.is_timeout() || error.is_connect() {
         DomainError::ServiceUnavailable(format!("LLM provider transport unavailable: {error}"))
+    } else if error.is_redirect() {
+        // Deterministic policy rejection (issue #170): retrying cannot change
+        // the outcome, so it is a permanent validation failure.
+        DomainError::ValidationError(format!(
+            "LLM provider redirect rejected by transport policy: {error}"
+        ))
     } else {
         DomainError::ValidationError(format!("LLM provider request failed: {error}"))
     }

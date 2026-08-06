@@ -60,6 +60,8 @@ opendal = { version = "0.58", features = ["services-s3", "services-gdrive"] }
 # PinnedRootTransport in `tls.rs`, which feeds reqwest's byte stream into
 # OpenDAL's `HttpBody` (opendal 0.58 per-operator HTTP transport).
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+# Typed URL hosts for the AI provider redirect policy (issue #170).
+url.workspace = true
 
 # HTTP types shared with the opendal HttpTransport trait signature.
 http = "1"

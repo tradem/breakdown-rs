@@ -80,6 +80,8 @@ schemars = "1"
 # Native parsing of CSV shooting schedules (Drehplan) in the ai context.
 csv = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# Typed URL hosts for the AI provider transport policy (issue #170).
+url = "2"
 
 # ─── ADR-020 D5: cargo-release, per-crate independent flow ────────────────
 #

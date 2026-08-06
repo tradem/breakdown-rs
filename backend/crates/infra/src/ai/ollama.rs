@@ -10,6 +10,7 @@ use serde_json::json;
 use std::time::Duration;
 
 use super::client::{classify_http_status, classify_transport_error};
+use super::transport::ollama_redirect_policy;
 use super::{CuratedLlmProvider, CuratedProviderUrls};
 
 /// Ollama adapter. Ollama's broad JSON mode is used when strict schema mode is
@@ -21,6 +22,9 @@ pub struct OllamaChatClient {
 }
 
 impl OllamaChatClient {
+    /// Test seam: the injected client's transport configuration is caller
+    /// owned; the production path ([`Self::with_default_client`]) applies the
+    /// issue #170 local-only redirect policy automatically.
     pub fn new(http: reqwest::Client, max_parse_retries: u32, timeout: Duration) -> Self {
         Self {
             http,
@@ -33,8 +37,12 @@ impl OllamaChatClient {
         max_parse_retries: u32,
         timeout: Duration,
     ) -> Result<Self, DomainError> {
+        // Transport policy (issue #170): local-only redirects. The Ollama
+        // request body carries untrusted source-document text, so a redirect
+        // to a public destination must never be followed.
         let http = reqwest::Client::builder()
             .timeout(timeout)
+            .redirect(ollama_redirect_policy())
             .build()
             .map_err(|error| {
                 DomainError::ValidationError(format!("invalid HTTP client: {error}"))
