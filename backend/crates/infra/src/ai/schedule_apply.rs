@@ -147,11 +147,20 @@ where
                     .await?;
                 scene_versions.insert(merged.scene.id, scene_version);
 
-                let order = row.order.unwrap_or_else(|| {
-                    // Offset above every supplied order and unique per fallback.
-                    fallback_order = fallback_order.saturating_add(1);
-                    fallback_order
-                });
+                let order = match row.order {
+                    Some(order) => order,
+                    None => {
+                        // checked_add: a supplied order of u32::MAX leaves no
+                        // unique fallback value above it — fail loudly instead
+                        // of saturating onto a duplicate order key.
+                        fallback_order = fallback_order.checked_add(1).ok_or_else(|| {
+                            DomainError::ValidationError(
+                                "cannot allocate a unique fallback planned order".to_owned(),
+                            )
+                        })?;
+                        fallback_order
+                    }
+                };
                 let planned_order = LexicalSortKey::new(format!("{order:08}"))
                     .map_err(|error| DomainError::ValidationError(error.to_string()))?;
                 let (scene_shoot_id, version) = self
