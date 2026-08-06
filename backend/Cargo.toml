@@ -64,7 +64,7 @@ rand = "0.10"
 async-trait = "0.1"
 zeroize = "1.8"
 aes-gcm = "0.10"
-base64 = "0.22"
+base64 = "0.23"
 getrandom = "0.4"
 
 # OpenAPI generation (ADR-006)
