@@ -15,6 +15,35 @@ use crate::handlers;
 use crate::state::{AppState, ProductionPorts};
 use crate::versioning::{DeprecationRegistry, deprecation_middleware};
 
+/// Apply the production middleware stack around a versioned API router:
+/// `auth` (outermost) → `authorize` → `deprecation` (innermost).
+///
+/// Composed with `tower::ServiceBuilder` so the declaration order equals the
+/// request order (bare `Router::layer` calls would apply the LAST-added layer
+/// first, running authorization before authentication). This builder is the
+/// single source of truth for the composition — `app_router` and the
+/// composition regression test (`handler_authz.rs`) both invoke it, so the
+/// production order cannot drift from what the test covers.
+pub fn apply_api_middleware<S>(
+    api: Router<S>,
+    auth: Arc<AuthState>,
+    authz: Arc<AuthorizationState>,
+    deprecations: DeprecationRegistry,
+) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    api.layer(
+        ServiceBuilder::new()
+            .layer(middleware::from_fn_with_state(auth, auth_middleware))
+            .layer(middleware::from_fn_with_state(authz, authorize_middleware))
+            .layer(middleware::from_fn_with_state(
+                deprecations,
+                deprecation_middleware,
+            )),
+    )
+}
+
 /// Build the full Axum application router including API routes and Swagger UI.
 ///
 /// The `AuthLayer` runs first (outermost): it validates the OIDC token and
@@ -34,19 +63,11 @@ pub fn app_router(
     // Empty while only `/v1` is served; populated when `/v{n+1}` ships
     // (ADR-021 D4) — release-time configuration, not per-request.
     let deprecations = DeprecationRegistry::new();
-    // Layer order via tower::ServiceBuilder is top-to-bottom = request order:
-    // auth (outermost) → authorize → deprecation (innermost). Bare
-    // `Router::layer` calls would apply the LAST-added layer first (axum
-    // semantics), running authorization before authentication and 401-ing
-    // every block-scoped request (CurrentUser not yet injected).
-    let api = Router::new().nest("/v1", handlers::routes()).layer(
-        ServiceBuilder::new()
-            .layer(middleware::from_fn_with_state(auth, auth_middleware))
-            .layer(middleware::from_fn_with_state(authz, authorize_middleware))
-            .layer(middleware::from_fn_with_state(
-                deprecations,
-                deprecation_middleware,
-            )),
+    let api = apply_api_middleware(
+        Router::new().nest("/v1", handlers::routes()),
+        auth,
+        authz,
+        deprecations,
     );
 
     let doc = crate::api_doc();

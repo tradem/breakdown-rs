@@ -58,16 +58,16 @@ async fn status_of(router: &Router<()>, req: Request<AxumBody>) -> StatusCode {
 
 /// Regression test for `app_router`'s layer composition (issue #123 / ADR-021):
 /// authentication must run BEFORE authorization so `CurrentUser` exists when
-/// `authorize_middleware` gates a block-scoped route. `app_router` composes the
-/// stack with `tower::ServiceBuilder` (top-to-bottom = request order: auth
-/// outermost → authorize → deprecation); this test mirrors that exact
-/// composition with the real production middlewares and asserts a dev-mode
-/// block-scoped request reaches the handler — 200, not 401. A reordering of
-/// the layers (e.g. back to bare `Router::layer` with authz last) fails here.
+/// `authorize_middleware` gates a block-scoped route. The router is built
+/// through the SAME `api::routes::apply_api_middleware` builder that
+/// `app_router` uses (single source of truth for the auth → authorize →
+/// deprecation order), so a future reordering/removal inside `app_router`
+/// fails here — 200 (not 401) is only reachable when authentication injects
+/// `CurrentUser` before authorization reads it.
 #[tokio::test]
 async fn app_router_composition_runs_auth_before_authz() {
-    use api::versioning::{DeprecationRegistry, deprecation_middleware};
-    use tower::ServiceBuilder;
+    use api::routes::apply_api_middleware;
+    use api::versioning::DeprecationRegistry;
 
     let auth = Arc::new(AuthState::dev(CurrentUser::dummy(DEV_SUB)));
     let block = BlockId::new();
@@ -79,18 +79,13 @@ async fn app_router_composition_runs_auth_before_authz() {
     let policy = Arc::new(MembershipAuthorizationPolicy::new(repo));
     let authz = Arc::new(AuthorizationState::new(policy, /*enforce=*/ true));
 
-    let app = Router::new()
-        .route("/v1/blocks/{id}", get(|| async { StatusCode::OK }))
-        .layer(
-            ServiceBuilder::new()
-                .layer(from_fn_with_state(auth, auth_middleware))
-                .layer(from_fn_with_state(authz, authorize_middleware))
-                .layer(from_fn_with_state(
-                    DeprecationRegistry::new(),
-                    deprecation_middleware,
-                )),
-        )
-        .with_state(());
+    let app = apply_api_middleware(
+        Router::new().route("/v1/blocks/{id}", get(|| async { StatusCode::OK })),
+        auth,
+        authz,
+        DeprecationRegistry::new(),
+    )
+    .with_state(());
 
     let req = Request::builder()
         .method("GET")
