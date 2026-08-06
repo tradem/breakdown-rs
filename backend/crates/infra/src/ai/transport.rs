@@ -208,20 +208,27 @@ fn is_local_domain(domain: &str) -> bool {
 }
 
 /// Loopback, RFC 1918 private, RFC 3927 link-local, RFC 6598 shared
-/// (CGNAT) address space and the unspecified address. These cover localhost,
-/// LANs and Docker/Kubernetes pod networks — the realistic deployment
-/// topologies for a local Ollama endpoint. Documentation (TEST-NET) and
-/// multicast ranges plus the broadcast address are also not globally
-/// routable, so they count as local for the transport policies.
+/// (CGNAT) address space, the unspecified address, documentation (TEST-NET),
+/// multicast and broadcast addresses. These cover localhost, LANs and
+/// Docker/Kubernetes pod networks — the realistic deployment topologies for
+/// a local Ollama endpoint — plus the reserved ranges that are never
+/// globally routable.
 fn is_local_ipv4(address: Ipv4Addr) -> bool {
+    let octets = address.octets();
     address.is_loopback()
         || address.is_private()
         || address.is_link_local()
         || address.is_unspecified()
         || address.is_multicast()
         || address.is_documentation()
-        || address == Ipv4Addr::BROADCAST
         || is_rfc6598_shared(address)
+        // RFC 2544 benchmarking range (198.18.0.0/15): reserved for network
+        // interconnect benchmarking — `is_private`/`is_documentation` do not
+        // classify it, so the prefix is matched explicitly.
+        || (octets[0] == 198 && (octets[1] & 0xFE) == 0x12)
+        // Class E reserved range (240.0.0.0/4), including the broadcast
+        // address 255.255.255.255: reserved, never globally routable.
+        || octets[0] >= 240
 }
 
 /// RFC 6598 shared address space (`100.64.0.0/10`), used by CGNAT. It is not
@@ -233,10 +240,16 @@ fn is_rfc6598_shared(address: Ipv4Addr) -> bool {
 }
 
 /// Loopback, unique-local (RFC 4193), unicast link-local (RFC 4291), the
-/// unspecified address and IPv4-mapped forms of [`is_local_ipv4`] (e.g.
-/// `::ffff:127.0.0.1`). Multicast and the RFC 3849 documentation prefix
-/// (`2001:db8::/32`, matched manually because `Ipv6Addr::is_documentation`
-/// is unstable) are not globally routable either, so they count as local.
+/// unspecified address and IPv4 forms embedded in IPv6. Multicast and the
+/// RFC 3849 documentation prefix (`2001:db8::/32`, matched manually because
+/// `Ipv6Addr::is_documentation` is unstable) are not globally routable
+/// either, so they count as local.
+///
+/// The embedded-IPv4 check uses [`Ipv6Addr::to_ipv4`] rather than
+/// [`Ipv6Addr::to_ipv4_mapped`] so that both IPv4-mapped (`::ffff:a.b.c.d`)
+/// **and** the deprecated IPv4-compatible form (`::a.b.c.d`, RFC 4291
+/// §2.5.5.1) are classified by the IPv4 policy — `::127.0.0.1` would
+/// otherwise look globally routable.
 fn is_local_ipv6(address: Ipv6Addr) -> bool {
     address.is_loopback()
         || address.is_unique_local()
@@ -244,7 +257,7 @@ fn is_local_ipv6(address: Ipv6Addr) -> bool {
         || address.is_unspecified()
         || address.is_multicast()
         || is_documentation_ipv6(address)
-        || address.to_ipv4_mapped().is_some_and(is_local_ipv4)
+        || address.to_ipv4().is_some_and(is_local_ipv4)
 }
 
 /// RFC 3849 documentation prefix (`2001:db8::/32`) — not globally routable.
@@ -310,6 +323,11 @@ pub async fn build_hosted_client(
         .timeout(timeout)
         .redirect(hosted_provider_redirect_policy())
         .resolve_to_addrs(host, &addrs)
+        // System proxies (HTTP_PROXY / HTTPS_PROXY / ALL_PROXY) resolve the
+        // CONNECT target outside this client's pinned-address policy and
+        // would tunnel bearer credentials through an unvalidated hop — the
+        // hosted client never uses them (issue #170).
+        .no_proxy()
         .build()
         .map_err(|error| RedirectViolation::ClientBuildFailed {
             error: error.to_string(),
@@ -492,9 +510,10 @@ mod tests {
 
     #[tokio::test]
     async fn hosted_resolution_rejects_private_ipv4() {
-        // Loopback, RFC 1918, link-local, CGNAT (RFC 6598) and the
-        // unspecified address must all be rejected even though an allowlisted
-        // *hostname* could resolve to any of them (DNS rebinding).
+        // Loopback, RFC 1918, link-local, CGNAT (RFC 6598), the unspecified
+        // address, the RFC 2544 benchmarking range and the Class E reserved
+        // range must all be rejected even though an allowlisted *hostname*
+        // could resolve to any of them (DNS rebinding).
         for host in [
             "127.0.0.1",
             "10.0.0.5",
@@ -503,6 +522,10 @@ mod tests {
             "169.254.1.1",
             "100.64.0.1",
             "0.0.0.0",
+            "198.18.0.1",
+            "198.19.255.255",
+            "240.0.0.1",
+            "255.255.255.255",
         ] {
             let err = validate_public_resolution(host).await.unwrap_err();
             assert!(
@@ -514,7 +537,17 @@ mod tests {
 
     #[tokio::test]
     async fn hosted_resolution_rejects_ipv6_loopback_and_unique_local() {
-        for host in ["::1", "fd00::1", "fe80::1", "::ffff:127.0.0.1"] {
+        // IPv4-mapped (::ffff:) and the deprecated IPv4-compatible form
+        // (::a.b.c.d) must both be classified by the IPv4 policy —
+        // `::127.0.0.1` would otherwise slip through `to_ipv4_mapped`.
+        for host in [
+            "::1",
+            "fd00::1",
+            "fe80::1",
+            "::ffff:127.0.0.1",
+            "::127.0.0.1",
+            "::ffff:10.0.0.5",
+        ] {
             let err = validate_public_resolution(host).await.unwrap_err();
             assert!(
                 matches!(err, RedirectViolation::InternalDestination { .. }),
@@ -542,6 +575,17 @@ mod tests {
         assert!(
             !addrs.is_empty() && addrs.iter().all(|addr| is_public_ip(addr.ip())),
             "8.8.8.8 must resolve to public addresses, got {addrs:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn hosted_resolution_allows_public_ipv6() {
+        let addrs = validate_public_resolution("2606:4700:4700::1111")
+            .await
+            .unwrap();
+        assert!(
+            !addrs.is_empty() && addrs.iter().all(|addr| is_public_ip(addr.ip())),
+            "public IPv6 must be accepted, got {addrs:?}"
         );
     }
 
