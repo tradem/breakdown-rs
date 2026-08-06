@@ -52,12 +52,17 @@ toml = "1.1"
 
 # S3-compatible object storage via OpenDAL (Garage adapter).
 # services-gdrive: report archival external provider (ADR-022 D6 spike).
-opendal = { version = "0.52", features = ["services-s3", "services-gdrive"] }
+opendal = { version = "0.58", features = ["services-s3", "services-gdrive"] }
 
 # HTTP client used to pin the step-ca root CA on the https:// Garage/Caddy
 # endpoint (ADR-024 / issue #156). Same version + TLS backend as OpenDAL's
-# reqwest (feature-unified via Cargo), passed through `opendal::raw::HttpClient`.
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# reqwest (feature-unified via Cargo); `stream` is required by the
+# PinnedRootTransport in `tls.rs`, which feeds reqwest's byte stream into
+# OpenDAL's `HttpBody` (opendal 0.58 per-operator HTTP transport).
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+
+# HTTP types shared with the opendal HttpTransport trait signature.
+http = "1"
 
 # SHA-256 content digests for report archival staging/retry verification.
 sha2 = "0.11"

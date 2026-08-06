@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 use std::sync::Arc;
 
@@ -47,8 +48,7 @@ impl GDriveDocumentSource {
             builder = builder.root(root);
         }
         let operator = Operator::new(builder)
-            .map_err(|error| DomainError::ServiceUnavailable(format!("GDrive adapter: {error}")))?
-            .finish();
+            .map_err(|error| DomainError::ServiceUnavailable(format!("GDrive adapter: {error}")))?;
         Ok(Self {
             operator: Arc::new(operator),
             max_document_bytes,
