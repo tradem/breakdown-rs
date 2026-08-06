@@ -58,6 +58,19 @@ impl LlmProvider {
     }
 }
 
+/// The curated provider set in display order. Single source for the providers
+/// and models endpoints; a new `LlmProvider` variant must be added to the
+/// exhaustive `as_str` match above (compile-time) and to this list (curation).
+pub const CURATED_PROVIDERS: [LlmProvider; 7] = [
+    LlmProvider::OpenAI,
+    LlmProvider::OpenRouter,
+    LlmProvider::EURouter,
+    LlmProvider::Neuralwatt,
+    LlmProvider::OpenCodeGo,
+    LlmProvider::OpenCode,
+    LlmProvider::Ollama,
+];
+
 /// Infra supplies the hardcoded URL for a curated provider.
 pub trait CuratedLlmProvider: Send + Sync {
     fn base_url(provider: LlmProvider) -> &'static str;

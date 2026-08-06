@@ -4308,7 +4308,14 @@ fn request_content_type(headers: &HeaderMap) -> &str {
     post,
     path = "/ai-import/scripts",
     request_body(content = String, content_type = "application/pdf"),
-    responses((status = 202, body = AiImportJobId), (status = 403, body = ErrorResponse))
+    responses(
+        (status = 200, body = AiImportJobId, description = "Duplicate upload — existing job id"),
+        (status = 202, body = AiImportJobId, description = "Job enqueued"),
+        (status = 404, body = ErrorResponse, description = "AI import disabled"),
+        (status = 413, body = ErrorResponse, description = "Document exceeds the configured size limit"),
+        (status = 415, body = ErrorResponse, description = "Unsupported media type"),
+        (status = 403, body = ErrorResponse, description = "Not authorized")
+    )
 )]
 pub async fn upload_ai_script(
     State(state): State<AppState<ProductionPorts>>,
@@ -4332,8 +4339,20 @@ pub async fn upload_ai_script(
 #[utoipa::path(
     post,
     path = "/ai-import/schedules",
-    request_body(content = String, content_type = "application/pdf"),
-    responses((status = 202, body = AiImportJobId), (status = 403, body = ErrorResponse))
+    request_body(
+        content = String,
+        content_type = "application/pdf",
+        content_type = "text/csv",
+        content_type = "text/plain"
+    ),
+    responses(
+        (status = 200, body = AiImportJobId, description = "Duplicate upload — existing job id"),
+        (status = 202, body = AiImportJobId, description = "Job enqueued"),
+        (status = 404, body = ErrorResponse, description = "AI import disabled"),
+        (status = 413, body = ErrorResponse, description = "Document exceeds the configured size limit"),
+        (status = 415, body = ErrorResponse, description = "Unsupported media type"),
+        (status = 403, body = ErrorResponse, description = "Not authorized")
+    )
 )]
 pub async fn upload_ai_schedule(
     State(state): State<AppState<ProductionPorts>>,
@@ -4839,15 +4858,22 @@ pub async fn revoke_ai_config(
     Ok((StatusCode::OK, Json(version)))
 }
 
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct AiProviderInfo {
+    pub provider: LlmProvider,
+    /// Canonical lowercase path key for `/ai-import/providers/{provider}/models`.
+    pub key: String,
+}
+
 #[utoipa::path(
     get,
     path = "/ai-import/providers",
-    responses((status = 200, body = [LlmProvider]), (status = 403, body = ErrorResponse))
+    responses((status = 200, body = [AiProviderInfo]), (status = 403, body = ErrorResponse))
 )]
 pub async fn list_ai_providers<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
-) -> ApiResult<Vec<LlmProvider>> {
+) -> ApiResult<Vec<AiProviderInfo>> {
     // AUTHZ-GATE: provider/model discovery is a credential-administration
     // capability and must be checked inside the authenticated handler.
     let authorized = state
@@ -4874,15 +4900,18 @@ pub async fn list_ai_providers<P: Ports>(
     }
     Ok((
         StatusCode::OK,
-        Json(vec![
-            LlmProvider::OpenAI,
-            LlmProvider::OpenRouter,
-            LlmProvider::EURouter,
-            LlmProvider::Neuralwatt,
-            LlmProvider::OpenCodeGo,
-            LlmProvider::OpenCode,
-            LlmProvider::Ollama,
-        ]),
+        // Single source for provider + key (CURATED_PROVIDERS / as_str): a
+        // client can derive the `{provider}` path segment from this response.
+        Json(
+            breakdown_core::ai::CURATED_PROVIDERS
+                .iter()
+                .copied()
+                .map(|provider| AiProviderInfo {
+                    provider,
+                    key: provider.as_str().to_owned(),
+                })
+                .collect::<Vec<_>>(),
+        ),
     ))
 }
 
@@ -4925,18 +4954,23 @@ pub async fn list_ai_models<P: Ports>(
 }
 
 fn parse_ai_provider(value: &str) -> Result<LlmProvider, DomainError> {
-    match value {
-        "openai" => Ok(LlmProvider::OpenAI),
-        "openrouter" => Ok(LlmProvider::OpenRouter),
-        "eurouter" | "openrouter_eu" | "openrouter-eu" => Ok(LlmProvider::EURouter),
-        "neuralwatt" => Ok(LlmProvider::Neuralwatt),
-        "opencode-go" | "opencode_go" => Ok(LlmProvider::OpenCodeGo),
-        "opencode" => Ok(LlmProvider::OpenCode),
-        "ollama" => Ok(LlmProvider::Ollama),
-        other => Err(DomainError::ValidationError(format!(
-            "unknown AI provider {other}"
-        ))),
+    // Canonical curated keys first — one source via `LlmProvider::as_str()`.
+    for provider in breakdown_core::ai::CURATED_PROVIDERS {
+        if provider.as_str() == value {
+            return Ok(provider);
+        }
     }
+    // Legacy aliases kept for backward compatibility.
+    let provider = match value {
+        "openrouter_eu" | "openrouter-eu" => LlmProvider::EURouter,
+        "opencode_go" => LlmProvider::OpenCodeGo,
+        other => {
+            return Err(DomainError::ValidationError(format!(
+                "unknown AI provider {other}"
+            )));
+        }
+    };
+    Ok(provider)
 }
 
 #[cfg(test)]

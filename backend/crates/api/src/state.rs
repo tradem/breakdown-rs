@@ -125,12 +125,26 @@ pub struct AppState<P: Ports> {
 }
 
 impl<P: Ports> AppState<P> {
+    /// Environment-driven production entry point: reads `AI_IMPORT_ENABLED`
+    /// and the document bound once at construction.
     pub fn new(ports: P) -> Self {
         let feature = infra::ai::AiImportFeature::from_env();
+        Self::with_ai_import(ports, feature.enabled, feature.bounds.max_document_bytes)
+    }
+
+    /// Builds state with explicit rollout values, bypassing the process
+    /// environment — lets tests exercise both `ai_import_enabled` branches
+    /// deterministically (process env is global and `set_var` is unsafe in
+    /// Rust 2024).
+    pub fn with_ai_import(
+        ports: P,
+        ai_import_enabled: bool,
+        ai_import_max_document_bytes: u64,
+    ) -> Self {
         Self {
             ports,
-            ai_import_enabled: feature.enabled,
-            ai_import_max_document_bytes: feature.bounds.max_document_bytes,
+            ai_import_enabled,
+            ai_import_max_document_bytes,
         }
     }
 }

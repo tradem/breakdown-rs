@@ -25,8 +25,8 @@ pub use events::AiConfigEvent;
 pub use ports::LlmProvider;
 pub use ports::{
     AiConfigCommands, AiConfigRepository, AiImportEnqueueRequest, AiImportEnqueueResult,
-    AiImportMapping, AiImportMappingRepository, AiImportQueue, CuratedLlmProvider, LlmChatRequest,
-    LlmClient, LlmModelCatalog, ModelInfo,
+    AiImportMapping, AiImportMappingRepository, AiImportQueue, CURATED_PROVIDERS,
+    CuratedLlmProvider, LlmChatRequest, LlmClient, LlmModelCatalog, ModelInfo,
 };
 pub use preview::{
     ApplyGateError, ApplyMapping, ApplyMappingDecision, DraftScene, MergedPreview, MergedScene,
