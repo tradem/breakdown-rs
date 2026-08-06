@@ -151,7 +151,10 @@ pub fn ollama_redirect_allowed(next: &Url, original: &Url) -> Result<(), Redirec
     }
 }
 
-/// True when `url` points at a local endpoint.
+/// True when `url` points at a local endpoint. The host match is deliberately
+/// port-agnostic: the Ollama regime protects against leaving the local
+/// network, not against a port change inside it (the hosted regime compares
+/// host and port).
 fn is_local_destination(url: &Url, original: &Url) -> bool {
     if url.host().is_some() && url.host() == original.host() {
         return true;
@@ -171,14 +174,24 @@ fn is_local_domain(domain: &str) -> bool {
     matches!(domain, "localhost" | "localhost.localdomain")
 }
 
-/// Loopback, RFC 1918 private, RFC 3927 link-local and the unspecified
-/// address. These cover localhost, LANs and Docker/Kubernetes pod networks —
-/// the realistic deployment topologies for a local Ollama endpoint.
+/// Loopback, RFC 1918 private, RFC 3927 link-local, RFC 6598 shared
+/// (CGNAT) address space and the unspecified address. These cover localhost,
+/// LANs and Docker/Kubernetes pod networks — the realistic deployment
+/// topologies for a local Ollama endpoint.
 fn is_local_ipv4(address: Ipv4Addr) -> bool {
     address.is_loopback()
         || address.is_private()
         || address.is_link_local()
         || address.is_unspecified()
+        || is_rfc6598_shared(address)
+}
+
+/// RFC 6598 shared address space (`100.64.0.0/10`), used by CGNAT. It is not
+/// globally routable, and `Ipv4Addr::is_private()` deliberately excludes it,
+/// so the range is checked explicitly here.
+fn is_rfc6598_shared(address: Ipv4Addr) -> bool {
+    let octets = address.octets();
+    octets[0] == 100 && (octets[1] & 0b1100_0000) == 0b0100_0000
 }
 
 /// Loopback, unique-local (RFC 4193), unicast link-local (RFC 4291), the
@@ -416,6 +429,40 @@ mod tests {
                 ollama_redirect_allowed(&next, &ollama_original()),
                 Ok(()),
                 "expected {host} to be a local destination"
+            );
+        }
+    }
+
+    #[test]
+    fn ollama_allows_rfc6598_shared_address_space() {
+        // RFC 6598 (100.64.0.0/10) first and last addresses plus interior
+        // samples; `is_private()` does not cover this range.
+        for host in [
+            "100.64.0.0",
+            "100.64.0.1",
+            "100.127.255.254",
+            "100.127.255.255",
+        ] {
+            let next = local_url(host);
+            assert_eq!(
+                ollama_redirect_allowed(&next, &ollama_original()),
+                Ok(()),
+                "expected {host} to be a local destination"
+            );
+        }
+    }
+
+    #[test]
+    fn ollama_rejects_addresses_immediately_outside_rfc6598_shared_range() {
+        // One below (100.63.255.255) and one above (100.128.0.0) the range.
+        for host in ["100.63.255.255", "100.128.0.0", "100.128.0.1"] {
+            let next = local_url(host);
+            assert_eq!(
+                ollama_redirect_allowed(&next, &ollama_original()),
+                Err(RedirectViolation::NonLocalDestination {
+                    destination: next.to_string(),
+                }),
+                "expected {host} to be rejected as non-local"
             );
         }
     }

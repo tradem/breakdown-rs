@@ -3,6 +3,7 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 
 use std::collections::HashSet;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use breakdown_core::ai::{CuratedLlmProvider, LlmModelCatalog, LlmProvider, ModelInfo};
@@ -14,6 +15,11 @@ use super::CuratedProviderUrls;
 use super::client::{classify_http_status, classify_transport_error};
 use super::transport::curated_provider_redirect_policy;
 
+/// Deadline for curated model-catalog requests. The catalog has no
+/// caller-supplied timeout, so the bound is fixed here (the sibling chat
+/// clients take a caller-supplied `Duration` instead).
+const CATALOG_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// Model catalog backed by a curated allowlist. The allowlist is an operator
 /// policy, not user input, and prevents arbitrary provider model selection.
 pub struct OpenAiCompatibleModelCatalog {
@@ -23,11 +29,13 @@ pub struct OpenAiCompatibleModelCatalog {
 
 impl OpenAiCompatibleModelCatalog {
     /// Builds a catalog with its own HTTP client carrying the issue #170
-    /// redirect policy. The catalog serves both hosted and Ollama providers
-    /// from one client, so the policy dispatches on the original request URL:
-    /// the curated Ollama origin is local-only, everything else HTTPS-only.
+    /// redirect policy and a fixed request deadline. The catalog serves both
+    /// hosted and Ollama providers from one client, so the policy dispatches
+    /// on the original request URL: the curated Ollama origin is local-only,
+    /// everything else HTTPS-only.
     pub fn new() -> Result<Self, DomainError> {
         let http = reqwest::Client::builder()
+            .timeout(CATALOG_REQUEST_TIMEOUT)
             .redirect(curated_provider_redirect_policy())
             .build()
             .map_err(|error| {

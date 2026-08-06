@@ -22,10 +22,11 @@ pub struct OllamaChatClient {
 }
 
 impl OllamaChatClient {
-    /// Test seam: the injected client's transport configuration is caller
-    /// owned; the production path ([`Self::with_default_client`]) applies the
-    /// issue #170 local-only redirect policy automatically.
-    pub fn new(http: reqwest::Client, max_parse_retries: u32, timeout: Duration) -> Self {
+    /// Test seam: inject a prebuilt client. The injected client's transport
+    /// configuration is caller owned, so the issue #170 local-only redirect
+    /// policy is **not** applied here; the production path ([`Self::new`])
+    /// applies it automatically.
+    pub fn with_http(http: reqwest::Client, max_parse_retries: u32, timeout: Duration) -> Self {
         Self {
             http,
             max_parse_retries: max_parse_retries.min(3),
@@ -33,10 +34,9 @@ impl OllamaChatClient {
         }
     }
 
-    pub fn with_default_client(
-        max_parse_retries: u32,
-        timeout: Duration,
-    ) -> Result<Self, DomainError> {
+    /// Production constructor: builds a client carrying the issue #170
+    /// local-only redirect policy and the request deadline.
+    pub fn new(max_parse_retries: u32, timeout: Duration) -> Result<Self, DomainError> {
         // Transport policy (issue #170): local-only redirects. The Ollama
         // request body carries untrusted source-document text, so a redirect
         // to a public destination must never be followed.
@@ -47,7 +47,7 @@ impl OllamaChatClient {
             .map_err(|error| {
                 DomainError::ValidationError(format!("invalid HTTP client: {error}"))
             })?;
-        Ok(Self::new(http, max_parse_retries, timeout))
+        Ok(Self::with_http(http, max_parse_retries, timeout))
     }
 
     async fn request_once(&self, req: &LlmChatRequest) -> Result<String, DomainError> {
