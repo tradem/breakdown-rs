@@ -14,8 +14,11 @@ use api::auth::JwksProvider;
 
 use api::auth::jwks::{CachingJwksProvider, StaticJwksProvider, normalize_b64};
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
-use rand_core::OsRng;
-use rsa::{RsaPrivateKey, pkcs1::EncodeRsaPrivateKey, traits::PublicKeyParts};
+// `rsa` 0.9 is still built against rand_core 0.6 and its `RsaPrivateKey::new`
+// generic bound is rand_core 0.6's `CryptoRngCore`. rand_core 0.10 removed
+// `OsRng` from the crate root and its traits are a different version, so we
+// must use rsa's own rand_core re-export to get a matching `OsRng`.
+use rsa::{RsaPrivateKey, pkcs1::EncodeRsaPrivateKey, rand_core::OsRng, traits::PublicKeyParts};
 use std::collections::HashMap;
 use std::sync::{
     Arc,
