@@ -55,7 +55,7 @@ opendal = { version = "0.52", features = ["services-s3", "services-gdrive"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 # SHA-256 content digests for report archival staging/retry verification.
-sha2 = "0.10"
+sha2 = "0.11"
 
 # Image decoding, re-encoding, and EXIF-stripping (thumbnailing saga).
 image = { version = "0.25", features = ["jpeg", "png", "webp"] }
