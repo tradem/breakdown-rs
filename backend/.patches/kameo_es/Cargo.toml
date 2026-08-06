@@ -2,6 +2,11 @@
 name = "kameo_es"
 version = "0.1.0"
 edition = "2021"
+# MSRV aligned with the workspace floor (backend Cargo.toml rust-version =
+# 1.94, ADR-020 D2) — this patched crate is only ever built with ≥ 1.94
+# (CI MSRV job + Dockerfile builder). cargo-hack `--rust-version` requires
+# the field on every path dependency in the graph.
+rust-version = "1.94"
 authors = ["Ari Seyhun <dev@tqwewe.com>"]
 license = "MIT OR Apache-2.0"
 description = "Event sourcing library built on Kameo actors and SierraDB"
