@@ -1,0 +1,22 @@
+{
+  "event": {
+    "BlockCreated": {
+      "end_date": null,
+      "id": "019e7044-8800-7002-8000-000000000002",
+      "number": 1,
+      "season_id": "019e7044-8800-7001-8000-000000000001",
+      "series_id": "019e7044-8800-700a-8000-00000000000a",
+      "start_date": null,
+      "version": 1
+    }
+  },
+  "aggregate_id": "019e7044-8800-7002-8000-000000000002",
+  "timestamp": "2026-08-06T09:00:00Z",
+  "stream_version": 1,
+  "projector_version": 1,
+  "metadata": {
+    "actor": "fixture-owner",
+    "provenance": "Human",
+    "series_id": "019e7044-8800-700a-8000-00000000000a"
+  }
+}

@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: qwen3.6-35b (neuralwatt)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! Scene projection handler: `SceneEvent` -> `projection_scene` + `projection_scene_character`.
 
+use super::PROJECTOR_VERSION;
 use breakdown_core::scene::aggregate::SceneAggregate;
 use breakdown_core::scene::events::SceneEvent;
 use breakdown_core::shared::EventMetadata;
@@ -41,8 +43,8 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                 sqlx::query(
                     r#"
                     INSERT INTO projection_scene
-                        (id, episode_id, scene_number, location, mood, is_schedule_set, summary, script_day, version, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                        (id, episode_id, scene_number, location, mood, is_schedule_set, summary, script_day, version, projector_version, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                     ON CONFLICT (id) DO UPDATE SET
                         episode_id = EXCLUDED.episode_id,
                         scene_number = EXCLUDED.scene_number,
@@ -52,6 +54,7 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                         summary = EXCLUDED.summary,
                         script_day = EXCLUDED.script_day,
                         version = EXCLUDED.version,
+                        projector_version = EXCLUDED.projector_version,
                         updated_at = EXCLUDED.updated_at
                     "#,
                 )
@@ -64,6 +67,7 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                 .bind(details.summary)
                 .bind(details.script_day)
                 .bind(version)
+                .bind(PROJECTOR_VERSION)
                 .bind(updated_at)
                 .execute(&mut **ctx)
                 .await?;

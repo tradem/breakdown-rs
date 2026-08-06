@@ -1,13 +1,18 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4-flash (opencode-go)
+
 [package]
 name = "api"
-version = "0.3.0"
+version = "0.4.0"
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 # Domäne & Infrastruktur
 breakdown_core = { path = "../core", version = "0.3.0" }
-infra = { path = "../infra", version = "0.3.0" }
+infra = { path = "../infra", version = "0.4.0" }
 
 # Web-Framework
 axum.workspace = true
@@ -43,6 +48,12 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 anyhow.workspace = true
 
+# Middleware composition (Router::layer order in app_router; ADR-021).
+tower = "0.5"
+
+# RFC 8594 Sunset HTTP-date validation (versioning.rs).
+httpdate = "1"
+
 # OpenTelemetry / Observability
 tracing-opentelemetry.workspace = true
 opentelemetry.workspace = true
@@ -61,3 +72,8 @@ tower = "0.5"
 
 [lints]
 workspace = true
+
+# ADR-020 D5: api is a release crate (per-crate tag api-vX.Y.Z).
+[package.metadata.release]
+release = true
+tag-name = "api-v{{version}}"

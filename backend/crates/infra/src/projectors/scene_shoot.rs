@@ -2,9 +2,11 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: qwen3.6-35b (neuralwatt)
 // Co-authored-by: moonshotai/kimi-k3 (openrouter)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! SceneShoot projection handler: `SceneShootEvent` -> `projection_scene_shoot`.
 
+use super::PROJECTOR_VERSION;
 use breakdown_core::scene_shoot::aggregate::SceneShootAggregate;
 use breakdown_core::scene_shoot::events::SceneShootEvent;
 use breakdown_core::shared::{EventMetadata, SceneShootId};
@@ -44,14 +46,15 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                 sqlx::query(
                     r#"
                     INSERT INTO projection_scene_shoot
-                        (id, scene_id, shooting_day_id, planned_order, status, version, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                        (id, scene_id, shooting_day_id, planned_order, status, version, projector_version, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                     ON CONFLICT (id) DO UPDATE SET
                         scene_id = EXCLUDED.scene_id,
                         shooting_day_id = EXCLUDED.shooting_day_id,
                         planned_order = EXCLUDED.planned_order,
                         status = EXCLUDED.status,
                         version = EXCLUDED.version,
+                        projector_version = EXCLUDED.projector_version,
                         updated_at = EXCLUDED.updated_at
                     WHERE projection_scene_shoot.version < EXCLUDED.version
                     "#,
@@ -62,6 +65,7 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                 .bind(planned_order.0)
                 .bind(status.as_str())
                 .bind(version)
+                .bind(PROJECTOR_VERSION)
                 .bind(updated_at)
                 .execute(&mut **ctx)
                 .await?;

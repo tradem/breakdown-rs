@@ -2,7 +2,7 @@
 // Copyright (C) 2024 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: qwen3.6-35b (neuralwatt)
-// Co-authored-by: glm-5.2 (neuralwatt)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 //! Generic audit / journal projector.
 //!
 //! Generalized to all 11 aggregate categories (`season`, `block`, `episode`,
@@ -150,8 +150,8 @@ async fn write_audit_row(
     sqlx::query(
         r#"
         INSERT INTO projection_audit
-            (id, event_key, entity_type, entity_id, event_type, block_id, series_id, actor, provenance, payload, occurred_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            (id, event_key, entity_type, entity_id, event_type, block_id, series_id, actor, provenance, payload, projector_version, occurred_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         ON CONFLICT (event_key) DO NOTHING
         "#,
     )
@@ -168,6 +168,7 @@ async fn write_audit_row(
     .bind(actor)
     .bind(provenance)
     .bind(payload)
+    .bind(crate::projectors::PROJECTOR_VERSION)
     .bind(event_timestamp)
     .execute(&mut **ctx)
         .await

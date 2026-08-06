@@ -1,0 +1,27 @@
+{
+  "event": {
+    "SceneCreated": {
+      "assigned_characters": [],
+      "details": {
+        "is_schedule_set": false,
+        "location": "Set A",
+        "mood": "Tag",
+        "scene_number": 1,
+        "script_day": "1. Spieltag",
+        "summary": "Eröffnungsszene"
+      },
+      "episode_id": "019e7044-8800-7003-8000-000000000003",
+      "id": "019e7044-8800-7004-8000-000000000004",
+      "version": 1
+    }
+  },
+  "aggregate_id": "019e7044-8800-7004-8000-000000000004",
+  "timestamp": "2026-08-06T09:00:00Z",
+  "stream_version": 1,
+  "projector_version": 1,
+  "metadata": {
+    "actor": "fixture-owner",
+    "provenance": "Human",
+    "series_id": "019e7044-8800-700a-8000-00000000000a"
+  }
+}

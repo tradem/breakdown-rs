@@ -1,0 +1,21 @@
+{
+  "category": "main_cast",
+  "contact": {
+    "email": null,
+    "phone": "+49 000"
+  },
+  "id": "019e7044-8800-7005-8000-000000000005",
+  "measurements": {
+    "chest": null,
+    "hat_size": null,
+    "height": null,
+    "hips": null,
+    "shoe_size": null,
+    "waist": null,
+    "weight": null
+  },
+  "name": "Hauptrolle",
+  "season_id": "019e7044-8800-7001-8000-000000000001",
+  "updated_at": "2026-08-06T09:00:00Z",
+  "version": 1
+}

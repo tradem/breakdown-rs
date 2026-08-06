@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
+use super::PROJECTOR_VERSION;
 use breakdown_core::ai::aggregate::AiConfig;
 use breakdown_core::ai::events::AiConfigEvent;
 use breakdown_core::shared::EventMetadata;
@@ -43,8 +45,8 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                     r#"
                     INSERT INTO ai_import.projection_ai_config
                         (id, user_id, provider, assistant_model, image_model,
-                         prompts, vault_key_id, revoked, version, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE, $8, $9)
+                         prompts, vault_key_id, revoked, version, projector_version, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE, $8, $9, $10)
                     ON CONFLICT (id) DO UPDATE SET
                         user_id = EXCLUDED.user_id,
                         provider = EXCLUDED.provider,
@@ -54,6 +56,7 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                         vault_key_id = EXCLUDED.vault_key_id,
                         revoked = EXCLUDED.revoked,
                         version = EXCLUDED.version,
+                        projector_version = EXCLUDED.projector_version,
                         updated_at = EXCLUDED.updated_at
                     WHERE ai_import.projection_ai_config.version < EXCLUDED.version
                     "#,
@@ -70,6 +73,7 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                         "AI config aggregate version exceeds database range: {error}"
                     ))
                 })?)
+                .bind(PROJECTOR_VERSION)
                 .bind(updated_at)
                 .execute(&mut **ctx)
                 .await?;

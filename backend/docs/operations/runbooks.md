@@ -4,6 +4,11 @@
 
 # Breakdown RS operations runbooks
 
+> **Releasing a crate or the `api` image?** See
+> [release-runbook.md](release-runbook.md) — per-crate semver flow, `api-v*`
+> image tags, the 8-week API deprecation window, and the read-model
+> additivity rule (ADR-020 / ADR-021).
+
 Runtime tiers (ADR-015 / ADR-016 / ADR-025 / ADR-024):
 
 | Tier           | Image                                  | Port      | Role                                            | Volume               |

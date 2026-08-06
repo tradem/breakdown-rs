@@ -9,6 +9,7 @@
 )]
 mod common;
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 // Section 6.4: API-layer test asserting authorized / non-authorized
 // dispatch through the real auth + authorization middleware stack.
@@ -30,7 +31,6 @@ use api::auth::AuthState;
 use api::auth::authorization::{AuthorizationState, MembershipAuthorizationPolicy};
 use api::auth::jwks::StaticJwksProvider;
 use api::auth::{CurrentUser, OidcConfig, auth_middleware, authorize_middleware};
-
 const DEV_SUB: &str = "dev-user";
 
 /// Tiny `Router<()>` that applies the real `auth_middleware` (outer) and
@@ -55,6 +55,47 @@ fn auth_router(auth: Arc<AuthState>, authz: Arc<AuthorizationState>) -> Router<(
 
 async fn status_of(router: &Router<()>, req: Request<AxumBody>) -> StatusCode {
     router.clone().oneshot(req).await.unwrap().status()
+}
+
+/// Regression test for `app_router`'s layer composition (issue #123 / ADR-021):
+/// authentication must run BEFORE authorization so `CurrentUser` exists when
+/// `authorize_middleware` gates a block-scoped route. The router is built
+/// through the SAME `api::routes::apply_api_middleware` builder that
+/// `app_router` uses (single source of truth for the auth → authorize →
+/// deprecation order), so a future reordering/removal inside `app_router`
+/// fails here — 200 (not 401) is only reachable when authentication injects
+/// `CurrentUser` before authorization reads it.
+#[tokio::test]
+async fn app_router_composition_runs_auth_before_authz() {
+    use api::routes::apply_api_middleware;
+    use api::versioning::DeprecationRegistry;
+
+    let auth = Arc::new(AuthState::dev(CurrentUser::dummy(DEV_SUB)));
+    let block = BlockId::new();
+    let repo = Arc::new(FakeMembershipRepo::default());
+    repo.members
+        .lock()
+        .await
+        .insert((block, UserId::from_sub(DEV_SUB)));
+    let policy = Arc::new(MembershipAuthorizationPolicy::new(repo));
+    let authz = Arc::new(AuthorizationState::new(policy, /*enforce=*/ true));
+
+    let app = apply_api_middleware(
+        Router::new().route("/v1/blocks/{id}", get(|| async { StatusCode::OK })),
+        auth,
+        authz,
+        DeprecationRegistry::new(),
+    )
+    .with_state(());
+
+    let req = Request::builder()
+        .method("GET")
+        .uri(format!("/v1/blocks/{}", block.0))
+        .header("X-Active-Block", block.0.to_string())
+        .body(AxumBody::empty())
+        .unwrap();
+
+    assert_eq!(status_of(&app, req).await, StatusCode::OK);
 }
 
 #[tokio::test]

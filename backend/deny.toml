@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4-flash (opencode-go)
 #
 # cargo-deny configuration (ADR-017)
 # See https://embarkstudios.github.io/cargo-deny/
@@ -16,12 +17,11 @@ all-features = true
 multiple-versions = "warn"
 # `version = "*"` wildcard specs on crates.io / registry dependencies are
 # flagged as warnings so a new one surfaces in the CI log for review
-# (ADR-017 supply-chain gate). Set to `warn` rather than `deny` because the
-# workspace uses a patched path dependency (`kameo_es`, no `version` field)
-# inherited by published workspace members — cargo-deny treats a path dep
-# without a version as a wildcard, and `allow-wildcard-paths` does NOT exempt
-# it for public crates (crates.io disallows path-only deps). A registry
-# `*` dep would still appear here as a warning.
+# (ADR-017 supply-chain gate). Set to `warn` rather than `deny` so the
+# patched path dependency (`kameo_es`) does not fail the gate: it now carries
+# an explicit `version = "0.1.0"` (ADR-020 D1, issue #123) which the patched
+# crate must keep in sync, but cargo-deny still sees a path source for it.
+# A registry `*` dep would still appear here as a warning.
 wildcards = "warn"
 
 [licenses]

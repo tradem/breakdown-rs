@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4-flash (opencode-go)
 
 [package]
 name = "breakdown-fuzz-targets"
@@ -8,6 +9,7 @@ authors.workspace = true
 license.workspace = true
 edition.workspace = true
 publish = false
+rust-version.workspace = true
 
 [lints]
 workspace = true
@@ -16,7 +18,7 @@ workspace = true
 cargo-fuzz = true
 
 [dependencies]
-breakdown_core = { path = "../core" }
+breakdown_core = { path = "../core", version = "0.3.0" }
 libfuzzer-sys = "0.4"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

@@ -1,0 +1,33 @@
+{
+  "event": {
+    "CharacterCreated": {
+      "category": "main_cast",
+      "contact_info": {
+        "email": null,
+        "phone": "+49 000"
+      },
+      "id": "019e7044-8800-7005-8000-000000000005",
+      "measurements": {
+        "chest": null,
+        "hat_size": null,
+        "height": null,
+        "hips": null,
+        "shoe_size": null,
+        "waist": null,
+        "weight": null
+      },
+      "name": "Hauptrolle",
+      "season_id": "019e7044-8800-7001-8000-000000000001",
+      "version": 1
+    }
+  },
+  "aggregate_id": "019e7044-8800-7005-8000-000000000005",
+  "timestamp": "2026-08-06T09:00:00Z",
+  "stream_version": 1,
+  "projector_version": 1,
+  "metadata": {
+    "actor": "fixture-owner",
+    "provenance": "Human",
+    "series_id": "019e7044-8800-700a-8000-00000000000a"
+  }
+}

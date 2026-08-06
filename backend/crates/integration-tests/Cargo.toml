@@ -1,9 +1,14 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4-flash (opencode-go)
+
 [package]
 name = "integration-tests"
 version = "0.3.0"
 edition.workspace = true
 license.workspace = true
 publish = false
+rust-version.workspace = true
 
 [lib]
 crate-type = ["lib"]
@@ -14,7 +19,7 @@ crate-type = ["lib"]
 lazy_static = "1.4"
 
 breakdown_core = { path = "../core", version = "0.3.0" }
-infra = { path = "../infra", version = "0.3.0", features = ["test-support"] }
+infra = { path = "../infra", version = "0.4.0", features = ["test-support"] }
 test_support = { path = "../test_support", version = "0.3.0" }
 
 # Event-sourcing traits used by the in-memory aggregate command checks.

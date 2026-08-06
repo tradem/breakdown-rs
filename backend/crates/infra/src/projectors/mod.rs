@@ -2,7 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: qwen3.6-35b (neuralwatt)
-// Co-authored-by: glm-5.2 (neuralwatt)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! Projection actors – one `PostgresProcessor` per aggregate.
 //!
@@ -68,6 +68,17 @@ use sierradb_client::SierraAsyncClientExt;
 use sqlx::PgPool;
 
 const CHECKPOINTS_TABLE: &str = "sierradb_event_checkpoints";
+
+/// Read-model contract version (ADR-020 D4).
+///
+/// Every projector stamps the `projector_version` column of the rows it
+/// writes with this constant. Bump it only when the projectors' event-
+/// consumption contract changes (a new required event field, a retyped
+/// variant, a projector that no longer recognises a historical event): the
+/// event-schema fixture-replay contract tests in `crates/integration-tests`
+/// then fail until the bump is coordinated with a projector redeploy
+/// (deploy-order rule, ADR-020 D4 / release-runbook §5).
+pub const PROJECTOR_VERSION: i64 = 1;
 
 /// Tunable projector flush / worker configuration.
 ///

@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: gpt-5.6-luna (opencode-go) -->
+<!-- Co-authored-by: deepseek-v4-flash (opencode-go) -->
 
 # Architecture Decision Records (ADRs)
 
@@ -44,8 +45,8 @@ and their consequences.
 | [017](ADR-017-architecture-testing-strategy.md) | Architecture Testing Strategy | Accepted | 2026-06-30 | Tobias Rademacher (@tradem) |
 | [018](ADR-018-oidc-jwt-validation-and-dev-auth-toggle.md) | OIDC JWT Validation & Dev-Auth Toggle | Accepted | 2026-07-20 | Tobias Rademacher (@tradem) |
 | [019](ADR-019-costume-photo-storage.md) | Costume Photo Storage — Aggregate, Garage, Proxy Serving, Derived Auth | Accepted | 2026-07-21 | Tobias Rademacher (@tradem) |
-| [020](ADR-020-rust-component-versioning.md) | Rust Component Versioning & Release Mechanics | Proposed | 2026-07-21 | Tobias Rademacher (@tradem); GLM-5.2 (Zhipu, hosted by neuralwatt) |
-| [021](ADR-021-api-versioning.md) | HTTP API Path Versioning & Deprecation Lifecycle | Proposed | 2026-07-21 | Tobias Rademacher (@tradem); GLM-5.2 (Zhipu, hosted by neuralwatt) |
+| [020](ADR-020-rust-component-versioning.md) | Rust Component Versioning & Release Mechanics | Accepted | 2026-07-21 | Tobias Rademacher (@tradem); GLM-5.2 (Zhipu, hosted by neuralwatt) |
+| [021](ADR-021-api-versioning.md) | HTTP API Path Versioning & Deprecation Lifecycle | Accepted | 2026-07-21 | Tobias Rademacher (@tradem); GLM-5.2 (Zhipu, hosted by neuralwatt) |
 | [022](ADR-022-pdf-reporting-and-archival.md) | In-Process Typst for PDF Reporting and Report Archival | Proposed | 2026-07-27 | Tobias Rademacher (@tradem); gpt-5.6-sol (opencode) |
 | [023](ADR-023-database-encryption-at-rest.md) | Database Encryption at Rest (PostgreSQL + SierraDB) | Proposed | 2026-08-01 | Tobias Rademacher (@tradem); glm-5.2 (neuralwatt) |
 | [024](ADR-024-database-encryption-in-transit.md) | Database Encryption in Transit (TLS for Postgres & SierraDB) | Proposed | 2026-08-01 | Tobias Rademacher (@tradem); glm-5.2 (neuralwatt) |

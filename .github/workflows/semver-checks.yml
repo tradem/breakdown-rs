@@ -1,0 +1,89 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4-flash (opencode-go)
+
+name: Semver Checks
+
+# ADR-020 D5: `cargo-semver-checks` runs PR-gated, baseline = last release
+# tag of the changed crate (`core-v*`, `infra-v*`, `api-v*`). A MAJOR drift
+# with no version bump fails the PR. Crates with no baseline tag yet are
+# skipped with a notice (the discipline starts paying on the first release).
+# The MSRV floor (rust-version = 1.94, ADR-020 D2/D5) is verified by the
+# `msrv` job in ci.yml with the pinned 1.94.0 toolchain.
+
+on:
+  pull_request:
+    paths:
+      - "backend/crates/**"
+      - "backend/Cargo.toml"
+      - "backend/Cargo.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    working-directory: backend
+
+jobs:
+  semver-checks:
+    name: cargo-semver-checks (baseline = last tag)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Full history + tags: `cargo-semver-checks --baseline-rev` resolves
+          # the last release tag of each changed crate.
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: "backend"
+      - uses: taiki-e/install-action@cb33e69fad06166ca28a42b2575e4dadabf62ee8
+        with:
+          tool: cargo-semver-checks
+
+      # GitHub expression values are injected via env only (AGENTS.md § CI
+      # hardening) — never interpolated into the shell command.
+      - name: Run semver checks per changed crate
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "$BASE_SHA" ] && [ -n "$HEAD_SHA" ]; then
+            RANGE_BASE="$BASE_SHA"
+            RANGE_HEAD="$HEAD_SHA"
+          else
+            # Manual (workflow_dispatch) run: compare against the previous commit.
+            RANGE_BASE="HEAD~1"
+            RANGE_HEAD="HEAD"
+          fi
+
+          # Crates touched by the PR, derived from changed paths (dir → crate).
+          CHANGED=$(git diff --name-only "$RANGE_BASE" "$RANGE_HEAD" -- crates \
+            | sed -nE 's#^crates/([^/]+)/.*#\1#p' | sort -u)
+
+          if [ -z "$CHANGED" ]; then
+            echo "::notice::No crate sources changed; nothing to check"
+            exit 0
+          fi
+
+          for dir in $CHANGED; do
+            manifest="crates/$dir/Cargo.toml"
+            if [ ! -f "$manifest" ]; then
+              continue
+            fi
+            baseline="$(git describe --tags --match "$dir-v*" --abbrev=0 HEAD 2>/dev/null || true)"
+            if [ -z "$baseline" ]; then
+              echo "::notice::No baseline tag '$dir-v*' exists yet (ADR-020 D5) — skipping $dir"
+              continue
+            fi
+            echo "== $dir: semver vs baseline $baseline =="
+            cargo semver-checks --baseline-rev "$baseline" --manifest-path "$manifest"
+          done

@@ -1,8 +1,13 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4-flash (opencode-go)
+
 [package]
 name = "infra"
-version = "0.3.0"
+version = "0.4.0"
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
 
 [features]
 test-support = []
@@ -100,3 +105,8 @@ rust-embed = "8"
 
 [lints]
 workspace = true
+
+# ADR-020 D5: infra is a release crate (per-crate tag infra-vX.Y.Z).
+[package.metadata.release]
+release = true
+tag-name = "infra-v{{version}}"

@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: qwen3.6-35b (neuralwatt)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! CostumeCategory projection handler: `CostumeCategoryEvent` -> `projection_costume_category`
 //! (+ denormalised `category_name` refresh on `projection_costume_detail`).
 
+use super::PROJECTOR_VERSION;
 use breakdown_core::costume_category::aggregate::CostumeCategoryAggregate;
 use breakdown_core::costume_category::events::CostumeCategoryEvent;
 use breakdown_core::shared::EventMetadata;
@@ -44,13 +46,14 @@ impl<'a> EntityEventHandler<CostumeCategoryAggregate, Transaction<'a, Postgres>>
                 sqlx::query(
                     r#"
                     INSERT INTO projection_costume_category
-                        (id, season_id, name, order_key, archived, version, updated_at)
-                    VALUES ($1, $2, $3, $4, false, $5, $6)
+                        (id, season_id, name, order_key, archived, version, projector_version, updated_at)
+                    VALUES ($1, $2, $3, $4, false, $5, $6, $7)
                     ON CONFLICT (id) DO UPDATE SET
                         season_id = EXCLUDED.season_id,
                         name = EXCLUDED.name,
                         order_key = EXCLUDED.order_key,
                         version = EXCLUDED.version,
+                        projector_version = EXCLUDED.projector_version,
                         updated_at = EXCLUDED.updated_at
                     "#,
                 )
@@ -59,6 +62,7 @@ impl<'a> EntityEventHandler<CostumeCategoryAggregate, Transaction<'a, Postgres>>
                 .bind(name)
                 .bind(order_key.0)
                 .bind(version)
+                .bind(PROJECTOR_VERSION)
                 .bind(updated_at)
                 .execute(&mut **ctx)
                 .await?;

@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: qwen3.6-35b (neuralwatt)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! Season projection handler: `SeasonEvent` -> `projection_season`.
 
+use super::PROJECTOR_VERSION;
 use breakdown_core::season::aggregate::SeasonAggregate;
 use breakdown_core::season::events::SeasonEvent;
 use breakdown_core::shared::EventMetadata;
@@ -41,13 +43,14 @@ impl<'a> EntityEventHandler<SeasonAggregate, Transaction<'a, Postgres>> for Seas
                 sqlx::query(
                     r#"
                     INSERT INTO projection_season
-                        (id, series_id, number, title, version, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6)
+                        (id, series_id, number, title, version, projector_version, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
                     ON CONFLICT (id) DO UPDATE SET
                         series_id = EXCLUDED.series_id,
                         number = EXCLUDED.number,
                         title = EXCLUDED.title,
                         version = EXCLUDED.version,
+                        projector_version = EXCLUDED.projector_version,
                         updated_at = EXCLUDED.updated_at
                     "#,
                 )
@@ -56,6 +59,7 @@ impl<'a> EntityEventHandler<SeasonAggregate, Transaction<'a, Postgres>> for Seas
                 .bind(number)
                 .bind(title)
                 .bind(version)
+                .bind(PROJECTOR_VERSION)
                 .bind(updated_at)
                 .execute(&mut **ctx)
                 .await?;
