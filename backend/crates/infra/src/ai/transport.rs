@@ -46,7 +46,8 @@
 
 use std::error::Error;
 use std::fmt;
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::time::Duration;
 
 use reqwest::Url;
 use reqwest::redirect::{Action, Attempt, Policy};
@@ -75,6 +76,15 @@ pub enum RedirectViolation {
     /// Ollama: the destination is not a local address/host, so following it
     /// would exfiltrate the source-document text to a public destination.
     NonLocalDestination { destination: String },
+    /// Hosted: the destination hostname could not be resolved, so it cannot
+    /// be vetted against the public-only policy — fail closed.
+    DnsLookupFailed { host: String },
+    /// Hosted: the destination hostname resolves to an internal address
+    /// (private, loopback, link-local, unique-local, …) even though the
+    /// hostname and scheme are otherwise allowed — DNS-rebinding guard.
+    InternalDestination { host: String, resolved: String },
+    /// The reqwest client could not be built for the hosted regime.
+    ClientBuildFailed { error: String },
     /// The redirect chain exceeded [`MAX_REDIRECT_HOPS`] hops.
     TooManyRedirects { hops: usize },
     /// No original URL was recorded (defensive; reqwest always supplies the
@@ -103,6 +113,21 @@ impl fmt::Display for RedirectViolation {
                 "Ollama redirect to non-local destination {destination} rejected \
                  by transport policy (local-only)"
             ),
+            RedirectViolation::DnsLookupFailed { host } => write!(
+                f,
+                "hosted provider destination {host} could not be resolved; \
+                 refusing to connect (public-only transport policy)"
+            ),
+            RedirectViolation::InternalDestination { host, resolved } => write!(
+                f,
+                "hosted provider destination {host} resolves to internal \
+                 address(es) {resolved} and is rejected by transport policy \
+                 (public-only: private, loopback and other internal address \
+                 space is never contacted)"
+            ),
+            RedirectViolation::ClientBuildFailed { error } => {
+                write!(f, "hosted provider HTTP client could not be built: {error}")
+            }
             RedirectViolation::TooManyRedirects { hops } => write!(
                 f,
                 "redirect chain exceeded {MAX_REDIRECT_HOPS} hops ({hops} URLs visited)"
@@ -121,6 +146,14 @@ impl Error for RedirectViolation {}
 /// HTTPS and stay on the original request's host *and port*. Everything else
 /// is rejected before any connection is attempted, so credentials are never
 /// forwarded to an unapproved destination.
+///
+/// The address dimension of this check is enforced at request time by
+/// [`validate_public_resolution`] / [`build_hosted_client`]: the origin
+/// hostname is resolved, every resolved address must be globally routable
+/// (private/loopback/internal is rejected even when the hostname and scheme
+/// are allowed), and the validated addresses are pinned for the whole request
+/// chain. Because this policy rejects cross-host redirects, every redirect
+/// target is covered by the same pin (DNS-rebinding guard).
 pub fn hosted_redirect_allowed(next: &Url, original: &Url) -> Result<(), RedirectViolation> {
     if next.scheme() != "https" {
         return Err(RedirectViolation::NonHttps {
@@ -177,12 +210,17 @@ fn is_local_domain(domain: &str) -> bool {
 /// Loopback, RFC 1918 private, RFC 3927 link-local, RFC 6598 shared
 /// (CGNAT) address space and the unspecified address. These cover localhost,
 /// LANs and Docker/Kubernetes pod networks — the realistic deployment
-/// topologies for a local Ollama endpoint.
+/// topologies for a local Ollama endpoint. Documentation (TEST-NET) and
+/// multicast ranges plus the broadcast address are also not globally
+/// routable, so they count as local for the transport policies.
 fn is_local_ipv4(address: Ipv4Addr) -> bool {
     address.is_loopback()
         || address.is_private()
         || address.is_link_local()
         || address.is_unspecified()
+        || address.is_multicast()
+        || address.is_documentation()
+        || address == Ipv4Addr::BROADCAST
         || is_rfc6598_shared(address)
 }
 
@@ -196,13 +234,86 @@ fn is_rfc6598_shared(address: Ipv4Addr) -> bool {
 
 /// Loopback, unique-local (RFC 4193), unicast link-local (RFC 4291), the
 /// unspecified address and IPv4-mapped forms of [`is_local_ipv4`] (e.g.
-/// `::ffff:127.0.0.1`).
+/// `::ffff:127.0.0.1`). Multicast and the RFC 3849 documentation prefix
+/// (`2001:db8::/32`, matched manually because `Ipv6Addr::is_documentation`
+/// is unstable) are not globally routable either, so they count as local.
 fn is_local_ipv6(address: Ipv6Addr) -> bool {
     address.is_loopback()
         || address.is_unique_local()
         || address.is_unicast_link_local()
         || address.is_unspecified()
+        || address.is_multicast()
+        || is_documentation_ipv6(address)
         || address.to_ipv4_mapped().is_some_and(is_local_ipv4)
+}
+
+/// RFC 3849 documentation prefix (`2001:db8::/32`) — not globally routable.
+fn is_documentation_ipv6(address: Ipv6Addr) -> bool {
+    address.segments()[0] == 0x2001 && address.segments()[1] == 0x0db8
+}
+
+/// True when `ip` is a globally routable address — the complement of the
+/// local/private/loopback classification used by the transport policies.
+fn is_public_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(address) => !is_local_ipv4(address),
+        IpAddr::V6(address) => !is_local_ipv6(address),
+    }
+}
+
+/// Resolve `host` and fail closed unless **every** resolved address is
+/// globally routable (DNS-rebinding guard for the hosted regime, issue #170):
+/// an allowlisted hostname may still resolve to a private or loopback
+/// address — e.g. via an attacker-controlled DNS answer or a hosts override
+/// — and connecting there would deliver bearer credentials to an internal
+/// service. Returns the validated addresses so the caller can pin them via
+/// `ClientBuilder::resolve_to_addrs`.
+pub async fn validate_public_resolution(host: &str) -> Result<Vec<SocketAddr>, RedirectViolation> {
+    let addrs: Vec<SocketAddr> = tokio::net::lookup_host((host, 0))
+        .await
+        .map_err(|_error| RedirectViolation::DnsLookupFailed {
+            host: host.to_owned(),
+        })?
+        .collect();
+    if addrs.is_empty() {
+        return Err(RedirectViolation::DnsLookupFailed {
+            host: host.to_owned(),
+        });
+    }
+    let internal: Vec<String> = addrs
+        .iter()
+        .filter(|addr| !is_public_ip(addr.ip()))
+        .map(|addr| addr.ip().to_string())
+        .collect();
+    if !internal.is_empty() {
+        return Err(RedirectViolation::InternalDestination {
+            host: host.to_owned(),
+            resolved: internal.join(", "),
+        });
+    }
+    Ok(addrs)
+}
+
+/// Build the hosted-regime HTTP client for `host`: validates the resolution
+/// ([`validate_public_resolution`]), pins the vetted addresses with
+/// `ClientBuilder::resolve_to_addrs`, applies the HTTPS-only same-origin
+/// redirect policy ([`hosted_provider_redirect_policy`]) and the request
+/// deadline. The pin covers the initial request and every redirect target:
+/// the policy rejects cross-host hops, so the whole chain stays on the
+/// validated host and cannot be rebound after validation.
+pub async fn build_hosted_client(
+    host: &str,
+    timeout: Duration,
+) -> Result<reqwest::Client, RedirectViolation> {
+    let addrs = validate_public_resolution(host).await?;
+    reqwest::Client::builder()
+        .timeout(timeout)
+        .redirect(hosted_provider_redirect_policy())
+        .resolve_to_addrs(host, &addrs)
+        .build()
+        .map_err(|error| RedirectViolation::ClientBuildFailed {
+            error: error.to_string(),
+        })
 }
 
 /// Apply a decision function to a redirect attempt, enforcing the hop bound
@@ -374,6 +485,105 @@ mod tests {
                 destination: next.to_string(),
                 original: hosted_original().to_string(),
             })
+        );
+    }
+
+    // ── Hosted regime: DNS-resolution guard (issue #170) ───────────────────
+
+    #[tokio::test]
+    async fn hosted_resolution_rejects_private_ipv4() {
+        // Loopback, RFC 1918, link-local, CGNAT (RFC 6598) and the
+        // unspecified address must all be rejected even though an allowlisted
+        // *hostname* could resolve to any of them (DNS rebinding).
+        for host in [
+            "127.0.0.1",
+            "10.0.0.5",
+            "172.16.9.9",
+            "192.168.1.10",
+            "169.254.1.1",
+            "100.64.0.1",
+            "0.0.0.0",
+        ] {
+            let err = validate_public_resolution(host).await.unwrap_err();
+            assert!(
+                matches!(err, RedirectViolation::InternalDestination { .. }),
+                "{host} must be rejected as an internal destination, got {err:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn hosted_resolution_rejects_ipv6_loopback_and_unique_local() {
+        for host in ["::1", "fd00::1", "fe80::1", "::ffff:127.0.0.1"] {
+            let err = validate_public_resolution(host).await.unwrap_err();
+            assert!(
+                matches!(err, RedirectViolation::InternalDestination { .. }),
+                "{host} must be rejected as an internal destination, got {err:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn hosted_resolution_rejects_hostname_resolving_to_local() {
+        // The DNS-rebinding class: the hostname text itself is "allowed",
+        // but the system resolver maps it onto loopback (/etc/hosts).
+        let err = validate_public_resolution("localhost").await.unwrap_err();
+        assert!(
+            matches!(err, RedirectViolation::InternalDestination { .. }),
+            "localhost must be rejected via its resolved addresses, got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn hosted_resolution_allows_public_ipv4() {
+        // IP literals resolve to themselves without DNS, so this is
+        // deterministic and network-free.
+        let addrs = validate_public_resolution("8.8.8.8").await.unwrap();
+        assert!(
+            !addrs.is_empty() && addrs.iter().all(|addr| is_public_ip(addr.ip())),
+            "8.8.8.8 must resolve to public addresses, got {addrs:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn hosted_resolution_rejects_unresolvable_host() {
+        // RFC 2606 documents .invalid as never resolvable; the guard must
+        // fail closed instead of connecting blind.
+        let err = validate_public_resolution("transport-policy.invalid")
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, RedirectViolation::DnsLookupFailed { .. }),
+            "unresolvable host must fail closed, got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn build_hosted_client_rejects_internal_destination() {
+        let err = build_hosted_client("localhost", Duration::from_secs(1))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, RedirectViolation::InternalDestination { .. }),
+            "localhost must never yield a hosted client, got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn build_hosted_client_pins_and_validates_public_destination() {
+        // A public IP literal yields a usable pinned client (deterministic,
+        // no network access performed at build time).
+        let client = build_hosted_client("8.8.8.8", Duration::from_secs(1))
+            .await
+            .unwrap();
+        assert_eq!(
+            client
+                .get("https://8.8.8.8/health")
+                .build()
+                .unwrap()
+                .url()
+                .host_str(),
+            Some("8.8.8.8")
         );
     }
 

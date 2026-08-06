@@ -19,18 +19,34 @@ commits (ADR-020 D5).
   (`curated_provider_redirect_policy`) that blocks redirects to
   non-`https:` hosts for hosted providers and to non-local hosts for Ollama,
   preventing SSRF / credential-exfiltration via redirects.
+- **DNS-rebinding guard (hosted regime):** every hosted destination is
+  resolved before connecting and rejected unless **all** resolved addresses
+  are globally routable — private, loopback, link-local, unique-local,
+  CGNAT, multicast and documentation ranges are blocked even when the
+  hostname and scheme are otherwise allowed
+  (`transport::validate_public_resolution`). The validated addresses are
+  pinned for the whole request chain (initial request + same-origin
+  redirects) via `ClientBuilder::resolve_to_addrs`
+  (`transport::build_hosted_client`), so a rebinding attacker cannot point
+  the connection at an internal service after validation.
 - `OpenAiCompatibleModelCatalog::new` now builds its own HTTP client with the
   redirect policy and a fixed 30-second request deadline. **Breaking change:**
   the `new(http: reqwest::Client) -> Self` signature was replaced by
   `new() -> Result<Self, DomainError>` (under major-zero semver this is
   released as a minor bump; no in-tree caller used the old signature). A
   test seam `with_http(client)` remains for injected clients.
+- `OpenAiCompatibleChatClient::new` is now **`async`** (it performs the
+  resolution guard and pins the validated provider address). **Breaking
+  change:** `new(provider, api_key, timeout)` must now be awaited.
 
 ### Added (additive public API)
 
 - New `ai::transport` module with the redirect-policy constructors
   `curated_provider_redirect_policy`, `hosted_provider_redirect_policy` and
   `ollama_redirect_policy` (re-exported from `ai`).
+- New `ai::transport::validate_public_resolution` (async DNS resolution
+  guard for the hosted regime) and `ai::transport::build_hosted_client`
+  (validated + pinned hosted client builder).
 
 ### Internal
 

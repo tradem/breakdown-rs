@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::time::Duration;
 
@@ -13,6 +14,7 @@ use serde::Deserialize;
 
 use super::CuratedProviderUrls;
 use super::client::{classify_http_status, classify_transport_error};
+use super::transport::build_hosted_client;
 use super::transport::curated_provider_redirect_policy;
 
 /// Deadline for curated model-catalog requests. The catalog has no
@@ -70,6 +72,34 @@ impl OpenAiCompatibleModelCatalog {
     pub fn is_allowed(&self, model: &str) -> bool {
         self.allowlist.contains(model)
     }
+    /// Client for one catalog listing, chosen by regime: the curated Ollama
+    /// origin is served by the shared client (its redirect policy restricts
+    /// every hop to local destinations), while hosted providers get a
+    /// per-call client that resolves + validates + pins the destination
+    /// address (public-only, DNS-rebinding guard, issue #170). The catalog
+    /// serves many hosts from one struct, so the pin cannot be set once at
+    /// construction.
+    async fn client_for(
+        &self,
+        provider: LlmProvider,
+    ) -> Result<Cow<'_, reqwest::Client>, DomainError> {
+        if provider == LlmProvider::Ollama {
+            return Ok(Cow::Borrowed(&self.http));
+        }
+        let base = CuratedProviderUrls::base_url(provider);
+        let url = reqwest::Url::parse(base).map_err(|error| {
+            DomainError::ValidationError(format!(
+                "invalid curated base URL for {provider:?}: {error}"
+            ))
+        })?;
+        let host = url.host_str().ok_or_else(|| {
+            DomainError::ValidationError(format!("curated base URL for {provider:?} has no host"))
+        })?;
+        let client = build_hosted_client(host, CATALOG_REQUEST_TIMEOUT)
+            .await
+            .map_err(|violation| DomainError::ValidationError(violation.to_string()))?;
+        Ok(Cow::Owned(client))
+    }
 }
 
 #[async_trait]
@@ -87,7 +117,8 @@ impl LlmModelCatalog for OpenAiCompatibleModelCatalog {
         let key = SecretValue::new(vaulted_key.to_owned());
         let endpoint = format!("{}/models", CuratedProviderUrls::base_url(provider));
         let response = self
-            .http
+            .client_for(provider)
+            .await?
             .get(endpoint)
             .bearer_auth(key.as_str())
             .send()

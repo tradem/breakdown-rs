@@ -15,9 +15,10 @@ commits (ADR-020 D5).
 
 - Ships the AI import transport security fix (issue #170) via the `api`
   image: `infra` is re-pinned to 0.5.0, which enforces an HTTPS-only policy
-  for hosted AI providers and restricts Ollama to local addresses. PATCH
-  release (ADR-020 D6): no crate API change, HTTP path version stays `/v1`
-  (ADR-021 D2).
+  for hosted AI providers, restricts Ollama to local addresses, and adds a
+  DNS-rebinding guard (hosted destinations must resolve to globally routable
+  addresses; validated addresses are pinned). PATCH release (ADR-020 D6):
+  no crate API change, HTTP path version stays `/v1` (ADR-021 D2).
 
 ### Internal
 
