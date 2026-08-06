@@ -25,6 +25,9 @@
 //! - **System**: Any future system-initiated dispatch (neither human nor named
 //!   saga) must use `Provenance::System` with `actor: None`.
 
+use breakdown_core::ai::aggregate::AiConfig;
+use breakdown_core::ai::commands::{CreateAiConfig, RevokeAiConfig, UpdateAiConfig};
+use breakdown_core::ai::ports::AiConfigCommands;
 use breakdown_core::block::aggregate::BlockAggregate;
 use breakdown_core::block::commands::{CreateBlock, UpdateBlockTimeSpan};
 use breakdown_core::block::ports::BlockCommands;
@@ -1495,5 +1498,75 @@ pub fn check_nonzero_version(version: AggregateVersion) -> Result<(), DomainErro
         })
     } else {
         Ok(())
+    }
+}
+
+/// Command adapter for the dedicated AI configuration aggregate.
+#[derive(Clone, Debug)]
+pub struct AiConfigCommandsImpl {
+    cmd_service: CommandService,
+}
+
+impl AiConfigCommandsImpl {
+    pub fn new(cmd_service: CommandService) -> Self {
+        Self { cmd_service }
+    }
+}
+
+#[async_trait]
+impl AiConfigCommands for AiConfigCommandsImpl {
+    async fn create(
+        &self,
+        actor: UserId,
+        command: CreateAiConfig,
+    ) -> Result<(Uuid, AggregateVersion), DomainError> {
+        let id = command.id;
+        let result = AiConfig::execute(&self.cmd_service, id, command)
+            .expected_version(ExpectedVersion::Empty)
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id: None,
+            })
+            .await;
+        map_executed(id, result)
+    }
+
+    async fn update(
+        &self,
+        actor: UserId,
+        command: UpdateAiConfig,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = command.id;
+        let version = command.version;
+        check_nonzero_version(version)?;
+        let result = AiConfig::execute(&self.cmd_service, id, command)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id: None,
+            })
+            .await;
+        map_version_only(result)
+    }
+
+    async fn revoke(
+        &self,
+        actor: UserId,
+        command: RevokeAiConfig,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = command.id;
+        let version = command.version;
+        check_nonzero_version(version)?;
+        let result = AiConfig::execute(&self.cmd_service, id, command)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id: None,
+            })
+            .await;
+        map_version_only(result)
     }
 }

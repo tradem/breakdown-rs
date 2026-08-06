@@ -1,3 +1,7 @@
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+<!-- Co-authored-by: gpt-5.6-luna (opencode-go) -->
+
 # Agent Guidelines for breakdown-rs
 
 You are the primary coding agent for `breakdown-rs` – a collaborative costume scheduling app. Your goal is to implement features securely, test-driven, and with clean architecture.
@@ -396,6 +400,18 @@ projectors that subscribe to SierraDB and update the Postgres projections.
 - `PHOTO_GC_MAX_AGE_SECS` – only sweep orphans older than this (default: `86400`)
 - `PHOTO_GC_BATCH_SIZE` – max orphans per run (default: `1000`)
 - `PHOTO_GC_DRY_RUN` – log-only mode (default: `false`; set `true` for first rollout)
+
+#### AI import (`add-ai-script-and-schedule-import`)
+
+- `AI_IMPORT_ENABLED` – enable AI import routes/workers (default: `false`; accepted values: `true`, `1`, `yes`).
+- `AI_IMPORT_MAX_CHUNKS_PER_SCRIPT` – maximum script scene chunks per job (default: `128`; bounded to `1..=10000`).
+- `AI_IMPORT_MAX_TOKENS_PER_REQ` – maximum output tokens per LLM request (default: `8192`; bounded to `1..=1000000`).
+- `AI_IMPORT_MAX_CONCURRENT_JOBS_GLOBAL` – global in-flight job ceiling (default: `16`).
+- `AI_IMPORT_MAX_CONCURRENT_JOBS_PER_USER` – per-user in-flight job ceiling (default: `2`).
+- `AI_IMPORT_MAX_DOCUMENT_BYTES` – maximum source document size (default: `20971520`).
+- `AI_IMPORT_REQUEST_TIMEOUT_SECS` – provider request timeout (default: `120`).
+- `AI_IMPORT_MAX_RETRIES` – maximum queue retries before dead-lettering (default: `5`).
+- `AI_IMPORT_DEFAULT_PROMPTS_PATH` – optional deployment override documented for prompt packaging; the built-in fallback is `config/default_ai_prompts.toml`.
 
 > **Boot sequence**: Garage must be up and provisioned (bucket + access key) before the API
 > starts. See `docker-compose.dev.yml` for the internal-only Garage service. During first

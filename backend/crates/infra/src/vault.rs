@@ -385,6 +385,11 @@ struct KvData<'a> {
 
 #[derive(Deserialize)]
 struct KvEnvelope {
+    data: KvDataEnvelope,
+}
+
+#[derive(Deserialize)]
+struct KvDataEnvelope {
     data: KvDataOwned,
 }
 
@@ -550,17 +555,17 @@ impl CredentialVault for VaultClient {
             .json::<KvEnvelope>()
             .await
             .map_err(|err| Self::unavailable(format!("invalid KV response: {err}")))?;
-        if envelope.data.vault_key_id != vault_key_id {
+        if envelope.data.data.vault_key_id != vault_key_id {
             return Err(Self::unavailable(
                 "credential binding does not match the Vault record",
             ));
         }
         let key = Zeroizing::new(
-            self.decrypt_datakey(vault_key_id, &envelope.data.wrapped_dek)
+            self.decrypt_datakey(vault_key_id, &envelope.data.data.wrapped_dek)
                 .await?,
         );
         let payload = BASE64
-            .decode(envelope.data.ciphertext)
+            .decode(envelope.data.data.ciphertext)
             .map_err(|err| Self::unavailable(format!("invalid ciphertext encoding: {err}")))?;
         let plaintext = decrypt_envelope(&key, &payload).map_err(Self::unavailable)?;
         let plaintext = String::from_utf8(plaintext).map_err(|error| {

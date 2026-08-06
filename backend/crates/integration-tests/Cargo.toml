@@ -1,6 +1,6 @@
 [package]
 name = "integration-tests"
-version = "0.2.0"
+version = "0.3.0"
 edition.workspace = true
 license.workspace = true
 publish = false
@@ -13,9 +13,9 @@ crate-type = ["lib"]
 [dev-dependencies]
 lazy_static = "1.4"
 
-breakdown_core = { path = "../core", version = "0.2.0" }
-infra = { path = "../infra", version = "0.2.0", features = ["test-support"] }
-test_support = { path = "../test_support", version = "0.2.0" }
+breakdown_core = { path = "../core", version = "0.3.0" }
+infra = { path = "../infra", version = "0.3.0", features = ["test-support"] }
+test_support = { path = "../test_support", version = "0.3.0" }
 
 # Event-sourcing traits used by the in-memory aggregate command checks.
 kameo_es.workspace = true
@@ -28,7 +28,7 @@ sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-native-
 
 # Container runtime
 testcontainers = { version = "0.27", features = ["reusable-containers"] }
-testcontainers-modules = { version = "0.15", features = ["postgres"] }
+testcontainers-modules = { version = "0.15", features = ["postgres", "hashicorp_vault"] }
 
 # Database & Redis clients
 redis.workspace = true

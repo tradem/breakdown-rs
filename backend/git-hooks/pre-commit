@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: deepseek-v4-flash (opencode-go)
+# Co-authored-by: gpt-5.6-luna (opencode-go)
 
 # Pre-commit hook for Breakdown RS Backend
 # Runs: gitleaks, rustfmt, clippy, cargo check, ast-grep guardrails
@@ -19,14 +20,16 @@ echo ""
 # Change to backend directory
 cd "$(git rev-parse --show-toplevel)/backend"
 
-# Get list of staged Rust files
-STAGED_RS_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.rs$' || true)
+# Get list of staged Rust files. `--relative` is required: the hook has
+# cd'ed into backend/, so plain `--name-only` would emit repo-root paths
+# (backend/crates/...) that the ^crates/ filters and gitleaks could not match.
+STAGED_RS_FILES=$(git diff --cached --relative --name-only --diff-filter=ACM | grep '\.rs$' || true)
 
 # 1. Run gitleaks on all staged files
 echo "📝 Checking for secrets with gitleaks..."
 if command -v gitleaks &> /dev/null; then
-    # Only check staged files
-    STAGED_FILES=$(git diff --cached --name-only)
+    # Only check staged files (backend-relative paths so gitleaks can find them)
+    STAGED_FILES=$(git diff --cached --relative --name-only)
     if [ -n "$STAGED_FILES" ]; then
         echo "$STAGED_FILES" | xargs -r gitleaks protect --verbose --redact --staged
     fi
@@ -65,8 +68,9 @@ fi
 if [ -n "$STAGED_RS_FILES" ]; then
     echo "🛡️  Running ast-grep guardrails (cqrs-boundary / test-shim-leak / discard-result / test-helper-gate / uuid-v7-only / allow-panic-lint-justification)..."
     if command -v ast-grep &> /dev/null; then
-        # Write-side dirs → cqrs-boundary rule (see backend/rules/cqrs-boundary.yml)
-        WRITE_SIDE_FILES=$(echo "$STAGED_RS_FILES" | grep -E '^crates/infra/src/(event_store|sagas|photo/sagas)/' || true)
+        # Write-side dirs → cqrs-boundary rule (see backend/rules/cqrs-boundary.yml).
+        # AI workers are write-side code too and must stay projection-free.
+        WRITE_SIDE_FILES=$(echo "$STAGED_RS_FILES" | grep -E '^crates/infra/src/(event_store|sagas|photo/sagas|ai)/' || true)
         if [ -n "$WRITE_SIDE_FILES" ]; then
             echo "$WRITE_SIDE_FILES" | xargs -r ast-grep scan -r rules/cqrs-boundary.yml
         fi

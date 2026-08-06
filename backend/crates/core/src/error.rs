@@ -7,6 +7,7 @@
 
 use thiserror::Error;
 
+use crate::ai::error::AiConfigError;
 use crate::block::error::BlockError;
 use crate::character::error::CharacterError;
 use crate::costume::error::CostumeError;
@@ -44,6 +45,26 @@ pub enum DomainError {
         expected: AggregateVersion,
         current: AggregateVersion,
     },
+}
+
+impl From<AiConfigError> for DomainError {
+    fn from(error: AiConfigError) -> Self {
+        match error {
+            AiConfigError::NotFound => DomainError::NotFound("AiConfig".to_owned()),
+            AiConfigError::VersionMismatch { expected, actual } => DomainError::VersionConflict {
+                entity: "AiConfig".to_owned(),
+                expected,
+                current: actual,
+            },
+            AiConfigError::ProviderMismatch | AiConfigError::AlreadyRevoked => {
+                DomainError::Conflict(error.to_string())
+            }
+            AiConfigError::EmptyProvider
+            | AiConfigError::EmptyModel
+            | AiConfigError::EmptyPrompt
+            | AiConfigError::EmptyVaultKey => DomainError::ValidationError(error.to_string()),
+        }
+    }
 }
 
 impl From<SceneError> for DomainError {

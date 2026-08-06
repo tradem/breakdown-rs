@@ -26,15 +26,17 @@ use breakdown_core::scene_shoot::{
 use breakdown_core::season::{SeasonCommands, SeasonRepository};
 use breakdown_core::settings::{CredentialVault, SettingsCommands, SettingsRepository};
 use breakdown_core::shooting_day::{ShootingDayCommands, ShootingDayRepository};
+use infra::ai::{MemoryAiPreviewStore, PgAiImportMappingRepository, PgAiImportQueue};
 use infra::event_store::{
-    BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl, CostumeCommandsImpl,
-    EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl, SceneCommandsImpl,
-    SceneShootCommandsImpl, SeasonCommandsImpl, SettingsCommandsImpl, ShootingDayCommandsImpl,
+    AiConfigCommandsImpl, BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl,
+    CostumeCommandsImpl, EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl,
+    SceneCommandsImpl, SceneShootCommandsImpl, SeasonCommandsImpl, SettingsCommandsImpl,
+    ShootingDayCommandsImpl,
 };
 use infra::photo::repository::PhotoRepositoryImpl;
 use infra::photo::storage::OpenDalPhotoStorage;
 use infra::queries::{
-    AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl,
+    AiConfigRepositoryImpl, AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl,
     CostumeCategoryRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl,
     MembershipRepositoryImpl, SceneRepositoryImpl, SceneShootReportRepositoryImpl,
     SceneShootRepositoryImpl, SeasonRepositoryImpl, SettingsRepositoryImpl,
@@ -114,11 +116,36 @@ pub trait Ports: Clone + Send + Sync + 'static {
 #[derive(Clone, Debug)]
 pub struct AppState<P: Ports> {
     pub ports: P,
+    /// Rollout switch for AI import routes/workers. It is explicitly enabled
+    /// by `AI_IMPORT_ENABLED`; the default is safe/off.
+    pub ai_import_enabled: bool,
+    /// AI document size bound, resolved once from `AiImportFeature` at state
+    /// construction so the handler and the extractor share one value.
+    pub ai_import_max_document_bytes: u64,
 }
 
 impl<P: Ports> AppState<P> {
+    /// Environment-driven production entry point: reads `AI_IMPORT_ENABLED`
+    /// and the document bound once at construction.
     pub fn new(ports: P) -> Self {
-        Self { ports }
+        let feature = infra::ai::AiImportFeature::from_env();
+        Self::with_ai_import(ports, feature.enabled, feature.bounds.max_document_bytes)
+    }
+
+    /// Builds state with explicit rollout values, bypassing the process
+    /// environment — lets tests exercise both `ai_import_enabled` branches
+    /// deterministically (process env is global and `set_var` is unsafe in
+    /// Rust 2024).
+    pub fn with_ai_import(
+        ports: P,
+        ai_import_enabled: bool,
+        ai_import_max_document_bytes: u64,
+    ) -> Self {
+        Self {
+            ports,
+            ai_import_enabled,
+            ai_import_max_document_bytes,
+        }
     }
 }
 
@@ -155,6 +182,11 @@ pub struct ProductionPorts {
     scene_shoot_report_repo: SceneShootReportRepositoryImpl,
     report_archival_queue: PgReportArchivalQueue,
     report_renderer: Arc<dyn ReportRenderer>,
+    ai_config_commands: AiConfigCommandsImpl,
+    ai_config_repo: AiConfigRepositoryImpl,
+    ai_import_queue: PgAiImportQueue,
+    ai_import_mapping: PgAiImportMappingRepository,
+    ai_preview_store: MemoryAiPreviewStore,
 }
 
 impl ProductionPorts {
@@ -191,6 +223,11 @@ impl ProductionPorts {
         scene_shoot_report_repo: SceneShootReportRepositoryImpl,
         report_archival_queue: PgReportArchivalQueue,
         report_renderer: Arc<dyn ReportRenderer>,
+        ai_config_commands: AiConfigCommandsImpl,
+        ai_config_repo: AiConfigRepositoryImpl,
+        ai_import_queue: PgAiImportQueue,
+        ai_import_mapping: PgAiImportMappingRepository,
+        ai_preview_store: MemoryAiPreviewStore,
     ) -> Self {
         Self {
             scene_commands,
@@ -223,7 +260,32 @@ impl ProductionPorts {
             scene_shoot_report_repo,
             report_archival_queue,
             report_renderer,
+            ai_config_commands,
+            ai_config_repo,
+            ai_import_queue,
+            ai_import_mapping,
+            ai_preview_store,
         }
+    }
+
+    pub fn ai_import_queue(&self) -> &PgAiImportQueue {
+        &self.ai_import_queue
+    }
+
+    pub fn ai_import_mapping(&self) -> &PgAiImportMappingRepository {
+        &self.ai_import_mapping
+    }
+
+    pub fn ai_preview_store(&self) -> &MemoryAiPreviewStore {
+        &self.ai_preview_store
+    }
+
+    pub fn ai_config_commands(&self) -> &AiConfigCommandsImpl {
+        &self.ai_config_commands
+    }
+
+    pub fn ai_config_repo(&self) -> &AiConfigRepositoryImpl {
+        &self.ai_config_repo
     }
 }
 

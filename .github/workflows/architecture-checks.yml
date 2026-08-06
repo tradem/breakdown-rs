@@ -123,7 +123,8 @@ jobs:
           ast-grep scan -r rules/cqrs-boundary.yml \
             crates/infra/src/event_store \
             crates/infra/src/sagas \
-            crates/infra/src/photo/sagas
+            crates/infra/src/photo/sagas \
+            crates/infra/src/ai
           echo "OK: no CQRS-boundary violations found"
 
   test-shim-leak:

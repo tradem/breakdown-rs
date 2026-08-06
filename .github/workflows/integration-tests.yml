@@ -1,3 +1,7 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: gpt-5.6-luna (opencode-go)
+
 name: Integration Tests
 
 permissions:
@@ -43,6 +47,7 @@ jobs:
     env:
       SIERRADB_IMAGE: tqwewe/sierradb:0.3.1
       POSTGRES_IMAGE: docker.io/postgres:16-alpine
+      VAULT_IMAGE: hashicorp/vault:1.17
 
     steps:
       - name: Checkout repository
@@ -84,6 +89,7 @@ jobs:
           
           pull_with_retry "$SIERRADB_IMAGE"
           pull_with_retry "$POSTGRES_IMAGE"
+          pull_with_retry "$VAULT_IMAGE"
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
@@ -99,6 +105,34 @@ jobs:
             fi
           done
           echo "OK: no production crate depends on integration-tests"
+
+      - name: Vault Testcontainers fixture
+        env:
+          RUST_LOG: info
+        run: cargo test -p integration-tests --test vault_fixture_test -- --nocapture
+
+      - name: AI GDrive fixture smoke test
+        # CWE-522 / CWE-200: the step injects live GDrive credentials into code
+        # that runs the PR's merge ref. Only run it for trusted contexts —
+        # pushes to main, or PRs authored by an OWNER/MEMBER/COLLABORATOR — so
+        # untrusted PR code cannot exfiltrate the secrets (they are masked in
+        # logs, but an attacker could encode and exfiltrate them).
+        if: >-
+          github.event_name == 'push' ||
+          (github.event_name == 'pull_request' &&
+           contains(fromJson('["OWNER", "MEMBER", "COLLABORATOR"]'),
+                    github.event.pull_request.author_association))
+        env:
+          GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+          GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+          GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+          GDRIVE_ROOT: ${{ secrets.GDRIVE_ROOT }}
+        run: |
+          # Diagnostic: GitHub masks the values but not the shell string
+          # lengths. Expected: client_id=72 secret=35 refresh=103 root=17
+          # (refresh=1//… is the working token; root=breakdown-rs-test).
+          echo "GDRIVE lengths: client_id=${#GDRIVE_CLIENT_ID} secret=${#GDRIVE_CLIENT_SECRET} refresh=${#GDRIVE_REFRESH_TOKEN} root=${#GDRIVE_ROOT}"
+          cargo test -p integration-tests --test ai_gdrive_fixture_test -- --nocapture
 
       - name: Postgres-only integration tests (parallel)
         env:
@@ -151,9 +185,15 @@ jobs:
             --nocapture
 
       # GDrive archival provider contract test.
-      # Only runs when the GDRIVE_CLIENT_ID secret is configured.
+      # Only runs when the GDRIVE_CLIENT_ID secret is configured AND the PR is
+      # trusted (same trust gate as the AI GDrive fixture step above).
       - name: GDrive archival provider contract test
-        if: env.REPORT_BACKUP_GDRIVE_CLIENT_ID != ''
+        if: >-
+          env.REPORT_BACKUP_GDRIVE_CLIENT_ID != '' &&
+          (github.event_name == 'push' ||
+           (github.event_name == 'pull_request' &&
+            contains(fromJson('["OWNER", "MEMBER", "COLLABORATOR"]'),
+                     github.event.pull_request.author_association)))
         env:
           REPORT_BACKUP_PROVIDER: gdrive
           REPORT_BACKUP_GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
@@ -164,7 +204,12 @@ jobs:
         run: cargo test -p infra -- reporting::storage_contract_test::gdrive_contract -- --nocapture
 
       - name: GDrive archival provider contract test (skipped)
-        if: env.REPORT_BACKUP_GDRIVE_CLIENT_ID == ''
+        if: >-
+          env.REPORT_BACKUP_GDRIVE_CLIENT_ID == '' &&
+          (github.event_name == 'push' ||
+           (github.event_name == 'pull_request' &&
+            contains(fromJson('["OWNER", "MEMBER", "COLLABORATOR"]'),
+                     github.event.pull_request.author_association)))
         env:
           REPORT_BACKUP_GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
         run: echo SKIP - GDrive contract test - set GDRIVE_CLIENT_ID secret to enable

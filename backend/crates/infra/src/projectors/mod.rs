@@ -9,6 +9,7 @@
 //! Each projector has its own checkpoint row set inside `sierradb_event_checkpoints`
 //! and can fail/catch-up independently (ADR-015).
 
+mod ai_config;
 mod audit;
 mod block;
 mod character;
@@ -24,6 +25,7 @@ mod shooting_day;
 pub mod supervisor;
 
 pub use crate::photo::projector::PhotoProjector;
+pub use ai_config::AiConfigProjector;
 pub use audit::{
     AuditCategory, AuditProjector, BlockAuditProjector, CharacterAuditProjector,
     CostumeAuditProjector, CostumeCategoryAuditProjector, EpisodeAuditProjector,
@@ -45,6 +47,7 @@ pub use shooting_day::ShootingDayProjector;
 use std::sync::Arc;
 
 use anyhow::{self, Result};
+use breakdown_core::ai::aggregate::AiConfig;
 use breakdown_core::block::aggregate::BlockAggregate;
 use breakdown_core::character::aggregate::CharacterAggregate;
 use breakdown_core::costume::aggregate::CostumeAggregate;
@@ -148,6 +151,7 @@ type BlockProcessor = PostgresProcessor<(BlockAggregate,), BlockProjector>;
 type EpisodeProcessor = PostgresProcessor<(EpisodeAggregate,), EpisodeProjector>;
 type MembershipProcessor = PostgresProcessor<(BlockMembership,), MembershipProjector>;
 type SettingsProcessor = PostgresProcessor<(SettingsAggregate,), SettingsProjector>;
+type AiConfigProcessor = PostgresProcessor<(AiConfig,), AiConfigProjector>;
 // Category-specific audit processors (one per aggregate).
 // These subscribe to SierraDB streams per-aggregate so the
 // generalized auditor covers all 11 entity categories.
@@ -1109,6 +1113,28 @@ pub async fn spawn_settings_projector(
         redis_client,
         actor_ref.clone()
     )?;
+    Ok(actor_ref)
+}
+
+/// Spawn the AI configuration projector actor and start its SierraDB subscription loop.
+pub async fn spawn_ai_config_projector(
+    pool: PgPool,
+    redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
+) -> Result<ActorRef<AiConfigProcessor>> {
+    let conn = redis_client.get_multiplexed_async_connection().await?;
+    let processor = config.apply(
+        AiConfigProcessor::new(
+            pool,
+            conn,
+            CHECKPOINTS_TABLE,
+            "ai_config",
+            AiConfigProjector,
+        )
+        .await?,
+    );
+    let actor_ref = AiConfigProcessor::spawn(processor);
+    run_projection_stream!(AiConfig, "ai_config", redis_client, actor_ref.clone())?;
     Ok(actor_ref)
 }
 

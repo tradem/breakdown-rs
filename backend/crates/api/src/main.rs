@@ -18,16 +18,18 @@ use api::auth::{AuthState, AuthorizationState};
 use api::routes::app_router;
 use api::state::{AppState, Ports, ProductionPorts};
 use breakdown_core::membership::policy::AuthorizationPolicy;
+use infra::ai::MemoryAiPreviewStore;
 use infra::event_store::{
-    BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl, CostumeCommandsImpl,
-    EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl, SceneCommandsImpl,
-    SceneShootCommandsImpl, SeasonCommandsImpl, SettingsCommandsImpl, ShootingDayCommandsImpl,
+    AiConfigCommandsImpl, BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl,
+    CostumeCommandsImpl, EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl,
+    SceneCommandsImpl, SceneShootCommandsImpl, SeasonCommandsImpl, SettingsCommandsImpl,
+    ShootingDayCommandsImpl,
 };
 use infra::photo::{
     gc::spawn_gc_scheduler, repository::PhotoRepositoryImpl, storage::OpenDalPhotoStorage,
 };
 use infra::queries::{
-    AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl,
+    AiConfigRepositoryImpl, AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl,
     CostumeCategoryRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl,
     MembershipRepositoryImpl, SceneRepositoryImpl, SceneShootReportRepositoryImpl,
     SceneShootRepositoryImpl, SeasonRepositoryImpl, SettingsRepositoryImpl,
@@ -334,6 +336,12 @@ async fn main() -> Result<()> {
         infra::projectors::ProjectorFlushConfig::default(),
     )
     .await?;
+    let _ai_config_projector = infra::projectors::spawn_ai_config_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::default(),
+    )
+    .await?;
     let _scene_shoot_projector = infra::projectors::spawn_scene_shoot_projector(
         pool.clone(),
         Arc::clone(&redis_client),
@@ -362,6 +370,7 @@ async fn main() -> Result<()> {
     let block_repo = BlockRepositoryImpl::new(pool.clone());
     let membership_repo_impl = MembershipRepositoryImpl::new(pool.clone());
     let settings_repo = SettingsRepositoryImpl::new(pool.clone());
+    let ai_config_repo = AiConfigRepositoryImpl::new(pool.clone());
     let credential_vault =
         infra::vault::VaultClient::from_env().map_err(|err| anyhow::anyhow!(err.to_string()))?;
 
@@ -412,6 +421,9 @@ async fn main() -> Result<()> {
 
     // --- Report archival (staging + external + worker + triggers) ---
     let report_archival_queue = PgReportArchivalQueue::new(pool.clone());
+    let ai_import_queue = infra::ai::PgAiImportQueue::new(pool.clone());
+    let ai_import_mapping = infra::ai::PgAiImportMappingRepository::new(pool.clone());
+    let ai_preview_store = MemoryAiPreviewStore::default();
     let report_staging: std::sync::Arc<dyn breakdown_core::reporting::ReportArchiveStorage> =
         match OpenDalReportArchiveStorage::staging_from_env() {
             Ok(s) => std::sync::Arc::new(s),
@@ -512,6 +524,11 @@ async fn main() -> Result<()> {
         scene_shoot_report_repo,
         report_archival_queue,
         report_renderer,
+        AiConfigCommandsImpl::new(cmd_service.clone()),
+        ai_config_repo,
+        ai_import_queue,
+        ai_import_mapping,
+        ai_preview_store,
     );
     let app_state = AppState::new(ports);
 

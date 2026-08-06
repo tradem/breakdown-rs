@@ -24,6 +24,7 @@
 //! - `projectors/`  – Event-Handler / Projectoren
 //! - `queries/`     – sqlx-Read-Queries
 
+pub mod ai;
 pub mod event_store;
 pub mod photo;
 pub mod projectors;

@@ -1,0 +1,105 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4-flash (opencode-go)
+
+# AI Import Nightly — reads the real GDrive documents and runs the live LLM
+# ingestion smoke (provider/model from AI_LLM_* variables, key from the
+# AI_LLM_API_KEY secret). Runs after the nightly fuzz run (03:00 UTC) and
+# before the standard CI daily runs.
+#
+# Note: this workflow was originally claimed to exist before the feature
+# branch; it did not. It is defined here so the nightly document-ingestion
+# check is actually scheduled.
+
+name: AI Import Nightly
+
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-import-nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SIERRADB_IMAGE: tqwewe/sierradb:0.3.1
+  POSTGRES_IMAGE: docker.io/postgres:16-alpine
+  VAULT_IMAGE: hashicorp/vault:1.17
+
+jobs:
+  ai-import-nightly:
+    name: AI document ingestion (GDrive + LLM)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Read-only job: no authenticated git commands are run after checkout.
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
+      - name: Verify Docker is available
+        run: docker info
+
+      - name: Pre-pull Docker images (with retries)
+        run: |
+          pull_with_retry() {
+            local image=$1
+            local max_attempts=3
+            local attempt=1
+            while [ $attempt -le $max_attempts ]; do
+              if docker pull "$image"; then
+                echo "Pulled $image"
+                return 0
+              fi
+              sleep 5
+              attempt=$((attempt + 1))
+            done
+            echo "ERROR: failed to pull $image" >&2
+            return 1
+          }
+          pull_with_retry "$SIERRADB_IMAGE"
+          pull_with_retry "$POSTGRES_IMAGE"
+          pull_with_retry "$VAULT_IMAGE"
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: "backend"
+
+      - name: Install poppler-utils (pdftotext for the AI script path)
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+
+      - name: GDrive document source smoke (nightly)
+        env:
+          GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+          GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+          GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+          GDRIVE_ROOT: ${{ secrets.GDRIVE_ROOT }}
+        run: |
+          echo "GDRIVE lengths: client_id=${#GDRIVE_CLIENT_ID} secret=${#GDRIVE_CLIENT_SECRET} refresh=${#GDRIVE_REFRESH_TOKEN} root=${#GDRIVE_ROOT}"
+          cargo test -p integration-tests --test ai_gdrive_fixture_test -- --nocapture
+
+      - name: Live LLM ingestion smoke (nightly)
+        env:
+          AI_LLM_API_KEY: ${{ secrets.AI_LLM_API_KEY }}
+          AI_LLM_PROVIDER: ${{ vars.AI_LLM_PROVIDER }}
+          AI_LLM_MODEL: ${{ vars.AI_LLM_MODEL }}
+        run: |
+          if [ -z "$AI_LLM_API_KEY" ]; then
+            echo "AI_LLM_API_KEY not configured — live LLM smoke will skip."
+          else
+            echo "AI_LLM_PROVIDER=${AI_LLM_PROVIDER:-eurouter} AI_LLM_MODEL=${AI_LLM_MODEL:-mistral-large-3}"
+          fi
+          cargo test -p integration-tests --test ai_llm_smoke_test -- --nocapture
