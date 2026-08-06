@@ -2,6 +2,12 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.2 (neuralwatt)
 
+// Crate-level lint suppression for this wire-contract test target
+// (justification, AGENTS.md §3): test code is the exempted class for the
+// panic-family lints, and this suite deliberately `.expect()`s / `panic!()`s
+// when a frozen wire snapshot no longer matches the live serialization — the
+// panic IS the MAJOR-drift signal (ADR-021 D5). `print_stdout`/`print_stderr`
+// back the fixture capture tool's `captured …` diagnostics.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -68,9 +74,32 @@ const FIXTURES_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/wire")
 /// else that is new, removed, or changed is a hard MAJOR failure.
 const ADDITIVE_ALLOWLIST: &[(&str, &str)] = &[];
 
-/// Deterministic, version-agnostic test ids (fixtures must be stable).
+/// Deterministic UUIDv7 fixture identifier (same scheme as the event
+/// fixtures): stable across runs (no `Uuid::now_v7()`) while carrying the
+/// RFC 9562 version-7 and RFC 4122 variant bits, so the frozen wire
+/// snapshots use the same identifier class as production entities (UUIDv7
+/// policy, AGENTS.md §3).
 fn fixed_uuid(tag: u64) -> uuid::Uuid {
-    uuid::Uuid::from_u128(((tag as u128) << 64) | 0x0000_0000_0000_0001)
+    // Fixed epoch-ms (2026-05-28T21:46:40Z) — no wall-clock dependency.
+    const FIXED_TS_MS: u64 = 1_780_000_000_000;
+    let rand_a = (tag & 0x0FFF) as u128;
+    let rand_b = (tag as u128) & ((1u128 << 62) - 1);
+    let bits = ((FIXED_TS_MS as u128) << 80)
+        | (0x7u128 << 76)
+        | (rand_a << 64)
+        | (0b10u128 << 62)
+        | rand_b;
+    uuid::Uuid::from_u128(bits)
+}
+
+/// The deterministic fixture ids must be genuine UUIDv7 (RFC 9562) values.
+#[test]
+fn fixed_uuid_produces_uuidv7() {
+    for tag in 1..=12u64 {
+        let id = fixed_uuid(tag);
+        assert_eq!(id.get_version(), Some(uuid::Version::SortRand), "tag {tag}");
+        assert_eq!(id.get_variant(), uuid::Variant::RFC4122, "tag {tag}");
+    }
 }
 
 /// A representative sample of every wire DTO backing the `/v1` read routes,

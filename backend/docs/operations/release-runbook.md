@@ -21,7 +21,7 @@ release; the two streams below must **never be conflated** (ADR-020 D7).
 A weekly advisory fix that lands on `main` does **not** push an image tag by
 itself (ADR-020 D7).
 
-## 1. Prequisites for a release
+## 1. Prerequisites for a release
 
 - `cargo-semver-checks` green on the release PR (CI: `.github/workflows/semver-checks.yml`,
   baseline = last tag of the changed crate).

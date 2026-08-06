@@ -185,6 +185,7 @@ dependencies = [
  "breakdown_core",
  "chrono",
  "http-body-util",
+ "httpdate",
  "hyper",
  "infra",
  "jsonwebtoken",

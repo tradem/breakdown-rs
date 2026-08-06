@@ -53,9 +53,9 @@ jobs:
           minor="${minor_minor%%.*}"
           {
             echo "tags<<EOF"
-            echo "${REGISTRY}/${IMAGE_NAME}:${version}"
-            echo "${REGISTRY}/${IMAGE_NAME}:${major}.${minor}"
-            echo "${REGISTRY}/${IMAGE_NAME}:${major}"
+            echo "${REGISTRY}/${IMAGE_NAME}:api-v${version}"
+            echo "${REGISTRY}/${IMAGE_NAME}:api-v${major}.${minor}"
+            echo "${REGISTRY}/${IMAGE_NAME}:api-v${major}"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 

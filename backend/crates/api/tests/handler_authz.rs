@@ -30,7 +30,6 @@ use api::auth::AuthState;
 use api::auth::authorization::{AuthorizationState, MembershipAuthorizationPolicy};
 use api::auth::jwks::StaticJwksProvider;
 use api::auth::{CurrentUser, OidcConfig, auth_middleware, authorize_middleware};
-
 const DEV_SUB: &str = "dev-user";
 
 /// Tiny `Router<()>` that applies the real `auth_middleware` (outer) and
@@ -55,6 +54,52 @@ fn auth_router(auth: Arc<AuthState>, authz: Arc<AuthorizationState>) -> Router<(
 
 async fn status_of(router: &Router<()>, req: Request<AxumBody>) -> StatusCode {
     router.clone().oneshot(req).await.unwrap().status()
+}
+
+/// Regression test for `app_router`'s layer composition (issue #123 / ADR-021):
+/// authentication must run BEFORE authorization so `CurrentUser` exists when
+/// `authorize_middleware` gates a block-scoped route. `app_router` composes the
+/// stack with `tower::ServiceBuilder` (top-to-bottom = request order: auth
+/// outermost → authorize → deprecation); this test mirrors that exact
+/// composition with the real production middlewares and asserts a dev-mode
+/// block-scoped request reaches the handler — 200, not 401. A reordering of
+/// the layers (e.g. back to bare `Router::layer` with authz last) fails here.
+#[tokio::test]
+async fn app_router_composition_runs_auth_before_authz() {
+    use api::versioning::{DeprecationRegistry, deprecation_middleware};
+    use tower::ServiceBuilder;
+
+    let auth = Arc::new(AuthState::dev(CurrentUser::dummy(DEV_SUB)));
+    let block = BlockId::new();
+    let repo = Arc::new(FakeMembershipRepo::default());
+    repo.members
+        .lock()
+        .await
+        .insert((block, UserId::from_sub(DEV_SUB)));
+    let policy = Arc::new(MembershipAuthorizationPolicy::new(repo));
+    let authz = Arc::new(AuthorizationState::new(policy, /*enforce=*/ true));
+
+    let app = Router::new()
+        .route("/v1/blocks/{id}", get(|| async { StatusCode::OK }))
+        .layer(
+            ServiceBuilder::new()
+                .layer(from_fn_with_state(auth, auth_middleware))
+                .layer(from_fn_with_state(authz, authorize_middleware))
+                .layer(from_fn_with_state(
+                    DeprecationRegistry::new(),
+                    deprecation_middleware,
+                )),
+        )
+        .with_state(());
+
+    let req = Request::builder()
+        .method("GET")
+        .uri(format!("/v1/blocks/{}", block.0))
+        .header("X-Active-Block", block.0.to_string())
+        .body(AxumBody::empty())
+        .unwrap();
+
+    assert_eq!(status_of(&app, req).await, StatusCode::OK);
 }
 
 #[tokio::test]

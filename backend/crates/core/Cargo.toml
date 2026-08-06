@@ -44,3 +44,4 @@ workspace = true
 # ADR-020 D5: core is a release crate (per-crate tag core-vX.Y.Z).
 [package.metadata.release]
 release = true
+tag-name = "core-v{{version}}"

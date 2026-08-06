@@ -2,6 +2,13 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.2 (neuralwatt)
 
+// Crate-level lint suppression for this fixture/contract test target
+// (justification, AGENTS.md §3): test code is the exempted class for the
+// panic-family lints, and this suite deliberately `.expect()`s / `panic!()`s
+// when a captured fixture no longer matches the live contract — the panic IS
+// the drift signal. `print_stdout`/`print_stderr` back the fixture capture
+// tool's `captured …` diagnostics. Narrower per-function allows would not
+// change the exempted-class justification, only add noise.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -126,6 +133,7 @@ struct SampleChain {
     episode_id: Uuid,
     scene_id: Uuid,
     character_id: Uuid,
+    series_id: Uuid,
     costume_id: Uuid,
     shooting_day_id: Uuid,
     category_id: Uuid,
@@ -133,9 +141,35 @@ struct SampleChain {
     timestamp: DateTime<Utc>,
 }
 
+/// Deterministic UUIDv7 fixture identifier.
+///
+/// Stable across runs (no `Uuid::now_v7()` — regeneration must be
+/// reproducible) while carrying the RFC 9562 version-7 and RFC 4122 variant
+/// bits, so the frozen fixtures use the same identifier class as production
+/// entities (UUIDv7 policy, AGENTS.md §3). `tag` seeds the 12-bit `rand_a`
+/// and the 62-bit `rand_b` fields.
 fn fixed_uuid(tag: u64) -> Uuid {
-    // Deterministic, version-agnostic test ids (fixtures must be stable).
-    Uuid::from_u128(((tag as u128) << 64) | 0x0000_0000_0000_0001)
+    // Fixed epoch-ms (2026-05-28T21:46:40Z) so the version field stays valid
+    // without a wall-clock dependency.
+    const FIXED_TS_MS: u64 = 1_780_000_000_000;
+    let rand_a = (tag & 0x0FFF) as u128;
+    let rand_b = (tag as u128) & ((1u128 << 62) - 1);
+    let bits = ((FIXED_TS_MS as u128) << 80)
+        | (0x7u128 << 76)
+        | (rand_a << 64)
+        | (0b10u128 << 62)
+        | rand_b;
+    Uuid::from_u128(bits)
+}
+
+/// The deterministic fixture ids must be genuine UUIDv7 (RFC 9562) values.
+#[test]
+fn fixed_uuid_produces_uuidv7() {
+    for tag in 1..=12u64 {
+        let id = fixed_uuid(tag);
+        assert_eq!(id.get_version(), Some(uuid::Version::SortRand), "tag {tag}");
+        assert_eq!(id.get_variant(), uuid::Variant::RFC4122, "tag {tag}");
+    }
 }
 
 fn sample_chain() -> SampleChain {
@@ -247,6 +281,7 @@ fn sample_chain() -> SampleChain {
         episode_id,
         scene_id,
         character_id,
+        series_id: series_id.0,
         costume_id,
         shooting_day_id,
         category_id,
@@ -346,11 +381,15 @@ fn captured_event_fixtures_still_deserialize() {
                 )
             }))
             .expect("fixture must parse");
-        assert_eq!(
-            on_disk.projector_version, PROJECTOR_VERSION,
-            "{name}: fixture frozen with projector_version {} but the current \
-             projector binary reports {PROJECTOR_VERSION} — a coordinated bump \
-             + re-capture is required (release-runbook §5)",
+        // The current projector binary must support every archived fixture
+        // version (ADR-020 D4): a fixture captured by a NEWER projector
+        // (version > current) would be unreadable by the deployed binary —
+        // a deploy-order failure.
+        assert!(
+            on_disk.projector_version <= PROJECTOR_VERSION,
+            "{name}: fixture was captured by projector_version {} but the \
+             current binary only supports {PROJECTOR_VERSION} — deploy-order \
+             drift (release-runbook §5)",
             on_disk.projector_version
         );
         // The serde gate: deserialize the wire snapshot into the current type.
@@ -430,13 +469,18 @@ where
 async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
     let (pool, _pg) = fixtures::spawn_postgres().await?;
     let chain = sample_chain();
-    let fixtures = sample_fixtures(&chain)?;
-    let by_name = |n: &str| {
-        fixtures
-            .iter()
-            .find(|(name, _)| *name == n)
-            .map(|(_, fx)| fx)
-            .expect("fixture present")
+    // Replay the ARCHIVED on-disk fixtures — never freshly serialized
+    // sample_chain() events — so the projectors are exercised against the
+    // historical wire payloads exactly as captured.
+    let by_name = |n: &str| -> EventFixture {
+        let path = EventFixture::path(n);
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap_or_else(|e| {
+            panic!(
+                "missing fixture {}: {e} — run `capture_event_fixtures`",
+                path.display()
+            )
+        }))
+        .expect("fixture must parse")
     };
 
     let mut tx = pool.begin().await?;
@@ -448,7 +492,7 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
         .handle(
             &mut tx,
             chain.season_id,
-            event_of::<SeasonEvent, EventMetadata>(by_name("season_created")),
+            event_of::<SeasonEvent, EventMetadata>(&by_name("season_created")),
         )
         .await?;
     let mut block = BlockProjector;
@@ -456,7 +500,7 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
         .handle(
             &mut tx,
             chain.block_id,
-            event_of::<BlockEvent, EventMetadata>(by_name("block_created")),
+            event_of::<BlockEvent, EventMetadata>(&by_name("block_created")),
         )
         .await?;
     let mut episode = EpisodeProjector;
@@ -464,7 +508,7 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
         .handle(
             &mut tx,
             chain.episode_id,
-            event_of::<EpisodeEvent, EventMetadata>(by_name("episode_created")),
+            event_of::<EpisodeEvent, EventMetadata>(&by_name("episode_created")),
         )
         .await?;
     let mut scene = SceneProjector;
@@ -472,7 +516,7 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
         .handle(
             &mut tx,
             chain.scene_id,
-            event_of::<SceneEvent, EventMetadata>(by_name("scene_created")),
+            event_of::<SceneEvent, EventMetadata>(&by_name("scene_created")),
         )
         .await?;
     let mut character = CharacterProjector;
@@ -480,7 +524,7 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
         .handle(
             &mut tx,
             chain.character_id,
-            event_of::<CharacterEvent, EventMetadata>(by_name("character_created")),
+            event_of::<CharacterEvent, EventMetadata>(&by_name("character_created")),
         )
         .await?;
     let mut costume = CostumeProjector;
@@ -488,7 +532,7 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
         .handle(
             &mut tx,
             chain.costume_id,
-            event_of::<CostumeEvent, EventMetadata>(by_name("costume_created")),
+            event_of::<CostumeEvent, EventMetadata>(&by_name("costume_created")),
         )
         .await?;
     let mut shooting_day = ShootingDayProjector;
@@ -496,7 +540,7 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
         .handle(
             &mut tx,
             ShootingDayId(chain.shooting_day_id),
-            event_of::<ShootingDayEvent, EventMetadata>(by_name("shooting_day_created")),
+            event_of::<ShootingDayEvent, EventMetadata>(&by_name("shooting_day_created")),
         )
         .await?;
     let mut costume_category = CostumeCategoryProjector;
@@ -504,7 +548,7 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
         .handle(
             &mut tx,
             chain.category_id,
-            event_of::<CostumeCategoryEvent, EventMetadata>(by_name("costume_category_created")),
+            event_of::<CostumeCategoryEvent, EventMetadata>(&by_name("costume_category_created")),
         )
         .await?;
     let mut scene_shoot = SceneShootProjector;
@@ -512,120 +556,228 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
         .handle(
             &mut tx,
             SceneShootId(chain.scene_shoot_id),
-            event_of::<SceneShootEvent, EventMetadata>(by_name("scene_shoot_planned")),
+            event_of::<SceneShootEvent, EventMetadata>(&by_name("scene_shoot_planned")),
         )
         .await?;
 
     tx.commit().await?;
 
-    // Assertions: every projection row exists and carries the current
-    // projector contract version (ADR-020 D4 marker). Each query below is a
-    // static SQL literal (static-SQL rule, AGENTS.md); field checks happen in
-    // Rust on the row JSON.
+    // Assertions (ADR-020 D4 contract): every projection row must equal the
+    // fixture-derived expected state — the complete projected row as JSON
+    // (timestamptz columns excluded; compared separately with bound typed
+    // values, timezone-safe) plus the `projector_version` marker. Each SQL
+    // statement below is a static literal (static-SQL rule, AGENTS.md).
     assert_projected(
         &pool,
-        "SELECT to_jsonb(projection_season) FROM projection_season WHERE id = $1",
+        "SELECT to_jsonb(projection_season) - 'updated_at' FROM projection_season WHERE id = $1",
+        "SELECT (updated_at = $1) FROM projection_season WHERE id = $2",
         chain.season_id,
-        &[("title", json!("Staffel 1"))],
+        json!({
+            "id": chain.season_id,
+            "series_id": chain.series_id,
+            "number": 1,
+            "title": "Staffel 1",
+            "version": 1,
+            "projector_version": PROJECTOR_VERSION,
+        }),
+        chain.timestamp,
     )
     .await?;
     assert_projected(
         &pool,
-        "SELECT to_jsonb(projection_block) FROM projection_block WHERE id = $1",
+        "SELECT to_jsonb(projection_block) - 'updated_at' FROM projection_block WHERE id = $1",
+        "SELECT (updated_at = $1) FROM projection_block WHERE id = $2",
         chain.block_id,
-        &[("number", json!(1))],
+        json!({
+            "id": chain.block_id,
+            "season_id": chain.season_id,
+            "series_id": chain.series_id,
+            "number": 1,
+            "start_date": null,
+            "end_date": null,
+            "version": 1,
+            "projector_version": PROJECTOR_VERSION,
+        }),
+        chain.timestamp,
     )
     .await?;
     assert_projected(
         &pool,
-        "SELECT to_jsonb(projection_episode) FROM projection_episode WHERE id = $1",
+        "SELECT to_jsonb(projection_episode) - 'updated_at' FROM projection_episode WHERE id = $1",
+        "SELECT (updated_at = $1) FROM projection_episode WHERE id = $2",
         chain.episode_id,
-        &[],
+        json!({
+            "id": chain.episode_id,
+            "block_id": chain.block_id,
+            "series_id": chain.series_id,
+            "number": 1,
+            "name": "Block 1 Episode 1",
+            "version": 1,
+            "projector_version": PROJECTOR_VERSION,
+        }),
+        chain.timestamp,
     )
     .await?;
     assert_projected(
         &pool,
-        "SELECT to_jsonb(projection_scene) FROM projection_scene WHERE id = $1",
+        "SELECT to_jsonb(projection_scene) - 'updated_at' FROM projection_scene WHERE id = $1",
+        "SELECT (updated_at = $1) FROM projection_scene WHERE id = $2",
         chain.scene_id,
-        &[("location", json!("Set A"))],
+        json!({
+            "id": chain.scene_id,
+            "episode_id": chain.episode_id,
+            "scene_number": 1,
+            "location": "Set A",
+            "mood": "Tag",
+            "is_schedule_set": false,
+            "summary": "Eröffnungsszene",
+            "script_day": "1. Spieltag",
+            "version": 1,
+            "projector_version": PROJECTOR_VERSION,
+        }),
+        chain.timestamp,
     )
     .await?;
     assert_projected(
         &pool,
-        "SELECT to_jsonb(projection_character) FROM projection_character WHERE id = $1",
+        "SELECT to_jsonb(projection_character) - 'updated_at' FROM projection_character WHERE id = $1",
+        "SELECT (updated_at = $1) FROM projection_character WHERE id = $2",
         chain.character_id,
-        &[("name", json!("Hauptrolle"))],
+        json!({
+            "id": chain.character_id,
+            "season_id": chain.season_id,
+            "name": "Hauptrolle",
+            "category": "main_cast",
+            "measurements": {
+                "chest": null, "hat_size": null, "height": null, "hips": null,
+                "shoe_size": null, "waist": null, "weight": null,
+            },
+            "contact": { "phone": "+49 000", "email": null },
+            "version": 1,
+            "projector_version": PROJECTOR_VERSION,
+        }),
+        chain.timestamp,
     )
     .await?;
     assert_projected(
         &pool,
-        "SELECT to_jsonb(projection_costume) FROM projection_costume WHERE id = $1",
+        "SELECT to_jsonb(projection_costume) - 'updated_at' FROM projection_costume WHERE id = $1",
+        "SELECT (updated_at = $1) FROM projection_costume WHERE id = $2",
         chain.costume_id,
-        &[("notes", json!("Rote Lederjacke"))],
+        json!({
+            "id": chain.costume_id,
+            "character_id": chain.character_id,
+            "notes": "Rote Lederjacke",
+            "version": 1,
+            "projector_version": PROJECTOR_VERSION,
+        }),
+        chain.timestamp,
     )
     .await?;
     assert_projected(
         &pool,
-        "SELECT to_jsonb(projection_shooting_day) FROM projection_shooting_day WHERE id = $1",
+        "SELECT to_jsonb(projection_shooting_day) - 'updated_at' - 'wrapped_at' \
+         FROM projection_shooting_day WHERE id = $1",
+        "SELECT (updated_at = $1 AND wrapped_at IS NULL) \
+         FROM projection_shooting_day WHERE id = $2",
         chain.shooting_day_id,
-        &[("label", json!("Drehtag 1"))],
+        json!({
+            "id": chain.shooting_day_id,
+            "episode_id": chain.episode_id,
+            "label": "Drehtag 1",
+            "order_key": "!a",
+            "date": null,
+            "source": "Manual",
+            "archived": false,
+            "version": 1,
+            "projector_version": PROJECTOR_VERSION,
+        }),
+        chain.timestamp,
     )
     .await?;
     assert_projected(
         &pool,
-        "SELECT to_jsonb(projection_costume_category) FROM projection_costume_category WHERE id = $1",
+        "SELECT to_jsonb(projection_costume_category) - 'updated_at' \
+         FROM projection_costume_category WHERE id = $1",
+        "SELECT (updated_at = $1) FROM projection_costume_category WHERE id = $2",
         chain.category_id,
-        &[("name", json!("Oberteil"))],
+        json!({
+            "id": chain.category_id,
+            "season_id": chain.season_id,
+            "name": "Oberteil",
+            "order_key": "!b",
+            "archived": false,
+            "version": 1,
+            "projector_version": PROJECTOR_VERSION,
+        }),
+        chain.timestamp,
     )
     .await?;
     assert_projected(
         &pool,
-        "SELECT to_jsonb(projection_scene_shoot) FROM projection_scene_shoot WHERE id = $1",
+        "SELECT to_jsonb(projection_scene_shoot) - 'updated_at' - 'start_dt' - 'end_dt' - 'created_at' \
+         FROM projection_scene_shoot WHERE id = $1",
+        "SELECT (updated_at = $1 AND start_dt IS NULL AND end_dt IS NULL) \
+         FROM projection_scene_shoot WHERE id = $2",
         chain.scene_shoot_id,
-        &[("status", json!("Planned"))],
+        json!({
+            "id": chain.scene_shoot_id,
+            "scene_id": chain.scene_id,
+            "shooting_day_id": chain.shooting_day_id,
+            "planned_order": "!c",
+            "actual_order": null,
+            "status": "Planned",
+            "notes": [],
+            "continuity_photo_ids": [],
+            "version": 1,
+            "projector_version": PROJECTOR_VERSION,
+        }),
+        chain.timestamp,
     )
     .await?;
 
     Ok(())
 }
 
-/// Assert that a projection row exists with `projector_version` = current
-/// constant and that the listed `(column, expected_json)` values match.
-/// `query` is a static SQL literal returning the row as `to_jsonb(...)`.
+/// Assert that a projection row equals the fixture-derived expected state.
+///
+/// `row_query` is a static SQL literal returning the row as `to_jsonb(...)`
+/// with the timestamptz columns removed (their representation depends on the
+/// session timezone); `tz_query` is a static SQL literal asserting the
+/// timestamptz columns against the bound fixture timestamp (timezone-safe).
+/// Every projected domain column is compared — a dropped or mis-mapped field
+/// fails the contract test, not just the marker.
 async fn assert_projected(
     pool: &PgPool,
-    query: &'static str,
+    row_query: &'static str,
+    tz_query: &'static str,
     id: Uuid,
-    expected: &[(&str, Value)],
+    expected: Value,
+    timestamp: DateTime<Utc>,
 ) -> Result<()> {
-    let row: sqlx::types::Json<Value> = sqlx::query_scalar(query)
+    let row: sqlx::types::Json<Value> = sqlx::query_scalar(row_query)
         .bind(id)
         .fetch_one(pool)
         .await
-        .map_err(|e| anyhow!("projection row for {query:?} missing: {e}"))?;
-    let version = row
-        .0
-        .get("projector_version")
-        .and_then(Value::as_i64)
-        .unwrap_or(-1);
-    if version != PROJECTOR_VERSION {
+        .map_err(|e| anyhow!("projection row for {row_query:?} missing: {e}"))?;
+    if row.0 != expected {
         bail!(
-            "row from {query:?} carries projector_version {version} but the current \
-             projector binary reports {PROJECTOR_VERSION} — deploy-order drift \
-             (release-runbook §5)"
+            "projection row for {row_query:?} no longer matches the fixture:\n  got:      {}\n  expected: {}",
+            serde_json::to_string_pretty(&row.0).unwrap_or_else(|_| "<unprintable>".to_string()),
+            serde_json::to_string_pretty(&expected).unwrap_or_else(|_| "<unprintable>".to_string()),
         );
     }
-    for (column, want) in expected {
-        let got = row
-            .0
-            .get(*column)
-            .ok_or_else(|| anyhow!("row from {query:?} has no column {column}"))?;
-        if got != want {
-            bail!(
-                "{query:?}.{column} = {got} but fixture expects {want} — the projector \
-                 no longer consumes the captured event faithfully"
-            );
-        }
+    let timestamps_ok: bool = sqlx::query_scalar(tz_query)
+        .bind(timestamp)
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| anyhow!("timestamptz check for {tz_query:?} failed: {e}"))?;
+    if !timestamps_ok {
+        bail!(
+            "timestamptz columns of the row for {row_query:?} do not match the fixture \
+             timestamp {timestamp:?}"
+        );
     }
     Ok(())
 }

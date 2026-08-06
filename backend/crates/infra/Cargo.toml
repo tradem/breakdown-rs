@@ -105,3 +105,4 @@ workspace = true
 # ADR-020 D5: infra is a release crate (per-crate tag infra-vX.Y.Z).
 [package.metadata.release]
 release = true
+tag-name = "infra-v{{version}}"

@@ -80,14 +80,16 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 # ─── ADR-020 D5: cargo-release, per-crate independent flow ────────────────
 #
 # The release owner runs `cargo release -p <crate> --dependent` locally (not
-# a CI/PR job). Each release cuts a per-crate tag `{crate}-v{version}`
-# (core-v0.3.0, infra-v…, api-v…) that the api Docker image build consumes
-# (ADR-020 D6). `shared-version = false`: crates diverge on individual
-# release. Releases are opt-in per crate: only crates with
-# `[package.metadata.release] release = true` (core, infra, api) are touched.
+# a CI/PR job). Each release cuts a per-crate tag `core-vX.Y.Z` / `infra-v…` /
+# `api-v…` (ADR-020 D5/D6) that the api Docker image build consumes. Tag
+# names are set per crate via `[package.metadata.release] tag-name` — the
+# `{{crate}}` placeholder is not supported by cargo-release, and the default
+# `{{crate_name}}` would yield `breakdown_core-v…` instead of `core-v…`.
+# `shared-version = false`: crates diverge on individual release. Releases
+# are opt-in per crate: only crates with `[package.metadata.release]
+# release = true` (core, infra, api) are touched.
 [workspace.metadata.release]
 shared-version = false
-tag-name = "{{crate}}-v{{version}}"
 release = false
 
 [workspace.lints.rust]

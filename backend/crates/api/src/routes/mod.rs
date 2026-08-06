@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::middleware;
+use tower::ServiceBuilder;
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::auth::{AuthState, AuthorizationState, auth_middleware, authorize_middleware};
@@ -33,14 +34,20 @@ pub fn app_router(
     // Empty while only `/v1` is served; populated when `/v{n+1}` ships
     // (ADR-021 D4) — release-time configuration, not per-request.
     let deprecations = DeprecationRegistry::new();
-    let api = Router::new()
-        .nest("/v1", handlers::routes())
-        .layer(middleware::from_fn_with_state(auth, auth_middleware))
-        .layer(middleware::from_fn_with_state(authz, authorize_middleware))
-        .layer(middleware::from_fn_with_state(
-            deprecations,
-            deprecation_middleware,
-        ));
+    // Layer order via tower::ServiceBuilder is top-to-bottom = request order:
+    // auth (outermost) → authorize → deprecation (innermost). Bare
+    // `Router::layer` calls would apply the LAST-added layer first (axum
+    // semantics), running authorization before authentication and 401-ing
+    // every block-scoped request (CurrentUser not yet injected).
+    let api = Router::new().nest("/v1", handlers::routes()).layer(
+        ServiceBuilder::new()
+            .layer(middleware::from_fn_with_state(auth, auth_middleware))
+            .layer(middleware::from_fn_with_state(authz, authorize_middleware))
+            .layer(middleware::from_fn_with_state(
+                deprecations,
+                deprecation_middleware,
+            )),
+    );
 
     let doc = crate::api_doc();
     let swagger: Router<()> =

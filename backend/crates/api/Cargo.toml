@@ -44,6 +44,12 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 anyhow.workspace = true
 
+# Middleware composition (Router::layer order in app_router; ADR-021).
+tower = "0.5"
+
+# RFC 8594 Sunset HTTP-date validation (versioning.rs).
+httpdate = "1"
+
 # OpenTelemetry / Observability
 tracing-opentelemetry.workspace = true
 opentelemetry.workspace = true
@@ -66,3 +72,4 @@ workspace = true
 # ADR-020 D5: api is a release crate (per-crate tag api-vX.Y.Z).
 [package.metadata.release]
 release = true
+tag-name = "api-v{{version}}"
