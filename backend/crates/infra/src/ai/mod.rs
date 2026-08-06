@@ -25,6 +25,7 @@ pub mod queue;
 pub mod runtime;
 pub mod schedule_apply;
 pub mod shutdown;
+pub mod transport;
 pub mod workers;
 
 pub use catalog::OpenAiCompatibleModelCatalog;
@@ -46,6 +47,9 @@ pub use schedule_apply::{
     AppliedDay, ScheduleApplyRequest, ScheduleApplyResult, ScheduleApplyWorker,
 };
 pub use shutdown::{AiJobGuard, AiWorkerLifecycle};
+pub use transport::{
+    curated_provider_redirect_policy, hosted_provider_redirect_policy, ollama_redirect_policy,
+};
 pub use workers::{
     ApplyScriptRequest, ApplyWorker, MergeWorker, ScheduleImportWorker, ScriptImportWorker,
     UuidVersion, validate_chunk_count,
