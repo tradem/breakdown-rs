@@ -18,7 +18,7 @@ use breakdown_core::ai::{
     AiConfigCommands, AiConfigRepository, AiConfigView, AiImportEnqueueRequest,
     AiImportEnqueueResult, AiImportJobId, AiImportQueue, ApplyMapping, CreateAiConfig,
     DocumentKind, LlmProvider, MergedPreview, ModelInfo, RevokeAiConfig, ScriptContext, Telemetry,
-    UpdateAiConfig,
+    TelemetryApplyState, UpdateAiConfig,
 };
 use breakdown_core::audit::{AuditEntry, AuditRepository};
 use breakdown_core::block::commands::{CreateBlock, UpdateBlockTimeSpan};
@@ -4508,10 +4508,23 @@ pub async fn apply_ai_import(
         .await
         .map_err(map_err)?
         .ok_or_else(|| map_err(DomainError::NotFound("AI preview".to_owned())))?;
+    // An accept-as-is outcome means the user made zero edits; a nonzero
+    // edit_distance alongside it is contradictory and would persist an
+    // invalid applied outcome (issue #171 review).
+    if request.accept_as_is && request.edit_distance != 0 {
+        return Err(map_err(DomainError::ValidationError(
+            "accept_as_is requires edit_distance = 0".to_owned(),
+        )));
+    }
     let telemetry = Telemetry {
         doc_kind: Some(job.document_kind),
-        accept_as_is: Some(request.accept_as_is),
-        edit_distance: request.edit_distance,
+        // Apply reached: record the accept signal and the content-free edit
+        // count. Zero edits on an accepted apply stays `edit_distance = 0`;
+        // only never-applied jobs are `NotApplied` (NULL).
+        apply_state: TelemetryApplyState::Applied {
+            accept_as_is: request.accept_as_is,
+            edit_distance: request.edit_distance,
+        },
         ..Telemetry::default()
     };
     match job.document_kind {

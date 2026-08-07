@@ -64,11 +64,15 @@ without ever bypassing existing command validation or the CQRS boundary.
   with `source: AiExtracted`). All existing validation, optimistic-concurrency
   and `series_id`-at-the-edge resolution apply unchanged.
 - **Telemetry now, auto-apply later**: every job records `provider`, `model`,
-  `doc_kind`, `chunk_count`, `tokens_in/out`, latency, `accept_as_is: bool`
-  (applied with zero edits) and `edit_distance: u32` (content-free count of
-  user resolutions/edits). Auto-apply is explicitly out of scope for v1 and
-  gated on future minimum-sample + accept-rate thresholds recorded in this
-  table.
+  `doc_kind`, `chunk_count`, `tokens_in/out`, latency and an apply state.
+  Never-applied jobs are recorded as `NotApplied` (`accept_as_is` NULL,
+  `edit_distance` NULL);
+  applied jobs record `accept_as_is: bool` (applied with zero edits) and
+  `edit_distance: u32` (content-free count of user resolutions/edits), with
+  zero edits staying a valid `edit_distance = 0`. Acceptance/edit-rate
+  calculations exclude `NotApplied` jobs. Auto-apply is explicitly out of
+  scope for v1 and gated on future minimum-sample + accept-rate thresholds
+  recorded in this table.
 - **Resilience & bounds**: per-job request cap, per-user in-flight concurrency
   cap, `retry_transient` (existing primitive) for 429/5xx/timeout mapped to
   `ServiceUnavailable` (in-loop retry), 4xx (bad key/model) mapped to permanent

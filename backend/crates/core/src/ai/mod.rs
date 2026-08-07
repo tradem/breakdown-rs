@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! AI-assisted script and shooting-schedule import bounded context.
 //!
@@ -34,4 +35,7 @@ pub use preview::{
     Uncertainty, ensure_merge_applyable, ensure_script_applyable, extract_scenes,
     merge_schedule_to_scenes, plan_scene_apply,
 };
-pub use views::{AiConfigView, AiImportJob, AiImportJobId, DocumentKind, JobStatus, Telemetry};
+pub use views::{
+    AiConfigView, AiImportJob, AiImportJobId, DocumentKind, JobStatus, Telemetry,
+    TelemetryApplyState,
+};

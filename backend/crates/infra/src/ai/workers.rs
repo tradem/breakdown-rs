@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -9,8 +10,8 @@ use anyhow::Error as AnyhowError;
 use breakdown_core::ai::{
     AiImportBounds, AiImportJob, AiImportJobId, AiImportMapping, AiImportMappingRepository,
     AiImportQueue, ApplyMapping, ApplyMappingDecision, DocumentKind, LlmChatRequest, LlmClient,
-    MergedPreview, ScriptContext, ShootingSchedule, Telemetry, ensure_merge_applyable,
-    ensure_script_applyable, extract_scenes, merge_schedule_to_scenes,
+    MergedPreview, ScriptContext, ShootingSchedule, Telemetry, TelemetryApplyState,
+    ensure_merge_applyable, ensure_script_applyable, extract_scenes, merge_schedule_to_scenes,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::scene::commands::{CreateScene, UpdateSceneDetails};
@@ -144,6 +145,9 @@ where
                     doc_kind: Some(DocumentKind::Script),
                     chunk_count,
                     latency_total: started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+                    // The job only reached preview; the apply outcome (if any)
+                    // is recorded by the apply path as `Applied`.
+                    apply_state: TelemetryApplyState::NotApplied,
                     ..Telemetry::default()
                 },
             )
@@ -254,6 +258,9 @@ where
                     model: (!native_csv).then(|| self.model.clone()),
                     doc_kind: Some(DocumentKind::Schedule),
                     latency_total: started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+                    // The job only reached preview; the apply outcome (if any)
+                    // is recorded by the apply path as `Applied`.
+                    apply_state: TelemetryApplyState::NotApplied,
                     ..Telemetry::default()
                 },
             )

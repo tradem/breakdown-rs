@@ -9,6 +9,18 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.4.2] - 2026-08-07
+
+### Fixed
+
+- Ships the AI import telemetry fix (issue #171) in the `api` image: `core`
+  is re-pinned to 0.4.0 and `infra` to 0.6.0, which record never-applied
+  jobs with `edit_distance = NULL` (`NotApplied`) instead of a misleading
+  `0`, while applied zero-edit outcomes keep `edit_distance = 0`. PATCH
+  release (ADR-020 D6): no crate API or HTTP wire-contract change
+  (`ApplyAiImportRequest` still carries `accept_as_is` + `edit_distance`);
+  HTTP path version stays `/v1` (ADR-021 D2).
+
 ## [0.4.1] - 2026-08-06
 
 ### Fixed

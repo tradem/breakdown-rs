@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -111,6 +112,45 @@ pub struct AiImportJob {
     pub updated_at: DateTime<Utc>,
 }
 
+/// Whether an import job ever reached the apply step, and with what outcome.
+///
+/// Jobs that stay preview-only are recorded as `NotApplied` so their
+/// `edit_distance` is explicitly NULL rather than a misleading `0` — an
+/// applied job that needed no user edits legitimately records
+/// `edit_distance = 0`. Acceptance and edit-rate calculations SHALL exclude
+/// `NotApplied` jobs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TelemetryApplyState {
+    #[default]
+    NotApplied,
+    Applied {
+        /// True when the preview was applied without any user edits or
+        /// uncertainty resolutions.
+        accept_as_is: bool,
+        /// Content-free count of user resolutions/edits at apply time.
+        edit_distance: u32,
+    },
+}
+
+impl TelemetryApplyState {
+    /// The `accept_as_is` value for persistence: `None` for `NotApplied`.
+    pub const fn accept_as_is(self) -> Option<bool> {
+        match self {
+            Self::NotApplied => None,
+            Self::Applied { accept_as_is, .. } => Some(accept_as_is),
+        }
+    }
+
+    /// The `edit_distance` value for persistence: `None` for `NotApplied`.
+    pub const fn edit_distance(self) -> Option<u32> {
+        match self {
+            Self::NotApplied => None,
+            Self::Applied { edit_distance, .. } => Some(edit_distance),
+        }
+    }
+}
+
 /// Content-free operational telemetry captured for an import job.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
 pub struct Telemetry {
@@ -122,6 +162,6 @@ pub struct Telemetry {
     pub tokens_out: u64,
     /// Total latency in milliseconds.
     pub latency_total: u64,
-    pub accept_as_is: Option<bool>,
-    pub edit_distance: u32,
+    /// Apply outcome; `NotApplied` while the job is preview-only.
+    pub apply_state: TelemetryApplyState,
 }

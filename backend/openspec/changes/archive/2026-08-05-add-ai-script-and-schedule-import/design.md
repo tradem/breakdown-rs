@@ -52,8 +52,9 @@ utoipa present; schemars NOT a dep yet; reqwest + tower present.
   with provenance `AiExtracted`.
 - Per-user curated provider/key/model/prompt configuration, stored securely.
 - Resilient, cost-bounded, observable LLM HTTP transport.
-- Telemetry capturing `accept_as_is` + `edit_distance`, enabling a future
-  telemetry-gated auto-apply (v2, out of scope here).
+- Telemetry capturing an explicit apply state (`NotApplied` vs. applied with
+  `accept_as_is` + `edit_distance`), enabling a future telemetry-gated
+  auto-apply (v2, out of scope here).
 
 **Non-Goals:**
 - Auto-apply without human review (v2; telemetry-gated).
@@ -249,12 +250,17 @@ image-model + prompt-template selection).
 
 ### Telemetry — captured now, decide later
 Per-job columns: `provider, model, doc_kind, chunk_count, tokens_in, tokens_out,
-latency_total, accept_as_is: bool, edit_distance: u32`. `accept_as_is` and
-`edit_distance` are only cheaply capturable at apply time and cannot be
-backfilled, so they are recorded from day one even though auto-apply is off.
+latency_total` plus an apply state. Jobs that never reach apply are recorded as
+`NotApplied` (`accept_as_is` NULL, `edit_distance` NULL); applied jobs record
+`accept_as_is: bool` and `edit_distance: u32`, with zero edits remaining a valid
+`edit_distance = 0` (issue #171). `accept_as_is` and `edit_distance` are only
+cheaply capturable at apply time and cannot be backfilled, so they are recorded
+from day one even though auto-apply is off. Acceptance-rate and edit-rate
+calculations exclude `NotApplied` jobs.
 
 **Future (v2, out of scope):** auto-apply eligibility = provider+model with ≥ N
-jobs (min sample, say 50) and ≥ 95% `accept_as_is` on `doc_kind=Script`, with a
+applied jobs (min sample, say 50) and ≥ 95% `accept_as_is` on
+`doc_kind=Script` — computed only over `Applied` telemetry, with a
 per-(provider,model) rollback toggle, and applied jobs retaining a preview for
 audit. An additional `originating_job_id` in `EventMetadata` would reconstruct
 "this scene came from script X run by model Y".

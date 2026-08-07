@@ -180,15 +180,26 @@ provider side; local caps are defense in depth.
 
 ### Requirement: Telemetry is captured from day one
 Every import job SHALL record `provider`, `model`, `doc_kind`, `chunk_count`,
-`tokens_in`, `tokens_out`, `latency_total`, `accept_as_is: bool` (applied with
-zero edits) and `edit_distance: u32` (content-free count of user
-resolutions/edits; never script text — NDA). `accept_as_is` and `edit_distance`
-SHALL be captured at apply time (the only moment they are observable) and SHALL
-NOT be backfillable. Auto-apply is out of scope for v1.
+`tokens_in`, `tokens_out`, `latency_total` and an apply state. Jobs that never
+reach apply SHALL be recorded as `NotApplied` (`accept_as_is` NULL,
+`edit_distance` NULL); jobs that
+are applied SHALL record `accept_as_is: bool` (applied with zero edits) and
+`edit_distance: u32` (content-free count of user resolutions/edits; never
+script text — NDA). `accept_as_is` and `edit_distance` SHALL be captured at
+apply time (the only moment they are observable) and SHALL NOT be backfillable.
+Acceptance-rate and edit-rate calculations SHALL exclude `NotApplied` jobs.
+Auto-apply is out of scope for v1.
 
 #### Scenario: Apply records accept signal
 - **WHEN** a user applies a preview without any edits or uncertainty resolutions
 - **THEN** the job's `accept_as_is` is recorded as true and `edit_distance` as 0
+- **AND** an applied zero-edit outcome is distinguishable from a never-applied
+  job (which SHALL have `edit_distance` NULL)
+
+#### Scenario: Never-applied job has no edit distance
+- **WHEN** a job reaches preview but is never applied
+- **THEN** its apply state is `NotApplied`
+- **AND** its `edit_distance` is NULL
 
 #### Scenario: Telemetry contains no script content
 - **WHEN** the system records `edit_distance`
