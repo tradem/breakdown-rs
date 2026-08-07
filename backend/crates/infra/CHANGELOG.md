@@ -11,6 +11,19 @@ commits (ADR-020 D5).
 
 ## [0.9.0] - Unreleased
 
+### Added — AI payload cleanup worker (issue #198)
+
+- New `ai::payload_cleanup` module with periodic garbage collection for
+  AI import payloads in Garage. Deletes source documents and preview
+  payloads for terminal-state jobs (succeeded/failed/dead_letter) after
+  a configurable grace period (default: 7 days).
+- Advisory-locked sweep prevents concurrent cleanup runs.
+- Dry-run mode for safe initial rollout (`AI_PAYLOAD_GC_DRY_RUN=true`).
+- History table `projection_ai_payload_gc_run` tracks cleanup runs.
+- New `AiPayloadGcConfig` type for cleanup configuration.
+- Environment variables: `AI_PAYLOAD_GC_ENABLED`, `AI_PAYLOAD_GC_INTERVAL_SECS`,
+  `AI_PAYLOAD_GC_MAX_AGE_SECS`, `AI_PAYLOAD_GC_BATCH_SIZE`, `AI_PAYLOAD_GC_DRY_RUN`.
+
 ### Added — Durable AI payload storage (issue #174)
 
 - New `ai::payload_storage` module with `OpenDalAiPayloadStorage` adapter
