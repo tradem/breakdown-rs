@@ -4508,6 +4508,14 @@ pub async fn apply_ai_import(
         .await
         .map_err(map_err)?
         .ok_or_else(|| map_err(DomainError::NotFound("AI preview".to_owned())))?;
+    // An accept-as-is outcome means the user made zero edits; a nonzero
+    // edit_distance alongside it is contradictory and would persist an
+    // invalid applied outcome (issue #171 review).
+    if request.accept_as_is && request.edit_distance != 0 {
+        return Err(map_err(DomainError::ValidationError(
+            "accept_as_is requires edit_distance = 0".to_owned(),
+        )));
+    }
     let telemetry = Telemetry {
         doc_kind: Some(job.document_kind),
         // Apply reached: record the accept signal and the content-free edit

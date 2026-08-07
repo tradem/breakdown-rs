@@ -181,7 +181,8 @@ provider side; local caps are defense in depth.
 ### Requirement: Telemetry is captured from day one
 Every import job SHALL record `provider`, `model`, `doc_kind`, `chunk_count`,
 `tokens_in`, `tokens_out`, `latency_total` and an apply state. Jobs that never
-reach apply SHALL be recorded as `NotApplied` (`edit_distance` NULL); jobs that
+reach apply SHALL be recorded as `NotApplied` (`accept_as_is` NULL,
+`edit_distance` NULL); jobs that
 are applied SHALL record `accept_as_is: bool` (applied with zero edits) and
 `edit_distance: u32` (content-free count of user resolutions/edits; never
 script text — NDA). `accept_as_is` and `edit_distance` SHALL be captured at
