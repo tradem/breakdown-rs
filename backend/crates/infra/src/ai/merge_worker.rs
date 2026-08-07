@@ -64,7 +64,12 @@ where
         let merged = match merge_from_input(&input) {
             Ok(merged) => merged,
             Err(error) => {
-                self.fail(job.id, &error, true).await?;
+                // A Conflict (empty scenes) is non-retryable: the MergeInput is
+                // immutable and the worker cannot observe later applied scenes.
+                // The caller must re-prepare a fresh MergeInput at the API boundary
+                // after scenes are applied (CQRS boundary, AGENTS.md §1).
+                let retryable = !matches!(error, DomainError::Conflict(_));
+                self.fail(job.id, &error, retryable).await?;
                 return Err(error);
             }
         };

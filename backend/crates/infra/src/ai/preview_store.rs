@@ -45,6 +45,16 @@ impl AiPreviewStore for MemoryAiPreviewStore {
     }
 }
 
+impl MemoryAiPreviewStore {
+    /// Store a payload under an explicit handle (test helper).
+    /// The production `put` derives the handle from the job id; tests
+    /// sometimes need to control the handle to match a fake queue's
+    /// `preview_handle` field.
+    pub async fn put_raw(&self, handle: String, payload: Vec<u8>) {
+        self.values.write().await.insert(handle, payload);
+    }
+}
+
 #[async_trait]
 impl AiDocumentSource for MemoryAiPreviewStore {
     async fn load(&self, handle: &str) -> Result<Vec<u8>, DomainError> {
