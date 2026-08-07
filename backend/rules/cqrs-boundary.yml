@@ -28,6 +28,9 @@ severity: error
 language: Rust
 constraints:
   METHOD:
+    # Match list_by_* and find_by_* methods. find_by_id is also matched
+    # here but the explicit find_by_id patterns above take precedence;
+    # ast-grep deduplicates findings per code location.
     regex: '^(list_by_|find_by_)[a-z0-9_]+$'
 rule:
   any:
