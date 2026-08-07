@@ -5,7 +5,7 @@ license: AGPL-3.0
 compatibility: Requires `gh` CLI authenticated with GitHub.
 metadata:
   author: breakdown-rs
-  version: "1.0"
+  version: "1.1"
 ---
 
 # Issue Implementation Workflow
@@ -29,10 +29,15 @@ Systematically implement a GitHub issue: analyze, check for drift, plan, create 
 ### Step 1: Read and Analyze the Issue
 
 ```bash
-gh issue view {issue} 2>/dev/null || echo "gh not available or issue not found"
+# Fail immediately if issue cannot be retrieved
+if ! gh issue view {issue}; then
+  echo "Issue lookup failed" >&2
+  exit 1
+fi
 ```
 
 **Critical reflection:**
+
 - What does the issue ask for?
 - Are there similar implementations already?
 - Could there be drift (issue describes already-implemented features)?
@@ -48,10 +53,8 @@ analyze_ast_context --path "[affected files]"
 ```
 
 **Ask user if drift detected:**
-```
-"Issue #X mentions [feature], but I found [existing implementation]. 
-Should I proceed with [approach A] or [approach B]?"
-```
+
+> "Issue #X mentions [feature], but I found [existing implementation]. Should I proceed with [approach A] or [approach B]?"
 
 ### Step 3: Create Feature Branch
 
@@ -60,6 +63,7 @@ git checkout -b feature/{issue}-{short-description}
 ```
 
 **Branch naming:**
+
 - `feature/{issue}-{kebab-case-description}`
 - Example: `feature/174-durable-ai-payload-storage`
 
@@ -83,26 +87,50 @@ Write plan to `openspec/changes/{issue}-{description}/proposal.md`.
 ### Step 5: Implement
 
 1. Create/modify files as planned
-2. Add SPDX headers with co-authored-by:
-   ```rust
-   // SPDX-License-Identifier: AGPL-3.0
-   // Copyright (C) 2024-2026 Breakdown RS Contributors
-   // Co-authored-by: [model] ([provider])
-   ```
+2. Add language-appropriate SPDX headers:
+
+**Rust files:**
+
+```rust
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: [model] ([provider])
+```
+
+**Markdown files:**
+
+```markdown
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+<!-- Co-authored-by: [model] ([provider]) -->
+```
+
+**Shell scripts:**
+
+```bash
+#!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: [model] ([provider])
+```
+
 3. Run tests frequently:
-   ```bash
-   cargo check --workspace
-   cargo test -p [affected-crate]
-   cargo clippy -p [affected-crate]
-   ```
+
+```bash
+cargo check --workspace
+cargo test -p [affected-crate]
+cargo clippy -p [affected-crate]
+```
 
 ### Step 6: Bump Versions (if needed)
 
 For crate API changes:
+
 - `infra`: MINOR bump for additive changes
 - `api`: PATCH for consumption, MINOR for new public API
 
 Update:
+
 - `Cargo.toml` version
 - `CHANGELOG.md`
 - Dependency pins in consuming crates
@@ -121,14 +149,16 @@ gh issue create --title "[type]: [description]" --body "## Summary
 - [ ] [Criterion 2]
 
 ## Depends On
-- Issue #{prerequisite}
-"
+- Issue #{prerequisite}"
 ```
 
 ### Step 8: Commit
 
 ```bash
-git add -A
+# Stage only intended files
+git add backend/crates/{crate}/src/{file}.rs
+git diff --cached
+
 git commit -m "{type}: {description} (issue #{number})
 
 {Detailed description}
@@ -137,6 +167,7 @@ Co-authored-by: [model] ([provider])"
 ```
 
 **Commit message format:**
+
 - `feat:` new feature
 - `fix:` bug fix
 - `docs:` documentation
@@ -163,9 +194,10 @@ gh issue comment {followup} --body "Follow-up to issue #{issue} (PR #{pr})."
 
 ## Guardrails
 
+- **Fail immediately** if issue lookup fails
 - **Always check for drift** before implementing
 - **Ask user** for architectural decisions
 - **Test frequently** during implementation
 - **Use conventional commits**
 - **Create follow-up issues** for deferred work
-- **Add co-authored-by** to all commits and files
+- **Use language-appropriate SPDX headers**

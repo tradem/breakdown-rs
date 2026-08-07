@@ -5,7 +5,7 @@ license: AGPL-3.0
 compatibility: Requires `gh` CLI authenticated with GitHub.
 metadata:
   author: breakdown-rs
-  version: "1.0"
+  version: "1.1"
 ---
 
 # PR Lifecycle Management
@@ -89,11 +89,13 @@ Co-authored-by: [model] ([provider])"
 ### Step 3: Link Issues
 
 **Close issue when PR merges:**
+
 ```bash
 gh issue close {issue} --comment "Closed by PR #{pr}: {title}"
 ```
 
 **Mark follow-up issues:**
+
 ```bash
 gh issue comment {followup} --body "Follow-up to issue #{original} (closed by PR #{pr}). [Description of what this issue tracks]."
 ```
@@ -101,18 +103,24 @@ gh issue comment {followup} --body "Follow-up to issue #{original} (closed by PR
 ### Step 4: Manage Reviews
 
 **Request review:**
+
 ```bash
-gh pr request-review {pr} --reviewer {username}
+gh pr edit {pr} --add-reviewer {username}
 ```
 
 **Respond to review comments:**
+
 ```bash
 # See coderabbitai-review skill for detailed workflow
 ```
 
 **Dismiss stale reviews (if needed):**
+
 ```bash
-gh pr dismiss-review {pr} --reason "Changes addressed feedback"
+gh api repos/{owner}/{repo}/pulls/{pr}/reviews/{review_id}/dismissals \
+  --method PUT \
+  -f message="Changes addressed feedback" \
+  -f event=DISMISS
 ```
 
 ### Step 5: Bump Crate Versions & Update Changelogs
@@ -120,6 +128,7 @@ gh pr dismiss-review {pr} --reason "Changes addressed feedback"
 When modifying crate APIs, bump versions and update changelogs per ADR-020.
 
 **Version Bump Rules (ADR-020):**
+
 - **MINOR**: Additive public API changes (new traits, new methods, new types)
 - **PATCH**: Bug fixes, internal changes, consumption of new infra API
 - **MAJOR**: Breaking changes (avoid in major-zero crates)
@@ -154,12 +163,12 @@ crates/{consumer}/Cargo.toml  # version = "X.Y.Z"
 
 - Bug fix description (issue #{number})
 
-- Re-pins `{crate}` to X.Y.Z (description; under major-zero semver this is a PATCH/MINOR bump, ADR-020 D2/D3).
+- Re-pins \`{crate}\` to X.Y.Z (description; under major-zero semver this is a PATCH/MINOR bump, ADR-020 D2/D3).
 ```
 
 **Dependency chain example:**
 
-```
+```text
 core 0.5.0 (new trait)
   ↓
 infra 0.8.0 → 0.9.0 (consumes core, adds new trait)
@@ -185,6 +194,7 @@ gh run view {run-id} --log-failed
 ```
 
 **Common fixes:**
+
 - Formatting: `cargo fmt`
 - Linting: `cargo clippy --fix`
 - Tests: Fix failing tests
@@ -192,15 +202,16 @@ gh run view {run-id} --log-failed
 ### Step 7: Merge
 
 ```bash
-# Squash merge (default for feature branches)
+# Squash merge (default for feature branches) - also deletes local and remote branch
 gh pr merge {pr} --squash --delete-branch
 
-# Or merge commit
+# Or merge commit - also deletes local and remote branch
 gh pr merge {pr} --merge --delete-branch
 ```
 
 **Merge message format:**
-```
+
+```text
 {type}: {description} (issue #{number})
 
 {Body from PR}
@@ -211,16 +222,14 @@ Co-authored-by: [model] ([provider])
 ### Step 8: Post-Merge Cleanup
 
 ```bash
-# Delete local branch
-git branch -d {branch}
-
-# Verify issue closed
+# Verify issue closed (branch deletion handled by --delete-branch in Step 7)
 gh issue view {issue} --json state
 ```
 
 ## Issue Linking Keywords
 
 Use in PR body to auto-close issues:
+
 - `Fixes #123` - closes issue when PR merges
 - `Closes #123` - same as Fixes
 - `Resolves #123` - same as Fixes
@@ -230,19 +239,24 @@ Use in PR body to auto-close issues:
 
 ```markdown
 ## Summary
+
 [What this follow-up tracks]
 
 ## Problem
+
 [Why this wasn't done in the original PR]
 
 ## Acceptance Criteria
+
 - [ ] [Criterion 1]
 - [ ] [Criterion 2]
 
 ## Depends On
+
 - Issue #{prerequisite} must be merged first
 
 ## Follow-up from
+
 - PR #{original-pr} review comment {comment-id}
 ```
 

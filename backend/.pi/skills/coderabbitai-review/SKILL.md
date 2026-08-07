@@ -5,7 +5,7 @@ license: AGPL-3.0
 compatibility: Requires `gh` CLI authenticated with GitHub.
 metadata:
   author: breakdown-rs
-  version: "1.0"
+  version: "1.1"
 ---
 
 # CodeRabbitAI Review Response
@@ -28,21 +28,22 @@ Systematically process CodeRabbitAI review comments, evaluate their validity, im
 ### Step 1: Read All Review Comments
 
 ```bash
-# Get all CodeRabbitAI comments
 gh api repos/{owner}/{repo}/pulls/{pr}/comments --paginate \
   --jq '.[] | select(.user.login == "coderabbitai[bot]") | {id: .id, path: .path, line: .line, body: .body[0:800]}'
 ```
 
 ### Step 2: Categorize Comments
 
-For each comment, classify as:
-- **Fixed**: Justified, will implement
+For each comment, classify using exactly one of these three statuses:
+
+- **Fixed**: Justified, will implement now
 - **Deferred**: Valid but tracked in separate issue
-- **Rejected**: False positive, not applicable
+- **Not applicable**: False positive or not relevant
 
 ### Step 3: Implement Fixes
 
 For each "Fixed" comment:
+
 1. Read the affected file
 2. Understand the suggestion
 3. Implement the fix
@@ -51,25 +52,34 @@ For each "Fixed" comment:
 ### Step 4: Reply to Each Comment
 
 ```bash
-# Reply to a specific comment
 gh api repos/{owner}/{repo}/pulls/{pr}/comments/{comment_id}/replies \
-  -f body="Fixed/Deferred: [explanation]"
+  -f body="Fixed/Deferred/Not applicable: [explanation]"
 ```
 
-**Reply format:**
-- Start with status: `Fixed:`, `Deferred:`, or `Not applicable:`
-- Brief explanation of what was done or why deferred
-- Reference to issue if deferred
+**Reply format** (must match categorization exactly):
+
+- `Fixed: [what was changed]`
+- `Deferred: [reason]. Tracked in issue #[number].`
+- `Not applicable: [reason]`
 
 ### Step 5: Commit and Push
 
 ```bash
-git add -A
+# Stage ONLY the files you modified for this review
+git add backend/crates/{crate}/src/{file}.rs
+git add backend/crates/{crate}/tests/{file}.rs
+
+# Inspect what will be committed
+git diff --cached
+
+# Commit with conventional message
 git commit -m "fix: address CodeRabbitAI review feedback
 
 - [List of fixes]
 
 Co-authored-by: [model] ([provider])"
+
+# Push
 git push
 ```
 
@@ -82,6 +92,7 @@ gh pr comment {pr} --body "@coderabbitai I've addressed all actionable comments.
 ## Comment Response Templates
 
 ### Fixed
+
 ```
 Fixed: [Brief description of what was changed].
 
@@ -89,6 +100,7 @@ Fixed: [Brief description of what was changed].
 ```
 
 ### Deferred
+
 ```
 Deferred: [Reason for deferring].
 
@@ -96,6 +108,7 @@ Tracked in issue #[number]. [Brief explanation of why it's a separate concern].
 ```
 
 ### Not Applicable
+
 ```
 Not applicable: [Reason why this doesn't apply].
 
@@ -106,17 +119,17 @@ Not applicable: [Reason why this doesn't apply].
 
 | Pattern | Typical Response |
 |---------|------------------|
-| "Document X" | Fix documentation |
-| "Add test for Y" | Defer to separate issue if complex |
-| "Use ErrorKind::NotFound" | Implement if justified |
-| "Merge duplicate headers" | Fix |
-| "Do not echo secrets" | Fix security issue |
-| "Add reconciliation" | Defer to cleanup worker issue |
+| "Document X" | Fixed |
+| "Add test for Y" | Deferred (if complex) |
+| "Use ErrorKind::NotFound" | Fixed (if justified) |
+| "Merge duplicate headers" | Fixed |
+| "Do not echo secrets" | Fixed (security) |
+| "Add reconciliation" | Deferred (cleanup worker) |
 
 ## Guardrails
 
-- Always reply to EVERY comment, even if just acknowledging
-- Never leave comments unanswered
-- Defer complex changes to separate issues with clear description
-- Verify fixes compile and pass tests before committing
-- Use conventional commit messages
+- **Use consistent status vocabulary**: Fixed, Deferred, or Not applicable
+- **Reply to EVERY comment** — never leave comments unanswered
+- **Stage only intended files** — do not use `git add -A`
+- **Verify fixes compile** before committing
+- **Use conventional commit messages**
