@@ -26,17 +26,17 @@ message: >-
   `// ast-grep-ignore: cqrs-boundary` comment and a justification.
 severity: error
 language: Rust
+constraints:
+  METHOD:
+    regex: '^(list_by_|find_by_)[a-z0-9_]+$'
 rule:
   any:
-    # Direct projection lookups
+    # find_by_id — the most common projection lookup
     - pattern: $REPO.find_by_id($$$ARGS)
     - pattern: $REPO::find_by_id($$$ARGS)
-    # List queries (e.g. list_by_block, list_by_episode, list_by_season)
-    - pattern: $REPO.list_by_$$$METHOD($$$ARGS)
-    - pattern: $REPO::list_by_$$$METHOD($$$ARGS)
-    # Generic find queries (e.g. find_by_series_and_number)
-    - pattern: $REPO.find_by_$$$METHOD($$$ARGS)
-    - pattern: $REPO::find_by_$$$METHOD($$$ARGS)
+    # Method-family queries: list_by_*, find_by_* (except find_by_id above)
+    - pattern: $REPO.$METHOD($$$ARGS)
+    - pattern: $REPO::$METHOD($$$ARGS)
     # The AI idempotency mapping lookup (`AiImportMappingRepository::find`) also
     # reads a projection. It is a documented non-audit read: the spec requires
     # it for crash-safe re-apply idempotency, and each call site carries an

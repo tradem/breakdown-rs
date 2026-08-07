@@ -186,7 +186,9 @@ async fn merge_worker_empty_input_is_non_retryable() {
     let payload = serde_json::to_vec(&input).unwrap();
     // The queue returns a job with preview_handle="test-preview", so store
     // the payload under that exact handle.
-    previews.put_raw("test-preview".to_owned(), payload).await;
+    previews
+        .put_raw_for_test("test-preview".to_owned(), payload)
+        .await;
 
     let worker = QueueMergeWorker {
         queue: queue.clone(),
