@@ -435,6 +435,19 @@ All three variables (`AI_PAYLOAD_S3_ENDPOINT`, `AI_PAYLOAD_S3_ACCESS_KEY`, `AI_P
 > starts. See `docker-compose.dev.yml` for the internal-only Garage service. During first
 > rollout set `PHOTO_GC_DRY_RUN=true` to observe orphan detection logs before enabling deletion.
 
+#### AI payload GC (periodic cleanup)
+
+- `AI_PAYLOAD_GC_ENABLED` – enable periodic cleanup (default: `true`).
+- `AI_PAYLOAD_GC_INTERVAL_SECS` – sweep interval in seconds (default: `3600`).
+- `AI_PAYLOAD_GC_MAX_AGE_SECS` – only cleanup payloads for jobs older than this (default: `604800` = 7 days).
+- `AI_PAYLOAD_GC_BATCH_SIZE` – max payloads per run (default: `1000`).
+- `AI_PAYLOAD_GC_DRY_RUN` – log-only mode (default: `false`; set `true` for first rollout).
+
+> **AI payload GC**: A periodic worker cleans up Garage payloads for terminal-state jobs
+> (succeeded/failed/dead_letter) after the configurable grace period. The worker uses a
+> Postgres advisory lock to prevent concurrent sweeps. Set `AI_PAYLOAD_GC_DRY_RUN=true`
+> for the first rollout to observe deletion logs before enabling actual cleanup.
+
 #### OIDC / authorization (added by `add-oidc-auth-and-membership`)
 - `OIDC_ISS` – IdP issuer URL (expected `iss` claim). Production-only; when
   absent **and** `DEV_AUTH_SUB` is set, the API runs in **dev auth mode** (see below).
