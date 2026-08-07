@@ -229,8 +229,10 @@ mod tests {
 
     #[test]
     fn aliases_do_not_shadow_canonical_keys() {
-        // If an alias collides with a canonical key of another provider, the
-        // canonical key wins (checked first in resolve_provider).
+        // resolve_provider scans entries in registry order and checks each
+        // entry's key and aliases before the next entry. An alias on an
+        // earlier entry would therefore shadow a later canonical key, so no
+        // collision is allowed at all.
         for entry in PROVIDER_REGISTRY {
             for alias in entry.aliases {
                 // The alias must not be a canonical key of a different entry.
@@ -243,6 +245,36 @@ mod tests {
                     other.map(|e| e.variant)
                 );
             }
+        }
+    }
+
+    #[test]
+    fn keys_and_aliases_are_unique() {
+        let mut seen: Vec<&'static str> = Vec::new();
+        for entry in PROVIDER_REGISTRY {
+            for name in std::iter::once(&entry.key).chain(entry.aliases.iter()) {
+                assert!(
+                    !seen.contains(name),
+                    "duplicate provider name `{name}` in registry"
+                );
+                seen.push(name);
+            }
+        }
+    }
+
+    #[test]
+    fn registry_keys_match_core_as_str() {
+        // Prevent drift: every registry key must equal the corresponding
+        // LlmProvider::as_str() value.
+        for entry in PROVIDER_REGISTRY {
+            assert_eq!(
+                entry.key,
+                entry.variant.as_str(),
+                "registry key `{}` does not match LlmProvider::as_str() `{}` for {:?}",
+                entry.key,
+                entry.variant.as_str(),
+                entry.variant
+            );
         }
     }
 }
