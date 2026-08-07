@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+use crate::error::DomainError;
 use crate::scene::commands::{CreateScene, UpdateSceneDetails};
 use crate::scene::events::SceneDetails;
 use crate::scene::views::SceneView;
@@ -97,6 +98,20 @@ pub struct MergedPreview {
     pub scenes: Vec<MergedScene>,
     pub unmatched_schedule_rows: Vec<ShootingScheduleRow>,
     pub unmatched_script_scenes: Vec<SceneView>,
+}
+
+/// Immutable scene context for deterministic schedule merging.
+///
+/// Prepared at the API/query boundary (authorized read) and passed into the
+/// merge worker so the write-side never queries a read-model projection
+/// (CQRS boundary, AGENTS.md §1). The worker only performs a deterministic
+/// join of schedule rows onto these pre-loaded scenes.
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct MergeInput {
+    /// The shooting schedule to merge.
+    pub schedule: ShootingSchedule,
+    /// Applied scenes for the target block, pre-loaded at the API boundary.
+    pub scenes: Vec<SceneView>,
 }
 
 /// User decision for one draft row. A create decision leaves the aggregate id
@@ -309,6 +324,20 @@ pub fn merge_schedule_to_scenes(
         unmatched_schedule_rows,
         unmatched_script_scenes,
     }
+}
+
+/// Merge a `MergeInput` into a `MergedPreview`.
+///
+/// This is the CQRS-safe entry point: the caller prepares `MergeInput` at the
+/// API boundary (authorized read), and the write-side worker calls this pure
+/// function without touching any projection.
+pub fn merge_from_input(input: &MergeInput) -> Result<MergedPreview, DomainError> {
+    if input.scenes.is_empty() {
+        return Err(DomainError::Conflict(
+            "merge pending: block has no applied scenes yet".to_owned(),
+        ));
+    }
+    Ok(merge_schedule_to_scenes(&input.schedule, &input.scenes))
 }
 
 #[cfg(test)]

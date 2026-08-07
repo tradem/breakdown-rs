@@ -139,3 +139,35 @@ fn open_uncertainties_and_unmatched_rows_block_apply() {
         Err(ApplyGateError::MissingMapping(_))
     ));
 }
+
+#[test]
+fn merge_from_input_blocks_on_empty_scenes() {
+    let input = MergeInput {
+        schedule: ShootingSchedule::default(),
+        scenes: Vec::new(),
+    };
+    assert!(matches!(
+        merge_from_input(&input),
+        Err(DomainError::Conflict(_))
+    ));
+}
+
+#[test]
+fn merge_from_input_joins_schedule_to_scenes() {
+    let input = MergeInput {
+        schedule: ShootingSchedule {
+            block_id: None,
+            rows: vec![ShootingScheduleRow {
+                row_ref: "row-1".into(),
+                scene_number: Some(1),
+                ..Default::default()
+            }],
+        },
+        scenes: vec![scene(1), scene(2)],
+    };
+    let merged = merge_from_input(&input).unwrap();
+    assert_eq!(merged.scenes[0].schedule_rows.len(), 1);
+    assert_eq!(merged.unmatched_schedule_rows.len(), 0);
+    assert_eq!(merged.unmatched_script_scenes.len(), 1);
+    assert_eq!(merged.unmatched_script_scenes[0].scene_number, Some(2));
+}
