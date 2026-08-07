@@ -8,6 +8,10 @@
 //! document adapters can be added without making the core domain depend on
 //! `reqwest`, `sqlx`, `schemars`, or subprocess APIs.
 
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: mimo-v2.5 (opencode-go)
+
 pub mod catalog;
 pub mod client;
 pub mod concurrency;
@@ -17,6 +21,7 @@ pub mod gdrive_source;
 pub mod mapping;
 pub mod merge_worker;
 pub mod ollama;
+pub mod payload_storage;
 pub mod pdf;
 pub mod pg_concurrency;
 pub mod preview_store;
@@ -38,9 +43,10 @@ pub use gdrive_source::{GDriveDocument, GDriveDocumentSource};
 pub use mapping::PgAiImportMappingRepository;
 pub use merge_worker::{QueueMergeWorker, merge_loaded_schedule};
 pub use ollama::OllamaChatClient;
+pub use payload_storage::OpenDalAiPayloadStorage;
 pub use pdf::PdfTextExtractor;
 pub use pg_concurrency::{PgAiConcurrencyLimiter, PgAiConcurrencyPermit};
-pub use preview_store::{AiDocumentSource, AiPreviewStore, MemoryAiPreviewStore};
+pub use preview_store::{AiDocumentSource, AiDocumentStore, AiPreviewStore, MemoryAiPreviewStore};
 pub use prompts::default_prompt;
 pub use provider_registry::{
     PROVIDER_REGISTRY, ProviderInfo, curated_models, list_providers, resolve_provider,

@@ -9,6 +9,10 @@
 //! Composition-Root: Hier werden alle Abhängigkeiten per Hand injiziert
 //! (Poor Man's Dependency Injection gemäß hexagonaler Architektur).
 
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: mimo-v2.5 (opencode-go)
+
 use std::env;
 use std::sync::Arc;
 
@@ -18,7 +22,7 @@ use api::auth::{AuthState, AuthorizationState};
 use api::routes::app_router;
 use api::state::{AppState, Ports, ProductionPorts};
 use breakdown_core::membership::policy::AuthorizationPolicy;
-use infra::ai::MemoryAiPreviewStore;
+use infra::ai::{AiDocumentSource, AiDocumentStore, AiPreviewStore, MemoryAiPreviewStore};
 use infra::event_store::{
     AiConfigCommandsImpl, BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl,
     CostumeCommandsImpl, EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl,
@@ -423,7 +427,22 @@ async fn main() -> Result<()> {
     let report_archival_queue = PgReportArchivalQueue::new(pool.clone());
     let ai_import_queue = infra::ai::PgAiImportQueue::new(pool.clone());
     let ai_import_mapping = infra::ai::PgAiImportMappingRepository::new(pool.clone());
-    let ai_preview_store = MemoryAiPreviewStore::default();
+    let (ai_preview_store, ai_document_store, ai_document_source): (
+        std::sync::Arc<dyn AiPreviewStore + Send + Sync>,
+        std::sync::Arc<dyn AiDocumentStore + Send + Sync>,
+        std::sync::Arc<dyn AiDocumentSource + Send + Sync>,
+    ) = match infra::ai::OpenDalAiPayloadStorage::from_env() {
+        Some(storage) => {
+            info!("AI payload storage configured — using durable S3 backend");
+            let storage = std::sync::Arc::new(storage);
+            (storage.clone() as _, storage.clone() as _, storage as _)
+        }
+        None => {
+            warn!("AI payload storage not configured — using in-memory (dev only)");
+            let store = std::sync::Arc::new(MemoryAiPreviewStore::default());
+            (store.clone() as _, store.clone() as _, store as _)
+        }
+    };
     let report_staging: std::sync::Arc<dyn breakdown_core::reporting::ReportArchiveStorage> =
         match OpenDalReportArchiveStorage::staging_from_env() {
             Ok(s) => std::sync::Arc::new(s),
@@ -529,6 +548,8 @@ async fn main() -> Result<()> {
         ai_import_queue,
         ai_import_mapping,
         ai_preview_store,
+        ai_document_store,
+        ai_document_source,
     );
     let app_state = AppState::new(ports);
 

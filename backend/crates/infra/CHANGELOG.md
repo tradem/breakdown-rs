@@ -9,6 +9,24 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.9.0] - Unreleased
+
+### Added — Durable AI payload storage (issue #174)
+
+- New `ai::payload_storage` module with `OpenDalAiPayloadStorage` adapter
+  that stores source documents and preview payloads in S3-compatible
+  object storage (Garage). Replaces `MemoryAiPreviewStore` in production.
+- New `AiDocumentStore` trait with `put_source`, `get_source`,
+  `delete_source` methods for storing source documents separately from
+  preview payloads.
+- Source documents and preview payloads now survive API restarts: pending
+  jobs can resume, retries can reload source documents, and succeeded
+  jobs continue serving previews.
+- Environment variables: `AI_PAYLOAD_S3_ENDPOINT`, `AI_PAYLOAD_S3_ACCESS_KEY`,
+  `AI_PAYLOAD_S3_SECRET_KEY`, `AI_PAYLOAD_S3_BUCKET`, `AI_PAYLOAD_S3_TLS_ROOT_CERT`.
+- Integration test `ai_payload_storage_round_trip` verifies restart-recovery
+  behavior and payload lifecycle.
+
 ## [0.8.0] - Unreleased
 
 ### Added — Centralized LLM provider metadata (issue #173)
