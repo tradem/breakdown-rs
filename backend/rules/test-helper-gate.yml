@@ -46,9 +46,13 @@ rule:
         - pattern: pub(crate) async fn $FN($$$ARGS) -> $RET { $$$ }
         - pattern: pub(crate) async fn $FN($$$ARGS) { $$$ }
     - not:
-        follows:
-          pattern: '#[cfg(feature = "test-support")]'
-          stopBy: neighbor
+        any:
+          - follows:
+              pattern: '#[cfg(feature = "test-support")]'  
+              stopBy: neighbor
+          - follows:
+              pattern: '#[cfg(any(test, feature = "test-support"))]'
+              stopBy: neighbor
 constraints:
   FN:
     regex: 'for_test'

@@ -9,6 +9,18 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.7.0] - Unreleased
+
+### Changed — AI merge worker no longer queries read-model projections (issue #172)
+
+- `QueueMergeWorker` simplified from `QueueMergeWorker<Q, E, S, P>` to
+  `QueueMergeWorker<Q, P>`: removed `EpisodeRepository` and `SceneRepository`
+  generic parameters. The worker now reads an immutable `MergeInput` blob
+  (schedule + pre-loaded scenes) from the preview store and calls
+  `merge_from_input()` — never querying a read-model projection at runtime.
+- Re-pins `breakdown_core` to 0.5.0 (consumes the new `MergeInput` type;
+  under major-zero semver this is a MINOR bump, ADR-020 D2/D3).
+
 ## [0.6.0] - 2026-08-07
 
 ### Fixed — AI import telemetry: never-applied jobs have NULL edit_distance (issue #171)

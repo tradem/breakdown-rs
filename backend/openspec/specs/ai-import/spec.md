@@ -136,10 +136,14 @@ A `ScriptContext` preview with open uncertainties SHALL NOT be applicable.
 The merge step SHALL exist only as part of the schedule import. It SHALL be a
 deterministic join of `ShootingSchedule` rows onto already-**applied** scenes by
 scene number, using NO LLM, costing zero tokens, and being idempotently
-replayable. The merge SHALL read the Scene read-model projection (legitimate
-API-edge read). The merge SHALL block/no-op until the target block has applied
-scenes (domain invariant: scripts for a block are always finished before a
-schedule is created).
+replayable. The merge SHALL NOT query the Scene read-model projection at
+runtime; instead, the required scene context SHALL be prepared as an immutable
+`MergeInput` at the authorized API/query boundary and stored alongside the
+schedule preview before the merge job is claimed. The write-side merge worker
+performs only the deterministic join against this pre-loaded input (CQRS
+boundary, AGENTS.md §1). The merge SHALL block/no-op until the target block
+has applied scenes (domain invariant: scripts for a block are always finished
+before a schedule is created).
 
 #### Scenario: Merge blocks until scripts are applied
 - **WHEN** a schedule import completes for a block that has no applied scenes
@@ -152,6 +156,13 @@ schedule is created).
 - **THEN** the merged preview lists the schedule row in `unmatched_schedule_rows`
 - **AND** the user must adjudicate (create the missing scene or correct the
   schedule) before the schedule-side apply
+
+#### Scenario: Write-side worker never queries a projection
+- **WHEN** the merge worker claims a schedule job
+- **THEN** it reads only the immutable `MergeInput` blob from the preview store
+- **AND** it does not call `EpisodeRepository` or `SceneRepository`
+- **AND** the architecture check rejects any write-side AI adapter that queries
+  a read-model projection
 
 ### Requirement: Idempotent upsert apply via user-driven mapping
 Applying a preview SHALL dispatch existing commands

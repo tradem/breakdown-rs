@@ -2,6 +2,7 @@
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: deepseek-v4-flash (opencode-go)
 # Co-authored-by: gpt-5.6-luna (opencode-go)
+# Co-authored-by: mimo-v2.5 (opencode-go)
 
 # CQRS boundary: write-side code (command adapters, sagas, aggregates) must
 # never query a read-model projection to resolve audit/derived context (e.g.
@@ -17,18 +18,28 @@
 # on the same line as the call, carrying a justification comment above it.
 id: cqrs-boundary
 message: >-
-  Write-side code queries a read-model projection via find_by_id. Command
-  adapters, sagas and aggregates must never resolve audit/derived context
-  (e.g. series_id) from projections — take it from the event data or a command
-  field populated at the API edge (AGENTS.md §1). If this lookup is NOT
-  audit-context resolution (e.g. a concurrency version guard), suppress it with
-  an explicit `// ast-grep-ignore: cqrs-boundary` comment and a justification.
+  Write-side code queries a read-model projection. Command adapters, sagas and
+  aggregates must never resolve audit/derived context (e.g. series_id) from
+  projections — take it from the event data or a command field populated at the
+  API edge (AGENTS.md §1). If this lookup is NOT audit-context resolution
+  (e.g. a concurrency version guard), suppress it with an explicit
+  `// ast-grep-ignore: cqrs-boundary` comment and a justification.
 severity: error
 language: Rust
+constraints:
+  METHOD:
+    # Match list_by_* and find_by_* methods. find_by_id is also matched
+    # here but the explicit find_by_id patterns above take precedence;
+    # ast-grep deduplicates findings per code location.
+    regex: '^(list_by_|find_by_)[a-z0-9_]+$'
 rule:
   any:
+    # find_by_id — the most common projection lookup
     - pattern: $REPO.find_by_id($$$ARGS)
     - pattern: $REPO::find_by_id($$$ARGS)
+    # Method-family queries: list_by_*, find_by_* (except find_by_id above)
+    - pattern: $REPO.$METHOD($$$ARGS)
+    - pattern: $REPO::$METHOD($$$ARGS)
     # The AI idempotency mapping lookup (`AiImportMappingRepository::find`) also
     # reads a projection. It is a documented non-audit read: the spec requires
     # it for crash-safe re-apply idempotency, and each call site carries an

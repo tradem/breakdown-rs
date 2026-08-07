@@ -83,6 +83,132 @@ fn merge_blocks_when_no_applied_scenes_exist() {
     assert!(matches!(result, Err(DomainError::Conflict(_))));
 }
 
+/// Verify that an empty MergeInput (no applied scenes) is marked
+/// non-retryable: the input is immutable and the worker cannot observe
+/// later applied scenes, so retrying would exhaust retries against the
+/// same blob. The caller must re-prepare a fresh MergeInput at the API
+/// boundary after scenes are applied (CQRS boundary, AGENTS.md §1).
+#[tokio::test]
+async fn merge_worker_empty_input_is_non_retryable() {
+    use super::QueueMergeWorker;
+    use breakdown_core::ai::{AiImportJob, DocumentKind, MergeInput, ShootingSchedule};
+    use breakdown_core::shared::UserId;
+
+    #[derive(Clone, Default)]
+    struct RetryTrackingQueue {
+        state: Arc<Mutex<RetryTrackingState>>,
+    }
+
+    #[derive(Default)]
+    struct RetryTrackingState {
+        failed_retryable: Vec<bool>,
+    }
+
+    #[async_trait]
+    impl AiImportQueue for RetryTrackingQueue {
+        async fn enqueue(
+            &self,
+            _request: breakdown_core::ai::AiImportEnqueueRequest,
+        ) -> Result<breakdown_core::ai::AiImportEnqueueResult, DomainError> {
+            unimplemented!()
+        }
+        async fn claim_next(&self, _worker_id: &str) -> Result<Option<AiImportJob>, DomainError> {
+            unimplemented!()
+        }
+        async fn claim_next_kind(
+            &self,
+            _worker_id: &str,
+            _kind: DocumentKind,
+        ) -> Result<Option<AiImportJob>, DomainError> {
+            let job = AiImportJob {
+                id: breakdown_core::ai::AiImportJobId(Uuid::now_v7()),
+                user_id: UserId::from_sub("test-user"),
+                document_kind: DocumentKind::Schedule,
+                block_id: None,
+                dedup_key: "test-dedup".to_owned(),
+                document_digest: "test-digest".to_owned(),
+                source_handle: "test-source".to_owned(),
+                status: breakdown_core::ai::JobStatus::Pending,
+                preview_handle: Some("test-preview".to_owned()),
+                last_error: None,
+                retries: 0,
+                max_retries: 5,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            };
+            Ok(Some(job))
+        }
+        async fn get(
+            &self,
+            _id: breakdown_core::ai::AiImportJobId,
+        ) -> Result<Option<AiImportJob>, DomainError> {
+            unimplemented!()
+        }
+        async fn mark_running(
+            &self,
+            _id: breakdown_core::ai::AiImportJobId,
+        ) -> Result<(), DomainError> {
+            Ok(())
+        }
+        async fn mark_succeeded(
+            &self,
+            _id: breakdown_core::ai::AiImportJobId,
+            _preview_handle: &str,
+        ) -> Result<(), DomainError> {
+            unimplemented!()
+        }
+        async fn mark_failed(
+            &self,
+            _id: breakdown_core::ai::AiImportJobId,
+            _error_summary: &str,
+            retryable: bool,
+        ) -> Result<(), DomainError> {
+            self.state.lock().unwrap().failed_retryable.push(retryable);
+            Ok(())
+        }
+        async fn record_telemetry(
+            &self,
+            _id: breakdown_core::ai::AiImportJobId,
+            _telemetry: breakdown_core::ai::Telemetry,
+        ) -> Result<(), DomainError> {
+            Ok(())
+        }
+    }
+
+    let queue = Arc::new(RetryTrackingQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+
+    // Store an empty MergeInput (no scenes) as the preview payload.
+    let input = MergeInput {
+        schedule: ShootingSchedule::default(),
+        scenes: Vec::new(),
+    };
+    let payload = serde_json::to_vec(&input).unwrap();
+    // The queue returns a job with preview_handle="test-preview", so store
+    // the payload under that exact handle.
+    previews
+        .put_raw_for_test("test-preview".to_owned(), payload)
+        .await;
+
+    let worker = QueueMergeWorker {
+        queue: queue.clone(),
+        previews: previews.clone(),
+    };
+
+    let result = worker.run_once("test-worker").await;
+    // run_once propagates the Conflict error but also marks it failed
+    // (non-retryable) before returning.
+    assert!(result.is_err());
+
+    // Verify mark_failed was called with retryable=false (non-retryable)
+    let state = queue.state.lock().unwrap();
+    assert_eq!(state.failed_retryable.len(), 1);
+    assert!(
+        !state.failed_retryable[0],
+        "empty MergeInput Conflict must be non-retryable"
+    );
+}
+
 #[test]
 fn telemetry_serialization_is_content_free() {
     let telemetry = Telemetry {
