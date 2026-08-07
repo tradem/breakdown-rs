@@ -440,7 +440,7 @@ All three variables (`AI_PAYLOAD_S3_ENDPOINT`, `AI_PAYLOAD_S3_ACCESS_KEY`, `AI_P
 - `AI_PAYLOAD_GC_ENABLED` – enable periodic cleanup (default: `true`).
 - `AI_PAYLOAD_GC_INTERVAL_SECS` – sweep interval in seconds (default: `3600`).
 - `AI_PAYLOAD_GC_MAX_AGE_SECS` – only cleanup payloads for jobs older than this (default: `604800` = 7 days).
-- `AI_PAYLOAD_GC_BATCH_SIZE` – max payloads per run (default: `1000`).
+- `AI_PAYLOAD_GC_BATCH_SIZE` – max terminal-state jobs per run (default: `1000`).
 - `AI_PAYLOAD_GC_DRY_RUN` – log-only mode (default: `false`; set `true` for first rollout).
 
 > **AI payload GC**: A periodic worker cleans up Garage payloads for terminal-state jobs

@@ -23,6 +23,9 @@ commits (ADR-020 D5).
 - New `AiPayloadGcConfig` type for cleanup configuration.
 - Environment variables: `AI_PAYLOAD_GC_ENABLED`, `AI_PAYLOAD_GC_INTERVAL_SECS`,
   `AI_PAYLOAD_GC_MAX_AGE_SECS`, `AI_PAYLOAD_GC_BATCH_SIZE`, `AI_PAYLOAD_GC_DRY_RUN`.
+- Re-pins `infra` to 0.10.0 (new ai::payload_cleanup module; MINOR bump).
+
+## [0.9.0] - Unreleased
 
 ### Added — Durable AI payload storage (issue #174)
 

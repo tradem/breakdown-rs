@@ -27,7 +27,7 @@ pub struct AiPayloadGcConfig {
     pub interval_secs: u64,
     /// Only delete payloads for jobs older than this (seconds).
     pub max_age_secs: u64,
-    /// Maximum number of payloads to process per run.
+    /// Maximum number of terminal-state jobs to process per run.
     pub batch_size: u64,
     /// When true, log payloads but do not delete.
     pub dry_run: bool,
@@ -125,8 +125,23 @@ async fn try_run_sweep(
     started_at: DateTime<Utc>,
 ) -> Result<()> {
     // Find terminal-state jobs older than grace period
-    let grace_period = chrono::Duration::seconds(config.max_age_secs as i64);
-    let cutoff = started_at - grace_period;
+    let max_age_secs = i64::try_from(config.max_age_secs).map_err(|_| {
+        DomainError::ValidationError("AI_PAYLOAD_GC_MAX_AGE_SECS exceeds i64::MAX".into())
+    })?;
+    let batch_size = i64::try_from(config.batch_size).map_err(|_| {
+        DomainError::ValidationError("AI_PAYLOAD_GC_BATCH_SIZE exceeds i64::MAX".into())
+    })?;
+    let grace_period = chrono::TimeDelta::try_seconds(max_age_secs).ok_or_else(|| {
+        DomainError::ValidationError(format!(
+            "AI_PAYLOAD_GC_MAX_AGE_SECS ({}) exceeds Chrono TimeDelta range",
+            config.max_age_secs
+        ))
+    })?;
+    let cutoff = started_at.checked_sub_signed(grace_period).ok_or_else(|| {
+        DomainError::ValidationError(
+            "AI_PAYLOAD_GC_MAX_AGE_SECS produces cutoff outside DateTime range".into(),
+        )
+    })?;
 
     let rows: Vec<sqlx::postgres::PgRow> = sqlx::query(
         r#"
@@ -139,7 +154,7 @@ async fn try_run_sweep(
         "#,
     )
     .bind(cutoff)
-    .bind(config.batch_size as i64)
+    .bind(batch_size)
     .fetch_all(pool)
     .await
     .map_err(|e| {
@@ -158,6 +173,7 @@ async fn try_run_sweep(
     let mut source_deleted: i64 = 0;
     let mut preview_deleted: i64 = 0;
     let mut errors: i64 = 0;
+    let mut first_error: Option<DomainError> = None;
 
     for row in rows {
         let job_id: Uuid = row
@@ -185,6 +201,9 @@ async fn try_run_sweep(
                         error = %e,
                         "Failed to delete AI source payload"
                     );
+                    if first_error.is_none() {
+                        first_error = Some(e);
+                    }
                     errors += 1;
                 }
             }
@@ -214,6 +233,9 @@ async fn try_run_sweep(
                             error = %e,
                             "Failed to delete AI preview payload"
                         );
+                        if first_error.is_none() {
+                            first_error = Some(e);
+                        }
                         errors += 1;
                     }
                 }
@@ -263,6 +285,11 @@ async fn try_run_sweep(
         dry_run = config.dry_run,
         "AI payload GC sweep completed"
     );
+
+    // Return the first deletion error so the scheduler detects the failure
+    if let Some(e) = first_error {
+        return Err(e.into());
+    }
 
     Ok(())
 }
