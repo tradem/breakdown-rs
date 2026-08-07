@@ -9,6 +9,28 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.6.0] - 2026-08-07
+
+### Fixed — AI import telemetry: never-applied jobs have NULL edit_distance (issue #171)
+
+- The `ai_import.ai_import_job.edit_distance` column is now **nullable**
+  (migration `20260807000001_ai_import_not_applied`). Jobs that never reach
+  apply are recorded with `accept_as_is = NULL` and `edit_distance = NULL`;
+  an applied job accepted with zero edits keeps `edit_distance = 0` — the two
+  outcomes are no longer conflated, so acceptance/edit-rate calculations can
+  exclude `NotApplied` jobs.
+- The script/schedule/merge workers record `TelemetryApplyState::NotApplied`
+  at preview time; the apply path records `Applied { accept_as_is,
+  edit_distance }` via the API edge.
+- `record_telemetry` binds the apply state as `Option<bool>` / `Option<i32>`
+  (NULL for `NotApplied`).
+
+### Changed
+
+- Re-pins `breakdown_core` to 0.4.0 (consumes the new `Telemetry`
+  apply-state contract; under major-zero semver this is a MINOR bump,
+  ADR-020 D2/D3).
+
 ## [0.5.0] - 2026-08-06
 
 ### Security fix — AI import provider transport (issue #170)
