@@ -9,6 +9,17 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.4.4] - Unreleased
+
+### Changed
+
+- `list_ai_providers` and `parse_ai_provider` now delegate to the
+  centralized provider registry (`infra::ai::provider_registry`). The
+  duplicated provider metadata in handler code is removed; adding a
+  provider no longer requires touching the API handler module.
+- Re-pins `infra` to 0.8.0 (consumes the new `provider_registry` module;
+  under major-zero semver this is a MINOR bump, ADR-020 D2/D3).
+
 ## [0.4.3] - Unreleased
 
 ### Changed
