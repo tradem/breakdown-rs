@@ -155,10 +155,18 @@ gh issue create --title "[type]: [description]" --body "## Summary
 ### Step 8: Commit
 
 ```bash
-# Stage only intended files
+# Stage all files selected by the implementation plan
+# Include: source files, tests, Cargo.toml, CHANGELOG.md, skill files, etc.
 git add backend/crates/{crate}/src/{file}.rs
+git add backend/crates/{crate}/tests/{file}.rs
+git add backend/crates/{crate}/Cargo.toml
+git add backend/crates/{crate}/CHANGELOG.md
+git add backend/.pi/skills/{skill}/SKILL.md
+
+# Inspect what will be committed
 git diff --cached
 
+# Commit with conventional message
 git commit -m "{type}: {description} (issue #{number})
 
 {Detailed description}

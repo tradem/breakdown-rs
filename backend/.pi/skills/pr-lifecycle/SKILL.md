@@ -88,16 +88,12 @@ Co-authored-by: [model] ([provider])"
 
 ### Step 3: Link Issues
 
-**Close issue when PR merges:**
-
-```bash
-gh issue close {issue} --comment "Closed by PR #{pr}: {title}"
-```
+**Note:** Do NOT close the issue in this step. The PR body should contain `Fixes #{issue}` which automatically closes the issue when the PR merges.
 
 **Mark follow-up issues:**
 
 ```bash
-gh issue comment {followup} --body "Follow-up to issue #{original} (closed by PR #{pr}). [Description of what this issue tracks]."
+gh issue comment {followup} --body "Follow-up to issue #{original}. [Description of what this issue tracks]."
 ```
 
 ### Step 4: Manage Reviews
@@ -253,7 +249,7 @@ Use in PR body to auto-close issues:
 
 ## Depends On
 
-- Issue #{prerequisite} must be merged first
+- Issue #{prerequisite} must be closed first (PR merged)
 
 ## Follow-up from
 

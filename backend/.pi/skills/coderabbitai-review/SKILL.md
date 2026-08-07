@@ -65,9 +65,11 @@ gh api repos/{owner}/{repo}/pulls/{pr}/comments/{comment_id}/replies \
 ### Step 5: Commit and Push
 
 ```bash
-# Stage ONLY the files you modified for this review
+# Stage ALL files modified for this review (source, tests, docs, skills, etc.)
 git add backend/crates/{crate}/src/{file}.rs
 git add backend/crates/{crate}/tests/{file}.rs
+git add backend/crates/{crate}/Cargo.toml
+git add backend/.pi/skills/{skill}/SKILL.md
 
 # Inspect what will be committed
 git diff --cached
