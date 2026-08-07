@@ -425,8 +425,11 @@ All three variables (`AI_PAYLOAD_S3_ENDPOINT`, `AI_PAYLOAD_S3_ACCESS_KEY`, `AI_P
 
 > **Durable storage**: When all three required variables are set, AI import payloads survive API
 > restarts. Pending jobs can resume, retries can reload source documents, and succeeded jobs
-> continue serving previews. When any required variable is absent, the API falls back to
-> in-memory storage — AI imports still work but are **not resumable** after a restart.
+> continue serving previews.
+>
+> When `AI_IMPORT_ENABLED` is false, missing S3 variables are acceptable — the API uses
+> in-memory storage. When `AI_IMPORT_ENABLED` is true, all three S3 variables must be set
+> or the API **fails to start** to prevent silent data loss.
 
 > **Boot sequence**: Garage must be up and provisioned (bucket + access key) before the API
 > starts. See `docker-compose.dev.yml` for the internal-only Garage service. During first
