@@ -50,8 +50,8 @@ impl MemoryAiPreviewStore {
     /// The production `put` derives the handle from the job id; tests
     /// sometimes need to control the handle to match a fake queue's
     /// `preview_handle` field.
-    #[cfg(feature = "test-support")]
-    pub async fn put_raw_for_test(&self, handle: String, payload: Vec<u8>) {
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn put_raw_for_test(&self, handle: String, payload: Vec<u8>) { // ast-grep-ignore: test-helper-gate
         self.values.write().await.insert(handle, payload);
     }
 }
