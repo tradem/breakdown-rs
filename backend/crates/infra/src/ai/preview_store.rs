@@ -51,7 +51,8 @@ impl MemoryAiPreviewStore {
     /// sometimes need to control the handle to match a fake queue's
     /// `preview_handle` field.
     #[cfg(any(test, feature = "test-support"))]
-    pub async fn put_raw_for_test(&self, handle: String, payload: Vec<u8>) { // ast-grep-ignore: test-helper-gate
+    pub async fn put_raw_for_test(&self, handle: String, payload: Vec<u8>) {
+        // ast-grep-ignore: test-helper-gate
         self.values.write().await.insert(handle, payload);
     }
 }
