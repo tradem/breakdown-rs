@@ -16,7 +16,7 @@ commits (ADR-020 D5).
 - AI import upload handlers now use `AiDocumentStore::put_source` for
   storing source documents, separating them from preview payloads.
 - Re-pins `infra` to 0.9.0 (consumes the new `AiDocumentStore` trait and
-  `OpenDalAiPayloadStorage`; under major-zero semver this is a PATCH bump,
+  `OpenDalAiPayloadStorage`; under major-zero semver this is a MINOR bump,
   ADR-020 D2/D3).
 
 ## [0.4.4] - Unreleased

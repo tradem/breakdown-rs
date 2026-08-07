@@ -13,6 +13,10 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: mimo-v2.5 (opencode-go)
+
 use std::env;
 use std::sync::Arc;
 
@@ -427,6 +431,11 @@ async fn main() -> Result<()> {
     let report_archival_queue = PgReportArchivalQueue::new(pool.clone());
     let ai_import_queue = infra::ai::PgAiImportQueue::new(pool.clone());
     let ai_import_mapping = infra::ai::PgAiImportMappingRepository::new(pool.clone());
+    let ai_import_enabled = env::var("AI_IMPORT_ENABLED")
+        .ok()
+        .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+
     let (ai_preview_store, ai_document_store, ai_document_source): (
         std::sync::Arc<dyn AiPreviewStore + Send + Sync>,
         std::sync::Arc<dyn AiDocumentStore + Send + Sync>,
@@ -438,6 +447,13 @@ async fn main() -> Result<()> {
             (storage.clone() as _, storage.clone() as _, storage as _)
         }
         None => {
+            if ai_import_enabled {
+                anyhow::bail!(
+                    "AI_IMPORT_ENABLED is set but AI payload storage is not configured. \
+                     Set AI_PAYLOAD_S3_ENDPOINT, AI_PAYLOAD_S3_ACCESS_KEY, and \
+                     AI_PAYLOAD_S3_SECRET_KEY to enable durable AI import storage."
+                );
+            }
             warn!("AI payload storage not configured — using in-memory (dev only)");
             let store = std::sync::Arc::new(MemoryAiPreviewStore::default());
             (store.clone() as _, store.clone() as _, store as _)

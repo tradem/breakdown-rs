@@ -16,6 +16,10 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: mimo-v2.5 (opencode-go)
+
 use std::path::Path;
 use std::sync::Arc;
 
@@ -275,10 +279,12 @@ fn map_storage_error(key: &str, e: opendal::Error) -> DomainError {
 }
 
 /// Check if an OpenDAL error indicates a not-found condition.
+///
+/// OpenDAL 0.58+ maps S3 `NoSuchKey`/404 responses to `ErrorKind::NotFound`.
+/// We rely exclusively on the kind classification to avoid false positives
+/// from string matching unrelated error messages.
 fn is_not_found(e: &opendal::Error) -> bool {
     e.kind() == opendal::ErrorKind::NotFound
-        || e.to_string().contains("not found")
-        || e.to_string().contains("NoSuchKey")
 }
 
 /// Source document handle builder for the AI import queue.

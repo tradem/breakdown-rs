@@ -415,15 +415,18 @@ projectors that subscribe to SierraDB and update the Postgres projections.
 
 #### AI payload storage (durable source/preview blobs)
 
-- `AI_PAYLOAD_S3_ENDPOINT` – S3 API endpoint for AI import payloads (e.g. `http://garage:3900`). When set, source documents and preview payloads are stored durably in S3 instead of process memory.
+All three variables (`AI_PAYLOAD_S3_ENDPOINT`, `AI_PAYLOAD_S3_ACCESS_KEY`, `AI_PAYLOAD_S3_SECRET_KEY`) must be set to enable durable S3 storage for AI import payloads.
+
+- `AI_PAYLOAD_S3_ENDPOINT` – S3 API endpoint for AI import payloads (e.g. `http://garage:3900`).
 - `AI_PAYLOAD_S3_ACCESS_KEY` – S3 access key for AI payload storage.
 - `AI_PAYLOAD_S3_SECRET_KEY` – S3 secret key for AI payload storage.
 - `AI_PAYLOAD_S3_BUCKET` – S3 bucket name for AI payloads (default: `ai-import-payloads`).
 - `AI_PAYLOAD_S3_TLS_ROOT_CERT` – optional PEM path of the pinned root CA for `https://` S3 endpoints.
 
-> **Durable storage**: When `AI_PAYLOAD_S3_ENDPOINT` is set, AI import payloads survive API
+> **Durable storage**: When all three required variables are set, AI import payloads survive API
 > restarts. Pending jobs can resume, retries can reload source documents, and succeeded jobs
-> continue serving previews. When not set, falls back to in-memory storage (dev only).
+> continue serving previews. When any required variable is absent, the API falls back to
+> in-memory storage — AI imports still work but are **not resumable** after a restart.
 
 > **Boot sequence**: Garage must be up and provisioned (bucket + access key) before the API
 > starts. See `docker-compose.dev.yml` for the internal-only Garage service. During first
