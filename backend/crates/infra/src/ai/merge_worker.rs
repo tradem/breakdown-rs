@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 use std::sync::Arc;
 use std::time::Instant;
 
 use breakdown_core::ai::{
     AiImportJobId, AiImportQueue, DocumentKind, MergedPreview, ShootingSchedule, Telemetry,
-    merge_schedule_to_scenes,
+    TelemetryApplyState, merge_schedule_to_scenes,
 };
 use breakdown_core::episode::ports::EpisodeRepository;
 use breakdown_core::error::DomainError;
@@ -146,6 +147,9 @@ where
                 Telemetry {
                     doc_kind: Some(DocumentKind::Schedule),
                     latency_total: started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+                    // The merged preview is pre-apply; the apply outcome (if
+                    // any) is recorded by the apply path as `Applied`.
+                    apply_state: TelemetryApplyState::NotApplied,
                     ..Telemetry::default()
                 },
             )

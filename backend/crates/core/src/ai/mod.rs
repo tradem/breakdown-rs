@@ -34,4 +34,7 @@ pub use preview::{
     Uncertainty, ensure_merge_applyable, ensure_script_applyable, extract_scenes,
     merge_schedule_to_scenes, plan_scene_apply,
 };
-pub use views::{AiConfigView, AiImportJob, AiImportJobId, DocumentKind, JobStatus, Telemetry};
+pub use views::{
+    AiConfigView, AiImportJob, AiImportJobId, DocumentKind, JobStatus, Telemetry,
+    TelemetryApplyState,
+};

@@ -247,12 +247,20 @@ impl AiImportQueue for PgAiImportQueue {
         .bind(i64::try_from(telemetry.latency_total).map_err(|error| {
             DomainError::ValidationError(format!("AI latency exceeds database range: {error}"))
         })?)
-        .bind(telemetry.accept_as_is)
-        .bind(i32::try_from(telemetry.edit_distance).map_err(|error| {
-            DomainError::ValidationError(format!(
-                "AI edit distance exceeds database range: {error}"
-            ))
-        })?)
+        .bind(telemetry.apply_state.accept_as_is())
+        .bind(
+            telemetry
+                .apply_state
+                .edit_distance()
+                .map(|distance| {
+                    i32::try_from(distance).map_err(|error| {
+                        DomainError::ValidationError(format!(
+                            "AI edit distance exceeds database range: {error}"
+                        ))
+                    })
+                })
+                .transpose()?,
+        )
         .execute(&self.pool)
         .await
         .map_err(map_sqlx_error)?;

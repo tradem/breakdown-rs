@@ -12,7 +12,7 @@ use breakdown_core::ai::{
     AiImportBounds, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
     AiImportMapping, AiImportMappingRepository, AiImportQueue, ApplyMapping, DocumentKind,
     DraftScene, JobStatus, LlmChatRequest, LlmClient, LlmProvider, ScriptContext,
-    ShootingScheduleRow, Telemetry, merge_schedule_to_scenes,
+    ShootingScheduleRow, Telemetry, TelemetryApplyState, merge_schedule_to_scenes,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::shared::UserId;
@@ -89,13 +89,17 @@ fn telemetry_serialization_is_content_free() {
         chunk_count: 2,
         tokens_in: 10,
         tokens_out: 20,
-        accept_as_is: Some(true),
-        edit_distance: 0,
+        apply_state: TelemetryApplyState::Applied {
+            accept_as_is: true,
+            edit_distance: 0,
+        },
         ..Telemetry::default()
     };
     let serialized = serde_json::to_string(&telemetry).expect("telemetry is serializable in test");
     assert!(!serialized.contains("script text"));
     assert!(!serialized.contains("costume description"));
+    // Issue #171: the apply-state discriminator is explicit, not a bare 0.
+    assert!(serialized.contains("\"applied\""));
 }
 
 #[test]
@@ -253,6 +257,14 @@ async fn script_worker_assembles_preview_and_telemetry() {
     assert_eq!(state.succeeded, vec![job.id]);
     assert_eq!(state.telemetry.len(), 1);
     assert_eq!(state.telemetry[0].chunk_count, 2);
+    // Issue #171: a job that only reached preview is explicitly NotApplied
+    // (edit_distance NULL), never a misleading zero.
+    assert_eq!(
+        state.telemetry[0].apply_state,
+        TelemetryApplyState::NotApplied
+    );
+    assert_eq!(state.telemetry[0].apply_state.edit_distance(), None);
+    assert_eq!(state.telemetry[0].apply_state.accept_as_is(), None);
 }
 
 #[tokio::test]
@@ -629,8 +641,12 @@ async fn apply_retry_updates_mapping_without_creating_duplicate_scenes() {
             series_id: None,
             telemetry: Some(Telemetry {
                 doc_kind: Some(DocumentKind::Script),
-                accept_as_is: Some(true),
-                edit_distance: 0,
+                // Zero-edit applied outcome is a valid edit_distance of 0 —
+                // distinct from the NotApplied (NULL) contract.
+                apply_state: TelemetryApplyState::Applied {
+                    accept_as_is: true,
+                    edit_distance: 0,
+                },
                 ..Telemetry::default()
             }),
         })
@@ -651,12 +667,11 @@ async fn apply_retry_updates_mapping_without_creating_duplicate_scenes() {
     assert_eq!(commands.created.lock().unwrap().len(), 1);
     assert_eq!(commands.updated.lock().unwrap().len(), 1);
     let state = queue.state.lock().unwrap();
-    assert!(
-        state
-            .telemetry
-            .iter()
-            .any(|telemetry| telemetry.accept_as_is == Some(true) && telemetry.edit_distance == 0)
-    );
+    assert!(state.telemetry.iter().any(|telemetry| telemetry.apply_state
+        == TelemetryApplyState::Applied {
+            accept_as_is: true,
+            edit_distance: 0,
+        }));
 }
 
 fn tiny_script_pdf() -> Vec<u8> {
