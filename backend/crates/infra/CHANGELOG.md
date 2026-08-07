@@ -9,7 +9,24 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
-## [0.7.0] - Unreleased
+## [0.8.0] - Unreleased
+
+### Added — Centralized LLM provider metadata (issue #173)
+
+- New `ai::provider_registry` module with an exhaustive `PROVIDER_REGISTRY`
+  table that maps each `LlmProvider` variant to its canonical key and
+  supported aliases. Adding a provider now requires exactly one entry here
+  plus a matching arm in core's `as_str` match — no other files change.
+- `ai::list_providers()` returns curated provider info for the
+  `/ai-import/providers` endpoint.
+- `ai::resolve_provider(value)` resolves a user-supplied key or alias to
+  its canonical `LlmProvider` variant.
+- `ai::curated_models()` and `ai::curated_model_ids()` moved from the
+  module-level `curated_models` function into the registry (re-exported
+  from `ai`).
+- Unit tests covering registry completeness, canonical-key resolution,
+  alias resolution, unknown-value rejection, list ordering, model
+  coverage, and alias-vs-key non-collision.
 
 ### Changed — AI merge worker no longer queries read-model projections (issue #172)
 

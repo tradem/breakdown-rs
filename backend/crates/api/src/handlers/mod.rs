@@ -4913,15 +4913,13 @@ pub async fn list_ai_providers<P: Ports>(
     }
     Ok((
         StatusCode::OK,
-        // Single source for provider + key (CURATED_PROVIDERS / as_str): a
-        // client can derive the `{provider}` path segment from this response.
+        // Delegate to the centralized provider registry (infra::ai::provider_registry).
         Json(
-            breakdown_core::ai::CURATED_PROVIDERS
-                .iter()
-                .copied()
-                .map(|provider| AiProviderInfo {
-                    provider,
-                    key: provider.as_str().to_owned(),
+            infra::ai::list_providers()
+                .into_iter()
+                .map(|info| AiProviderInfo {
+                    provider: info.variant,
+                    key: info.key,
                 })
                 .collect::<Vec<_>>(),
         ),
@@ -4967,23 +4965,9 @@ pub async fn list_ai_models<P: Ports>(
 }
 
 fn parse_ai_provider(value: &str) -> Result<LlmProvider, DomainError> {
-    // Canonical curated keys first — one source via `LlmProvider::as_str()`.
-    for provider in breakdown_core::ai::CURATED_PROVIDERS {
-        if provider.as_str() == value {
-            return Ok(provider);
-        }
-    }
-    // Legacy aliases kept for backward compatibility.
-    let provider = match value {
-        "openrouter_eu" | "openrouter-eu" => LlmProvider::EURouter,
-        "opencode_go" => LlmProvider::OpenCodeGo,
-        other => {
-            return Err(DomainError::ValidationError(format!(
-                "unknown AI provider {other}"
-            )));
-        }
-    };
-    Ok(provider)
+    // Delegate to the centralized provider registry (infra::ai::provider_registry).
+    infra::ai::resolve_provider(value)
+        .ok_or_else(|| DomainError::ValidationError(format!("unknown AI provider {value}")))
 }
 
 #[cfg(test)]

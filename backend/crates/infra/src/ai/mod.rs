@@ -21,6 +21,7 @@ pub mod pdf;
 pub mod pg_concurrency;
 pub mod preview_store;
 pub mod prompts;
+pub mod provider_registry;
 pub mod queue;
 pub mod runtime;
 pub mod schedule_apply;
@@ -41,6 +42,9 @@ pub use pdf::PdfTextExtractor;
 pub use pg_concurrency::{PgAiConcurrencyLimiter, PgAiConcurrencyPermit};
 pub use preview_store::{AiDocumentSource, AiPreviewStore, MemoryAiPreviewStore};
 pub use prompts::default_prompt;
+pub use provider_registry::{
+    PROVIDER_REGISTRY, ProviderInfo, curated_models, list_providers, resolve_provider,
+};
 pub use queue::PgAiImportQueue;
 pub use runtime::AiWorkerRuntime;
 pub use schedule_apply::{
@@ -55,7 +59,7 @@ pub use workers::{
     UuidVersion, validate_chunk_count,
 };
 
-use breakdown_core::ai::{AiImportBounds, CuratedLlmProvider, LlmProvider, ModelInfo};
+use breakdown_core::ai::{AiImportBounds, CuratedLlmProvider, LlmProvider};
 
 #[cfg(test)]
 mod tests;
@@ -98,48 +102,6 @@ impl AiImportFeature {
 /// Curated provider URL registry. User input is never used for these values.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CuratedProviderUrls;
-
-pub fn curated_models(provider: LlmProvider) -> Vec<ModelInfo> {
-    let ids: &[&str] = match provider {
-        LlmProvider::OpenAI => &["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"],
-        LlmProvider::OpenRouter => &[
-            "openai/gpt-4o-mini",
-            "openai/gpt-4o",
-            "meta-llama/llama-3.1-8b-instruct:free",
-        ],
-        LlmProvider::EURouter => &["mistral-large-3", "mistral-small-3.1", "deepseek-v4-flash"],
-        LlmProvider::Neuralwatt => &[
-            "deepseek-v4-flash",
-            "glm-5.2",
-            "glm-5.2-fast",
-            "kimi-k2.7-code",
-            "kimi-k3",
-            "qwen3.6-35b",
-        ],
-        LlmProvider::OpenCodeGo | LlmProvider::OpenCode => &[
-            "deepseek-v4-pro",
-            "deepseek-v4-flash",
-            "glm-5.2",
-            "glm-5.1",
-            "kimi-k3",
-            "kimi-k2.7-code",
-            "kimi-k2.6",
-            "minimax-m3",
-            "minimax-m2.7",
-            "mimo-v2.5",
-            "grok-4.5",
-        ],
-        LlmProvider::Ollama => &["llama3.1:8b", "qwen2.5:7b"],
-        _ => &[],
-    };
-    ids.iter()
-        .map(|id| ModelInfo {
-            id: (*id).to_owned(),
-            display_name: None,
-            provider,
-        })
-        .collect()
-}
 
 impl CuratedLlmProvider for CuratedProviderUrls {
     fn base_url(provider: LlmProvider) -> &'static str {
