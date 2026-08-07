@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-set -euo pipefail
-
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: mimo-v2.5 (opencode-go)
+
+set -euo pipefail
 
 # Provision the Garage S3-compatible object store for costume-photo storage.
 #
@@ -78,13 +79,30 @@ garage bucket allow \
     "$GARAGE_BUCKET" \
     --key "$ACCESS_KEY" 2>/dev/null || true
 
+echo "Creating AI payload storage bucket..."
+AI_PAYLOAD_BUCKET="ai-import-payloads"
+garage bucket create "$AI_PAYLOAD_BUCKET" 2>/dev/null || true
+echo "Allowing key to access AI payload bucket..."
+garage bucket allow \
+    --read \
+    --write \
+    --owner \
+    "$AI_PAYLOAD_BUCKET" \
+    --key "$ACCESS_KEY" 2>/dev/null || true
+
 echo ""
 echo "=============================================="
 echo "Garage provisioning complete."
 echo ""
-echo "Export these env vars for the API binary:"
+echo "Non-secret settings:"
 echo "  export S3_ENDPOINT=${GARAGE_ENDPOINT}"
 echo "  export S3_ACCESS_KEY=${ACCESS_KEY}"
-echo "  export S3_SECRET_KEY=${SECRET_KEY}"
 echo "  export S3_BUCKET=${GARAGE_BUCKET}"
+echo "  export AI_PAYLOAD_S3_ENDPOINT=${GARAGE_ENDPOINT}"
+echo "  export AI_PAYLOAD_S3_ACCESS_KEY=${ACCESS_KEY}"
+echo "  export AI_PAYLOAD_S3_BUCKET=${AI_PAYLOAD_BUCKET}"
+echo ""
+echo "Secret keys (set manually, never echo in CI):"
+echo "  export S3_SECRET_KEY=<from key info above>"
+echo "  export AI_PAYLOAD_S3_SECRET_KEY=<same key>"
 echo "=============================================="

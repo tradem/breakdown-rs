@@ -413,6 +413,24 @@ projectors that subscribe to SierraDB and update the Postgres projections.
 - `AI_IMPORT_MAX_RETRIES` – maximum queue retries before dead-lettering (default: `5`).
 - `AI_IMPORT_DEFAULT_PROMPTS_PATH` – optional deployment override documented for prompt packaging; the built-in fallback is `config/default_ai_prompts.toml`.
 
+#### AI payload storage (durable source/preview blobs)
+
+All three variables (`AI_PAYLOAD_S3_ENDPOINT`, `AI_PAYLOAD_S3_ACCESS_KEY`, `AI_PAYLOAD_S3_SECRET_KEY`) must be set to enable durable S3 storage for AI import payloads.
+
+- `AI_PAYLOAD_S3_ENDPOINT` – S3 API endpoint for AI import payloads (e.g. `http://garage:3900`).
+- `AI_PAYLOAD_S3_ACCESS_KEY` – S3 access key for AI payload storage.
+- `AI_PAYLOAD_S3_SECRET_KEY` – S3 secret key for AI payload storage.
+- `AI_PAYLOAD_S3_BUCKET` – S3 bucket name for AI payloads (default: `ai-import-payloads`).
+- `AI_PAYLOAD_S3_TLS_ROOT_CERT` – optional PEM path of the pinned root CA for `https://` S3 endpoints.
+
+> **Durable storage**: When all three required variables are set, AI import payloads survive API
+> restarts. Pending jobs can resume, retries can reload source documents, and succeeded jobs
+> continue serving previews.
+>
+> When `AI_IMPORT_ENABLED` is false, missing S3 variables are acceptable — the API uses
+> in-memory storage. When `AI_IMPORT_ENABLED` is true, all three S3 variables must be set
+> or the API **fails to start** to prevent silent data loss.
+
 > **Boot sequence**: Garage must be up and provisioned (bucket + access key) before the API
 > starts. See `docker-compose.dev.yml` for the internal-only Garage service. During first
 > rollout set `PHOTO_GC_DRY_RUN=true` to observe orphan detection logs before enabling deletion.

@@ -8,6 +8,10 @@
 //! `AppState` is generic over a `Ports` implementation so that unit tests can
 //! substitute hand-written fakes without spinning up SierraDB or Postgres.
 
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: mimo-v2.5 (opencode-go)
+
 use std::sync::Arc;
 
 use breakdown_core::audit::AuditRepository;
@@ -26,7 +30,9 @@ use breakdown_core::scene_shoot::{
 use breakdown_core::season::{SeasonCommands, SeasonRepository};
 use breakdown_core::settings::{CredentialVault, SettingsCommands, SettingsRepository};
 use breakdown_core::shooting_day::{ShootingDayCommands, ShootingDayRepository};
-use infra::ai::{MemoryAiPreviewStore, PgAiImportMappingRepository, PgAiImportQueue};
+use infra::ai::{
+    AiDocumentSource, AiDocumentStore, AiPreviewStore, PgAiImportMappingRepository, PgAiImportQueue,
+};
 use infra::event_store::{
     AiConfigCommandsImpl, BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl,
     CostumeCommandsImpl, EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl,
@@ -150,7 +156,7 @@ impl<P: Ports> AppState<P> {
 }
 
 /// Production port bundle assembled in `main.rs`.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ProductionPorts {
     scene_commands: SceneCommandsImpl,
     scene_repo: SceneRepositoryImpl,
@@ -186,7 +192,9 @@ pub struct ProductionPorts {
     ai_config_repo: AiConfigRepositoryImpl,
     ai_import_queue: PgAiImportQueue,
     ai_import_mapping: PgAiImportMappingRepository,
-    ai_preview_store: MemoryAiPreviewStore,
+    ai_preview_store: Arc<dyn AiPreviewStore + Send + Sync>,
+    ai_document_store: Arc<dyn AiDocumentStore + Send + Sync>,
+    ai_document_source: Arc<dyn AiDocumentSource + Send + Sync>,
 }
 
 impl ProductionPorts {
@@ -227,7 +235,9 @@ impl ProductionPorts {
         ai_config_repo: AiConfigRepositoryImpl,
         ai_import_queue: PgAiImportQueue,
         ai_import_mapping: PgAiImportMappingRepository,
-        ai_preview_store: MemoryAiPreviewStore,
+        ai_preview_store: Arc<dyn AiPreviewStore + Send + Sync>,
+        ai_document_store: Arc<dyn AiDocumentStore + Send + Sync>,
+        ai_document_source: Arc<dyn AiDocumentSource + Send + Sync>,
     ) -> Self {
         Self {
             scene_commands,
@@ -265,6 +275,8 @@ impl ProductionPorts {
             ai_import_queue,
             ai_import_mapping,
             ai_preview_store,
+            ai_document_store,
+            ai_document_source,
         }
     }
 
@@ -276,8 +288,16 @@ impl ProductionPorts {
         &self.ai_import_mapping
     }
 
-    pub fn ai_preview_store(&self) -> &MemoryAiPreviewStore {
-        &self.ai_preview_store
+    pub fn ai_preview_store(&self) -> &(dyn AiPreviewStore + Send + Sync) {
+        self.ai_preview_store.as_ref()
+    }
+
+    pub fn ai_document_store(&self) -> &(dyn AiDocumentStore + Send + Sync) {
+        self.ai_document_store.as_ref()
+    }
+
+    pub fn ai_document_source(&self) -> &(dyn AiDocumentSource + Send + Sync) {
+        self.ai_document_source.as_ref()
     }
 
     pub fn ai_config_commands(&self) -> &AiConfigCommandsImpl {
