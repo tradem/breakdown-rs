@@ -9,6 +9,17 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.4.3] - Unreleased
+
+### Changed
+
+- Ships the CQRS-safe merge refactor (issue #172) in the `api` image:
+  `core` is re-pinned to 0.5.0 and `infra` to 0.7.0. The AI merge worker
+  no longer queries read-model projections; scene context is prepared as an
+  immutable `MergeInput` at the API boundary. PATCH release (ADR-020 D6):
+  no crate API or HTTP wire-contract change; HTTP path version stays `/v1`
+  (ADR-021 D2).
+
 ## [0.4.2] - 2026-08-07
 
 ### Fixed

@@ -2,6 +2,7 @@
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: deepseek-v4-flash (opencode-go)
 # Co-authored-by: gpt-5.6-luna (opencode-go)
+# Co-authored-by: mimo-v2.5 (opencode-go)
 
 # CQRS boundary: write-side code (command adapters, sagas, aggregates) must
 # never query a read-model projection to resolve audit/derived context (e.g.
@@ -17,18 +18,25 @@
 # on the same line as the call, carrying a justification comment above it.
 id: cqrs-boundary
 message: >-
-  Write-side code queries a read-model projection via find_by_id. Command
-  adapters, sagas and aggregates must never resolve audit/derived context
-  (e.g. series_id) from projections — take it from the event data or a command
-  field populated at the API edge (AGENTS.md §1). If this lookup is NOT
-  audit-context resolution (e.g. a concurrency version guard), suppress it with
-  an explicit `// ast-grep-ignore: cqrs-boundary` comment and a justification.
+  Write-side code queries a read-model projection. Command adapters, sagas and
+  aggregates must never resolve audit/derived context (e.g. series_id) from
+  projections — take it from the event data or a command field populated at the
+  API edge (AGENTS.md §1). If this lookup is NOT audit-context resolution
+  (e.g. a concurrency version guard), suppress it with an explicit
+  `// ast-grep-ignore: cqrs-boundary` comment and a justification.
 severity: error
 language: Rust
 rule:
   any:
+    # Direct projection lookups
     - pattern: $REPO.find_by_id($$$ARGS)
     - pattern: $REPO::find_by_id($$$ARGS)
+    # List queries (e.g. list_by_block, list_by_episode, list_by_season)
+    - pattern: $REPO.list_by_$$$METHOD($$$ARGS)
+    - pattern: $REPO::list_by_$$$METHOD($$$ARGS)
+    # Generic find queries (e.g. find_by_series_and_number)
+    - pattern: $REPO.find_by_$$$METHOD($$$ARGS)
+    - pattern: $REPO::find_by_$$$METHOD($$$ARGS)
     # The AI idempotency mapping lookup (`AiImportMappingRepository::find`) also
     # reads a projection. It is a documented non-audit read: the spec requires
     # it for crash-safe re-apply idempotency, and each call site carries an

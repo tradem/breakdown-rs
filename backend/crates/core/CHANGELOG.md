@@ -9,6 +9,19 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.5.0] - Unreleased
+
+### Added — CQRS-safe merge input type (issue #172)
+
+- New `MergeInput` struct in `ai::preview`: an immutable blob carrying the
+  `ShootingSchedule` and pre-loaded `SceneView` slices, prepared at the
+  authorized API/query boundary and stored before the merge job is claimed.
+  The write-side merge worker reads only this blob — never a read-model
+  projection (CQRS boundary, AGENTS.md §1).
+- New `merge_from_input(input: &MergeInput) -> Result<MergedPreview, DomainError>`
+  pure function: CQRS-safe entry point that performs the deterministic
+  schedule-to-scene join against the pre-loaded scenes.
+
 ## [0.4.0] - 2026-08-07
 
 ### Changed — AI import telemetry apply-state contract (issue #171)
