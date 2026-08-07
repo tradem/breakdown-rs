@@ -9,7 +9,7 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
-## [0.9.0] - Unreleased
+## [0.10.0] - Unreleased
 
 ### Added — AI payload cleanup worker (issue #198)
 

@@ -9,6 +9,12 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.4.6] - Unreleased
+
+### Changed
+
+- Re-pins `infra` to 0.10.0 (AI payload cleanup worker; issue #198).
+
 ## [0.4.5] - Unreleased
 
 ### Changed
