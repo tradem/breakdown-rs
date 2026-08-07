@@ -9,6 +9,16 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.4.5] - Unreleased
+
+### Changed
+
+- AI import upload handlers now use `AiDocumentStore::put_source` for
+  storing source documents, separating them from preview payloads.
+- Re-pins `infra` to 0.9.0 (consumes the new `AiDocumentStore` trait and
+  `OpenDalAiPayloadStorage`; under major-zero semver this is a MINOR bump,
+  ADR-020 D2/D3).
+
 ## [0.4.4] - Unreleased
 
 ### Changed

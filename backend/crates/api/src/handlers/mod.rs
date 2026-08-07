@@ -6,6 +6,10 @@
 
 //! Axum-Handler (Request → Command / Query)
 
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: mimo-v2.5 (opencode-go)
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -100,9 +104,7 @@ use sha2::{Digest, Sha256};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
-use infra::ai::{
-    AiPreviewStore, ApplyScriptRequest, ApplyWorker, ScheduleApplyRequest, ScheduleApplyWorker,
-};
+use infra::ai::{ApplyScriptRequest, ApplyWorker, ScheduleApplyRequest, ScheduleApplyWorker};
 
 use crate::auth::CurrentUser;
 use crate::state::{AppState, Ports, ProductionPorts};
@@ -4260,8 +4262,8 @@ async fn enqueue_ai_upload(
     let job_id = AiImportJobId::new();
     let source_handle = state
         .ports
-        .ai_preview_store()
-        .put(job_id, body.to_vec())
+        .ai_document_store()
+        .put_source(job_id, body.to_vec())
         .await
         .map_err(map_err)?;
     let result = state
@@ -4285,7 +4287,12 @@ async fn enqueue_ai_upload(
             // the dedup lookup; the existing job references its own source
             // document, so this new handle is orphaned — remove it to avoid
             // leaking one full document per duplicate re-upload.
-            if let Err(error) = state.ports.ai_preview_store().delete(&source_handle).await {
+            if let Err(error) = state
+                .ports
+                .ai_document_store()
+                .delete_source(&source_handle)
+                .await
+            {
                 tracing::warn!(%error, "failed to remove orphaned AI import source document");
             }
             (StatusCode::OK, id)
