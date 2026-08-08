@@ -13,7 +13,10 @@
 #![allow(unsafe_code)] // test-only JWT/socket stubs
 use std::sync::Arc;
 
-use api::auth::authorization::{AuthorizationState, Requirement, authorize_middleware};
+use api::auth::authorization::{
+    AuthorizationState, MembershipAuthorizationPolicy, Requirement, SeasonPhotoAccessPolicy,
+    authorize_middleware,
+};
 use async_trait::async_trait;
 use axum::Router;
 use axum::body::Body as AxumBody;
@@ -239,7 +242,6 @@ async fn panicking_policy_yields_403_never_500() {
 
 // ─── SeasonPhotoAccessPolicy::authorize_season ────────────────────
 
-use api::auth::authorization::SeasonPhotoAccessPolicy;
 use breakdown_core::error::DomainError;
 use breakdown_core::membership::policy::{Action, SeasonAuthContext};
 use breakdown_core::membership::{MembershipRepository, MembershipView};
@@ -363,6 +365,107 @@ async fn season_photo_policy_denies_when_repo_returns_err() {
         action: Action::Write,
     };
     assert_eq!(policy.authorize_season(&ctx).await, PolicyDecision::Deny);
+}
+
+// ─── Fallible season/credential-role checks (issue #175) ─────────
+//
+// The AI import gates route through `authorize_season_result` /
+// `authorize_credential_role`, which are FALLIBLE: a read-model failure must
+// stay visible as a mapped server error instead of silently becoming a 403.
+
+#[tokio::test]
+async fn membership_policy_season_result_allows_when_repo_returns_ok_true() {
+    let policy = MembershipAuthorizationPolicy::new(Arc::new(MockSeasonMembershipRepo::allow()));
+    let ctx = SeasonAuthContext {
+        actor: UserId::from_sub("test-user".to_string()),
+        season_id: SeasonId::new(),
+        action: Action::Write,
+    };
+    assert_eq!(
+        policy.authorize_season_result(&ctx).await,
+        Ok(PolicyDecision::Allow)
+    );
+}
+
+#[tokio::test]
+async fn membership_policy_season_result_denies_when_repo_returns_ok_false() {
+    let policy = MembershipAuthorizationPolicy::new(Arc::new(MockSeasonMembershipRepo::deny()));
+    let ctx = SeasonAuthContext {
+        actor: UserId::from_sub("test-user".to_string()),
+        season_id: SeasonId::new(),
+        action: Action::Write,
+    };
+    assert_eq!(
+        policy.authorize_season_result(&ctx).await,
+        Ok(PolicyDecision::Deny)
+    );
+}
+
+#[tokio::test]
+async fn membership_policy_season_result_propagates_repo_error() {
+    let policy =
+        MembershipAuthorizationPolicy::new(Arc::new(MockSeasonMembershipRepo::err_msg("db down")));
+    let ctx = SeasonAuthContext {
+        actor: UserId::from_sub("test-user".to_string()),
+        season_id: SeasonId::new(),
+        action: Action::Write,
+    };
+    let result = policy.authorize_season_result(&ctx).await;
+    assert!(
+        matches!(result, Err(DomainError::ValidationError(ref msg)) if msg == "db down"),
+        "repo failure must propagate, not be conflated with a denial: {result:?}"
+    );
+}
+
+#[tokio::test]
+async fn membership_policy_credential_role_allows_when_repo_returns_ok_true() {
+    let policy = MembershipAuthorizationPolicy::new(Arc::new(MockSeasonMembershipRepo::allow()));
+    assert_eq!(
+        policy
+            .authorize_credential_role(&UserId::from_sub("test-user".to_string()))
+            .await,
+        Ok(PolicyDecision::Allow)
+    );
+}
+
+#[tokio::test]
+async fn membership_policy_credential_role_denies_when_repo_returns_ok_false() {
+    let policy = MembershipAuthorizationPolicy::new(Arc::new(MockSeasonMembershipRepo::deny()));
+    assert_eq!(
+        policy
+            .authorize_credential_role(&UserId::from_sub("test-user".to_string()))
+            .await,
+        Ok(PolicyDecision::Deny)
+    );
+}
+
+#[tokio::test]
+async fn membership_policy_credential_role_propagates_repo_error() {
+    let policy =
+        MembershipAuthorizationPolicy::new(Arc::new(MockSeasonMembershipRepo::err_msg("db down")));
+    let result = policy
+        .authorize_credential_role(&UserId::from_sub("test-user".to_string()))
+        .await;
+    assert!(
+        matches!(result, Err(DomainError::ValidationError(ref msg)) if msg == "db down"),
+        "repo failure must propagate, not be conflated with a denial: {result:?}"
+    );
+}
+
+#[tokio::test]
+async fn season_photo_policy_season_result_propagates_repo_error() {
+    let policy =
+        SeasonPhotoAccessPolicy::new(Arc::new(MockSeasonMembershipRepo::err_msg("db down")));
+    let ctx = SeasonAuthContext {
+        actor: UserId::from_sub("test-user".to_string()),
+        season_id: SeasonId::new(),
+        action: Action::Write,
+    };
+    let result = policy.authorize_season_result(&ctx).await;
+    assert!(
+        matches!(result, Err(DomainError::ValidationError(ref msg)) if msg == "db down"),
+        "fallible season check must propagate repo errors (unlike authorize_season): {result:?}"
+    );
 }
 
 // ─── authorize_middleware: GET → Read, POST → Write ───────────────

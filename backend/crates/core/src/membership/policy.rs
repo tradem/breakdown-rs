@@ -9,6 +9,7 @@
 //! [`crate::membership::MembershipRepository`]-backed implementation lives in
 //! `api::auth::authorization`.
 
+use crate::error::DomainError;
 use crate::shared::{BlockId, SeasonId, UserId};
 use async_trait::async_trait;
 
@@ -82,5 +83,38 @@ pub trait AuthorizationPolicy: Send + Sync {
     /// `SeasonPhotoAccessPolicy`.
     async fn authorize_season(&self, _ctx: &SeasonAuthContext) -> PolicyDecision {
         PolicyDecision::Deny
+    }
+
+    /// *Fallible* season-scoped authorization with error propagation.
+    ///
+    /// Same membership semantics as [`Self::authorize_season`], but a
+    /// read-model failure is returned as `Err` instead of being conflated
+    /// with a denial. Handlers on `Authenticated`-only privileged routes
+    /// (AI import gates) use this so infrastructure errors stay visible as
+    /// mapped server errors instead of silently becoming a `403`.
+    ///
+    /// The default returns `Ok(PolicyDecision::Deny)` so unrelated policy
+    /// implementations keep working unchanged.
+    async fn authorize_season_result(
+        &self,
+        _ctx: &SeasonAuthContext,
+    ) -> Result<PolicyDecision, DomainError> {
+        Ok(PolicyDecision::Deny)
+    }
+
+    /// *Fallible* credential-role authorization with error propagation.
+    ///
+    /// Grants access when `actor` holds an active credential role
+    /// (CostumeDesigner or CostumeAssistant) in any block — the settings /
+    /// AI-import configuration gate (ADR-027). Fallible for the same reason
+    /// as [`Self::authorize_season_result`].
+    ///
+    /// The default returns `Ok(PolicyDecision::Deny)` so unrelated policy
+    /// implementations keep working unchanged.
+    async fn authorize_credential_role(
+        &self,
+        _actor: &UserId,
+    ) -> Result<PolicyDecision, DomainError> {
+        Ok(PolicyDecision::Deny)
     }
 }

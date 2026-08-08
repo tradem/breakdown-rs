@@ -11,6 +11,11 @@ commits (ADR-020 D5).
 
 ## [0.10.0] - Unreleased
 
+### Changed
+
+- Re-pins `breakdown_core` to 0.6.0 (fallible `AuthorizationPolicy` checks,
+  issue #175). No `infra` code change.
+
 ### Added — AI payload cleanup worker (issue #198)
 
 - New `ai::payload_cleanup` module with periodic garbage collection for

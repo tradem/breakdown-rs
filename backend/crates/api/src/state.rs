@@ -14,12 +14,14 @@
 
 use std::sync::Arc;
 
+use crate::auth::authorization::MembershipAuthorizationPolicy;
 use breakdown_core::audit::AuditRepository;
 use breakdown_core::block::{BlockCommands, BlockRepository};
 use breakdown_core::character::{CharacterCommands, CharacterRepository};
 use breakdown_core::costume::{CostumeCommands, CostumeRepository};
 use breakdown_core::costume_category::{CostumeCategoryCommands, CostumeCategoryRepository};
 use breakdown_core::episode::{EpisodeCommands, EpisodeRepository};
+use breakdown_core::membership::policy::AuthorizationPolicy;
 use breakdown_core::membership::{MembershipCommands, MembershipRepository};
 use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
 use breakdown_core::reporting::{ReportArchivalQueue, ReportRenderer};
@@ -119,9 +121,16 @@ pub trait Ports: Clone + Send + Sync + 'static {
 }
 
 /// Shared state handed to every Axum handler.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct AppState<P: Ports> {
     pub ports: P,
+    /// The membership-backed [`AuthorizationPolicy`] used by handlers on
+    /// `Authenticated`-only privileged routes (AI import gates). Constructed
+    /// once at state-build time from the same read model the middleware
+    /// policy consults, so handler-internal gates never diverge from the
+    /// composition root. `main.rs` shares this `Arc` with the middleware
+    /// [`AuthorizationState`] instead of rebuilding a second policy.
+    pub authorization_policy: Arc<dyn AuthorizationPolicy>,
     /// Rollout switch for AI import routes/workers. It is explicitly enabled
     /// by `AI_IMPORT_ENABLED`; the default is safe/off.
     pub ai_import_enabled: bool,
@@ -130,7 +139,22 @@ pub struct AppState<P: Ports> {
     pub ai_import_max_document_bytes: u64,
 }
 
-impl<P: Ports> AppState<P> {
+impl<P: Ports> std::fmt::Debug for AppState<P> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AppState")
+            .field("ai_import_enabled", &self.ai_import_enabled)
+            .field(
+                "ai_import_max_document_bytes",
+                &self.ai_import_max_document_bytes,
+            )
+            .finish_non_exhaustive()
+    }
+}
+
+impl<P: Ports> AppState<P>
+where
+    P::MembershipRepo: Clone,
+{
     /// Environment-driven production entry point: reads `AI_IMPORT_ENABLED`
     /// and the document bound once at construction.
     pub fn new(ports: P) -> Self {
@@ -147,8 +171,12 @@ impl<P: Ports> AppState<P> {
         ai_import_enabled: bool,
         ai_import_max_document_bytes: u64,
     ) -> Self {
+        let authorization_policy: Arc<dyn AuthorizationPolicy> = Arc::new(
+            MembershipAuthorizationPolicy::new(Arc::new(ports.membership_repo().clone())),
+        );
         Self {
             ports,
+            authorization_policy,
             ai_import_enabled,
             ai_import_max_document_bytes,
         }
