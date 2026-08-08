@@ -5,7 +5,7 @@ license: AGPL-3.0
 compatibility: Requires `gh` CLI authenticated with GitHub.
 metadata:
   author: breakdown-rs
-  version: "1.2"
+  version: "1.3"
 ---
 
 # CodeRabbitAI Review Response
@@ -41,18 +41,20 @@ per-comment replies.
 
 ### Step 1: Read All Review Comments (primary + replies)
 
-Fetch both primary comments and existing replies so you know which threads
-are already resolved:
+Fetch the **CodeRabbit primary comments** (and keep the full stream so you
+can see existing replies and know which threads are already resolved):
 
 ```bash
-gh api repos/{owner}/{repo}/pulls/{pr}/comments --paginate \
-  --jq '.[] | {id: .id, in_reply_to_id: .in_reply_to_id, path: .path, line: .line, user: .user.login, body: .body[0:800]}'
+gh api repos/{owner}/{repo}/pulls/{pr}/comments --paginate --jq '
+  .[] | select(.in_reply_to_id == null and .user.login == "coderabbitai[bot]")
+  | {id: .id, path: .path, line: .line, body: .body[0:800]}'
 ```
 
-- Comments with `in_reply_to_id == null` are **primary comments** — each one
-  needs your reply.
-- A comment is already handled when it has a child reply (`in_reply_to_id`
-  equal to its `id`) from you; skip replying twice.
+- Only comments with `in_reply_to_id == null` and author
+  `coderabbitai[bot]` are **primary comments** — each one needs your reply.
+  Human comments and CodeRabbit replies are ignored for the thread gate.
+- A comment is already handled when it has a child reply from you; skip
+  replying twice.
 - If CodeRabbit has already withdrawn a finding (its reply contains
   `<review_comment_withdrawn>` or "I withdraw"), still reply
   `Not applicable: withdrawn by reviewer` — never leave the thread silent.
@@ -93,18 +95,32 @@ gh api repos/{owner}/{repo}/pulls/{pr}/comments/{comment_id}/replies \
 - `Deferred: [reason]. Tracked in issue #[number].`
 - `Not applicable: [reason]`
 
-After posting all replies, **verify thread coverage** — every primary
-comment must have a child reply:
+After posting all replies, **verify thread coverage** — every CodeRabbit
+primary comment must have **exactly one** direct reply from you that starts
+with the status vocabulary. The check aggregates the full (paginated)
+comment stream first, so parent/child relationships are evaluated against the
+whole collection, never per-object:
 
 ```bash
-gh api repos/{owner}/{repo}/pulls/{pr}/comments --paginate \
-  --jq '.[] | select(.in_reply_to_id == null) | .id as $id |
-        select(([.[] | select(.in_reply_to_id == $id)] | length) == 0) |
-        "UNREPLIED \($id): \(.path)"'
+gh api repos/{owner}/{repo}/pulls/{pr}/comments --paginate --jq '.[]' \
+  | jq -s -r --arg me "$(gh api user --jq .login)" '
+      . as $all
+      | $all[]
+      | select(.in_reply_to_id == null and .user.login == "coderabbitai[bot]") as $primary
+      | [ $all[] | select(.in_reply_to_id == $primary.id and .user.login == $me
+          and (.body | test("^(Fixed|Deferred|Not applicable):"))) ] as $replies
+      | if ($replies | length) != 1 then
+          "UNREPLIED_OR_DUPLICATE \($primary.id): \($primary.path) (status-replies=\($replies|length))"
+        else empty
+        end'
 ```
 
-The output must be empty. Any `UNREPLIED` line means you missed a comment —
-go back and reply to it before continuing.
+The output must be empty. `UNREPLIED_OR_DUPLICATE` means the thread has zero
+or more than one **status-prefixed** reply from you — a missing answer, a
+reply that does not start with `Fixed:` / `Deferred:` / `Not applicable:`,
+or contradictory status replies. Only replies whose body starts with the
+status vocabulary count; discussion replies (e.g. your clarifying question)
+are ignored. Go back and fix the thread before continuing.
 
 ### Step 5: Commit and Push
 
@@ -131,7 +147,8 @@ git push
 
 ### Step 6: Verify Coverage, Then Request Re-review
 
-1. Re-run the Step 4 coverage check — it must print no `UNREPLIED` lines.
+1. Re-run the Step 4 coverage check — it must print no
+   `UNREPLIED_OR_DUPLICATE` lines.
 2. Only then post the top-level re-review request (additive, after all
    replies exist):
 
@@ -139,8 +156,8 @@ git push
 gh pr comment {pr} --body "@coderabbitai I replied to every comment thread (Fixed/Deferred/Not applicable). Could you please re-review?"
 ```
 
-If any thread is still unreplied, return to Step 4 — do **not** request
-re-review.
+If any thread still fails the coverage check, return to Step 4 — do **not**
+request re-review.
 
 ## Comment Response Templates
 
@@ -189,8 +206,8 @@ Not applicable: [Reason why this doesn't apply].
   Fixed, Deferred, or Not applicable
 - **Reply to EVERY comment** — including withdrawn ones — before requesting
   re-review
-- **Verify thread coverage** (no `UNREPLIED` lines) before posting the
-  re-review request
+- **Verify thread coverage** (no `UNREPLIED_OR_DUPLICATE` lines) before
+  posting the re-review request
 - **Stage only intended files** — do not use `git add -A`
 - **Verify fixes compile** before committing
 - **Use conventional commit messages**
