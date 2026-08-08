@@ -1468,6 +1468,17 @@ impl AiImportQueue for FakeAiImportQueue {
         Ok(())
     }
 
+    async fn record_worker_telemetry(
+        &self,
+        id: AiImportJobId,
+        _worker_id: &str,
+        telemetry: Telemetry,
+    ) -> Result<(), DomainError> {
+        // Same sink as the unfenced write: this fake has no claim to fence on.
+        self.telemetry.lock().await.push((id, telemetry));
+        Ok(())
+    }
+
     async fn record_telemetry(
         &self,
         id: AiImportJobId,

@@ -14,15 +14,27 @@ commits (ADR-020 D5).
 
 ### Changed
 
-- **Breaking:** the three worker-originated `AiImportQueue` lifecycle methods
-  take the claiming `worker_id` (issue #177):
-  `mark_running(id, worker_id)`, `mark_succeeded(id, worker_id, preview_handle)`
-  and `mark_failed(id, worker_id, error_summary, retryable)`.
+- **Breaking:** the worker-originated `AiImportQueue` lifecycle methods take
+  the claiming `worker_id` (issue #177):
+  `mark_running(id, worker_id)`, `mark_succeeded(id, worker_id, preview_handle)`,
+  `mark_failed(id, worker_id, error_summary, retryable)` and the new
+  `record_worker_telemetry(id, worker_id, telemetry)`.
   Worker leases let a second worker reclaim a job whose lease expired, so two
   workers can briefly run the same job. Implementors MUST fence every
   transition on the claim owner and reject a write from a displaced worker
   with `DomainError::Conflict` — otherwise a stale worker silently overwrites
   the new owner's result. Every implementor must add the parameter.
+- **Breaking:** telemetry is split in two. `record_worker_telemetry` is the
+  owner-fenced write used by queue workers; `record_telemetry` stays unfenced
+  for the API apply path, where the job is already terminal and no claim
+  exists. Without the split a displaced worker's metrics would commit even
+  though its `mark_succeeded` is rejected, describing work that was discarded.
+
+### Added
+
+- `AiImportQueue::lease_window()` (defaulted to `None`) exposes the adapter's
+  claim lease so workers can derive a heartbeat interval. Implementations
+  without a lease (in-memory, tests) inherit the default and need no change.
 
 ## [0.6.0] - Unreleased
 

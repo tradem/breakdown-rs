@@ -21,6 +21,22 @@ commits (ADR-020 D5).
   forward to the now owner-fenced lifecycle writes. `run_once` is unchanged
   (it already received `worker_id`).
 
+### Added — Lease heartbeat for long AI import jobs (issue #177)
+
+- New `ai::heartbeat` module (`LeaseHeartbeat`). A script job makes one LLM
+  call per scene chunk — at defaults up to 128 calls of up to 120s, i.e. ~4.3h
+  — while the lease is 900s, so the claim would lapse after roughly seven
+  chunks and another worker would redo all the paid LLM work. The heartbeat
+  renews the claim via the owner-fenced `mark_running` at 1/3 of the lease
+  window (two spare renewals absorb a transient database blip).
+- The renewal task is stopped before the terminal write and aborted on `Drop`,
+  so an early `?` return cannot leak it. Because renewal is owner-fenced it can
+  never resurrect a lost claim — it stops and flags `claim_lost`, and the
+  script loop then aborts with `Conflict` instead of spending on an LLM call
+  for a job it no longer owns.
+- The heartbeat is skipped where it cannot help: native-CSV schedule parsing
+  and the pure in-process merge are not long-running.
+
 ### Added — Owner fencing for AI import lifecycle writes (issue #177)
 
 - `mark_running`, `mark_succeeded` and `mark_failed` fence their UPDATE on
@@ -33,6 +49,12 @@ commits (ADR-020 D5).
 - Because the claim is released on completion, the fence also makes a
   duplicate completion of an already-terminal job a `Conflict` instead of a
   silent overwrite.
+- Worker telemetry is fenced too, via the new `record_worker_telemetry`. The
+  unfenced `record_telemetry` is retained for the API apply path (terminal job,
+  no claim). Both share one `TelemetryValues` conversion so their range checks
+  cannot drift.
+- `PgAiImportQueue` implements `lease_window()`, which is how workers obtain
+  the interval for their heartbeat.
 
 ### Added — Worker leases for AI import jobs (issue #177)
 
@@ -47,8 +69,12 @@ commits (ADR-020 D5).
   so `running` stays the only leased state.
 - New builder `PgAiImportQueue::with_lease` plus accessor
   `PgAiImportQueue::lease` (MINOR, additive API).
-- New environment variable `AI_IMPORT_LEASE_SECS` (default `900`, clamped to
-  `30..=86400`).
+- New environment variable `AI_IMPORT_LEASE_SECS`. An out-of-range *number* is
+  clamped to the nearest bound (`30..=86400`); only an absent or unparsable
+  value falls back to the `900` default.
+- The three bounds derive from one named `LEASE_UNIT_SECS` constant (the
+  report-archival recovery horizon) with a compile-time ordering assertion, so
+  retuning the horizon cannot silently invert the range.
 - Migration `20260809000001_ai_import_worker_lease` adds the two columns and
   expires pre-existing `running` rows so legacy strays become recoverable on
   the first claim. The follow-up migration

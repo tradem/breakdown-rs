@@ -15,22 +15,36 @@ use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
-/// Default claim lease. A worker that dies holds its job for at most this long
-/// before another worker may reclaim it. Matches the report-archival stale
-/// claim window (`REPORT_BACKUP_CLAIM_STALE_SECS`) so operators reason about
-/// one recovery horizon.
-const DEFAULT_LEASE_SECS: u64 = 900;
-const MIN_LEASE_SECS: u64 = 30;
-const MAX_LEASE_SECS: u64 = 86_400;
+/// The one named unit the whole lease window is derived from.
+///
+/// It is the report-archival stale-claim window
+/// (`REPORT_BACKUP_CLAIM_STALE_SECS`, 900s) so operators reason about a single
+/// recovery horizon across both queues. Everything below is a multiple or
+/// fraction of this unit, so the ordering invariant cannot drift when the
+/// horizon is retuned.
+const LEASE_UNIT_SECS: u64 = 900;
 
-// The lease must outlive a normal job by a wide margin, otherwise a healthy
-// worker's job would be reclaimed mid-flight and processed twice. The default
-// request timeout ceiling is 3600s per LLM call, but a job is retried rather
-// than duplicated on timeout, so a 30s floor is the safety net against a
-// misconfigured near-zero lease.
-const _LEASE_BOUNDS_INVARIANT: () =
-    assert!(MIN_LEASE_SECS > 0 && MIN_LEASE_SECS <= DEFAULT_LEASE_SECS);
-const _LEASE_RANGE_INVARIANT: () = assert!(DEFAULT_LEASE_SECS <= MAX_LEASE_SECS);
+/// Default claim lease: one recovery horizon. A worker that dies holds its job
+/// for at most this long before another worker may reclaim it.
+const DEFAULT_LEASE_SECS: u64 = LEASE_UNIT_SECS;
+/// Floor: 1/30th of the horizon (30s). Not a tuning knob — purely a guard
+/// against a misconfigured near-zero lease that would reclaim a healthy
+/// worker's job mid-flight. Workers renew the lease via `mark_running`, so the
+/// floor only has to exceed one heartbeat interval.
+const MIN_LEASE_SECS: u64 = LEASE_UNIT_SECS / 30;
+/// Ceiling: 96 horizons (24h). Beyond this a crashed worker's job is stranded
+/// so long that recovery is indistinguishable from a leak.
+const MAX_LEASE_SECS: u64 = LEASE_UNIT_SECS * 96;
+
+// Ordering invariant, enforced at compile time: the three bounds must stay
+// strictly ordered no matter how `LEASE_UNIT_SECS` is retuned. A zero floor
+// would defeat the fence; an inverted range would make every override fall
+// back to the default silently.
+const _LEASE_BOUNDS_INVARIANT: () = assert!(
+    MIN_LEASE_SECS > 0
+        && MIN_LEASE_SECS <= DEFAULT_LEASE_SECS
+        && DEFAULT_LEASE_SECS <= MAX_LEASE_SECS
+);
 
 #[derive(Clone, Debug)]
 pub struct PgAiImportQueue {
@@ -77,10 +91,14 @@ fn lease_from_env() -> Duration {
 
 /// Pure parser for the lease override so the clamping contract is testable
 /// without mutating process-global environment state.
+///
+/// An out-of-range *number* is clamped to the nearest bound (the operator
+/// clearly asked for "as short/long as possible"); only an absent or
+/// unparsable value falls back to the default.
 fn parse_lease(raw: Option<&str>) -> Duration {
     let secs = raw
         .and_then(|value| value.trim().parse::<u64>().ok())
-        .filter(|value| (*value >= MIN_LEASE_SECS) && (*value <= MAX_LEASE_SECS))
+        .map(|value| value.clamp(MIN_LEASE_SECS, MAX_LEASE_SECS))
         .unwrap_or(DEFAULT_LEASE_SECS);
     Duration::from_secs(secs)
 }
@@ -207,6 +225,10 @@ impl AiImportQueue for PgAiImportQueue {
         row.map(map_job_row).transpose()
     }
 
+    fn lease_window(&self) -> Option<Duration> {
+        Some(self.lease)
+    }
+
     async fn get(&self, id: AiImportJobId) -> Result<Option<AiImportJob>, DomainError> {
         let row = sqlx::query(
             r#"
@@ -318,42 +340,107 @@ impl AiImportQueue for PgAiImportQueue {
         ensure_claim_owned(result.rows_affected(), id, worker_id, "fail")
     }
 
+    /// Owner-fenced telemetry write for a worker that still holds the claim.
+    ///
+    /// Without the fence a displaced worker's telemetry would commit over the
+    /// new owner's numbers even though its subsequent `mark_succeeded` is
+    /// rejected — the metrics would describe work that was thrown away.
+    async fn record_worker_telemetry(
+        &self,
+        id: AiImportJobId,
+        worker_id: &str,
+        telemetry: Telemetry,
+    ) -> Result<(), DomainError> {
+        let values = TelemetryValues::try_from_telemetry(telemetry)?;
+        let result = values
+            .bind_all(
+                sqlx::query(
+                    r#"
+            UPDATE ai_import.ai_import_job
+            SET provider = $3, model = $4, chunk_count = $5,
+                tokens_in = $6, tokens_out = $7, latency_total_ms = $8,
+                accept_as_is = $9, edit_distance = $10, updated_at = now()
+            WHERE id = $1 AND status = 'running' AND worker_id = $2
+            "#,
+                )
+                .bind(id.as_uuid())
+                .bind(worker_id),
+            )
+            .execute(&self.pool)
+            .await
+            .map_err(map_sqlx_error)?;
+        ensure_claim_owned(
+            result.rows_affected(),
+            id,
+            worker_id,
+            "record telemetry for",
+        )
+    }
+
     async fn record_telemetry(
         &self,
         id: AiImportJobId,
         telemetry: Telemetry,
     ) -> Result<(), DomainError> {
-        sqlx::query(
-            r#"
+        let values = TelemetryValues::try_from_telemetry(telemetry)?;
+        values
+            .bind_all(
+                sqlx::query(
+                    r#"
             UPDATE ai_import.ai_import_job
             SET provider = $2, model = $3, chunk_count = $4,
                 tokens_in = $5, tokens_out = $6, latency_total_ms = $7,
                 accept_as_is = $8, edit_distance = $9, updated_at = now()
             WHERE id = $1
             "#,
-        )
-        .bind(id.as_uuid())
-        .bind(telemetry.provider.map(|provider| provider.as_str()))
-        .bind(telemetry.model)
-        .bind(i32::try_from(telemetry.chunk_count).map_err(|error| {
-            DomainError::ValidationError(format!("AI chunk count exceeds database range: {error}"))
-        })?)
-        .bind(i64::try_from(telemetry.tokens_in).map_err(|error| {
-            DomainError::ValidationError(format!(
-                "AI input token count exceeds database range: {error}"
-            ))
-        })?)
-        .bind(i64::try_from(telemetry.tokens_out).map_err(|error| {
-            DomainError::ValidationError(format!(
-                "AI output token count exceeds database range: {error}"
-            ))
-        })?)
-        .bind(i64::try_from(telemetry.latency_total).map_err(|error| {
-            DomainError::ValidationError(format!("AI latency exceeds database range: {error}"))
-        })?)
-        .bind(telemetry.apply_state.accept_as_is())
-        .bind(
-            telemetry
+                )
+                .bind(id.as_uuid()),
+            )
+            .execute(&self.pool)
+            .await
+            .map_err(map_sqlx_error)?;
+        Ok(())
+    }
+}
+
+/// Telemetry values narrowed to their database types once, so the fenced and
+/// unfenced writes cannot drift in their range checks.
+struct TelemetryValues {
+    provider: Option<&'static str>,
+    model: Option<String>,
+    chunk_count: i32,
+    tokens_in: i64,
+    tokens_out: i64,
+    latency_total: i64,
+    accept_as_is: Option<bool>,
+    edit_distance: Option<i32>,
+}
+
+impl TelemetryValues {
+    fn try_from_telemetry(telemetry: Telemetry) -> Result<Self, DomainError> {
+        Ok(Self {
+            provider: telemetry.provider.map(|provider| provider.as_str()),
+            model: telemetry.model,
+            chunk_count: i32::try_from(telemetry.chunk_count).map_err(|error| {
+                DomainError::ValidationError(format!(
+                    "AI chunk count exceeds database range: {error}"
+                ))
+            })?,
+            tokens_in: i64::try_from(telemetry.tokens_in).map_err(|error| {
+                DomainError::ValidationError(format!(
+                    "AI input token count exceeds database range: {error}"
+                ))
+            })?,
+            tokens_out: i64::try_from(telemetry.tokens_out).map_err(|error| {
+                DomainError::ValidationError(format!(
+                    "AI output token count exceeds database range: {error}"
+                ))
+            })?,
+            latency_total: i64::try_from(telemetry.latency_total).map_err(|error| {
+                DomainError::ValidationError(format!("AI latency exceeds database range: {error}"))
+            })?,
+            accept_as_is: telemetry.apply_state.accept_as_is(),
+            edit_distance: telemetry
                 .apply_state
                 .edit_distance()
                 .map(|distance| {
@@ -364,11 +451,23 @@ impl AiImportQueue for PgAiImportQueue {
                     })
                 })
                 .transpose()?,
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(map_sqlx_error)?;
-        Ok(())
+        })
+    }
+
+    /// Bind the eight telemetry columns in the order both statements declare.
+    fn bind_all<'q>(
+        self,
+        query: sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments>,
+    ) -> sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments> {
+        query
+            .bind(self.provider)
+            .bind(self.model)
+            .bind(self.chunk_count)
+            .bind(self.tokens_in)
+            .bind(self.tokens_out)
+            .bind(self.latency_total)
+            .bind(self.accept_as_is)
+            .bind(self.edit_distance)
     }
 }
 
@@ -468,7 +567,8 @@ fn map_sqlx_error(error: sqlx::Error) -> DomainError {
 #[cfg(test)]
 mod tests {
     use super::{
-        DEFAULT_LEASE_SECS, Duration, MAX_LEASE_SECS, MIN_LEASE_SECS, PgAiImportQueue, parse_lease,
+        DEFAULT_LEASE_SECS, Duration, LEASE_UNIT_SECS, MAX_LEASE_SECS, MIN_LEASE_SECS,
+        PgAiImportQueue, parse_lease,
     };
 
     #[test]
@@ -482,21 +582,45 @@ mod tests {
     }
 
     #[test]
-    fn lease_override_outside_bounds_falls_back_to_default() {
-        let default = Duration::from_secs(DEFAULT_LEASE_SECS);
+    fn numeric_lease_override_outside_bounds_is_clamped() {
         // A near-zero lease would let a healthy worker's job be reclaimed
-        // mid-flight; an absurd lease would make crash recovery useless.
+        // mid-flight; an absurd lease would make crash recovery useless. The
+        // operator's intent is still honoured as far as the bounds allow.
         assert_eq!(
             parse_lease(Some(&(MIN_LEASE_SECS - 1).to_string())),
-            default
+            Duration::from_secs(MIN_LEASE_SECS)
         );
+        assert_eq!(parse_lease(Some("0")), Duration::from_secs(MIN_LEASE_SECS));
         assert_eq!(
             parse_lease(Some(&(MAX_LEASE_SECS + 1).to_string())),
-            default
+            Duration::from_secs(MAX_LEASE_SECS)
         );
+    }
+
+    #[test]
+    fn absent_or_unparsable_lease_override_falls_back_to_default() {
+        let default = Duration::from_secs(DEFAULT_LEASE_SECS);
+        // Unparsable input carries no intent to honour, so the safe default
+        // applies — unlike an out-of-range number, which is clamped.
         assert_eq!(parse_lease(Some("not-a-number")), default);
         assert_eq!(parse_lease(Some("")), default);
+        assert_eq!(parse_lease(Some("-5")), default);
         assert_eq!(parse_lease(None), default);
+    }
+
+    #[test]
+    fn lease_bounds_are_derived_from_the_shared_unit() {
+        // The ordering itself is guaranteed by `_LEASE_BOUNDS_INVARIANT` at
+        // compile time; asserting it again at runtime would be a tautology
+        // (clippy::assertions_on_constants). What is worth pinning here is the
+        // *derivation*: all three bounds must stay tied to the one named unit,
+        // so a future edit cannot reintroduce free-floating literals.
+        assert_eq!(DEFAULT_LEASE_SECS, LEASE_UNIT_SECS);
+        assert_eq!(MIN_LEASE_SECS, LEASE_UNIT_SECS / 30);
+        assert_eq!(MAX_LEASE_SECS, LEASE_UNIT_SECS * 96);
+        // Sanity-check the derived values against the documented contract.
+        assert_eq!(MIN_LEASE_SECS, 30);
+        assert_eq!(MAX_LEASE_SECS, 86_400);
     }
 
     // `connect_lazy` registers a pool worker and therefore needs a runtime,

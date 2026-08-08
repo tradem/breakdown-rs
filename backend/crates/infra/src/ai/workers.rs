@@ -20,6 +20,7 @@ use breakdown_core::shared::{EpisodeId, SeriesId, UserId};
 use serde_json::to_vec;
 use uuid::Uuid;
 
+use super::heartbeat::LeaseHeartbeat;
 use super::pdf::PdfTextExtractor;
 use super::preview_store::{AiDocumentSource, AiPreviewStore};
 use crate::photo::sagas::is_transient;
@@ -86,6 +87,13 @@ where
 
     /// Process already extracted text. This seam keeps PDF subprocess tests
     /// separate from deterministic worker tests.
+    ///
+    /// A script job makes one LLM call per chunk (up to `max_chunks_per_script`
+    /// of up to `request_timeout_secs` each), which far outlives a single lease
+    /// window. A [`LeaseHeartbeat`] therefore renews the claim while the loop
+    /// runs, and the loop aborts as soon as the heartbeat reports the claim
+    /// was lost — continuing would burn LLM spend on a job another worker has
+    /// already taken over.
     pub async fn process_text(
         &self,
         job: &AiImportJob,
@@ -93,6 +101,7 @@ where
         text: &str,
     ) -> Result<String, DomainError> {
         let started = Instant::now();
+        let heartbeat = self.start_heartbeat(job.id, worker_id);
         let chunks = extract_scenes(text);
         let chunk_count = u32::try_from(chunks.len()).map_err(|error| {
             DomainError::ValidationError(format!(
@@ -121,6 +130,10 @@ where
                 max_tokens: self.bounds.max_tokens_per_req,
                 response_schema: None,
             };
+            if super::heartbeat::claim_lost(heartbeat.as_ref()) {
+                // Stop before the next paid call: another worker owns the job.
+                return Err(claim_lost_error(job.id, worker_id));
+            }
             let partial = retry_chat(
                 self.client.as_ref(),
                 request,
@@ -145,9 +158,15 @@ where
             DomainError::ValidationError(format!("could not serialize script preview: {error}"))
         })?;
         let handle = self.previews.put(job.id, payload).await?;
+        // Stop renewing before the terminal writes so a heartbeat cannot race
+        // the completion and re-extend a lease that is about to be released.
+        if let Some(heartbeat) = heartbeat {
+            heartbeat.stop();
+        }
         self.queue
-            .record_telemetry(
+            .record_worker_telemetry(
                 job.id,
+                worker_id,
                 Telemetry {
                     provider: Some(self.provider),
                     model: Some(self.model.clone()),
@@ -167,6 +186,11 @@ where
         Ok(handle)
     }
 
+    fn start_heartbeat(&self, id: AiImportJobId, worker_id: &str) -> Option<LeaseHeartbeat> {
+        let lease = self.queue.lease_window()?;
+        LeaseHeartbeat::start(Arc::clone(&self.queue), id, worker_id, lease)
+    }
+
     async fn fail(
         &self,
         id: AiImportJobId,
@@ -182,6 +206,16 @@ where
             )
             .await
     }
+}
+
+/// The job was reclaimed by another worker while this one was still working.
+/// Surfaced as a `Conflict` so the caller abandons the job instead of retrying
+/// — the new owner is already redoing the work.
+fn claim_lost_error(id: AiImportJobId, worker_id: &str) -> DomainError {
+    DomainError::Conflict(format!(
+        "worker {worker_id} lost its claim on AI import job {} mid-processing",
+        id.as_uuid()
+    ))
 }
 
 /// Schedule import pipeline. CSV is parsed natively; unstructured input can
@@ -243,6 +277,11 @@ where
             ));
         }
         let started = Instant::now();
+        // Native CSV parsing is fast and needs no heartbeat; the LLM path can
+        // outlive the lease, so renew the claim while it runs.
+        let heartbeat = (!native_csv)
+            .then(|| self.start_heartbeat(job.id, worker_id))
+            .flatten();
         let mut schedule = if native_csv {
             super::csv_schedule::parse_schedule_csv(bytes)?
         } else {
@@ -273,9 +312,15 @@ where
             DomainError::ValidationError(format!("could not serialize schedule preview: {error}"))
         })?;
         let handle = self.previews.put(job.id, payload).await?;
+        // Stop renewing before the terminal writes so a heartbeat cannot race
+        // the completion.
+        if let Some(heartbeat) = heartbeat {
+            heartbeat.stop();
+        }
         self.queue
-            .record_telemetry(
+            .record_worker_telemetry(
                 job.id,
+                worker_id,
                 Telemetry {
                     provider: (!native_csv).then_some(self.provider),
                     model: (!native_csv).then(|| self.model.clone()),
@@ -292,6 +337,11 @@ where
             .mark_succeeded(job.id, worker_id, &handle)
             .await?;
         Ok(handle)
+    }
+
+    fn start_heartbeat(&self, id: AiImportJobId, worker_id: &str) -> Option<LeaseHeartbeat> {
+        let lease = self.queue.lease_window()?;
+        LeaseHeartbeat::start(Arc::clone(&self.queue), id, worker_id, lease)
     }
 
     async fn fail(

@@ -77,9 +77,13 @@ where
             DomainError::ValidationError(format!("could not serialize merged preview: {error}"))
         })?;
         let handle = self.previews.put(job.id, payload).await?;
+        // The merge is a pure in-process transform (no LLM call), so it cannot
+        // outlive the lease and needs no heartbeat. The telemetry write is
+        // still owner-fenced.
         self.queue
-            .record_telemetry(
+            .record_worker_telemetry(
                 job.id,
+                worker_id,
                 Telemetry {
                     doc_kind: Some(DocumentKind::Schedule),
                     latency_total: started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,

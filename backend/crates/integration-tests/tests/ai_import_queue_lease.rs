@@ -41,7 +41,7 @@ use std::time::Duration;
 use anyhow::Result;
 use breakdown_core::ai::{
     AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJobId, AiImportQueue, DocumentKind,
-    JobStatus,
+    JobStatus, Telemetry,
 };
 use breakdown_core::shared::UserId;
 use chrono::{DateTime, Utc};
@@ -456,6 +456,102 @@ async fn lifecycle_writes_on_a_terminal_job_are_rejected() -> Result<()> {
         preview_handle.as_deref(),
         Some("handle"),
         "the original result must survive a duplicate completion"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn displaced_worker_cannot_overwrite_telemetry() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let crashing = PgAiImportQueue::new(pool.clone()).with_lease(Duration::ZERO);
+    let recovering = PgAiImportQueue::new(pool.clone()).with_lease(Duration::from_secs(900));
+    let id = seed_job(
+        &crashing,
+        "fence-user",
+        "fence-telemetry",
+        DocumentKind::Script,
+    )
+    .await;
+
+    crashing.claim_next("worker-a").await?.expect("claimable");
+    recovering.claim_next("worker-b").await?.expect("reclaim");
+
+    // The new owner records its telemetry.
+    recovering
+        .record_worker_telemetry(
+            id,
+            "worker-b",
+            Telemetry {
+                doc_kind: Some(DocumentKind::Script),
+                chunk_count: 42,
+                ..Telemetry::default()
+            },
+        )
+        .await?;
+
+    // The displaced worker then finishes and tries to record its own numbers.
+    // mark_succeeded would be rejected, but an unfenced telemetry write would
+    // already have committed metrics describing discarded work.
+    let stale = recovering
+        .record_worker_telemetry(
+            id,
+            "worker-a",
+            Telemetry {
+                doc_kind: Some(DocumentKind::Script),
+                chunk_count: 7,
+                ..Telemetry::default()
+            },
+        )
+        .await;
+    assert!(
+        matches!(stale, Err(breakdown_core::error::DomainError::Conflict(_))),
+        "a displaced worker must not overwrite telemetry, got {stale:?}"
+    );
+
+    let chunk_count: (i32,) =
+        sqlx::query_as("SELECT chunk_count FROM ai_import.ai_import_job WHERE id = $1")
+            .bind(id.as_uuid())
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(
+        chunk_count.0, 42,
+        "the reclaiming worker's telemetry must survive"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn heartbeat_keeps_a_long_job_claimable_by_its_owner() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    // A 30s lease with a heartbeat renewing it: the point is that the renewal
+    // moves the deadline forward, which is asserted behaviourally (a second
+    // worker stays locked out) rather than by sleeping out the window.
+    let queue = PgAiImportQueue::new(pool.clone()).with_lease(Duration::from_secs(30));
+    let id = seed_job(&queue, "hb-user", "hb-job", DocumentKind::Script).await;
+
+    queue.claim_next("worker-a").await?.expect("claimable");
+    let (_, first_lease) = read_claim(&pool, id).await;
+    let first_lease = first_lease.expect("claim sets a lease");
+
+    // An explicit heartbeat, as the background task would issue it.
+    queue.mark_running(id, "worker-a").await?;
+
+    let (worker_id, renewed_lease) = read_claim(&pool, id).await;
+    assert_eq!(
+        worker_id.as_deref(),
+        Some("worker-a"),
+        "a heartbeat must not change ownership"
+    );
+    let renewed_lease = renewed_lease.expect("heartbeat keeps a lease");
+    // Both timestamps come from the same Postgres clock, so comparing them to
+    // each other (never to the test process' clock) stays deterministic.
+    assert!(
+        renewed_lease >= first_lease,
+        "a heartbeat must push the lease deadline forward, not backwards"
+    );
+    assert!(
+        queue.claim_next("worker-b").await?.is_none(),
+        "the renewed lease must keep other workers out"
     );
     Ok(())
 }

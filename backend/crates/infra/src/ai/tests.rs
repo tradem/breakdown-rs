@@ -169,6 +169,14 @@ async fn merge_worker_empty_input_is_non_retryable() {
             self.state.lock().unwrap().failed_retryable.push(retryable);
             Ok(())
         }
+        async fn record_worker_telemetry(
+            &self,
+            _id: breakdown_core::ai::AiImportJobId,
+            _worker_id: &str,
+            _telemetry: breakdown_core::ai::Telemetry,
+        ) -> Result<(), DomainError> {
+            Ok(())
+        }
         async fn record_telemetry(
             &self,
             _id: breakdown_core::ai::AiImportJobId,
@@ -298,6 +306,18 @@ impl AiImportQueue for FakeQueue {
         _retryable: bool,
     ) -> Result<(), DomainError> {
         self.state.lock().unwrap().failed.push(id);
+        Ok(())
+    }
+
+    async fn record_worker_telemetry(
+        &self,
+        _id: AiImportJobId,
+        _worker_id: &str,
+        telemetry: Telemetry,
+    ) -> Result<(), DomainError> {
+        // Same sink as the unfenced write: the existing telemetry assertions
+        // are about the recorded values, not about which port carried them.
+        self.state.lock().unwrap().telemetry.push(telemetry);
         Ok(())
     }
 
