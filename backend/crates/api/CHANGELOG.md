@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: deepseek-v4-flash (opencode-go) -->
+<!-- Co-authored-by: longcat-2.0-free (opencode) -->
 
 # Changelog
 
@@ -13,6 +14,32 @@ commits (ADR-020 D5).
 
 ### Changed
 
+- **Breaking (source):** `Ports` now exposes the AI import dependencies
+  through the hexagonal seam (issue #176). Seven associated types
+  (`AiConfigCommands`, `AiConfigRepo`, `AiImportQueue`, `AiImportMappingRepo`,
+  `AiPreviewStore`, `AiDocumentStore`, `AiDocumentSource`) and their accessors
+  were added, so every `Ports` implementor must supply them. The three payload
+  types are `?Sized` so production keeps its boot-time
+  `Arc<dyn AiPreviewStore>` choice (durable S3 vs. in-memory) behind one port.
+  The command ports used by the AI apply workers (`SceneCommands`,
+  `ShootingDayCommands`, `SceneShootCommands`) gained a `+ Clone` bound —
+  the handlers hand owned clones to `ApplyWorker` / `ScheduleApplyWorker`.
+- **Breaking (source):** `ProductionPorts::new` takes a single `AiPorts` value
+  instead of the seven trailing AI parameters. `AiPorts` is a pure parameter
+  bundle (no behavior, no defaults); the composition root in `main.rs` is the
+  only caller and behavior is unchanged.
+- All twelve AI import handlers (`upload_ai_script`, `upload_ai_schedule`,
+  `get_ai_import_job`, `get_ai_import_preview`, `apply_ai_import`,
+  `create_ai_config`, `get_ai_config`, `update_ai_config`, `revoke_ai_config`
+  and the internal `authorize_ai_block` / `authorize_ai_job` /
+  `enqueue_ai_upload` helpers) are now generic over `P: Ports` instead of
+  being hard-wired to `AppState<ProductionPorts>`. The routes bind
+  `::<ProductionPorts>` explicitly, matching every other handler. Tests can
+  now drive the AI routes with fakes — no PostgreSQL-backed adapter required,
+  including `apply_ai_import` (the handler that clones the command ports into
+  `ApplyWorker` / `ScheduleApplyWorker` and holds the cross-block IDOR gate).
+- Removed the inherent `ProductionPorts::ai_*` getters; they are superseded by
+  the `Ports` trait accessors of the same names.
 - AI import authorization gates (`authorize_ai_block`, `authorize_ai_job`,
   `credential_role_gate`, `list_ai_providers`, `list_ai_models`) now route
   through the `AuthorizationPolicy` held by `AppState` instead of calling

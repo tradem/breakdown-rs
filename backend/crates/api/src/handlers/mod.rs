@@ -3,6 +3,7 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
+// Co-authored-by: longcat-2.0-free (opencode)
 
 //! Axum-Handler (Request → Command / Query)
 
@@ -105,7 +106,13 @@ use sha2::{Digest, Sha256};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
-use infra::ai::{ApplyScriptRequest, ApplyWorker, ScheduleApplyRequest, ScheduleApplyWorker};
+// The `AiDocumentStore` / `AiPreviewStore` traits are imported for method
+// resolution on the generic `P::AiDocumentStore` / `P::AiPreviewStore`
+// associated types (issue #176).
+use infra::ai::{
+    AiDocumentStore, AiPreviewStore, ApplyScriptRequest, ApplyWorker, ScheduleApplyRequest,
+    ScheduleApplyWorker,
+};
 
 use crate::auth::CurrentUser;
 use crate::state::{AppState, Ports, ProductionPorts};
@@ -4154,8 +4161,8 @@ pub async fn revoke_settings<P: Ports>(
     Ok((StatusCode::OK, Json(version)))
 }
 
-async fn authorize_ai_block(
-    state: &AppState<ProductionPorts>,
+async fn authorize_ai_block<P: Ports>(
+    state: &AppState<P>,
     current_user: &CurrentUser,
     headers: &HeaderMap,
 ) -> Result<BlockId, (StatusCode, Json<ErrorResponse>)> {
@@ -4203,8 +4210,8 @@ async fn authorize_ai_block(
     Ok(block_id)
 }
 
-async fn authorize_ai_job(
-    state: &AppState<ProductionPorts>,
+async fn authorize_ai_job<P: Ports>(
+    state: &AppState<P>,
     current_user: &CurrentUser,
     job: &breakdown_core::ai::AiImportJob,
     action: Action,
@@ -4247,8 +4254,8 @@ fn ai_dedup_key(user_id: &UserId, kind: DocumentKind, digest: &str) -> String {
     format!("{}|{}|{digest}", user_id.as_str(), kind.as_str())
 }
 
-async fn enqueue_ai_upload(
-    state: &AppState<ProductionPorts>,
+async fn enqueue_ai_upload<P: Ports>(
+    state: &AppState<P>,
     current_user: CurrentUser,
     headers: HeaderMap,
     body: Bytes,
@@ -4339,8 +4346,8 @@ fn request_content_type(headers: &HeaderMap) -> &str {
         (status = 403, body = ErrorResponse, description = "Not authorized")
     )
 )]
-pub async fn upload_ai_script(
-    State(state): State<AppState<ProductionPorts>>,
+pub async fn upload_ai_script<P: Ports>(
+    State(state): State<AppState<P>>,
     current_user: CurrentUser,
     headers: HeaderMap,
     body: Bytes,
@@ -4376,8 +4383,8 @@ pub async fn upload_ai_script(
         (status = 403, body = ErrorResponse, description = "Not authorized")
     )
 )]
-pub async fn upload_ai_schedule(
-    State(state): State<AppState<ProductionPorts>>,
+pub async fn upload_ai_schedule<P: Ports>(
+    State(state): State<AppState<P>>,
     current_user: CurrentUser,
     headers: HeaderMap,
     body: Bytes,
@@ -4406,8 +4413,8 @@ pub struct AiImportJobResponse {
     params(("id" = Uuid, Path)),
     responses((status = 200, body = AiImportJobResponse), (status = 404, body = ErrorResponse))
 )]
-pub async fn get_ai_import_job(
-    State(state): State<AppState<ProductionPorts>>,
+pub async fn get_ai_import_job<P: Ports>(
+    State(state): State<AppState<P>>,
     current_user: CurrentUser,
     Path(id): Path<AiImportJobId>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
@@ -4434,8 +4441,8 @@ pub async fn get_ai_import_job(
     params(("id" = Uuid, Path)),
     responses((status = 200, body = Object), (status = 404, body = ErrorResponse))
 )]
-pub async fn get_ai_import_preview(
-    State(state): State<AppState<ProductionPorts>>,
+pub async fn get_ai_import_preview<P: Ports>(
+    State(state): State<AppState<P>>,
     current_user: CurrentUser,
     Path(id): Path<AiImportJobId>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
@@ -4494,8 +4501,8 @@ pub struct ApplyAiImportResponse {
     request_body = ApplyAiImportRequest,
     responses((status = 200, body = ApplyAiImportResponse), (status = 403, body = ErrorResponse))
 )]
-pub async fn apply_ai_import(
-    State(state): State<AppState<ProductionPorts>>,
+pub async fn apply_ai_import<P: Ports>(
+    State(state): State<AppState<P>>,
     current_user: CurrentUser,
     Path(id): Path<AiImportJobId>,
     Json(request): Json<ApplyAiImportRequest>,
@@ -4752,8 +4759,8 @@ fn no_store_json<T: serde::Serialize>(status: StatusCode, value: T) -> Response 
     request_body = CreateAiConfigRequest,
     responses((status = 201, body = IdVersionResponse), (status = 403, body = ErrorResponse))
 )]
-pub async fn create_ai_config(
-    State(state): State<AppState<ProductionPorts>>,
+pub async fn create_ai_config<P: Ports>(
+    State(state): State<AppState<P>>,
     current_user: CurrentUser,
     Json(request): Json<CreateAiConfigRequest>,
 ) -> ApiResult<IdVersionResponse> {
@@ -4788,8 +4795,8 @@ pub async fn create_ai_config(
     params(("id" = Uuid, Path)),
     responses((status = 200, body = AiConfigView), (status = 403, body = ErrorResponse))
 )]
-pub async fn get_ai_config(
-    State(state): State<AppState<ProductionPorts>>,
+pub async fn get_ai_config<P: Ports>(
+    State(state): State<AppState<P>>,
     current_user: CurrentUser,
     Path(id): Path<Uuid>,
 ) -> ApiResult<AiConfigView> {
@@ -4816,8 +4823,8 @@ pub async fn get_ai_config(
     request_body = UpdateAiConfigRequest,
     responses((status = 200, body = AggregateVersion), (status = 403, body = ErrorResponse))
 )]
-pub async fn update_ai_config(
-    State(state): State<AppState<ProductionPorts>>,
+pub async fn update_ai_config<P: Ports>(
+    State(state): State<AppState<P>>,
     current_user: CurrentUser,
     Path(id): Path<Uuid>,
     Json(request): Json<UpdateAiConfigRequest>,
@@ -4862,8 +4869,8 @@ pub async fn update_ai_config(
     request_body = RevokeAiConfigRequest,
     responses((status = 200, body = AggregateVersion), (status = 403, body = ErrorResponse))
 )]
-pub async fn revoke_ai_config(
-    State(state): State<AppState<ProductionPorts>>,
+pub async fn revoke_ai_config<P: Ports>(
+    State(state): State<AppState<P>>,
     current_user: CurrentUser,
     Path(id): Path<Uuid>,
     Json(request): Json<RevokeAiConfigRequest>,
@@ -5011,38 +5018,38 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
     Router::new()
         .route(
             "/ai-import/scripts",
-            routing::post(upload_ai_script),
+            routing::post(upload_ai_script::<ProductionPorts>),
         )
         .route(
             "/ai-import/schedules",
-            routing::post(upload_ai_schedule),
+            routing::post(upload_ai_schedule::<ProductionPorts>),
         )
         // Raise the extractor limit only for the two AI upload routes; all other
         // routes keep Axum's default body limit.
         .route_layer(DefaultBodyLimit::max(ai_document_limit))
         .route(
             "/ai-import/jobs/{id}",
-            routing::get(get_ai_import_job),
+            routing::get(get_ai_import_job::<ProductionPorts>),
         )
         .route(
             "/ai-import/jobs/{id}/preview",
-            routing::get(get_ai_import_preview),
+            routing::get(get_ai_import_preview::<ProductionPorts>),
         )
         .route(
             "/ai-import/jobs/{id}/apply",
-            routing::post(apply_ai_import),
+            routing::post(apply_ai_import::<ProductionPorts>),
         )
         .route(
             "/ai-import/config",
-            routing::post(create_ai_config),
+            routing::post(create_ai_config::<ProductionPorts>),
         )
         .route(
             "/ai-import/config/{id}",
-            routing::get(get_ai_config).patch(update_ai_config),
+            routing::get(get_ai_config::<ProductionPorts>).patch(update_ai_config::<ProductionPorts>),
         )
         .route(
             "/ai-import/config/{id}/revoke",
-            routing::post(revoke_ai_config),
+            routing::post(revoke_ai_config::<ProductionPorts>),
         )
         .route(
             "/ai-import/providers",

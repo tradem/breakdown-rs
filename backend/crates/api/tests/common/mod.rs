@@ -3,6 +3,7 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: longcat-2.0-free (opencode)
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -89,6 +90,13 @@ use chrono::{DateTime, Utc};
 use std::collections::HashSet;
 
 use api::state::Ports;
+use breakdown_core::ai::{
+    AiConfigCommands, AiConfigRepository, AiConfigView, AiImportEnqueueRequest,
+    AiImportEnqueueResult, AiImportJob, AiImportJobId, AiImportMapping, AiImportMappingRepository,
+    AiImportQueue, CreateAiConfig, DocumentKind, JobStatus, RevokeAiConfig, Telemetry,
+    UpdateAiConfig,
+};
+use infra::ai::MemoryAiPreviewStore;
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]
@@ -655,15 +663,26 @@ impl BlockRepository for FakeBlockRepo {
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-pub struct FakeEpisodeRepo;
+pub struct FakeEpisodeRepo {
+    /// Block the stub episode reports as its parent. `None` (default) mints a
+    /// fresh id per call; set it to pin the episode into a known block so a
+    /// test can drive the cross-block IDOR gate in `apply_ai_import` either
+    /// way (issue #176).
+    pub block_id_override: Arc<Mutex<Option<BlockId>>>,
+}
 
 impl EpisodeRepository for FakeEpisodeRepo {
     async fn find_by_id(&self, id: Uuid) -> Result<EpisodeView, DomainError> {
         // Return a stub EpisodeView so handlers can resolve series_id
         // for EventMetadata without a real projection.
+        let block_id = self
+            .block_id_override
+            .lock()
+            .await
+            .unwrap_or_else(|| BlockId::from_uuid(Uuid::now_v7()));
         Ok(EpisodeView {
             id,
-            block_id: BlockId::from_uuid(Uuid::now_v7()),
+            block_id,
             series_id: SeriesId::from_uuid(Uuid::now_v7()),
             number: 1,
             name: None,
@@ -1283,6 +1302,233 @@ impl CredentialVault for FakeCredentialVault {
     }
 }
 
+// --- AI import fakes (issue #176) ------------------------------------------
+// The AI import dependencies are reachable through the `Ports` seam, so these
+// in-memory doubles let handler tests exercise the AI routes without any
+// PostgreSQL-backed adapter.
+
+#[derive(Clone, Default)]
+#[allow(dead_code)]
+pub struct FakeAiConfigCommands {
+    pub created: Arc<Mutex<Vec<CreateAiConfig>>>,
+    pub updated: Arc<Mutex<Vec<UpdateAiConfig>>>,
+    pub revoked: Arc<Mutex<Vec<RevokeAiConfig>>>,
+}
+
+#[async_trait]
+impl AiConfigCommands for FakeAiConfigCommands {
+    async fn create(
+        &self,
+        _actor: UserId,
+        command: CreateAiConfig,
+    ) -> Result<(Uuid, AggregateVersion), DomainError> {
+        let id = command.id;
+        self.created.lock().await.push(command);
+        Ok((id, AggregateVersion::INITIAL))
+    }
+
+    async fn update(
+        &self,
+        _actor: UserId,
+        command: UpdateAiConfig,
+    ) -> Result<AggregateVersion, DomainError> {
+        let version = AggregateVersion(command.version.0 + 1);
+        self.updated.lock().await.push(command);
+        Ok(version)
+    }
+
+    async fn revoke(
+        &self,
+        _actor: UserId,
+        command: RevokeAiConfig,
+    ) -> Result<AggregateVersion, DomainError> {
+        let version = AggregateVersion(command.version.0 + 1);
+        self.revoked.lock().await.push(command);
+        Ok(version)
+    }
+}
+
+#[derive(Clone, Default)]
+#[allow(dead_code)]
+pub struct FakeAiConfigRepo {
+    pub views: Arc<Mutex<HashMap<Uuid, AiConfigView>>>,
+}
+
+#[async_trait]
+impl AiConfigRepository for FakeAiConfigRepo {
+    async fn find_by_id(&self, id: Uuid) -> Result<AiConfigView, DomainError> {
+        self.views
+            .lock()
+            .await
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| DomainError::NotFound(format!("AiConfig({id})")))
+    }
+}
+
+#[derive(Clone, Default)]
+#[allow(dead_code)]
+pub struct FakeAiImportQueue {
+    pub jobs: Arc<Mutex<HashMap<Uuid, AiImportJob>>>,
+    /// Dedup index (`dedup_key` → job id), mirroring the Postgres unique index.
+    pub dedup: Arc<Mutex<HashMap<String, AiImportJobId>>>,
+    pub telemetry: Arc<Mutex<Vec<(AiImportJobId, Telemetry)>>>,
+}
+
+#[allow(dead_code)]
+impl FakeAiImportQueue {
+    /// Seed a job row directly, bypassing `enqueue` — lets a test place a job
+    /// in any lifecycle state (e.g. `Succeeded` with a preview handle).
+    pub async fn seed(&self, job: AiImportJob) {
+        self.jobs.lock().await.insert(job.id.as_uuid(), job);
+    }
+}
+
+#[async_trait]
+impl AiImportQueue for FakeAiImportQueue {
+    async fn enqueue(
+        &self,
+        request: AiImportEnqueueRequest,
+    ) -> Result<AiImportEnqueueResult, DomainError> {
+        let mut dedup = self.dedup.lock().await;
+        if let Some(existing) = dedup.get(&request.dedup_key) {
+            return Ok(AiImportEnqueueResult::Existing(*existing));
+        }
+        dedup.insert(request.dedup_key.clone(), request.id);
+        let now = Utc::now();
+        self.jobs.lock().await.insert(
+            request.id.as_uuid(),
+            AiImportJob {
+                id: request.id,
+                user_id: request.user_id,
+                document_kind: request.document_kind,
+                block_id: request.block_id,
+                dedup_key: request.dedup_key,
+                document_digest: request.document_digest,
+                source_handle: request.source_handle,
+                status: JobStatus::Pending,
+                preview_handle: None,
+                last_error: None,
+                retries: 0,
+                max_retries: 5,
+                created_at: now,
+                updated_at: now,
+            },
+        );
+        Ok(AiImportEnqueueResult::Enqueued(request.id))
+    }
+
+    async fn claim_next(&self, _worker_id: &str) -> Result<Option<AiImportJob>, DomainError> {
+        Ok(None)
+    }
+
+    async fn claim_next_kind(
+        &self,
+        _worker_id: &str,
+        _kind: DocumentKind,
+    ) -> Result<Option<AiImportJob>, DomainError> {
+        Ok(None)
+    }
+
+    async fn get(&self, id: AiImportJobId) -> Result<Option<AiImportJob>, DomainError> {
+        Ok(self.jobs.lock().await.get(&id.as_uuid()).cloned())
+    }
+
+    async fn mark_running(&self, id: AiImportJobId) -> Result<(), DomainError> {
+        if let Some(job) = self.jobs.lock().await.get_mut(&id.as_uuid()) {
+            job.status = JobStatus::Running;
+        }
+        Ok(())
+    }
+
+    async fn mark_succeeded(
+        &self,
+        id: AiImportJobId,
+        preview_handle: &str,
+    ) -> Result<(), DomainError> {
+        if let Some(job) = self.jobs.lock().await.get_mut(&id.as_uuid()) {
+            job.status = JobStatus::Succeeded;
+            job.preview_handle = Some(preview_handle.to_owned());
+        }
+        Ok(())
+    }
+
+    async fn mark_failed(
+        &self,
+        id: AiImportJobId,
+        error_summary: &str,
+        _retryable: bool,
+    ) -> Result<(), DomainError> {
+        if let Some(job) = self.jobs.lock().await.get_mut(&id.as_uuid()) {
+            job.status = JobStatus::Failed;
+            job.last_error = Some(error_summary.to_owned());
+        }
+        Ok(())
+    }
+
+    async fn record_telemetry(
+        &self,
+        id: AiImportJobId,
+        telemetry: Telemetry,
+    ) -> Result<(), DomainError> {
+        self.telemetry.lock().await.push((id, telemetry));
+        Ok(())
+    }
+}
+
+#[derive(Clone, Default)]
+#[allow(dead_code)]
+pub struct FakeAiImportMappingRepo {
+    pub mappings: Arc<Mutex<Vec<AiImportMapping>>>,
+}
+
+#[async_trait]
+impl AiImportMappingRepository for FakeAiImportMappingRepo {
+    async fn find(
+        &self,
+        preview_id: AiImportJobId,
+        draft_ref: &str,
+    ) -> Result<Option<AiImportMapping>, DomainError> {
+        Ok(self
+            .mappings
+            .lock()
+            .await
+            .iter()
+            .find(|m| m.preview_id == preview_id && m.draft_ref == draft_ref)
+            .cloned())
+    }
+
+    async fn insert(&self, mapping: AiImportMapping) -> Result<(), DomainError> {
+        let mut guard = self.mappings.lock().await;
+        if let Some(existing) = guard
+            .iter_mut()
+            .find(|m| m.preview_id == mapping.preview_id && m.draft_ref == mapping.draft_ref)
+        {
+            // Mirror the production upsert's monotonic version guard.
+            if existing.aggregate_version.0 < mapping.aggregate_version.0 {
+                *existing = mapping;
+            }
+        } else {
+            guard.push(mapping);
+        }
+        Ok(())
+    }
+
+    async fn list_by_preview(
+        &self,
+        preview_id: AiImportJobId,
+    ) -> Result<Vec<AiImportMapping>, DomainError> {
+        Ok(self
+            .mappings
+            .lock()
+            .await
+            .iter()
+            .filter(|m| m.preview_id == preview_id)
+            .cloned()
+            .collect())
+    }
+}
+
 #[derive(Clone)]
 #[allow(dead_code)]
 pub struct FakePorts {
@@ -1320,6 +1566,14 @@ pub struct FakePorts {
     pub report_archival_queue: FakeReportArchivalQueue,
     #[allow(dead_code)]
     pub report_renderer: Arc<dyn breakdown_core::reporting::ReportRenderer>,
+    pub ai_config_commands: FakeAiConfigCommands,
+    pub ai_config_repo: FakeAiConfigRepo,
+    pub ai_import_queue: FakeAiImportQueue,
+    pub ai_import_mapping: FakeAiImportMappingRepo,
+    /// One `MemoryAiPreviewStore` backs all three AI payload ports, matching
+    /// production where a single adapter implements preview + document store
+    /// + document source.
+    pub ai_payload_store: MemoryAiPreviewStore,
 }
 
 impl Default for FakePorts {
@@ -1355,6 +1609,11 @@ impl Default for FakePorts {
             photo_repo: Default::default(),
             report_archival_queue: Default::default(),
             report_renderer: Arc::new(FakeReportRenderer),
+            ai_config_commands: Default::default(),
+            ai_config_repo: Default::default(),
+            ai_import_queue: Default::default(),
+            ai_import_mapping: Default::default(),
+            ai_payload_store: Default::default(),
         }
     }
 }
@@ -1390,6 +1649,13 @@ impl Ports for FakePorts {
     type SceneShootReportRepo = FakeSceneShootReportRepo;
     type ReportArchivalQueue = FakeReportArchivalQueue;
     type ReportRenderer = Arc<dyn breakdown_core::reporting::ReportRenderer>;
+    type AiConfigCommands = FakeAiConfigCommands;
+    type AiConfigRepo = FakeAiConfigRepo;
+    type AiImportQueue = FakeAiImportQueue;
+    type AiImportMappingRepo = FakeAiImportMappingRepo;
+    type AiPreviewStore = MemoryAiPreviewStore;
+    type AiDocumentStore = MemoryAiPreviewStore;
+    type AiDocumentSource = MemoryAiPreviewStore;
 
     fn scene_commands(&self) -> &Self::SceneCommands {
         &self.scene_commands
@@ -1483,5 +1749,26 @@ impl Ports for FakePorts {
     }
     fn report_renderer_ref(&self) -> &dyn breakdown_core::reporting::ReportRenderer {
         &*self.report_renderer
+    }
+    fn ai_config_commands(&self) -> &Self::AiConfigCommands {
+        &self.ai_config_commands
+    }
+    fn ai_config_repo(&self) -> &Self::AiConfigRepo {
+        &self.ai_config_repo
+    }
+    fn ai_import_queue(&self) -> &Self::AiImportQueue {
+        &self.ai_import_queue
+    }
+    fn ai_import_mapping(&self) -> &Self::AiImportMappingRepo {
+        &self.ai_import_mapping
+    }
+    fn ai_preview_store(&self) -> &Self::AiPreviewStore {
+        &self.ai_payload_store
+    }
+    fn ai_document_store(&self) -> &Self::AiDocumentStore {
+        &self.ai_payload_store
+    }
+    fn ai_document_source(&self) -> &Self::AiDocumentSource {
+        &self.ai_payload_store
     }
 }

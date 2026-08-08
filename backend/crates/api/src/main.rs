@@ -3,6 +3,7 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
+// Co-authored-by: longcat-2.0-free (opencode)
 
 //! # Breakdown RS – API-Server
 //!
@@ -23,7 +24,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use api::auth::{AuthState, AuthorizationState};
 use api::routes::app_router;
-use api::state::{AppState, ProductionPorts};
+use api::state::{AiPorts, AppState, ProductionPorts};
 use breakdown_core::membership::policy::AuthorizationPolicy;
 use infra::ai::{AiDocumentSource, AiDocumentStore, AiPreviewStore, MemoryAiPreviewStore};
 use infra::event_store::{
@@ -566,13 +567,15 @@ async fn main() -> Result<()> {
         scene_shoot_report_repo,
         report_archival_queue,
         report_renderer,
-        AiConfigCommandsImpl::new(cmd_service.clone()),
-        ai_config_repo,
-        ai_import_queue,
-        ai_import_mapping,
-        ai_preview_store,
-        ai_document_store,
-        ai_document_source,
+        AiPorts {
+            config_commands: AiConfigCommandsImpl::new(cmd_service.clone()),
+            config_repo: ai_config_repo,
+            import_queue: ai_import_queue,
+            import_mapping: ai_import_mapping,
+            preview_store: ai_preview_store,
+            document_store: ai_document_store,
+            document_source: ai_document_source,
+        },
     );
     let app_state = AppState::new(ports);
 
