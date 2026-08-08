@@ -9,6 +9,21 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.5.0] - Unreleased
+
+### Changed
+
+- AI import authorization gates (`authorize_ai_block`, `authorize_ai_job`,
+  `credential_role_gate`, `list_ai_providers`, `list_ai_models`) now route
+  through the `AuthorizationPolicy` held by `AppState` instead of calling
+  `membership_repo()` directly (issue #175). `AppState` gains a public
+  `authorization_policy: Arc<dyn AuthorizationPolicy>` field, constructed
+  once from the membership read model; `main.rs` shares it with the
+  middleware instead of rebuilding a second policy. Behavior is preserved:
+  `403` on denial, `// AUTHZ-GATE:` comments retained, and read-model
+  failures stay mapped errors (never silent denial).
+- Re-pins `breakdown_core` to 0.6.0 (fallible policy checks, issue #175).
+
 ## [0.4.7] - Unreleased
 
 ### Changed

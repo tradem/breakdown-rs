@@ -9,6 +9,19 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.6.0] - Unreleased
+
+### Added — fallible authorization policy checks (issue #175)
+
+- New defaulted `AuthorizationPolicy` methods `authorize_season_result` and
+  `authorize_credential_role` in `membership::policy`: both are *fallible*
+  (`Result<PolicyDecision, DomainError>`) so API handlers on
+  `Authenticated`-only privileged routes can route their authorization gates
+  through the policy while keeping read-model failures visible as mapped
+  server errors instead of silently becoming a `403`. Defaults return
+  `Ok(PolicyDecision::Deny)`, so existing policy implementations are
+  unaffected.
+
 ## [0.5.0] - Unreleased
 
 ### Added — CQRS-safe merge input type (issue #172)

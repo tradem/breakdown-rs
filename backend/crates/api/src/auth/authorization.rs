@@ -17,10 +17,12 @@ use axum::extract::FromRequestParts;
 use axum::http::{Method, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use breakdown_core::error::DomainError;
 use breakdown_core::membership::MembershipRepository;
 use breakdown_core::membership::policy::{
     Action, AuthContext, AuthorizationPolicy, PolicyDecision, SeasonAuthContext,
 };
+use breakdown_core::shared::UserId;
 
 use crate::auth::{ActiveBlock, AuthError, CurrentUser};
 
@@ -54,6 +56,38 @@ impl<Repo: MembershipRepository + 'static> AuthorizationPolicy
             // Any error (or non-member) fails closed to Deny.
             _ => PolicyDecision::Deny,
         }
+    }
+
+    async fn authorize_season_result(
+        &self,
+        ctx: &SeasonAuthContext,
+    ) -> Result<PolicyDecision, DomainError> {
+        self.repo
+            .has_active_costume_role_in_season(ctx.season_id, ctx.actor.clone())
+            .await
+            .map(|active| {
+                if active {
+                    PolicyDecision::Allow
+                } else {
+                    PolicyDecision::Deny
+                }
+            })
+    }
+
+    async fn authorize_credential_role(
+        &self,
+        actor: &UserId,
+    ) -> Result<PolicyDecision, DomainError> {
+        self.repo
+            .has_active_credential_role(actor.clone())
+            .await
+            .map(|active| {
+                if active {
+                    PolicyDecision::Allow
+                } else {
+                    PolicyDecision::Deny
+                }
+            })
     }
 }
 
@@ -106,6 +140,22 @@ impl<Repo: MembershipRepository + 'static> AuthorizationPolicy for SeasonPhotoAc
             // Any error (or non-costume-role) fails closed to Deny.
             _ => PolicyDecision::Deny,
         }
+    }
+
+    async fn authorize_season_result(
+        &self,
+        ctx: &SeasonAuthContext,
+    ) -> Result<PolicyDecision, DomainError> {
+        self.repo
+            .has_active_costume_role_in_season(ctx.season_id, ctx.actor.clone())
+            .await
+            .map(|active| {
+                if active {
+                    PolicyDecision::Allow
+                } else {
+                    PolicyDecision::Deny
+                }
+            })
     }
 }
 

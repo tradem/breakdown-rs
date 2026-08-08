@@ -49,6 +49,7 @@ use breakdown_core::episode::commands::{CreateEpisode, RenameEpisode};
 use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::error::DomainError;
+use breakdown_core::membership::policy::{Action, PolicyDecision, SeasonAuthContext};
 use breakdown_core::membership::views::MembershipView;
 use breakdown_core::membership::{
     AcceptInvitation, BootstrapOwner, GrantRole, InviteMember, LeaveBlock, MembershipCommands,
@@ -4178,13 +4179,20 @@ async fn authorize_ai_block(
         .find_by_id(uuid)
         .await
         .map_err(map_err)?;
-    let authorized = state
-        .ports
-        .membership_repo()
-        .has_active_costume_role_in_season(block.season_id, current_user.sub.clone())
+    // AUTHZ-GATE: block-scoped AI import (script/schedule upload, apply)
+    // requires active costume-dept membership in the block's season — decided
+    // via the (fallible) season policy so read-model failures surface as
+    // mapped errors, not as a silent 403.
+    let decision = state
+        .authorization_policy
+        .authorize_season_result(&SeasonAuthContext {
+            actor: current_user.sub.clone(),
+            season_id: block.season_id,
+            action: Action::Write,
+        })
         .await
         .map_err(map_err)?;
-    if !authorized {
+    if decision != PolicyDecision::Allow {
         return Err((
             StatusCode::FORBIDDEN,
             Json(ErrorResponse {
@@ -4199,6 +4207,7 @@ async fn authorize_ai_job(
     state: &AppState<ProductionPorts>,
     current_user: &CurrentUser,
     job: &breakdown_core::ai::AiImportJob,
+    action: Action,
 ) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
     if job.user_id != current_user.sub {
         return Err(forbidden_ai_config());
@@ -4210,13 +4219,19 @@ async fn authorize_ai_job(
             .find_by_id(block_id.0)
             .await
             .map_err(map_err)?;
-        let authorized = state
-            .ports
-            .membership_repo()
-            .has_active_costume_role_in_season(block.season_id, current_user.sub.clone())
+        // AUTHZ-GATE: AI job status/preview/apply is privileged — the caller
+        // must hold an active costume-dept role in the job's season, decided
+        // via the (fallible) season policy.
+        let decision = state
+            .authorization_policy
+            .authorize_season_result(&SeasonAuthContext {
+                actor: current_user.sub.clone(),
+                season_id: block.season_id,
+                action,
+            })
             .await
             .map_err(map_err)?;
-        if !authorized {
+        if decision != PolicyDecision::Allow {
             return Err(forbidden_ai_config());
         }
     }
@@ -4409,7 +4424,7 @@ pub async fn get_ai_import_job(
             id.as_uuid()
         )))
     })?;
-    authorize_ai_job(&state, &current_user, &job).await?;
+    authorize_ai_job(&state, &current_user, &job, Action::Read).await?;
     Ok(no_store_json(StatusCode::OK, AiImportJobResponse { job }))
 }
 
@@ -4437,7 +4452,7 @@ pub async fn get_ai_import_preview(
             id.as_uuid()
         )))
     })?;
-    authorize_ai_job(&state, &current_user, &job).await?;
+    authorize_ai_job(&state, &current_user, &job, Action::Read).await?;
     let handle = job
         .preview_handle
         .ok_or_else(|| map_err(DomainError::NotFound("AI preview".to_owned())))?;
@@ -4498,7 +4513,7 @@ pub async fn apply_ai_import(
             id.as_uuid()
         )))
     })?;
-    authorize_ai_job(&state, &current_user, &job).await?;
+    authorize_ai_job(&state, &current_user, &job, Action::Write).await?;
     if job.status != breakdown_core::ai::JobStatus::Succeeded {
         return Err(map_err(DomainError::Conflict(
             "only a succeeded AI preview can be applied".to_owned(),
@@ -4700,12 +4715,15 @@ async fn credential_role_gate<P: Ports>(
     state: &AppState<P>,
     user: &CurrentUser,
 ) -> Result<bool, (StatusCode, Json<ErrorResponse>)> {
-    state
-        .ports
-        .membership_repo()
-        .has_active_credential_role(user.sub.clone())
+    // AUTHZ-GATE: AI configuration management requires an active credential
+    // role — decided via the (fallible) credential-role policy so read-model
+    // failures surface as mapped errors, not as a silent 403.
+    let decision = state
+        .authorization_policy
+        .authorize_credential_role(&user.sub)
         .await
-        .map_err(map_err)
+        .map_err(map_err)?;
+    Ok(decision == PolicyDecision::Allow)
 }
 
 fn forbidden_ai_config() -> (StatusCode, Json<ErrorResponse>) {
@@ -4895,14 +4913,14 @@ pub async fn list_ai_providers<P: Ports>(
     current_user: CurrentUser,
 ) -> ApiResult<Vec<AiProviderInfo>> {
     // AUTHZ-GATE: provider/model discovery is a credential-administration
-    // capability and must be checked inside the authenticated handler.
-    let authorized = state
-        .ports
-        .membership_repo()
-        .has_active_credential_role(current_user.sub)
+    // capability and must be checked inside the authenticated handler —
+    // decided via the (fallible) credential-role policy.
+    let decision = state
+        .authorization_policy
+        .authorize_credential_role(&current_user.sub)
         .await
         .map_err(map_err)?;
-    if !authorized {
+    if decision != PolicyDecision::Allow {
         return Err((
             StatusCode::FORBIDDEN,
             Json(ErrorResponse {
@@ -4944,14 +4962,14 @@ pub async fn list_ai_models<P: Ports>(
     current_user: CurrentUser,
     Path(provider): Path<String>,
 ) -> ApiResult<Vec<ModelInfo>> {
-    // AUTHZ-GATE: model discovery can reveal credential-backed integrations.
-    let authorized = state
-        .ports
-        .membership_repo()
-        .has_active_credential_role(current_user.sub)
+    // AUTHZ-GATE: model discovery can reveal credential-backed integrations —
+    // decided via the (fallible) credential-role policy.
+    let decision = state
+        .authorization_policy
+        .authorize_credential_role(&current_user.sub)
         .await
         .map_err(map_err)?;
-    if !authorized {
+    if decision != PolicyDecision::Allow {
         return Err((
             StatusCode::FORBIDDEN,
             Json(ErrorResponse {

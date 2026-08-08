@@ -381,6 +381,10 @@ impl MembershipCommands for FakeMembershipCommands {
 #[allow(dead_code)]
 pub struct FakeMembershipRepo {
     pub members: Arc<Mutex<HashSet<(BlockId, UserId)>>>,
+    /// Configurable outcome of `has_active_credential_role` — lets handler
+    /// tests exercise the allow/deny/error branches of the AI import
+    /// credential gate deterministically. `None` = default allow (`Ok(true)`).
+    pub credential_role_override: Arc<Mutex<Option<Result<bool, DomainError>>>>,
 }
 
 #[async_trait]
@@ -455,8 +459,12 @@ impl MembershipRepository for FakeMembershipRepo {
     }
 
     async fn has_active_credential_role(&self, _user_id: UserId) -> Result<bool, DomainError> {
-        // Default test fake admits credential roles (designer/assistant).
-        Ok(true)
+        match self.credential_role_override.lock().await.as_ref() {
+            // Test-injected outcome (deny or repository failure) wins.
+            Some(result) => result.clone(),
+            // Default: granted (dev/test baseline).
+            None => Ok(true),
+        }
     }
 }
 

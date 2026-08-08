@@ -21,10 +21,9 @@ use std::env;
 use std::sync::Arc;
 
 use anyhow::Result;
-use api::auth::authorization::MembershipAuthorizationPolicy;
 use api::auth::{AuthState, AuthorizationState};
 use api::routes::app_router;
-use api::state::{AppState, Ports, ProductionPorts};
+use api::state::{AppState, ProductionPorts};
 use breakdown_core::membership::policy::AuthorizationPolicy;
 use infra::ai::{AiDocumentSource, AiDocumentStore, AiPreviewStore, MemoryAiPreviewStore};
 use infra::event_store::{
@@ -582,10 +581,10 @@ async fn main() -> Result<()> {
         AuthState::from_env_or_dev().map_err(|e| anyhow::anyhow!("auth configuration: {e}"))?,
     );
 
-    let membership_repo: Arc<MembershipRepositoryImpl> =
-        Arc::new(app_state.ports.membership_repo().clone());
-    let policy: Arc<dyn AuthorizationPolicy> =
-        Arc::new(MembershipAuthorizationPolicy::new(membership_repo));
+    // The middleware and the handler-internal AI gates share ONE
+    // membership-backed policy instance, built at state construction from
+    // the same read model (issue #175).
+    let policy: Arc<dyn AuthorizationPolicy> = app_state.authorization_policy.clone();
     let authz = Arc::new(AuthorizationState::from_env_or_dev(policy));
 
     info!(
