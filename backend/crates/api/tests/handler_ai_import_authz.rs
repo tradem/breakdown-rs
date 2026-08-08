@@ -10,14 +10,10 @@
 //! failures must stay visible as mapped server errors* (503), never silently
 //! converted into a denial.
 
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::print_stdout,
-    clippy::print_stderr,
-    clippy::dbg_macro
-)]
+// Test code: the workspace denies `clippy::expect_used`; assertions on
+// handler `Result` returns use `.expect()`/`.expect_err()` with explicit
+// messages. No other lints are suppressed — the allow list is kept minimal.
+#![allow(clippy::expect_used)]
 mod common;
 
 use axum::Json;
@@ -79,6 +75,22 @@ async fn list_ai_providers_propagates_repo_failure_as_server_error() {
     let (status, Json(body)) = result.expect_err("repo failure must surface as an error");
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     assert!(body.message.contains("membership repo down"));
+}
+
+#[tokio::test]
+async fn list_ai_models_allows_credential_role_member() {
+    let ports = FakePorts::default();
+    // Default fake grants the credential role.
+    let state = ai_import_state(ports).await;
+
+    let result = list_ai_models::<FakePorts>(
+        State(state),
+        dummy_user(),
+        axum::extract::Path("neuralwatt".to_owned()),
+    )
+    .await;
+    let (status, Json(_)) = result.expect("granted caller should succeed");
+    assert_eq!(status, StatusCode::OK);
 }
 
 #[tokio::test]
