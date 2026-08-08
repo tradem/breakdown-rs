@@ -4,6 +4,7 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(unsafe_code)] // test-only env mutation (set_var/remove_var are unsafe in edition 2024)
 
 //! Integration tests for the startup in-transit TLS gate
 //! (ADR-024 / issue #156): production connection strings must carry
@@ -180,6 +181,40 @@ fn unset_ai_payload_storage_is_allowed() {
     c.ai_payload_s3_endpoint = None;
     c.ai_payload_s3_tls_root_cert = None;
     assert_eq!(c.violations(), Vec::<String>::new());
+}
+
+#[test]
+fn from_env_populates_ai_payload_fields() {
+    // Guard: env mutation is process-global, so restore prior state in all
+    // exit paths (set / missing) to avoid leaking into other tests.
+    let prior_endpoint = std::env::var("AI_PAYLOAD_S3_ENDPOINT").ok();
+    let prior_root_cert = std::env::var("AI_PAYLOAD_S3_TLS_ROOT_CERT").ok();
+
+    unsafe {
+        std::env::set_var("AI_PAYLOAD_S3_ENDPOINT", "https://caddy:9443");
+        std::env::set_var("AI_PAYLOAD_S3_TLS_ROOT_CERT", "/certs/root_ca.crt");
+    }
+    let c = TlsConfig::from_env();
+
+    unsafe {
+        match prior_endpoint {
+            Some(v) => std::env::set_var("AI_PAYLOAD_S3_ENDPOINT", v),
+            None => std::env::remove_var("AI_PAYLOAD_S3_ENDPOINT"),
+        }
+        match prior_root_cert {
+            Some(v) => std::env::set_var("AI_PAYLOAD_S3_TLS_ROOT_CERT", v),
+            None => std::env::remove_var("AI_PAYLOAD_S3_TLS_ROOT_CERT"),
+        }
+    }
+
+    assert_eq!(
+        c.ai_payload_s3_endpoint.as_deref(),
+        Some("https://caddy:9443")
+    );
+    assert_eq!(
+        c.ai_payload_s3_tls_root_cert.as_deref(),
+        Some("/certs/root_ca.crt")
+    );
 }
 
 #[test]
