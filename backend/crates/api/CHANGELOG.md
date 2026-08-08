@@ -9,6 +9,15 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.4.7] - Unreleased
+
+### Changed
+
+- The `REQUIRE_IN_TRANSIT_TLS` startup gate (ADR-024) now also validates the
+  AI payload storage link: `AI_PAYLOAD_S3_ENDPOINT` must use `https://` and,
+  when it does, `AI_PAYLOAD_S3_TLS_ROOT_CERT` must be set so the OpenDAL
+  client is pinned to the internal step-ca root (issue #201).
+
 ## [0.4.6] - Unreleased
 
 ### Changed

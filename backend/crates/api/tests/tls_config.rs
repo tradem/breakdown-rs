@@ -8,7 +8,8 @@
 //! Integration tests for the startup in-transit TLS gate
 //! (ADR-024 / issue #156): production connection strings must carry
 //! `sslmode=verify-full` + a pinned `sslrootcert`, `SIERRADB_URL` must be
-//! `rediss://`, and the S3 endpoints must be `https://`.
+//! `rediss://`, the S3 endpoints must be `https://`, and the AI payload
+//! endpoint (issue #201) must be `https://` with a pinned root cert.
 
 use api::tls_config::TlsConfig;
 
@@ -26,12 +27,15 @@ fn cfg(db: &str, migrator: Option<&str>, sierra: &str, s3: &str) -> TlsConfig {
 
 /// A fully valid production config.
 fn valid() -> TlsConfig {
-    cfg(
+    let mut c = cfg(
         "postgres://app:secret@postgres:5432/breakdown?sslmode=verify-full&sslrootcert=/certs/root_ca.crt",
         None,
         "rediss://stunnel:9091/?protocol=resp3",
         "https://caddy:9443",
-    )
+    );
+    c.ai_payload_s3_endpoint = Some("https://caddy:9443".into());
+    c.ai_payload_s3_tls_root_cert = Some("/certs/root_ca.crt".into());
+    c
 }
 
 #[test]
@@ -144,6 +148,38 @@ fn plaintext_s3_endpoint_is_rejected() {
     );
     let v = c.violations();
     assert!(v.iter().any(|v| v.contains("S3_ENDPOINT")), "got: {v:?}");
+}
+
+#[test]
+fn plaintext_ai_payload_endpoint_is_rejected() {
+    let mut c = valid();
+    c.ai_payload_s3_endpoint = Some("http://garage:3900".into());
+    let v = c.violations();
+    assert!(
+        v.iter().any(|v| v.contains("AI_PAYLOAD_S3_ENDPOINT")),
+        "got: {v:?}"
+    );
+}
+
+#[test]
+fn https_ai_payload_endpoint_without_root_cert_is_rejected() {
+    let mut c = valid();
+    c.ai_payload_s3_tls_root_cert = None;
+    let v = c.violations();
+    assert!(
+        v.iter().any(|v| v.contains("AI_PAYLOAD_S3_TLS_ROOT_CERT")),
+        "got: {v:?}"
+    );
+}
+
+#[test]
+fn unset_ai_payload_storage_is_allowed() {
+    // AI payload storage is optional (in-memory fallback in dev); an unset
+    // endpoint must not produce a violation.
+    let mut c = valid();
+    c.ai_payload_s3_endpoint = None;
+    c.ai_payload_s3_tls_root_cert = None;
+    assert_eq!(c.violations(), Vec::<String>::new());
 }
 
 #[test]
