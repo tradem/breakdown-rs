@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: longcat-2.0-free (opencode)
 
 //! AppState – Composition-Root (manuelles DI)
 //!
@@ -15,6 +16,9 @@
 use std::sync::Arc;
 
 use crate::auth::authorization::MembershipAuthorizationPolicy;
+use breakdown_core::ai::{
+    AiConfigCommands, AiConfigRepository, AiImportMappingRepository, AiImportQueue,
+};
 use breakdown_core::audit::AuditRepository;
 use breakdown_core::block::{BlockCommands, BlockRepository};
 use breakdown_core::character::{CharacterCommands, CharacterRepository};
@@ -56,9 +60,13 @@ use infra::vault::VaultClient;
 /// The hexagonal seam surface used by API handlers. Production implements it
 /// with the concrete `kameo_es` write adapters and `sqlx` read adapters.
 pub trait Ports: Clone + Send + Sync + 'static {
-    type SceneCommands: SceneCommands;
+    // `+ Clone` on the write-side command ports: the AI apply handlers hand
+    // owned clones to the infra apply workers (`ApplyWorker`,
+    // `ScheduleApplyWorker`), which take `Arc<C>`. Without the bound a generic
+    // `.clone()` would silently clone the *reference* instead of the adapter.
+    type SceneCommands: SceneCommands + Clone;
     type SceneRepo: SceneRepository;
-    type ShootingDayCommands: ShootingDayCommands;
+    type ShootingDayCommands: ShootingDayCommands + Clone;
     type ShootingDayRepo: ShootingDayRepository;
     type CharacterCommands: CharacterCommands;
     type CharacterRepo: CharacterRepository;
@@ -81,11 +89,25 @@ pub trait Ports: Clone + Send + Sync + 'static {
     type PhotoStorage: PhotoStorage;
     type PhotoCommands: PhotoCommands;
     type PhotoRepo: PhotoRepository;
-    type SceneShootCommands: SceneShootCommands;
+    type SceneShootCommands: SceneShootCommands + Clone;
     type SceneShootRepo: SceneShootRepository;
     type SceneShootReportRepo: SceneShootReportRepository;
     type ReportArchivalQueue: ReportArchivalQueue;
     type ReportRenderer: Send + Sync;
+    // --- AI import seam -------------------------------------------------
+    // The AI import dependencies are part of the same hexagonal seam as every
+    // other port, so handlers stay generic over `P: Ports` and tests can
+    // substitute fakes without a PostgreSQL-backed adapter (issue #176).
+    type AiConfigCommands: AiConfigCommands;
+    type AiConfigRepo: AiConfigRepository;
+    type AiImportQueue: AiImportQueue + Clone;
+    type AiImportMappingRepo: AiImportMappingRepository + Clone;
+    /// `?Sized` so production can keep its `Arc<dyn AiPreviewStore>` handle
+    /// (chosen at boot between the durable S3 and the in-memory backend)
+    /// while tests bind a concrete fake.
+    type AiPreviewStore: AiPreviewStore + ?Sized;
+    type AiDocumentStore: AiDocumentStore + ?Sized;
+    type AiDocumentSource: AiDocumentSource + ?Sized;
 
     fn scene_commands(&self) -> &Self::SceneCommands;
     fn scene_repo(&self) -> &Self::SceneRepo;
@@ -118,6 +140,13 @@ pub trait Ports: Clone + Send + Sync + 'static {
     fn report_archival_queue(&self) -> &Self::ReportArchivalQueue;
     fn report_renderer(&self) -> &Self::ReportRenderer;
     fn report_renderer_ref(&self) -> &dyn ReportRenderer;
+    fn ai_config_commands(&self) -> &Self::AiConfigCommands;
+    fn ai_config_repo(&self) -> &Self::AiConfigRepo;
+    fn ai_import_queue(&self) -> &Self::AiImportQueue;
+    fn ai_import_mapping(&self) -> &Self::AiImportMappingRepo;
+    fn ai_preview_store(&self) -> &Self::AiPreviewStore;
+    fn ai_document_store(&self) -> &Self::AiDocumentStore;
+    fn ai_document_source(&self) -> &Self::AiDocumentSource;
 }
 
 /// Shared state handed to every Axum handler.
@@ -183,6 +212,23 @@ where
     }
 }
 
+/// The AI import dependency group handed to [`ProductionPorts::new`].
+///
+/// Grouping the seven AI adapters into one value keeps the composition-root
+/// constructor readable (issue #176). It is a pure parameter bundle: no
+/// behavior, no defaults, and the fields are moved straight into
+/// [`ProductionPorts`].
+#[derive(Clone)]
+pub struct AiPorts {
+    pub config_commands: AiConfigCommandsImpl,
+    pub config_repo: AiConfigRepositoryImpl,
+    pub import_queue: PgAiImportQueue,
+    pub import_mapping: PgAiImportMappingRepository,
+    pub preview_store: Arc<dyn AiPreviewStore + Send + Sync>,
+    pub document_store: Arc<dyn AiDocumentStore + Send + Sync>,
+    pub document_source: Arc<dyn AiDocumentSource + Send + Sync>,
+}
+
 /// Production port bundle assembled in `main.rs`.
 #[derive(Clone)]
 pub struct ProductionPorts {
@@ -226,7 +272,9 @@ pub struct ProductionPorts {
 }
 
 impl ProductionPorts {
-    #[allow(clippy::too_many_arguments)]
+    // The composition root wires every adapter explicitly (poor man's DI); the
+    // parameter count is the honest shape of that wiring. The AI group is
+    // already bundled into `AiPorts` (issue #176).
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         scene_commands: SceneCommandsImpl,
@@ -259,14 +307,17 @@ impl ProductionPorts {
         scene_shoot_report_repo: SceneShootReportRepositoryImpl,
         report_archival_queue: PgReportArchivalQueue,
         report_renderer: Arc<dyn ReportRenderer>,
-        ai_config_commands: AiConfigCommandsImpl,
-        ai_config_repo: AiConfigRepositoryImpl,
-        ai_import_queue: PgAiImportQueue,
-        ai_import_mapping: PgAiImportMappingRepository,
-        ai_preview_store: Arc<dyn AiPreviewStore + Send + Sync>,
-        ai_document_store: Arc<dyn AiDocumentStore + Send + Sync>,
-        ai_document_source: Arc<dyn AiDocumentSource + Send + Sync>,
+        ai: AiPorts,
     ) -> Self {
+        let AiPorts {
+            config_commands: ai_config_commands,
+            config_repo: ai_config_repo,
+            import_queue: ai_import_queue,
+            import_mapping: ai_import_mapping,
+            preview_store: ai_preview_store,
+            document_store: ai_document_store,
+            document_source: ai_document_source,
+        } = ai;
         Self {
             scene_commands,
             scene_repo,
@@ -307,34 +358,6 @@ impl ProductionPorts {
             ai_document_source,
         }
     }
-
-    pub fn ai_import_queue(&self) -> &PgAiImportQueue {
-        &self.ai_import_queue
-    }
-
-    pub fn ai_import_mapping(&self) -> &PgAiImportMappingRepository {
-        &self.ai_import_mapping
-    }
-
-    pub fn ai_preview_store(&self) -> &(dyn AiPreviewStore + Send + Sync) {
-        self.ai_preview_store.as_ref()
-    }
-
-    pub fn ai_document_store(&self) -> &(dyn AiDocumentStore + Send + Sync) {
-        self.ai_document_store.as_ref()
-    }
-
-    pub fn ai_document_source(&self) -> &(dyn AiDocumentSource + Send + Sync) {
-        self.ai_document_source.as_ref()
-    }
-
-    pub fn ai_config_commands(&self) -> &AiConfigCommandsImpl {
-        &self.ai_config_commands
-    }
-
-    pub fn ai_config_repo(&self) -> &AiConfigRepositoryImpl {
-        &self.ai_config_repo
-    }
 }
 
 impl Ports for ProductionPorts {
@@ -368,6 +391,15 @@ impl Ports for ProductionPorts {
     type SceneShootReportRepo = SceneShootReportRepositoryImpl;
     type ReportArchivalQueue = PgReportArchivalQueue;
     type ReportRenderer = Arc<dyn ReportRenderer>;
+    type AiConfigCommands = AiConfigCommandsImpl;
+    type AiConfigRepo = AiConfigRepositoryImpl;
+    type AiImportQueue = PgAiImportQueue;
+    type AiImportMappingRepo = PgAiImportMappingRepository;
+    // The unsized `dyn` projections keep the boot-time choice between the
+    // durable S3 backend and the in-memory dev store behind one port type.
+    type AiPreviewStore = dyn AiPreviewStore + Send + Sync;
+    type AiDocumentStore = dyn AiDocumentStore + Send + Sync;
+    type AiDocumentSource = dyn AiDocumentSource + Send + Sync;
 
     fn scene_commands(&self) -> &Self::SceneCommands {
         &self.scene_commands
@@ -461,5 +493,26 @@ impl Ports for ProductionPorts {
     }
     fn report_renderer_ref(&self) -> &dyn ReportRenderer {
         &*self.report_renderer
+    }
+    fn ai_config_commands(&self) -> &Self::AiConfigCommands {
+        &self.ai_config_commands
+    }
+    fn ai_config_repo(&self) -> &Self::AiConfigRepo {
+        &self.ai_config_repo
+    }
+    fn ai_import_queue(&self) -> &Self::AiImportQueue {
+        &self.ai_import_queue
+    }
+    fn ai_import_mapping(&self) -> &Self::AiImportMappingRepo {
+        &self.ai_import_mapping
+    }
+    fn ai_preview_store(&self) -> &Self::AiPreviewStore {
+        self.ai_preview_store.as_ref()
+    }
+    fn ai_document_store(&self) -> &Self::AiDocumentStore {
+        self.ai_document_store.as_ref()
+    }
+    fn ai_document_source(&self) -> &Self::AiDocumentSource {
+        self.ai_document_source.as_ref()
     }
 }
