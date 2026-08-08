@@ -10,6 +10,14 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.5.1] - Unreleased
+
+### Changed
+
+- Re-pins `infra` to 0.11.0 (AI import worker leases, issue #177). No `api`
+  code change: the composition root keeps building `PgAiImportQueue::new`,
+  which now reads the lease window from `AI_IMPORT_LEASE_SECS`.
+
 ## [0.5.0] - Unreleased
 
 ### Changed

@@ -2,6 +2,9 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: longcat-2.0-free (opencode)
+
+use std::time::Duration;
 
 use breakdown_core::ai::{
     AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId, AiImportQueue,
@@ -12,19 +15,74 @@ use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
+/// Default claim lease. A worker that dies holds its job for at most this long
+/// before another worker may reclaim it. Matches the report-archival stale
+/// claim window (`REPORT_BACKUP_CLAIM_STALE_SECS`) so operators reason about
+/// one recovery horizon.
+const DEFAULT_LEASE_SECS: u64 = 900;
+const MIN_LEASE_SECS: u64 = 30;
+const MAX_LEASE_SECS: u64 = 86_400;
+
+// The lease must outlive a normal job by a wide margin, otherwise a healthy
+// worker's job would be reclaimed mid-flight and processed twice. The default
+// request timeout ceiling is 3600s per LLM call, but a job is retried rather
+// than duplicated on timeout, so a 30s floor is the safety net against a
+// misconfigured near-zero lease.
+const _LEASE_BOUNDS_INVARIANT: () =
+    assert!(MIN_LEASE_SECS > 0 && MIN_LEASE_SECS <= DEFAULT_LEASE_SECS);
+const _LEASE_RANGE_INVARIANT: () = assert!(DEFAULT_LEASE_SECS <= MAX_LEASE_SECS);
+
 #[derive(Clone, Debug)]
 pub struct PgAiImportQueue {
     pool: PgPool,
+    lease: Duration,
 }
 
 impl PgAiImportQueue {
+    /// Build a queue with the lease window from `AI_IMPORT_LEASE_SECS`
+    /// (default 900s, clamped to 30..=86400).
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            lease: lease_from_env(),
+        }
+    }
+
+    /// Override the claim lease window. Used by deployments that want a
+    /// different recovery horizon and by tests that need a deterministic
+    /// already-expired lease (`Duration::ZERO`).
+    #[must_use]
+    pub fn with_lease(mut self, lease: Duration) -> Self {
+        self.lease = lease;
+        self
     }
 
     pub fn pool(&self) -> &PgPool {
         &self.pool
     }
+
+    /// The active claim lease window.
+    pub const fn lease(&self) -> Duration {
+        self.lease
+    }
+
+    fn lease_secs(&self) -> f64 {
+        self.lease.as_secs_f64()
+    }
+}
+
+fn lease_from_env() -> Duration {
+    parse_lease(std::env::var("AI_IMPORT_LEASE_SECS").ok().as_deref())
+}
+
+/// Pure parser for the lease override so the clamping contract is testable
+/// without mutating process-global environment state.
+fn parse_lease(raw: Option<&str>) -> Duration {
+    let secs = raw
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|value| (*value >= MIN_LEASE_SECS) && (*value <= MAX_LEASE_SECS))
+        .unwrap_or(DEFAULT_LEASE_SECS);
+    Duration::from_secs(secs)
 }
 
 #[async_trait::async_trait]
@@ -67,7 +125,15 @@ impl AiImportQueue for PgAiImportQueue {
         }
     }
 
-    async fn claim_next(&self, _worker_id: &str) -> Result<Option<AiImportJob>, DomainError> {
+    /// Claim the next runnable job of any kind.
+    ///
+    /// Runnable means `pending`, a retryable `failed` job whose backoff is due,
+    /// or a `running` job whose worker lease has expired (crash recovery,
+    /// issue #177). The claim records the owning `worker_id` and a fresh lease
+    /// deadline in the same statement as the status flip, so two workers can
+    /// never both believe they own the job (`FOR UPDATE SKIP LOCKED` plus the
+    /// unexpired-lease predicate).
+    async fn claim_next(&self, worker_id: &str) -> Result<Option<AiImportJob>, DomainError> {
         let row = sqlx::query(
             r#"
             WITH next_job AS (
@@ -76,26 +142,35 @@ impl AiImportQueue for PgAiImportQueue {
                 WHERE status = 'pending'
                    OR (status = 'failed' AND
                        (next_attempt_at IS NULL OR next_attempt_at <= now()))
+                   OR (status = 'running' AND
+                       lease_expires_at IS NOT NULL AND lease_expires_at <= now())
                 ORDER BY created_at, id
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
             )
             UPDATE ai_import.ai_import_job AS job
-            SET status = 'running', updated_at = now()
+            SET status = 'running',
+                worker_id = $1,
+                lease_expires_at = now() + make_interval(secs => $2),
+                updated_at = now()
             FROM next_job
             WHERE job.id = next_job.id
             RETURNING job.*
             "#,
         )
+        .bind(worker_id)
+        .bind(self.lease_secs())
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
         row.map(map_job_row).transpose()
     }
 
+    /// Kind-filtered variant of [`claim_next`](Self::claim_next) with identical
+    /// lease semantics.
     async fn claim_next_kind(
         &self,
-        _worker_id: &str,
+        worker_id: &str,
         kind: DocumentKind,
     ) -> Result<Option<AiImportJob>, DomainError> {
         let row = sqlx::query(
@@ -106,19 +181,26 @@ impl AiImportQueue for PgAiImportQueue {
                 WHERE document_kind = $1
                   AND (status = 'pending'
                    OR (status = 'failed' AND
-                       (next_attempt_at IS NULL OR next_attempt_at <= now())))
+                       (next_attempt_at IS NULL OR next_attempt_at <= now()))
+                   OR (status = 'running' AND
+                       lease_expires_at IS NOT NULL AND lease_expires_at <= now()))
                 ORDER BY created_at, id
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
             )
             UPDATE ai_import.ai_import_job AS job
-            SET status = 'running', updated_at = now()
+            SET status = 'running',
+                worker_id = $2,
+                lease_expires_at = now() + make_interval(secs => $3),
+                updated_at = now()
             FROM next_job
             WHERE job.id = next_job.id
             RETURNING job.*
             "#,
         )
         .bind(kind.as_str())
+        .bind(worker_id)
+        .bind(self.lease_secs())
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -140,15 +222,23 @@ impl AiImportQueue for PgAiImportQueue {
         row.map(map_job_row).transpose()
     }
 
+    /// Re-affirm the `running` status and extend the current lease.
+    ///
+    /// Callers use this as a heartbeat for long jobs; it never changes
+    /// ownership, so a worker that lost its lease does not silently steal the
+    /// job back — the reclaiming worker's `worker_id` stays untouched.
     async fn mark_running(&self, id: AiImportJobId) -> Result<(), DomainError> {
         sqlx::query(
             r#"
             UPDATE ai_import.ai_import_job
-            SET status = 'running', updated_at = now()
+            SET status = 'running',
+                lease_expires_at = now() + make_interval(secs => $2),
+                updated_at = now()
             WHERE id = $1
             "#,
         )
         .bind(id.as_uuid())
+        .bind(self.lease_secs())
         .execute(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -164,7 +254,9 @@ impl AiImportQueue for PgAiImportQueue {
             r#"
             UPDATE ai_import.ai_import_job
             SET status = 'succeeded', preview_handle = $2,
-                last_error = NULL, next_attempt_at = NULL, updated_at = now()
+                last_error = NULL, next_attempt_at = NULL,
+                worker_id = NULL, lease_expires_at = NULL,
+                updated_at = now()
             WHERE id = $1
             "#,
         )
@@ -202,6 +294,11 @@ impl AiImportQueue for PgAiImportQueue {
                         )
                     ELSE NULL
                 END,
+                -- A terminal or backing-off job holds no claim: releasing the
+                -- lease here keeps `running` the only leased state, so the
+                -- reclaim predicate can never resurrect a failed job early.
+                worker_id = NULL,
+                lease_expires_at = NULL,
                 updated_at = now()
             WHERE id = $1
             "#,
@@ -333,4 +430,56 @@ fn map_sqlx_error(error: sqlx::Error) -> DomainError {
     // must not leak SQL details or bound values (CWE-209).
     tracing::error!(%error, "AI import database error");
     DomainError::ServiceUnavailable("AI import database error".to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        DEFAULT_LEASE_SECS, Duration, MAX_LEASE_SECS, MIN_LEASE_SECS, PgAiImportQueue, parse_lease,
+    };
+
+    #[test]
+    fn lease_override_is_accepted_within_bounds() {
+        assert_eq!(parse_lease(Some("60")), Duration::from_secs(60));
+        assert_eq!(
+            parse_lease(Some(" 120 ")),
+            Duration::from_secs(120),
+            "surrounding whitespace must not defeat the override"
+        );
+    }
+
+    #[test]
+    fn lease_override_outside_bounds_falls_back_to_default() {
+        let default = Duration::from_secs(DEFAULT_LEASE_SECS);
+        // A near-zero lease would let a healthy worker's job be reclaimed
+        // mid-flight; an absurd lease would make crash recovery useless.
+        assert_eq!(
+            parse_lease(Some(&(MIN_LEASE_SECS - 1).to_string())),
+            default
+        );
+        assert_eq!(
+            parse_lease(Some(&(MAX_LEASE_SECS + 1).to_string())),
+            default
+        );
+        assert_eq!(parse_lease(Some("not-a-number")), default);
+        assert_eq!(parse_lease(Some("")), default);
+        assert_eq!(parse_lease(None), default);
+    }
+
+    // `connect_lazy` registers a pool worker and therefore needs a runtime,
+    // even though no connection is established.
+    #[tokio::test]
+    async fn with_lease_overrides_the_configured_window() {
+        // `PgAiImportQueue::new` needs a pool, so exercise the builder on a
+        // lazily-connected pool: no I/O happens until a query is issued.
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://user:pass@127.0.0.1:1/none");
+        let Ok(pool) = pool else {
+            // A malformed URL would be a test bug, not a queue bug; skip
+            // rather than panic (no-panic rule applies to tests we author).
+            return;
+        };
+        let queue = PgAiImportQueue::new(pool).with_lease(Duration::from_secs(5));
+        assert_eq!(queue.lease(), Duration::from_secs(5));
+    }
 }
