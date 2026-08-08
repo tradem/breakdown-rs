@@ -175,18 +175,58 @@ pub trait AiImportQueue: Send + Sync {
     ) -> Result<Option<AiImportJob>, DomainError>;
 
     async fn get(&self, id: AiImportJobId) -> Result<Option<AiImportJob>, DomainError>;
-    async fn mark_running(&self, id: AiImportJobId) -> Result<(), DomainError>;
+
+    // --- Lifecycle transitions (owner-fenced) ------------------------------
+    //
+    // A claim can expire, so two workers may briefly run the same job: the
+    // original worker is still executing while a second one has already
+    // reclaimed it. Every worker-originated transition therefore carries the
+    // claiming `worker_id`, and production adapters MUST reject the write when
+    // the caller no longer owns the claim (`DomainError::Conflict`). Without
+    // this fence a stale worker would silently overwrite the new owner's
+    // result — e.g. stamping an outdated `preview_handle` over a fresh
+    // success, or failing a job another worker just completed.
+
+    /// The claim lease window, when the implementation has one.
+    ///
+    /// Workers derive their heartbeat interval from this so a long job keeps
+    /// its claim alive. `None` (the default) means "no lease" — in-memory and
+    /// test queues never expire a claim, so they need no heartbeat.
+    fn lease_window(&self) -> Option<std::time::Duration> {
+        None
+    }
+
+    /// Re-affirm `running` and extend the claim lease (heartbeat).
+    async fn mark_running(&self, id: AiImportJobId, worker_id: &str) -> Result<(), DomainError>;
     async fn mark_succeeded(
         &self,
         id: AiImportJobId,
+        worker_id: &str,
         preview_handle: &str,
     ) -> Result<(), DomainError>;
     async fn mark_failed(
         &self,
         id: AiImportJobId,
+        worker_id: &str,
         error_summary: &str,
         retryable: bool,
     ) -> Result<(), DomainError>;
+    /// Record telemetry produced by a *worker* while it holds the claim.
+    ///
+    /// Owner-fenced like the other worker transitions: a displaced worker must
+    /// not overwrite the telemetry of the worker that reclaimed the job. It is
+    /// deliberately separate from [`record_telemetry`](Self::record_telemetry)
+    /// because that one is called from the API apply path, where the job is
+    /// already terminal and there is no claim to fence on.
+    async fn record_worker_telemetry(
+        &self,
+        id: AiImportJobId,
+        worker_id: &str,
+        telemetry: Telemetry,
+    ) -> Result<(), DomainError>;
+
+    /// Record apply-time telemetry from the API boundary. Not owner-fenced:
+    /// the job is terminal by then and no worker holds a claim.
     async fn record_telemetry(
         &self,
         id: AiImportJobId,

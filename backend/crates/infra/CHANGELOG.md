@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: deepseek-v4-flash (opencode-go) -->
+<!-- Co-authored-by: longcat-2.0-free (opencode) -->
 
 # Changelog
 
@@ -8,6 +9,88 @@ All notable changes to the `infra` crate are documented here. Versioning
 follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
+
+## [0.11.0] - Unreleased
+
+### Changed
+
+- Re-pins `breakdown_core` to 0.7.0 (owner-fenced `AiImportQueue` lifecycle
+  methods, issue #177).
+- **Breaking (source):** `ScriptImportWorker::process` / `::process_text` and
+  `ScheduleImportWorker::process` take the claiming `worker_id`, which they
+  forward to the now owner-fenced lifecycle writes. `run_once` is unchanged
+  (it already received `worker_id`).
+
+### Added — Lease heartbeat for long AI import jobs (issue #177)
+
+- New `ai::heartbeat` module (`LeaseHeartbeat`). A script job makes one LLM
+  call per scene chunk — at defaults up to 128 calls of up to 120s, i.e. ~4.3h
+  — while the lease is 900s, so the claim would lapse after roughly seven
+  chunks and another worker would redo all the paid LLM work. The heartbeat
+  renews the claim via the owner-fenced `mark_running` at 1/3 of the lease
+  window (two spare renewals absorb a transient database blip).
+- The renewal task is stopped before the terminal write and aborted on `Drop`,
+  so an early `?` return cannot leak it. Because renewal is owner-fenced it can
+  never resurrect a lost claim — it stops and flags `claim_lost`, and the
+  script loop then aborts with `Conflict` instead of spending on an LLM call
+  for a job it no longer owns.
+- The heartbeat is skipped where it cannot help: native-CSV schedule parsing
+  and the pure in-process merge are not long-running.
+- The `claim_lost` state machine is unit-tested against a scripted queue on
+  tokio's paused clock (`start_paused` + `time::advance`), so renewal ticks are
+  driven instantly instead of slept out: a `Conflict` renewal flags the claim
+  and stops further renewals, a transient error does neither, and `stop()`
+  ends renewals before a terminal write. The tests synchronise on a renewal
+  notification rather than on a `yield_now()` budget, so they cannot pass or
+  fail on scheduler timing.
+
+### Added — Owner fencing for AI import lifecycle writes (issue #177)
+
+- `mark_running`, `mark_succeeded` and `mark_failed` fence their UPDATE on
+  `status = 'running' AND worker_id = $N` and return `DomainError::Conflict`
+  when no row matches. Reclaiming an expired lease means two workers can
+  briefly run the same job; without the fence the displaced worker would
+  overwrite the new owner's result (stale `preview_handle`, or failing a job
+  another worker just completed). The rejection is logged with the job and
+  worker id rather than silently swallowed.
+- Because the claim is released on completion, the fence also makes a
+  duplicate completion of an already-terminal job a `Conflict` instead of a
+  silent overwrite.
+- Worker telemetry is fenced too, via the new `record_worker_telemetry`. The
+  unfenced `record_telemetry` is retained for the API apply path (terminal job,
+  no claim). Both share one `TelemetryValues` conversion so their range checks
+  cannot drift.
+- `PgAiImportQueue` implements `lease_window()`, which is how workers obtain
+  the interval for their heartbeat.
+
+### Added — Worker leases for AI import jobs (issue #177)
+
+- `PgAiImportQueue` now persists the claiming `worker_id` and a
+  `lease_expires_at` deadline on every claim. A job whose worker crashed no
+  longer stays in `running` forever: once the lease expires, `claim_next` and
+  `claim_next_kind` reclaim it atomically (same `FOR UPDATE SKIP LOCKED`
+  statement that flips the status), while an unexpired lease keeps a second
+  worker out.
+- `mark_running` doubles as a lease heartbeat; `mark_succeeded` and
+  `mark_failed` release the claim (`worker_id`/`lease_expires_at` set to NULL)
+  so `running` stays the only leased state.
+- New builder `PgAiImportQueue::with_lease` plus accessor
+  `PgAiImportQueue::lease` (MINOR, additive API).
+- New environment variable `AI_IMPORT_LEASE_SECS`. An out-of-range *number* is
+  clamped to the nearest bound (`30..=86400`); only an absent or unparsable
+  value falls back to the `900` default.
+- The three bounds derive from one named `LEASE_UNIT_SECS` constant (the
+  report-archival recovery horizon) with a compile-time ordering assertion, so
+  retuning the horizon cannot silently invert the range.
+- Migration `20260809000001_ai_import_worker_lease` adds the two columns and
+  expires pre-existing `running` rows so legacy strays become recoverable on
+  the first claim. The follow-up migration
+  `20260809000002_ai_import_lease_index` builds the
+  `(status, lease_expires_at)` index with `CREATE INDEX CONCURRENTLY` so the
+  build never blocks writes to `ai_import_job`. It is a separate,
+  `-- no-transaction` migration on purpose: sqlx sends a migration file as one
+  multi-statement simple query, which Postgres wraps in an implicit
+  transaction, and `CONCURRENTLY` cannot run inside a transaction block.
 
 ## [0.10.0] - Unreleased
 

@@ -1434,7 +1434,7 @@ impl AiImportQueue for FakeAiImportQueue {
         Ok(self.jobs.lock().await.get(&id.as_uuid()).cloned())
     }
 
-    async fn mark_running(&self, id: AiImportJobId) -> Result<(), DomainError> {
+    async fn mark_running(&self, id: AiImportJobId, _worker_id: &str) -> Result<(), DomainError> {
         if let Some(job) = self.jobs.lock().await.get_mut(&id.as_uuid()) {
             job.status = JobStatus::Running;
         }
@@ -1444,6 +1444,7 @@ impl AiImportQueue for FakeAiImportQueue {
     async fn mark_succeeded(
         &self,
         id: AiImportJobId,
+        _worker_id: &str,
         preview_handle: &str,
     ) -> Result<(), DomainError> {
         if let Some(job) = self.jobs.lock().await.get_mut(&id.as_uuid()) {
@@ -1456,6 +1457,7 @@ impl AiImportQueue for FakeAiImportQueue {
     async fn mark_failed(
         &self,
         id: AiImportJobId,
+        _worker_id: &str,
         error_summary: &str,
         _retryable: bool,
     ) -> Result<(), DomainError> {
@@ -1463,6 +1465,17 @@ impl AiImportQueue for FakeAiImportQueue {
             job.status = JobStatus::Failed;
             job.last_error = Some(error_summary.to_owned());
         }
+        Ok(())
+    }
+
+    async fn record_worker_telemetry(
+        &self,
+        id: AiImportJobId,
+        _worker_id: &str,
+        telemetry: Telemetry,
+    ) -> Result<(), DomainError> {
+        // Same sink as the unfenced write: this fake has no claim to fence on.
+        self.telemetry.lock().await.push((id, telemetry));
         Ok(())
     }
 

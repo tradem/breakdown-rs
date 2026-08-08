@@ -4,7 +4,7 @@
 
 [package]
 name = "infra"
-version = "0.10.0"
+version = "0.11.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
@@ -21,7 +21,7 @@ required-features = ["test-support"]
 
 [dependencies]
 # Core-Domäne
-breakdown_core = { path = "../core", version = "0.6.0" }
+breakdown_core = { path = "../core", version = "0.7.0" }
 
 # JSON Schema for provider response_format constraints (ADR-013).
 schemars.workspace = true
@@ -109,6 +109,11 @@ typst-assets = "0.15.1"
 # Embedded font assets
 rust-embed = "8"
 
+[dev-dependencies]
+# `test-util` provides tokio's paused clock (`start_paused`, `time::advance`),
+# which lets the lease-heartbeat tests drive renewal ticks instantly instead of
+# sleeping out a real interval (deterministic tests, AGENTS.md §4).
+tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
 
 [lints]
 workspace = true

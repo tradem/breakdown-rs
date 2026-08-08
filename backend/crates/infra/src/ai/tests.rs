@@ -147,12 +147,14 @@ async fn merge_worker_empty_input_is_non_retryable() {
         async fn mark_running(
             &self,
             _id: breakdown_core::ai::AiImportJobId,
+            _worker_id: &str,
         ) -> Result<(), DomainError> {
             Ok(())
         }
         async fn mark_succeeded(
             &self,
             _id: breakdown_core::ai::AiImportJobId,
+            _worker_id: &str,
             _preview_handle: &str,
         ) -> Result<(), DomainError> {
             unimplemented!()
@@ -160,10 +162,19 @@ async fn merge_worker_empty_input_is_non_retryable() {
         async fn mark_failed(
             &self,
             _id: breakdown_core::ai::AiImportJobId,
+            _worker_id: &str,
             _error_summary: &str,
             retryable: bool,
         ) -> Result<(), DomainError> {
             self.state.lock().unwrap().failed_retryable.push(retryable);
+            Ok(())
+        }
+        async fn record_worker_telemetry(
+            &self,
+            _id: breakdown_core::ai::AiImportJobId,
+            _worker_id: &str,
+            _telemetry: breakdown_core::ai::Telemetry,
+        ) -> Result<(), DomainError> {
             Ok(())
         }
         async fn record_telemetry(
@@ -273,13 +284,14 @@ impl AiImportQueue for FakeQueue {
         Ok(None)
     }
 
-    async fn mark_running(&self, _id: AiImportJobId) -> Result<(), DomainError> {
+    async fn mark_running(&self, _id: AiImportJobId, _worker_id: &str) -> Result<(), DomainError> {
         Ok(())
     }
 
     async fn mark_succeeded(
         &self,
         id: AiImportJobId,
+        _worker_id: &str,
         _preview_handle: &str,
     ) -> Result<(), DomainError> {
         self.state.lock().unwrap().succeeded.push(id);
@@ -289,10 +301,23 @@ impl AiImportQueue for FakeQueue {
     async fn mark_failed(
         &self,
         id: AiImportJobId,
+        _worker_id: &str,
         _error_summary: &str,
         _retryable: bool,
     ) -> Result<(), DomainError> {
         self.state.lock().unwrap().failed.push(id);
+        Ok(())
+    }
+
+    async fn record_worker_telemetry(
+        &self,
+        _id: AiImportJobId,
+        _worker_id: &str,
+        telemetry: Telemetry,
+    ) -> Result<(), DomainError> {
+        // Same sink as the unfenced write: the existing telemetry assertions
+        // are about the recorded values, not about which port carried them.
+        self.state.lock().unwrap().telemetry.push(telemetry);
         Ok(())
     }
 
@@ -373,7 +398,11 @@ async fn script_worker_assembles_preview_and_telemetry() {
     let worker = script_worker(Arc::clone(&queue), Arc::clone(&previews), 4);
     let job = script_job(AiImportJobId::new());
     let handle = worker
-        .process_text(&job, "1. INT. KITCHEN - DAY\nA\n2. EXT. PARK - NIGHT\nB")
+        .process_text(
+            &job,
+            "test-worker",
+            "1. INT. KITCHEN - DAY\nA\n2. EXT. PARK - NIGHT\nB",
+        )
         .await
         .unwrap();
     let payload = previews.get(&handle).await.unwrap().unwrap();
@@ -401,7 +430,11 @@ async fn oversized_script_transitions_to_failed_without_llm_calls() {
     let worker = script_worker(Arc::clone(&queue), Arc::clone(&previews), 1);
     let job = script_job(AiImportJobId::new());
     let result = worker
-        .process_text(&job, "1. INT. KITCHEN - DAY\nA\n2. EXT. PARK - NIGHT\nB")
+        .process_text(
+            &job,
+            "test-worker",
+            "1. INT. KITCHEN - DAY\nA\n2. EXT. PARK - NIGHT\nB",
+        )
         .await;
     assert!(matches!(result, Err(DomainError::ValidationError(_))));
     let state = queue.state.lock().unwrap();
@@ -744,7 +777,7 @@ async fn apply_retry_updates_mapping_without_creating_duplicate_scenes() {
     let import_worker = script_worker(Arc::clone(&queue), Arc::clone(&previews), 4);
     let job = script_job(AiImportJobId::new());
     let handle = import_worker
-        .process_text(&job, "1. INT. KITCHEN - DAY\nA")
+        .process_text(&job, "test-worker", "1. INT. KITCHEN - DAY\nA")
         .await
         .unwrap();
     let payload = previews.get(&handle).await.unwrap().unwrap();
@@ -881,7 +914,7 @@ async fn script_pdf_round_trip_reaches_scene_apply() {
     let import_worker = script_worker(Arc::clone(&queue), Arc::clone(&previews), 4);
     let job = script_job(AiImportJobId::new());
     let handle = import_worker
-        .process(&job, &tiny_script_pdf())
+        .process(&job, "test-worker", &tiny_script_pdf())
         .await
         .unwrap();
     let payload = previews.get(&handle).await.unwrap().unwrap();

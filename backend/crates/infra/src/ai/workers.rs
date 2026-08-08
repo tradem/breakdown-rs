@@ -20,6 +20,7 @@ use breakdown_core::shared::{EpisodeId, SeriesId, UserId};
 use serde_json::to_vec;
 use uuid::Uuid;
 
+use super::heartbeat::LeaseHeartbeat;
 use super::pdf::PdfTextExtractor;
 use super::preview_store::{AiDocumentSource, AiPreviewStore};
 use crate::photo::sagas::is_transient;
@@ -59,16 +60,20 @@ where
         let bytes = match source.load(&job.source_handle).await {
             Ok(bytes) => bytes,
             Err(error) => {
-                self.fail(job.id, &error).await?;
+                self.fail(job.id, worker_id, &error).await?;
                 return Err(error);
             }
         };
-        self.process(&job, &bytes).await.map(|_| true)
+        self.process(&job, worker_id, &bytes).await.map(|_| true)
     }
 
+    /// `worker_id` must be the id that claimed `job`: every lifecycle write is
+    /// owner-fenced, so passing a foreign id makes the job's completion fail
+    /// with `DomainError::Conflict`.
     pub async fn process(
         &self,
         job: &AiImportJob,
+        worker_id: &str,
         pdf_bytes: &[u8],
     ) -> Result<String, DomainError> {
         if job.document_kind != DocumentKind::Script {
@@ -77,13 +82,26 @@ where
             ));
         }
         let text = self.extractor.extract(pdf_bytes).await?;
-        self.process_text(job, &text).await
+        self.process_text(job, worker_id, &text).await
     }
 
     /// Process already extracted text. This seam keeps PDF subprocess tests
     /// separate from deterministic worker tests.
-    pub async fn process_text(&self, job: &AiImportJob, text: &str) -> Result<String, DomainError> {
+    ///
+    /// A script job makes one LLM call per chunk (up to `max_chunks_per_script`
+    /// of up to `request_timeout_secs` each), which far outlives a single lease
+    /// window. A [`LeaseHeartbeat`] therefore renews the claim while the loop
+    /// runs, and the loop aborts as soon as the heartbeat reports the claim
+    /// was lost — continuing would burn LLM spend on a job another worker has
+    /// already taken over.
+    pub async fn process_text(
+        &self,
+        job: &AiImportJob,
+        worker_id: &str,
+        text: &str,
+    ) -> Result<String, DomainError> {
         let started = Instant::now();
+        let heartbeat = self.start_heartbeat(job.id, worker_id);
         let chunks = extract_scenes(text);
         let chunk_count = u32::try_from(chunks.len()).map_err(|error| {
             DomainError::ValidationError(format!(
@@ -91,14 +109,14 @@ where
             ))
         })?;
         if let Err(error) = validate_chunk_count(chunks.len(), self.bounds.max_chunks_per_script) {
-            self.fail(job.id, &error).await?;
+            self.fail(job.id, worker_id, &error).await?;
             return Err(error);
         }
         if chunks.is_empty() {
             let error = DomainError::ValidationError(
                 "script did not contain an INT./EXT. scene heading".to_owned(),
             );
-            self.fail(job.id, &error).await?;
+            self.fail(job.id, worker_id, &error).await?;
             return Err(error);
         }
 
@@ -112,6 +130,10 @@ where
                 max_tokens: self.bounds.max_tokens_per_req,
                 response_schema: None,
             };
+            if super::heartbeat::claim_lost(heartbeat.as_ref()) {
+                // Stop before the next paid call: another worker owns the job.
+                return Err(claim_lost_error(job.id, worker_id));
+            }
             let partial = retry_chat(
                 self.client.as_ref(),
                 request,
@@ -127,7 +149,7 @@ where
                     context.uncertainties.extend(partial.uncertainties);
                 }
                 Err(error) => {
-                    self.fail(job.id, &error).await?;
+                    self.fail(job.id, worker_id, &error).await?;
                     return Err(error);
                 }
             }
@@ -136,9 +158,15 @@ where
             DomainError::ValidationError(format!("could not serialize script preview: {error}"))
         })?;
         let handle = self.previews.put(job.id, payload).await?;
+        // Stop renewing before the terminal writes so a heartbeat cannot race
+        // the completion and re-extend a lease that is about to be released.
+        if let Some(heartbeat) = heartbeat {
+            heartbeat.stop();
+        }
         self.queue
-            .record_telemetry(
+            .record_worker_telemetry(
                 job.id,
+                worker_id,
                 Telemetry {
                     provider: Some(self.provider),
                     model: Some(self.model.clone()),
@@ -152,19 +180,42 @@ where
                 },
             )
             .await?;
-        self.queue.mark_succeeded(job.id, &handle).await?;
+        self.queue
+            .mark_succeeded(job.id, worker_id, &handle)
+            .await?;
         Ok(handle)
     }
 
-    async fn fail(&self, id: AiImportJobId, error: &DomainError) -> Result<(), DomainError> {
+    fn start_heartbeat(&self, id: AiImportJobId, worker_id: &str) -> Option<LeaseHeartbeat> {
+        let lease = self.queue.lease_window()?;
+        LeaseHeartbeat::start(Arc::clone(&self.queue), id, worker_id, lease)
+    }
+
+    async fn fail(
+        &self,
+        id: AiImportJobId,
+        worker_id: &str,
+        error: &DomainError,
+    ) -> Result<(), DomainError> {
         self.queue
             .mark_failed(
                 id,
+                worker_id,
                 &error.to_string(),
                 matches!(error, DomainError::ServiceUnavailable(_)),
             )
             .await
     }
+}
+
+/// The job was reclaimed by another worker while this one was still working.
+/// Surfaced as a `Conflict` so the caller abandons the job instead of retrying
+/// — the new owner is already redoing the work.
+fn claim_lost_error(id: AiImportJobId, worker_id: &str) -> DomainError {
+    DomainError::Conflict(format!(
+        "worker {worker_id} lost its claim on AI import job {} mid-processing",
+        id.as_uuid()
+    ))
 }
 
 /// Schedule import pipeline. CSV is parsed natively; unstructured input can
@@ -201,16 +252,22 @@ where
         let bytes = match source.load(&job.source_handle).await {
             Ok(bytes) => bytes,
             Err(error) => {
-                self.fail(job.id, &error).await?;
+                self.fail(job.id, worker_id, &error).await?;
                 return Err(error);
             }
         };
-        self.process(&job, &bytes, native_csv).await.map(|_| true)
+        self.process(&job, worker_id, &bytes, native_csv)
+            .await
+            .map(|_| true)
     }
 
+    /// `worker_id` must be the id that claimed `job`: every lifecycle write is
+    /// owner-fenced, so passing a foreign id makes the job's completion fail
+    /// with `DomainError::Conflict`.
     pub async fn process(
         &self,
         job: &AiImportJob,
+        worker_id: &str,
         bytes: &[u8],
         native_csv: bool,
     ) -> Result<String, DomainError> {
@@ -220,6 +277,11 @@ where
             ));
         }
         let started = Instant::now();
+        // Native CSV parsing is fast and needs no heartbeat; the LLM path can
+        // outlive the lease, so renew the claim while it runs.
+        let heartbeat = (!native_csv)
+            .then(|| self.start_heartbeat(job.id, worker_id))
+            .flatten();
         let mut schedule = if native_csv {
             super::csv_schedule::parse_schedule_csv(bytes)?
         } else {
@@ -250,9 +312,15 @@ where
             DomainError::ValidationError(format!("could not serialize schedule preview: {error}"))
         })?;
         let handle = self.previews.put(job.id, payload).await?;
+        // Stop renewing before the terminal writes so a heartbeat cannot race
+        // the completion.
+        if let Some(heartbeat) = heartbeat {
+            heartbeat.stop();
+        }
         self.queue
-            .record_telemetry(
+            .record_worker_telemetry(
                 job.id,
+                worker_id,
                 Telemetry {
                     provider: (!native_csv).then_some(self.provider),
                     model: (!native_csv).then(|| self.model.clone()),
@@ -265,14 +333,27 @@ where
                 },
             )
             .await?;
-        self.queue.mark_succeeded(job.id, &handle).await?;
+        self.queue
+            .mark_succeeded(job.id, worker_id, &handle)
+            .await?;
         Ok(handle)
     }
 
-    async fn fail(&self, id: AiImportJobId, error: &DomainError) -> Result<(), DomainError> {
+    fn start_heartbeat(&self, id: AiImportJobId, worker_id: &str) -> Option<LeaseHeartbeat> {
+        let lease = self.queue.lease_window()?;
+        LeaseHeartbeat::start(Arc::clone(&self.queue), id, worker_id, lease)
+    }
+
+    async fn fail(
+        &self,
+        id: AiImportJobId,
+        worker_id: &str,
+        error: &DomainError,
+    ) -> Result<(), DomainError> {
         self.queue
             .mark_failed(
                 id,
+                worker_id,
                 &error.to_string(),
                 matches!(error, DomainError::ServiceUnavailable(_)),
             )
