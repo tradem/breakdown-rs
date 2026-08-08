@@ -339,6 +339,7 @@ async fn apply_ai_import_rejects_an_episode_from_another_block() {
     // The target episode lives in a DIFFERENT block than the job (CWE-639).
     *ports.episode_repo.block_id_override.lock().await = Some(other_block);
     let mappings = ports.ai_import_mapping.clone();
+    let queue = ports.ai_import_queue.clone();
     let job_id = seed_applyable_script_job(&ports, Some(job_block), 1).await;
 
     let (status, Json(body)) = apply_ai_import::<FakePorts>(
@@ -361,7 +362,9 @@ async fn apply_ai_import_rejects_an_episode_from_another_block() {
 
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert!(body.message.contains("not authorized"));
-    // The gate runs before the worker: nothing was written.
+    // The gate runs before the worker: nothing was written on *either* write
+    // path — mappings and telemetry are separate sinks on the queue/mapping
+    // ports, so both must stay empty.
     assert!(
         mappings
             .list_by_preview(job_id)
@@ -370,6 +373,10 @@ async fn apply_ai_import_rejects_an_episode_from_another_block() {
             .is_empty(),
         "a rejected apply must not write any mapping"
     );
+    assert!(
+        queue.telemetry.lock().await.is_empty(),
+        "a rejected apply must not record telemetry"
+    );
 }
 
 #[tokio::test]
@@ -377,6 +384,8 @@ async fn apply_ai_import_rejects_accept_as_is_with_a_nonzero_edit_distance() {
     let ports = FakePorts::default();
     let block_id = BlockId::from_uuid(Uuid::now_v7());
     *ports.episode_repo.block_id_override.lock().await = Some(block_id);
+    let mappings = ports.ai_import_mapping.clone();
+    let queue = ports.ai_import_queue.clone();
     let job_id = seed_applyable_script_job(&ports, Some(block_id), 1).await;
 
     let (status, Json(body)) = apply_ai_import::<FakePorts>(
@@ -400,6 +409,19 @@ async fn apply_ai_import_rejects_accept_as_is_with_a_nonzero_edit_distance() {
 
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert!(body.message.contains("edit_distance = 0"));
+    // The validation rejects before any write reaches either sink.
+    assert!(
+        mappings
+            .list_by_preview(job_id)
+            .await
+            .expect("mapping read should succeed")
+            .is_empty(),
+        "a rejected apply must not write any mapping"
+    );
+    assert!(
+        queue.telemetry.lock().await.is_empty(),
+        "a rejected apply must not record telemetry"
+    );
 }
 
 #[tokio::test]
