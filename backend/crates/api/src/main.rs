@@ -427,6 +427,14 @@ async fn main() -> Result<()> {
     spawn_gc_scheduler(pool.clone(), photo_storage.clone(), photo_repo.clone());
     info!("photo GC scheduler spawned");
 
+    // Spawn AI payload GC scheduler if storage is configured
+    if let Some(ai_payload_storage) = infra::ai::OpenDalAiPayloadStorage::from_env() {
+        infra::ai::payload_cleanup::spawn_gc_scheduler(pool.clone(), ai_payload_storage);
+        info!("AI payload GC scheduler spawned");
+    } else {
+        info!("AI payload storage not configured — skipping AI payload GC scheduler");
+    }
+
     // --- Report archival (staging + external + worker + triggers) ---
     let report_archival_queue = PgReportArchivalQueue::new(pool.clone());
     let ai_import_queue = infra::ai::PgAiImportQueue::new(pool.clone());
