@@ -8,7 +8,7 @@ use anyhow::Result;
 use breakdown_core::error::DomainError;
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
-use tracing::{error, info, warn};
+use tracing::{error, info, trace, warn};
 use uuid::Uuid;
 
 use super::payload_storage::OpenDalAiPayloadStorage;
@@ -91,9 +91,16 @@ pub async fn run_gc_sweep(
     // Advisory lock ID: "AI_PAY_AD_GC" as i64
     let lock_id: i64 = 4706751127065399628;
 
+    // Acquire a dedicated connection for the advisory lock lifecycle.
+    // pg_try_advisory_lock is session-scoped, so we must use the same
+    // connection for both lock and unlock.
+    let mut conn = pool.acquire().await.map_err(|e| {
+        DomainError::ServiceUnavailable(format!("Failed to acquire connection for lock: {}", e))
+    })?;
+
     let lock_acquired: Option<bool> = sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
         .bind(lock_id)
-        .fetch_one(pool)
+        .fetch_one(&mut *conn)
         .await
         .map_err(|e| {
             DomainError::ServiceUnavailable(format!("Failed to acquire advisory lock: {}", e))
@@ -106,13 +113,26 @@ pub async fn run_gc_sweep(
 
     let result = try_run_sweep(pool, storage, config, started_at).await;
 
-    // Best-effort unlock: if unlock fails, the lock auto-releases on session end.
-    // We intentionally discard the result to avoid blocking the sweep result.
-    // ast-grep-ignore: discard-result
-    let _ = sqlx::query_scalar::<_, i64>("SELECT pg_advisory_unlock($1)")
-        .bind(lock_id)
-        .fetch_one(pool)
-        .await;
+    // Best-effort unlock on the same connection.
+    let unlock_result: Result<Option<bool>, _> =
+        sqlx::query_scalar("SELECT pg_advisory_unlock($1)")
+            .bind(lock_id)
+            .fetch_one(&mut *conn)
+            .await;
+    match unlock_result {
+        Ok(Some(true)) => {
+            trace!("Advisory lock released successfully");
+        }
+        Ok(Some(false)) => {
+            warn!("Advisory lock was not held by this session");
+        }
+        Ok(None) => {
+            warn!("Advisory unlock returned NULL");
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to release advisory lock");
+        }
+    }
 
     result
 }
@@ -257,7 +277,7 @@ async fn try_run_sweep(
 
     sqlx::query(
         r#"
-        INSERT INTO projection_ai_payload_gc_run
+        INSERT INTO ai_import.projection_ai_payload_gc_run
             (run_id, started_at, finished_at, scanned, source_deleted, preview_deleted, errors, dry_run)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         "#,
