@@ -22,15 +22,17 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode};
 
 use api::auth::CurrentUser;
 use api::handlers::{
-    CreateAiConfigRequest, RevokeAiConfigRequest, UpdateAiConfigRequest, create_ai_config,
-    get_ai_config, get_ai_import_job, get_ai_import_preview, revoke_ai_config, update_ai_config,
-    upload_ai_script,
+    ApplyAiImportRequest, CreateAiConfigRequest, RevokeAiConfigRequest, UpdateAiConfigRequest,
+    apply_ai_import, create_ai_config, get_ai_config, get_ai_import_job, get_ai_import_preview,
+    revoke_ai_config, update_ai_config, upload_ai_script,
 };
 use api::state::AppState;
 use breakdown_core::ai::{
-    AiConfigView, AiImportJob, AiImportJobId, AiImportQueue, DocumentKind, JobStatus, LlmProvider,
+    AiConfigView, AiImportJob, AiImportJobId, AiImportMappingRepository, AiImportQueue,
+    ApplyMapping, ApplyMappingDecision, DocumentKind, DraftScene, JobStatus, LlmProvider,
+    ScriptContext,
 };
-use breakdown_core::shared::{AggregateVersion, BlockId, UserId};
+use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, UserId};
 use chrono::Utc;
 use common::FakePorts;
 use infra::ai::AiPreviewStore;
@@ -240,6 +242,164 @@ async fn get_ai_import_preview_reads_through_the_preview_store_port() {
         .await
         .expect("preview should be served from the fake store");
     assert_eq!(response.status(), StatusCode::OK);
+}
+
+/// Seed a succeeded script job whose preview holds `scene_count` draft scenes
+/// and no open uncertainties, so the apply gate is satisfied.
+async fn seed_applyable_script_job(
+    ports: &FakePorts,
+    block_id: Option<BlockId>,
+    scene_count: usize,
+) -> AiImportJobId {
+    let preview = ScriptContext {
+        title: Some("test script".to_owned()),
+        scenes: (0..scene_count)
+            .map(|i| DraftScene {
+                draft_ref: format!("scene-{i}"),
+                scene_number: Some(i as u32 + 1),
+                ..DraftScene::default()
+            })
+            .collect(),
+        uncertainties: vec![],
+    };
+    let mut job = succeeded_job("placeholder");
+    job.block_id = block_id;
+    let handle = ports
+        .ai_payload_store
+        .put(
+            job.id,
+            serde_json::to_vec(&preview).expect("preview serializes"),
+        )
+        .await
+        .expect("preview store write should succeed");
+    job.preview_handle = Some(handle);
+    let job_id = job.id;
+    ports.ai_import_queue.seed(job).await;
+    job_id
+}
+
+#[tokio::test]
+async fn apply_ai_import_drives_the_script_worker_through_the_ports_seam() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    // Pin the stub episode into the job's block so the cross-block gate passes.
+    *ports.episode_repo.block_id_override.lock().await = Some(block_id);
+    let mappings = ports.ai_import_mapping.clone();
+    let queue = ports.ai_import_queue.clone();
+    let job_id = seed_applyable_script_job(&ports, Some(block_id), 2).await;
+
+    let (status, Json(response)) = apply_ai_import::<FakePorts>(
+        State(state(ports)),
+        user(),
+        Path(job_id),
+        Json(ApplyAiImportRequest {
+            episode_id: EpisodeId::new(),
+            series_id: None,
+            mappings: vec![
+                ApplyMapping {
+                    draft_ref: "scene-0".to_owned(),
+                    decision: ApplyMappingDecision::Create,
+                },
+                ApplyMapping {
+                    draft_ref: "scene-1".to_owned(),
+                    decision: ApplyMappingDecision::Create,
+                },
+            ],
+            accept_as_is: true,
+            edit_distance: 0,
+        }),
+    )
+    .await
+    .expect("an in-block apply should succeed");
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(response.applied_count, 2);
+
+    // `ApplyWorker` received owned clones of the command/mapping/queue ports
+    // (the `+ Clone` bounds on `Ports`) and wrote through them: one idempotency
+    // mapping per draft row, plus the apply telemetry.
+    assert_eq!(
+        mappings
+            .list_by_preview(job_id)
+            .await
+            .expect("mapping read should succeed")
+            .len(),
+        2
+    );
+    let telemetry = queue.telemetry.lock().await;
+    assert_eq!(telemetry.len(), 1, "apply must record telemetry once");
+    assert_eq!(telemetry[0].0, job_id);
+}
+
+#[tokio::test]
+async fn apply_ai_import_rejects_an_episode_from_another_block() {
+    let ports = FakePorts::default();
+    let job_block = BlockId::from_uuid(Uuid::now_v7());
+    let other_block = BlockId::from_uuid(Uuid::now_v7());
+    // The target episode lives in a DIFFERENT block than the job (CWE-639).
+    *ports.episode_repo.block_id_override.lock().await = Some(other_block);
+    let mappings = ports.ai_import_mapping.clone();
+    let job_id = seed_applyable_script_job(&ports, Some(job_block), 1).await;
+
+    let (status, Json(body)) = apply_ai_import::<FakePorts>(
+        State(state(ports)),
+        user(),
+        Path(job_id),
+        Json(ApplyAiImportRequest {
+            episode_id: EpisodeId::new(),
+            series_id: None,
+            mappings: vec![ApplyMapping {
+                draft_ref: "scene-0".to_owned(),
+                decision: ApplyMappingDecision::Create,
+            }],
+            accept_as_is: true,
+            edit_distance: 0,
+        }),
+    )
+    .await
+    .expect_err("a cross-block apply must be rejected");
+
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(body.message.contains("not authorized"));
+    // The gate runs before the worker: nothing was written.
+    assert!(
+        mappings
+            .list_by_preview(job_id)
+            .await
+            .expect("mapping read should succeed")
+            .is_empty(),
+        "a rejected apply must not write any mapping"
+    );
+}
+
+#[tokio::test]
+async fn apply_ai_import_rejects_accept_as_is_with_a_nonzero_edit_distance() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    *ports.episode_repo.block_id_override.lock().await = Some(block_id);
+    let job_id = seed_applyable_script_job(&ports, Some(block_id), 1).await;
+
+    let (status, Json(body)) = apply_ai_import::<FakePorts>(
+        State(state(ports)),
+        user(),
+        Path(job_id),
+        Json(ApplyAiImportRequest {
+            episode_id: EpisodeId::new(),
+            series_id: None,
+            mappings: vec![ApplyMapping {
+                draft_ref: "scene-0".to_owned(),
+                decision: ApplyMappingDecision::Create,
+            }],
+            // Contradictory: "no edits" alongside a nonzero edit count.
+            accept_as_is: true,
+            edit_distance: 3,
+        }),
+    )
+    .await
+    .expect_err("contradictory telemetry must be rejected");
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body.message.contains("edit_distance = 0"));
 }
 
 #[tokio::test]

@@ -35,7 +35,9 @@ commits (ADR-020 D5).
   `enqueue_ai_upload` helpers) are now generic over `P: Ports` instead of
   being hard-wired to `AppState<ProductionPorts>`. The routes bind
   `::<ProductionPorts>` explicitly, matching every other handler. Tests can
-  now drive the AI routes with fakes — no PostgreSQL-backed adapter required.
+  now drive the AI routes with fakes — no PostgreSQL-backed adapter required,
+  including `apply_ai_import` (the handler that clones the command ports into
+  `ApplyWorker` / `ScheduleApplyWorker` and holds the cross-block IDOR gate).
 - Removed the inherent `ProductionPorts::ai_*` getters; they are superseded by
   the `Ports` trait accessors of the same names.
 - AI import authorization gates (`authorize_ai_block`, `authorize_ai_job`,

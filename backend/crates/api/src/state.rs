@@ -60,10 +60,11 @@ use infra::vault::VaultClient;
 /// The hexagonal seam surface used by API handlers. Production implements it
 /// with the concrete `kameo_es` write adapters and `sqlx` read adapters.
 pub trait Ports: Clone + Send + Sync + 'static {
-    // `+ Clone` on the write-side command ports: the AI apply handlers hand
-    // owned clones to the infra apply workers (`ApplyWorker`,
-    // `ScheduleApplyWorker`), which take `Arc<C>`. Without the bound a generic
-    // `.clone()` would silently clone the *reference* instead of the adapter.
+    // `+ Clone` on the write-side command ports: the AI apply handlers build
+    // the infra apply workers (`ApplyWorker`, `ScheduleApplyWorker`), whose
+    // fields are `Arc<C>` and therefore need *owned* adapters. A handler only
+    // holds `&P::SceneCommands` (via the port accessor), so it must clone the
+    // adapter to produce the owned value `Arc::new` requires.
     type SceneCommands: SceneCommands + Clone;
     type SceneRepo: SceneRepository;
     type ShootingDayCommands: ShootingDayCommands + Clone;

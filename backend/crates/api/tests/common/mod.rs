@@ -663,15 +663,26 @@ impl BlockRepository for FakeBlockRepo {
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-pub struct FakeEpisodeRepo;
+pub struct FakeEpisodeRepo {
+    /// Block the stub episode reports as its parent. `None` (default) mints a
+    /// fresh id per call; set it to pin the episode into a known block so a
+    /// test can drive the cross-block IDOR gate in `apply_ai_import` either
+    /// way (issue #176).
+    pub block_id_override: Arc<Mutex<Option<BlockId>>>,
+}
 
 impl EpisodeRepository for FakeEpisodeRepo {
     async fn find_by_id(&self, id: Uuid) -> Result<EpisodeView, DomainError> {
         // Return a stub EpisodeView so handlers can resolve series_id
         // for EventMetadata without a real projection.
+        let block_id = self
+            .block_id_override
+            .lock()
+            .await
+            .unwrap_or_else(|| BlockId::from_uuid(Uuid::now_v7()));
         Ok(EpisodeView {
             id,
-            block_id: BlockId::from_uuid(Uuid::now_v7()),
+            block_id,
             series_id: SeriesId::from_uuid(Uuid::now_v7()),
             number: 1,
             name: None,
