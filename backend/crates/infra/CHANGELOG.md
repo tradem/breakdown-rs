@@ -40,7 +40,9 @@ commits (ADR-020 D5).
   tokio's paused clock (`start_paused` + `time::advance`), so renewal ticks are
   driven instantly instead of slept out: a `Conflict` renewal flags the claim
   and stops further renewals, a transient error does neither, and `stop()`
-  ends renewals before a terminal write.
+  ends renewals before a terminal write. The tests synchronise on a renewal
+  notification rather than on a `yield_now()` budget, so they cannot pass or
+  fail on scheduler timing.
 
 ### Added — Owner fencing for AI import lifecycle writes (issue #177)
 

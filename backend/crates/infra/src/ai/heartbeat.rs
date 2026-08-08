@@ -153,6 +153,7 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
+    use tokio::sync::Notify;
 
     /// Queue whose `mark_running` returns a scripted outcome, so the
     /// heartbeat's state machine can be driven deterministically.
@@ -160,6 +161,9 @@ mod tests {
         /// Error returned by every renewal; `None` means success.
         outcome: Option<DomainError>,
         renewals: AtomicUsize,
+        /// Signalled after each renewal so tests can await the event itself
+        /// instead of guessing how many task switches it takes.
+        renewed: Notify,
     }
 
     impl ScriptedQueue {
@@ -167,6 +171,7 @@ mod tests {
             Arc::new(Self {
                 outcome: Some(error),
                 renewals: AtomicUsize::new(0),
+                renewed: Notify::new(),
             })
         }
 
@@ -202,6 +207,7 @@ mod tests {
             _worker_id: &str,
         ) -> Result<(), DomainError> {
             self.renewals.fetch_add(1, Ordering::AcqRel);
+            self.renewed.notify_waiters();
             match &self.outcome {
                 None => Ok(()),
                 Some(DomainError::Conflict(reason)) => Err(DomainError::Conflict(reason.clone())),
@@ -245,24 +251,44 @@ mod tests {
     /// One lease window; the heartbeat renews at a third of it.
     const TEST_LEASE: Duration = Duration::from_secs(900);
 
-    /// Advance past `ticks` renewal intervals. Time is paused
-    /// (`start_paused`), so this is instant and deterministic — no sleeping.
-    async fn advance_ticks(ticks: u32) {
+    /// Advance the paused clock until `expected` renewals have *actually*
+    /// completed, awaiting the queue's notification for each one.
+    ///
+    /// Synchronising on the renewal event rather than on a fixed number of
+    /// `yield_now()` calls is what makes this deterministic: `yield_now` does
+    /// not guarantee a task switch, so a yield budget could pass or fail on
+    /// scheduler timing alone.
+    async fn await_renewals(queue: &ScriptedQueue, expected: usize) {
         let step = renewal_interval(TEST_LEASE);
-        // The spawned task registers its sleep timer only on its first poll,
-        // so hand control over once before moving the clock — otherwise
-        // `advance` runs while no timer is armed and the tick is missed.
-        tokio::task::yield_now().await;
-        for _ in 0..ticks {
+        for _ in 0..expected {
+            // Register interest BEFORE advancing: a notification fired between
+            // the advance and the await would otherwise be missed and this
+            // would hang.
+            let renewed = queue.renewed.notified();
+            tokio::pin!(renewed);
+            // The spawned task arms its sleep timer only on its first poll, so
+            // hand control over once before moving the clock.
+            tokio::task::yield_now().await;
             tokio::time::advance(step + Duration::from_millis(1)).await;
-            // Let the heartbeat task observe the elapsed timer and run its
-            // renewal to completion. On the current-thread runtime one yield
-            // only hands over once, while a renewal spans several await
-            // points (timer wake -> mark_running -> flag store).
-            for _ in 0..8 {
-                tokio::task::yield_now().await;
-            }
+            renewed.await;
         }
+    }
+
+    /// Advance past `ticks` intervals without expecting any renewal, then
+    /// confirm none happened. Used to prove a stopped heartbeat stays stopped.
+    async fn advance_expecting_no_renewal(queue: &ScriptedQueue, ticks: u32) {
+        let step = renewal_interval(TEST_LEASE);
+        let before = queue.renewals();
+        for _ in 0..ticks {
+            tokio::task::yield_now().await;
+            tokio::time::advance(step + Duration::from_millis(1)).await;
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(
+            queue.renewals(),
+            before,
+            "no renewal may happen after the heartbeat stopped"
+        );
     }
 
     #[tokio::test(flavor = "current_thread", start_paused = true)]
@@ -278,7 +304,7 @@ mod tests {
 
         assert!(!heartbeat.claim_lost(), "no renewal has happened yet");
 
-        advance_ticks(1).await;
+        await_renewals(&queue, 1).await;
         assert!(
             heartbeat.claim_lost(),
             "a Conflict renewal must flag the claim as lost — this is the signal \
@@ -287,13 +313,7 @@ mod tests {
 
         // Renewals must stop: continuing would hammer the database for a claim
         // that is provably gone.
-        let after_conflict = queue.renewals();
-        advance_ticks(3).await;
-        assert_eq!(
-            queue.renewals(),
-            after_conflict,
-            "the task must stop renewing once the claim is lost"
-        );
+        advance_expecting_no_renewal(&queue, 3).await;
     }
 
     #[tokio::test(flavor = "current_thread", start_paused = true)]
@@ -308,16 +328,18 @@ mod tests {
         )
         .expect("a non-zero lease starts a heartbeat");
 
-        advance_ticks(3).await;
+        // Awaiting three renewals *is* the proof that it kept retrying: the
+        // helper would hang (and the test time out) if the task had stopped.
+        await_renewals(&queue, 3).await;
 
         assert!(
             !heartbeat.claim_lost(),
             "a transient error must not abandon a still-valid claim"
         );
-        assert!(
-            queue.renewals() > 1,
-            "the heartbeat must keep retrying after a transient failure, saw {}",
-            queue.renewals()
+        assert_eq!(
+            queue.renewals(),
+            3,
+            "the heartbeat must keep retrying after a transient failure"
         );
     }
 
@@ -343,16 +365,11 @@ mod tests {
         )
         .expect("a non-zero lease starts a heartbeat");
 
-        advance_ticks(1).await;
-        let before_stop = queue.renewals();
+        await_renewals(&queue, 1).await;
         heartbeat.stop();
 
-        advance_ticks(3).await;
-        assert_eq!(
-            queue.renewals(),
-            before_stop,
-            "no renewal may race a terminal write after stop()"
-        );
+        // No renewal may race a terminal write after stop().
+        advance_expecting_no_renewal(&queue, 3).await;
     }
 
     #[test]
