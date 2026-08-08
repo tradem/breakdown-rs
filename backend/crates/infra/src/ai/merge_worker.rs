@@ -44,19 +44,19 @@ where
             let error = DomainError::ValidationError(
                 "schedule job has no preview handle for merge".to_owned(),
             );
-            self.fail(job.id, &error, false).await?;
+            self.fail(job.id, worker_id, &error, false).await?;
             return Err(error);
         };
         let Some(payload) = self.previews.get(preview_handle).await? else {
             let error = DomainError::NotFound(format!("schedule preview {preview_handle}"));
-            self.fail(job.id, &error, true).await?;
+            self.fail(job.id, worker_id, &error, true).await?;
             return Err(error);
         };
         let input: MergeInput = match from_slice(&payload) {
             Ok(input) => input,
             Err(error) => {
                 let error = DomainError::ValidationError(format!("invalid merge input: {error}"));
-                self.fail(job.id, &error, false).await?;
+                self.fail(job.id, worker_id, &error, false).await?;
                 return Err(error);
             }
         };
@@ -69,7 +69,7 @@ where
                 // The caller must re-prepare a fresh MergeInput at the API boundary
                 // after scenes are applied (CQRS boundary, AGENTS.md §1).
                 let retryable = !matches!(error, DomainError::Conflict(_));
-                self.fail(job.id, &error, retryable).await?;
+                self.fail(job.id, worker_id, &error, retryable).await?;
                 return Err(error);
             }
         };
@@ -88,18 +88,21 @@ where
                 },
             )
             .await?;
-        self.queue.mark_succeeded(job.id, &handle).await?;
+        self.queue
+            .mark_succeeded(job.id, worker_id, &handle)
+            .await?;
         Ok(true)
     }
 
     async fn fail(
         &self,
         id: AiImportJobId,
+        worker_id: &str,
         error: &DomainError,
         retryable: bool,
     ) -> Result<(), DomainError> {
         self.queue
-            .mark_failed(id, &error.to_string(), retryable)
+            .mark_failed(id, worker_id, &error.to_string(), retryable)
             .await
     }
 }

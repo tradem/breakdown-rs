@@ -224,67 +224,72 @@ impl AiImportQueue for PgAiImportQueue {
 
     /// Re-affirm the `running` status and extend the current lease.
     ///
-    /// Callers use this as a heartbeat for long jobs; it never changes
-    /// ownership, so a worker that lost its lease does not silently steal the
-    /// job back — the reclaiming worker's `worker_id` stays untouched.
-    async fn mark_running(&self, id: AiImportJobId) -> Result<(), DomainError> {
-        sqlx::query(
+    /// Callers use this as a heartbeat for long jobs. It is owner-fenced: a
+    /// worker whose lease already expired and whose job was reclaimed cannot
+    /// steal it back, because the predicate still requires its own
+    /// `worker_id`.
+    async fn mark_running(&self, id: AiImportJobId, worker_id: &str) -> Result<(), DomainError> {
+        let result = sqlx::query(
             r#"
             UPDATE ai_import.ai_import_job
             SET status = 'running',
-                lease_expires_at = now() + make_interval(secs => $2),
+                lease_expires_at = now() + make_interval(secs => $3),
                 updated_at = now()
-            WHERE id = $1
+            WHERE id = $1 AND status = 'running' AND worker_id = $2
             "#,
         )
         .bind(id.as_uuid())
+        .bind(worker_id)
         .bind(self.lease_secs())
         .execute(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
-        Ok(())
+        ensure_claim_owned(result.rows_affected(), id, worker_id, "renew the lease of")
     }
 
     async fn mark_succeeded(
         &self,
         id: AiImportJobId,
+        worker_id: &str,
         preview_handle: &str,
     ) -> Result<(), DomainError> {
-        sqlx::query(
+        let result = sqlx::query(
             r#"
             UPDATE ai_import.ai_import_job
-            SET status = 'succeeded', preview_handle = $2,
+            SET status = 'succeeded', preview_handle = $3,
                 last_error = NULL, next_attempt_at = NULL,
                 worker_id = NULL, lease_expires_at = NULL,
                 updated_at = now()
-            WHERE id = $1
+            WHERE id = $1 AND status = 'running' AND worker_id = $2
             "#,
         )
         .bind(id.as_uuid())
+        .bind(worker_id)
         .bind(preview_handle)
         .execute(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
-        Ok(())
+        ensure_claim_owned(result.rows_affected(), id, worker_id, "complete")
     }
 
     async fn mark_failed(
         &self,
         id: AiImportJobId,
+        worker_id: &str,
         error_summary: &str,
         retryable: bool,
     ) -> Result<(), DomainError> {
-        sqlx::query(
+        let result = sqlx::query(
             r#"
             UPDATE ai_import.ai_import_job
             SET retries = retries + 1,
                 status = CASE
-                    WHEN $3 AND retries + 1 < max_retries THEN 'failed'
+                    WHEN $4 AND retries + 1 < max_retries THEN 'failed'
                     ELSE 'dead_letter'
                 END,
-                last_error = LEFT($2, 1000),
+                last_error = LEFT($3, 1000),
                 next_attempt_at = CASE
-                    WHEN $3 AND retries + 1 < max_retries
+                    WHEN $4 AND retries + 1 < max_retries
                         -- Exponential backoff: 1min * 2^retries, capped at
                         -- ~5.3h after 8 retries, so a failing dependency is not
                         -- hammered at a fixed one-minute cadence.
@@ -300,16 +305,17 @@ impl AiImportQueue for PgAiImportQueue {
                 worker_id = NULL,
                 lease_expires_at = NULL,
                 updated_at = now()
-            WHERE id = $1
+            WHERE id = $1 AND status = 'running' AND worker_id = $2
             "#,
         )
         .bind(id.as_uuid())
+        .bind(worker_id)
         .bind(error_summary)
         .bind(retryable)
         .execute(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
-        Ok(())
+        ensure_claim_owned(result.rows_affected(), id, worker_id, "fail")
     }
 
     async fn record_telemetry(
@@ -364,6 +370,33 @@ impl AiImportQueue for PgAiImportQueue {
         .map_err(map_sqlx_error)?;
         Ok(())
     }
+}
+
+/// Turn an owner-fenced UPDATE that matched no row into a typed conflict.
+///
+/// Zero rows means the caller no longer owns the claim: its lease expired and
+/// another worker reclaimed the job, or the job already left `running`. This
+/// must never be silently swallowed — the caller has just produced a result
+/// for a job it no longer owns and needs to abandon it, not retry blindly.
+fn ensure_claim_owned(
+    rows_affected: u64,
+    id: AiImportJobId,
+    worker_id: &str,
+    action: &str,
+) -> Result<(), DomainError> {
+    if rows_affected == 0 {
+        tracing::warn!(
+            job_id = %id.as_uuid(),
+            worker_id,
+            action,
+            "AI import worker lost its claim; refusing a stale lifecycle write"
+        );
+        return Err(DomainError::Conflict(format!(
+            "worker {worker_id} no longer holds the claim on AI import job {} and cannot {action} it",
+            id.as_uuid()
+        )));
+    }
+    Ok(())
 }
 
 fn map_job_row(row: sqlx::postgres::PgRow) -> Result<AiImportJob, DomainError> {

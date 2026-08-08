@@ -59,16 +59,20 @@ where
         let bytes = match source.load(&job.source_handle).await {
             Ok(bytes) => bytes,
             Err(error) => {
-                self.fail(job.id, &error).await?;
+                self.fail(job.id, worker_id, &error).await?;
                 return Err(error);
             }
         };
-        self.process(&job, &bytes).await.map(|_| true)
+        self.process(&job, worker_id, &bytes).await.map(|_| true)
     }
 
+    /// `worker_id` must be the id that claimed `job`: every lifecycle write is
+    /// owner-fenced, so passing a foreign id makes the job's completion fail
+    /// with `DomainError::Conflict`.
     pub async fn process(
         &self,
         job: &AiImportJob,
+        worker_id: &str,
         pdf_bytes: &[u8],
     ) -> Result<String, DomainError> {
         if job.document_kind != DocumentKind::Script {
@@ -77,12 +81,17 @@ where
             ));
         }
         let text = self.extractor.extract(pdf_bytes).await?;
-        self.process_text(job, &text).await
+        self.process_text(job, worker_id, &text).await
     }
 
     /// Process already extracted text. This seam keeps PDF subprocess tests
     /// separate from deterministic worker tests.
-    pub async fn process_text(&self, job: &AiImportJob, text: &str) -> Result<String, DomainError> {
+    pub async fn process_text(
+        &self,
+        job: &AiImportJob,
+        worker_id: &str,
+        text: &str,
+    ) -> Result<String, DomainError> {
         let started = Instant::now();
         let chunks = extract_scenes(text);
         let chunk_count = u32::try_from(chunks.len()).map_err(|error| {
@@ -91,14 +100,14 @@ where
             ))
         })?;
         if let Err(error) = validate_chunk_count(chunks.len(), self.bounds.max_chunks_per_script) {
-            self.fail(job.id, &error).await?;
+            self.fail(job.id, worker_id, &error).await?;
             return Err(error);
         }
         if chunks.is_empty() {
             let error = DomainError::ValidationError(
                 "script did not contain an INT./EXT. scene heading".to_owned(),
             );
-            self.fail(job.id, &error).await?;
+            self.fail(job.id, worker_id, &error).await?;
             return Err(error);
         }
 
@@ -127,7 +136,7 @@ where
                     context.uncertainties.extend(partial.uncertainties);
                 }
                 Err(error) => {
-                    self.fail(job.id, &error).await?;
+                    self.fail(job.id, worker_id, &error).await?;
                     return Err(error);
                 }
             }
@@ -152,14 +161,22 @@ where
                 },
             )
             .await?;
-        self.queue.mark_succeeded(job.id, &handle).await?;
+        self.queue
+            .mark_succeeded(job.id, worker_id, &handle)
+            .await?;
         Ok(handle)
     }
 
-    async fn fail(&self, id: AiImportJobId, error: &DomainError) -> Result<(), DomainError> {
+    async fn fail(
+        &self,
+        id: AiImportJobId,
+        worker_id: &str,
+        error: &DomainError,
+    ) -> Result<(), DomainError> {
         self.queue
             .mark_failed(
                 id,
+                worker_id,
                 &error.to_string(),
                 matches!(error, DomainError::ServiceUnavailable(_)),
             )
@@ -201,16 +218,22 @@ where
         let bytes = match source.load(&job.source_handle).await {
             Ok(bytes) => bytes,
             Err(error) => {
-                self.fail(job.id, &error).await?;
+                self.fail(job.id, worker_id, &error).await?;
                 return Err(error);
             }
         };
-        self.process(&job, &bytes, native_csv).await.map(|_| true)
+        self.process(&job, worker_id, &bytes, native_csv)
+            .await
+            .map(|_| true)
     }
 
+    /// `worker_id` must be the id that claimed `job`: every lifecycle write is
+    /// owner-fenced, so passing a foreign id makes the job's completion fail
+    /// with `DomainError::Conflict`.
     pub async fn process(
         &self,
         job: &AiImportJob,
+        worker_id: &str,
         bytes: &[u8],
         native_csv: bool,
     ) -> Result<String, DomainError> {
@@ -265,14 +288,22 @@ where
                 },
             )
             .await?;
-        self.queue.mark_succeeded(job.id, &handle).await?;
+        self.queue
+            .mark_succeeded(job.id, worker_id, &handle)
+            .await?;
         Ok(handle)
     }
 
-    async fn fail(&self, id: AiImportJobId, error: &DomainError) -> Result<(), DomainError> {
+    async fn fail(
+        &self,
+        id: AiImportJobId,
+        worker_id: &str,
+        error: &DomainError,
+    ) -> Result<(), DomainError> {
         self.queue
             .mark_failed(
                 id,
+                worker_id,
                 &error.to_string(),
                 matches!(error, DomainError::ServiceUnavailable(_)),
             )

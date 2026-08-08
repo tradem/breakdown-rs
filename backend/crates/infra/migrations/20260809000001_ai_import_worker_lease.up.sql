@@ -23,11 +23,6 @@ SET lease_expires_at = now()
 WHERE status = 'running'
   AND lease_expires_at IS NULL;
 
--- The claim predicate now also scans expired `running` leases; keep that path
--- indexed alongside the existing (status, next_attempt_at, created_at) index.
-CREATE INDEX IF NOT EXISTS idx_ai_import_job_lease
-    ON ai_import.ai_import_job (status, lease_expires_at);
-
 COMMENT ON COLUMN ai_import.ai_import_job.worker_id IS
     'Worker that holds the current claim; NULL when the job is unclaimed or terminal.';
 COMMENT ON COLUMN ai_import.ai_import_job.lease_expires_at IS

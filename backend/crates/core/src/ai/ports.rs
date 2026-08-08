@@ -175,15 +175,30 @@ pub trait AiImportQueue: Send + Sync {
     ) -> Result<Option<AiImportJob>, DomainError>;
 
     async fn get(&self, id: AiImportJobId) -> Result<Option<AiImportJob>, DomainError>;
-    async fn mark_running(&self, id: AiImportJobId) -> Result<(), DomainError>;
+
+    // --- Lifecycle transitions (owner-fenced) ------------------------------
+    //
+    // A claim can expire, so two workers may briefly run the same job: the
+    // original worker is still executing while a second one has already
+    // reclaimed it. Every worker-originated transition therefore carries the
+    // claiming `worker_id`, and production adapters MUST reject the write when
+    // the caller no longer owns the claim (`DomainError::Conflict`). Without
+    // this fence a stale worker would silently overwrite the new owner's
+    // result — e.g. stamping an outdated `preview_handle` over a fresh
+    // success, or failing a job another worker just completed.
+
+    /// Re-affirm `running` and extend the claim lease (heartbeat).
+    async fn mark_running(&self, id: AiImportJobId, worker_id: &str) -> Result<(), DomainError>;
     async fn mark_succeeded(
         &self,
         id: AiImportJobId,
+        worker_id: &str,
         preview_handle: &str,
     ) -> Result<(), DomainError>;
     async fn mark_failed(
         &self,
         id: AiImportJobId,
+        worker_id: &str,
         error_summary: &str,
         retryable: bool,
     ) -> Result<(), DomainError>;

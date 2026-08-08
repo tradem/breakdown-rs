@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: deepseek-v4-flash (opencode-go) -->
+<!-- Co-authored-by: longcat-2.0-free (opencode) -->
 
 # Changelog
 
@@ -8,6 +9,20 @@ All notable changes to the `core` crate are documented here. Versioning
 follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
+
+## [0.7.0] - Unreleased
+
+### Changed
+
+- **Breaking:** the three worker-originated `AiImportQueue` lifecycle methods
+  take the claiming `worker_id` (issue #177):
+  `mark_running(id, worker_id)`, `mark_succeeded(id, worker_id, preview_handle)`
+  and `mark_failed(id, worker_id, error_summary, retryable)`.
+  Worker leases let a second worker reclaim a job whose lease expired, so two
+  workers can briefly run the same job. Implementors MUST fence every
+  transition on the claim owner and reject a write from a displaced worker
+  with `DomainError::Conflict` — otherwise a stale worker silently overwrites
+  the new owner's result. Every implementor must add the parameter.
 
 ## [0.6.0] - Unreleased
 

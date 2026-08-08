@@ -12,6 +12,28 @@ commits (ADR-020 D5).
 
 ## [0.11.0] - Unreleased
 
+### Changed
+
+- Re-pins `breakdown_core` to 0.7.0 (owner-fenced `AiImportQueue` lifecycle
+  methods, issue #177).
+- **Breaking (source):** `ScriptImportWorker::process` / `::process_text` and
+  `ScheduleImportWorker::process` take the claiming `worker_id`, which they
+  forward to the now owner-fenced lifecycle writes. `run_once` is unchanged
+  (it already received `worker_id`).
+
+### Added — Owner fencing for AI import lifecycle writes (issue #177)
+
+- `mark_running`, `mark_succeeded` and `mark_failed` fence their UPDATE on
+  `status = 'running' AND worker_id = $N` and return `DomainError::Conflict`
+  when no row matches. Reclaiming an expired lease means two workers can
+  briefly run the same job; without the fence the displaced worker would
+  overwrite the new owner's result (stale `preview_handle`, or failing a job
+  another worker just completed). The rejection is logged with the job and
+  worker id rather than silently swallowed.
+- Because the claim is released on completion, the fence also makes a
+  duplicate completion of an already-terminal job a `Conflict` instead of a
+  silent overwrite.
+
 ### Added — Worker leases for AI import jobs (issue #177)
 
 - `PgAiImportQueue` now persists the claiming `worker_id` and a
@@ -27,9 +49,15 @@ commits (ADR-020 D5).
   `PgAiImportQueue::lease` (MINOR, additive API).
 - New environment variable `AI_IMPORT_LEASE_SECS` (default `900`, clamped to
   `30..=86400`).
-- Migration `20260809000001_ai_import_worker_lease` adds the two columns, an
-  index on `(status, lease_expires_at)`, and expires pre-existing `running`
-  rows so legacy strays become recoverable on the first claim.
+- Migration `20260809000001_ai_import_worker_lease` adds the two columns and
+  expires pre-existing `running` rows so legacy strays become recoverable on
+  the first claim. The follow-up migration
+  `20260809000002_ai_import_lease_index` builds the
+  `(status, lease_expires_at)` index with `CREATE INDEX CONCURRENTLY` so the
+  build never blocks writes to `ai_import_job`. It is a separate,
+  `-- no-transaction` migration on purpose: sqlx sends a migration file as one
+  multi-statement simple query, which Postgres wraps in an implicit
+  transaction, and `CONCURRENTLY` cannot run inside a transaction block.
 
 ## [0.10.0] - Unreleased
 

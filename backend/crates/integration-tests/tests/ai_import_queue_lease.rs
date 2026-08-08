@@ -11,18 +11,28 @@
 //!
 //! The tests are timing-safe: an "expired lease" is produced by claiming with
 //! a zero-length lease window (`with_lease(Duration::ZERO)`), never by
-//! sleeping. All writes go through the public `AiImportQueue` API; the only
-//! raw SQL is the read-back of the two claim-metadata columns, which are
-//! deliberately not part of the `AiImportJob` view (same rationale as
-//! `ai_import_queue_telemetry.rs`).
+//! sleeping, and no assertion compares a database timestamp against the test
+//! process' clock.
+//!
+//! Raw SQL is used in exactly two places, both deliberate:
+//!   * reading back `worker_id` / `lease_expires_at`, which are operational
+//!     claim bookkeeping and not part of the `AiImportJob` view (same
+//!     rationale as `ai_import_queue_telemetry.rs`);
+//!   * one `UPDATE` that makes a retry backoff due, because the backoff
+//!     deadline is computed in SQL (`now() + interval ...`) and no public API
+//!     exposes it — the alternative would be sleeping out the backoff, which
+//!     the deterministic-test rule forbids.
+//!
+//! Every state transition under test goes through the public `AiImportQueue`
+//! API.
 
+// Test-only lint suppressions: this file asserts contracts, so a violated
+// expectation must abort the test rather than be threaded through a Result.
 #![allow(
+    // `unwrap`/`expect` on fixture setup and on claims the test just proved
+    // are present: a None here is a test-harness bug and must fail loudly.
     clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::print_stdout,
-    clippy::print_stderr,
-    clippy::dbg_macro
+    clippy::expect_used
 )]
 mod fixtures;
 
@@ -96,10 +106,13 @@ async fn claim_records_worker_id_and_lease_expiry() -> Result<()> {
         Some("worker-a"),
         "a claim must record its owner"
     );
-    let lease = lease_expires_at.expect("a claim must set a lease deadline");
+    // Only presence is asserted — comparing the database timestamp against the
+    // test process' clock would make this test depend on clock agreement.
+    // That a fresh lease is actually *live* is proven behaviourally by
+    // `unexpired_lease_blocks_a_second_worker`.
     assert!(
-        lease > Utc::now(),
-        "a fresh 900s lease must not already be expired"
+        lease_expires_at.is_some(),
+        "a claim must set a lease deadline"
     );
     Ok(())
 }
@@ -158,8 +171,14 @@ async fn expired_lease_is_reclaimed_by_another_worker() -> Result<()> {
         "reclaim must transfer ownership"
     );
     assert!(
-        lease_expires_at.expect("reclaim renews the lease") > Utc::now(),
-        "reclaim must install a fresh, unexpired lease"
+        lease_expires_at.is_some(),
+        "reclaim must install a fresh lease"
+    );
+    // The renewed lease being *live* is asserted behaviourally: a third worker
+    // must now be locked out.
+    assert!(
+        recovering.claim_next("worker-c").await?.is_none(),
+        "the lease installed by reclaim must block the next worker"
     );
     Ok(())
 }
@@ -212,7 +231,9 @@ async fn pending_and_retryable_failed_jobs_remain_claimable() -> Result<()> {
     );
 
     // A retryable failure releases the claim and schedules a backoff.
-    queue.mark_failed(id, "transient upstream", true).await?;
+    queue
+        .mark_failed(id, "worker-a", "transient upstream", true)
+        .await?;
     let (worker_id, lease_expires_at) = read_claim(&pool, id).await;
     assert_eq!(worker_id, None, "a failed job must hold no claim");
     assert_eq!(
@@ -226,7 +247,10 @@ async fn pending_and_retryable_failed_jobs_remain_claimable() -> Result<()> {
         "a backing-off failed job must not be claimable before next_attempt_at"
     );
 
-    // Make the backoff due through the public schema contract, then re-claim.
+    // Make the backoff due. The deadline is computed in SQL and no public API
+    // exposes it, so this is the one direct write in this file (see the module
+    // docs) — sleeping out the backoff would violate the deterministic-test
+    // rule.
     sqlx::query(
         r#"
         UPDATE ai_import.ai_import_job
@@ -254,7 +278,9 @@ async fn success_releases_the_claim() -> Result<()> {
     let id = seed_job(&queue, "done-user", "done-lease", DocumentKind::Script).await;
 
     queue.claim_next("worker-a").await?.expect("claimable");
-    queue.mark_succeeded(id, "preview-handle").await?;
+    queue
+        .mark_succeeded(id, "worker-a", "preview-handle")
+        .await?;
 
     let (worker_id, lease_expires_at) = read_claim(&pool, id).await;
     assert_eq!(worker_id, None, "a succeeded job must hold no claim");
@@ -263,6 +289,173 @@ async fn success_releases_the_claim() -> Result<()> {
     assert!(
         queue.claim_next("worker-b").await?.is_none(),
         "a succeeded job must never be reclaimed, even with a zero lease window"
+    );
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Owner fencing
+//
+// Reclaiming an expired lease means two workers can briefly run the same job.
+// The displaced worker must not be able to write its now-stale result over the
+// new owner's state.
+// ---------------------------------------------------------------------------
+
+/// Read the fields a stale write would corrupt.
+async fn read_state(pool: &PgPool, id: AiImportJobId) -> (String, Option<String>, Option<String>) {
+    sqlx::query_as(
+        r#"
+        SELECT status, worker_id, preview_handle
+        FROM ai_import.ai_import_job
+        WHERE id = $1
+        "#,
+    )
+    .bind(id.as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn displaced_worker_cannot_succeed_a_reclaimed_job() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let crashing = PgAiImportQueue::new(pool.clone()).with_lease(Duration::ZERO);
+    let recovering = PgAiImportQueue::new(pool.clone()).with_lease(Duration::from_secs(900));
+    let id = seed_job(
+        &crashing,
+        "fence-user",
+        "fence-success",
+        DocumentKind::Script,
+    )
+    .await;
+
+    crashing.claim_next("worker-a").await?.expect("claimable");
+    recovering
+        .claim_next("worker-b")
+        .await?
+        .expect("expired lease is reclaimable");
+
+    // worker-a is still running and now finishes with a stale result.
+    let stale = recovering
+        .mark_succeeded(id, "worker-a", "stale-handle")
+        .await;
+    assert!(
+        matches!(stale, Err(breakdown_core::error::DomainError::Conflict(_))),
+        "a displaced worker must be rejected with Conflict, got {stale:?}"
+    );
+
+    let (status, worker_id, preview_handle) = read_state(&pool, id).await;
+    assert_eq!(status, "running", "the new owner's job must stay running");
+    assert_eq!(worker_id.as_deref(), Some("worker-b"));
+    assert_eq!(
+        preview_handle, None,
+        "the stale preview handle must never be stored"
+    );
+
+    // The rightful owner still completes normally.
+    recovering
+        .mark_succeeded(id, "worker-b", "good-handle")
+        .await?;
+    let (status, _, preview_handle) = read_state(&pool, id).await;
+    assert_eq!(status, "succeeded");
+    assert_eq!(preview_handle.as_deref(), Some("good-handle"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn displaced_worker_cannot_fail_a_reclaimed_job() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let crashing = PgAiImportQueue::new(pool.clone()).with_lease(Duration::ZERO);
+    let recovering = PgAiImportQueue::new(pool.clone()).with_lease(Duration::from_secs(900));
+    let id = seed_job(
+        &crashing,
+        "fence-user",
+        "fence-failure",
+        DocumentKind::Script,
+    )
+    .await;
+
+    crashing.claim_next("worker-a").await?.expect("claimable");
+    recovering.claim_next("worker-b").await?.expect("reclaim");
+
+    let stale = recovering
+        .mark_failed(id, "worker-a", "stale timeout", true)
+        .await;
+    assert!(
+        matches!(stale, Err(breakdown_core::error::DomainError::Conflict(_))),
+        "a displaced worker must not fail the new owner's job, got {stale:?}"
+    );
+
+    let job = recovering.get(id).await?.expect("job exists");
+    assert_eq!(
+        job.status,
+        JobStatus::Running,
+        "a stale failure must not knock the job out of running"
+    );
+    assert_eq!(job.retries, 0, "a stale failure must not burn a retry");
+    Ok(())
+}
+
+#[tokio::test]
+async fn displaced_worker_cannot_renew_a_reclaimed_lease() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let crashing = PgAiImportQueue::new(pool.clone()).with_lease(Duration::ZERO);
+    let recovering = PgAiImportQueue::new(pool.clone()).with_lease(Duration::from_secs(900));
+    let id = seed_job(
+        &crashing,
+        "fence-user",
+        "fence-heartbeat",
+        DocumentKind::Script,
+    )
+    .await;
+
+    crashing.claim_next("worker-a").await?.expect("claimable");
+    recovering.claim_next("worker-b").await?.expect("reclaim");
+
+    let stale = recovering.mark_running(id, "worker-a").await;
+    assert!(
+        matches!(stale, Err(breakdown_core::error::DomainError::Conflict(_))),
+        "a heartbeat must not let a displaced worker steal the claim back, got {stale:?}"
+    );
+
+    let (_, worker_id, _) = read_state(&pool, id).await;
+    assert_eq!(
+        worker_id.as_deref(),
+        Some("worker-b"),
+        "ownership must remain with the reclaiming worker"
+    );
+
+    // The rightful owner's heartbeat still works.
+    recovering.mark_running(id, "worker-b").await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn lifecycle_writes_on_a_terminal_job_are_rejected() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool.clone()).with_lease(Duration::from_secs(900));
+    let id = seed_job(&queue, "fence-user", "fence-terminal", DocumentKind::Script).await;
+
+    queue.claim_next("worker-a").await?.expect("claimable");
+    queue.mark_succeeded(id, "worker-a", "handle").await?;
+
+    // A duplicate delivery of the same completion must not resurrect the job:
+    // the claim was released, so even its original owner is fenced out.
+    let duplicate = queue.mark_succeeded(id, "worker-a", "handle-again").await;
+    assert!(
+        matches!(
+            duplicate,
+            Err(breakdown_core::error::DomainError::Conflict(_))
+        ),
+        "a completed job must not accept a second completion, got {duplicate:?}"
+    );
+
+    let (status, _, preview_handle) = read_state(&pool, id).await;
+    assert_eq!(status, "succeeded");
+    assert_eq!(
+        preview_handle.as_deref(),
+        Some("handle"),
+        "the original result must survive a duplicate completion"
     );
     Ok(())
 }
