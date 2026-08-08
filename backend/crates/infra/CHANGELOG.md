@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: deepseek-v4-flash (opencode-go) -->
+<!-- Co-authored-by: longcat-2.0-free (opencode) -->
 
 # Changelog
 
@@ -8,6 +9,27 @@ All notable changes to the `infra` crate are documented here. Versioning
 follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
+
+## [0.11.0] - Unreleased
+
+### Added — Worker leases for AI import jobs (issue #177)
+
+- `PgAiImportQueue` now persists the claiming `worker_id` and a
+  `lease_expires_at` deadline on every claim. A job whose worker crashed no
+  longer stays in `running` forever: once the lease expires, `claim_next` and
+  `claim_next_kind` reclaim it atomically (same `FOR UPDATE SKIP LOCKED`
+  statement that flips the status), while an unexpired lease keeps a second
+  worker out.
+- `mark_running` doubles as a lease heartbeat; `mark_succeeded` and
+  `mark_failed` release the claim (`worker_id`/`lease_expires_at` set to NULL)
+  so `running` stays the only leased state.
+- New builder `PgAiImportQueue::with_lease` plus accessor
+  `PgAiImportQueue::lease` (MINOR, additive API).
+- New environment variable `AI_IMPORT_LEASE_SECS` (default `900`, clamped to
+  `30..=86400`).
+- Migration `20260809000001_ai_import_worker_lease` adds the two columns, an
+  index on `(status, lease_expires_at)`, and expires pre-existing `running`
+  rows so legacy strays become recoverable on the first claim.
 
 ## [0.10.0] - Unreleased
 

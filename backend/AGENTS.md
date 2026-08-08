@@ -411,6 +411,7 @@ projectors that subscribe to SierraDB and update the Postgres projections.
 - `AI_IMPORT_MAX_DOCUMENT_BYTES` – maximum source document size (default: `20971520`).
 - `AI_IMPORT_REQUEST_TIMEOUT_SECS` – provider request timeout (default: `120`).
 - `AI_IMPORT_MAX_RETRIES` – maximum queue retries before dead-lettering (default: `5`).
+- `AI_IMPORT_LEASE_SECS` – worker claim lease in seconds (default: `900`; clamped to `30..=86400`). A claim records `worker_id` + `lease_expires_at`; once the lease expires another worker may reclaim the `running` job (crash recovery, issue #177). Out-of-range or unparsable values fall back to the default.
 - `AI_IMPORT_DEFAULT_PROMPTS_PATH` – optional deployment override documented for prompt packaging; the built-in fallback is `config/default_ai_prompts.toml`.
 
 #### AI payload storage (durable source/preview blobs)
