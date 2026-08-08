@@ -109,6 +109,11 @@ typst-assets = "0.15.1"
 # Embedded font assets
 rust-embed = "8"
 
+[dev-dependencies]
+# `test-util` provides tokio's paused clock (`start_paused`, `time::advance`),
+# which lets the lease-heartbeat tests drive renewal ticks instantly instead of
+# sleeping out a real interval (deterministic tests, AGENTS.md §4).
+tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
 
 [lints]
 workspace = true

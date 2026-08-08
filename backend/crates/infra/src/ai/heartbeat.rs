@@ -143,8 +143,217 @@ pub fn claim_lost(heartbeat: Option<&LeaseHeartbeat>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{RENEWALS_PER_LEASE, renewal_interval};
+    use super::{LeaseHeartbeat, RENEWALS_PER_LEASE, renewal_interval};
+    use async_trait::async_trait;
+    use breakdown_core::ai::{
+        AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId, AiImportQueue,
+        DocumentKind, Telemetry,
+    };
+    use breakdown_core::error::DomainError;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
+
+    /// Queue whose `mark_running` returns a scripted outcome, so the
+    /// heartbeat's state machine can be driven deterministically.
+    struct ScriptedQueue {
+        /// Error returned by every renewal; `None` means success.
+        outcome: Option<DomainError>,
+        renewals: AtomicUsize,
+    }
+
+    impl ScriptedQueue {
+        fn failing_with(error: DomainError) -> Arc<Self> {
+            Arc::new(Self {
+                outcome: Some(error),
+                renewals: AtomicUsize::new(0),
+            })
+        }
+
+        fn renewals(&self) -> usize {
+            self.renewals.load(Ordering::Acquire)
+        }
+    }
+
+    #[async_trait]
+    impl AiImportQueue for ScriptedQueue {
+        async fn enqueue(
+            &self,
+            _request: AiImportEnqueueRequest,
+        ) -> Result<AiImportEnqueueResult, DomainError> {
+            unimplemented!("not exercised by the heartbeat")
+        }
+        async fn claim_next(&self, _worker_id: &str) -> Result<Option<AiImportJob>, DomainError> {
+            unimplemented!("not exercised by the heartbeat")
+        }
+        async fn claim_next_kind(
+            &self,
+            _worker_id: &str,
+            _kind: DocumentKind,
+        ) -> Result<Option<AiImportJob>, DomainError> {
+            unimplemented!("not exercised by the heartbeat")
+        }
+        async fn get(&self, _id: AiImportJobId) -> Result<Option<AiImportJob>, DomainError> {
+            unimplemented!("not exercised by the heartbeat")
+        }
+        async fn mark_running(
+            &self,
+            _id: AiImportJobId,
+            _worker_id: &str,
+        ) -> Result<(), DomainError> {
+            self.renewals.fetch_add(1, Ordering::AcqRel);
+            match &self.outcome {
+                None => Ok(()),
+                Some(DomainError::Conflict(reason)) => Err(DomainError::Conflict(reason.clone())),
+                Some(other) => Err(DomainError::ServiceUnavailable(other.to_string())),
+            }
+        }
+        async fn mark_succeeded(
+            &self,
+            _id: AiImportJobId,
+            _worker_id: &str,
+            _preview_handle: &str,
+        ) -> Result<(), DomainError> {
+            unimplemented!("not exercised by the heartbeat")
+        }
+        async fn mark_failed(
+            &self,
+            _id: AiImportJobId,
+            _worker_id: &str,
+            _error_summary: &str,
+            _retryable: bool,
+        ) -> Result<(), DomainError> {
+            unimplemented!("not exercised by the heartbeat")
+        }
+        async fn record_worker_telemetry(
+            &self,
+            _id: AiImportJobId,
+            _worker_id: &str,
+            _telemetry: Telemetry,
+        ) -> Result<(), DomainError> {
+            unimplemented!("not exercised by the heartbeat")
+        }
+        async fn record_telemetry(
+            &self,
+            _id: AiImportJobId,
+            _telemetry: Telemetry,
+        ) -> Result<(), DomainError> {
+            unimplemented!("not exercised by the heartbeat")
+        }
+    }
+
+    /// One lease window; the heartbeat renews at a third of it.
+    const TEST_LEASE: Duration = Duration::from_secs(900);
+
+    /// Advance past `ticks` renewal intervals. Time is paused
+    /// (`start_paused`), so this is instant and deterministic — no sleeping.
+    async fn advance_ticks(ticks: u32) {
+        let step = renewal_interval(TEST_LEASE);
+        // The spawned task registers its sleep timer only on its first poll,
+        // so hand control over once before moving the clock — otherwise
+        // `advance` runs while no timer is armed and the tick is missed.
+        tokio::task::yield_now().await;
+        for _ in 0..ticks {
+            tokio::time::advance(step + Duration::from_millis(1)).await;
+            // Let the heartbeat task observe the elapsed timer and run its
+            // renewal to completion. On the current-thread runtime one yield
+            // only hands over once, while a renewal spans several await
+            // points (timer wake -> mark_running -> flag store).
+            for _ in 0..8 {
+                tokio::task::yield_now().await;
+            }
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn conflict_renewal_flags_the_claim_as_lost_and_stops() {
+        let queue = ScriptedQueue::failing_with(DomainError::Conflict("reclaimed".to_owned()));
+        let heartbeat = LeaseHeartbeat::start(
+            Arc::clone(&queue),
+            AiImportJobId::new(),
+            "worker-a",
+            TEST_LEASE,
+        )
+        .expect("a non-zero lease starts a heartbeat");
+
+        assert!(!heartbeat.claim_lost(), "no renewal has happened yet");
+
+        advance_ticks(1).await;
+        assert!(
+            heartbeat.claim_lost(),
+            "a Conflict renewal must flag the claim as lost — this is the signal \
+             process_text uses to stop before the next LLM call"
+        );
+
+        // Renewals must stop: continuing would hammer the database for a claim
+        // that is provably gone.
+        let after_conflict = queue.renewals();
+        advance_ticks(3).await;
+        assert_eq!(
+            queue.renewals(),
+            after_conflict,
+            "the task must stop renewing once the claim is lost"
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn transient_renewal_failure_keeps_the_claim_and_retries() {
+        let queue =
+            ScriptedQueue::failing_with(DomainError::ServiceUnavailable("db blip".to_owned()));
+        let heartbeat = LeaseHeartbeat::start(
+            Arc::clone(&queue),
+            AiImportJobId::new(),
+            "worker-a",
+            TEST_LEASE,
+        )
+        .expect("a non-zero lease starts a heartbeat");
+
+        advance_ticks(3).await;
+
+        assert!(
+            !heartbeat.claim_lost(),
+            "a transient error must not abandon a still-valid claim"
+        );
+        assert!(
+            queue.renewals() > 1,
+            "the heartbeat must keep retrying after a transient failure, saw {}",
+            queue.renewals()
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn a_zero_lease_starts_no_heartbeat() {
+        let queue = ScriptedQueue::failing_with(DomainError::Conflict("unused".to_owned()));
+        // Duration::ZERO is the test-only "already dead worker" case; renewing
+        // it would be meaningless.
+        assert!(
+            LeaseHeartbeat::start(queue, AiImportJobId::new(), "worker-a", Duration::ZERO)
+                .is_none()
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn stopping_the_heartbeat_ends_renewals() {
+        let queue = ScriptedQueue::failing_with(DomainError::ServiceUnavailable("x".to_owned()));
+        let heartbeat = LeaseHeartbeat::start(
+            Arc::clone(&queue),
+            AiImportJobId::new(),
+            "worker-a",
+            TEST_LEASE,
+        )
+        .expect("a non-zero lease starts a heartbeat");
+
+        advance_ticks(1).await;
+        let before_stop = queue.renewals();
+        heartbeat.stop();
+
+        advance_ticks(3).await;
+        assert_eq!(
+            queue.renewals(),
+            before_stop,
+            "no renewal may race a terminal write after stop()"
+        );
+    }
 
     #[test]
     fn renewal_interval_is_a_strict_fraction_of_the_lease() {

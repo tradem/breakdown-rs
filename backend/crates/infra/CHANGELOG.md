@@ -36,6 +36,11 @@ commits (ADR-020 D5).
   for a job it no longer owns.
 - The heartbeat is skipped where it cannot help: native-CSV schedule parsing
   and the pure in-process merge are not long-running.
+- The `claim_lost` state machine is unit-tested against a scripted queue on
+  tokio's paused clock (`start_paused` + `time::advance`), so renewal ticks are
+  driven instantly instead of slept out: a `Conflict` renewal flags the claim
+  and stops further renewals, a transient error does neither, and `stop()`
+  ends renewals before a terminal write.
 
 ### Added — Owner fencing for AI import lifecycle writes (issue #177)
 
