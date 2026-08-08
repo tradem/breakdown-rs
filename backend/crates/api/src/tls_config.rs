@@ -15,6 +15,10 @@
 //!   the upstream sources; see ADR-024 open question).
 //! - The Garage S3 link uses `https://` (Caddy internal site) with the
 //!   OpenDAL client pinned to the step-ca root via `S3_TLS_ROOT_CERT`.
+//! - The AI payload storage link (durable AI import payloads) uses
+//!   `https://` with the OpenDAL client pinned via
+//!   `AI_PAYLOAD_S3_TLS_ROOT_CERT`; once an endpoint is configured it must
+//!   be HTTPS and carry the pinned root.
 //! - The Vault link uses `https://` with `VAULT_TLS_ROOT_CERT`, and the
 //!   `VAULT_APP_TOKEN_FILE` path must be configured in production.
 //!
@@ -24,7 +28,8 @@
 //! runs the API on the host against plaintext DB URLs — inference would break
 //! that local workflow. When the flag is off, dev defaults keep working
 //! unchanged; when it is on, a missing `sslmode`, a plaintext `SIERRADB_URL`,
-//! or an `http://` `S3_ENDPOINT` fails startup fast with a clear error.
+//! an `http://` `S3_ENDPOINT`, or an unpinned `AI_PAYLOAD_S3_ENDPOINT` fails
+//! startup fast with a clear error.
 
 use std::collections::BTreeMap;
 
@@ -35,6 +40,8 @@ pub struct TlsConfig {
     pub migrator_database_url: Option<String>,
     pub sierradb_url: Option<String>,
     pub s3_endpoint: Option<String>,
+    pub ai_payload_s3_endpoint: Option<String>,
+    pub ai_payload_s3_tls_root_cert: Option<String>,
     pub report_backup_endpoint: Option<String>,
     pub report_staging_endpoint: Option<String>,
     pub vault_addr: Option<String>,
@@ -49,6 +56,8 @@ impl TlsConfig {
             migrator_database_url: env_var("MIGRATOR_DATABASE_URL"),
             sierradb_url: env_var("SIERRADB_URL"),
             s3_endpoint: env_var("S3_ENDPOINT"),
+            ai_payload_s3_endpoint: env_var("AI_PAYLOAD_S3_ENDPOINT"),
+            ai_payload_s3_tls_root_cert: env_var("AI_PAYLOAD_S3_TLS_ROOT_CERT"),
             report_backup_endpoint: env_var("REPORT_BACKUP_ENDPOINT"),
             report_staging_endpoint: env_var("REPORT_BACKUP_STAGING_ENDPOINT"),
             vault_addr: env_var("VAULT_ADDR"),
@@ -124,6 +133,28 @@ impl TlsConfig {
                 out.push(format!(
                     "{name} must use the TLS scheme 'https://' (Caddy internal site, ADR-024), got: {url}"
                 ));
+            }
+        }
+
+        // AI payload storage (durable AI import payloads, PR #200): the
+        // endpoint must be `https://` (Caddy internal site) and — because the
+        // internal step-ca root is not in the system store — the OpenDAL
+        // client must be pinned via `AI_PAYLOAD_S3_TLS_ROOT_CERT`. The
+        // storage is optional (in-memory fallback in dev), so an unset
+        // endpoint is valid; once configured, both invariants hold.
+        if let Some(url) = self.ai_payload_s3_endpoint.as_deref() {
+            if !url.starts_with("https://") {
+                out.push(format!(
+                    "AI_PAYLOAD_S3_ENDPOINT must use the TLS scheme 'https://' (Caddy internal site, ADR-024), got: {url}"
+                ));
+            } else if self
+                .ai_payload_s3_tls_root_cert
+                .as_deref()
+                .is_none_or(|path| path.trim().is_empty())
+            {
+                out.push(
+                    "AI_PAYLOAD_S3_TLS_ROOT_CERT must be set when AI_PAYLOAD_S3_ENDPOINT uses 'https://' (pinned step-ca root, ADR-024)".into(),
+                );
             }
         }
 
