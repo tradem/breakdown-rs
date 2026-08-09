@@ -10,7 +10,42 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
-## [0.11.0] - Unreleased
+## [0.12.0] - Unreleased
+
+### Added — AI import permit reconciliation (issue #180)
+
+A worker that dies mid-job leaves two leases behind: the job lease (recovered
+by the reclaim predicate, #177) and the concurrency permit lease (recovered
+only when it lapses, up to `AI_IMPORT_LEASE_SECS` later). The second one is
+capacity consumed by a job that is already running elsewhere. This release
+closes that gap.
+
+- `AiImportQueue::claim_next_reconciling` / `claim_next_kind_reconciling`:
+  claim the next runnable job **and** delete the permit orphaned by the worker
+  that previously held it, as data-modifying CTEs of one statement. Returns
+  `(job, released_orphan_id)`. Reconciliation is exactly-once — only the
+  winner of the `FOR UPDATE SKIP LOCKED` race sees a non-null orphan id and
+  the DELETE is by primary key. Both have default implementations that claim
+  normally and report no orphan, so backends with no permit link (in-memory,
+  test queues) need no change.
+- `AiImportQueue::attach_permit`: link the acquired permit to the claim.
+  Owner-fenced, so a displaced worker cannot overwrite the new owner's link
+  and cause a later reclaim to delete a *live* permit.
+- `AiImportQueue::release_claim`: hand a claimed job back unrun without
+  charging a retry, used when the concurrency ceiling is saturated. Prevents a
+  full ceiling from walking a valid job to `dead_letter`, and makes the job
+  runnable immediately rather than after its lease lapses. Owner-fenced.
+- `ScriptImportWorker::run_once_with_permit` /
+  `ScheduleImportWorker::run_once_with_permit`: **claim, then acquire**. The
+  permit is charged to the job's own `user_id`, so
+  `AI_IMPORT_MAX_CONCURRENT_JOBS_PER_USER` actually binds; acquiring first
+  would mean acquiring before the owning user is known. The orphan is freed by
+  the claim, *before* the acquisition, so a reclaiming worker is not refused
+  the very slot the dead worker is still holding.
+- `ai_import_job` gained a nullable `permit_id UUID` column. No FK: the
+  referenced permit may already have been freed by the lease sweep, and an FK
+  would turn that ordinary race into a constraint violation.
+- New migration `20260811000000_ai_import_claim_with_permit.{up,down}.sql`.
 
 ### Fixed — Retry-safe schedule-side scene-shoot apply (issue #179)
 

@@ -12,6 +12,17 @@ commits (ADR-020 D5).
 
 ## [0.7.0] - Unreleased
 
+### Added — AI import permit reconciliation ports (issue #180)
+
+- `AiImportQueue` gains three **defaulted** (non-breaking) methods:
+  `claim_next_reconciling` / `claim_next_kind_reconciling` — claim a job and
+  report the concurrency permit orphaned by the worker that previously held it;
+  `attach_permit` — link the acquired permit to the claim; and `release_claim`
+  — hand a claimed job back unrun, without charging a retry, when the
+  concurrency ceiling is saturated. The defaults claim normally, report no
+  orphan, and no-op, so in-memory and test queues (which have no permit link
+  and no lease) need no change.
+
 ### Changed — Retry-safe schedule-side apply (issue #179)
 
 - **Breaking:** `AiImportMappingRepository` gains a required `reserve(mapping)

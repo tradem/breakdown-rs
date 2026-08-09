@@ -229,6 +229,171 @@ impl AiImportQueue for PgAiImportQueue {
         Some(self.lease)
     }
 
+    /// Claim the next runnable job and release the permit orphaned by the
+    /// worker that previously held it, in one statement (issue #180).
+    ///
+    /// The three writes — flip the job to this worker, clear the stale permit
+    /// link, delete the stale permit row — are data-modifying CTEs of a single
+    /// statement, so they share one snapshot and one implicit transaction.
+    /// There is no instant at which the job is reclaimed while the orphan is
+    /// still counted, or the reverse.
+    ///
+    /// `permit_id` is set to NULL, not to the new owner's permit: capacity is
+    /// acquired *after* the claim, once the job's `user_id` is known, and
+    /// linked with [`attach_permit`](AiImportQueue::attach_permit).
+    async fn claim_next_reconciling(
+        &self,
+        worker_id: &str,
+    ) -> Result<Option<(AiImportJob, Option<Uuid>)>, DomainError> {
+        let row = sqlx::query(
+            r#"
+            WITH next_job AS (
+                SELECT id, permit_id AS orphan_permit_id
+                FROM ai_import.ai_import_job
+                WHERE status = 'pending'
+                   OR (status = 'failed' AND
+                       (next_attempt_at IS NULL OR next_attempt_at <= now()))
+                   OR (status = 'running' AND
+                       lease_expires_at IS NOT NULL AND lease_expires_at <= now())
+                ORDER BY created_at, id
+                FOR UPDATE SKIP LOCKED
+                LIMIT 1
+            ),
+            claim AS (
+                UPDATE ai_import.ai_import_job AS job
+                SET status = 'running',
+                    worker_id = $1,
+                    permit_id = NULL,
+                    lease_expires_at = now() + make_interval(secs => $2),
+                    updated_at = now()
+                FROM next_job
+                WHERE job.id = next_job.id
+                RETURNING job.*, next_job.orphan_permit_id
+            ),
+            released AS (
+                DELETE FROM ai_import.concurrency_permit
+                WHERE id = (SELECT orphan_permit_id FROM claim)
+                RETURNING id
+            )
+            SELECT claim.*, (SELECT id FROM released) AS released_permit_id
+            FROM claim
+            "#,
+        )
+        .bind(worker_id)
+        .bind(self.lease_secs())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        map_reconciling_claim(row, worker_id)
+    }
+
+    /// Kind-filtered [`claim_next_reconciling`](AiImportQueue::claim_next_reconciling).
+    async fn claim_next_kind_reconciling(
+        &self,
+        worker_id: &str,
+        kind: DocumentKind,
+    ) -> Result<Option<(AiImportJob, Option<Uuid>)>, DomainError> {
+        let row = sqlx::query(
+            r#"
+            WITH next_job AS (
+                SELECT id, permit_id AS orphan_permit_id
+                FROM ai_import.ai_import_job
+                WHERE document_kind = $1
+                  AND (status = 'pending'
+                   OR (status = 'failed' AND
+                       (next_attempt_at IS NULL OR next_attempt_at <= now()))
+                   OR (status = 'running' AND
+                       lease_expires_at IS NOT NULL AND lease_expires_at <= now()))
+                ORDER BY created_at, id
+                FOR UPDATE SKIP LOCKED
+                LIMIT 1
+            ),
+            claim AS (
+                UPDATE ai_import.ai_import_job AS job
+                SET status = 'running',
+                    worker_id = $2,
+                    permit_id = NULL,
+                    lease_expires_at = now() + make_interval(secs => $3),
+                    updated_at = now()
+                FROM next_job
+                WHERE job.id = next_job.id
+                RETURNING job.*, next_job.orphan_permit_id
+            ),
+            released AS (
+                DELETE FROM ai_import.concurrency_permit
+                WHERE id = (SELECT orphan_permit_id FROM claim)
+                RETURNING id
+            )
+            SELECT claim.*, (SELECT id FROM released) AS released_permit_id
+            FROM claim
+            "#,
+        )
+        .bind(kind.as_str())
+        .bind(worker_id)
+        .bind(self.lease_secs())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        map_reconciling_claim(row, worker_id)
+    }
+
+    /// Link the permit acquired for this job's own user to the claim.
+    ///
+    /// Owner-fenced: a worker that lost its claim must not overwrite the new
+    /// owner's link, or a later reclaim would delete a *live* permit and
+    /// under-count the ceiling.
+    async fn attach_permit(
+        &self,
+        id: AiImportJobId,
+        worker_id: &str,
+        permit_id: Uuid,
+    ) -> Result<(), DomainError> {
+        let result = sqlx::query(
+            r#"
+            UPDATE ai_import.ai_import_job
+            SET permit_id = $3, updated_at = now()
+            WHERE id = $1 AND status = 'running' AND worker_id = $2
+            "#,
+        )
+        .bind(id.as_uuid())
+        .bind(worker_id)
+        .bind(permit_id)
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        ensure_claim_owned(result.rows_affected(), id, worker_id, "attach a permit to")
+    }
+
+    /// Hand a claimed job back without charging it an attempt.
+    ///
+    /// `retries` is deliberately untouched: the job never ran, it was only
+    /// held. Charging a retry here would let a saturated ceiling dead-letter
+    /// a perfectly valid job.
+    async fn release_claim(&self, id: AiImportJobId, worker_id: &str) -> Result<(), DomainError> {
+        let result = sqlx::query(
+            r#"
+            UPDATE ai_import.ai_import_job
+            SET status = 'pending',
+                worker_id = NULL,
+                permit_id = NULL,
+                lease_expires_at = NULL,
+                updated_at = now()
+            WHERE id = $1 AND status = 'running' AND worker_id = $2
+            "#,
+        )
+        .bind(id.as_uuid())
+        .bind(worker_id)
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        ensure_claim_owned(
+            result.rows_affected(),
+            id,
+            worker_id,
+            "release the claim of",
+        )
+    }
+
     async fn get(&self, id: AiImportJobId) -> Result<Option<AiImportJob>, DomainError> {
         let row = sqlx::query(
             r#"
@@ -496,6 +661,31 @@ fn ensure_claim_owned(
         )));
     }
     Ok(())
+}
+
+/// Decode a reconciling-claim row into `(job, released_orphan_permit_id)`.
+///
+/// Shared by the plain and kind-filtered variants so the two cannot drift on
+/// the column name the release is read from.
+fn map_reconciling_claim(
+    row: Option<sqlx::postgres::PgRow>,
+    worker_id: &str,
+) -> Result<Option<(AiImportJob, Option<Uuid>)>, DomainError> {
+    let Some(row) = row else { return Ok(None) };
+    let released: Option<Uuid> = row.try_get("released_permit_id").map_err(map_sqlx_error)?;
+    let job = map_job_row(row)?;
+    if let Some(orphan) = released {
+        // Warn, not info: reaching this means a worker died holding capacity.
+        // It is recovered, but the rate of it is an operational signal.
+        tracing::warn!(
+            job_id = %job.id.as_uuid(),
+            worker_id,
+            released_permit_id = %orphan,
+            "reclaimed an abandoned AI import job and released the permit its \
+             dead worker still held"
+        );
+    }
+    Ok(Some((job, released)))
 }
 
 fn map_job_row(row: sqlx::postgres::PgRow) -> Result<AiImportJob, DomainError> {

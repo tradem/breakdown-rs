@@ -10,6 +10,13 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.6.1] - Unreleased
+
+### Changed — Re-pin `infra` to 0.12.0
+
+- Consumes the new `claim_next_with_permit` API for AI import permit
+  reconciliation (issue #180). No public API change.
+
 ## [0.6.0] - Unreleased
 
 ### Changed — Idempotent scene scheduling (issue #179)
