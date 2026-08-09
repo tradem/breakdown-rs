@@ -46,9 +46,12 @@ closes that gap.
   would mean acquiring before the owning user is known. The orphan is freed by
   the claim, *before* the acquisition, so a reclaiming worker is not refused
   the very slot the dead worker is still holding.
-- The legacy `claim_next` / `claim_next_kind` now also clear `permit_id`, so
-  every claim path establishes the same invariant: a fresh claim owns no
-  permit. Otherwise a legacy reclaim would carry the dead worker's permit id
+- Every claim path now clears `permit_id`, and every terminal write
+  (`mark_succeeded`, `mark_failed`, `release_claim`) clears it again, so the
+  link never outlives the claim it describes. This matters most on
+  `mark_failed`'s retryable branch: the job stays claimable, so a stale id
+  would be read by the next reclaim and deleted — freeing a permit the worker
+  already released, and whose id may since belong to someone else. Otherwise a legacy reclaim would carry the dead worker's permit id
   forward and a later reconciling reclaim would delete a permit the current
   owner never attached.
 - `ai_import_job` gained a nullable `permit_id UUID` column. No FK: the

@@ -453,6 +453,11 @@ impl AiImportQueue for PgAiImportQueue {
             SET status = 'succeeded', preview_handle = $3,
                 last_error = NULL, next_attempt_at = NULL,
                 worker_id = NULL, lease_expires_at = NULL,
+                -- The permit is released by its holder around this write, so
+                -- the link must not outlive the claim: a stale id would name a
+                -- row that is already gone, and permit ids are not reserved
+                -- after deletion.
+                permit_id = NULL,
                 updated_at = now()
             WHERE id = $1 AND status = 'running' AND worker_id = $2
             "#,
@@ -498,6 +503,12 @@ impl AiImportQueue for PgAiImportQueue {
                 -- reclaim predicate can never resurrect a failed job early.
                 worker_id = NULL,
                 lease_expires_at = NULL,
+                -- Likewise the permit link. This matters most on the retryable
+                -- branch: the job stays claimable, so a stale id would be read
+                -- by the next reclaim and deleted — freeing a permit that this
+                -- worker already released, and whose id may since belong to
+                -- someone else.
+                permit_id = NULL,
                 updated_at = now()
             WHERE id = $1 AND status = 'running' AND worker_id = $2
             "#,

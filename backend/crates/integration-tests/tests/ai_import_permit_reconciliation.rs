@@ -69,6 +69,7 @@ use infra::ai::{
     ScheduleImportWorker,
 };
 use sqlx::PgPool;
+use tokio::sync::Notify;
 use uuid::Uuid;
 
 /// Force a job's worker lease into the past, simulating a worker that died
@@ -128,6 +129,27 @@ impl CountingSource {
 impl AiDocumentSource for CountingSource {
     async fn load(&self, _handle: &str) -> Result<Vec<u8>, DomainError> {
         self.loads.fetch_add(1, Ordering::AcqRel);
+        Ok(b"scene_number,shooting_day_label\n1,T1\n".to_vec())
+    }
+}
+
+/// A source that blocks inside `load` until the test releases it, so the test
+/// can observe database state *while* the worker is mid-run.
+///
+/// Deterministic by construction: the test waits on `entered` for the worker
+/// to arrive, and the worker waits on `release` for the test to finish
+/// observing. Neither side sleeps, so there is no wall-clock budget to bust on
+/// a slow runner.
+struct GatedSource {
+    entered: Arc<Notify>,
+    release: Arc<Notify>,
+}
+
+#[async_trait]
+impl AiDocumentSource for GatedSource {
+    async fn load(&self, _handle: &str) -> Result<Vec<u8>, DomainError> {
+        self.entered.notify_one();
+        self.release.notified().await;
         Ok(b"scene_number,shooting_day_label\n1,T1\n".to_vec())
     }
 }
@@ -532,8 +554,14 @@ async fn a_saturated_ceiling_returns_the_claim_unrun_and_uncharged() -> Result<(
     Ok(())
 }
 
-/// The happy path links the permit to the claim, so a crash of this worker
-/// would be recoverable by the next reclaim.
+/// The happy path links the permit to the claim **while the job is running**,
+/// so a crash of this worker would be recoverable by the next reclaim.
+///
+/// Asserting only the end state would prove nothing: the worker releases its
+/// permit on completion, so `permit_count == 0` afterwards is equally
+/// consistent with `attach_permit` never having written anything. The test
+/// therefore stops the worker inside `source.load` — after acquisition and
+/// attachment, before completion — and observes the link directly.
 #[tokio::test]
 async fn a_running_worker_links_its_permit_to_the_claim() -> Result<()> {
     let (pool, _container) = fixtures::spawn_postgres().await?;
@@ -541,19 +569,61 @@ async fn a_running_worker_links_its_permit_to_the_claim() -> Result<()> {
     let queue = Arc::new(PgAiImportQueue::new(pool.clone()));
 
     let job_id = seed_pending_job_of_kind(&pool, "user-a", "schedule").await?;
-    let source = CountingSource::default();
+
+    let entered = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let source = GatedSource {
+        entered: Arc::clone(&entered),
+        release: Arc::clone(&release),
+    };
     let worker = schedule_worker(Arc::clone(&queue));
 
-    assert!(
+    let observer_pool = pool.clone();
+    let run = async {
         worker
             .run_once_with_permit("worker-a", &source, true, &limiter)
-            .await?,
-        "the seeded job runs"
+            .await
+    };
+    let observe = async {
+        // Wait for the worker to reach the load: by then it has claimed,
+        // acquired and attached.
+        entered.notified().await;
+
+        let linked = job_permit_id(&observer_pool, job_id).await;
+        let live: Option<Uuid> = sqlx::query_scalar("SELECT id FROM ai_import.concurrency_permit")
+            .fetch_optional(&observer_pool)
+            .await
+            .unwrap();
+        let owner = permit_count_for_user(&observer_pool, "user-a").await;
+        let (status, _) = job_state(&observer_pool, job_id).await;
+
+        release.notify_one();
+        (linked, live, owner, status)
+    };
+    let (ran, (linked, live, owner, status)) = tokio::join!(run, observe);
+
+    assert!(ran?, "the seeded job runs");
+    assert_eq!(status, "running", "observed while the job was in flight");
+    assert!(
+        linked.is_some(),
+        "attach_permit linked a permit to the claim during the run"
+    );
+    assert_eq!(
+        linked, live,
+        "the link points at the permit the worker actually holds"
+    );
+    assert_eq!(
+        owner, 1,
+        "the in-flight permit is charged to the job's user, not the worker id"
     );
 
-    // The permit was charged to the job's user, and released at the end.
-    assert_eq!(permit_count_for_user(&pool, "user-a").await, 0);
-    assert_eq!(permit_count(&pool).await, 0);
+    // And it is all cleaned up on completion.
+    assert_eq!(permit_count(&pool).await, 0, "the permit was released");
+    assert_eq!(
+        job_permit_id(&pool, job_id).await,
+        None,
+        "the terminal write clears the permit link"
+    );
     let (status, retries) = job_state(&pool, job_id).await;
     assert_eq!(status, "succeeded");
     assert_eq!(retries, 0);
