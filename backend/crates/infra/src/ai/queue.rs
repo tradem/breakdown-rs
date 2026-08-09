@@ -169,6 +169,11 @@ impl AiImportQueue for PgAiImportQueue {
             UPDATE ai_import.ai_import_job AS job
             SET status = 'running',
                 worker_id = $1,
+                -- Every claim path must leave the same invariant: a fresh
+                -- claim owns no permit yet. Carrying the previous owner's
+                -- `permit_id` forward would let a later reconciling reclaim
+                -- delete a permit this worker never attached.
+                permit_id = NULL,
                 lease_expires_at = now() + make_interval(secs => $2),
                 updated_at = now()
             FROM next_job
@@ -209,6 +214,8 @@ impl AiImportQueue for PgAiImportQueue {
             UPDATE ai_import.ai_import_job AS job
             SET status = 'running',
                 worker_id = $2,
+                -- See `claim_next`: every claim path clears the permit link.
+                permit_id = NULL,
                 lease_expires_at = now() + make_interval(secs => $3),
                 updated_at = now()
             FROM next_job

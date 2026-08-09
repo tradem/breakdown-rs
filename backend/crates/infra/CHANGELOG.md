@@ -36,12 +36,21 @@ closes that gap.
   full ceiling from walking a valid job to `dead_letter`, and makes the job
   runnable immediately rather than after its lease lapses. Owner-fenced.
 - `ScriptImportWorker::run_once_with_permit` /
-  `ScheduleImportWorker::run_once_with_permit`: **claim, then acquire**. The
+  `ScheduleImportWorker::run_once_with_permit`: **claim, then acquire**, with
+  both leases renewed for the whole run — the permit lease via
+  `run_with_renewal`, the job claim via a `LeaseHeartbeat` started *before*
+  the source load, so a slow document fetch cannot expire the claim underneath
+  a working worker. The
   permit is charged to the job's own `user_id`, so
   `AI_IMPORT_MAX_CONCURRENT_JOBS_PER_USER` actually binds; acquiring first
   would mean acquiring before the owning user is known. The orphan is freed by
   the claim, *before* the acquisition, so a reclaiming worker is not refused
   the very slot the dead worker is still holding.
+- The legacy `claim_next` / `claim_next_kind` now also clear `permit_id`, so
+  every claim path establishes the same invariant: a fresh claim owns no
+  permit. Otherwise a legacy reclaim would carry the dead worker's permit id
+  forward and a later reconciling reclaim would delete a permit the current
+  owner never attached.
 - `ai_import_job` gained a nullable `permit_id UUID` column. No FK: the
   referenced permit may already have been freed by the lease sweep, and an FK
   would turn that ordinary race into a constraint violation.

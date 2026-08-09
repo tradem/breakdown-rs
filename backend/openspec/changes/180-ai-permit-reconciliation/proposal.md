@@ -16,42 +16,44 @@ and per-user counters therefore stay inflated — capacity is lost for up to
 `AI_IMPORT_LEASE_SECS` (default 900s) even though the job is already running
 on a healthy worker.
 
-A second gap is that `try_acquire` (permit) and `claim_next` (job) are two
-separate, non-atomic transactions. A worker can acquire a permit and then fail
-to claim a job, or claim a job whose permit was just reclaimed by another
-acquisition sweep.
+A second gap is ordering. Capacity used to be acquired *before* the job was
+claimed, which means acquiring before the owning user is known — the slot could
+only be charged to a synthetic per-worker identity, so
+`AI_IMPORT_MAX_CONCURRENT_JOBS_PER_USER` would never bind.
 
 ## Scope
 
 This change delivers the three remaining acceptance criteria of #180:
 
 1. **Recovery decrements counters exactly once**: a reclaimed job's orphaned
-   permit is released by the reclaiming worker, not by the slow lease-expiry
-   sweep.
-2. **Atomic permit + job claim**: acquire the permit and claim the job inside
-   one transaction so no worker holds a permit without a job (or vice versa).
+   permit is released by the reclaiming worker, in the same statement as the
+   claim, rather than by the slow lease-expiry sweep.
+2. **Claim, then acquire**: the job is claimed first so the permit can be
+   charged to the job's own `user_id`, and the orphan is freed before the
+   acquisition so a reclaiming worker is not refused the slot the dead worker
+   still holds.
 3. **Integration tests**: deterministic tests for the full crash-recovery
    path — worker termination, job reclaim, and counter reconciliation.
 
 ## Affected Files
 
-- `backend/crates/infra/src/ai/pg_concurrency.rs` — new `claim_with_job`
-  method that atomically acquires a permit and releases any orphan of the
-  previous worker on the same job.
-- `backend/crates/infra/src/ai/queue.rs` — expose a combined
-  `claim_next_with_permit` operation on the `AiImportQueue` trait, backed by a
-  single CTE transaction.
-- `backend/crates/infra/src/ai/runtime.rs` — route `run_job_as` through the
-  combined operation so worker code does not hand-roll the two-phase dance.
-- `backend/crates/infra/src/ai/worker.rs` (via `workers.rs`) — consumers of
-  `claim_next` switch to the combined operation where they also hold a permit.
+- `backend/crates/core/src/ai/ports.rs` — four **defaulted** additions to
+  `AiImportQueue`: `claim_next_reconciling`, `claim_next_kind_reconciling`,
+  `attach_permit`, `release_claim`.
+- `backend/crates/infra/src/ai/queue.rs` — Postgres implementations. The
+  reconciling claims release the orphan as data-modifying CTEs of one
+  statement; the legacy `claim_next` / `claim_next_kind` also clear
+  `permit_id` so every claim path establishes the same invariant.
+- `backend/crates/infra/src/ai/workers.rs` — `run_once_with_permit` on
+  `ScriptImportWorker` / `ScheduleImportWorker`, built on the shared
+  `acquire_for_claim` / `release_permit_logging_errors` helpers.
 - `backend/crates/infra/migrations/20260811000000_ai_import_claim_with_permit.up.sql`
-  — add a `permit_id UUID` column to `ai_import_job` so the reclaimer can find
-  the old worker's permit without relying on `worker_id` heuristics (which can
-  collide across restarts).
-- `backend/crates/infra/src/ai/tests.rs` — new unit/integration tests for the
-  claim-with-permit, reclaim-with-reconciliation, and counter-exactly-once
-  invariants.
+  — nullable `permit_id UUID` on `ai_import_job`.
+- `backend/crates/integration-tests/tests/ai_import_permit_reconciliation.rs`
+  — six tests against a real Postgres.
+
+`pg_concurrency.rs` and `runtime.rs` are **not** modified: the permit
+primitive and `AiWorkerRuntime` are unchanged by this design.
 
 ## Design
 
@@ -171,5 +173,8 @@ written into the past, never slept out.
 - **Migration downtime**: adding a nullable UUID column is a metadata-only
   change in Postgres 16; no table rewrite.
 - **Unwired workers**: `run_once_with_permit` has no production caller yet —
-  no worker loop exists; jobs are driven from the HTTP apply path. The methods
-  are correct and tested, but the composition-root wiring is follow-up work.
+  no worker loop exists, and `main.rs` has no `with_graceful_shutdown` to hang
+  one off. Wiring is owned by **#214**, which also covers the `PermitReclaimer`
+  shutdown ordering the loop would need. Deliberately out of scope here: adding
+  a worker loop without that ordering would either hang shutdown on a live
+  channel sender or silently downgrade reclaims to lease-only (AGENTS.md §6).

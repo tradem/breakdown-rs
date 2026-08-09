@@ -14,8 +14,10 @@ commits (ADR-020 D5).
 
 ### Changed — Re-pin `infra` to 0.12.0
 
-- Consumes the new `claim_next_with_permit` API for AI import permit
-  reconciliation (issue #180). No public API change.
+- Consumes the new AI import permit-reconciliation API — `AiImportQueue`'s
+  `claim_next_reconciling` / `attach_permit` / `release_claim` and the
+  `run_once_with_permit` worker entry points (issue #180). No public API
+  change.
 
 ## [0.6.0] - Unreleased
 

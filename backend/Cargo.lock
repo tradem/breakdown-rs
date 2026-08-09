@@ -3151,6 +3151,7 @@ name = "integration-tests"
 version = "0.3.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "breakdown_core",
  "chrono",
  "ciborium",

@@ -25,6 +25,9 @@ test_support = { path = "../test_support", version = "0.3.0" }
 # Event-sourcing traits used by the in-memory aggregate command checks.
 kameo_es.workspace = true
 
+# Implementing core/infra async ports (AiDocumentSource, LlmClient) in fakes.
+async-trait.workspace = true
+
 # Async test runtime
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 

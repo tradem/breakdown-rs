@@ -55,9 +55,19 @@
 
 mod fixtures;
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use anyhow::Result;
-use breakdown_core::ai::{AiImportQueue, JobStatus};
-use infra::ai::{PgAiConcurrencyLimiter, PgAiImportQueue};
+use async_trait::async_trait;
+use breakdown_core::ai::{
+    AiImportBounds, AiImportQueue, LlmChatRequest, LlmClient, LlmProvider, ScriptContext,
+};
+use breakdown_core::error::DomainError;
+use infra::ai::{
+    AiDocumentSource, MemoryAiPreviewStore, PgAiConcurrencyLimiter, PgAiImportQueue,
+    ScheduleImportWorker,
+};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -78,22 +88,80 @@ async fn expire_job_lease(pool: &PgPool, job_id: Uuid) {
 /// Seed one runnable job owned by `user_id`. The schema already exists:
 /// `spawn_postgres` runs the full migration set.
 async fn seed_pending_job(pool: &PgPool, user_id: &str) -> Result<Uuid> {
+    seed_pending_job_of_kind(pool, user_id, "script").await
+}
+
+async fn seed_pending_job_of_kind(pool: &PgPool, user_id: &str, kind: &str) -> Result<Uuid> {
     let id = Uuid::now_v7();
     sqlx::query(
         r#"
         INSERT INTO ai_import.ai_import_job
             (id, user_id, document_kind, dedup_key, document_digest, source_handle,
              status, retries, max_retries, created_at, updated_at)
-        VALUES ($1, $2, 'script', $3, 'test-digest', 'test-source',
+        VALUES ($1, $2, $3, $4, 'test-digest', 'test-source',
                 'pending', 0, 5, now(), now())
         "#,
     )
     .bind(id)
     .bind(user_id)
+    .bind(kind)
     .bind(id.to_string())
     .execute(pool)
     .await?;
     Ok(id)
+}
+
+/// A source that counts fetches, so a test can prove the document was never
+/// loaded when capacity was refused.
+#[derive(Default)]
+struct CountingSource {
+    loads: AtomicUsize,
+}
+
+impl CountingSource {
+    fn loads(&self) -> usize {
+        self.loads.load(Ordering::Acquire)
+    }
+}
+
+#[async_trait]
+impl AiDocumentSource for CountingSource {
+    async fn load(&self, _handle: &str) -> Result<Vec<u8>, DomainError> {
+        self.loads.fetch_add(1, Ordering::AcqRel);
+        Ok(b"scene_number,shooting_day_label\n1,T1\n".to_vec())
+    }
+}
+
+/// An LLM client that must never be called: the schedule worker runs in
+/// `native_csv` mode, which parses in-process.
+struct UnusedLlmClient;
+
+#[async_trait]
+impl LlmClient for UnusedLlmClient {
+    async fn chat_constrained(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<ScriptContext, DomainError> {
+        Err(DomainError::ValidationError(
+            "the LLM must not be reached in native_csv mode".to_owned(),
+        ))
+    }
+}
+
+/// A schedule worker in native-CSV mode: no subprocess (`pdftotext`) and no
+/// LLM call, so the test stays hermetic and deterministic.
+fn schedule_worker(
+    queue: Arc<PgAiImportQueue>,
+) -> ScheduleImportWorker<PgAiImportQueue, UnusedLlmClient, MemoryAiPreviewStore> {
+    ScheduleImportWorker {
+        queue,
+        client: Arc::new(UnusedLlmClient),
+        previews: Arc::new(MemoryAiPreviewStore::default()),
+        provider: LlmProvider::Neuralwatt,
+        model: "unused".to_owned(),
+        prompt: "unused".to_owned(),
+        bounds: AiImportBounds::default(),
+    }
 }
 
 /// Live permits, i.e. the global counter the ceiling is checked against.
@@ -396,43 +464,99 @@ async fn no_claimable_job_means_no_permit_is_released() -> Result<()> {
     Ok(())
 }
 
-/// A claim handed back because the ceiling was saturated must be immediately
-/// runnable again and must **not** be charged a retry: it never ran, so a
-/// saturated ceiling must not be able to walk a valid job to `dead_letter`.
+/// A worker that cannot get capacity must hand the claim back unrun: the job
+/// is immediately runnable again, is **not** charged a retry, and the source
+/// document is never even fetched.
+///
+/// This drives the real `run_once_with_permit` entry point against a limiter
+/// whose only slot is already taken, rather than calling `release_claim`
+/// directly — the point is that the *worker* takes this path, not merely that
+/// the queue method works.
 #[tokio::test]
-async fn a_returned_claim_is_runnable_again_and_not_charged_a_retry() -> Result<()> {
+async fn a_saturated_ceiling_returns_the_claim_unrun_and_uncharged() -> Result<()> {
     let (pool, _container) = fixtures::spawn_postgres().await?;
-    let queue = PgAiImportQueue::new(pool.clone());
+    // One slot per user, and it is about to be occupied.
+    let limiter = PgAiConcurrencyLimiter::new(pool.clone(), 4, 1)?;
+    let queue = Arc::new(PgAiImportQueue::new(pool.clone()));
 
-    let job_id = seed_pending_job(&pool, "user-a").await?;
+    let job_id = seed_pending_job_of_kind(&pool, "user-a", "schedule").await?;
 
-    let (job, _) = queue
-        .claim_next_reconciling("worker-a")
+    // Occupy user-a's only slot with an unrelated holder.
+    let blocker = limiter
+        .try_acquire_as("user-a", "other-worker")
         .await?
-        .expect("job claimable");
-    let (status, retries) = job_state(&pool, job_id).await;
-    assert_eq!(status, "running");
-    assert_eq!(retries, 0);
+        .expect("the single per-user slot is free to begin with");
 
-    // No capacity was available, so the worker returns the claim unrun.
-    queue.release_claim(job.id, "worker-a").await?;
+    let source = CountingSource::default();
+    let worker = schedule_worker(Arc::clone(&queue));
+    let ran = worker
+        .run_once_with_permit("worker-a", &source, true, &limiter)
+        .await?;
+
+    assert!(!ran, "no job runs when the ceiling is saturated");
+    assert_eq!(
+        source.loads(),
+        0,
+        "the source document is never fetched without capacity"
+    );
 
     let (status, retries) = job_state(&pool, job_id).await;
-    assert_eq!(status, "pending", "the job is runnable again at once");
+    assert_eq!(status, "pending", "the claim was handed back, not held");
     assert_eq!(retries, 0, "an unrun claim is not charged an attempt");
     assert_eq!(
         job_permit_id(&pool, job_id).await,
         None,
-        "no permit is left linked to a released claim"
+        "no permit is left linked to a returned claim"
+    );
+    assert_eq!(
+        permit_count(&pool).await,
+        1,
+        "only the blocker's permit exists; the worker acquired none"
     );
 
-    // Another worker picks it straight up, without waiting out a lease.
-    let (again, _) = queue
-        .claim_next_reconciling("worker-b")
-        .await?
-        .expect("the returned job is claimable immediately");
-    assert_eq!(again.id.as_uuid(), job_id);
-    assert_eq!(again.status, JobStatus::Running);
+    // With capacity free again the same job runs — it was never penalised.
+    blocker.release().await?;
+    let ran = worker
+        .run_once_with_permit("worker-a", &source, true, &limiter)
+        .await?;
+    assert!(ran, "the returned job runs once capacity is available");
+    assert_eq!(source.loads(), 1, "now the source is actually fetched");
+    assert_eq!(
+        permit_count(&pool).await,
+        0,
+        "the worker released its permit on completion"
+    );
+    let (status, _) = job_state(&pool, job_id).await;
+    assert_eq!(status, "succeeded", "the job ran to completion");
+
+    Ok(())
+}
+
+/// The happy path links the permit to the claim, so a crash of this worker
+/// would be recoverable by the next reclaim.
+#[tokio::test]
+async fn a_running_worker_links_its_permit_to_the_claim() -> Result<()> {
+    let (pool, _container) = fixtures::spawn_postgres().await?;
+    let limiter = PgAiConcurrencyLimiter::new(pool.clone(), 4, 4)?;
+    let queue = Arc::new(PgAiImportQueue::new(pool.clone()));
+
+    let job_id = seed_pending_job_of_kind(&pool, "user-a", "schedule").await?;
+    let source = CountingSource::default();
+    let worker = schedule_worker(Arc::clone(&queue));
+
+    assert!(
+        worker
+            .run_once_with_permit("worker-a", &source, true, &limiter)
+            .await?,
+        "the seeded job runs"
+    );
+
+    // The permit was charged to the job's user, and released at the end.
+    assert_eq!(permit_count_for_user(&pool, "user-a").await, 0);
+    assert_eq!(permit_count(&pool).await, 0);
+    let (status, retries) = job_state(&pool, job_id).await;
+    assert_eq!(status, "succeeded");
+    assert_eq!(retries, 0);
 
     Ok(())
 }
