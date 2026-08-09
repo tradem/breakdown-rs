@@ -18,9 +18,17 @@
 //! The tests are timing-safe: lease expiry is produced by writing the
 //! deadline into the past, never by sleeping, and the reclaimer race is
 //! resolved by polling with a bounded deadline rather than by a fixed sleep.
-//! The one raw `UPDATE` is deliberate — `expires_at` is operational
-//! bookkeeping with no public setter, and the alternative would be sleeping
-//! out a 30-second lease floor, which the deterministic-test rule forbids.
+//!
+//! Capacity is always observed through the public
+//! `PgAiConcurrencyLimiter::in_flight`. Raw SQL is used in exactly two places,
+//! both touching `expires_at`, which is operational claim bookkeeping with no
+//! public accessor (same rationale as `ai_import_queue_lease.rs`):
+//!   * one `UPDATE` that moves a deadline into the past — the alternative
+//!     would be sleeping out the 30-second lease floor, which the
+//!     deterministic-test rule forbids;
+//!   * one `SELECT` that reads a deadline back, so "renew extended the lease"
+//!     can be asserted as a database-side comparison (`new > old`) without
+//!     involving the test process' clock.
 
 // Test-only lint suppressions: an unmet expectation must abort the test rather
 // than be threaded through a Result.
@@ -32,9 +40,11 @@ use std::time::Duration;
 
 use anyhow::Result;
 use breakdown_core::error::DomainError;
+use chrono::{DateTime, Utc};
 use infra::ai::{AiWorkerRuntime, PgAiConcurrencyLimiter};
 use sqlx::PgPool;
 use tokio::sync::oneshot;
+use uuid::Uuid;
 
 /// Bound for the reclaimer round-trip (channel hand-off + one DELETE). Five
 /// seconds is orders of magnitude above the expected latency; the test still
@@ -42,12 +52,12 @@ use tokio::sync::oneshot;
 const RECLAIM_DEADLINE: Duration = Duration::from_secs(5);
 const POLL_INTERVAL: Duration = Duration::from_millis(25);
 
-/// Count live permits directly. The permit table is operational bookkeeping,
-/// not a projection, and `in_flight()` is the public accessor used elsewhere —
-/// this helper exists so a test can distinguish "row gone" from "row expired".
-async fn permit_rows(pool: &PgPool) -> i64 {
-    sqlx::query_scalar("SELECT COUNT(*) FROM ai_import.concurrency_permit")
-        .fetch_one(pool)
+/// Read a permit's lease deadline. Kept as raw SQL on purpose: `expires_at` is
+/// operational bookkeeping and is not exposed on any public type.
+async fn permit_deadline(pool: &PgPool, id: Uuid) -> Option<DateTime<Utc>> {
+    sqlx::query_scalar("SELECT expires_at FROM ai_import.concurrency_permit WHERE id = $1")
+        .bind(id)
+        .fetch_optional(pool)
         .await
         .unwrap()
 }
@@ -108,7 +118,7 @@ async fn cancelled_job_releases_capacity_for_the_next_job() -> Result<()> {
     // *after* acquisition rather than racing it.
     started_rx.await.expect("operation must start");
     assert_eq!(
-        permit_rows(&pool).await,
+        limiter.in_flight().await?,
         1,
         "the running job must hold its permit"
     );
@@ -117,11 +127,6 @@ async fn cancelled_job_releases_capacity_for_the_next_job() -> Result<()> {
     assert!(task.await.unwrap_err().is_cancelled());
 
     await_capacity_released(&limiter, "after cancellation").await;
-    assert_eq!(
-        permit_rows(&pool).await,
-        0,
-        "a cancelled job must not leave its permit row behind"
-    );
 
     // The actual availability guarantee: the next job gets in.
     let next = runtime
@@ -186,7 +191,7 @@ async fn normal_completion_releases_exactly_once() -> Result<()> {
             .await?;
         assert_eq!(value, Some(round), "the operation result must propagate");
         assert_eq!(
-            permit_rows(&pool).await,
+            limiter.in_flight().await?,
             0,
             "round {round}: completion must release the permit"
         );
@@ -210,7 +215,8 @@ async fn normal_completion_releases_exactly_once() -> Result<()> {
 async fn operation_error_propagates_and_still_releases() -> Result<()> {
     let (pool, _container) = crate::fixtures::spawn_postgres().await?;
     let (limiter, _reclaimer) = single_slot(&pool)?.spawn_reclaimer();
-    let runtime = AiWorkerRuntime::new(Arc::new(limiter));
+    let limiter = Arc::new(limiter);
+    let runtime = AiWorkerRuntime::new(Arc::clone(&limiter));
 
     let error = runtime
         .run_job("failing-user", || async {
@@ -223,7 +229,7 @@ async fn operation_error_propagates_and_still_releases() -> Result<()> {
         "the original error must be preserved, got {error:?}"
     );
     assert_eq!(
-        permit_rows(&pool).await,
+        limiter.in_flight().await?,
         0,
         "a failed job must release its permit too"
     );
@@ -237,9 +243,14 @@ async fn reclaimer_shutdown_drains_queued_reclaims() -> Result<()> {
     // makes the queue non-empty at shutdown.
     let (limiter, reclaimer) = PgAiConcurrencyLimiter::new(pool.clone(), 2, 2)?.spawn_reclaimer();
 
+    // A second, non-reclaiming limiter on the same pool: the limiter under
+    // test is moved into the shutdown sequence, so capacity has to be observed
+    // through an independent handle.
+    let observer = PgAiConcurrencyLimiter::new(pool.clone(), 2, 2)?;
+
     let first = limiter.try_acquire("drain-a").await?.expect("slot 1 free");
     let second = limiter.try_acquire("drain-b").await?.expect("slot 2 free");
-    assert_eq!(permit_rows(&pool).await, 2);
+    assert_eq!(observer.in_flight().await?, 2);
 
     // Simulate the shutdown ordering: cancelled workers drop their permits
     // (enqueueing reclaims), then the limiter is dropped so the channel can
@@ -253,7 +264,7 @@ async fn reclaimer_shutdown_drains_queued_reclaims() -> Result<()> {
     // *after* processing everything queued before it. An aborting shutdown
     // would leave these rows for the 900s lease.
     assert_eq!(
-        permit_rows(&pool).await,
+        observer.in_flight().await?,
         0,
         "shutdown must drain queued reclaims instead of discarding them"
     );
@@ -285,7 +296,7 @@ async fn expired_lease_is_reclaimed_by_the_next_acquisition() -> Result<()> {
         "an expired permit must be reclaimed by the next acquisition"
     );
     assert_eq!(
-        permit_rows(&pool).await,
+        limiter.in_flight().await?,
         1,
         "the expired row must be swept, leaving only the new permit"
     );
@@ -295,7 +306,7 @@ async fn expired_lease_is_reclaimed_by_the_next_acquisition() -> Result<()> {
 }
 
 #[tokio::test]
-async fn renew_extends_the_lease_and_fails_once_reclaimed() -> Result<()> {
+async fn renew_extends_the_lease_of_a_live_permit() -> Result<()> {
     let (pool, _container) = crate::fixtures::spawn_postgres().await?;
     let limiter = single_slot(&pool)?;
 
@@ -303,17 +314,27 @@ async fn renew_extends_the_lease_and_fails_once_reclaimed() -> Result<()> {
         .try_acquire("long-user")
         .await?
         .expect("capacity is free");
-    expire_all_permits(&pool).await;
+    let before = permit_deadline(&pool, permit.id())
+        .await
+        .expect("a live permit has a deadline");
+
     permit
         .renew()
         .await
         .expect("a live holder must be able to push its deadline out");
 
-    // Renewal pushed the deadline back into the future, so the sweep must not
-    // touch it — the slot stays occupied.
+    let after = permit_deadline(&pool, permit.id())
+        .await
+        .expect("renewal must not remove the permit");
+    // Both timestamps come from the database (`now()`), so this comparison
+    // never involves the test process' clock.
+    assert!(
+        after > before,
+        "renew must move the deadline forward: {before} -> {after}"
+    );
     assert!(
         limiter.try_acquire("long-user").await?.is_none(),
-        "a renewed permit must not be reclaimable"
+        "a renewed permit must keep its slot"
     );
 
     permit.release().await?;
@@ -322,6 +343,37 @@ async fn renew_extends_the_lease_and_fails_once_reclaimed() -> Result<()> {
         .await?
         .expect("released capacity is free again");
     drop(orphan);
+    Ok(())
+}
+
+#[tokio::test]
+async fn renew_cannot_resurrect_an_expired_permit() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let limiter = single_slot(&pool)?;
+
+    let permit = limiter
+        .try_acquire("stale-user")
+        .await?
+        .expect("capacity is free");
+    // The row is still present, but its deadline has passed — the limiter is
+    // already entitled to sweep it. A delayed holder must not be able to claw
+    // the slot back, or it would hold capacity past its own deadline.
+    expire_all_permits(&pool).await;
+
+    let error = permit
+        .renew()
+        .await
+        .expect_err("an expired lease must not be extendable");
+    assert!(
+        matches!(error, DomainError::Conflict(_)),
+        "expiry must be irreversible, got {error:?}"
+    );
+
+    // And the capacity really is available to someone else.
+    assert!(
+        limiter.try_acquire("other-user").await?.is_some(),
+        "the expired slot must be acquirable despite the renewal attempt"
+    );
     Ok(())
 }
 
@@ -387,7 +439,7 @@ async fn empty_user_id_is_rejected_before_touching_capacity() -> Result<()> {
         .expect_err("a blank owner would make a permit unattributable");
     assert!(matches!(error, DomainError::ValidationError(_)));
     assert_eq!(
-        permit_rows(&pool).await,
+        limiter.in_flight().await?,
         0,
         "a rejected acquisition must not consume capacity"
     );

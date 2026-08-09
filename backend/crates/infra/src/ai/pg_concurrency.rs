@@ -419,14 +419,16 @@ impl PgAiConcurrencyPermit {
     /// at [`permit_renewal_interval`]; otherwise the sweep would reclaim their
     /// capacity while they are still using it.
     ///
-    /// Returns `Conflict` when the permit no longer exists (already reclaimed),
-    /// so the caller learns its capacity is gone instead of running on.
+    /// Returns `Conflict` when the permit is no longer live — either already
+    /// swept, or past its deadline — so the caller learns its capacity is gone
+    /// instead of running on.
     pub async fn renew(&self) -> Result<(), DomainError> {
         let affected = sqlx::query(
             r#"
             UPDATE ai_import.concurrency_permit
             SET expires_at = now() + make_interval(secs => $2)
             WHERE id = $1
+              AND expires_at > now()
             "#,
         )
         .bind(self.id)
@@ -436,8 +438,15 @@ impl PgAiConcurrencyPermit {
         .map_err(map_sqlx_error)?
         .rows_affected();
         if affected == 0 {
+            // The `expires_at > now()` guard makes expiry irreversible: a
+            // delayed holder must not resurrect a lease that the next
+            // acquisition is entitled to sweep, or it would hold capacity past
+            // its own deadline while the limiter has already counted the slot
+            // as reclaimable. Expired and already-swept are reported
+            // identically because they mean the same thing to the caller: this
+            // permit no longer grants capacity.
             return Err(DomainError::Conflict(format!(
-                "AI concurrency permit {} no longer exists",
+                "AI concurrency permit {} is no longer live (expired or reclaimed)",
                 self.id
             )));
         }

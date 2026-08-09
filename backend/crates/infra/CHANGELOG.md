@@ -40,7 +40,10 @@ commits (ADR-020 D5).
     row and then counts. The leak is bounded by one lease window with no
     operator action; `PgAiConcurrencyPermit::renew` (interval from
     `permit_renewal_interval`, 1/3 of the window, mirroring `LeaseHeartbeat`)
-    keeps legitimately long holders alive.
+    keeps legitimately long holders alive. Expiry is **irreversible**: `renew`
+    is guarded by `AND expires_at > now()`, so a delayed holder cannot claw
+    back a lease the limiter is already entitled to sweep and then hold
+    capacity past its own deadline — it gets `Conflict` instead.
   All three paths are `DELETE ... WHERE id = $1`, so double-release is
   impossible by construction. `release()` disarms the drop hook only after a
   *confirmed* delete — its `await` is itself a cancellation point, and an early
@@ -64,9 +67,9 @@ commits (ADR-020 D5).
   acquires the capacity; the lifecycle guard does not survive cancellation;
   normal completion and operation errors both release exactly once with the
   result/error preserved; an expired lease is reclaimed by the next
-  acquisition; `renew` extends a live lease but reports `Conflict` once the
-  permit has been swept; and `PermitReclaimer::shutdown` drains queued reclaims
-  rather than discarding them. Lease expiry is written into the past rather
+  acquisition; `renew` moves a live deadline forward but reports `Conflict`
+  once the permit is expired or swept; and `PermitReclaimer::shutdown` drains
+  queued reclaims rather than discarding them. Lease expiry is written into the past rather
   than slept out, keeping the suite timing-safe.
 
 ### Changed
