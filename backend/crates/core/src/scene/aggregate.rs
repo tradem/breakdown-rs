@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: longcat-2.0-free (opencode)
 
 //! Scene aggregate using `kameo_es` event-sourced actor pattern.
 
@@ -218,7 +219,10 @@ impl Command<ScheduleSceneOnShootingDay> for SceneAggregate {
             ));
         }
         if self.shooting_day_ids.contains(&cmd.shooting_day_id) {
-            // Idempotent push: already scheduled → reject without emitting.
+            // Defensive guard: unreachable through the command service, which
+            // consults `is_state_idempotent` first and short-circuits to
+            // `ExecuteResult::Idempotent`. Kept so a direct `handle` call (the
+            // `core` unit tests) still honours "emit no duplicate event".
             return Err(SceneError::AlreadyScheduled {
                 shooting_day_id: cmd.shooting_day_id,
             });
@@ -229,6 +233,26 @@ impl Command<ScheduleSceneOnShootingDay> for SceneAggregate {
             shooting_day_id: cmd.shooting_day_id,
             version: new_version,
         }])
+    }
+
+    /// Scheduling a day the scene already links is a no-op, not a conflict.
+    ///
+    /// `kameo_es` turns this into `ExecuteResult::Idempotent { current_version }`,
+    /// which the command adapter maps to the current aggregate version. That is
+    /// what makes a retried AI schedule-apply converge: after a crash between
+    /// the event append and the idempotency-mapping write, the retry re-dispatches
+    /// this command and must get the version back rather than a permanent
+    /// `Conflict` that strands the mapping (issue #179).
+    ///
+    /// Optimistic concurrency is unaffected: the actor validates
+    /// `ExpectedVersion` against the stream *before* consulting this hook, so a
+    /// stale command still fails with a version conflict.
+    fn is_state_idempotent(
+        &self,
+        cmd: &ScheduleSceneOnShootingDay,
+        _ctx: Context<'_, Self>,
+    ) -> bool {
+        self.shooting_day_ids.contains(&cmd.shooting_day_id)
     }
 }
 

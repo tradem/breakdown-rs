@@ -12,6 +12,31 @@ commits (ADR-020 D5).
 
 ## [0.11.0] - Unreleased
 
+### Fixed — Retry-safe schedule-side scene-shoot apply (issue #179)
+
+- `ScheduleApplyWorker` wrote its idempotency mapping only *after*
+  `CreateShootingDay` / `PlanSceneShoot` succeeded. A crash (or a failing
+  mapping write) in between left no mapping, so the retry minted a fresh
+  `SceneShootId` and dispatched a **second** `PlanSceneShoot`. Because scene
+  shoots are keyed by stream identity, the aggregate's `PairAlreadyExists`
+  invariant did not catch it — the duplicate only surfaced later at the
+  `uq_projection_scene_shoot_pair` constraint, i.e. after the duplicate event
+  was already business truth. `resolve_day` had the identical window.
+- The worker now follows a **reserve → command → confirm** protocol. The
+  aggregate id is persisted as a reservation row (`aggregate_version = 0`)
+  *before* the command, so every retry re-drives the *same* aggregate. Both
+  commands dispatch with `ExpectedVersion::Empty`, so re-driving an
+  already-appended stream returns `VersionConflict { current }` — the worker
+  recovers `current` as the version the mapping needs and confirms. A conflict
+  reporting version 0 (a genuinely empty stream) is **not** treated as
+  recovery and propagates as an error. A still-reserved mapping no longer
+  counts as applied work, so the row is re-driven rather than skipped.
+- `PgAiImportMappingRepository::reserve` implements the insert-if-absent
+  semantics with `ON CONFLICT ... DO UPDATE ... RETURNING` (a plain
+  `DO NOTHING` returns no row on conflict, which would force a second round
+  trip racing a concurrent confirm). The checked `u64 -> i64` version
+  conversion is factored into `version_to_db` and shared with `insert`.
+
 ### Fixed — Cancellation-safe AI concurrency permits (issue #178)
 
 - `AiWorkerRuntime::run_job` holds a permit across `operation().await`, which

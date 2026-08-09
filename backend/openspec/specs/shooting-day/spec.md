@@ -63,15 +63,21 @@ A `ShootingDay` SHALL support `ArchiveShootingDay { id, version }` emitting `Sho
 - **THEN** only ShootingDays with `archived = false` SHALL be returned
 
 ### Requirement: Scene schedules onto ShootingDays as a many-to-many relationship
-A `Scene` SHALL maintain `shooting_day_ids: Vec<ShootingDayId>`. The Scene aggregate SHALL own the link (the ShootingDay aggregate has no knowledge of referencing Scenes). `ScheduleSceneOnShootingDay { id, shooting_day_id, version }` SHALL emit `ShootingDayScheduled { id, shooting_day_id, version }` and be idempotent: re-adding an existing id SHALL be rejected as already-scheduled rather than emitting a duplicate event. `UnscheduleSceneFromShootingDay { id, shooting_day_id, version }` SHALL emit `ShootingDayUnscheduled` and SHALL reject if the id is not currently scheduled.
+A `Scene` SHALL maintain `shooting_day_ids: Vec<ShootingDayId>`. The Scene aggregate SHALL own the link (the ShootingDay aggregate has no knowledge of referencing Scenes). When `shooting_day_ids` does not already contain `shooting_day_id`, `ScheduleSceneOnShootingDay { id, shooting_day_id, version }` SHALL emit `ShootingDayScheduled { id, shooting_day_id, version }`. The command SHALL be idempotent: re-adding an existing id SHALL emit no event and SHALL report the unchanged current version rather than failing. Idempotency SHALL be implemented as a state-idempotency check evaluated *after* the optimistic-concurrency check, so a stale `version` still fails with a version conflict. `UnscheduleSceneFromShootingDay { id, shooting_day_id, version }` SHALL emit `ShootingDayUnscheduled` and SHALL reject if the id is not currently scheduled.
 
 #### Scenario: Scheduling a scene on a shooting day
 - **WHEN** a `ScheduleSceneOnShootingDay` command targets a Scene that does not yet link the given ShootingDay
 - **THEN** the aggregate SHALL emit `ShootingDayScheduled` and append the id to `shooting_day_ids`
 
-#### Scenario: Double-scheduling is rejected without a duplicate event
+#### Scenario: Double-scheduling is a no-op, not a conflict
 - **WHEN** a `ScheduleSceneOnShootingDay` command targets a Scene that already links the given ShootingDay
-- **THEN** the aggregate SHALL reject as already-scheduled and SHALL emit no event
+- **THEN** the aggregate SHALL emit no event
+- **AND** the command SHALL succeed, returning the unchanged current version
+- **AND** a retried AI schedule-apply SHALL therefore be able to converge instead of failing permanently
+
+#### Scenario: Double-scheduling with a stale version still conflicts
+- **WHEN** a `ScheduleSceneOnShootingDay` command carries a `version` older than the Scene's current version
+- **THEN** the command SHALL fail with a version conflict, whether or not the day is already linked
 
 #### Scenario: Unscheduling requires prior scheduling
 - **WHEN** an `UnscheduleSceneFromShootingDay` command targets a Scene whose `shooting_day_ids` does not contain the id

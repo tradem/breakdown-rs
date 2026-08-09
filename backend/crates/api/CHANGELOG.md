@@ -12,6 +12,19 @@ commits (ADR-020 D5).
 
 ## [0.6.0] - Unreleased
 
+### Changed — Idempotent scene scheduling (issue #179)
+
+- `POST /scenes/{id}/shooting-days` now returns `200 OK` with the unchanged
+  aggregate version when the scene already links the given shooting day; it
+  previously returned `409 Conflict`. This follows the Scene aggregate becoming
+  state-idempotent for `ScheduleSceneOnShootingDay`, which is what lets a
+  crashed AI schedule-apply converge on retry instead of stranding its
+  idempotency mapping. A **stale** `version` still returns `409`, so
+  optimistic-concurrency clients are unaffected.
+- No `api` code change otherwise: the new `AiImportMappingRepository::reserve`
+  method is consumed entirely inside `infra`'s `ScheduleApplyWorker`; only the
+  test fake implements it.
+
 ### Changed
 
 - Re-pins `breakdown_core` to 0.7.0 and `infra` to 0.11.0 (AI import worker

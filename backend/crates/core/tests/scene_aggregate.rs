@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: longcat-2.0-free (opencode)
 
 #![allow(
     clippy::unwrap_used,
@@ -266,7 +267,7 @@ fn test_remove_character_not_assigned() {
 }
 
 #[test]
-fn test_schedule_scene_double_schedule_rejected() {
+fn test_schedule_scene_double_schedule_is_state_idempotent() {
     let mut agg = create_scene();
     let day = ShootingDayId::new();
     let events = agg
@@ -283,21 +284,45 @@ fn test_schedule_scene_double_schedule_rejected() {
     test_support::replay_events(&mut agg, events);
     assert_eq!(agg.shooting_day_ids, vec![day]);
 
-    // Second schedule of the same day must be rejected (no duplicate event).
-    let result = agg.handle(
-        ScheduleSceneOnShootingDay {
-            id: agg.id,
-            shooting_day_id: day,
-            series_id: Some(series_id()),
-            version: agg.version,
-        },
-        make_ctx(),
+    // The command service consults `is_state_idempotent` first: re-scheduling
+    // an already-linked day is a no-op (ExecuteResult::Idempotent), not a
+    // conflict — that is what lets a crashed AI schedule-apply retry converge
+    // instead of stranding its idempotency mapping (issue #179).
+    let cmd = ScheduleSceneOnShootingDay {
+        id: agg.id,
+        shooting_day_id: day,
+        series_id: Some(series_id()),
+        version: agg.version,
+    };
+    assert!(
+        agg.is_state_idempotent(&cmd, make_ctx()),
+        "an already-linked shooting day must be reported as state-idempotent"
     );
+
+    // `handle` keeps its defensive rejection (unreachable through the command
+    // service) so a direct call still emits no duplicate event.
+    let result = agg.handle(cmd, make_ctx());
     assert!(matches!(
         result,
         Err(SceneError::AlreadyScheduled { shooting_day_id }) if shooting_day_id == day
     ));
     assert_eq!(agg.shooting_day_ids, vec![day]);
+
+    // A *different* day is real work and must not be short-circuited — the
+    // hook has to discriminate, not blanket-skip the command.
+    let other_day = ShootingDayId::new();
+    assert!(
+        !agg.is_state_idempotent(
+            &ScheduleSceneOnShootingDay {
+                id: agg.id,
+                shooting_day_id: other_day,
+                series_id: Some(series_id()),
+                version: agg.version,
+            },
+            make_ctx()
+        ),
+        "an unlinked shooting day must still be scheduled"
+    );
 }
 
 #[test]

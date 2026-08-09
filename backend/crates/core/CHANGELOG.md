@@ -12,6 +12,34 @@ commits (ADR-020 D5).
 
 ## [0.7.0] - Unreleased
 
+### Changed — Retry-safe schedule-side apply (issue #179)
+
+- **Breaking:** `AiImportMappingRepository` gains a required `reserve(mapping)
+  -> AiImportMapping` method. It is insert-if-absent and MUST return the
+  **winning** row (the existing one on conflict), so a retried AI apply
+  converges on one aggregate id instead of minting a fresh one. Every
+  implementor must add it. `insert` is now documented as strictly monotonic in
+  `aggregate_version` — it must never roll a confirmed row back.
+- `ScheduleSceneOnShootingDay` is now **state-idempotent**: `SceneAggregate`
+  implements `kameo_es`'s `is_state_idempotent` for it, so re-scheduling a day
+  the scene already links yields `ExecuteResult::Idempotent` (the unchanged
+  current version) instead of a `Conflict`. Previously a retried schedule-apply
+  hit `SceneError::AlreadyScheduled` and could never confirm its idempotency
+  mapping. Optimistic concurrency is unchanged — the expected-version check
+  still runs first, so a stale command fails with a version conflict.
+  `handle` keeps returning `AlreadyScheduled` as a defensive guard for direct
+  calls, so "emit no duplicate event" holds at both layers.
+  *API-visible:* `POST /scenes/{id}/shooting-days` for an already-scheduled day
+  now returns `200 OK` with the unchanged version instead of `409 Conflict`.
+
+### Added — mapping reservation state (issue #179)
+
+- `AiImportMapping::reservation(..)`, `AiImportMapping::is_reserved()` and
+  `AiImportMapping::RESERVED_VERSION` describe the two-phase
+  reserve-then-confirm mapping state. A reservation carries
+  `aggregate_version = 0` — the established "no version yet" sentinel — so no
+  schema change was needed.
+
 ### Changed
 
 - **Breaking:** the worker-originated `AiImportQueue` lifecycle methods take

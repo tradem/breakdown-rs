@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: longcat-2.0-free (opencode)
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -234,6 +235,22 @@ pub trait AiImportQueue: Send + Sync {
     ) -> Result<(), DomainError>;
 }
 
+/// Idempotency mapping from a reviewed preview row (`draft_ref`) to the
+/// aggregate it was applied to.
+///
+/// A mapping exists in two states, discriminated by [`Self::is_reserved`]:
+///
+/// * **Reserved** (`aggregate_version == AggregateVersion(0)`) — the
+///   `aggregate_id` is durable but the command has not been confirmed to have
+///   appended yet. Written by [`AiImportMappingRepository::reserve`] *before*
+///   command dispatch so a crashed apply retries onto the *same* aggregate id
+///   instead of generating a fresh one (issue #179).
+/// * **Confirmed** (`aggregate_version > 0`) — the command appended and the
+///   resulting aggregate version is recorded.
+///
+/// `AggregateVersion(0)` is the established "no version yet" sentinel in this
+/// codebase (an empty event stream maps to it), so a reservation needs no
+/// extra column.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AiImportMapping {
     pub preview_id: AiImportJobId,
@@ -243,6 +260,35 @@ pub struct AiImportMapping {
     pub aggregate_version: AggregateVersion,
 }
 
+impl AiImportMapping {
+    /// Version sentinel marking a mapping whose aggregate id is durable but
+    /// whose command has not been confirmed as appended.
+    pub const RESERVED_VERSION: AggregateVersion = AggregateVersion(0);
+
+    /// Build a reservation for `aggregate_id` (see [`Self::is_reserved`]).
+    #[must_use]
+    pub fn reservation(
+        preview_id: AiImportJobId,
+        draft_ref: String,
+        aggregate_kind: String,
+        aggregate_id: Uuid,
+    ) -> Self {
+        Self {
+            preview_id,
+            draft_ref,
+            aggregate_kind,
+            aggregate_id,
+            aggregate_version: Self::RESERVED_VERSION,
+        }
+    }
+
+    /// `true` while the mapping only reserves an id (no confirmed append).
+    #[must_use]
+    pub fn is_reserved(&self) -> bool {
+        self.aggregate_version == Self::RESERVED_VERSION
+    }
+}
+
 #[async_trait]
 pub trait AiImportMappingRepository: Send + Sync {
     async fn find(
@@ -250,7 +296,25 @@ pub trait AiImportMappingRepository: Send + Sync {
         preview_id: AiImportJobId,
         draft_ref: &str,
     ) -> Result<Option<AiImportMapping>, DomainError>;
+
+    /// Durably reserve `mapping.aggregate_id` for `(preview_id, draft_ref)`
+    /// and return the **winning** row.
+    ///
+    /// Implementations SHALL be insert-if-absent: when a row already exists
+    /// (a previous attempt reserved or confirmed it) that existing row is
+    /// returned unchanged, so concurrent or retried applies converge on one
+    /// aggregate id. The returned mapping is the one the caller must use —
+    /// never the argument.
+    ///
+    /// Callers reserve *before* dispatching a create-style command, then call
+    /// [`Self::insert`] with the real version to confirm (issue #179).
+    async fn reserve(&self, mapping: AiImportMapping) -> Result<AiImportMapping, DomainError>;
+
+    /// Upsert a confirmed mapping. Implementations SHALL only ever advance
+    /// `aggregate_version` (monotonic), so a late duplicate cannot roll a row
+    /// back — including back to a reservation.
     async fn insert(&self, mapping: AiImportMapping) -> Result<(), DomainError>;
+
     async fn list_by_preview(
         &self,
         preview_id: AiImportJobId,

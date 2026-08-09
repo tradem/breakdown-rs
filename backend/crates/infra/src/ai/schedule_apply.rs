@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: longcat-2.0-free (opencode)
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -15,7 +16,7 @@ use breakdown_core::scene::ports::SceneCommands;
 use breakdown_core::scene_shoot::commands::PlanSceneShoot;
 use breakdown_core::scene_shoot::ports::SceneShootCommands;
 use breakdown_core::shared::{
-    AggregateVersion, EpisodeId, LexicalSortKey, SeriesId, ShootingDayId, UserId,
+    AggregateVersion, EpisodeId, LexicalSortKey, SceneShootId, SeriesId, ShootingDayId, UserId,
 };
 use breakdown_core::shooting_day::commands::CreateShootingDay;
 use breakdown_core::shooting_day::events::ShootingDaySource;
@@ -114,11 +115,17 @@ where
                 // instead of duplicating a scene shoot. Not audit-context
                 // resolution — series_id comes from the API edge request.
                 // (Suppression directive on the find line below.)
+                //
+                // Only a *confirmed* mapping ends the work for this row. A
+                // reservation means a previous attempt died between the command
+                // and the mapping write, so the row must be re-driven — onto the
+                // reserved id, which is what keeps the retry from planning a
+                // second scene shoot (issue #179).
                 if self
                     .mappings
                     .find(request.preview_id, &pair_key) // ast-grep-ignore: cqrs-boundary
                     .await?
-                    .is_some()
+                    .is_some_and(|mapping| !mapping.is_reserved())
                 {
                     continue;
                 }
@@ -143,6 +150,21 @@ where
                 let planned_order = LexicalSortKey::new(format!("{order:08}"))
                     .map_err(|error| DomainError::ValidationError(error.to_string()))?;
 
+                // Step 1 (reserve): make the SceneShootId durable *before* the
+                // command so a crash between append and confirm retries onto the
+                // same aggregate. `reserve` returns the winning row, so a
+                // reservation from an earlier attempt wins over the fresh id.
+                let reservation = self
+                    .mappings
+                    .reserve(AiImportMapping::reservation(
+                        request.preview_id,
+                        pair_key,
+                        "scene_shoot".to_owned(),
+                        SceneShootId::new().0,
+                    ))
+                    .await?;
+                let scene_shoot_id = SceneShootId::from_uuid(reservation.aggregate_id);
+
                 let scene_version =
                     scene_versions
                         .get(&merged.scene.id)
@@ -154,36 +176,42 @@ where
                             ))
                         })?;
                 let scene_version = self
-                    .scene_commands
-                    .schedule_on_shooting_day(
+                    .schedule_scene(
                         request.actor.clone(),
-                        ScheduleSceneOnShootingDay {
-                            id: merged.scene.id,
-                            shooting_day_id: day.id,
-                            series_id: request.series_id,
-                            version: scene_version,
-                        },
+                        merged.scene.id,
+                        day.id,
+                        request.series_id,
+                        scene_version,
                     )
                     .await?;
                 scene_versions.insert(merged.scene.id, scene_version);
-                let (scene_shoot_id, version) = self
-                    .scene_shoot_commands
-                    .plan(
-                        request.actor.clone(),
-                        PlanSceneShoot {
-                            id: breakdown_core::shared::SceneShootId::new(),
-                            scene_id: merged.scene.id,
-                            shooting_day_id: day.id,
-                            series_id: request.series_id,
-                            planned_order,
-                        },
-                    )
-                    .await?;
+
+                // Step 2 (command): a retry re-dispatches onto the reserved
+                // stream, which already carries the SceneShootPlanned event.
+                // The adapter's ExpectedVersion::Empty then reports the current
+                // version instead of appending — that is the recovery path.
+                let version = recover_version(
+                    self.scene_shoot_commands
+                        .plan(
+                            request.actor.clone(),
+                            PlanSceneShoot {
+                                id: scene_shoot_id,
+                                scene_id: merged.scene.id,
+                                shooting_day_id: day.id,
+                                series_id: request.series_id,
+                                planned_order,
+                            },
+                        )
+                        .await
+                        .map(|(_, version)| version),
+                )?;
+
+                // Step 3 (confirm): advance the reservation to the real version.
                 self.mappings
                     .insert(AiImportMapping {
-                        preview_id: request.preview_id,
-                        draft_ref: pair_key,
-                        aggregate_kind: "scene_shoot".to_owned(),
+                        preview_id: reservation.preview_id,
+                        draft_ref: reservation.draft_ref,
+                        aggregate_kind: reservation.aggregate_kind,
                         aggregate_id: scene_shoot_id.0,
                         aggregate_version: version,
                     })
@@ -198,15 +226,49 @@ where
         })
     }
 
+    /// Dispatch `ScheduleSceneOnShootingDay`, tolerating an already-linked day.
+    ///
+    /// On a retry the scene may already link the day from the crashed attempt.
+    /// The Scene aggregate reports that state-idempotent case as
+    /// `ExecuteResult::Idempotent`, which the adapter maps to the current
+    /// version — so this only has to forward the result. A genuinely stale
+    /// version still surfaces as `VersionConflict`, which is *not* swallowed
+    /// here: the caller's per-row version bookkeeping must fail loudly.
+    async fn schedule_scene(
+        &self,
+        actor: UserId,
+        scene_id: Uuid,
+        shooting_day_id: ShootingDayId,
+        series_id: Option<SeriesId>,
+        version: AggregateVersion,
+    ) -> Result<AggregateVersion, DomainError> {
+        self.scene_commands
+            .schedule_on_shooting_day(
+                actor,
+                ScheduleSceneOnShootingDay {
+                    id: scene_id,
+                    shooting_day_id,
+                    series_id,
+                    version,
+                },
+            )
+            .await
+    }
+
     async fn resolve_day(&self, actor: UserId, draft: DayDraft) -> Result<AppliedDay, DomainError> {
         // Read the idempotency projection (non-audit): a retried apply must
         // reuse the previously created shooting day instead of creating a
         // duplicate. series_id comes from the API edge request, not this read.
         // (Suppression directive on the find line below.)
+        //
+        // A *reserved* mapping is not a finished day: the previous attempt
+        // crashed before confirming, so fall through and re-drive the command
+        // onto the reserved id (issue #179).
         if let Some(mapping) = self
             .mappings
             .find(draft.preview_id, &draft.draft_ref) // ast-grep-ignore: cqrs-boundary
             .await?
+            .filter(|mapping| !mapping.is_reserved())
         {
             return Ok(AppliedDay {
                 id: ShootingDayId::from_uuid(mapping.aggregate_id),
@@ -216,31 +278,51 @@ where
         }
         let order_key = LexicalSortKey::new(format!("day-{}", Uuid::now_v7()))
             .map_err(|error| DomainError::ValidationError(error.to_string()))?;
-        let id = ShootingDayId::new();
-        let (id, version) = self
-            .shooting_day_commands
-            .create(
-                actor,
-                CreateShootingDay {
-                    id,
-                    episode_id: draft.episode_id,
-                    series_id: draft.series_id,
-                    label: draft.label,
-                    order_key,
-                    date: draft.date,
-                    source: ShootingDaySource::AiExtracted {
-                        document_id: draft.preview_id.as_uuid(),
-                        external_ref: Some(draft.draft_ref.clone()),
-                        confidence: 1.0,
-                    },
-                },
-            )
+
+        // Step 1 (reserve): persist the ShootingDayId before the command, so a
+        // crash before the confirm retries onto the same aggregate.
+        let reservation = self
+            .mappings
+            .reserve(AiImportMapping::reservation(
+                draft.preview_id,
+                draft.draft_ref.clone(),
+                "shooting_day".to_owned(),
+                ShootingDayId::new().0,
+            ))
             .await?;
+        let id = ShootingDayId::from_uuid(reservation.aggregate_id);
+
+        // Step 2 (command): on a retry the stream already exists, so the
+        // ExpectedVersion::Empty adapter reports the current version instead of
+        // appending a duplicate ShootingDayCreated.
+        let version = recover_version(
+            self.shooting_day_commands
+                .create(
+                    actor,
+                    CreateShootingDay {
+                        id,
+                        episode_id: draft.episode_id,
+                        series_id: draft.series_id,
+                        label: draft.label,
+                        order_key,
+                        date: draft.date,
+                        source: ShootingDaySource::AiExtracted {
+                            document_id: draft.preview_id.as_uuid(),
+                            external_ref: Some(draft.draft_ref),
+                            confidence: 1.0,
+                        },
+                    },
+                )
+                .await
+                .map(|(_, version)| version),
+        )?;
+
+        // Step 3 (confirm).
         self.mappings
             .insert(AiImportMapping {
-                preview_id: draft.preview_id,
-                draft_ref: draft.draft_ref,
-                aggregate_kind: "shooting_day".to_owned(),
+                preview_id: reservation.preview_id,
+                draft_ref: reservation.draft_ref,
+                aggregate_kind: reservation.aggregate_kind,
                 aggregate_id: id.0,
                 aggregate_version: version,
             })
@@ -250,6 +332,39 @@ where
             version,
             created: true,
         })
+    }
+}
+
+/// Recover the aggregate version of a create-style command that a previous,
+/// crashed attempt already appended.
+///
+/// Both `CreateShootingDay` and `PlanSceneShoot` dispatch with
+/// `ExpectedVersion::Empty`. Re-driving them onto a stream that a prior attempt
+/// wrote yields `VersionConflict { current }`, whose `current` is precisely the
+/// version the idempotency mapping needs. Because the id came from a durable
+/// reservation, that conflict proves *our own* earlier append — not a foreign
+/// writer — so treating it as success is safe and is what closes the crash
+/// window (issue #179).
+///
+/// `current == 0` means the stream is genuinely empty, i.e. the conflict did
+/// not come from a prior append; that is propagated as an error rather than
+/// confirming a mapping to a nonexistent aggregate.
+fn recover_version(
+    result: Result<AggregateVersion, DomainError>,
+) -> Result<AggregateVersion, DomainError> {
+    match result {
+        Ok(version) => Ok(version),
+        Err(DomainError::VersionConflict {
+            entity, current, ..
+        }) if current != AggregateVersion(0) => {
+            tracing::info!(
+                %entity,
+                current = current.0,
+                "recovered AI schedule-apply aggregate version from a reserved stream"
+            );
+            Ok(current)
+        }
+        Err(error) => Err(error),
     }
 }
 

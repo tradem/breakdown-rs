@@ -190,6 +190,46 @@ matching state SHALL live on Scene/Character/ShootingDay/SceneShoot aggregates.
 - **AND** `series_id` is resolved at the API edge (no write-side projection
   lookup; CQRS boundary respected)
 
+### Requirement: Schedule-side apply reserves aggregate ids before dispatch
+The schedule-side apply SHALL make the create-style commands
+(`CreateShootingDay`, `PlanSceneShoot`) and their idempotency mapping one
+recoverable operation, so that a failure between the event append and the
+mapping write cannot produce a duplicate aggregate on retry.
+
+It SHALL do so by persisting the aggregate id **before** dispatching the
+command: a *reservation* row is written to
+`projection_ai_import_mapping` with `aggregate_version = 0` (the established
+"no version yet" sentinel), the command is dispatched with that reserved id,
+and the row is then *confirmed* by advancing it to the real aggregate version.
+The reservation write SHALL be insert-if-absent and SHALL return the winning
+row, so concurrent or retried applies converge on one id. The confirm write
+SHALL only ever advance `aggregate_version`.
+
+A mapping that is still reserved SHALL NOT count as applied work: the apply
+SHALL re-drive that row onto the reserved id. Because both commands dispatch
+with an empty-stream expected version, re-driving an already-appended stream
+SHALL surface the current aggregate version, which SHALL be used to confirm
+the mapping. A conflict reporting a version of 0 (an empty stream) SHALL NOT
+be treated as recovery and SHALL propagate as an error.
+
+#### Scenario: Crash between PlanSceneShoot and the mapping write
+- **WHEN** `PlanSceneShoot` appends its event and the mapping write then fails
+- **THEN** the mapping row remains in the reserved state
+- **AND** a retry re-dispatches `PlanSceneShoot` with the *same* reserved
+  `SceneShootId`
+- **AND** exactly one scene shoot exists for that (preview, scene, shooting day)
+- **AND** the mapping is confirmed with the version recovered from the stream
+
+#### Scenario: Crash between CreateShootingDay and the mapping write
+- **WHEN** `CreateShootingDay` appends its event and the mapping write fails
+- **THEN** a retry reuses the reserved `ShootingDayId` and creates no second day
+
+#### Scenario: Retried scene scheduling does not strand the mapping
+- **WHEN** a retry re-dispatches `ScheduleSceneOnShootingDay` for a scene that
+  the crashed attempt already linked to the day
+- **THEN** the command succeeds as a no-op (state-idempotent)
+- **AND** the apply proceeds to confirm the scene-shoot mapping
+
 ### Requirement: Resilience and bounded cost
 The system SHALL bound LLM cost exposure via: a per-job request cap (max chunks;
 exceeded → `Failed`, no retry), a per-user in-flight concurrency cap, and an
