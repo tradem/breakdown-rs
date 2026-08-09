@@ -208,10 +208,17 @@ impl PgAiConcurrencyLimiter {
             .map_err(map_sqlx_error)?;
 
         // Crash-safety reclaim: drop everything whose lease has lapsed.
+        //
+        // `clock_timestamp()`, not `now()`: `now()` is fixed at *transaction
+        // start*, and this transaction began before the advisory-lock wait
+        // above. Under contention that wait can be long, so `now()` would
+        // judge leases against a stale instant — missing rows that have since
+        // expired, and (below) issuing a permit whose window silently started
+        // before the caller ever held the lock.
         let reclaimed = sqlx::query(
             r#"
             DELETE FROM ai_import.concurrency_permit
-            WHERE expires_at <= now()
+            WHERE expires_at <= clock_timestamp()
             "#,
         )
         .execute(&mut *tx)
@@ -260,7 +267,7 @@ impl PgAiConcurrencyLimiter {
             r#"
             INSERT INTO ai_import.concurrency_permit
                 (id, user_id, worker_id, expires_at)
-            VALUES ($1, $2, $3, now() + make_interval(secs => $4))
+            VALUES ($1, $2, $3, clock_timestamp() + make_interval(secs => $4))
             "#,
         )
         .bind(id)
@@ -271,22 +278,39 @@ impl PgAiConcurrencyLimiter {
         .await
         .map_err(map_sqlx_error)?;
 
-        tx.commit().await.map_err(map_sqlx_error)?;
-
-        Ok(Some(PgAiConcurrencyPermit {
+        // Arm the reclaim hook *before* committing, not after.
+        //
+        // `commit()` is an await point, and a cancellation there is not
+        // benign: the COMMIT may already have reached PostgreSQL, so the row
+        // can be durable even though this call never returns. If the permit
+        // were constructed after the commit, nothing local would own that id
+        // and the capacity would sit occupied until the lease expired — the
+        // exact failure mode this module exists to remove, reintroduced at the
+        // last possible instant.
+        //
+        // Holding the permit across the commit makes the id owned from the
+        // moment it exists: cancellation drops it and the reclaimer deletes by
+        // id. The delete is safe in both directions — if the transaction did
+        // commit, the row goes away; if it rolled back, the delete matches
+        // nothing. A reclaim that arrives while the transaction is still
+        // in flight simply blocks on the row lock until it resolves.
+        let permit = PgAiConcurrencyPermit {
             id,
             pool: self.pool.clone(),
             lease: self.lease,
             reclaimer: self.reclaimer.clone(),
             released: AtomicBool::new(false),
-        }))
+        };
+        tx.commit().await.map_err(map_sqlx_error)?;
+
+        Ok(Some(permit))
     }
 
     /// Number of live (unexpired) permits. Diagnostics and tests only.
     pub async fn in_flight(&self) -> Result<i64, DomainError> {
         sqlx::query_scalar(
             r#"
-            SELECT COUNT(*) FROM ai_import.concurrency_permit WHERE expires_at > now()
+            SELECT COUNT(*) FROM ai_import.concurrency_permit WHERE expires_at > clock_timestamp()
             "#,
         )
         .fetch_one(&self.pool)
@@ -457,9 +481,9 @@ impl PgAiConcurrencyPermit {
         let affected = sqlx::query(
             r#"
             UPDATE ai_import.concurrency_permit
-            SET expires_at = now() + make_interval(secs => $2)
+            SET expires_at = clock_timestamp() + make_interval(secs => $2)
             WHERE id = $1
-              AND expires_at > now()
+              AND expires_at > clock_timestamp()
             "#,
         )
         .bind(self.id)
@@ -469,11 +493,14 @@ impl PgAiConcurrencyPermit {
         .map_err(map_sqlx_error)?
         .rows_affected();
         if affected == 0 {
-            // The `expires_at > now()` guard makes expiry irreversible: a
-            // delayed holder must not resurrect a lease that the next
-            // acquisition is entitled to sweep, or it would hold capacity past
-            // its own deadline while the limiter has already counted the slot
-            // as reclaimable. Expired and already-swept are reported
+            // The `expires_at > clock_timestamp()` guard makes expiry
+            // irreversible: a delayed holder must not resurrect a lease that
+            // the next acquisition is entitled to sweep, or it would hold
+            // capacity past its own deadline while the limiter has already
+            // counted the slot as reclaimable. The clock function matters here
+            // too — a renewal delayed behind a slow round-trip must be judged
+            // against the instant the statement actually runs, not against
+            // transaction start. Expired and already-swept are reported
             // identically because they mean the same thing to the caller: this
             // permit no longer grants capacity.
             return Err(DomainError::Conflict(format!(

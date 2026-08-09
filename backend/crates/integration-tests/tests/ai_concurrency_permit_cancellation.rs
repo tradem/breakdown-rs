@@ -223,6 +223,44 @@ async fn operation_error_propagates_and_still_releases() -> Result<()> {
 }
 
 #[tokio::test]
+async fn cancelling_an_acquisition_leaves_no_orphan_permit() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let (limiter, reclaimer) = single_slot(&pool)?.spawn_reclaimer();
+    let limiter = Arc::new(limiter);
+
+    // Cancel `try_acquire` itself, repeatedly, at ever-later points inside the
+    // call. The interesting instant is the final `commit()`: PostgreSQL may
+    // have durably written the row even though the future never returned, so
+    // the id must already be owned by a permit whose drop hook can reclaim it.
+    // Sweeping the cancellation point instead of guessing one exact delay is
+    // what makes this deterministic — no assertion depends on hitting a
+    // particular microsecond.
+    for attempt in 0..40u32 {
+        let acquiring = Arc::clone(&limiter);
+        let task =
+            tokio::spawn(async move { acquiring.try_acquire("commit-race-user").await.map(drop) });
+        for _ in 0..attempt {
+            tokio::task::yield_now().await;
+        }
+        task.abort();
+        // Either outcome is fine: cancelled, or completed before the abort.
+        // What must never happen is a committed row with no local owner.
+        drop(task.await);
+    }
+
+    // Whatever the races did, capacity must come back on its own — without
+    // waiting out a lease.
+    await_capacity_released(&limiter, "after cancelled acquisitions").await;
+    assert!(
+        limiter.try_acquire("commit-race-user").await?.is_some(),
+        "a cancelled acquisition must not strand the slot"
+    );
+
+    reclaimer.abort();
+    Ok(())
+}
+
+#[tokio::test]
 async fn reclaimer_shutdown_drains_queued_reclaims() -> Result<()> {
     let (pool, _container) = crate::fixtures::spawn_postgres().await?;
     // Two slots so several permits can be in flight at once, which is what

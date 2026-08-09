@@ -123,8 +123,14 @@ impl AiWorkerRuntime {
 /// A `Conflict` means the permit is gone (expired and swept). The operation is
 /// abandoned rather than allowed to continue on capacity the limiter has
 /// already handed to someone else — the same rule the queue heartbeat applies
-/// to a lost claim. Transient renewal errors are logged and retried on the
-/// next tick: the lease still has spare renewals of headroom.
+/// to a lost claim.
+///
+/// A transient renewal error is retried, but **only inside the lease the last
+/// confirmed renewal bought**. Retrying blindly on a fixed cadence would let a
+/// run of slow failures carry the loop past the deadline, and the operation
+/// would then keep running on capacity another acquisition is already entitled
+/// to sweep. The loop therefore tracks the confirmed deadline and gives up
+/// before it rather than after.
 async fn run_with_renewal<Fut, T>(
     permit: &PgAiConcurrencyPermit,
     operation: Fut,
@@ -132,19 +138,19 @@ async fn run_with_renewal<Fut, T>(
 where
     Fut: Future<Output = Result<T, DomainError>>,
 {
-    renew_while(
-        permit_renewal_interval(permit.lease()),
-        || permit.renew(),
-        || permit.id(),
-        operation,
-    )
-    .await
+    renew_while(permit.lease(), || permit.renew(), || permit.id(), operation).await
 }
 
 /// The renewal state machine, expressed over a `renew` closure so it can be
 /// unit-tested on tokio's paused clock without a database.
+///
+/// Invariant: the loop never waits past `confirmed_deadline`, the instant the
+/// last confirmed acquisition/renewal is known to be valid until. Every wait is
+/// therefore `min(interval, time left on the lease)`, and reaching the deadline
+/// without a confirmation aborts — the permit is reclaimable from that moment
+/// on, so continuing would over-admit.
 async fn renew_while<R, RFut, I, Fut, T>(
-    interval: std::time::Duration,
+    lease: std::time::Duration,
     mut renew: R,
     permit_id: I,
     operation: Fut,
@@ -155,42 +161,84 @@ where
     I: Fn() -> uuid::Uuid,
     Fut: Future<Output = Result<T, DomainError>>,
 {
+    let interval = permit_renewal_interval(lease);
+    // The permit was issued (or last renewed) now, so this is when it lapses.
+    let mut confirmed_deadline = tokio::time::Instant::now() + lease;
     tokio::pin!(operation);
     loop {
+        let now = tokio::time::Instant::now();
+        if now >= confirmed_deadline {
+            // Only reachable after repeated unconfirmed renewals: the lease we
+            // last had confirmation for has run out, so the row is now fair
+            // game for the sweep. Stop before that, not after.
+            let reason = format!(
+                "AI concurrency permit {} lease expired without a confirmed renewal",
+                permit_id()
+            );
+            tracing::warn!(permit_id = %permit_id(), "{reason}");
+            return Err(DomainError::Conflict(reason));
+        }
+        // Never sleep past the deadline, however slow the failures are.
+        let wait = interval.min(confirmed_deadline - now);
+
         tokio::select! {
             // The operation is polled first: a job that finishes in the same
             // tick as a renewal must not be delayed by a database round-trip.
             biased;
             result = &mut operation => return result,
-            () = tokio::time::sleep(interval) => match renew().await {
-                Ok(()) => {}
-                Err(DomainError::Conflict(reason)) => {
-                    tracing::warn!(
+            () = tokio::time::sleep(wait) => {
+                // The renewal call is bounded by the deadline too: a renewal
+                // that hangs past it is indistinguishable from one that never
+                // happened, and waiting for its answer would run the operation
+                // on a lease nobody has confirmed.
+                let renewal = tokio::time::timeout_at(confirmed_deadline, renew()).await;
+                match renewal {
+                    Ok(Ok(())) => {
+                        // A confirmed renewal starts a fresh lease. Measured
+                        // after the call returns, since that is the earliest
+                        // instant the database could have applied it.
+                        confirmed_deadline = tokio::time::Instant::now() + lease;
+                    }
+                    Ok(Err(DomainError::Conflict(reason))) => {
+                        tracing::warn!(
+                            permit_id = %permit_id(),
+                            reason = %reason,
+                            "AI concurrency permit lost while the job was running; aborting"
+                        );
+                        return Err(DomainError::Conflict(reason));
+                    }
+                    Ok(Err(error)) => tracing::warn!(
                         permit_id = %permit_id(),
-                        reason = %reason,
-                        "AI concurrency permit lost while the job was running; aborting"
-                    );
-                    return Err(DomainError::Conflict(reason));
+                        error = %error,
+                        "AI concurrency permit renewal failed; retrying within the remaining lease"
+                    ),
+                    // Timed out at the deadline: the next loop iteration sees
+                    // `now >= confirmed_deadline` and aborts.
+                    Err(_) => tracing::warn!(
+                        permit_id = %permit_id(),
+                        "AI concurrency permit renewal did not complete before the lease deadline"
+                    ),
                 }
-                Err(error) => tracing::warn!(
-                    permit_id = %permit_id(),
-                    error = %error,
-                    "AI concurrency permit renewal failed; retrying on next tick"
-                ),
-            },
+            }
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::renew_while;
+    use super::{permit_renewal_interval, renew_while};
     use breakdown_core::error::DomainError;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
     use uuid::Uuid;
 
-    const INTERVAL: Duration = Duration::from_secs(10);
+    /// A 30s lease renews every 10s (1/3 of the window), leaving two spare
+    /// renewals of headroom — the same shape as production.
+    const LEASE: Duration = Duration::from_secs(30);
+
+    fn interval() -> Duration {
+        permit_renewal_interval(LEASE)
+    }
 
     /// A job that outlives many renewal intervals must be renewed repeatedly
     /// and still return its own result. Driven on the paused clock, so the
@@ -201,14 +249,14 @@ mod tests {
         let id = Uuid::now_v7();
 
         let result = renew_while(
-            INTERVAL,
+            LEASE,
             || {
                 renewals.fetch_add(1, Ordering::AcqRel);
                 std::future::ready(Ok(()))
             },
             || id,
             async {
-                tokio::time::sleep(INTERVAL * 5).await;
+                tokio::time::sleep(interval() * 5).await;
                 Ok::<_, DomainError>("done")
             },
         )
@@ -228,12 +276,12 @@ mod tests {
     async fn conflict_aborts_the_operation() {
         let id = Uuid::now_v7();
         let result = renew_while(
-            INTERVAL,
+            LEASE,
             || std::future::ready(Err(DomainError::Conflict("swept".to_owned()))),
             || id,
             async {
                 // Would outlive the test if the conflict were ignored.
-                tokio::time::sleep(INTERVAL * 100).await;
+                tokio::time::sleep(interval() * 100).await;
                 Ok::<_, DomainError>("must not be reached")
             },
         )
@@ -253,7 +301,7 @@ mod tests {
         let id = Uuid::now_v7();
 
         let result = renew_while(
-            INTERVAL,
+            LEASE,
             || {
                 let attempt = attempts.fetch_add(1, Ordering::AcqRel);
                 std::future::ready(if attempt == 0 {
@@ -264,7 +312,7 @@ mod tests {
             },
             || id,
             async {
-                tokio::time::sleep(INTERVAL * 3).await;
+                tokio::time::sleep(interval() * 3).await;
                 Ok::<_, DomainError>(42)
             },
         )
@@ -277,6 +325,65 @@ mod tests {
         );
     }
 
+    /// Retries must stay *inside* the lease the last confirmed renewal bought.
+    /// A run of failures that outlasts the window means the row is reclaimable,
+    /// so the operation has to stop before the deadline rather than keep
+    /// running on capacity another acquisition may already have taken.
+    #[tokio::test(start_paused = true)]
+    async fn unconfirmed_renewals_abort_before_the_lease_expires() {
+        let id = Uuid::now_v7();
+        let started = tokio::time::Instant::now();
+
+        let result = renew_while(
+            LEASE,
+            // Every renewal fails transiently, and slowly: each attempt eats
+            // most of a renewal interval, so a fixed-cadence loop would drift
+            // past the deadline and only notice afterwards.
+            || async {
+                tokio::time::sleep(interval() - Duration::from_secs(1)).await;
+                Err(DomainError::ServiceUnavailable("still down".to_owned()))
+            },
+            || id,
+            async {
+                tokio::time::sleep(LEASE * 10).await;
+                Ok::<_, DomainError>("must not be reached")
+            },
+        )
+        .await;
+
+        assert!(
+            matches!(result, Err(DomainError::Conflict(_))),
+            "an unconfirmed lease must abort the job, got {result:?}"
+        );
+        // The decisive property: it stopped *before* the row became
+        // reclaimable, not after. Both instants come from the paused clock, so
+        // this is exact rather than a timing tolerance.
+        assert!(
+            tokio::time::Instant::now() <= started + LEASE,
+            "the loop ran past the confirmed lease deadline"
+        );
+    }
+
+    /// A confirmed renewal must start a fresh lease — otherwise a long job
+    /// would abort at the original deadline no matter how well renewal worked.
+    #[tokio::test(start_paused = true)]
+    async fn a_confirmed_renewal_extends_the_deadline() {
+        let id = Uuid::now_v7();
+        let result = renew_while(LEASE, || std::future::ready(Ok(())), || id, async {
+            // Many times the original lease: only possible if each
+            // confirmed renewal moves the deadline forward.
+            tokio::time::sleep(LEASE * 10).await;
+            Ok::<_, DomainError>("survived")
+        })
+        .await;
+
+        assert_eq!(
+            result,
+            Ok("survived"),
+            "confirmed renewals must keep extending the lease"
+        );
+    }
+
     /// An operation that completes immediately must not pay for a renewal.
     #[tokio::test(start_paused = true)]
     async fn short_operation_never_renews() {
@@ -284,7 +391,7 @@ mod tests {
         let id = Uuid::now_v7();
 
         let result = renew_while(
-            INTERVAL,
+            LEASE,
             || {
                 renewals.fetch_add(1, Ordering::AcqRel);
                 std::future::ready(Ok(()))

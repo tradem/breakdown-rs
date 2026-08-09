@@ -61,13 +61,28 @@ commits (ADR-020 D5).
   spawned heartbeat: it needs only a `&` borrow (no `Arc`/clone) and is
   inherently cancellation-correct, with nothing to join or abort. A `Conflict`
   aborts the operation — continuing would run on capacity the limiter has
-  already handed to someone else — while a transient renewal error is logged
-  and retried on the next tick. The state machine is unit-tested on tokio's
-  paused clock (renews across five intervals, aborts on `Conflict`, survives a
-  blip, and never renews for a job shorter than one interval).
+  already handed to someone else. A transient renewal error is retried, but
+  **only inside the lease the last confirmed renewal bought**: the loop tracks
+  the confirmed deadline, never sleeps past it, bounds the renewal call itself
+  with `timeout_at`, and aborts *before* it rather than after — otherwise a run
+  of slow failures would carry the job past the point where its row becomes
+  reclaimable. The state machine is unit-tested on tokio's paused clock (renews
+  across five intervals, aborts on `Conflict`, survives a blip, extends the
+  deadline on every confirmation, aborts before expiry under sustained slow
+  failures, and never renews for a job shorter than one interval).
 - New `PgAiConcurrencyPermit::deadline` exposes the lease deadline, so a holder
   can check its remaining headroom and operational tooling can surface
   "capacity at risk" without reading the table.
+- All lease decisions use `clock_timestamp()`, not `now()`. `now()` is fixed at
+  transaction start, and the acquisition transaction begins *before* the
+  advisory-lock wait — under contention it would judge leases against a stale
+  instant, missing rows that have since expired and issuing permits whose
+  window silently started before the caller held the lock.
+- The permit (and therefore its reclaim hook) is constructed **before**
+  `tx.commit()`. `commit()` is an await point and a cancellation there is not
+  benign: the COMMIT may already have reached PostgreSQL, so constructing the
+  permit afterwards would leave a durable row with no local owner — the exact
+  leak this module removes, reintroduced at the last possible instant.
 - Admission is serialised with `pg_advisory_xact_lock`: counting rows and
   inserting the new one must be atomic, and a row-level lock cannot cover a row
   that does not exist yet, so two concurrent acquisitions could otherwise both
@@ -89,8 +104,10 @@ commits (ADR-020 D5).
   normal completion and operation errors both release exactly once with the
   result/error preserved; an expired lease is reclaimed by the next
   acquisition; `renew` moves a live deadline forward but reports `Conflict`
-  once the permit is expired or swept; and `PermitReclaimer::shutdown` drains
-  queued reclaims rather than discarding them. Lease expiry is written into the past rather
+  once the permit is expired or swept; `PermitReclaimer::shutdown` drains
+  queued reclaims rather than discarding them; and cancelling `try_acquire`
+  itself — swept across 40 increasingly late cancellation points, so the commit
+  race is hit without depending on one exact delay — strands no permit. Lease expiry is written into the past rather
   than slept out, keeping the suite timing-safe.
 
 ### Changed
