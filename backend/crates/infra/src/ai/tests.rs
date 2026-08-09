@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: longcat-2.0-free (opencode)
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -447,6 +448,7 @@ async fn oversized_script_transitions_to_failed_without_llm_calls() {
 struct FakeSceneCommands {
     created: Arc<Mutex<Vec<Uuid>>>,
     updated: Arc<Mutex<Vec<Uuid>>>,
+    scheduled: Arc<Mutex<Vec<(Uuid, breakdown_core::shared::ShootingDayId)>>>,
 }
 
 impl breakdown_core::scene::ports::SceneCommands for FakeSceneCommands {
@@ -490,9 +492,18 @@ impl breakdown_core::scene::ports::SceneCommands for FakeSceneCommands {
     async fn schedule_on_shooting_day(
         &self,
         _actor: UserId,
-        _command: breakdown_core::scene::commands::ScheduleSceneOnShootingDay,
+        command: breakdown_core::scene::commands::ScheduleSceneOnShootingDay,
     ) -> Result<breakdown_core::shared::AggregateVersion, DomainError> {
-        Ok(breakdown_core::shared::AggregateVersion::INITIAL)
+        let mut scheduled = self.scheduled.lock().unwrap();
+        let pair = (command.id, command.shooting_day_id);
+        // Faithful to `SceneAggregate::is_state_idempotent`: re-scheduling an
+        // already-linked day yields `ExecuteResult::Idempotent`, which the
+        // adapter maps to the *unchanged* current version.
+        if scheduled.contains(&pair) {
+            return Ok(command.version);
+        }
+        scheduled.push(pair);
+        Ok(command.version.next())
     }
 
     async fn unschedule_from_shooting_day(
@@ -507,6 +518,23 @@ impl breakdown_core::scene::ports::SceneCommands for FakeSceneCommands {
 #[derive(Clone, Default)]
 struct FakeMappings {
     values: Arc<Mutex<HashMap<(AiImportJobId, String), AiImportMapping>>>,
+    /// 1-based ordinal of an `insert` call that must fail once — simulating a
+    /// crash between a successful command and the mapping write (issue #179).
+    fail_insert_at: Arc<Mutex<Option<usize>>>,
+    insert_calls: Arc<AtomicUsize>,
+    reserved: Arc<Mutex<Vec<AiImportMapping>>>,
+}
+
+impl FakeMappings {
+    /// Arm a one-shot failure on the `nth` (1-based) `insert` call.
+    fn fail_nth_insert(&self, nth: usize) {
+        *self.fail_insert_at.lock().unwrap() = Some(nth);
+    }
+
+    /// Reservations in call order (the confirm path uses `insert`).
+    fn reservations(&self) -> Vec<AiImportMapping> {
+        self.reserved.lock().unwrap().clone()
+    }
 }
 
 #[async_trait]
@@ -524,11 +552,38 @@ impl AiImportMappingRepository for FakeMappings {
             .cloned())
     }
 
-    async fn insert(&self, mapping: AiImportMapping) -> Result<(), DomainError> {
-        self.values
+    async fn reserve(&self, mapping: AiImportMapping) -> Result<AiImportMapping, DomainError> {
+        self.reserved.lock().unwrap().push(mapping.clone());
+        // Mirrors the production insert-if-absent: an existing row (reserved or
+        // confirmed) wins, so retries converge on one aggregate id.
+        Ok(self
+            .values
             .lock()
             .unwrap()
-            .insert((mapping.preview_id, mapping.draft_ref.clone()), mapping);
+            .entry((mapping.preview_id, mapping.draft_ref.clone()))
+            .or_insert(mapping)
+            .clone())
+    }
+
+    async fn insert(&self, mapping: AiImportMapping) -> Result<(), DomainError> {
+        let call = self.insert_calls.fetch_add(1, Ordering::SeqCst) + 1;
+        {
+            let mut fail = self.fail_insert_at.lock().unwrap();
+            if *fail == Some(call) {
+                *fail = None;
+                return Err(DomainError::ServiceUnavailable(
+                    "simulated mapping write failure".to_owned(),
+                ));
+            }
+        }
+        let mut values = self.values.lock().unwrap();
+        let entry = values
+            .entry((mapping.preview_id, mapping.draft_ref.clone()))
+            .or_insert_with(|| mapping.clone());
+        // Mirrors the production upsert's monotonic version guard.
+        if entry.aggregate_version < mapping.aggregate_version {
+            *entry = mapping;
+        }
         Ok(())
     }
 
@@ -564,7 +619,18 @@ impl breakdown_core::shooting_day::ports::ShootingDayCommands for FakeShootingDa
         ),
         DomainError,
     > {
-        self.created.lock().unwrap().push(command.id);
+        let mut created = self.created.lock().unwrap();
+        // Faithful to `ShootingDayCommandsImpl`, which dispatches with
+        // `ExpectedVersion::Empty`: a second create on the same (already
+        // written) stream cannot append and reports the current version.
+        if created.contains(&command.id) {
+            return Err(DomainError::VersionConflict {
+                entity: format!("shooting_day-{}", command.id),
+                expected: breakdown_core::shared::AggregateVersion(0),
+                current: breakdown_core::shared::AggregateVersion::INITIAL,
+            });
+        }
+        created.push(command.id);
         Ok((
             command.id,
             breakdown_core::shared::AggregateVersion::INITIAL,
@@ -615,6 +681,15 @@ impl breakdown_core::shooting_day::ports::ShootingDayCommands for FakeShootingDa
 #[derive(Clone, Default)]
 struct FakeSceneShootCommands {
     planned: Arc<Mutex<Vec<breakdown_core::shared::SceneShootId>>>,
+    /// Reject `plan` with a `VersionConflict` whose `current` is 0 — an empty
+    /// stream, i.e. *not* a recoverable "we already appended" signal.
+    zero_version_conflict: Arc<Mutex<bool>>,
+}
+
+impl FakeSceneShootCommands {
+    fn fail_plan_with_zero_version_conflict(&self) {
+        *self.zero_version_conflict.lock().unwrap() = true;
+    }
 }
 
 impl breakdown_core::scene_shoot::ports::SceneShootCommands for FakeSceneShootCommands {
@@ -629,7 +704,25 @@ impl breakdown_core::scene_shoot::ports::SceneShootCommands for FakeSceneShootCo
         ),
         DomainError,
     > {
-        self.planned.lock().unwrap().push(command.id);
+        if *self.zero_version_conflict.lock().unwrap() {
+            return Err(DomainError::VersionConflict {
+                entity: format!("scene_shoot-{}", command.id),
+                expected: breakdown_core::shared::AggregateVersion(0),
+                current: breakdown_core::shared::AggregateVersion(0),
+            });
+        }
+        let mut planned = self.planned.lock().unwrap();
+        // Faithful to `SceneShootCommandsImpl` (`ExpectedVersion::Empty`): a
+        // re-plan onto an already-written stream reports the current version
+        // rather than appending a duplicate `SceneShootPlanned`.
+        if planned.contains(&command.id) {
+            return Err(DomainError::VersionConflict {
+                entity: format!("scene_shoot-{}", command.id),
+                expected: breakdown_core::shared::AggregateVersion(0),
+                current: breakdown_core::shared::AggregateVersion::INITIAL,
+            });
+        }
+        planned.push(command.id);
         Ok((
             command.id,
             breakdown_core::shared::AggregateVersion::INITIAL,
@@ -708,64 +801,241 @@ impl breakdown_core::scene_shoot::ports::SceneShootCommands for FakeSceneShootCo
     }
 }
 
+/// Shared one-scene / one-schedule-row fixture for the schedule-apply tests.
+struct ScheduleApplyFixture {
+    scene_commands: Arc<FakeSceneCommands>,
+    shooting_days: Arc<FakeShootingDayCommands>,
+    scene_shoots: Arc<FakeSceneShootCommands>,
+    mappings: Arc<FakeMappings>,
+    preview: breakdown_core::ai::MergedPreview,
+    preview_id: AiImportJobId,
+    scene_id: Uuid,
+}
+
+impl ScheduleApplyFixture {
+    fn new() -> Self {
+        let scene_id = Uuid::now_v7();
+        let scene = breakdown_core::scene::views::SceneView {
+            id: scene_id,
+            episode_id: breakdown_core::shared::EpisodeId::new(),
+            scene_number: Some(1),
+            location: None,
+            mood: None,
+            is_schedule_set: false,
+            summary: None,
+            script_day: None,
+            shooting_day_ids: Vec::new(),
+            assigned_characters: Vec::new(),
+            version: breakdown_core::shared::AggregateVersion::INITIAL,
+            updated_at: Utc::now(),
+        };
+        let schedule = breakdown_core::ai::ShootingSchedule {
+            block_id: None,
+            rows: vec![ShootingScheduleRow {
+                row_ref: "row-1".to_owned(),
+                scene_number: Some(1),
+                shooting_day_label: Some("Day 1".to_owned()),
+                ..ShootingScheduleRow::default()
+            }],
+        };
+        Self {
+            scene_commands: Arc::new(FakeSceneCommands::default()),
+            shooting_days: Arc::new(FakeShootingDayCommands::default()),
+            scene_shoots: Arc::new(FakeSceneShootCommands::default()),
+            mappings: Arc::new(FakeMappings::default()),
+            preview: merge_schedule_to_scenes(&schedule, &[scene]),
+            preview_id: AiImportJobId::new(),
+            scene_id,
+        }
+    }
+
+    fn worker(
+        &self,
+    ) -> ScheduleApplyWorker<
+        FakeSceneCommands,
+        FakeShootingDayCommands,
+        FakeSceneShootCommands,
+        FakeMappings,
+    > {
+        ScheduleApplyWorker {
+            scene_commands: Arc::clone(&self.scene_commands),
+            shooting_day_commands: Arc::clone(&self.shooting_days),
+            scene_shoot_commands: Arc::clone(&self.scene_shoots),
+            mappings: Arc::clone(&self.mappings),
+        }
+    }
+
+    async fn apply(&self) -> Result<super::ScheduleApplyResult, DomainError> {
+        self.worker()
+            .apply(ScheduleApplyRequest {
+                actor: UserId::from_sub("schedule-test-user"),
+                preview_id: self.preview_id,
+                preview: &self.preview,
+                series_id: None,
+            })
+            .await
+    }
+
+    fn scene_shoot_pair_key(&self) -> String {
+        let day = self.shooting_days.created.lock().unwrap()[0];
+        format!("scene-shoot:{}:{}", self.scene_id, day.0)
+    }
+
+    async fn mapping(&self, draft_ref: &str) -> Option<AiImportMapping> {
+        self.mappings
+            .find(self.preview_id, draft_ref)
+            .await
+            .unwrap()
+    }
+}
+
 #[tokio::test]
 async fn schedule_apply_creates_and_reuses_day_and_scene_shoot_mapping() {
-    let scene_commands = Arc::new(FakeSceneCommands::default());
-    let shooting_days = Arc::new(FakeShootingDayCommands::default());
-    let scene_shoots = Arc::new(FakeSceneShootCommands::default());
-    let mappings = Arc::new(FakeMappings::default());
-    let scene = breakdown_core::scene::views::SceneView {
-        id: Uuid::now_v7(),
-        episode_id: breakdown_core::shared::EpisodeId::new(),
-        scene_number: Some(1),
-        location: None,
-        mood: None,
-        is_schedule_set: false,
-        summary: None,
-        script_day: None,
-        shooting_day_ids: Vec::new(),
-        assigned_characters: Vec::new(),
-        version: breakdown_core::shared::AggregateVersion::INITIAL,
-        updated_at: Utc::now(),
-    };
-    let schedule = breakdown_core::ai::ShootingSchedule {
-        block_id: None,
-        rows: vec![ShootingScheduleRow {
-            row_ref: "row-1".to_owned(),
-            scene_number: Some(1),
-            shooting_day_label: Some("Day 1".to_owned()),
-            ..ShootingScheduleRow::default()
-        }],
-    };
-    let preview = merge_schedule_to_scenes(&schedule, &[scene]);
-    let worker = ScheduleApplyWorker {
-        scene_commands,
-        shooting_day_commands: Arc::clone(&shooting_days),
-        scene_shoot_commands: Arc::clone(&scene_shoots),
-        mappings: Arc::clone(&mappings),
-    };
-    let preview_id = AiImportJobId::new();
-    let actor = UserId::from_sub("schedule-test-user");
-    worker
-        .apply(ScheduleApplyRequest {
-            actor: actor.clone(),
-            preview_id,
-            preview: &preview,
-            series_id: None,
-        })
+    let fixture = ScheduleApplyFixture::new();
+    fixture.apply().await.unwrap();
+    fixture.apply().await.unwrap();
+    assert_eq!(fixture.shooting_days.created.lock().unwrap().len(), 1);
+    assert_eq!(fixture.scene_shoots.planned.lock().unwrap().len(), 1);
+}
+
+/// Issue #179 AC #1 + #2: a crash between a successful `PlanSceneShoot` and
+/// the mapping write must not let the retry plan a *second* scene shoot.
+#[tokio::test]
+async fn schedule_apply_retry_after_a_scene_shoot_mapping_failure_plans_once() {
+    let fixture = ScheduleApplyFixture::new();
+    // Insert #1 is the shooting-day confirm, #2 the scene-shoot confirm. Fail
+    // the latter: the `PlanSceneShoot` command has already appended by then —
+    // exactly the crash window this issue is about.
+    fixture.mappings.fail_nth_insert(2);
+
+    let error = fixture
+        .apply()
         .await
-        .unwrap();
-    worker
-        .apply(ScheduleApplyRequest {
-            actor,
-            preview_id,
-            preview: &preview,
-            series_id: None,
-        })
+        .expect_err("the confirming mapping write must fail");
+    assert!(matches!(error, DomainError::ServiceUnavailable(_)));
+
+    // The command DID append: exactly one scene shoot is planned, and the
+    // mapping is left as a bare reservation.
+    assert_eq!(fixture.scene_shoots.planned.lock().unwrap().len(), 1);
+    let pair_key = fixture.scene_shoot_pair_key();
+    let reserved = fixture
+        .mapping(&pair_key)
         .await
-        .unwrap();
-    assert_eq!(shooting_days.created.lock().unwrap().len(), 1);
-    assert_eq!(scene_shoots.planned.lock().unwrap().len(), 1);
+        .expect("the reservation must survive the failed confirm");
+    assert!(
+        reserved.is_reserved(),
+        "a failed confirm must leave the mapping reserved, got {reserved:?}"
+    );
+    let reserved_id = reserved.aggregate_id;
+
+    // Retry: re-drives the reserved id, recovers the version, confirms.
+    fixture.apply().await.expect("the retry must converge");
+
+    assert_eq!(
+        fixture.scene_shoots.planned.lock().unwrap().len(),
+        1,
+        "the retry must not plan a second scene shoot for the same pair"
+    );
+    assert_eq!(
+        fixture.shooting_days.created.lock().unwrap().len(),
+        1,
+        "the retry must not create a second shooting day"
+    );
+    let confirmed = fixture.mapping(&pair_key).await.expect("mapping exists");
+    assert!(
+        !confirmed.is_reserved(),
+        "the retry must confirm the mapping"
+    );
+    assert_eq!(
+        confirmed.aggregate_id, reserved_id,
+        "the retry must reuse the reserved SceneShootId"
+    );
+    assert_eq!(
+        confirmed.aggregate_version,
+        breakdown_core::shared::AggregateVersion::INITIAL,
+        "the version must be recovered from the existing stream (AC #4)"
+    );
+}
+
+/// Issue #179: the same crash window on the `CreateShootingDay` side.
+#[tokio::test]
+async fn schedule_apply_retry_after_a_day_mapping_failure_creates_one_day() {
+    let fixture = ScheduleApplyFixture::new();
+    // The shooting-day confirm is the first mapping insert of an apply run.
+    fixture.mappings.fail_nth_insert(1);
+
+    let error = fixture
+        .apply()
+        .await
+        .expect_err("the day confirm must fail");
+    assert!(matches!(error, DomainError::ServiceUnavailable(_)));
+
+    let created = fixture.shooting_days.created.lock().unwrap().clone();
+    assert_eq!(created.len(), 1, "the day command DID append");
+    let day_key = fixture.mappings.reservations()[0].draft_ref.clone();
+    let reserved = fixture.mapping(&day_key).await.expect("reservation exists");
+    assert!(reserved.is_reserved());
+    assert_eq!(reserved.aggregate_id, created[0].0);
+
+    fixture.apply().await.expect("the retry must converge");
+
+    assert_eq!(
+        fixture.shooting_days.created.lock().unwrap().len(),
+        1,
+        "the retry must not create a second shooting day"
+    );
+    assert_eq!(fixture.scene_shoots.planned.lock().unwrap().len(), 1);
+    let confirmed = fixture.mapping(&day_key).await.expect("mapping exists");
+    assert!(!confirmed.is_reserved());
+    assert_eq!(confirmed.aggregate_id, created[0].0);
+}
+
+/// The reservation must be durable *before* the command runs — otherwise a
+/// crash inside the command dispatch still loses the id.
+#[tokio::test]
+async fn schedule_apply_reserves_the_scene_shoot_id_before_planning() {
+    let fixture = ScheduleApplyFixture::new();
+    fixture.apply().await.unwrap();
+
+    let reservations = fixture.mappings.reservations();
+    let kinds: Vec<&str> = reservations
+        .iter()
+        .map(|mapping| mapping.aggregate_kind.as_str())
+        .collect();
+    assert_eq!(
+        kinds,
+        vec!["shooting_day", "scene_shoot"],
+        "both aggregates are reserved, day first"
+    );
+    assert!(
+        reservations.iter().all(AiImportMapping::is_reserved),
+        "reservations carry the version-0 sentinel"
+    );
+    let planned = fixture.scene_shoots.planned.lock().unwrap();
+    assert_eq!(
+        reservations[1].aggregate_id, planned[0].0,
+        "the planned SceneShootId is the reserved one, not a fresh uuid"
+    );
+}
+
+/// A `VersionConflict` on an *empty* stream is not a recovery signal — it must
+/// stay an error rather than confirming a mapping to a nonexistent aggregate.
+#[tokio::test]
+async fn schedule_apply_does_not_recover_a_zero_version_conflict() {
+    let fixture = ScheduleApplyFixture::new();
+    fixture.scene_shoots.fail_plan_with_zero_version_conflict();
+
+    let error = fixture.apply().await.expect_err("must not be recovered");
+    assert!(matches!(error, DomainError::VersionConflict { .. }));
+    let pair_key = fixture.scene_shoot_pair_key();
+    let mapping = fixture
+        .mapping(&pair_key)
+        .await
+        .expect("reservation exists");
+    assert!(
+        mapping.is_reserved(),
+        "an unrecoverable failure must leave the mapping unconfirmed"
+    );
 }
 
 #[tokio::test]

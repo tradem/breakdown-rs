@@ -1511,6 +1511,22 @@ impl AiImportMappingRepository for FakeAiImportMappingRepo {
             .cloned())
     }
 
+    async fn reserve(&self, mapping: AiImportMapping) -> Result<AiImportMapping, DomainError> {
+        // Mirrors the production insert-if-absent: an existing row (reserved or
+        // already confirmed) wins so retries converge on one aggregate id.
+        let mut guard = self.mappings.lock().await;
+        match guard
+            .iter()
+            .find(|m| m.preview_id == mapping.preview_id && m.draft_ref == mapping.draft_ref)
+        {
+            Some(existing) => Ok(existing.clone()),
+            None => {
+                guard.push(mapping.clone());
+                Ok(mapping)
+            }
+        }
+    }
+
     async fn insert(&self, mapping: AiImportMapping) -> Result<(), DomainError> {
         let mut guard = self.mappings.lock().await;
         if let Some(existing) = guard
