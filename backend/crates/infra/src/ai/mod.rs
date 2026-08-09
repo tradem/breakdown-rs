@@ -49,7 +49,10 @@ pub use ollama::OllamaChatClient;
 pub use payload_cleanup::AiPayloadGcConfig;
 pub use payload_storage::OpenDalAiPayloadStorage;
 pub use pdf::PdfTextExtractor;
-pub use pg_concurrency::{PgAiConcurrencyLimiter, PgAiConcurrencyPermit};
+pub use pg_concurrency::{
+    DEFAULT_PERMIT_LEASE, PermitReclaimer, PgAiConcurrencyLimiter, PgAiConcurrencyPermit,
+    permit_renewal_interval,
+};
 pub use preview_store::{AiDocumentSource, AiDocumentStore, AiPreviewStore, MemoryAiPreviewStore};
 pub use prompts::default_prompt;
 pub use provider_registry::{

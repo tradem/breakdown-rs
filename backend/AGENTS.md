@@ -408,6 +408,20 @@ projectors that subscribe to SierraDB and update the Postgres projections.
 - `AI_IMPORT_MAX_TOKENS_PER_REQ` – maximum output tokens per LLM request (default: `8192`; bounded to `1..=1000000`).
 - `AI_IMPORT_MAX_CONCURRENT_JOBS_GLOBAL` – global in-flight job ceiling (default: `16`).
 - `AI_IMPORT_MAX_CONCURRENT_JOBS_PER_USER` – per-user in-flight job ceiling (default: `2`).
+
+> **Concurrency permits are cancellation-safe (issue #178).** Capacity is one
+> owned row per permit in `ai_import.concurrency_permit`, not an anonymous
+> counter. `Drop` cannot `.await`, so a worker cancelled during shutdown could
+> never run `release()`; recovery therefore lives in the permit itself. A
+> permit's `Drop` hands its id to the in-process reclaimer task
+> (`PgAiConcurrencyLimiter::spawn_reclaimer` — the fast path), and every row
+> carries an `expires_at` lease that the next acquisition sweeps, so even a
+> process kill self-heals within one lease window. Long holders renew via
+> `PgAiConcurrencyPermit::renew` at `permit_renewal_interval` (1/3 of the
+> window). All release paths are `DELETE ... WHERE id = $1`, so double-release
+> is impossible. **When wiring a limiter in a composition root, call
+> `spawn_reclaimer()` and keep the returned `PermitReclaimer` alive for the
+> process lifetime** — dropping it silently downgrades reclaim to lease-only.
 - `AI_IMPORT_MAX_DOCUMENT_BYTES` – maximum source document size (default: `20971520`).
 - `AI_IMPORT_REQUEST_TIMEOUT_SECS` – provider request timeout (default: `120`).
 - `AI_IMPORT_MAX_RETRIES` – maximum queue retries before dead-lettering (default: `5`).
