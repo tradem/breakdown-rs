@@ -647,6 +647,87 @@ async fn a_running_worker_links_its_permit_to_the_claim() -> Result<()> {
     Ok(())
 }
 
+/// A retryable failure clears the permit link, so the retry cannot delete a
+/// permit that has nothing to do with it.
+///
+/// This is the sharpest case for the invariant: unlike `mark_succeeded`, a
+/// retryable `mark_failed` leaves the job **claimable**. If the link survived,
+/// the next reclaim would read it and issue a DELETE for a permit this worker
+/// already released — and permit ids are not reserved after deletion, so by
+/// then that id can belong to an unrelated live holder.
+#[tokio::test]
+async fn a_retryable_failure_clears_the_permit_link() -> Result<()> {
+    let (pool, _container) = fixtures::spawn_postgres().await?;
+    let limiter = PgAiConcurrencyLimiter::new(pool.clone(), 4, 4)?;
+    let queue = PgAiImportQueue::new(pool.clone());
+
+    let job_id = seed_pending_job(&pool, "user-a").await?;
+
+    // Claim, acquire, attach — the state a worker is in when it fails.
+    let (job, _) = queue
+        .claim_next_reconciling("worker-a")
+        .await?
+        .expect("job claimable");
+    let permit_a = limiter
+        .try_acquire_as(job.user_id.as_str(), "worker-a")
+        .await?
+        .expect("slot available");
+    queue
+        .attach_permit(job.id, "worker-a", permit_a.id())
+        .await?;
+    assert_eq!(job_permit_id(&pool, job_id).await, Some(permit_a.id()));
+
+    // Retryable failure: the job stays claimable, so the link must go.
+    queue
+        .mark_failed(job.id, "worker-a", "transient upstream error", true)
+        .await?;
+    let (status, retries) = job_state(&pool, job_id).await;
+    assert_eq!(status, "failed", "retryable, not dead-lettered");
+    assert_eq!(retries, 1, "the attempt is charged");
+    assert_eq!(
+        job_permit_id(&pool, job_id).await,
+        None,
+        "a retryable failure clears the permit link"
+    );
+
+    // The worker releases its permit, and that id is then free to be reused.
+    let released_id = permit_a.id();
+    permit_a.release().await?;
+
+    // Simulate reuse: an unrelated holder ends up owning the very id the job
+    // used to name. Re-inserting the same id is the deterministic way to model
+    // "this id now belongs to someone else" without depending on UUID reuse.
+    sqlx::query(
+        "INSERT INTO ai_import.concurrency_permit (id, user_id, worker_id, expires_at) \
+         VALUES ($1, 'user-b', 'unrelated-worker', now() + interval '900 seconds')",
+    )
+    .bind(released_id)
+    .execute(&pool)
+    .await?;
+
+    // Make the backed-off job due, then let another worker reclaim it.
+    sqlx::query("UPDATE ai_import.ai_import_job SET next_attempt_at = now() - interval '1 second' WHERE id = $1")
+        .bind(job_id)
+        .execute(&pool)
+        .await?;
+    let (_, released) = queue
+        .claim_next_reconciling("worker-b")
+        .await?
+        .expect("the retryable job is claimable again");
+
+    assert_eq!(
+        released, None,
+        "the retry has no orphan to release; it must not touch the reused id"
+    );
+    assert_eq!(
+        permit_count_for_user(&pool, "user-b").await,
+        1,
+        "the unrelated holder's permit survived the retry's reclaim"
+    );
+
+    Ok(())
+}
+
 /// `attach_permit` and `release_claim` are owner-fenced: a worker that lost
 /// its claim must not be able to overwrite the new owner's permit link or
 /// yank the job out from under them.
