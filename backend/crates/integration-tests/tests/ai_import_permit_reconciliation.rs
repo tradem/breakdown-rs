@@ -572,6 +572,12 @@ async fn a_running_worker_links_its_permit_to_the_claim() -> Result<()> {
 
     let entered = Arc::new(Notify::new());
     let release = Arc::new(Notify::new());
+    // Signalled when the worker returns, however it returns. Without it, an
+    // early exit — a failed claim, a refused acquisition, a rejected
+    // `attach_permit` — would never reach `source.load`, `entered` would never
+    // fire, and the observer would wait forever: the test would hang instead
+    // of reporting the failure.
+    let finished = Arc::new(Notify::new());
     let source = GatedSource {
         entered: Arc::clone(&entered),
         release: Arc::clone(&release),
@@ -580,14 +586,20 @@ async fn a_running_worker_links_its_permit_to_the_claim() -> Result<()> {
 
     let observer_pool = pool.clone();
     let run = async {
-        worker
+        let outcome = worker
             .run_once_with_permit("worker-a", &source, true, &limiter)
-            .await
+            .await;
+        finished.notify_one();
+        outcome
     };
     let observe = async {
-        // Wait for the worker to reach the load: by then it has claimed,
-        // acquired and attached.
-        entered.notified().await;
+        // Whichever comes first: the worker reaching the gated load (the
+        // expected path — by then it has claimed, acquired and attached), or
+        // the worker returning early without ever getting there.
+        tokio::select! {
+            () = entered.notified() => {}
+            () = finished.notified() => return None,
+        }
 
         let linked = job_permit_id(&observer_pool, job_id).await;
         let live: Option<Uuid> = sqlx::query_scalar("SELECT id FROM ai_import.concurrency_permit")
@@ -598,11 +610,15 @@ async fn a_running_worker_links_its_permit_to_the_claim() -> Result<()> {
         let (status, _) = job_state(&observer_pool, job_id).await;
 
         release.notify_one();
-        (linked, live, owner, status)
+        Some((linked, live, owner, status))
     };
-    let (ran, (linked, live, owner, status)) = tokio::join!(run, observe);
+    let (ran, observed) = tokio::join!(run, observe);
 
+    // Surface the worker's own error first: it explains an early exit far
+    // better than "the observer saw nothing" would.
     assert!(ran?, "the seeded job runs");
+    let (linked, live, owner, status) =
+        observed.expect("the worker reached the gated load rather than exiting early");
     assert_eq!(status, "running", "observed while the job was in flight");
     assert!(
         linked.is_some(),
