@@ -414,6 +414,34 @@ projectors that subscribe to SierraDB and update the Postgres projections.
 - `AI_IMPORT_LEASE_SECS` – worker claim lease in seconds (default: `900`). An out-of-range number is clamped to `30..=86400`; only absent/unparsable values fall back to the default. A claim records `worker_id` + `lease_expires_at`; once the lease expires another worker may reclaim the `running` job (crash recovery, issue #177). Long jobs keep their claim via a background heartbeat (`LeaseHeartbeat`, renewing at 1/3 of the window), so the lease does not need to cover a whole multi-chunk script run. All worker-originated lifecycle writes (`mark_running`, `mark_succeeded`, `mark_failed`, `record_worker_telemetry`) are **owner-fenced**: a worker whose lease lapsed gets `DomainError::Conflict` instead of overwriting the new owner's state.
 - `AI_IMPORT_DEFAULT_PROMPTS_PATH` – optional deployment override documented for prompt packaging; the built-in fallback is `config/default_ai_prompts.toml`.
 
+> **Concurrency permits are cancellation-safe (issue #178).** The two
+> `AI_IMPORT_MAX_CONCURRENT_JOBS_*` ceilings above are enforced by one owned
+> row per permit in `ai_import.concurrency_permit`, not by an anonymous
+> counter. `Drop` cannot `.await`, so a worker cancelled during shutdown could
+> never run `release()`; recovery therefore lives in the permit itself. A
+> permit's `Drop` hands its id to the in-process reclaimer task
+> (`PgAiConcurrencyLimiter::spawn_reclaimer` — the fast path), and every row
+> carries an `expires_at` lease that the next acquisition sweeps, so even a
+> process kill self-heals within one lease window. Long holders renew via
+> `PgAiConcurrencyPermit::renew` at `permit_renewal_interval` (1/3 of the
+> window). All release paths are `DELETE ... WHERE id = $1`, so double-release
+> is impossible.
+>
+> `AiWorkerRuntime::run_job` renews the permit while the operation runs, so a
+> multi-hour script job cannot have its capacity swept out from under it (that
+> would over-admit past the ceiling); a `Conflict` aborts the job rather than
+> letting it run on capacity someone else now owns.
+>
+> **Composition-root wiring:** call `spawn_reclaimer()` and keep the returned
+> `PermitReclaimer` alive for the process lifetime. Graceful shutdown has a
+> required order, because every sender clone must be gone before the channel
+> closes and permits hold one too: (1) cancel **and join** every task that may
+> hold a permit, (2) drop every clone of the limiter, (3) await
+> `PermitReclaimer::shutdown()`. Skipping a step leaves a live sender and the
+> await hangs; dropping the handle instead aborts the task and silently
+> downgrades those reclaims to lease-only — exactly the 900s capacity outage
+> this design removes. Use `abort()` when the ordering cannot be guaranteed.
+
 #### AI payload storage (durable source/preview blobs)
 
 All three variables (`AI_PAYLOAD_S3_ENDPOINT`, `AI_PAYLOAD_S3_ACCESS_KEY`, `AI_PAYLOAD_S3_SECRET_KEY`) must be set to enable durable S3 storage for AI import payloads.

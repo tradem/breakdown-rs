@@ -12,6 +12,107 @@ commits (ADR-020 D5).
 
 ## [0.11.0] - Unreleased
 
+### Fixed — Cancellation-safe AI concurrency permits (issue #178)
+
+- `AiWorkerRuntime::run_job` holds a permit across `operation().await`, which
+  is a cancellation point. `Drop` cannot `.await`, so a worker cancelled during
+  shutdown never ran `PgAiConcurrencyPermit::release()` and the anonymous
+  `ai_import.concurrency_counter` stayed incremented forever. Because the
+  increment had no owner, a leaked unit of capacity was indistinguishable from
+  a busy one — later AI import jobs were refused admission until an operator
+  repaired the row by hand.
+- Capacity is now one owned row per permit in the new table
+  `ai_import.concurrency_permit` (migration
+  `20260810000001_ai_concurrency_permit`), which replaces and drops
+  `concurrency_counter`. Owned rows make two reclaim paths possible:
+  - **Reclaimer (fast path).** `PgAiConcurrencyLimiter::spawn_reclaimer`
+    starts a background task; every permit's `Drop` pushes its id onto an
+    unbounded channel (synchronous, non-blocking — the only thing `Drop` can
+    do) and the task performs the `DELETE`. Task cancellation therefore returns
+    capacity within milliseconds. `PermitReclaimer::shutdown` **drains** the
+    queue before returning: shutdown is when workers are cancelled en masse, so
+    the queue is fullest exactly when the reclaimer ends, and aborting there
+    would push those reclaims back onto the 900s lease. Shutdown order:
+    every sender clone must be gone before the channel closes, and permits
+    hold one too — so the composition root (1) cancels **and joins** every
+    task that may hold a permit, (2) drops every limiter clone, (3) awaits
+    `shutdown()`. Skipping a step leaves a live sender and the call would wait
+    forever; `abort()` and `Drop` remain for callers that cannot guarantee the
+    ordering or cannot await.
+  - **Lease (crash safety).** Each row carries `expires_at`. If the process
+    dies the reclaimer dies with it, so acquisition first deletes every expired
+    row and then counts. The leak is bounded by one lease window with no
+    operator action; `PgAiConcurrencyPermit::renew` (interval from
+    `permit_renewal_interval`, 1/3 of the window, mirroring `LeaseHeartbeat`)
+    keeps legitimately long holders alive. Expiry is **irreversible**: `renew`
+    is guarded by `AND expires_at > now()`, so a delayed holder cannot claw
+    back a lease the limiter is already entitled to sweep and then hold
+    capacity past its own deadline — it gets `Conflict` instead.
+  All three paths are `DELETE ... WHERE id = $1`, so double-release is
+  impossible by construction. `release()` disarms the drop hook only after a
+  *confirmed* delete — its `await` is itself a cancellation point, and an early
+  disarm would strand the row until the lease expired.
+- `AiWorkerRuntime::run_job` renews the permit while the operation runs
+  (`permit_renewal_interval`, 1/3 of the lease). A script job makes one LLM
+  call per scene chunk — at defaults up to 128 calls of up to 120s — so without
+  renewal the sweep would reclaim a *healthy* holder's row and admit a second
+  job on top of it, over-admitting past the very ceiling the limiter enforces.
+  The renewal is a `select!` loop in the operation's own task rather than a
+  spawned heartbeat: it needs only a `&` borrow (no `Arc`/clone) and is
+  inherently cancellation-correct, with nothing to join or abort. A `Conflict`
+  aborts the operation — continuing would run on capacity the limiter has
+  already handed to someone else. A transient renewal error is retried, but
+  **only inside the lease the last confirmed renewal bought**: the loop tracks
+  the confirmed deadline, never sleeps past it, bounds the renewal call itself
+  with `timeout_at`, and aborts *before* it rather than after — otherwise a run
+  of slow failures would carry the job past the point where its row becomes
+  reclaimable. The state machine is unit-tested on tokio's paused clock (renews
+  across five intervals, aborts on `Conflict`, survives a blip, extends the
+  deadline on every confirmation, aborts before expiry under sustained slow
+  failures, and never renews for a job shorter than one interval).
+- New `PgAiConcurrencyPermit::deadline` exposes the lease deadline, so a holder
+  can check its remaining headroom and operational tooling can surface
+  "capacity at risk" without reading the table.
+- All lease decisions use `clock_timestamp()`, not `now()`. `now()` is fixed at
+  transaction start, and the acquisition transaction begins *before* the
+  advisory-lock wait — under contention it would judge leases against a stale
+  instant, missing rows that have since expired and issuing permits whose
+  window silently started before the caller held the lock.
+- The permit (and therefore its reclaim hook) is constructed **before**
+  `tx.commit()`. `commit()` is an await point and a cancellation there is not
+  benign: the COMMIT may already have reached PostgreSQL, so constructing the
+  permit afterward would leave a durable row with no local owner — the exact
+  leak this module removes, reintroduced at the last possible instant.
+- Admission is serialised with `pg_advisory_xact_lock`: counting rows and
+  inserting the new one must be atomic, and a row-level lock cannot cover a row
+  that does not exist yet, so two concurrent acquisitions could otherwise both
+  observe `count < limit` and over-admit.
+- Both lease bounds derive from one named `LEASE_UNIT_SECS` (mirroring the
+  claim-lease constants in `ai::queue`), with two compile-time assertions: the
+  floor/default ordering, and that a renewal still fits strictly inside even
+  the *shortest* permitted lease — so raising `RENEWALS_PER_LEASE` or lowering
+  the floor cannot silently invert the relationship.
+- New additive API: `PgAiConcurrencyLimiter::{spawn_reclaimer, with_lease,
+  lease, try_acquire_as, in_flight}`, `PgAiConcurrencyPermit::{id, lease, renew}`,
+  `AiWorkerRuntime::run_job_as`, `PermitReclaimer::{shutdown, abort}`,
+  `permit_renewal_interval`, `DEFAULT_PERMIT_LEASE`,
+  `PgAiConcurrencyPermit::deadline`. `try_acquire`, `release` and `run_job`
+  keep their signatures; `run_job` additionally renews the lease it holds.
+- Covered by `integration-tests/tests/ai_concurrency_permit_cancellation.rs`:
+  a task aborted after acquisition leaves no permit row and the next job
+  acquires the capacity; the lifecycle guard does not survive cancellation;
+  normal completion and operation errors both release exactly once with the
+  result/error preserved; an expired lease is reclaimed by the next
+  acquisition; `renew` moves a live deadline forward but reports `Conflict`
+  once the permit is expired or swept; `PermitReclaimer::shutdown` drains
+  queued reclaims rather than discarding them; and cancelling `try_acquire`
+  itself strands no permit. The last test sweeps 40 increasingly late
+  cancellation points as best-effort *coverage* of the commit window, not as a
+  timing assertion: the invariant it checks (capacity returns without a lease
+  wait) must hold for every cancellation point, so no iteration has to land in
+  a particular microsecond. Lease expiry is written into the past rather
+  than slept out, keeping the suite timing-safe.
+
 ### Changed
 
 - Re-pins `breakdown_core` to 0.7.0 (owner-fenced `AiImportQueue` lifecycle
