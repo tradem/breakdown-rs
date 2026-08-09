@@ -143,7 +143,7 @@ impl PgAiConcurrencyLimiter {
         self
     }
 
-    /// Start the in-process reclaimer and arm every permit issued afterwards
+    /// Start the in-process reclaimer and arm every permit issued afterward
     /// with a drop hook.
     ///
     /// The returned handle owns the background task. Keep it alive for as long

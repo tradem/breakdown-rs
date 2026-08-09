@@ -81,7 +81,7 @@ commits (ADR-020 D5).
 - The permit (and therefore its reclaim hook) is constructed **before**
   `tx.commit()`. `commit()` is an await point and a cancellation there is not
   benign: the COMMIT may already have reached PostgreSQL, so constructing the
-  permit afterwards would leave a durable row with no local owner — the exact
+  permit afterward would leave a durable row with no local owner — the exact
   leak this module removes, reintroduced at the last possible instant.
 - Admission is serialised with `pg_advisory_xact_lock`: counting rows and
   inserting the new one must be atomic, and a row-level lock cannot cover a row
@@ -106,8 +106,11 @@ commits (ADR-020 D5).
   acquisition; `renew` moves a live deadline forward but reports `Conflict`
   once the permit is expired or swept; `PermitReclaimer::shutdown` drains
   queued reclaims rather than discarding them; and cancelling `try_acquire`
-  itself — swept across 40 increasingly late cancellation points, so the commit
-  race is hit without depending on one exact delay — strands no permit. Lease expiry is written into the past rather
+  itself strands no permit. The last test sweeps 40 increasingly late
+  cancellation points as best-effort *coverage* of the commit window, not as a
+  timing assertion: the invariant it checks (capacity returns without a lease
+  wait) must hold for every cancellation point, so no iteration has to land in
+  a particular microsecond. Lease expiry is written into the past rather
   than slept out, keeping the suite timing-safe.
 
 ### Changed

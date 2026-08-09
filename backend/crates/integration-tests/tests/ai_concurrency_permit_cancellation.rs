@@ -232,9 +232,16 @@ async fn cancelling_an_acquisition_leaves_no_orphan_permit() -> Result<()> {
     // call. The interesting instant is the final `commit()`: PostgreSQL may
     // have durably written the row even though the future never returned, so
     // the id must already be owned by a permit whose drop hook can reclaim it.
-    // Sweeping the cancellation point instead of guessing one exact delay is
-    // what makes this deterministic — no assertion depends on hitting a
-    // particular microsecond.
+    //
+    // The sweep is best-effort *coverage*, not a timing assertion — which is
+    // precisely why the test cannot flake. Nothing below depends on a
+    // particular iteration landing inside the commit window; the invariant
+    // asserted afterward ("capacity comes back without a lease wait") must
+    // hold for every cancellation point, including the ones that cancel before
+    // the INSERT or after the permit is already returned. A deterministic
+    // synchronisation hook at the commit boundary would pin the window exactly,
+    // but it would also mean a test-only branch inside a production hot path,
+    // which `rules/test-shim-leak.yml` forbids.
     for attempt in 0..40u32 {
         let acquiring = Arc::clone(&limiter);
         let task =
