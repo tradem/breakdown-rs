@@ -41,9 +41,13 @@ and make the version **recoverable** from the event store on the retry path.
 async fn reserve(&self, mapping: AiImportMapping) -> Result<AiImportMapping, DomainError>;
 ```
 
-`reserve` is an `INSERT ... ON CONFLICT (preview_id, draft_ref) DO NOTHING`
-followed by a read of the winning row, so it returns the *durable* mapping —
-either the one just written or the one a previous attempt wrote. The
+`reserve` is a **single** `INSERT ... ON CONFLICT (preview_id, draft_ref) DO
+UPDATE ... RETURNING` statement, so it returns the *durable* mapping — either
+the one just written or the one a previous attempt wrote. The degenerate
+`DO UPDATE SET aggregate_kind = <itself>` is deliberate: only an
+actually-updated row is visible to `RETURNING`, so a plain `DO NOTHING` would
+return nothing on conflict and force a second read that races a concurrent
+confirm. Self-assignment changes no value while still yielding the row. The
 reservation carries `aggregate_version: AggregateVersion(0)`, which already
 means "no version yet" in this codebase (`version_from_current(Empty)` →
 `AggregateVersion(0)`), so **no migration is required**: the column is a

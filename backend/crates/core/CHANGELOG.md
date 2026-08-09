@@ -32,7 +32,7 @@ commits (ADR-020 D5).
   *API-visible:* `POST /scenes/{id}/shooting-days` for an already-scheduled day
   now returns `200 OK` with the unchanged version instead of `409 Conflict`.
 
-### Added
+### Added — mapping reservation state (issue #179)
 
 - `AiImportMapping::reservation(..)`, `AiImportMapping::is_reserved()` and
   `AiImportMapping::RESERVED_VERSION` describe the two-phase
