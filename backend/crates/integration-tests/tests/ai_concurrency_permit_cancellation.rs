@@ -36,9 +36,9 @@ use infra::ai::{AiWorkerRuntime, PgAiConcurrencyLimiter};
 use sqlx::PgPool;
 use tokio::sync::oneshot;
 
-/// Bound for the reclaimer round-trip (channel hand-off + one DELETE). Two
+/// Bound for the reclaimer round-trip (channel hand-off + one DELETE). Five
 /// seconds is orders of magnitude above the expected latency; the test still
-/// fails fast because it polls.
+/// fails fast because it polls rather than sleeps out the budget.
 const RECLAIM_DEADLINE: Duration = Duration::from_secs(5);
 const POLL_INTERVAL: Duration = Duration::from_millis(25);
 
@@ -226,6 +226,36 @@ async fn operation_error_propagates_and_still_releases() -> Result<()> {
         permit_rows(&pool).await,
         0,
         "a failed job must release its permit too"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn reclaimer_shutdown_drains_queued_reclaims() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    // Two slots so several permits can be in flight at once, which is what
+    // makes the queue non-empty at shutdown.
+    let (limiter, reclaimer) = PgAiConcurrencyLimiter::new(pool.clone(), 2, 2)?.spawn_reclaimer();
+
+    let first = limiter.try_acquire("drain-a").await?.expect("slot 1 free");
+    let second = limiter.try_acquire("drain-b").await?.expect("slot 2 free");
+    assert_eq!(permit_rows(&pool).await, 2);
+
+    // Simulate the shutdown ordering: cancelled workers drop their permits
+    // (enqueueing reclaims), then the limiter is dropped so the channel can
+    // close, then the reclaimer is drained.
+    drop(first);
+    drop(second);
+    drop(limiter);
+    reclaimer.shutdown().await;
+
+    // No polling: `shutdown` returning means the loop observed channel close
+    // *after* processing everything queued before it. An aborting shutdown
+    // would leave these rows for the 900s lease.
+    assert_eq!(
+        permit_rows(&pool).await,
+        0,
+        "shutdown must drain queued reclaims instead of discarding them"
     );
     Ok(())
 }

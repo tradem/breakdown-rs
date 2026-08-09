@@ -41,7 +41,6 @@
 //! Neither mechanism can double-free: release, drop-reclaim and lease-reclaim
 //! are all `DELETE ... WHERE id = $1`, which is idempotent by construction.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
@@ -50,26 +49,42 @@ use sqlx::PgPool;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use uuid::Uuid;
 
-/// Default permit lease. Matches the AI import claim horizon
-/// (`AI_IMPORT_LEASE_SECS` default, 900s) so operators reason about a single
-/// recovery window: a job whose worker died is reclaimable at roughly the same
-/// time as the capacity it held.
-pub const DEFAULT_PERMIT_LEASE: Duration = Duration::from_secs(900);
-
-/// Floor for the permit lease. A near-zero lease would let an acquisition
-/// reclaim the permit of a *healthy* holder mid-job, over-admitting work; the
-/// floor keeps the lease comfortably above one renewal interval.
-const MIN_PERMIT_LEASE: Duration = Duration::from_secs(30);
-
-// The lease must exceed the renewal interval, otherwise a holder could never
-// renew in time and every long job would be over-admitted.
-const _LEASE_INVARIANT: () = assert!(
-    MIN_PERMIT_LEASE.as_secs() > 0 && MIN_PERMIT_LEASE.as_secs() <= DEFAULT_PERMIT_LEASE.as_secs()
-);
-
 /// How many renewals fit in one lease window (two spare renewals absorb a
 /// transient database blip), mirroring [`super::heartbeat`].
 const RENEWALS_PER_LEASE: u32 = 3;
+
+/// The one named unit both lease bounds derive from: the recovery horizon
+/// shared with the AI import claim lease (`LEASE_UNIT_SECS` in
+/// [`super::queue`], 900s), so operators reason about a single window.
+/// Deriving both bounds from it keeps their ordering true by construction when
+/// the horizon is retuned.
+const LEASE_UNIT_SECS: u64 = 900;
+
+/// How much shorter than one horizon the floor may be.
+const MIN_LEASE_DIVISOR: u64 = 30;
+
+/// Default permit lease: one recovery horizon. A job whose worker died is
+/// reclaimable at roughly the same time as the capacity it held.
+pub const DEFAULT_PERMIT_LEASE: Duration = Duration::from_secs(LEASE_UNIT_SECS);
+
+/// Floor for the permit lease (1/30th of the horizon, 30s). A near-zero lease
+/// would let an acquisition reclaim the permit of a *healthy* holder mid-job,
+/// over-admitting work.
+const MIN_PERMIT_LEASE: Duration = Duration::from_secs(LEASE_UNIT_SECS / MIN_LEASE_DIVISOR);
+
+// Ordering invariant: a zero floor would defeat the clamp in `with_lease`, and
+// an inverted range would make the default itself unreachable.
+const _LEASE_ORDERING_INVARIANT: () = assert!(
+    MIN_PERMIT_LEASE.as_secs() > 0 && MIN_PERMIT_LEASE.as_secs() <= DEFAULT_PERMIT_LEASE.as_secs()
+);
+
+// Renewal invariant, asserted on the *shortest* permitted lease because that is
+// the worst case: even there a renewal must fall strictly before expiry, or a
+// healthy long-running holder would always be reclaimed mid-flight. This binds
+// `RENEWALS_PER_LEASE` and the floor together, so raising the former or
+// lowering the latter cannot silently invert the relationship.
+const _RENEWAL_FITS_IN_LEASE: () =
+    assert!(MIN_PERMIT_LEASE.as_secs() > MIN_PERMIT_LEASE.as_secs() / RENEWALS_PER_LEASE as u64);
 
 /// Renewal interval for a lease window. Holders that may outlive the lease
 /// call [`PgAiConcurrencyPermit::renew`] at this cadence.
@@ -130,15 +145,23 @@ impl PgAiConcurrencyLimiter {
     /// Start the in-process reclaimer and arm every permit issued afterwards
     /// with a drop hook.
     ///
-    /// The returned handle owns the background task; dropping it stops the
-    /// task. Keep it alive for as long as the limiter is used (in the
-    /// composition root: for the process lifetime).
+    /// The returned handle owns the background task. Keep it alive for as long
+    /// as the limiter is used and end it with
+    /// [`PermitReclaimer::shutdown`] — *after* dropping every clone of the
+    /// limiter, so the channel closes and the loop can finish the ids the
+    /// cancelled workers just enqueued. Dropping the handle instead aborts the
+    /// task and leaves those ids to their lease.
     #[must_use]
     pub fn spawn_reclaimer(mut self) -> (Self, PermitReclaimer) {
         let (sender, receiver) = mpsc::unbounded_channel();
         let handle = tokio::spawn(reclaim_loop(self.pool.clone(), receiver));
         self.reclaimer = Some(sender);
-        (self, PermitReclaimer { handle })
+        (
+            self,
+            PermitReclaimer {
+                handle: Some(handle),
+            },
+        )
     }
 
     /// The active permit lease window.
@@ -254,7 +277,7 @@ impl PgAiConcurrencyLimiter {
             pool: self.pool.clone(),
             lease: self.lease,
             reclaimer: self.reclaimer.clone(),
-            released: Arc::new(AtomicBool::new(false)),
+            released: AtomicBool::new(false),
         }))
     }
 
@@ -275,23 +298,53 @@ impl PgAiConcurrencyLimiter {
 /// (`b"AI_CONC "` read as a big-endian i64).
 const ADMISSION_LOCK_ID: i64 = 4_704_396_028_463_170_336;
 
-/// Handle of the background reclaimer task. Dropping it stops the task, so it
-/// must be kept alive for as long as permits are issued.
+/// Handle of the background reclaimer task. It must be kept alive for as long
+/// as permits are issued, and ended with [`shutdown`](Self::shutdown).
 pub struct PermitReclaimer {
-    handle: tokio::task::JoinHandle<()>,
+    handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl PermitReclaimer {
-    /// Stop the reclaimer. Any permit dropped afterwards is recovered by its
-    /// lease instead of immediately.
-    pub fn stop(self) {
-        self.handle.abort();
+    /// Drain and stop: wait until every permit id already queued has been
+    /// deleted, then return.
+    ///
+    /// This is the graceful-shutdown path and the one that matters most.
+    /// Shutdown is exactly when workers are cancelled *en masse*, so the queue
+    /// is at its fullest precisely when the reclaimer is ending; aborting here
+    /// would discard those ids and hand back their capacity only after a full
+    /// lease window — the very outcome this module exists to prevent.
+    ///
+    /// **Every clone of the limiter must be dropped first**, otherwise the
+    /// channel never closes and this call waits forever. Callers that cannot
+    /// guarantee that (or cannot await) use [`abort`](Self::abort).
+    pub async fn shutdown(mut self) {
+        let Some(handle) = self.handle.take() else {
+            return;
+        };
+        if let Err(error) = handle.await {
+            tracing::error!(
+                error = %error,
+                "AI concurrency reclaimer task failed during shutdown"
+            );
+        }
+    }
+
+    /// Stop immediately, discarding queued reclaims. Their capacity returns
+    /// when the lease expires.
+    pub fn abort(mut self) {
+        if let Some(handle) = self.handle.take() {
+            handle.abort();
+        }
     }
 }
 
 impl Drop for PermitReclaimer {
     fn drop(&mut self) {
-        self.handle.abort();
+        // Last resort for callers that cannot await: `Drop` cannot drain.
+        // `shutdown`/`abort` have already taken the handle in the normal paths.
+        if let Some(handle) = self.handle.take() {
+            handle.abort();
+        }
     }
 }
 
@@ -330,7 +383,7 @@ pub struct PgAiConcurrencyPermit {
     pool: PgPool,
     lease: Duration,
     reclaimer: Option<UnboundedSender<Uuid>>,
-    released: Arc<AtomicBool>,
+    released: AtomicBool,
 }
 
 impl PgAiConcurrencyPermit {
@@ -349,11 +402,17 @@ impl PgAiConcurrencyPermit {
     /// Return the capacity. Idempotent: the row is deleted by id, and the drop
     /// hook is disarmed so the reclaimer is not asked to repeat the work.
     pub async fn release(self) -> Result<(), DomainError> {
-        // Disarm first: if the delete below fails, `Drop` must not *also*
-        // enqueue a reclaim — the error is propagated to the caller and the
-        // lease remains the backstop.
-        self.released.store(true, Ordering::Release);
-        delete_permit(&self.pool, self.id).await.map(|_| ())
+        let outcome = delete_permit(&self.pool, self.id).await;
+        // Disarm only on a *confirmed* delete. The await above is itself a
+        // cancellation point: if the task is dropped there the statement never
+        // reached PostgreSQL, and an early disarm would make `Drop` skip the
+        // reclaimer and strand the row until its lease expires. A failed
+        // delete stays armed for the same reason — the error is still returned
+        // to the caller, and the reclaimer retries the (idempotent) delete.
+        if outcome.is_ok() {
+            self.released.store(true, Ordering::Release);
+        }
+        outcome.map(|_| ())
     }
 
     /// Extend the lease. Holders whose work can outlive one lease window renew

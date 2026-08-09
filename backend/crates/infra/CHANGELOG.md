@@ -29,7 +29,12 @@ commits (ADR-020 D5).
     starts a background task; every permit's `Drop` pushes its id onto an
     unbounded channel (synchronous, non-blocking — the only thing `Drop` can
     do) and the task performs the `DELETE`. Task cancellation therefore returns
-    capacity within milliseconds.
+    capacity within milliseconds. `PermitReclaimer::shutdown` **drains** the
+    queue before returning: shutdown is when workers are cancelled en masse, so
+    the queue is fullest exactly when the reclaimer ends, and aborting there
+    would push those reclaims back onto the 900s lease. The composition root
+    drops every limiter clone first (closing the channel), then awaits
+    `shutdown()`; `abort()` and `Drop` remain for callers that cannot await.
   - **Lease (crash safety).** Each row carries `expires_at`. If the process
     dies the reclaimer dies with it, so acquisition first deletes every expired
     row and then counts. The leak is bounded by one lease window with no
@@ -37,25 +42,32 @@ commits (ADR-020 D5).
     `permit_renewal_interval`, 1/3 of the window, mirroring `LeaseHeartbeat`)
     keeps legitimately long holders alive.
   All three paths are `DELETE ... WHERE id = $1`, so double-release is
-  impossible by construction, and `release()` disarms the drop hook so the
-  normal path frees exactly once.
+  impossible by construction. `release()` disarms the drop hook only after a
+  *confirmed* delete — its `await` is itself a cancellation point, and an early
+  disarm would strand the row until the lease expired.
 - Admission is serialised with `pg_advisory_xact_lock`: counting rows and
   inserting the new one must be atomic, and a row-level lock cannot cover a row
   that does not exist yet, so two concurrent acquisitions could otherwise both
   observe `count < limit` and over-admit.
+- Both lease bounds derive from one named `LEASE_UNIT_SECS` (mirroring the
+  claim-lease constants in `ai::queue`), with two compile-time assertions: the
+  floor/default ordering, and that a renewal still fits strictly inside even
+  the *shortest* permitted lease — so raising `RENEWALS_PER_LEASE` or lowering
+  the floor cannot silently invert the relationship.
 - New additive API: `PgAiConcurrencyLimiter::{spawn_reclaimer, with_lease,
   lease, try_acquire_as, in_flight}`, `PgAiConcurrencyPermit::{id, lease, renew}`,
-  `AiWorkerRuntime::run_job_as`, `PermitReclaimer`, `permit_renewal_interval`,
-  `DEFAULT_PERMIT_LEASE`. `try_acquire`, `release` and `run_job` keep their
-  signatures and behaviour.
+  `AiWorkerRuntime::run_job_as`, `PermitReclaimer::{shutdown, abort}`,
+  `permit_renewal_interval`, `DEFAULT_PERMIT_LEASE`. `try_acquire`, `release`
+  and `run_job` keep their signatures and behaviour.
 - Covered by `integration-tests/tests/ai_concurrency_permit_cancellation.rs`:
   a task aborted after acquisition leaves no permit row and the next job
   acquires the capacity; the lifecycle guard does not survive cancellation;
   normal completion and operation errors both release exactly once with the
   result/error preserved; an expired lease is reclaimed by the next
-  acquisition; and `renew` extends a live lease but reports `Conflict` once the
-  permit has been swept. Lease expiry is written into the past rather than
-  slept out, keeping the suite timing-safe.
+  acquisition; `renew` extends a live lease but reports `Conflict` once the
+  permit has been swept; and `PermitReclaimer::shutdown` drains queued reclaims
+  rather than discarding them. Lease expiry is written into the past rather
+  than slept out, keeping the suite timing-safe.
 
 ### Changed
 
