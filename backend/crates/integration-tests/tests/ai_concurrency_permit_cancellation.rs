@@ -19,16 +19,14 @@
 //! deadline into the past, never by sleeping, and the reclaimer race is
 //! resolved by polling with a bounded deadline rather than by a fixed sleep.
 //!
-//! Capacity is always observed through the public
-//! `PgAiConcurrencyLimiter::in_flight`. Raw SQL is used in exactly two places,
-//! both touching `expires_at`, which is operational claim bookkeeping with no
-//! public accessor (same rationale as `ai_import_queue_lease.rs`):
-//!   * one `UPDATE` that moves a deadline into the past — the alternative
-//!     would be sleeping out the 30-second lease floor, which the
-//!     deterministic-test rule forbids;
-//!   * one `SELECT` that reads a deadline back, so "renew extended the lease"
-//!     can be asserted as a database-side comparison (`new > old`) without
-//!     involving the test process' clock.
+//! State is observed only through the public API —
+//! `PgAiConcurrencyLimiter::in_flight` for capacity and
+//! `PgAiConcurrencyPermit::deadline` for the lease. Raw SQL appears in exactly
+//! one place: an `UPDATE` that moves a deadline into the past, because expiry
+//! has no public setter (it is not something production code may do) and the
+//! alternative would be sleeping out the 30-second lease floor, which the
+//! deterministic-test rule forbids. This is the same carve-out
+//! `ai_import_queue_lease.rs` makes for `lease_expires_at`.
 
 // Test-only lint suppressions: an unmet expectation must abort the test rather
 // than be threaded through a Result.
@@ -40,27 +38,15 @@ use std::time::Duration;
 
 use anyhow::Result;
 use breakdown_core::error::DomainError;
-use chrono::{DateTime, Utc};
 use infra::ai::{AiWorkerRuntime, PgAiConcurrencyLimiter};
 use sqlx::PgPool;
 use tokio::sync::oneshot;
-use uuid::Uuid;
 
 /// Bound for the reclaimer round-trip (channel hand-off + one DELETE). Five
 /// seconds is orders of magnitude above the expected latency; the test still
 /// fails fast because it polls rather than sleeps out the budget.
 const RECLAIM_DEADLINE: Duration = Duration::from_secs(5);
 const POLL_INTERVAL: Duration = Duration::from_millis(25);
-
-/// Read a permit's lease deadline. Kept as raw SQL on purpose: `expires_at` is
-/// operational bookkeeping and is not exposed on any public type.
-async fn permit_deadline(pool: &PgPool, id: Uuid) -> Option<DateTime<Utc>> {
-    sqlx::query_scalar("SELECT expires_at FROM ai_import.concurrency_permit WHERE id = $1")
-        .bind(id)
-        .fetch_optional(pool)
-        .await
-        .unwrap()
-}
 
 /// Poll until the limiter reports no in-flight permits, or fail at the
 /// deadline. Polling (not sleeping) keeps the test fast and deterministic.
@@ -314,8 +300,9 @@ async fn renew_extends_the_lease_of_a_live_permit() -> Result<()> {
         .try_acquire("long-user")
         .await?
         .expect("capacity is free");
-    let before = permit_deadline(&pool, permit.id())
-        .await
+    let before = permit
+        .deadline()
+        .await?
         .expect("a live permit has a deadline");
 
     permit
@@ -323,8 +310,9 @@ async fn renew_extends_the_lease_of_a_live_permit() -> Result<()> {
         .await
         .expect("a live holder must be able to push its deadline out");
 
-    let after = permit_deadline(&pool, permit.id())
-        .await
+    let after = permit
+        .deadline()
+        .await?
         .expect("renewal must not remove the permit");
     // Both timestamps come from the database (`now()`), so this comparison
     // never involves the test process' clock.

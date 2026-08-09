@@ -427,13 +427,20 @@ projectors that subscribe to SierraDB and update the Postgres projections.
 > window). All release paths are `DELETE ... WHERE id = $1`, so double-release
 > is impossible.
 >
+> `AiWorkerRuntime::run_job` renews the permit while the operation runs, so a
+> multi-hour script job cannot have its capacity swept out from under it (that
+> would over-admit past the ceiling); a `Conflict` aborts the job rather than
+> letting it run on capacity someone else now owns.
+>
 > **Composition-root wiring:** call `spawn_reclaimer()` and keep the returned
-> `PermitReclaimer` alive for the process lifetime. On graceful shutdown, drop
-> every clone of the limiter **first** (this closes the channel), then await
-> `PermitReclaimer::shutdown()` so the ids the just-cancelled workers enqueued
-> are actually deleted. Dropping the handle instead aborts the task and
-> silently downgrades those reclaims to lease-only — exactly the 900s capacity
-> outage this design removes.
+> `PermitReclaimer` alive for the process lifetime. Graceful shutdown has a
+> required order, because every sender clone must be gone before the channel
+> closes and permits hold one too: (1) cancel **and join** every task that may
+> hold a permit, (2) drop every clone of the limiter, (3) await
+> `PermitReclaimer::shutdown()`. Skipping a step leaves a live sender and the
+> await hangs; dropping the handle instead aborts the task and silently
+> downgrades those reclaims to lease-only — exactly the 900s capacity outage
+> this design removes. Use `abort()` when the ordering cannot be guaranteed.
 
 #### AI payload storage (durable source/preview blobs)
 

@@ -45,6 +45,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use breakdown_core::error::DomainError;
+use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use uuid::Uuid;
@@ -314,9 +315,18 @@ impl PermitReclaimer {
     /// would discard those ids and hand back their capacity only after a full
     /// lease window — the very outcome this module exists to prevent.
     ///
-    /// **Every clone of the limiter must be dropped first**, otherwise the
-    /// channel never closes and this call waits forever. Callers that cannot
-    /// guarantee that (or cannot await) use [`abort`](Self::abort).
+    /// **Shutdown order matters.** Every sender clone must be gone before the
+    /// channel can close, and permits hold one too — so:
+    ///   1. cancel *and join* every task that may hold a
+    ///      [`PgAiConcurrencyPermit`] (joining is what guarantees the permit
+    ///      was actually dropped, not merely that cancellation was requested);
+    ///   2. drop every clone of the [`PgAiConcurrencyLimiter`];
+    ///   3. `shutdown().await`.
+    ///
+    /// Skipping step 1 or 2 leaves a live sender and this call waits forever.
+    /// Callers that cannot guarantee the ordering (or cannot await) use
+    /// [`abort`](Self::abort), which gives up the queued reclaims to their
+    /// lease instead of hanging.
     pub async fn shutdown(mut self) {
         let Some(handle) = self.handle.take() else {
             return;
@@ -397,6 +407,27 @@ impl PgAiConcurrencyPermit {
     #[must_use]
     pub const fn lease(&self) -> Duration {
         self.lease
+    }
+
+    /// The permit's current lease deadline, or `None` if it has already been
+    /// reclaimed.
+    ///
+    /// This is the observation counterpart to [`renew`](Self::renew): a holder
+    /// doing unusually long work can check how much headroom is left before
+    /// the sweep would take its capacity, and operational tooling can surface
+    /// "capacity at risk" without reading the table directly. The value comes
+    /// from the database, so it is comparable with other deadlines regardless
+    /// of the caller's clock.
+    pub async fn deadline(&self) -> Result<Option<DateTime<Utc>>, DomainError> {
+        sqlx::query_scalar(
+            r#"
+            SELECT expires_at FROM ai_import.concurrency_permit WHERE id = $1
+            "#,
+        )
+        .bind(self.id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx_error)
     }
 
     /// Return the capacity. Idempotent: the row is deleted by id, and the drop
