@@ -49,10 +49,11 @@ instead of re-selecting the same head of the queue on every run.
   a delete of a nonexistent object as success, so the failure cannot be
   produced through the real adapter without failing the whole batch.
 - New migration pair `20260813000001` (table) and `20260813000002` (partial
-  index `idx_ai_import_job_retention` on `(updated_at) WHERE status IN
-  (terminal)`, built `CONCURRENTLY` in its own `-- no-transaction` file). The
-  sweep previously had no usable index for its `updated_at` ordering; that was
-  tolerable only while it re-read a parked head.
+  index `idx_ai_import_job_retention` on `(updated_at)` covering only
+  `status IN ('succeeded', 'dead_letter', 'payload_unavailable')`, built
+  `CONCURRENTLY` in its own `-- no-transaction` file). The sweep previously had
+  no usable index for its `updated_at` ordering; that was tolerable only while
+  it re-read a parked head.
 
 ### Changed — Deterministic schedule-apply ids close the retry crash window (issue #182)
 
