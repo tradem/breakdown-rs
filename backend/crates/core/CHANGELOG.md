@@ -12,6 +12,25 @@ commits (ADR-020 D5).
 
 ## [0.7.0] - Unreleased
 
+### Added — Non-resumable AI import jobs (issue #181)
+
+- `JobStatus::PayloadUnavailable` (`"payload_unavailable"`): a terminal status
+  for a job whose durable payload — source document or preview blob — is gone.
+  It is deliberately distinct from `DeadLetter`: a dead-lettered job exhausted
+  its retries against a real failure, this one has no input left to retry
+  *with*. Only *absence* leads here; storage that is merely unreachable stays
+  on the retryable path.
+  *Note for exhaustive `match`es on `JobStatus`* — the enum is not
+  `#[non_exhaustive]`, so an exhaustive match must add the arm.
+- `JobStatus::is_terminal()` / `JobStatus::is_non_resumable()`. `is_terminal`
+  deliberately excludes `Failed`, which is the *retryable* backoff state:
+  payload retention keys off this predicate, and misclassifying `Failed` would
+  delete the source document of a job that is still scheduled to run.
+- `AiImportQueue::mark_payload_unavailable(id, worker_id, error_summary)`,
+  **defaulted** (delegates to `mark_failed(.., retryable = false)`) so
+  in-memory and test queues need no change. Owner-fenced like the other worker
+  transitions.
+
 ### Added — AI import permit reconciliation ports (issue #180)
 
 - `AiImportQueue` gains three **defaulted** (non-breaking) methods:

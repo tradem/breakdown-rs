@@ -53,7 +53,10 @@ pub use pg_concurrency::{
     DEFAULT_PERMIT_LEASE, PermitReclaimer, PgAiConcurrencyLimiter, PgAiConcurrencyPermit,
     permit_renewal_interval,
 };
-pub use preview_store::{AiDocumentSource, AiDocumentStore, AiPreviewStore, MemoryAiPreviewStore};
+pub use preview_store::{
+    AiDocumentSource, AiDocumentStore, AiPreviewStore, MemoryAiPreviewStore,
+    UnconfiguredAiPayloadStore,
+};
 pub use prompts::default_prompt;
 pub use provider_registry::{
     PROVIDER_REGISTRY, ProviderInfo, curated_models, list_providers, resolve_provider,
@@ -74,6 +77,8 @@ pub use workers::{
 
 use breakdown_core::ai::{AiImportBounds, CuratedLlmProvider, LlmProvider};
 
+#[cfg(test)]
+mod payload_recovery_tests;
 #[cfg(test)]
 mod tests;
 

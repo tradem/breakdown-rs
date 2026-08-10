@@ -296,6 +296,34 @@ pub trait AiImportQueue: Send + Sync {
         error_summary: &str,
         retryable: bool,
     ) -> Result<(), DomainError>;
+
+    /// Terminate the job as [`JobStatus::PayloadUnavailable`] (issue #181).
+    ///
+    /// Called when a worker finds that a durable payload the job needs — its
+    /// source document or its preview blob — is *absent* from storage. The
+    /// remaining retry budget is deliberately bypassed: every retry could only
+    /// re-discover the same absence, while consuming a concurrency permit and
+    /// a claim each time.
+    ///
+    /// Only absence leads here. A storage backend that is merely unreachable
+    /// yields `DomainError::ServiceUnavailable` and must keep using
+    /// [`mark_failed`](Self::mark_failed) with `retryable = true`, because the
+    /// bytes may well still be there.
+    ///
+    /// Owner-fenced like every other worker transition.
+    ///
+    /// The default implementation records a non-retryable failure, which is
+    /// the closest equivalent for backends without the distinct status
+    /// (in-memory and test queues).
+    async fn mark_payload_unavailable(
+        &self,
+        id: AiImportJobId,
+        worker_id: &str,
+        error_summary: &str,
+    ) -> Result<(), DomainError> {
+        self.mark_failed(id, worker_id, error_summary, false).await
+    }
+
     /// Record telemetry produced by a *worker* while it holds the claim.
     ///
     /// Owner-fenced like the other worker transitions: a displaced worker must

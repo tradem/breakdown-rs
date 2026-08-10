@@ -523,6 +523,45 @@ impl AiImportQueue for PgAiImportQueue {
         ensure_claim_owned(result.rows_affected(), id, worker_id, "fail")
     }
 
+    /// Terminate a job whose durable payload is gone (issue #181).
+    ///
+    /// Unlike `mark_failed`, `retries` is left untouched and no
+    /// `next_attempt_at` is set: this is not an attempt that failed, it is the
+    /// discovery that there is nothing left to attempt. The claim, lease and
+    /// permit link are cleared exactly as on the other terminal paths, so no
+    /// reclaim can resurrect the job and no stale permit id survives the
+    /// holder's release.
+    ///
+    /// Owner-fenced: a worker whose lease lapsed must not stamp this terminal
+    /// state over the result of the worker that reclaimed the job.
+    async fn mark_payload_unavailable(
+        &self,
+        id: AiImportJobId,
+        worker_id: &str,
+        error_summary: &str,
+    ) -> Result<(), DomainError> {
+        let result = sqlx::query(
+            r#"
+            UPDATE ai_import.ai_import_job
+            SET status = 'payload_unavailable',
+                last_error = LEFT($3, 1000),
+                next_attempt_at = NULL,
+                worker_id = NULL,
+                lease_expires_at = NULL,
+                permit_id = NULL,
+                updated_at = now()
+            WHERE id = $1 AND status = 'running' AND worker_id = $2
+            "#,
+        )
+        .bind(id.as_uuid())
+        .bind(worker_id)
+        .bind(error_summary)
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        ensure_claim_owned(result.rows_affected(), id, worker_id, "mark the payload of")
+    }
+
     /// Owner-fenced telemetry write for a worker that still holds the claim.
     ///
     /// Without the fence a displaced worker's telemetry would commit over the
@@ -759,6 +798,7 @@ fn parse_status(value: String) -> Result<JobStatus, DomainError> {
         "succeeded" => Ok(JobStatus::Succeeded),
         "failed" => Ok(JobStatus::Failed),
         "dead_letter" => Ok(JobStatus::DeadLetter),
+        "payload_unavailable" => Ok(JobStatus::PayloadUnavailable),
         other => Err(DomainError::ValidationError(format!(
             "unknown AI job status {other}"
         ))),

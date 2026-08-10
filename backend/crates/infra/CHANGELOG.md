@@ -12,6 +12,61 @@ commits (ADR-020 D5).
 
 ## [0.12.0] - Unreleased
 
+### Added — AI import restart-recovery semantics (issue #181)
+
+Durable payload storage (#174) made a restart survivable; this release defines
+what happens when a payload is nonetheless missing, and stops cleanup from
+causing that case.
+
+- `PgAiImportQueue::mark_payload_unavailable`: owner-fenced terminal transition
+  to `payload_unavailable`. `retries` is left untouched and no
+  `next_attempt_at` is set — this is not an attempt that failed, it is the
+  discovery that there is nothing left to attempt. Claim, lease and permit link
+  are cleared like on every other terminal path, so no reclaim can resurrect
+  the job. The claim predicates enumerate `pending` / `failed` /
+  expired-`running`, so the new status is unclaimable by construction.
+- `ScriptImportWorker` / `ScheduleImportWorker`: a payload load that fails with
+  `NotFound` now terminates the job as `payload_unavailable` instead of
+  consuming a retry. `ServiceUnavailable` (storage unreachable, bytes probably
+  still there) stays retryable — the distinction is the whole point.
+- `QueueMergeWorker`: **behaviour change.** A missing schedule preview blob was
+  marked `retryable = true`, so a permanently lost payload burned the entire
+  retry budget before dead-lettering. It is now terminated as
+  `payload_unavailable` on the first attempt.
+- **Payload GC retention fix.** The sweep matched `status IN ('succeeded',
+  'failed', 'dead_letter')`, but `failed` is the *retryable* state: a job sits
+  there with a backoff and is claimed again once it is due. The sweep therefore
+  deleted the source document of jobs that were still scheduled to run,
+  manufacturing the missing-payload case above. The sweep now matches exactly
+  `succeeded`, `dead_letter` and `payload_unavailable`.
+  `failed` is excluded **unconditionally**, not merely while it has retry
+  budget left: the claim predicates match `status = 'failed' AND
+  (next_attempt_at IS NULL OR next_attempt_at <= now())` and never consult
+  `retries`, so even a budget-exhausted `failed` row is still claimable.
+  Nothing leaks, because `mark_failed` dead-letters a job in the same statement
+  that exhausts its budget.
+- `UnconfiguredAiPayloadStore`: null-object `AiPreviewStore` / `AiDocumentStore`
+  / `AiDocumentSource` that refuses every operation with `ServiceUnavailable`
+  (never `NotFound`, which is the signal that permanently dead-ends a job). It
+  replaces `MemoryAiPreviewStore` in the composition root when AI import is
+  disabled, so a production process can no longer hold a store that accepts
+  payloads and silently drops them on restart. `MemoryAiPreviewStore` remains,
+  for unit tests only.
+- Two new migrations extend the `status` CHECK constraint **without blocking
+  writes**, split deliberately across files because sqlx wraps each migration
+  in one transaction:
+  `20260812000001_ai_import_payload_unavailable` adds the widened constraint
+  `NOT VALID` (a fast catalog-only change) and commits, releasing the
+  ACCESS EXCLUSIVE lock that `ADD CONSTRAINT` takes;
+  `20260812000002_ai_import_payload_unavailable_validate` then runs
+  `VALIDATE CONSTRAINT` in its own transaction — verified to take only
+  `ShareUpdateExclusiveLock`, so enqueue, claim and lifecycle writes continue
+  during deployment — and swaps the constraint names. Validating in the same
+  file would have held the exclusive lock across the scan, defeating the point.
+  The `002` down migration folds `payload_unavailable` rows into `dead_letter`
+  — the closest pre-#181 state that is both terminal and unclaimable — before
+  restoring the narrow constraint.
+
 ### Added — AI import permit reconciliation (issue #180)
 
 A worker that dies mid-job leaves two leases behind: the job lease (recovered
