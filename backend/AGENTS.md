@@ -456,9 +456,11 @@ All three variables (`AI_PAYLOAD_S3_ENDPOINT`, `AI_PAYLOAD_S3_ACCESS_KEY`, `AI_P
 > restarts. Pending jobs can resume, retries can reload source documents, and succeeded jobs
 > continue serving previews.
 >
-> When `AI_IMPORT_ENABLED` is false, missing S3 variables are acceptable — the API uses
-> in-memory storage. When `AI_IMPORT_ENABLED` is true, all three S3 variables must be set
-> or the API **fails to start** to prevent silent data loss.
+> When `AI_IMPORT_ENABLED` is false, missing S3 variables are acceptable — the API wires
+> `infra::ai::UnconfiguredAiPayloadStore`, which refuses every payload operation with
+> `503` (never in-memory storage, which would accept payloads and drop them on restart;
+> issue #181). When `AI_IMPORT_ENABLED` is true, all three S3 variables must be set or the
+> API **fails to start** to prevent silent data loss.
 
 > **Boot sequence**: Garage must be up and provisioned (bucket + access key) before the API
 > starts. See `docker-compose.dev.yml` for the internal-only Garage service. During first
@@ -477,11 +479,17 @@ All three variables (`AI_PAYLOAD_S3_ENDPOINT`, `AI_PAYLOAD_S3_ACCESS_KEY`, `AI_P
 > concurrent sweeps. Set `AI_PAYLOAD_GC_DRY_RUN=true` for the first rollout to observe
 > deletion logs before enabling actual cleanup.
 >
-> **Terminal means unclaimable (issue #181).** The sweep covers `succeeded`,
-> `dead_letter`, `payload_unavailable`, and `failed` jobs **only once their retry
-> budget is exhausted** (`retries >= max_retries`). `failed` is the *retryable*
-> backoff state, so sweeping it wholesale deleted the source document of jobs that
-> were still scheduled to run.
+> **Terminal means unclaimable (issue #181).** The sweep covers exactly
+> `succeeded`, `dead_letter` and `payload_unavailable`. `failed` is **never**
+> swept — it is the *retryable* backoff state, and sweeping it deleted the source
+> document of jobs that were still scheduled to run.
+>
+> Do not "refine" this to sweep `failed` once `retries >= max_retries`. The claim
+> predicates match `status = 'failed' AND (next_attempt_at IS NULL OR
+> next_attempt_at <= now())` and **never consult `retries`**, so an exhausted
+> `failed` row is still handed to the next worker. Nothing leaks as a result:
+> `mark_failed` dead-letters a job in the same statement that exhausts its budget,
+> so a `failed` row is by construction one that still has a future.
 
 #### AI import restart recovery (issue #181)
 
@@ -492,8 +500,8 @@ lose them. Behaviour per job status after a restart:
 |---|---|
 | `pending` | Runnable; the next worker claims it and loads the source from durable storage. |
 | `running` | Its worker is gone; the claim lease expires and another worker reclaims it, releasing the orphaned permit. |
-| `failed` (budget left) | Runnable once `next_attempt_at` is due. Payloads are never GC'd while retryable. |
-| `failed` (exhausted) / `dead_letter` | Terminal; payloads GC-eligible after retention. |
+| `failed` | Runnable once `next_attempt_at` is due — the claim predicate ignores `retries`. Payloads are **never** GC'd. |
+| `dead_letter` | Terminal; payloads GC-eligible after retention. `mark_failed` lands a budget-exhausted job here directly. |
 | `succeeded` | Preview served from durable storage; apply reloads it. GC-eligible after retention. |
 | `payload_unavailable` | Terminal and **non-resumable**: never claimed, never retried. |
 

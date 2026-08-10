@@ -13,11 +13,26 @@
 -- it is terminal, it is never picked up by a claim predicate (those enumerate
 -- `pending`/`failed`/expired-`running` explicitly), and payload GC may sweep
 -- it immediately after the retention window.
+--
+-- The constraint is swapped **without an exclusive table scan**. Adding a
+-- validated CHECK holds ACCESS EXCLUSIVE while Postgres scans every row, which
+-- would block enqueue, claim and every lifecycle write for the duration of the
+-- deployment. Instead the widened constraint is added `NOT VALID` (a catalog-
+-- only change), validated under SHARE UPDATE EXCLUSIVE (concurrent reads and
+-- writes continue), and only then does the narrow constraint go away.
+--
+-- The old constraint stays active for the whole swap, so there is no window in
+-- which an unknown status could be written. It rejects `payload_unavailable`
+-- until the final DROP, which is harmless: the code that emits the new status
+-- ships after this migration.
+
+-- Re-runnability: a partially applied attempt may have left the versioned
+-- constraint behind.
 ALTER TABLE ai_import.ai_import_job
-    DROP CONSTRAINT IF EXISTS ai_import_job_status_check;
+    DROP CONSTRAINT IF EXISTS ai_import_job_status_check_v2;
 
 ALTER TABLE ai_import.ai_import_job
-    ADD CONSTRAINT ai_import_job_status_check
+    ADD CONSTRAINT ai_import_job_status_check_v2
     CHECK (status IN (
         'pending',
         'running',
@@ -25,7 +40,17 @@ ALTER TABLE ai_import.ai_import_job
         'failed',
         'dead_letter',
         'payload_unavailable'
-    ));
+    )) NOT VALID;
+
+-- SHARE UPDATE EXCLUSIVE: does not block reads or writes.
+ALTER TABLE ai_import.ai_import_job
+    VALIDATE CONSTRAINT ai_import_job_status_check_v2;
+
+ALTER TABLE ai_import.ai_import_job
+    DROP CONSTRAINT IF EXISTS ai_import_job_status_check;
+
+ALTER TABLE ai_import.ai_import_job
+    RENAME CONSTRAINT ai_import_job_status_check_v2 TO ai_import_job_status_check;
 
 COMMENT ON COLUMN ai_import.ai_import_job.status IS
     'Operational lifecycle. `failed` is retryable (backoff via next_attempt_at); '

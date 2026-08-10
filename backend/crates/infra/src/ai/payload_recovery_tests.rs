@@ -331,6 +331,80 @@ async fn merge_worker_marks_an_absent_preview_non_resumable() {
     assert_eq!(queue.transitions(), vec![Transition::PayloadUnavailable]);
 }
 
+/// Preview store whose `get` fails outright, rather than reporting absence.
+#[derive(Clone)]
+struct FailingPreviewStore(DomainError);
+
+#[async_trait]
+impl AiPreviewStore for FailingPreviewStore {
+    async fn put(&self, _job_id: AiImportJobId, _payload: Vec<u8>) -> Result<String, DomainError> {
+        Err(self.0.clone())
+    }
+
+    async fn get(&self, _handle: &str) -> Result<Option<Vec<u8>>, DomainError> {
+        Err(self.0.clone())
+    }
+
+    async fn delete(&self, _handle: &str) -> Result<(), DomainError> {
+        Err(self.0.clone())
+    }
+}
+
+#[tokio::test]
+async fn merge_worker_persists_a_retryable_failure_when_the_store_is_unreachable() {
+    // Regression: this path propagated the store error with `?`, skipping the
+    // terminal write entirely. The job then sat in `running` until its lease
+    // lapsed — recovery delayed by a full lease window, with no backoff
+    // recorded and no retry charged.
+    let queue = Arc::new(RecordingQueue::new(
+        DocumentKind::Schedule,
+        Some("ai-import/unreachable/preview"),
+    ));
+    let worker = super::merge_worker::QueueMergeWorker {
+        queue: Arc::clone(&queue),
+        previews: Arc::new(FailingPreviewStore(DomainError::ServiceUnavailable(
+            "S3 endpoint unreachable".to_owned(),
+        ))),
+    };
+
+    let result = worker.run_once("worker-1").await;
+
+    assert!(matches!(result, Err(DomainError::ServiceUnavailable(_))));
+    assert_eq!(
+        queue.transitions(),
+        vec![Transition::Failed { retryable: true }],
+        "an unreachable store says nothing about whether the blob exists, so \
+         the job must stay retryable — and the failure must be persisted"
+    );
+}
+
+#[tokio::test]
+async fn merge_worker_does_not_dead_end_on_a_permanent_store_error() {
+    // A non-transient store error is this attempt's failure, not proof the
+    // payload is gone: it must go through the retry budget, never straight to
+    // the non-resumable terminal state.
+    let queue = Arc::new(RecordingQueue::new(
+        DocumentKind::Schedule,
+        Some("ai-import/broken/preview"),
+    ));
+    let worker = super::merge_worker::QueueMergeWorker {
+        queue: Arc::clone(&queue),
+        previews: Arc::new(FailingPreviewStore(DomainError::ValidationError(
+            "malformed storage key".to_owned(),
+        ))),
+    };
+
+    let result = worker.run_once("worker-1").await;
+
+    assert!(matches!(result, Err(DomainError::ValidationError(_))));
+    assert_eq!(
+        queue.transitions(),
+        vec![Transition::Failed { retryable: false }],
+        "a permanent store error dead-letters through the budget; only proven \
+         absence may mark the job non-resumable"
+    );
+}
+
 #[tokio::test]
 async fn unconfigured_store_refuses_every_operation_as_unavailable() {
     // The refusal must be `ServiceUnavailable`, never `NotFound`: a

@@ -45,8 +45,8 @@ separate "the model or the document was bad" from "we lost the bytes".
 |---|---|
 | `pending` | Runnable. Claimed by the next worker; source document is loaded from durable storage. |
 | `running` | Its worker is gone; the claim lease (#177) expires and another worker reclaims it, releasing the orphaned permit (#180). |
-| `failed` (retryable, `retries < max_retries`) | Runnable once `next_attempt_at` is due. Its payloads are **never** GC'd while it is still retryable. |
-| `failed` (exhausted) / `dead_letter` | Terminal. Payloads are GC-eligible after the retention grace period. |
+| `failed` | Runnable once `next_attempt_at` is due. The claim predicate ignores `retries`, so this holds even for an exhausted budget — its payloads are **never** GC'd. |
+| `dead_letter` | Terminal. Payloads are GC-eligible after the retention grace period. `mark_failed` lands a budget-exhausted job here directly. |
 | `succeeded` | Preview is served from durable storage; apply reloads it. GC-eligible after retention. |
 | `payload_unavailable` | Terminal and **non-resumable**. Never claimed, never retried; payloads GC-eligible. |
 
@@ -77,8 +77,13 @@ retryably — that is a transient condition, not a lost payload.
   `source.load` → `mark_payload_unavailable`.
 - `QueueMergeWorker`: a missing preview blob → `mark_payload_unavailable`
   (was: retryable failure).
-- `payload_cleanup`: sweep `succeeded`, `dead_letter`, `payload_unavailable`
-  and only *exhausted* `failed` jobs (`retries >= max_retries`).
+- `payload_cleanup`: sweep exactly `succeeded`, `dead_letter` and
+  `payload_unavailable`. `failed` is excluded unconditionally — **not** merely
+  while it has budget left. The claim predicates never consult `retries`, so an
+  exhausted `failed` row is still claimable; conditioning retention on
+  `retries >= max_retries` would reintroduce the very bug this fixes. Nothing
+  leaks, because `mark_failed` dead-letters a job in the same statement that
+  exhausts its budget.
 - `UnconfiguredAiPayloadStore`: a null-object adapter returning
   `ServiceUnavailable` for every operation, for the composition root when AI
   import is disabled.
@@ -96,6 +101,9 @@ retryably — that is a transient condition, not a lost payload.
 - infra: worker missing-payload → `payload_unavailable` (not a retryable fail);
   merge worker missing preview → `payload_unavailable`;
   `UnconfiguredAiPayloadStore` returns `ServiceUnavailable`.
-- integration-tests (Postgres): `mark_payload_unavailable` is owner-fenced, the
-  job is not re-claimable afterwards, and the GC sweep spares a retryable
-  `failed` job while sweeping exhausted/terminal ones.
+- integration-tests (Postgres): `mark_payload_unavailable` is owner-fenced and
+  clears `worker_id`/`lease_expires_at`/`permit_id`, the job is not re-claimable
+  afterwards, the GC sweep spares both a retryable **and** a budget-exhausted
+  `failed` job (asserting the latter is still claimable, which is *why* it is
+  spared) while sweeping `succeeded`/`dead_letter`/`payload_unavailable`, and a
+  freshly terminal job survives its retention window.

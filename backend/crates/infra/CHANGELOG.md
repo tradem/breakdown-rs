@@ -37,9 +37,14 @@ causing that case.
   'failed', 'dead_letter')`, but `failed` is the *retryable* state: a job sits
   there with a backoff and is claimed again once it is due. The sweep therefore
   deleted the source document of jobs that were still scheduled to run,
-  manufacturing the missing-payload case above. `failed` jobs are now swept
-  only once their retry budget is exhausted (`retries >= max_retries`);
-  `payload_unavailable` jobs are swept like any other terminal job.
+  manufacturing the missing-payload case above. The sweep now matches exactly
+  `succeeded`, `dead_letter` and `payload_unavailable`.
+  `failed` is excluded **unconditionally**, not merely while it has retry
+  budget left: the claim predicates match `status = 'failed' AND
+  (next_attempt_at IS NULL OR next_attempt_at <= now())` and never consult
+  `retries`, so even a budget-exhausted `failed` row is still claimable.
+  Nothing leaks, because `mark_failed` dead-letters a job in the same statement
+  that exhausts its budget.
 - `UnconfiguredAiPayloadStore`: null-object `AiPreviewStore` / `AiDocumentStore`
   / `AiDocumentSource` that refuses every operation with `ServiceUnavailable`
   (never `NotFound`, which is the signal that permanently dead-ends a job). It

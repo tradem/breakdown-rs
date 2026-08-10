@@ -47,15 +47,30 @@ where
             self.fail(job.id, worker_id, &error, false).await?;
             return Err(error);
         };
-        // A `None` here is *absence*, not a transport failure: a storage
-        // backend that is unreachable surfaces as an `Err` from `get` and is
-        // propagated (and retried) above. Absence is permanent for this job —
-        // the preview blob was written once by the schedule worker and is
-        // never rewritten — so retrying could only re-discover it while
-        // consuming a claim and a permit each time. The job is therefore
-        // terminated as non-resumable (issue #181); it was retryable before,
-        // which burned the whole retry budget on a payload that was gone.
-        let Some(payload) = self.previews.get(preview_handle).await? else {
+        // Two distinct outcomes, deliberately not collapsed (issue #181):
+        //
+        //   `Err`  — the store itself failed. Nothing is known about whether
+        //            the blob exists, so the job must not be dead-ended.
+        //            `fail_payload_load` keeps a `ServiceUnavailable` retryable
+        //            and dead-letters anything else through the budget.
+        //            Propagating with `?` (as this did before) skipped the
+        //            terminal write entirely and left the job `running` until
+        //            its lease lapsed — recovery delayed by a full lease
+        //            window, with no backoff recorded.
+        //   `None` — *absence*. The preview blob is written once by the
+        //            schedule worker and never rewritten, so this is permanent:
+        //            retrying could only re-discover it while consuming a claim
+        //            and a permit each time. Terminated as non-resumable; it
+        //            was retryable before, which burned the whole retry budget
+        //            on a payload that was gone.
+        let stored = match self.previews.get(preview_handle).await {
+            Ok(stored) => stored,
+            Err(error) => {
+                super::workers::fail_payload_load(&*self.queue, job.id, worker_id, &error).await?;
+                return Err(error);
+            }
+        };
+        let Some(payload) = stored else {
             let error = DomainError::NotFound(format!("schedule preview {preview_handle}"));
             self.queue
                 .mark_payload_unavailable(job.id, worker_id, &error.to_string())

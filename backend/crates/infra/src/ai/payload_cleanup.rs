@@ -20,14 +20,25 @@ fn is_not_found(err: &DomainError) -> bool {
 
 /// Terminal jobs whose payloads may be swept, oldest first.
 ///
-/// `failed` is deliberately **not** a blanket match (issue #181). It is the
-/// *retryable* state: a job sits there with a `next_attempt_at` backoff and is
-/// claimed again once it is due. Sweeping every `failed` row — which the
-/// pre-#181 query did — deleted the source document of a job that was still
-/// scheduled to run, so the retry could only fail again, this time with the
-/// payload genuinely gone. A `failed` job is therefore only swept once its
-/// retry budget is exhausted (`retries >= max_retries`), at which point no
-/// claim predicate can pick it up.
+/// `failed` is deliberately **excluded** (issue #181). It is the *retryable*
+/// state: a job sits there with a `next_attempt_at` backoff and is claimed
+/// again once it is due. Sweeping `failed` rows — which the pre-#181 query did
+/// — deleted the source document of a job that was still scheduled to run, so
+/// the retry could only fail again, this time with the payload genuinely gone.
+///
+/// The exclusion is unconditional, **not** `retries >= max_retries`. That
+/// refinement looks safe and is not: the claim predicates
+/// (`claim_next`/`claim_next_kind` and their reconciling variants) match
+/// `status = 'failed' AND (next_attempt_at IS NULL OR next_attempt_at <=
+/// now())` and never consult `retries`. A `failed` row with an exhausted
+/// budget is therefore still claimable, and sweeping it would reintroduce the
+/// exact bug this predicate exists to fix.
+///
+/// Nothing leaks as a result. `mark_failed` resolves
+/// `WHEN retryable AND retries + 1 < max_retries THEN 'failed' ELSE
+/// 'dead_letter'`, so a job that runs out of budget is dead-lettered in the
+/// same statement and *is* swept. A `failed` row is by construction one that
+/// still has a future.
 ///
 /// `payload_unavailable` jobs have no payload left to protect, so they are
 /// swept like any other terminal job (the delete is a no-op for the missing
@@ -35,10 +46,7 @@ fn is_not_found(err: &DomainError) -> bool {
 const TERMINAL_JOBS_SQL: &str = r#"
     SELECT id, source_handle, preview_handle, updated_at
     FROM ai_import.ai_import_job
-    WHERE (
-            status IN ('succeeded', 'dead_letter', 'payload_unavailable')
-            OR (status = 'failed' AND retries >= max_retries)
-          )
+    WHERE status IN ('succeeded', 'dead_letter', 'payload_unavailable')
       AND updated_at < $1
     ORDER BY updated_at ASC
     LIMIT $2

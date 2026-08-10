@@ -110,7 +110,7 @@ async fn acquire_for_claim<Q: AiImportQueue + ?Sized>(
 /// `ServiceUnavailable` is transient (the storage backend is unreachable, the
 /// bytes may well still be there) and stays retryable; anything else fails
 /// this attempt permanently and dead-letters through the budget.
-async fn fail_payload_load<Q: AiImportQueue + ?Sized>(
+pub(crate) async fn fail_payload_load<Q: AiImportQueue + ?Sized>(
     queue: &Q,
     id: AiImportJobId,
     worker_id: &str,
