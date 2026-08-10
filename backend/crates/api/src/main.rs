@@ -26,7 +26,7 @@ use api::auth::{AuthState, AuthorizationState};
 use api::routes::app_router;
 use api::state::{AiPorts, AppState, ProductionPorts};
 use breakdown_core::membership::policy::AuthorizationPolicy;
-use infra::ai::{AiDocumentSource, AiDocumentStore, AiPreviewStore, MemoryAiPreviewStore};
+use infra::ai::{AiDocumentSource, AiDocumentStore, AiPreviewStore, UnconfiguredAiPayloadStore};
 use infra::event_store::{
     AiConfigCommandsImpl, BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl,
     CostumeCommandsImpl, EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl,
@@ -462,8 +462,16 @@ async fn main() -> Result<()> {
                      AI_PAYLOAD_S3_SECRET_KEY to enable durable AI import storage."
                 );
             }
-            warn!("AI payload storage not configured — using in-memory (dev only)");
-            let store = std::sync::Arc::new(MemoryAiPreviewStore::default());
+            // AI import is disabled, so no route and no worker can reach
+            // these ports. They are still filled with a store that *refuses*
+            // every operation rather than an in-memory one that would accept
+            // payloads and silently drop them on restart — a persisted job
+            // row must never outlive its own payload (issue #181).
+            warn!(
+                "AI payload storage not configured — AI payload ports will refuse \
+                 every operation (AI import is disabled)"
+            );
+            let store = std::sync::Arc::new(UnconfiguredAiPayloadStore);
             (store.clone() as _, store.clone() as _, store as _)
         }
     };

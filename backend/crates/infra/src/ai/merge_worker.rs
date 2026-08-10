@@ -47,9 +47,19 @@ where
             self.fail(job.id, worker_id, &error, false).await?;
             return Err(error);
         };
+        // A `None` here is *absence*, not a transport failure: a storage
+        // backend that is unreachable surfaces as an `Err` from `get` and is
+        // propagated (and retried) above. Absence is permanent for this job —
+        // the preview blob was written once by the schedule worker and is
+        // never rewritten — so retrying could only re-discover it while
+        // consuming a claim and a permit each time. The job is therefore
+        // terminated as non-resumable (issue #181); it was retryable before,
+        // which burned the whole retry budget on a payload that was gone.
         let Some(payload) = self.previews.get(preview_handle).await? else {
             let error = DomainError::NotFound(format!("schedule preview {preview_handle}"));
-            self.fail(job.id, worker_id, &error, true).await?;
+            self.queue
+                .mark_payload_unavailable(job.id, worker_id, &error.to_string())
+                .await?;
             return Err(error);
         };
         let input: MergeInput = match from_slice(&payload) {

@@ -18,6 +18,32 @@ fn is_not_found(err: &DomainError) -> bool {
     matches!(err, DomainError::NotFound(_))
 }
 
+/// Terminal jobs whose payloads may be swept, oldest first.
+///
+/// `failed` is deliberately **not** a blanket match (issue #181). It is the
+/// *retryable* state: a job sits there with a `next_attempt_at` backoff and is
+/// claimed again once it is due. Sweeping every `failed` row — which the
+/// pre-#181 query did — deleted the source document of a job that was still
+/// scheduled to run, so the retry could only fail again, this time with the
+/// payload genuinely gone. A `failed` job is therefore only swept once its
+/// retry budget is exhausted (`retries >= max_retries`), at which point no
+/// claim predicate can pick it up.
+///
+/// `payload_unavailable` jobs have no payload left to protect, so they are
+/// swept like any other terminal job (the delete is a no-op for the missing
+/// blob and still removes the sibling that survived).
+const TERMINAL_JOBS_SQL: &str = r#"
+    SELECT id, source_handle, preview_handle, updated_at
+    FROM ai_import.ai_import_job
+    WHERE (
+            status IN ('succeeded', 'dead_letter', 'payload_unavailable')
+            OR (status = 'failed' AND retries >= max_retries)
+          )
+      AND updated_at < $1
+    ORDER BY updated_at ASC
+    LIMIT $2
+"#;
+
 /// Configuration for the AI payload cleanup worker.
 #[derive(Debug, Clone)]
 pub struct AiPayloadGcConfig {
@@ -72,7 +98,8 @@ pub fn gc_config_from_env() -> AiPayloadGcConfig {
 /// Run a single AI payload cleanup sweep cycle.
 ///
 /// 1. Acquire Postgres advisory lock (id `0x41495F5041594C4F_41445F4743` = "AI_PAY_AD_GC").
-/// 2. Query terminal-state jobs (succeeded/failed/dead_letter) older than grace period.
+/// 2. Query terminal-state jobs older than the grace period (see
+///    [`TERMINAL_JOBS_SQL`] for what "terminal" excludes).
 /// 3. Delete source and preview payloads from Garage.
 /// 4. Log actions (respect dry_run).
 /// 5. Write history row to `projection_ai_payload_gc_run`.
@@ -163,23 +190,14 @@ async fn try_run_sweep(
         )
     })?;
 
-    let rows: Vec<sqlx::postgres::PgRow> = sqlx::query(
-        r#"
-        SELECT id, source_handle, preview_handle, updated_at
-        FROM ai_import.ai_import_job
-        WHERE status IN ('succeeded', 'failed', 'dead_letter')
-          AND updated_at < $1
-        ORDER BY updated_at ASC
-        LIMIT $2
-        "#,
-    )
-    .bind(cutoff)
-    .bind(batch_size)
-    .fetch_all(pool)
-    .await
-    .map_err(|e| {
-        DomainError::ServiceUnavailable(format!("Failed to query terminal jobs: {}", e))
-    })?;
+    let rows: Vec<sqlx::postgres::PgRow> = sqlx::query(TERMINAL_JOBS_SQL)
+        .bind(cutoff)
+        .bind(batch_size)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| {
+            DomainError::ServiceUnavailable(format!("Failed to query terminal jobs: {}", e))
+        })?;
 
     let scanned = rows.len() as i64;
 

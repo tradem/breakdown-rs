@@ -30,6 +30,9 @@ impl DocumentKind {
 }
 
 /// Operational lifecycle of an AI import job.
+///
+/// `Failed` is the *retryable* state (a due `next_attempt_at` makes the job
+/// claimable again); `DeadLetter` and `PayloadUnavailable` are terminal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum JobStatus {
@@ -38,6 +41,20 @@ pub enum JobStatus {
     Succeeded,
     Failed,
     DeadLetter,
+    /// The job's durable payload (source document or preview blob) is gone,
+    /// so the work can never be redone from what is stored (issue #181).
+    ///
+    /// This is deliberately distinct from `DeadLetter`: a dead-lettered job
+    /// exhausted its retries against a real failure, while this one has no
+    /// input left to retry *with*. Retrying it could only re-discover the
+    /// same absence, so a worker moves the job here immediately, bypassing
+    /// the remaining retry budget, and the claim predicates never pick it up
+    /// again.
+    ///
+    /// Only an *absent* payload leads here. Storage that is merely
+    /// unreachable (`DomainError::ServiceUnavailable`) is transient and stays
+    /// on the ordinary retryable path.
+    PayloadUnavailable,
 }
 
 impl JobStatus {
@@ -48,7 +65,27 @@ impl JobStatus {
             Self::Succeeded => "succeeded",
             Self::Failed => "failed",
             Self::DeadLetter => "dead_letter",
+            Self::PayloadUnavailable => "payload_unavailable",
         }
+    }
+
+    /// Whether the job will never be claimed again.
+    ///
+    /// `Failed` is **not** terminal: it is the backoff state of a job that is
+    /// still within its retry budget. Payload retention keys off this
+    /// predicate, so misclassifying `Failed` would delete the source document
+    /// of a job that is still scheduled to run (issue #181).
+    pub const fn is_terminal(self) -> bool {
+        matches!(
+            self,
+            Self::Succeeded | Self::DeadLetter | Self::PayloadUnavailable
+        )
+    }
+
+    /// Whether the job is terminal *because its input is gone*, and therefore
+    /// cannot be resumed even by an operator-triggered retry.
+    pub const fn is_non_resumable(self) -> bool {
+        matches!(self, Self::PayloadUnavailable)
     }
 }
 

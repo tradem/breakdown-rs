@@ -12,6 +12,46 @@ commits (ADR-020 D5).
 
 ## [0.12.0] - Unreleased
 
+### Added — AI import restart-recovery semantics (issue #181)
+
+Durable payload storage (#174) made a restart survivable; this release defines
+what happens when a payload is nonetheless missing, and stops cleanup from
+causing that case.
+
+- `PgAiImportQueue::mark_payload_unavailable`: owner-fenced terminal transition
+  to `payload_unavailable`. `retries` is left untouched and no
+  `next_attempt_at` is set — this is not an attempt that failed, it is the
+  discovery that there is nothing left to attempt. Claim, lease and permit link
+  are cleared like on every other terminal path, so no reclaim can resurrect
+  the job. The claim predicates enumerate `pending` / `failed` /
+  expired-`running`, so the new status is unclaimable by construction.
+- `ScriptImportWorker` / `ScheduleImportWorker`: a payload load that fails with
+  `NotFound` now terminates the job as `payload_unavailable` instead of
+  consuming a retry. `ServiceUnavailable` (storage unreachable, bytes probably
+  still there) stays retryable — the distinction is the whole point.
+- `QueueMergeWorker`: **behaviour change.** A missing schedule preview blob was
+  marked `retryable = true`, so a permanently lost payload burned the entire
+  retry budget before dead-lettering. It is now terminated as
+  `payload_unavailable` on the first attempt.
+- **Payload GC retention fix.** The sweep matched `status IN ('succeeded',
+  'failed', 'dead_letter')`, but `failed` is the *retryable* state: a job sits
+  there with a backoff and is claimed again once it is due. The sweep therefore
+  deleted the source document of jobs that were still scheduled to run,
+  manufacturing the missing-payload case above. `failed` jobs are now swept
+  only once their retry budget is exhausted (`retries >= max_retries`);
+  `payload_unavailable` jobs are swept like any other terminal job.
+- `UnconfiguredAiPayloadStore`: null-object `AiPreviewStore` / `AiDocumentStore`
+  / `AiDocumentSource` that refuses every operation with `ServiceUnavailable`
+  (never `NotFound`, which is the signal that permanently dead-ends a job). It
+  replaces `MemoryAiPreviewStore` in the composition root when AI import is
+  disabled, so a production process can no longer hold a store that accepts
+  payloads and silently drops them on restart. `MemoryAiPreviewStore` remains,
+  for unit tests only.
+- New migration `20260812000001_ai_import_payload_unavailable.{up,down}.sql`
+  extending the `status` CHECK constraint. The down migration folds
+  `payload_unavailable` rows into `dead_letter` — the closest pre-#181 state
+  that is both terminal and unclaimable.
+
 ### Added — AI import permit reconciliation (issue #180)
 
 A worker that dies mid-job leaves two leases behind: the job lease (recovered

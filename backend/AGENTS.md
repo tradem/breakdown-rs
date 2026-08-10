@@ -473,9 +473,42 @@ All three variables (`AI_PAYLOAD_S3_ENDPOINT`, `AI_PAYLOAD_S3_ACCESS_KEY`, `AI_P
 - `AI_PAYLOAD_GC_DRY_RUN` – log-only mode (default: `false`; set `true` for first rollout).
 
 > **AI payload GC**: A periodic worker cleans up Garage payloads for terminal-state jobs
-> (succeeded/failed/dead_letter) after the configurable grace period. The worker uses a
-> Postgres advisory lock to prevent concurrent sweeps. Set `AI_PAYLOAD_GC_DRY_RUN=true`
-> for the first rollout to observe deletion logs before enabling actual cleanup.
+> after the configurable grace period. The worker uses a Postgres advisory lock to prevent
+> concurrent sweeps. Set `AI_PAYLOAD_GC_DRY_RUN=true` for the first rollout to observe
+> deletion logs before enabling actual cleanup.
+>
+> **Terminal means unclaimable (issue #181).** The sweep covers `succeeded`,
+> `dead_letter`, `payload_unavailable`, and `failed` jobs **only once their retry
+> budget is exhausted** (`retries >= max_retries`). `failed` is the *retryable*
+> backoff state, so sweeping it wholesale deleted the source document of jobs that
+> were still scheduled to run.
+
+#### AI import restart recovery (issue #181)
+
+AI import payloads live in Garage (`AI_PAYLOAD_S3_*`), so a process restart does not
+lose them. Behaviour per job status after a restart:
+
+| Status | Behaviour |
+|---|---|
+| `pending` | Runnable; the next worker claims it and loads the source from durable storage. |
+| `running` | Its worker is gone; the claim lease expires and another worker reclaims it, releasing the orphaned permit. |
+| `failed` (budget left) | Runnable once `next_attempt_at` is due. Payloads are never GC'd while retryable. |
+| `failed` (exhausted) / `dead_letter` | Terminal; payloads GC-eligible after retention. |
+| `succeeded` | Preview served from durable storage; apply reloads it. GC-eligible after retention. |
+| `payload_unavailable` | Terminal and **non-resumable**: never claimed, never retried. |
+
+A worker that cannot load a payload because it is **absent** (`DomainError::NotFound`)
+calls `AiImportQueue::mark_payload_unavailable`, which moves the job to
+`payload_unavailable` immediately, bypassing the remaining retry budget — every retry
+could only re-discover the same absence while consuming a claim and a concurrency
+permit. A worker that cannot load it because storage is **unreachable**
+(`ServiceUnavailable`) still fails retryably: that is transient, and the bytes may well
+still be there. Never collapse these two cases.
+
+The composition root must never hold an in-memory payload store: with AI import
+disabled, `main.rs` wires `infra::ai::UnconfiguredAiPayloadStore`, which refuses every
+operation with `ServiceUnavailable` (deliberately not `NotFound`, which would
+dead-letter jobs). `MemoryAiPreviewStore` is test-only.
 
 #### OIDC / authorization (added by `add-oidc-auth-and-membership`)
 - `OIDC_ISS` – IdP issuer URL (expected `iss` claim). Production-only; when

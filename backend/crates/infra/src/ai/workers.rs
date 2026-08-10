@@ -97,6 +97,40 @@ async fn acquire_for_claim<Q: AiImportQueue + ?Sized>(
     Ok(Some(permit))
 }
 
+/// Terminate a job whose payload could not be loaded, choosing the terminal
+/// state by *why* the load failed (issue #181).
+///
+/// A `NotFound` means the durable bytes are gone. Retrying could only
+/// re-discover the same absence while consuming a claim and a concurrency
+/// permit each time, so the job goes straight to
+/// [`JobStatus::PayloadUnavailable`](breakdown_core::ai::JobStatus::PayloadUnavailable),
+/// bypassing the remaining retry budget.
+///
+/// Every other error keeps the ordinary retry semantics: a
+/// `ServiceUnavailable` is transient (the storage backend is unreachable, the
+/// bytes may well still be there) and stays retryable; anything else fails
+/// this attempt permanently and dead-letters through the budget.
+async fn fail_payload_load<Q: AiImportQueue + ?Sized>(
+    queue: &Q,
+    id: AiImportJobId,
+    worker_id: &str,
+    error: &DomainError,
+) -> Result<(), DomainError> {
+    if matches!(error, DomainError::NotFound(_)) {
+        return queue
+            .mark_payload_unavailable(id, worker_id, &error.to_string())
+            .await;
+    }
+    queue
+        .mark_failed(
+            id,
+            worker_id,
+            &error.to_string(),
+            matches!(error, DomainError::ServiceUnavailable(_)),
+        )
+        .await
+}
+
 /// Return capacity, logging rather than propagating a release failure.
 ///
 /// The job's own outcome is what the caller must report. A failed release is
@@ -154,7 +188,7 @@ where
         let bytes = match source.load(&job.source_handle).await {
             Ok(bytes) => bytes,
             Err(error) => {
-                self.fail(job.id, worker_id, &error).await?;
+                fail_payload_load(&*self.queue, job.id, worker_id, &error).await?;
                 return Err(error);
             }
         };
@@ -213,11 +247,11 @@ where
                 Ok(bytes) => bytes,
                 Err(error) => {
                     // Stop renewing before the terminal write so the heartbeat
-                    // cannot race `mark_failed`.
+                    // cannot race the failure.
                     if let Some(heartbeat) = heartbeat {
                         heartbeat.stop();
                     }
-                    self.fail(job.id, worker_id, &error).await?;
+                    fail_payload_load(&*self.queue, job.id, worker_id, &error).await?;
                     return Err(error);
                 }
             };
@@ -425,7 +459,7 @@ where
         let bytes = match source.load(&job.source_handle).await {
             Ok(bytes) => bytes,
             Err(error) => {
-                self.fail(job.id, worker_id, &error).await?;
+                fail_payload_load(&*self.queue, job.id, worker_id, &error).await?;
                 return Err(error);
             }
         };
@@ -464,7 +498,7 @@ where
                     if let Some(heartbeat) = heartbeat {
                         heartbeat.stop();
                     }
-                    self.fail(job.id, worker_id, &error).await?;
+                    fail_payload_load(&*self.queue, job.id, worker_id, &error).await?;
                     return Err(error);
                 }
             };
@@ -567,21 +601,10 @@ where
         LeaseHeartbeat::start(Arc::clone(&self.queue), id, worker_id, lease)
     }
 
-    async fn fail(
-        &self,
-        id: AiImportJobId,
-        worker_id: &str,
-        error: &DomainError,
-    ) -> Result<(), DomainError> {
-        self.queue
-            .mark_failed(
-                id,
-                worker_id,
-                &error.to_string(),
-                matches!(error, DomainError::ServiceUnavailable(_)),
-            )
-            .await
-    }
+    // No `fail` helper here: this worker's only failure path is the payload
+    // load, which routes through `fail_payload_load` so an absent payload is
+    // distinguished from unreachable storage (issue #181). `process` surfaces
+    // its own errors to the caller.
 }
 
 /// Deterministic merge operation. A zero-scene input is explicitly blocked so

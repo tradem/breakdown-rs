@@ -12,6 +12,20 @@ commits (ADR-020 D5).
 
 ## [0.6.1] - Unreleased
 
+### Changed — No in-memory AI payload store in the composition root (issue #181)
+
+- `main.rs` no longer constructs a `MemoryAiPreviewStore`. When AI payload
+  storage is unconfigured (only reachable with AI import *disabled* — the boot
+  gate from #174 already refuses the enabled-without-storage combination), the
+  AI payload ports are filled with `infra::ai::UnconfiguredAiPayloadStore`,
+  which refuses every operation with `503`. The in-memory store accepted
+  payloads and dropped them on restart, so a persisted job row could outlive
+  its own payload.
+- The job-status response can now carry `"payload_unavailable"` for a job whose
+  durable payload is gone. Applying such a job already returned `409` (apply
+  requires `succeeded`); this makes the reason visible to the client instead of
+  it appearing as a generic dead-letter.
+
 ### Changed — Re-pin `infra` to 0.12.0
 
 - Consumes the new AI import permit-reconciliation API — `AiImportQueue`'s
