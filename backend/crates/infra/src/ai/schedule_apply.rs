@@ -21,6 +21,7 @@ use breakdown_core::shared::{
 use breakdown_core::shooting_day::commands::CreateShootingDay;
 use breakdown_core::shooting_day::events::ShootingDaySource;
 use breakdown_core::shooting_day::ports::ShootingDayCommands;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 /// Reviewed schedule-side apply request. `series_id` is supplied by the API
@@ -154,13 +155,19 @@ where
                 // command so a crash between append and confirm retries onto the
                 // same aggregate. `reserve` returns the winning row, so a
                 // reservation from an earlier attempt wins over the fresh id.
+                //
+                // The id is derived deterministically from (preview_id, pair_key)
+                // so a retry after a mapping-write failure re-derives the SAME
+                // id — letting the aggregate reject the duplicate (issue #182).
+                let scene_shoot_id =
+                    SceneShootId::from_uuid(derive_id(request.preview_id, &pair_key));
                 let reservation = self
                     .mappings
                     .reserve(AiImportMapping::reservation(
                         request.preview_id,
                         pair_key,
                         "scene_shoot".to_owned(),
-                        SceneShootId::new().0,
+                        scene_shoot_id.0,
                     ))
                     .await?;
                 let scene_shoot_id = SceneShootId::from_uuid(reservation.aggregate_id);
@@ -276,7 +283,12 @@ where
                 created: false,
             });
         }
-        let order_key = LexicalSortKey::new(format!("day-{}", Uuid::now_v7()))
+        // Derive a STABLE id from (preview_id, draft_ref) *before* the
+        // reservation so a retry after a mapping-write failure re-derives the
+        // SAME id — letting the aggregate itself reject the duplicate (issue
+        // #182). See derive_id for why this is the one UUIDv7-rule exception.
+        let id = ShootingDayId::from_uuid(derive_id(draft.preview_id, &draft.draft_ref));
+        let order_key = LexicalSortKey::new(format!("day-{id}"))
             .map_err(|error| DomainError::ValidationError(error.to_string()))?;
 
         // Step 1 (reserve): persist the ShootingDayId before the command, so a
@@ -287,7 +299,7 @@ where
                 draft.preview_id,
                 draft.draft_ref.clone(),
                 "shooting_day".to_owned(),
-                ShootingDayId::new().0,
+                id.0,
             ))
             .await?;
         let id = ShootingDayId::from_uuid(reservation.aggregate_id);
@@ -349,6 +361,35 @@ where
 /// `current == 0` means the stream is genuinely empty, i.e. the conflict did
 /// not come from a prior append; that is propagated as an error rather than
 /// confirming a mapping to a nonexistent aggregate.
+/// Derive a deterministic, UUIDv7-shaped aggregate id from `(preview_id, draft_ref)`.
+///
+/// Schedule-apply ids MUST be stable across retries: a retry after a
+/// mapping-write failure must re-derive the *same* id so the aggregate's
+/// `ExpectedVersion::Empty` guard rejects the duplicate (reporting
+/// `VersionConflict { current }`, which `recover_version` treats as success).
+/// A random id would reopen the crash window that the mapping projection
+/// alone cannot close (issue #182).
+///
+/// This is the one exception to the repository UUIDv7 rule (AGENTS.md §3):
+/// a time-based UUIDv7 cannot be derived from static inputs, so we hash
+/// `(preview_id, draft_ref)` with SHA-256, truncate to 128 bits, and tag the
+/// result with the version-7 / variant-10 bits — keeping it shape-
+/// compatible with every other id in the system. Collision probability is
+/// bounded by the birthday paradox at 2^-64, negligible for the cardinality
+/// of schedule-apply operations.
+fn derive_id(preview_id: AiImportJobId, draft_ref: &str) -> Uuid {
+    let mut hasher = Sha256::new();
+    hasher.update(preview_id.as_uuid().as_bytes());
+    hasher.update(draft_ref.as_bytes());
+    let hash = hasher.finalize();
+    let mut bytes = [0u8; 16];
+    bytes.copy_from_slice(&hash[..16]);
+    // Set version 7 (0111) at byte 6 and variant 10 at byte 8.
+    bytes[6] = (bytes[6] & 0x0f) | 0x70;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    Uuid::from_bytes(bytes)
+}
+
 fn recover_version(
     result: Result<AggregateVersion, DomainError>,
 ) -> Result<AggregateVersion, DomainError> {

@@ -12,6 +12,22 @@ commits (ADR-020 D5).
 
 ## [0.12.0] - Unreleased
 
+### Changed — Deterministic schedule-apply ids close the retry crash window (issue #182)
+
+`ScheduleApplyWorker` now derives `ShootingDayId` and `SceneShootId`
+deterministically from `(preview_id, draft_ref)` via SHA-256 (truncated to
+128 bits, tagged with the version-7 / variant-10 bits) instead of generating
+random UUIDs. A retry after a command succeeds but its mapping write fails now
+re-derives the *same* id, so the aggregate's `ExpectedVersion::Empty` guard
+rejects the duplicate (`VersionConflict { current }`, recovered as success by
+`recover_version`). Previously the mapping projection was the only duplicate
+guard, so a lost reservation row let a retry create a duplicate aggregate. The
+mapping projection is preserved as the retry lookup and audit record. This is
+the one documented exception to the repository UUIDv7 rule (AGENTS.md §3): a
+time-based UUIDv7 cannot be derived from static inputs. Three deterministic
+tests cover both crash-window paths (day + scene-shoot) and verify id stability
+independent of the mapping projection.
+
 ### Added — AI import restart-recovery semantics (issue #181)
 
 Durable payload storage (#174) made a restart survivable; this release defines

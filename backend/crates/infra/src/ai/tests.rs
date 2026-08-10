@@ -535,6 +535,16 @@ impl FakeMappings {
     fn reservations(&self) -> Vec<AiImportMapping> {
         self.reserved.lock().unwrap().clone()
     }
+
+    /// Remove the mapping for `(preview_id, draft_ref)` — simulating a lost
+    /// reservation row (e.g. a rollback that dropped the reservation but the
+    /// command had already appended). The core crash window of issue #182.
+    fn remove(&self, preview_id: AiImportJobId, draft_ref: &str) {
+        self.values
+            .lock()
+            .unwrap()
+            .remove(&(preview_id, draft_ref.to_owned()));
+    }
 }
 
 #[async_trait]
@@ -1035,6 +1045,146 @@ async fn schedule_apply_does_not_recover_a_zero_version_conflict() {
     assert!(
         mapping.is_reserved(),
         "an unrecoverable failure must leave the mapping unconfirmed"
+    );
+}
+
+/// Issue #182 AC #1 + #3: a retry after the `CreateShootingDay` command
+/// succeeds but its mapping write fails must not create a second shooting day.
+/// With a *deterministic* id, the retry re-derives the same `ShootingDayId`
+/// and the aggregate rejects the duplicate — even if the reservation row was
+/// lost (the mapping projection alone cannot close this window).
+#[tokio::test]
+async fn schedule_apply_retry_after_day_command_success_creates_one_day() {
+    let fixture = ScheduleApplyFixture::new();
+    // The shooting-day confirm is the first mapping insert of an apply run.
+    fixture.mappings.fail_nth_insert(1);
+
+    let error = fixture
+        .apply()
+        .await
+        .expect_err("the day confirm must fail");
+    assert!(matches!(error, DomainError::ServiceUnavailable(_)));
+
+    let created = fixture.shooting_days.created.lock().unwrap().clone();
+    assert_eq!(created.len(), 1, "the day command DID append");
+    let day_id = created[0];
+    let day_key = fixture.mappings.reservations()[0].draft_ref.clone();
+
+    // Lose the reservation row — the mapping projection no longer knows about
+    // the day. A random-id retry would create a duplicate here.
+    fixture.mappings.remove(fixture.preview_id, &day_key);
+    assert!(
+        fixture.mapping(&day_key).await.is_none(),
+        "reservation must be gone"
+    );
+
+    // Retry: deterministic id → aggregate rejects duplicate → one day.
+    fixture.apply().await.expect("the retry must converge");
+
+    assert_eq!(
+        fixture.shooting_days.created.lock().unwrap().len(),
+        1,
+        "the retry must not create a second shooting day (AC #1)"
+    );
+    assert_eq!(
+        fixture.shooting_days.created.lock().unwrap()[0],
+        day_id,
+        "the retry must converge on the SAME ShootingDayId (AC #3)"
+    );
+    let confirmed = fixture.mapping(&day_key).await.expect("mapping exists");
+    assert!(
+        !confirmed.is_reserved(),
+        "the retry must confirm the mapping"
+    );
+    assert_eq!(confirmed.aggregate_id, day_id.0);
+}
+
+/// Issue #182 AC #2 + #3: a retry after the `PlanSceneShoot` command succeeds
+/// but its mapping write fails must not create a second scene shoot. The
+/// deterministic `SceneShootId` makes the aggregate itself reject the
+/// duplicate — closing the window even without the reservation row.
+#[tokio::test]
+async fn schedule_apply_retry_after_scene_shoot_command_success_plans_once() {
+    let fixture = ScheduleApplyFixture::new();
+    // Insert #1 is the shooting-day confirm, #2 the scene-shoot confirm.
+    fixture.mappings.fail_nth_insert(2);
+
+    let error = fixture
+        .apply()
+        .await
+        .expect_err("the scene-shoot confirm must fail");
+    assert!(matches!(error, DomainError::ServiceUnavailable(_)));
+
+    assert_eq!(fixture.scene_shoots.planned.lock().unwrap().len(), 1);
+    let pair_key = fixture.scene_shoot_pair_key();
+    let reserved_id = fixture.mapping(&pair_key).await.unwrap().aggregate_id;
+
+    // Lose the scene-shoot reservation row.
+    fixture.mappings.remove(fixture.preview_id, &pair_key);
+    assert!(fixture.mapping(&pair_key).await.is_none());
+
+    // Retry: deterministic id → aggregate rejects duplicate → one scene shoot.
+    fixture.apply().await.expect("the retry must converge");
+
+    assert_eq!(
+        fixture.scene_shoots.planned.lock().unwrap().len(),
+        1,
+        "the retry must not plan a second scene shoot (AC #2)"
+    );
+    assert_eq!(
+        fixture.scene_shoots.planned.lock().unwrap()[0].0,
+        reserved_id,
+        "the retry must converge on the SAME SceneShootId (AC #3)"
+    );
+    let confirmed = fixture.mapping(&pair_key).await.expect("mapping exists");
+    assert!(
+        !confirmed.is_reserved(),
+        "the retry must confirm the mapping"
+    );
+    assert_eq!(confirmed.aggregate_id, reserved_id);
+}
+
+/// Issue #182 AC #5: the deterministic id derivation MUST be stable — the
+/// same `(preview_id, draft_ref)` always yields the same id, and distinct
+/// inputs yield distinct ids. Without stability, retries could diverge.
+///
+/// This test removes ALL mapping rows after the first apply, so the second
+/// apply cannot rely on the mapping projection — it must re-derive the SAME
+/// ids purely from `(preview_id, draft_ref)`. A random-id implementation
+/// fails this: the second apply derives fresh random ids that differ from
+/// the first.
+#[tokio::test]
+async fn schedule_apply_ids_are_deterministic_and_distinct() {
+    let fixture = ScheduleApplyFixture::new();
+    fixture.apply().await.unwrap();
+
+    let day_key = fixture.mappings.reservations()[0].draft_ref.clone();
+    let pair_key = fixture.scene_shoot_pair_key();
+
+    let day_id_first = fixture.mapping(&day_key).await.unwrap().aggregate_id;
+    let shoot_id_first = fixture.mapping(&pair_key).await.unwrap().aggregate_id;
+
+    // The two ids (different draft_refs) must differ.
+    assert_ne!(
+        day_id_first, shoot_id_first,
+        "day and scene-shoot ids must not collide"
+    );
+
+    // Lose ALL mapping rows — the projection no longer knows the ids.
+    fixture.mappings.remove(fixture.preview_id, &day_key);
+    fixture.mappings.remove(fixture.preview_id, &pair_key);
+
+    // Second apply must re-derive the SAME ids without the projection.
+    fixture.apply().await.unwrap();
+    assert_eq!(
+        fixture.mapping(&day_key).await.unwrap().aggregate_id,
+        day_id_first,
+        "ShootingDayId must be stable across applies without the projection"
+    );
+    assert_eq!(
+        fixture.mapping(&pair_key).await.unwrap().aggregate_id,
+        shoot_id_first,
+        "SceneShootId must be stable across applies without the projection"
     );
 }
 
