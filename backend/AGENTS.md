@@ -150,6 +150,7 @@ membership check via the shooting_day → episode → block → season chain). T
   budget instead (e.g. `test_profile_is_fast` derives the max backoff from the
   jitter constants rather than sleeping to "observe" it).
 - **Mutation Testing:** Run `cargo mutants` ([crate](https://crates.io/crates/cargo-mutants) • [GitHub](https://github.com/sourcefrog/cargo-mutants)). Improve test coverage if mutants survive. Use `cargo mutants --in-diff` to only test changed code. The mutation configuration lives in `.cargo/mutants.toml` — a top-level `.mutants.toml` is **not** read by cargo-mutants, so any settings placed there are silently ignored.
+  > ⚠️ **Do NOT run mutation tests locally.** `cargo mutants` spawns a process per mutant and fully builds/runs the test suite for each one — on this workspace that saturates CPU and memory and can freeze the machine for hours. Mutation testing is CI-only; if you need local feedback on test strength, run `cargo llvm-cov` or `cargo tarpaulin` instead.
 - **Architecture Tests:** We use `rust_arkitect` (source-level) and `cargo-deny` (dependency-level) to enforce boundary rules (ADR-017). Run `cargo test -p architecture_tests` and `cargo deny check bans` to ensure core does not depend on infra/api.
 - **Mechanical Guardrails (CI):** The `architecture-checks.yml` workflow enforces the
   write-side CQRS boundary (`cqrs-boundary` job: no `find_by_id` in
@@ -490,6 +491,30 @@ All three variables (`AI_PAYLOAD_S3_ENDPOINT`, `AI_PAYLOAD_S3_ACCESS_KEY`, `AI_P
 > `failed` row is still handed to the next worker. Nothing leaks as a result:
 > `mark_failed` dead-letters a job in the same statement that exhausts its budget,
 > so a `failed` row is by construction one that still has a future.
+>
+> **The sweep is stateful (issue #206).** Each deleted payload is recorded in
+> `ai_import.ai_payload_cleanup`, keyed `(job_id, payload_kind)`, and the sweep
+> anti-joins those marks so a job is selected only while it still owes a
+> payload. Without the marks the oldest `batch_size` jobs were re-selected on
+> every run forever: deletions are idempotent so nothing broke, but the S3
+> round-trips were re-paid, the run-history counters re-counted the same
+> deletions, and any job behind the `LIMIT` never got swept at all — retention
+> silently stopped being enforced. The `LIMIT` is a rate limit, not a horizon.
+>
+> **Only real deletions may be marked.** A mark hides the payload from every
+> future sweep, so it must never outrun the deletion:
+> - deleted → marked;
+> - **not found → marked** (the goal state holds, and a terminal job can never
+>   be re-claimed to recreate the payload, so re-probing it is pure waste);
+> - failed → **not** marked, so the next sweep retries it;
+> - dry run → **not** marked, or observation mode would permanently hide the
+>   very objects it was meant to report.
+>
+> Marks are flushed *before* the run-history row and *before* the early return
+> on the first deletion error, so one failure cannot discard the marks its
+> siblings in the batch earned. A sweep must never touch `updated_at` on the
+> job row — that column is both the retention clock and the sweep's `ORDER BY`
+> key, so writing it there would reset the window it measures.
 
 #### AI import restart recovery (issue #181)
 

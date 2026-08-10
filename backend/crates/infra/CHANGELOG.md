@@ -12,6 +12,44 @@ commits (ADR-020 D5).
 
 ## [0.12.0] - Unreleased
 
+### Added — Per-payload cleanup state for the AI payload GC sweep (issue #206)
+
+The sweep now records what it deleted, so it makes progress instead of
+re-selecting the same head of the queue on every run.
+
+- New table `ai_import.ai_payload_cleanup`, keyed `(job_id, payload_kind)`
+  with the deleted `handle`, the `run_id` that deleted it, and `cleaned_at`.
+  A job's two payloads are tracked independently, so a sweep that deleted the
+  source but hit a 503 on the preview comes back for the preview only.
+- `TERMINAL_JOBS_SQL` anti-joins the marks and selects a job only while it
+  still owes a payload. Previously it returned the oldest `batch_size`
+  terminal jobs unconditionally: deletions are idempotent so nothing was
+  corrupted, but every run re-paid the S3 round-trips, re-counted the same
+  deletions into `projection_ai_payload_gc_run`, and never advanced past the
+  `LIMIT` — a job behind that parked head could outlive its retention window
+  indefinitely.
+- Marks are written only for deletions that actually happened. A **dry run**
+  marks nothing (a mark hides the payload from every future real sweep, so
+  marking in observation mode would leak exactly the objects being previewed),
+  and a **failed** deletion marks nothing (so it is retried). A **not-found**
+  result *is* marked: the goal state holds, and a terminal job can never be
+  re-claimed to recreate the payload.
+- Marks are flushed before the run-history row and before the early return on
+  the first deletion error, so one failure in a batch cannot discard the marks
+  its siblings earned.
+- `run_gc_sweep` / `spawn_gc_scheduler` / `delete_payload` are now generic over
+  `AiPreviewStore + AiDocumentStore` instead of taking the concrete
+  `OpenDalAiPayloadStorage`. This is the port dependency the sweep always
+  should have had, and it is what lets the partial-batch test inject a
+  per-handle deletion failure — Garage accepts every malformed key and reports
+  a delete of a nonexistent object as success, so the failure cannot be
+  produced through the real adapter without failing the whole batch.
+- New migration pair `20260813000001` (table) and `20260813000002` (partial
+  index `idx_ai_import_job_retention` on `(updated_at) WHERE status IN
+  (terminal)`, built `CONCURRENTLY` in its own `-- no-transaction` file). The
+  sweep previously had no usable index for its `updated_at` ordering; that was
+  tolerable only while it re-read a parked head.
+
 ### Changed — Deterministic schedule-apply ids close the retry crash window (issue #182)
 
 `ScheduleApplyWorker` now derives `ShootingDayId` and `SceneShootId`
