@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: longcat-2.0-free (opencode)
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -22,9 +23,97 @@ use uuid::Uuid;
 
 use super::heartbeat::LeaseHeartbeat;
 use super::pdf::PdfTextExtractor;
+use super::pg_concurrency::{PgAiConcurrencyLimiter, PgAiConcurrencyPermit};
 use super::preview_store::{AiDocumentSource, AiPreviewStore};
+use super::runtime::run_with_renewal;
 use crate::photo::sagas::is_transient;
 use crate::projectors::supervisor;
+
+/// Acquire capacity for an already-claimed job and link the permit to it.
+///
+/// The job is claimed first so the permit can be charged to
+/// `job.user_id` — the user whose work it is — rather than to a synthetic
+/// per-worker identity that would make the per-user ceiling meaningless
+/// (issue #180).
+///
+/// `Ok(None)` means the ceiling is saturated. The claim is then handed back so
+/// the job is immediately runnable by another worker instead of sitting
+/// `running` until its lease lapses, and it is *not* charged a retry: it never
+/// ran, so a saturated ceiling must not be able to dead-letter it.
+///
+/// A failure to hand the claim back is logged rather than propagated: the
+/// job's lease still expires, so recovery is delayed, not lost, and reporting
+/// the release failure would mask the real outcome ("no capacity").
+async fn acquire_for_claim<Q: AiImportQueue + ?Sized>(
+    queue: &Q,
+    limiter: &PgAiConcurrencyLimiter,
+    job: &AiImportJob,
+    worker_id: &str,
+) -> Result<Option<PgAiConcurrencyPermit>, DomainError> {
+    let Some(permit) = limiter
+        .try_acquire_as(job.user_id.as_str(), worker_id)
+        .await?
+    else {
+        tracing::info!(
+            job_id = %job.id.as_uuid(),
+            worker_id,
+            "AI import capacity saturated; returning the claim unrun"
+        );
+        if let Err(error) = queue.release_claim(job.id, worker_id).await {
+            tracing::warn!(
+                job_id = %job.id.as_uuid(),
+                worker_id,
+                %error,
+                "failed to return an unrun AI import claim; it will be \
+                 recovered when the lease expires"
+            );
+        }
+        return Ok(None);
+    };
+
+    // Link the permit to the claim so a future reclaim of this job can release
+    // it if *this* worker dies.
+    //
+    // A failure here aborts the job rather than proceeding unlinked, for two
+    // reasons. `attach_permit` is owner-fenced, so the overwhelmingly likely
+    // error is `Conflict` — this worker's lease lapsed and another worker
+    // already owns the job. Continuing would burn LLM spend on work whose
+    // every terminal write is destined to be rejected. And on any other error
+    // the permit would be invisible to reclaim, so a crash from here on would
+    // leak the capacity until the lease expires — the exact leak this change
+    // exists to close.
+    if let Err(error) = queue.attach_permit(job.id, worker_id, permit.id()).await {
+        tracing::warn!(
+            job_id = %job.id.as_uuid(),
+            worker_id,
+            permit_id = %permit.id(),
+            %error,
+            "failed to link the AI concurrency permit to its job; abandoning \
+             the claim rather than running it untracked"
+        );
+        release_permit_logging_errors(permit, job.id).await;
+        return Err(error);
+    }
+    Ok(Some(permit))
+}
+
+/// Return capacity, logging rather than propagating a release failure.
+///
+/// The job's own outcome is what the caller must report. A failed release is
+/// recovered by the permit's drop hook or its lease, so masking the job result
+/// with it would trade a real signal for a recoverable one.
+async fn release_permit_logging_errors(permit: PgAiConcurrencyPermit, job_id: AiImportJobId) {
+    let permit_id = permit.id();
+    if let Err(error) = permit.release().await {
+        tracing::warn!(
+            job_id = %job_id.as_uuid(),
+            %permit_id,
+            %error,
+            "failed to release an AI concurrency permit; it will be reclaimed \
+             by its drop hook or lease"
+        );
+    }
+}
 
 /// Script import pipeline. It is deliberately independent of HTTP and can be
 /// driven by a queue worker or deterministic integration tests.
@@ -45,17 +134,22 @@ where
     C: LlmClient + 'static,
     S: AiPreviewStore + 'static,
 {
+    /// Claim and process the next runnable script job.
+    ///
+    /// Uses the plain `claim_next_kind` (no permit reconciliation). Use this
+    /// for ad-hoc invocations where a concurrency permit is not held.
     pub async fn run_once(
         &self,
         worker_id: &str,
         source: &dyn AiDocumentSource,
     ) -> Result<bool, DomainError> {
-        let Some(job) = self
+        let job = match self
             .queue
             .claim_next_kind(worker_id, DocumentKind::Script)
             .await?
-        else {
-            return Ok(false);
+        {
+            Some(job) => job,
+            None => return Ok(false),
         };
         let bytes = match source.load(&job.source_handle).await {
             Ok(bytes) => bytes,
@@ -65,6 +159,84 @@ where
             }
         };
         self.process(&job, worker_id, &bytes).await.map(|_| true)
+    }
+
+    /// Claim and process the next runnable script job under a concurrency
+    /// permit charged to the job's own user (issue #180).
+    ///
+    /// The order is **claim, then acquire**, not the reverse. Acquiring first
+    /// would mean acquiring before the owning user is known — the permit could
+    /// only be charged to a synthetic per-worker identity, and the per-user
+    /// ceiling (`AI_IMPORT_MAX_CONCURRENT_JOBS_PER_USER`) would never bind.
+    /// Claiming first yields the job's `user_id`, so the slot is charged to
+    /// the user whose work it is.
+    ///
+    /// The claim also releases the permit of a worker that died holding this
+    /// job, *before* the acquisition below — otherwise, at a saturated
+    /// ceiling, the reclaiming worker would be refused the very slot the dead
+    /// worker is still occupying, and the job could never make progress.
+    ///
+    /// When no capacity is available the claim is handed back with
+    /// `release_claim` so the job is runnable again immediately, without being
+    /// charged a retry.
+    ///
+    /// **Both** leases are renewed for the whole run. The permit lease is kept
+    /// alive by [`run_with_renewal`], and the job claim by a [`LeaseHeartbeat`]
+    /// started *before* the source load — a slow or hung fetch of a large PDF
+    /// can outlive a lease on its own, and without the heartbeat the claim
+    /// would lapse while this worker was still working on it.
+    pub async fn run_once_with_permit(
+        &self,
+        worker_id: &str,
+        source: &dyn AiDocumentSource,
+        limiter: &PgAiConcurrencyLimiter,
+    ) -> Result<bool, DomainError> {
+        let Some((job, _released)) = self
+            .queue
+            .claim_next_kind_reconciling(worker_id, DocumentKind::Script)
+            .await?
+        else {
+            return Ok(false);
+        };
+        // Captured before the acquisition so the renewal loop can only
+        // under-estimate the lease window it has, never over-estimate it.
+        let acquired_no_later_than = tokio::time::Instant::now();
+        let Some(permit) = acquire_for_claim(&*self.queue, limiter, &job, worker_id).await? else {
+            return Ok(false);
+        };
+        let result = run_with_renewal(&permit, acquired_no_later_than, async {
+            // Started before the load: `process` starts its own heartbeat for
+            // the LLM loop, but the fetch and PDF extraction ahead of it are
+            // unprotected otherwise.
+            let heartbeat = self.start_heartbeat(job.id, worker_id);
+            let bytes = match source.load(&job.source_handle).await {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    // Stop renewing before the terminal write so the heartbeat
+                    // cannot race `mark_failed`.
+                    if let Some(heartbeat) = heartbeat {
+                        heartbeat.stop();
+                    }
+                    self.fail(job.id, worker_id, &error).await?;
+                    return Err(error);
+                }
+            };
+            if super::heartbeat::claim_lost(heartbeat.as_ref()) {
+                // Another worker owns the job now; every terminal write of
+                // ours would be rejected, so stop before the LLM spend.
+                return Err(DomainError::Conflict(format!(
+                    "AI import job {} was reclaimed while its source loaded",
+                    job.id.as_uuid()
+                )));
+            }
+            if let Some(heartbeat) = heartbeat {
+                heartbeat.stop();
+            }
+            self.process(&job, worker_id, &bytes).await
+        })
+        .await;
+        release_permit_logging_errors(permit, job.id).await;
+        result.map(|_| true)
     }
 
     /// `worker_id` must be the id that claimed `job`: every lifecycle write is
@@ -242,12 +414,13 @@ where
         source: &dyn AiDocumentSource,
         native_csv: bool,
     ) -> Result<bool, DomainError> {
-        let Some(job) = self
+        let job = match self
             .queue
             .claim_next_kind(worker_id, DocumentKind::Schedule)
             .await?
-        else {
-            return Ok(false);
+        {
+            Some(job) => job,
+            None => return Ok(false),
         };
         let bytes = match source.load(&job.source_handle).await {
             Ok(bytes) => bytes,
@@ -259,6 +432,56 @@ where
         self.process(&job, worker_id, &bytes, native_csv)
             .await
             .map(|_| true)
+    }
+
+    /// Claim and process the next runnable schedule job under a concurrency
+    /// permit charged to the job's own user. See
+    /// [`ScriptImportWorker::run_once_with_permit`] for the full
+    /// claim-then-acquire and dual-lease-renewal rationale (issue #180).
+    pub async fn run_once_with_permit(
+        &self,
+        worker_id: &str,
+        source: &dyn AiDocumentSource,
+        native_csv: bool,
+        limiter: &PgAiConcurrencyLimiter,
+    ) -> Result<bool, DomainError> {
+        let Some((job, _released)) = self
+            .queue
+            .claim_next_kind_reconciling(worker_id, DocumentKind::Schedule)
+            .await?
+        else {
+            return Ok(false);
+        };
+        let acquired_no_later_than = tokio::time::Instant::now();
+        let Some(permit) = acquire_for_claim(&*self.queue, limiter, &job, worker_id).await? else {
+            return Ok(false);
+        };
+        let result = run_with_renewal(&permit, acquired_no_later_than, async {
+            let heartbeat = self.start_heartbeat(job.id, worker_id);
+            let bytes = match source.load(&job.source_handle).await {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    if let Some(heartbeat) = heartbeat {
+                        heartbeat.stop();
+                    }
+                    self.fail(job.id, worker_id, &error).await?;
+                    return Err(error);
+                }
+            };
+            if super::heartbeat::claim_lost(heartbeat.as_ref()) {
+                return Err(DomainError::Conflict(format!(
+                    "AI import job {} was reclaimed while its source loaded",
+                    job.id.as_uuid()
+                )));
+            }
+            if let Some(heartbeat) = heartbeat {
+                heartbeat.stop();
+            }
+            self.process(&job, worker_id, &bytes, native_csv).await
+        })
+        .await;
+        release_permit_logging_errors(permit, job.id).await;
+        result.map(|_| true)
     }
 
     /// `worker_id` must be the id that claimed `job`: every lifecycle write is

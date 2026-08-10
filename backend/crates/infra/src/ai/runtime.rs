@@ -139,7 +139,7 @@ impl AiWorkerRuntime {
 /// would then keep running on capacity another acquisition is already entitled
 /// to sweep. The loop therefore tracks the confirmed deadline and gives up
 /// before it rather than after.
-async fn run_with_renewal<Fut, T>(
+pub(crate) async fn run_with_renewal<Fut, T>(
     permit: &PgAiConcurrencyPermit,
     acquired_no_later_than: tokio::time::Instant,
     operation: Fut,

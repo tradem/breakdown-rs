@@ -175,6 +175,90 @@ pub trait AiImportQueue: Send + Sync {
         kind: DocumentKind,
     ) -> Result<Option<AiImportJob>, DomainError>;
 
+    /// Claim the next runnable job **and** release the concurrency permit
+    /// orphaned by the worker that previously held it (issue #180).
+    ///
+    /// A worker that dies mid-job leaves two leases behind: the job lease
+    /// (recovered by the reclaim predicate, issue #177) and the permit lease
+    /// (recovered only when it lapses, up to `AI_IMPORT_LEASE_SECS` later).
+    /// The second one is capacity consumed by a job that is already running
+    /// elsewhere. This method closes that gap by deleting the permit recorded
+    /// on the job in the *same transaction* as the claim.
+    ///
+    /// The returned tuple is `(job, released_permit_id)`, where
+    /// `released_permit_id` is `Some(orphan)` when this was a re-claim of an
+    /// abandoned `running` job and `None` for a fresh `pending`/`failed`
+    /// claim. Callers use the id for audit logging only — the release has
+    /// already happened.
+    ///
+    /// Reconciliation is **exactly once**: only the worker that wins the
+    /// `FOR UPDATE SKIP LOCKED` race observes a non-null orphan id, the
+    /// DELETE is by primary key, and the job's `permit_id` is cleared by the
+    /// same statement.
+    ///
+    /// The claim is left *without* a permit: the caller acquires capacity for
+    /// [`AiImportJob::user_id`] next and records it with
+    /// [`attach_permit`](Self::attach_permit). Freeing the orphan here rather
+    /// than after the acquisition is deliberate — at a saturated ceiling the
+    /// reclaiming worker would otherwise be refused the very slot the dead
+    /// worker is still holding.
+    ///
+    /// The default implementation is for backends with no permit link
+    /// (in-memory and test queues): it claims normally and reports no orphan.
+    async fn claim_next_reconciling(
+        &self,
+        worker_id: &str,
+    ) -> Result<Option<(AiImportJob, Option<Uuid>)>, DomainError> {
+        Ok(self.claim_next(worker_id).await?.map(|job| (job, None)))
+    }
+
+    /// Kind-filtered variant of
+    /// [`claim_next_reconciling`](Self::claim_next_reconciling) with identical
+    /// permit-reconciliation semantics.
+    async fn claim_next_kind_reconciling(
+        &self,
+        worker_id: &str,
+        kind: DocumentKind,
+    ) -> Result<Option<(AiImportJob, Option<Uuid>)>, DomainError> {
+        Ok(self
+            .claim_next_kind(worker_id, kind)
+            .await?
+            .map(|job| (job, None)))
+    }
+
+    /// Record the permit that now owns this worker's claim.
+    ///
+    /// Called after the permit was acquired for the job's own `user_id`, so
+    /// the per-user ceiling is charged to the user whose work it is. The link
+    /// is what lets a future reclaim release this permit if *this* worker dies
+    /// (see [`claim_next_reconciling`](Self::claim_next_reconciling)).
+    ///
+    /// Owner-fenced like every other worker transition: a worker whose lease
+    /// lapsed and whose job was reclaimed gets `DomainError::Conflict` rather
+    /// than overwriting the new owner's permit link.
+    ///
+    /// The default implementation is a no-op for backends with no permit link.
+    async fn attach_permit(
+        &self,
+        _id: AiImportJobId,
+        _worker_id: &str,
+        _permit_id: Uuid,
+    ) -> Result<(), DomainError> {
+        Ok(())
+    }
+
+    /// Return a claimed job to the runnable pool without counting an attempt.
+    ///
+    /// Used when a worker claimed a job but could not acquire capacity for it:
+    /// the job never ran, so it must not be charged a retry, and it must not
+    /// stay `running` until its lease lapses. Owner-fenced.
+    ///
+    /// The default implementation is a no-op: in-memory queues have no lease,
+    /// so an unreleased claim cannot block a later one.
+    async fn release_claim(&self, _id: AiImportJobId, _worker_id: &str) -> Result<(), DomainError> {
+        Ok(())
+    }
+
     async fn get(&self, id: AiImportJobId) -> Result<Option<AiImportJob>, DomainError>;
 
     // --- Lifecycle transitions (owner-fenced) ------------------------------
