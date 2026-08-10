@@ -52,10 +52,20 @@ causing that case.
   disabled, so a production process can no longer hold a store that accepts
   payloads and silently drops them on restart. `MemoryAiPreviewStore` remains,
   for unit tests only.
-- New migration `20260812000001_ai_import_payload_unavailable.{up,down}.sql`
-  extending the `status` CHECK constraint. The down migration folds
-  `payload_unavailable` rows into `dead_letter` — the closest pre-#181 state
-  that is both terminal and unclaimable.
+- Two new migrations extend the `status` CHECK constraint **without blocking
+  writes**, split deliberately across files because sqlx wraps each migration
+  in one transaction:
+  `20260812000001_ai_import_payload_unavailable` adds the widened constraint
+  `NOT VALID` (a fast catalog-only change) and commits, releasing the
+  ACCESS EXCLUSIVE lock that `ADD CONSTRAINT` takes;
+  `20260812000002_ai_import_payload_unavailable_validate` then runs
+  `VALIDATE CONSTRAINT` in its own transaction — verified to take only
+  `ShareUpdateExclusiveLock`, so enqueue, claim and lifecycle writes continue
+  during deployment — and swaps the constraint names. Validating in the same
+  file would have held the exclusive lock across the scan, defeating the point.
+  The `002` down migration folds `payload_unavailable` rows into `dead_letter`
+  — the closest pre-#181 state that is both terminal and unclaimable — before
+  restoring the narrow constraint.
 
 ### Added — AI import permit reconciliation (issue #180)
 

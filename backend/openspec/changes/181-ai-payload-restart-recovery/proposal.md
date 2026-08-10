@@ -68,8 +68,12 @@ retryably — that is a transient condition, not a lost payload.
 
 ### infra (0.12.0, unreleased)
 
-- Migration `20260812000001_ai_import_payload_unavailable`: extend the status
-  `CHECK` constraint.
+- Migrations `20260812000001_ai_import_payload_unavailable` (add the widened
+  `CHECK` as `NOT VALID`, then commit) and
+  `20260812000002_ai_import_payload_unavailable_validate` (validate + swap
+  names). The split is required: `ADD CONSTRAINT` holds ACCESS EXCLUSIVE until
+  commit and sqlx wraps each file in one transaction, so validating in the same
+  file would run the scan under that lock and block every job write.
 - `PgAiImportQueue::mark_payload_unavailable` — owner-fenced, clears
   claim/lease/permit/`next_attempt_at`; `parse_status` learns the new value.
 - Claim predicates are unchanged and therefore already exclude the new status.

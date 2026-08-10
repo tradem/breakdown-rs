@@ -2,11 +2,10 @@
 -- Copyright (C) 2024-2026 Breakdown RS Contributors
 -- Co-authored-by: longcat-2.0-free (opencode)
 
--- Issue #181: a distinct terminal status for jobs whose durable payload is
--- gone.
+-- Issue #181, step 1 of 2: add the widened status constraint, unvalidated.
 --
--- Before this migration a worker that could not load a job's source document
--- or preview blob had only `failed`/`dead_letter` available. `failed` is the
+-- Background: a worker that could not load a job's source document or preview
+-- blob previously had only `failed`/`dead_letter` available. `failed` is the
 -- *retryable* state, so a permanently missing payload burned the whole retry
 -- budget re-discovering its own absence; `dead_letter` conflates "the work
 -- failed" with "we lost the input". `payload_unavailable` separates the two:
@@ -14,20 +13,26 @@
 -- `pending`/`failed`/expired-`running` explicitly), and payload GC may sweep
 -- it immediately after the retention window.
 --
--- The constraint is swapped **without an exclusive table scan**. Adding a
--- validated CHECK holds ACCESS EXCLUSIVE while Postgres scans every row, which
--- would block enqueue, claim and every lifecycle write for the duration of the
--- deployment. Instead the widened constraint is added `NOT VALID` (a catalog-
--- only change), validated under SHARE UPDATE EXCLUSIVE (concurrent reads and
--- writes continue), and only then does the narrow constraint go away.
+-- Why this is split across two migration files:
 --
--- The old constraint stays active for the whole swap, so there is no window in
--- which an unknown status could be written. It rejects `payload_unavailable`
--- until the final DROP, which is harmless: the code that emits the new status
--- ships after this migration.
+--   * Adding a *validated* CHECK holds ACCESS EXCLUSIVE while Postgres scans
+--     every row, blocking enqueue, claim and every lifecycle write for the
+--     length of the deployment.
+--   * `NOT VALID` avoids the scan, but `ADD CONSTRAINT` still takes ACCESS
+--     EXCLUSIVE and holds it until commit — and sqlx wraps each migration file
+--     in one transaction. Validating in this same file would therefore run the
+--     scan under the exclusive lock anyway, defeating the point.
+--
+-- So this file only adds the constraint (a fast catalog-only change) and
+-- commits. `20260812000002` then validates it under SHARE UPDATE EXCLUSIVE,
+-- which does not block reads or writes, and swaps the names.
+--
+-- The old constraint stays active throughout, so there is no window in which
+-- an unknown status could be written. It rejects `payload_unavailable` until
+-- step 2 drops it, which is harmless: the code emitting the new status ships
+-- after both migrations.
 
--- Re-runnability: a partially applied attempt may have left the versioned
--- constraint behind.
+-- Re-runnability: a partially applied attempt may have left this behind.
 ALTER TABLE ai_import.ai_import_job
     DROP CONSTRAINT IF EXISTS ai_import_job_status_check_v2;
 
@@ -41,19 +46,3 @@ ALTER TABLE ai_import.ai_import_job
         'dead_letter',
         'payload_unavailable'
     )) NOT VALID;
-
--- SHARE UPDATE EXCLUSIVE: does not block reads or writes.
-ALTER TABLE ai_import.ai_import_job
-    VALIDATE CONSTRAINT ai_import_job_status_check_v2;
-
-ALTER TABLE ai_import.ai_import_job
-    DROP CONSTRAINT IF EXISTS ai_import_job_status_check;
-
-ALTER TABLE ai_import.ai_import_job
-    RENAME CONSTRAINT ai_import_job_status_check_v2 TO ai_import_job_status_check;
-
-COMMENT ON COLUMN ai_import.ai_import_job.status IS
-    'Operational lifecycle. `failed` is retryable (backoff via next_attempt_at); '
-    '`succeeded`, `dead_letter` and `payload_unavailable` are terminal. '
-    '`payload_unavailable` means the durable source/preview payload is gone, so '
-    'the job is non-resumable (issue #181).';
