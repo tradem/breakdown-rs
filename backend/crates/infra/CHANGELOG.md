@@ -14,13 +14,17 @@ commits (ADR-020 D5).
 
 ### Added — Per-payload cleanup state for the AI payload GC sweep (issue #206)
 
-The sweep now records what it deleted, so it makes progress instead of
-re-selecting the same head of the queue on every run.
+The sweep now records a completion mark per payload, so it makes progress
+instead of re-selecting the same head of the queue on every run.
 
-- New table `ai_import.ai_payload_cleanup`, keyed `(job_id, payload_kind)`
-  with the deleted `handle`, the `run_id` that deleted it, and `cleaned_at`.
-  A job's two payloads are tracked independently, so a sweep that deleted the
-  source but hit a 503 on the preview comes back for the preview only.
+- New table `ai_import.ai_payload_cleanup`, keyed `(job_id, payload_kind)`.
+  Each row records a *cleanup outcome* for one payload: a successful deletion
+  **and** a not-found result (the goal state — the object is gone — holds for
+  both, and a terminal job can never be re-claimed to recreate it). The row
+  stores the `handle` that was targeted, the `run_id` of the sweep that
+  recorded the mark, and `cleaned_at`. A job's two payloads are tracked
+  independently, so a sweep that deleted the source but hit a 503 on the
+  preview comes back for the preview only.
 - `TERMINAL_JOBS_SQL` anti-joins the marks and selects a job only while it
   still owes a payload. Previously it returned the oldest `batch_size`
   terminal jobs unconditionally: deletions are idempotent so nothing was
