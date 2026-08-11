@@ -44,8 +44,8 @@ preview seeded through the production `AiPreviewStore::put` +
 ## Problem
 
 The existing tests in `ai_payload_storage_round_trip.rs` verify that bytes
-round-trip through Garage. They do not prove the operational promises of issue
-#174 / #181:
+round-trip through Garage. They do not prove the operational promises of
+issues #174 / #181:
 
 1. that an uploaded source document survives an API restart and is reloaded
    by a fresh worker from durable storage;
