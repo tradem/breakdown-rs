@@ -276,6 +276,74 @@ async fn pending_and_retryable_failed_jobs_remain_claimable() -> Result<()> {
     Ok(())
 }
 
+/// Issue #222: a permanent processing error is terminalized via
+/// `mark_failed(..., retryable = false)`. The job must leave `running`
+/// immediately (claim + lease cleared, no backoff scheduled) and must never
+/// become claimable again — it is `dead_letter`, not `failed`.
+#[tokio::test]
+async fn permanent_failure_dead_letters_and_releases_the_claim() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool.clone()).with_lease(Duration::from_secs(900));
+    let id = seed_job(
+        &queue,
+        "permanent-user",
+        "permanent-lease",
+        DocumentKind::Schedule,
+    )
+    .await;
+
+    queue.claim_next("worker-a").await?.expect("claimable");
+    queue
+        .mark_failed(id, "worker-a", "rejected API key", false)
+        .await?;
+
+    let (worker_id, lease_expires_at) = read_claim(&pool, id).await;
+    assert_eq!(
+        worker_id, None,
+        "a dead-lettered job must hold no claim, so it cannot be reclaimed"
+    );
+    assert_eq!(
+        lease_expires_at, None,
+        "a dead-lettered job must hold no lease"
+    );
+
+    let (status, next_attempt_at) = read_status_and_next_attempt(&pool, id).await;
+    assert_eq!(
+        status, "dead_letter",
+        "a non-retryable failure must land in dead_letter, not failed"
+    );
+    assert_eq!(
+        next_attempt_at, None,
+        "a dead-lettered job must schedule no retry backoff"
+    );
+
+    assert!(
+        queue.claim_next("worker-b").await?.is_none(),
+        "a dead-lettered job must never be claimable, even once backoff is due"
+    );
+    Ok(())
+}
+
+/// Read back `status` and `next_attempt_at` for the permanent-failure
+/// assertion. Both are persisted queue bookkeeping not exposed on the
+/// `AiImportJob` view (same rationale as the other raw reads in this file).
+async fn read_status_and_next_attempt(
+    pool: &PgPool,
+    id: AiImportJobId,
+) -> (String, Option<DateTime<Utc>>) {
+    sqlx::query_as(
+        r#"
+        SELECT status, next_attempt_at
+        FROM ai_import.ai_import_job
+        WHERE id = $1
+        "#,
+    )
+    .bind(id.as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
 #[tokio::test]
 async fn success_releases_the_claim() -> Result<()> {
     let (pool, _container) = crate::fixtures::spawn_postgres().await?;
