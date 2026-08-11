@@ -15,10 +15,11 @@
 //! sleeping, and no assertion compares a database timestamp against the test
 //! process' clock.
 //!
-//! Raw SQL is used in exactly two places, both deliberate:
-//!   * reading back `worker_id` / `lease_expires_at`, which are operational
-//!     claim bookkeeping and not part of the `AiImportJob` view (same
-//!     rationale as `ai_import_queue_telemetry.rs`);
+//! Raw SQL is used in exactly two deliberate categories:
+//!   * reading back `worker_id` / `lease_expires_at` / `permit_id` / `status` /
+//!     `next_attempt_at`, which are operational queue bookkeeping and not part
+//!     of the `AiImportJob` view (same rationale as
+//!     `ai_import_queue_telemetry.rs`);
 //!   * one `UPDATE` that makes a retry backoff due, because the backoff
 //!     deadline is computed in SQL (`now() + interval ...`) and no public API
 //!     exposes it — the alternative would be sleeping out the backoff, which
@@ -46,8 +47,9 @@ use breakdown_core::ai::{
 };
 use breakdown_core::shared::UserId;
 use chrono::{DateTime, Utc};
-use infra::ai::PgAiImportQueue;
+use infra::ai::{PgAiConcurrencyLimiter, PgAiImportQueue};
 use sqlx::PgPool;
+use uuid::Uuid;
 
 /// Seed a job row through the public `enqueue` API and return its id.
 async fn seed_job(
@@ -78,9 +80,9 @@ async fn seed_job(
     }
 }
 
-/// Read back the claim metadata. Kept as raw SQL on purpose: `worker_id` and
-/// `lease_expires_at` are operational claim bookkeeping and are not exposed on
-/// the `AiImportJob` view.
+/// Read back the claim metadata. Kept as raw SQL on purpose: `worker_id`,
+/// `lease_expires_at` and `permit_id` are operational claim bookkeeping and
+/// are not exposed on the `AiImportJob` view.
 async fn read_claim(pool: &PgPool, id: AiImportJobId) -> (Option<String>, Option<DateTime<Utc>>) {
     sqlx::query_as(
         r#"
@@ -274,6 +276,114 @@ async fn pending_and_retryable_failed_jobs_remain_claimable() -> Result<()> {
     assert_eq!(retried.id, id);
     assert_eq!(retried.retries, 1);
     Ok(())
+}
+
+/// Issue #222: a permanent processing error is terminalized via
+/// `mark_failed(..., retryable = false)`. The job must leave `running`
+/// immediately (claim + lease + permit link cleared, no backoff scheduled)
+/// and must never become claimable again — it is `dead_letter`, not `failed`.
+///
+/// The permit link is attached *after* `claim_next` (which nulls `permit_id`
+/// itself, issue #180) so the assertion proves `mark_failed` performs the
+/// cleanup rather than inheriting it from the claim.
+#[tokio::test]
+async fn permanent_failure_dead_letters_and_releases_the_claim() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool.clone()).with_lease(Duration::from_secs(900));
+    let limiter = PgAiConcurrencyLimiter::new(pool.clone(), 1, 1)?;
+    let id = seed_job(
+        &queue,
+        "permanent-user",
+        "permanent-lease",
+        DocumentKind::Schedule,
+    )
+    .await;
+
+    let job = queue.claim_next("worker-a").await?.expect("claimable");
+    // A real permit, attached after the claim: the terminal write must clear
+    // the link itself, not inherit `permit_id = NULL` from `claim_next`.
+    let permit = limiter
+        .try_acquire_as(job.user_id.as_str(), "worker-a")
+        .await?
+        .expect("slot available for the claimed job");
+    queue.attach_permit(id, "worker-a", permit.id()).await?;
+    assert_eq!(
+        job_permit_id(&pool, id).await,
+        Some(permit.id()),
+        "the permit must be linked to the claim before the terminal write"
+    );
+
+    queue
+        .mark_failed(id, "worker-a", "rejected API key", false)
+        .await?;
+
+    let (worker_id, lease_expires_at) = read_claim(&pool, id).await;
+    assert_eq!(
+        worker_id, None,
+        "a dead-lettered job must hold no claim, so it cannot be reclaimed"
+    );
+    assert_eq!(
+        lease_expires_at, None,
+        "a dead-lettered job must hold no lease"
+    );
+    assert_eq!(
+        job_permit_id(&pool, id).await,
+        None,
+        "the terminal write must clear the attached permit link"
+    );
+
+    let (status, next_attempt_at) = read_status_and_next_attempt(&pool, id).await;
+    assert_eq!(
+        status, "dead_letter",
+        "a non-retryable failure must land in dead_letter, not failed"
+    );
+    assert_eq!(
+        next_attempt_at, None,
+        "a dead-lettered job must schedule no retry backoff"
+    );
+
+    assert!(
+        queue.claim_next("worker-b").await?.is_none(),
+        "a dead-lettered job must never be claimable, even once backoff is due"
+    );
+    Ok(())
+}
+
+/// Read back the permit link on a job. Kept as raw SQL on purpose:
+/// `permit_id` is operational claim bookkeeping not exposed on the
+/// `AiImportJob` view (same rationale as `read_claim`).
+async fn job_permit_id(pool: &PgPool, id: AiImportJobId) -> Option<Uuid> {
+    sqlx::query_scalar(
+        r#"
+        SELECT permit_id
+        FROM ai_import.ai_import_job
+        WHERE id = $1
+        "#,
+    )
+    .bind(id.as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+/// Read back `status` and `next_attempt_at` for the permanent-failure
+/// assertion. Both are persisted queue bookkeeping not exposed on the
+/// `AiImportJob` view (same rationale as the other raw reads in this file).
+async fn read_status_and_next_attempt(
+    pool: &PgPool,
+    id: AiImportJobId,
+) -> (String, Option<DateTime<Utc>>) {
+    sqlx::query_as(
+        r#"
+        SELECT status, next_attempt_at
+        FROM ai_import.ai_import_job
+        WHERE id = $1
+        "#,
+    )
+    .bind(id.as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap()
 }
 
 #[tokio::test]

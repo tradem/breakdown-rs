@@ -611,11 +611,47 @@ async fn schedule_worker_tick(
 /// Handle the result of a job run under a concurrency permit.
 ///
 /// `Ok(None)` means the ceiling was saturated — hand the claim back so the job
-/// is runnable immediately and is not charged a retry. Any other outcome is
-/// returned as-is. Shared by both worker ticks, which otherwise duplicate this
-/// block (issue #214).
+/// is runnable immediately and is not charged a retry. Shared by both worker
+/// ticks, which otherwise duplicate this block (issue #214).
+///
+/// `Err(error)` is classified at this edge (issue #222): transient
+/// (`ServiceUnavailable`) and reclamation-related (`Conflict`) errors keep the
+/// retryable path — the worker backs off and the lease lapses, or the new
+/// owner finishes the job. Permanent errors fail the job terminally via
+/// `mark_failed(..., retryable = false)` so it does not sit `running` for the
+/// whole lease window.
 async fn handle_job_result(
     deps: &WorkerDeps,
+    result: Result<Option<String>, DomainError>,
+    worker_id: &str,
+    job_id: AiImportJobId,
+) -> Result<(), DomainError> {
+    finalize_job_result(&*deps.queue, result, worker_id, job_id).await
+}
+
+/// Whether a processing error is permanent, i.e. must terminate the job now
+/// rather than leave it `running` until the claim lease lapses (issue #222).
+///
+/// * `ServiceUnavailable` is transient — the dependency may recover, keep the
+///   retryable path.
+/// * `Conflict` is *not* permanent: it surfaces either a lost claim (the new
+///   owner is already redoing the work) or a lost concurrency permit (capacity
+///   was reclaimed; the job must be retried, not dead-lettered).
+/// * Every other variant (`ValidationError`, `NotFound`, `VersionConflict`)
+///   cannot be fixed by retrying — a rejected API key, a base-URL redirect
+///   policy rejection or a malformed prompt will fail identically on the next
+///   attempt.
+fn is_permanent_processing_error(error: &DomainError) -> bool {
+    !matches!(
+        error,
+        DomainError::ServiceUnavailable(_) | DomainError::Conflict(_)
+    )
+}
+
+/// Queue-agnostic core of [`handle_job_result`], generic over the queue so the
+/// classification can be unit-tested against a fake queue.
+async fn finalize_job_result<Q: AiImportQueue + ?Sized>(
+    queue: &Q,
     result: Result<Option<String>, DomainError>,
     worker_id: &str,
     job_id: AiImportJobId,
@@ -628,7 +664,7 @@ async fn handle_job_result(
                 job_id = %job_id.as_uuid(),
                 "AI import capacity saturated; returning the claim unrun"
             );
-            if let Err(error) = deps.queue.release_claim(job_id, worker_id).await {
+            if let Err(error) = queue.release_claim(job_id, worker_id).await {
                 warn!(
                     worker_id,
                     job_id = %job_id.as_uuid(),
@@ -638,6 +674,256 @@ async fn handle_job_result(
             }
             Ok(())
         }
+        Err(error) if is_permanent_processing_error(&error) => {
+            warn!(
+                worker_id,
+                job_id = %job_id.as_uuid(),
+                %error,
+                "permanently failing AI import job"
+            );
+            match queue
+                .mark_failed(job_id, worker_id, &error.to_string(), false)
+                .await
+            {
+                Ok(()) => Ok(()),
+                // `mark_failed` is owner-fenced: a `Conflict` means the job was
+                // already terminalized (e.g. by the worker's own internal
+                // `fail` helper) or was reclaimed by another worker. Both mean
+                // there is nothing left to write — move on instead of backing
+                // off.
+                Err(DomainError::Conflict(_)) => Ok(()),
+                Err(error) => Err(error),
+            }
+        }
         Err(error) => Err(error),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use async_trait::async_trait;
+    use breakdown_core::ai::{
+        AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId, AiImportQueue,
+        DocumentKind, Telemetry,
+    };
+    use breakdown_core::error::DomainError;
+    use uuid::Uuid;
+
+    use super::finalize_job_result;
+
+    #[derive(Default)]
+    struct RecordingState {
+        mark_failed_calls: Vec<(AiImportJobId, String, bool)>,
+        mark_failed_result: Option<DomainError>,
+        released: Vec<AiImportJobId>,
+    }
+
+    #[derive(Clone, Default)]
+    struct RecordingQueue {
+        state: Arc<Mutex<RecordingState>>,
+    }
+
+    #[async_trait]
+    impl AiImportQueue for RecordingQueue {
+        async fn enqueue(
+            &self,
+            _request: AiImportEnqueueRequest,
+        ) -> Result<AiImportEnqueueResult, DomainError> {
+            unimplemented!()
+        }
+        async fn claim_next(&self, _worker_id: &str) -> Result<Option<AiImportJob>, DomainError> {
+            unimplemented!()
+        }
+        async fn claim_next_kind(
+            &self,
+            _worker_id: &str,
+            _kind: DocumentKind,
+        ) -> Result<Option<AiImportJob>, DomainError> {
+            unimplemented!()
+        }
+        async fn get(&self, _id: AiImportJobId) -> Result<Option<AiImportJob>, DomainError> {
+            unimplemented!()
+        }
+        async fn mark_running(
+            &self,
+            _id: AiImportJobId,
+            _worker_id: &str,
+        ) -> Result<(), DomainError> {
+            unimplemented!()
+        }
+        async fn mark_succeeded(
+            &self,
+            _id: AiImportJobId,
+            _worker_id: &str,
+            _preview_handle: &str,
+        ) -> Result<(), DomainError> {
+            unimplemented!()
+        }
+        async fn mark_failed(
+            &self,
+            id: AiImportJobId,
+            _worker_id: &str,
+            error_summary: &str,
+            retryable: bool,
+        ) -> Result<(), DomainError> {
+            let mut state = self.state.lock().unwrap();
+            if let Some(error) = state.mark_failed_result.take() {
+                return Err(error);
+            }
+            state
+                .mark_failed_calls
+                .push((id, error_summary.to_owned(), retryable));
+            Ok(())
+        }
+        async fn release_claim(
+            &self,
+            id: AiImportJobId,
+            _worker_id: &str,
+        ) -> Result<(), DomainError> {
+            self.state.lock().unwrap().released.push(id);
+            Ok(())
+        }
+        async fn record_worker_telemetry(
+            &self,
+            _id: AiImportJobId,
+            _worker_id: &str,
+            _telemetry: Telemetry,
+        ) -> Result<(), DomainError> {
+            unimplemented!()
+        }
+        async fn record_telemetry(
+            &self,
+            _id: AiImportJobId,
+            _telemetry: Telemetry,
+        ) -> Result<(), DomainError> {
+            unimplemented!()
+        }
+    }
+
+    fn job_id() -> AiImportJobId {
+        AiImportJobId(Uuid::now_v7())
+    }
+
+    /// Issue #222: a permanent processing error (here: a rejected API key)
+    /// must be terminalized via `mark_failed(..., retryable = false)` so the
+    /// job does not stay `running` until its lease lapses.
+    #[tokio::test]
+    async fn permanent_error_is_marked_failed_non_retryable() {
+        let queue = RecordingQueue::default();
+        let id = job_id();
+        let result = finalize_job_result(
+            &queue,
+            Err(DomainError::ValidationError("rejected API key".to_owned())),
+            "test-worker",
+            id,
+        )
+        .await;
+        assert!(result.is_ok(), "a terminalized job is not a loop failure");
+        let state = queue.state.lock().unwrap();
+        assert_eq!(state.mark_failed_calls.len(), 1);
+        let (failed_id, summary, retryable) = &state.mark_failed_calls[0];
+        assert_eq!(*failed_id, id);
+        assert!(summary.contains("rejected API key"));
+        assert!(!*retryable, "permanent errors must be non-retryable");
+    }
+
+    /// Issue #222: a transient error stays on the retryable path — the error
+    /// propagates so the loop backs off, and no terminal write happens.
+    #[tokio::test]
+    async fn transient_error_stays_on_the_retryable_path() {
+        let queue = RecordingQueue::default();
+        let id = job_id();
+        let result = finalize_job_result(
+            &queue,
+            Err(DomainError::ServiceUnavailable("provider 503".to_owned())),
+            "test-worker",
+            id,
+        )
+        .await;
+        assert!(matches!(result, Err(DomainError::ServiceUnavailable(_))));
+        let state = queue.state.lock().unwrap();
+        assert!(
+            state.mark_failed_calls.is_empty(),
+            "transient errors must not be terminalized"
+        );
+    }
+
+    /// Issue #222: a Conflict surfaces a lost claim (the new owner is already
+    /// redoing the work) or a lost concurrency permit (capacity was reclaimed)
+    /// — either way the job must not be dead-lettered by this worker.
+    #[tokio::test]
+    async fn conflict_error_is_not_terminalized() {
+        let queue = RecordingQueue::default();
+        let id = job_id();
+        let result = finalize_job_result(
+            &queue,
+            Err(DomainError::Conflict(
+                "claim lost mid-processing".to_owned(),
+            )),
+            "test-worker",
+            id,
+        )
+        .await;
+        assert!(matches!(result, Err(DomainError::Conflict(_))));
+        let state = queue.state.lock().unwrap();
+        assert!(state.mark_failed_calls.is_empty());
+    }
+
+    /// The worker's own internal `fail` helper (script worker) may already
+    /// have terminalized the job; the owner-fenced second mark then returns
+    /// `Conflict`, which must be absorbed — not propagated as a loop failure.
+    #[tokio::test]
+    async fn already_terminal_job_is_not_rewritten() {
+        let queue = RecordingQueue {
+            state: Arc::new(Mutex::new(RecordingState {
+                mark_failed_result: Some(DomainError::Conflict(
+                    "worker no longer holds the claim".to_owned(),
+                )),
+                ..RecordingState::default()
+            })),
+        };
+        let id = job_id();
+        let result = finalize_job_result(
+            &queue,
+            Err(DomainError::ValidationError("permanent".to_owned())),
+            "test-worker",
+            id,
+        )
+        .await;
+        assert!(result.is_ok(), "an absorbed mark_failed Conflict is Ok");
+    }
+
+    /// `Ok(None)` (capacity saturated) hands the claim back unrun and charges
+    /// no retry.
+    #[tokio::test]
+    async fn saturated_capacity_releases_the_claim() {
+        let queue = RecordingQueue::default();
+        let id = job_id();
+        let result = finalize_job_result(&queue, Ok(None), "test-worker", id).await;
+        assert!(result.is_ok());
+        let state = queue.state.lock().unwrap();
+        assert_eq!(state.released, vec![id]);
+        assert!(state.mark_failed_calls.is_empty());
+    }
+
+    /// A successful run is a no-op at the edge: the worker already wrote the
+    /// terminal state itself.
+    #[tokio::test]
+    async fn success_is_returned_without_writes() {
+        let queue = RecordingQueue::default();
+        let id = job_id();
+        let result = finalize_job_result(
+            &queue,
+            Ok(Some("preview-handle".to_owned())),
+            "test-worker",
+            id,
+        )
+        .await;
+        assert!(result.is_ok());
+        let state = queue.state.lock().unwrap();
+        assert!(state.mark_failed_calls.is_empty());
+        assert!(state.released.is_empty());
     }
 }
