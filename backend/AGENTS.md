@@ -176,7 +176,7 @@ End-to-end, black-box integration tests live in the dedicated workspace member `
 - **Tier 4 (full round-trip, ADR-016)**: `command → SierraDB event persisted → PostgresProcessor catches up → read via *Repository adapter asserts the projection row`, against ephemeral SierraDB (`tqwewe/sierradb:0.3.1`) **and** Postgres containers, with bounded-retry eventual-consistency handling. A second variant verifies projector idempotency under redelivery.
 - **How to run locally**: See [Local development](#local-development-integration-tests) below.
 - **Boundary**: The crate consumes only the `pub` API of `core` and `infra`. It is excluded from the `cargo-mutants` surface — only whitebox `#[cfg(test)]` modules are mutated.
-- **CI trigger**: The integration-test job runs on pull requests and pushes to main. CI starts both the Postgres and SierraDB containers.
+- **CI trigger**: The integration-test workflow runs on pull requests and pushes to main. The main job runs the Vault fixture, the Postgres-only tests, and the SierraDB round-trip group; a second `ai-import-integration-tests` job runs the heavy Postgres-only AI import/payload suites (issue #226). CI starts the Postgres and SierraDB containers.
 - **Container policy**: Each test gets fresh containers by default. Optional local container reuse is documented in the harness module docs, but CI always uses fresh containers.
 - **Flaky-test mitigation**: CI pre-pulls Docker images with retries before running tests to handle transient network failures.
 
