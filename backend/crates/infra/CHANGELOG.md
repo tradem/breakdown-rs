@@ -12,6 +12,27 @@ commits (ADR-020 D5).
 
 ## [0.12.0] - Unreleased
 
+### Added — AI import worker loops wired through the concurrency limiter (issue #214)
+
+The `PgAiConcurrencyLimiter` / `AiWorkerRuntime` were public API that nothing
+constructed; jobs never consumed a permit and the `AI_IMPORT_MAX_CONCURRENT_JOBS_*`
+ceilings were documentation only. This change adds the worker-loop side:
+
+- New module `ai::worker_loop` with `spawn_script_import_worker` /
+  `spawn_schedule_import_worker`. Each loop claims a job (reconciling orphaned
+  permits via `claim_next_kind_reconciling`), resolves the job's per-user AI
+  config + vaulted API key, builds the provider-matching LLM client, and routes
+  the job through `AiWorkerRuntime::run_job_as` so the permit lifecycle
+  (acquire → renew → release) and the `AiJobGuard` tracked for `drain()` are
+  managed in one place. A saturated ceiling returns the claim unrun instead of
+  acquiring first.
+- `AiConfigRepositoryImpl::find_worker_config` resolves the active AI config
+  (provider, model, prompt, vault reference) for a user + document kind — the
+  job carries `user_id` but not a config id.
+- `ScriptImportWorker` / `ScheduleImportWorker` no longer generic over the
+  preview store (`S`); `previews` is now `Arc<dyn AiPreviewStore>`, which is
+  what the production composition root already holds.
+
 ### Added — Per-payload cleanup state for the AI payload GC sweep (issue #206)
 
 The sweep now records a completion mark per payload, so it makes progress
