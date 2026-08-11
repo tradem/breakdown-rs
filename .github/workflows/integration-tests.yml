@@ -14,6 +14,17 @@ permissions:
 # container runtime) with network access to Docker Hub. See
 # `backend/AGENTS.md` Sec. Integration tests and `backend/docs/operations/runbooks.md`.
 #
+# AI import/payload tests (issue #226): the Postgres-only AI test files added in
+# follow-up PRs to #169 were never wired into CI. They are split by weight: the
+# four light files run in the main job's Postgres-only step; the four heavy files
+# (up to 13 Postgres + 4 Garage containers per binary) run in the separate
+# `ai-import-integration-tests` job so the main job stays within its 30-minute
+# budget. SierraDB-requiring AI tests (`ai_payload_storage_round_trip`) stay in
+# the sequential group; `ai_llm_smoke_test` is nightly-only by design (see
+# ai-import-nightly.yml), while `ai_gdrive_fixture_test` also runs here for
+# trusted pushes and trusted pull requests (see the AI GDrive fixture smoke
+# test step below).
+#
 # Flaky-test prevention:
 # - Docker images are pre-pulled with retries to handle transient network failures.
 # - Rust dependency caching reduces build time on repeat runs.
@@ -53,6 +64,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Read-only job: no authenticated git commands are run after checkout.
+          persist-credentials: false
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
@@ -146,7 +160,13 @@ jobs:
         run: |
           # Note: --test <name> flags go BEFORE the first -- (Cargo option);
           # --nocapture goes AFTER -- (test runner option).
+          # Light AI import/payload tests (issue #226) run here; the heavy AI
+          # files run in the dedicated `ai-import-integration-tests` job.
           cargo test -p integration-tests \
+            --test ai_concurrency_shutdown \
+            --test ai_import_mapping_reservation \
+            --test ai_import_queue_telemetry \
+            --test ai_payload_restart_recovery \
             --test photo_gc_sweep \
             --test photo_storage_tests \
             --test projector_scene_test \
@@ -220,3 +240,91 @@ jobs:
         env:
           REPORT_BACKUP_GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
         run: echo SKIP - GDrive contract test - set GDRIVE_CLIENT_ID secret to enable
+
+  # Heavy AI import/payload integration tests (issue #226). The main job's
+  # Postgres-only step stays lean; these binaries spawn up to 13 Postgres
+  # containers (plus Garage for the GC sweep) each, which would push the main
+  # job past its 30-minute budget. Postgres-only: no SierraDB, so no
+  # `--test-threads=1` needed. Separate runner => no Docker contention with the
+  # main job; same `concurrency` group => same-ref runs still cancel each other.
+  ai-import-integration-tests:
+    name: AI import integration tests (Postgres + Garage)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+
+    env:
+      POSTGRES_IMAGE: docker.io/postgres:16-alpine
+      GARAGE_IMAGE: dxflrs/garage:v1.0.1
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Read-only job: no authenticated git commands are run after checkout.
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
+      - name: Verify Docker is available
+        run: |
+          docker info
+          # This step must fail loudly if Docker is missing. Do not silently
+          # pass; missing Docker masks test failures.
+
+      # Pre-pull Docker images with retries to avoid flaky failures from
+      # transient network issues during test execution.
+      - name: Pre-pull Docker images (with retries)
+        run: |
+          pull_with_retry() {
+            local image=$1
+            local max_attempts=3
+            local attempt=1
+
+            while [ $attempt -le $max_attempts ]; do
+              echo "Pulling $image (attempt $attempt/$max_attempts)..."
+              if docker pull "$image"; then
+                echo "Successfully pulled $image"
+                return 0
+              fi
+              echo "Pull failed, retrying in 5s..."
+              sleep 5
+              attempt=$((attempt + 1))
+            done
+
+            echo "ERROR: Failed to pull $image after $max_attempts attempts" >&2
+            return 1
+          }
+
+          pull_with_retry "$POSTGRES_IMAGE"
+          # Garage is started by ai_payload_gc_cleanup_state via `spawn_garage`;
+          # pre-pull it with the same retry policy so a transient pull failure
+          # cannot flake a test run.
+          pull_with_retry "$GARAGE_IMAGE"
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: "backend"
+
+      - name: AI import Postgres-only integration tests (parallel)
+        env:
+          RUST_LOG: info
+        run: |
+          # Heavy AI import/payload files (issue #226): each spawns up to 13
+          # Postgres containers (ai_payload_gc_cleanup_state also spawns
+          # Garage). They run with parallel test threads — Postgres-only, so
+          # no `--test-threads=1` and no SierraDB memory concern.
+          #
+          # Note: --test <name> flags go BEFORE the first -- (Cargo option);
+          # --nocapture goes AFTER -- (test runner option).
+          cargo test -p integration-tests \
+            --test ai_concurrency_permit_cancellation \
+            --test ai_import_permit_reconciliation \
+            --test ai_import_queue_lease \
+            --test ai_payload_gc_cleanup_state \
+            -- \
+            --nocapture
