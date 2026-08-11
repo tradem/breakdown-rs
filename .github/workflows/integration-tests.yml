@@ -177,6 +177,7 @@ jobs:
             --test scene_shoot_round_trip \
             --test shooting_day_round_trip \
             --test costume_category_round_trip \
+            --test ai_payload_storage_round_trip \
             --test projector_tests \
             --test query_repository_tests \
             --test command_adapter_tests \
