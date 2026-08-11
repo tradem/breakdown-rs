@@ -184,7 +184,7 @@ End-to-end, black-box integration tests live in the dedicated workspace member `
 
 #### Prerequisites
 - Docker (or a compatible container runtime) must be running
-- Network access to Docker Hub (for pulling `tqwewe/sierradb:0.3.1`, `postgres:16-alpine` and `dxflrs/garage:v1.0.1` — the last one for the photo and AI payload tests that start a Garage S3 container)
+- Network access to Docker Hub (for pulling `tqwewe/sierradb:0.3.1`, `postgres:16-alpine`, `hashicorp/vault:1.17` and `dxflrs/garage:v1.0.1` — Vault for the vault fixture, Garage for the photo and AI payload tests that start an S3 container)
 - Rust toolchain installed
 
 #### Running all integration tests
