@@ -5,6 +5,7 @@
 use breakdown_core::ai::{AiConfigRepository, AiConfigView, DocumentKind, LlmProvider};
 use breakdown_core::error::DomainError;
 use breakdown_core::shared::{AggregateVersion, UserId};
+use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -49,6 +50,7 @@ impl AiConfigRepositoryImpl {
             SELECT id, provider, assistant_model, prompts, vault_key_id
             FROM ai_import.projection_ai_config
             WHERE user_id = $1 AND revoked = FALSE
+            ORDER BY updated_at DESC
             LIMIT 1
             "#,
         )
@@ -62,22 +64,7 @@ impl AiConfigRepositoryImpl {
         };
 
         let provider = parse_provider(row.try_get("provider").map_err(map_sqlx_error)?)?;
-        let prompts: HashMap<DocumentKind, String> = row
-            .try_get::<serde_json::Value, _>("prompts")
-            .map_err(map_sqlx_error)
-            .and_then(|value| {
-                serde_json::from_value(value).map_err(|error| {
-                    DomainError::ValidationError(format!("invalid AI prompt projection: {error}"))
-                })
-            })?;
-        let prompt = match prompts.get(&kind) {
-            Some(prompt) => prompt.clone(),
-            None => {
-                return Err(DomainError::ValidationError(format!(
-                    "no prompt configured for {kind:?}"
-                )));
-            }
-        };
+        let prompt = parse_prompt_for_kind(&row, &kind)?;
 
         Ok(Some(AiWorkerConfig {
             config_id: row.try_get("id").map_err(map_sqlx_error)?,
@@ -157,6 +144,25 @@ fn parse_provider(value: String) -> Result<LlmProvider, DomainError> {
             "unknown AI provider projection {other}"
         ))),
     }
+}
+
+/// Deserialize the `prompts` JSONB column and return the prompt for `kind`.
+/// Shared by `find_by_id` (which only needs the deserialized map) and
+/// `find_worker_config` (which extracts one prompt), so the parsing logic and
+/// its error messages stay in one place.
+fn parse_prompt_for_kind(row: &PgRow, kind: &DocumentKind) -> Result<String, DomainError> {
+    let prompts: HashMap<DocumentKind, String> = row
+        .try_get::<serde_json::Value, _>("prompts")
+        .map_err(map_sqlx_error)
+        .and_then(|value| {
+            serde_json::from_value(value).map_err(|error| {
+                DomainError::ValidationError(format!("invalid AI prompt projection: {error}"))
+            })
+        })?;
+    prompts
+        .get(kind)
+        .cloned()
+        .ok_or_else(|| DomainError::ValidationError(format!("no prompt configured for {kind:?}")))
 }
 
 fn map_sqlx_error(error: sqlx::Error) -> DomainError {

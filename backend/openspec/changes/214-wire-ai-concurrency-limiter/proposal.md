@@ -53,7 +53,7 @@ Each worker loop:
   `runtime.run_job_as(job.user_id, worker_id, || worker.run_once_with_permit(...))`
   so the permit lifecycle (acquire → renew → release) and the `AiJobGuard`
   (in-flight tracking for `drain()`) are managed by the runtime.
-- On `None`, sleeps briefly (with `CancellationToken` awareness) and retries.
+- On `None`, sleeps briefly (with shutdown-signal awareness) and retries.
 - On `Ok(None)` from `run_job` (capacity saturated), releases the claim via
   `queue.release_claim(...)` so the job is immediately runnable by another worker.
 
@@ -64,11 +64,13 @@ provider/model/prompt from `AiConfig`, and `AiImportBounds`.
 
 ### 3. Graceful shutdown
 
-- Add a `CancellationToken` (tokio-util) for the worker tasks.
+- Add a `tokio::sync::watch` channel for the worker tasks (no new dependency).
 - Replace `axum::serve(listener, app).await?` with
-  `axum::serve(listener, app).with_graceful_shutdown(shutdown_signal(...))`.
-- `shutdown_signal` waits for SIGTERM/SIGINT and cancels the token.
-- After the server future resolves, run the 3-step sequence:
+  `axum::serve(listener, app).with_graceful_shutdown(wait_for_shutdown())`.
+- `wait_for_shutdown` waits for SIGTERM/SIGINT (parking failed signal-handler
+  branches so a handler install failure does not trigger immediate shutdown).
+- After the server future resolves (capturing its result so the shutdown runs
+  even on serve error), run the 3-step sequence:
   1. `runtime.drain().await` — bounded by `DRAIN_TIMEOUT` (15s). This is the
      "cancel and join" for permit-holding work: the `AiJobGuard` count must reach
      zero. If it times out, log `warn!` and proceed (an orchestrator SIGKILL would
@@ -121,23 +123,23 @@ The entire limiter + worker + shutdown path is gated behind
 
 ## Acceptance criteria
 
-- [ ] `main.rs` constructs the limiter with `spawn_reclaimer()` and holds the
+- [x] `main.rs` constructs the limiter with `spawn_reclaimer()` and holds the
   `PermitReclaimer` for the process lifetime.
-- [ ] AI import jobs acquire capacity through `AiWorkerRuntime`, so the
+- [x] AI import jobs acquire capacity through `AiWorkerRuntime`, so the
   `AI_IMPORT_MAX_CONCURRENT_JOBS_*` ceilings are actually enforced at runtime.
-- [ ] On SIGTERM the process cancels **and joins** permit-holding tasks, drops all
+- [x] On SIGTERM the process cancels **and joins** permit-holding tasks, drops all
   limiter clones, then awaits `PermitReclaimer::shutdown()`.
-- [ ] Shutdown **cannot hang**: the drain/shutdown sequence is bounded, and
+- [x] Shutdown **cannot hang**: the drain/shutdown sequence is bounded, and
   exceeding the budget falls back to `abort()` with a `warn!` rather than blocking
   exit.
-- [ ] A test asserts that after a simulated shutdown no permit rows remain.
-- [ ] A test asserts the shutdown sequence terminates within its budget even when
+- [x] A test asserts that after a simulated shutdown no permit rows remain.
+- [x] A test asserts the shutdown sequence terminates within its budget even when
   a task holds a permit longer than the drain timeout.
 
 ## Version bumps
 
 | Crate | Previous | New | Bump type | Reason |
 |---|---|---|---|---|
-| `api` | 0.6.1 | 0.6.2 | PATCH | Wires existing infra AI concurrency API into composition root; no new public API |
+| `api` | 0.6.1 | 0.6.1 | none | No bump — version bumps happen in dedicated chore commits in this repo; the CHANGELOG entry accrues under the existing `[0.6.1] - Unreleased` section |
 | `core` | 0.7.0 | 0.7.0 | none | No domain change |
-| `infra` | 0.12.0 | 0.12.0 | none | No infra API change; worker_loop is additive but internal to existing AI feature |
+| `infra` | 0.12.0 | 0.12.0 | none | No bump — same reason; CHANGELOG entry accrues under existing `[0.12.0] - Unreleased` |

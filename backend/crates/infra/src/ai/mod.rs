@@ -67,7 +67,7 @@ pub use runtime::AiWorkerRuntime;
 pub use schedule_apply::{
     AppliedDay, ScheduleApplyRequest, ScheduleApplyResult, ScheduleApplyWorker,
 };
-pub use shutdown::{AiJobGuard, AiWorkerLifecycle};
+pub use shutdown::{AiJobGuard, AiWorkerLifecycle, DRAIN_TIMEOUT};
 pub use transport::{
     curated_provider_redirect_policy, hosted_provider_redirect_policy, ollama_redirect_policy,
 };

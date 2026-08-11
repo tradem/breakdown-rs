@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: gpt-5.6-luna (pi)
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod fixtures;
 
@@ -155,13 +158,18 @@ async fn shutdown_terminates_within_budget_even_when_a_task_holds_a_permit() -> 
     // so the drain must return at the deadline rather than blocking forever.
     runtime.drain().await;
     let drain_elapsed = start.elapsed();
+    // Derive the bounds from the actual constant so the test stays valid if
+    // DRAIN_TIMEOUT changes: the drain must outrun a generous lower bound
+    // (half the timeout) and stay under a generous upper bound (twice it,
+    // well below the 60s hold).
+    let drain_timeout = infra::ai::DRAIN_TIMEOUT;
     assert!(
-        drain_elapsed < Duration::from_secs(30),
-        "drain must be bounded; took {drain_elapsed:?}"
+        drain_elapsed >= drain_timeout / 2,
+        "drain should have waited near {drain_timeout:?}; took {drain_elapsed:?}"
     );
     assert!(
-        drain_elapsed >= Duration::from_secs(10),
-        "drain should have waited near DRAIN_TIMEOUT (15s); took {drain_elapsed:?}"
+        drain_elapsed < drain_timeout * 2,
+        "drain must be bounded by {drain_timeout:?}; took {drain_elapsed:?}"
     );
 
     // Step 2: the worker is still running (it holds the permit). Abort it to

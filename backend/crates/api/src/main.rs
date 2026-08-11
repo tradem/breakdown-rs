@@ -691,9 +691,12 @@ async fn main() -> Result<()> {
     // Graceful shutdown (issue #214): SIGTERM/SIGINT triggers axum's graceful
     // shutdown; once HTTP drains we stop the AI import workers in the exact
     // order the permit reclaimer requires (see PermitReclaimer::shutdown).
-    axum::serve(listener, app)
+    // Run the shutdown sequence even if `serve` returns an error: returning
+    // early would drop `PermitReclaimer`, whose `Drop` aborts the reclaim task
+    // and strands capacity until the lease expires (issue #214).
+    let serve_result = axum::serve(listener, app)
         .with_graceful_shutdown(wait_for_shutdown())
-        .await?;
+        .await;
 
     shutdown_ai_import(
         ai_shutdown_tx,
@@ -704,15 +707,25 @@ async fn main() -> Result<()> {
     )
     .await;
 
+    serve_result?;
+
     Ok(())
 }
 
 /// Wait for SIGTERM (unix) or Ctrl-C. Resolving this future begins axum's
 /// graceful shutdown.
 async fn wait_for_shutdown() {
+    // A signal-handler install failure must NOT resolve this future: an
+    // immediate resolution would begin graceful shutdown right after startup.
+    // `pending()` parks the failed branch so the other branch still controls
+    // shutdown (issue #214).
     let ctrl_c = async {
-        if tokio::signal::ctrl_c().await.is_err() {
-            warn!("failed to install Ctrl+C handler; shutdown signal ignored");
+        match tokio::signal::ctrl_c().await {
+            Ok(()) => {}
+            Err(error) => {
+                warn!(error = %error, "failed to install Ctrl+C handler; parking this branch");
+                std::future::pending::<()>().await;
+            }
         }
     };
     #[cfg(unix)]
@@ -722,7 +735,8 @@ async fn wait_for_shutdown() {
                 signal.recv().await;
             }
             Err(error) => {
-                warn!(error = %error, "failed to install SIGTERM handler; shutdown signal ignored");
+                warn!(error = %error, "failed to install SIGTERM handler; parking this branch");
+                std::future::pending::<()>().await;
             }
         }
     };
@@ -780,9 +794,22 @@ async fn shutdown_ai_import(
                 warn!(error = %error, "AI import worker task panicked");
             }
             Err(_) => {
+                // Abort, then *await* the handle: joining is what proves the
+                // task (and the permit it holds) was actually dropped, which is
+                // what lets the reclaimer's channel close (issue #214).
                 warn!("AI import worker did not stop within budget; aborting");
                 handle.abort();
             }
+        }
+        // Await aborted handles too so their permits are confirmed dropped
+        // before we wait on the reclaimer.
+        if handle.is_finished()
+            && let Err(error) = handle.await
+            && !error.is_cancelled()
+        {
+            // A `Cancelled` error is expected on the abort path; anything
+            // else is a panic that already logged above.
+            warn!(error = %error, "AI import worker task failed");
         }
     }
 
@@ -794,10 +821,38 @@ async fn shutdown_ai_import(
     drop(limiter_arc);
     drop(runtime);
     info!("AI import: shutting down permit reclaimer");
-    reclaimer.shutdown().await;
+    // Bound the reclaimer drain so a residual sender (e.g. a permit that
+    // outlived its task) cannot block exit. On timeout the `PermitReclaimer`
+    // is dropped, which aborts the reclaim task — capacity then returns when
+    // the leases expire, strictly better than hanging until SIGKILL.
+    match tokio::time::timeout(RECLAIMER_SHUTDOWN_TIMEOUT, reclaimer.shutdown()).await {
+        Ok(()) => info!("AI import: permit reclaimer stopped"),
+        Err(_) => warn!(
+            "AI import: permit reclaimer did not drain within budget;              dropping (capacity returns when leases expire)"
+        ),
+    }
     info!("AI import shutdown complete");
 }
 
 /// Bound for joining one worker task during graceful shutdown. A worker that
 /// outlives this is aborted (with a warn!) rather than blocking exit.
 const WORKER_JOIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Bound for draining the permit reclaimer during graceful shutdown. The
+/// reclaimer waits for its channel to close, which can hold open past the
+/// worker join if a permit outlives its task; this bounds that tail so exit
+/// cannot hang. On timeout the `PermitReclaimer` is dropped (its `Drop` aborts
+/// the reclaim task) and capacity returns when the leases expire.
+const RECLAIMER_SHUTDOWN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// Aggregate worst-case budget for the AI import shutdown sequence.
+///
+/// The sequence runs, in order: the bounded permit drain (DRAIN_TIMEOUT,
+/// 15s), then per-worker joins (WORKER_JOIN_TIMEOUT each), then the
+/// reclaimer drain (RECLAIMER_SHUTDOWN_TIMEOUT, 15s). With two workers the
+/// worst case is DRAIN_TIMEOUT + 2*WORKER_JOIN_TIMEOUT +
+/// RECLAIMER_SHUTDOWN_TIMEOUT = 55s, plus the time to flush queued
+/// reclaims, which depends on how many permits were held. Align the
+/// deployment terminationGracePeriodSeconds with this budget so the
+/// orchestrator does not SIGKILL while reclaims are still being drained.
+pub const AI_IMPORT_SHUTDOWN_MAX_BUDGET: std::time::Duration = std::time::Duration::from_secs(55);

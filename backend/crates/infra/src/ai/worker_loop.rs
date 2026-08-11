@@ -29,7 +29,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use breakdown_core::ai::{AiImportBounds, AiImportQueue, DocumentKind, LlmProvider};
+use breakdown_core::ai::{AiImportBounds, AiImportJobId, AiImportQueue, DocumentKind, LlmProvider};
 use breakdown_core::error::DomainError;
 use breakdown_core::settings::CredentialVault;
 use tokio::sync::watch;
@@ -108,10 +108,9 @@ fn spawn_worker(
     shutdown: ShutdownSignal,
     kind: DocumentKind,
 ) -> tokio::task::JoinHandle<()> {
-    let label = if kind == DocumentKind::Script {
-        "script"
-    } else {
-        "schedule"
+    let label = match kind {
+        DocumentKind::Script => "script",
+        DocumentKind::Schedule => "schedule",
     };
     let worker_id = format!("{label}-{}", uuid::Uuid::now_v7());
     tokio::spawn(async move {
@@ -123,10 +122,11 @@ fn spawn_worker(
                 break;
             }
 
-            let result = if kind == DocumentKind::Script {
-                script_worker_tick(&deps, &worker_id, &mut shutdown).await
-            } else {
-                schedule_worker_tick(&deps, &worker_id, &mut shutdown).await
+            let result = match kind {
+                DocumentKind::Script => script_worker_tick(&deps, &worker_id, &mut shutdown).await,
+                DocumentKind::Schedule => {
+                    schedule_worker_tick(&deps, &worker_id, &mut shutdown).await
+                }
             };
 
             if let Err(error) = result {
@@ -163,30 +163,36 @@ fn build_ollama_client(timeout: Duration) -> Result<Arc<OllamaChatClient>, Domai
     Ok(Arc::new(client))
 }
 
-/// Resolve the user's active AI config and vaulted API key for one job.
+/// Resolve the user's active AI config for one job.
 ///
 /// The job carries `user_id` but not a config id, so the loop resolves the
 /// user's active config first. A missing config fails the job terminally — the
-/// worker never blocks retry on a misconfiguration it cannot fix. A vault miss
-/// is returned as-is so the caller can classify it (transient vault outage vs.
-/// missing key) when marking the job failed.
-async fn resolve_config_and_key(
+/// worker never blocks retry on a misconfiguration it cannot fix.
+async fn resolve_config(
     config_repo: &AiConfigRepositoryImpl,
-    credentials: &dyn CredentialVault,
     user_id: &breakdown_core::shared::UserId,
     kind: DocumentKind,
-) -> Result<(AiWorkerConfig, String), DomainError> {
-    let config = config_repo
+) -> Result<AiWorkerConfig, DomainError> {
+    config_repo
         .find_worker_config(user_id, kind)
         .await?
-        .ok_or_else(|| {
-            DomainError::ValidationError("no active AI import configuration".to_owned())
-        })?;
+        .ok_or_else(|| DomainError::ValidationError("no active AI import configuration".to_owned()))
+}
 
+/// Fetch the vaulted API key for an OpenAI-compatible provider.
+///
+/// Ollama is deliberately excluded: its curated base URL is plain HTTP, so it
+/// needs no bearer token — fetching one would issue an unnecessary Vault
+/// request (and an invalid key reference would fail the job). The key is
+/// required for every other provider; a missing key fails the job terminally.
+async fn fetch_api_key(
+    credentials: &dyn CredentialVault,
+    config: &AiWorkerConfig,
+) -> Result<String, DomainError> {
     let secret = credentials
         .fetch(config.config_id, &config.vault_key_id)
         .await?;
-    Ok((config, secret.as_str().to_owned()))
+    Ok(secret.as_str().to_owned())
 }
 
 /// One script-worker poll: claim → load → resolve config → process under permit.
@@ -239,21 +245,14 @@ async fn script_worker_tick(
     };
 
     let user_id = job.user_id.clone();
-    let (config, api_key) = match resolve_config_and_key(
-        &deps.config_repo,
-        &*deps.credentials,
-        &user_id,
-        DocumentKind::Script,
-    )
-    .await
-    {
-        Ok(tuple) => tuple,
+    let config = match resolve_config(&deps.config_repo, &user_id, DocumentKind::Script).await {
+        Ok(config) => config,
         Err(error) => {
             warn!(
                 worker_id,
                 job_id = %job.id.as_uuid(),
                 %error,
-                "failed to resolve AI config/credential; failing job"
+                "failed to resolve AI config; failing job"
             );
             deps.queue
                 .mark_failed(
@@ -267,6 +266,33 @@ async fn script_worker_tick(
         }
     };
 
+    // Fetch the API key only for OpenAI-compatible providers. Ollama needs no
+    // bearer token (its base URL is plain HTTP), so fetching one would issue
+    // an unnecessary Vault request (issue #214).
+    let api_key = match config.provider {
+        LlmProvider::Ollama => String::new(),
+        _ => match fetch_api_key(&*deps.credentials, &config).await {
+            Ok(key) => key,
+            Err(error) => {
+                warn!(
+                    worker_id,
+                    job_id = %job.id.as_uuid(),
+                    %error,
+                    "failed to fetch AI credential; failing job"
+                );
+                deps.queue
+                    .mark_failed(
+                        job.id,
+                        worker_id,
+                        &error.to_string(),
+                        matches!(error, DomainError::ServiceUnavailable(_)),
+                    )
+                    .await?;
+                return Ok(());
+            }
+        },
+    };
+
     // Route the already-claimed job through the runtime so the permit
     // lifecycle and the AiJobGuard (tracked for drain) are managed in one
     // place. `Ok(None)` means the ceiling is saturated — hand the claim back
@@ -274,7 +300,21 @@ async fn script_worker_tick(
     let result = match config.provider {
         LlmProvider::Ollama => {
             let client =
-                build_ollama_client(Duration::from_secs(deps.bounds.request_timeout_secs))?;
+                match build_ollama_client(Duration::from_secs(deps.bounds.request_timeout_secs)) {
+                    Ok(client) => client,
+                    Err(error) => {
+                        warn!(
+                            worker_id,
+                            job_id = %job.id.as_uuid(),
+                            %error,
+                            "failed to build Ollama client; failing job"
+                        );
+                        deps.queue
+                            .mark_failed(job.id, worker_id, &error.to_string(), false)
+                            .await?;
+                        return Ok(());
+                    }
+                };
             let worker = ScriptImportWorker {
                 queue: deps.queue.clone(),
                 client,
@@ -295,12 +335,27 @@ async fn script_worker_tick(
                 .await
         }
         _ => {
-            let client = build_openai_client(
+            let client = match build_openai_client(
                 config.provider,
                 api_key,
                 Duration::from_secs(deps.bounds.request_timeout_secs),
             )
-            .await?;
+            .await
+            {
+                Ok(client) => client,
+                Err(error) => {
+                    warn!(
+                        worker_id,
+                        job_id = %job.id.as_uuid(),
+                        %error,
+                        "failed to build LLM client; failing job"
+                    );
+                    deps.queue
+                        .mark_failed(job.id, worker_id, &error.to_string(), false)
+                        .await?;
+                    return Ok(());
+                }
+            };
             let worker = ScriptImportWorker {
                 queue: deps.queue.clone(),
                 client,
@@ -322,26 +377,7 @@ async fn script_worker_tick(
         }
     };
 
-    match result {
-        Ok(Some(_)) => Ok(()),
-        Ok(None) => {
-            warn!(
-                worker_id,
-                job_id = %job.id.as_uuid(),
-                "AI import capacity saturated; returning the claim unrun"
-            );
-            if let Err(error) = deps.queue.release_claim(job.id, worker_id).await {
-                warn!(
-                    worker_id,
-                    job_id = %job.id.as_uuid(),
-                    %error,
-                    "failed to release claim"
-                );
-            }
-            Ok(())
-        }
-        Err(error) => Err(error),
-    }
+    handle_job_result(deps, result, worker_id, job.id).await
 }
 
 /// One schedule-worker poll. See [`script_worker_tick`] for the rationale.
@@ -388,21 +424,14 @@ async fn schedule_worker_tick(
     };
 
     let user_id = job.user_id.clone();
-    let (config, api_key) = match resolve_config_and_key(
-        &deps.config_repo,
-        &*deps.credentials,
-        &user_id,
-        DocumentKind::Schedule,
-    )
-    .await
-    {
-        Ok(tuple) => tuple,
+    let config = match resolve_config(&deps.config_repo, &user_id, DocumentKind::Schedule).await {
+        Ok(config) => config,
         Err(error) => {
             warn!(
                 worker_id,
                 job_id = %job.id.as_uuid(),
                 %error,
-                "failed to resolve AI config/credential; failing job"
+                "failed to resolve AI config; failing job"
             );
             deps.queue
                 .mark_failed(
@@ -416,10 +445,51 @@ async fn schedule_worker_tick(
         }
     };
 
+    // Fetch the API key only for OpenAI-compatible providers. Ollama needs no
+    // bearer token (its base URL is plain HTTP), so fetching one would issue
+    // an unnecessary Vault request (issue #214).
+    let api_key = match config.provider {
+        LlmProvider::Ollama => String::new(),
+        _ => match fetch_api_key(&*deps.credentials, &config).await {
+            Ok(key) => key,
+            Err(error) => {
+                warn!(
+                    worker_id,
+                    job_id = %job.id.as_uuid(),
+                    %error,
+                    "failed to fetch AI credential; failing job"
+                );
+                deps.queue
+                    .mark_failed(
+                        job.id,
+                        worker_id,
+                        &error.to_string(),
+                        matches!(error, DomainError::ServiceUnavailable(_)),
+                    )
+                    .await?;
+                return Ok(());
+            }
+        },
+    };
+
     let result = match config.provider {
         LlmProvider::Ollama => {
             let client =
-                build_ollama_client(Duration::from_secs(deps.bounds.request_timeout_secs))?;
+                match build_ollama_client(Duration::from_secs(deps.bounds.request_timeout_secs)) {
+                    Ok(client) => client,
+                    Err(error) => {
+                        warn!(
+                            worker_id,
+                            job_id = %job.id.as_uuid(),
+                            %error,
+                            "failed to build Ollama client; failing job"
+                        );
+                        deps.queue
+                            .mark_failed(job.id, worker_id, &error.to_string(), false)
+                            .await?;
+                        return Ok(());
+                    }
+                };
             let worker = ScheduleImportWorker {
                 queue: deps.queue.clone(),
                 client,
@@ -436,12 +506,27 @@ async fn schedule_worker_tick(
                 .await
         }
         _ => {
-            let client = build_openai_client(
+            let client = match build_openai_client(
                 config.provider,
                 api_key,
                 Duration::from_secs(deps.bounds.request_timeout_secs),
             )
-            .await?;
+            .await
+            {
+                Ok(client) => client,
+                Err(error) => {
+                    warn!(
+                        worker_id,
+                        job_id = %job.id.as_uuid(),
+                        %error,
+                        "failed to build LLM client; failing job"
+                    );
+                    deps.queue
+                        .mark_failed(job.id, worker_id, &error.to_string(), false)
+                        .await?;
+                    return Ok(());
+                }
+            };
             let worker = ScheduleImportWorker {
                 queue: deps.queue.clone(),
                 client,
@@ -459,18 +544,33 @@ async fn schedule_worker_tick(
         }
     };
 
+    handle_job_result(deps, result, worker_id, job.id).await
+}
+
+/// Handle the result of a job run under a concurrency permit.
+///
+/// `Ok(None)` means the ceiling was saturated — hand the claim back so the job
+/// is runnable immediately and is not charged a retry. Any other outcome is
+/// returned as-is. Shared by both worker ticks, which otherwise duplicate this
+/// block (issue #214).
+async fn handle_job_result(
+    deps: &WorkerDeps,
+    result: Result<Option<String>, DomainError>,
+    worker_id: &str,
+    job_id: AiImportJobId,
+) -> Result<(), DomainError> {
     match result {
         Ok(Some(_)) => Ok(()),
         Ok(None) => {
             warn!(
                 worker_id,
-                job_id = %job.id.as_uuid(),
+                job_id = %job_id.as_uuid(),
                 "AI import capacity saturated; returning the claim unrun"
             );
-            if let Err(error) = deps.queue.release_claim(job.id, worker_id).await {
+            if let Err(error) = deps.queue.release_claim(job_id, worker_id).await {
                 warn!(
                     worker_id,
-                    job_id = %job.id.as_uuid(),
+                    job_id = %job_id.as_uuid(),
                     %error,
                     "failed to release claim"
                 );
