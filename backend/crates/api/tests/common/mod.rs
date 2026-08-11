@@ -1402,6 +1402,7 @@ impl AiImportQueue for FakeAiImportQueue {
                 id: request.id,
                 user_id: request.user_id,
                 document_kind: request.document_kind,
+                source_format: request.source_format,
                 block_id: request.block_id,
                 dedup_key: request.dedup_key,
                 document_digest: request.document_digest,

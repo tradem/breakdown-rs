@@ -41,7 +41,7 @@ use std::time::Duration;
 use anyhow::Result;
 use breakdown_core::ai::{
     AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJobId, AiImportQueue, DocumentKind,
-    JobStatus, Telemetry,
+    JobStatus, SourceFormat, Telemetry,
 };
 use breakdown_core::shared::UserId;
 use chrono::{DateTime, Utc};
@@ -61,6 +61,10 @@ async fn seed_job(
             id,
             user_id: UserId::from_sub(user),
             document_kind: kind,
+            source_format: match kind {
+                DocumentKind::Script => SourceFormat::Pdf,
+                DocumentKind::Schedule => SourceFormat::Csv,
+            },
             block_id: None,
             dedup_key: dedup.to_owned(),
             document_digest: "digest".to_owned(),

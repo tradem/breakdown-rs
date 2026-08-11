@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use breakdown_core::ai::{
     AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId, AiImportQueue,
-    DocumentKind, JobStatus, Telemetry,
+    DocumentKind, JobStatus, SourceFormat, Telemetry,
 };
 use breakdown_core::error::DomainError;
 use chrono::{DateTime, Utc};
@@ -117,8 +117,8 @@ impl AiImportQueue for PgAiImportQueue {
         let row = sqlx::query(
             r#"
             INSERT INTO ai_import.ai_import_job
-                (id, user_id, document_kind, block_id, dedup_key, document_digest, source_handle)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+                (id, user_id, document_kind, source_format, block_id, dedup_key, document_digest, source_handle)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ON CONFLICT (user_id, dedup_key) DO UPDATE
                 SET dedup_key = EXCLUDED.dedup_key
             RETURNING id, (xmax = 0) AS inserted
@@ -127,6 +127,7 @@ impl AiImportQueue for PgAiImportQueue {
         .bind(request.id.as_uuid())
         .bind(request.user_id.as_str())
         .bind(request.document_kind.as_str())
+        .bind(request.source_format.as_str())
         .bind(request.block_id.map(|block_id| block_id.0))
         .bind(&request.dedup_key)
         .bind(&request.document_digest)
@@ -758,6 +759,7 @@ fn map_job_row(row: sqlx::postgres::PgRow) -> Result<AiImportJob, DomainError> {
         id: AiImportJobId::from_uuid(id),
         user_id: breakdown_core::shared::UserId::from_sub(user_id),
         document_kind: kind,
+        source_format: parse_source_format(row.try_get("source_format").map_err(map_sqlx_error)?)?,
         block_id: row
             .try_get::<Option<Uuid>, _>("block_id")
             .map_err(map_sqlx_error)?
@@ -787,6 +789,17 @@ fn parse_document_kind(value: String) -> Result<DocumentKind, DomainError> {
         "schedule" => Ok(DocumentKind::Schedule),
         other => Err(DomainError::ValidationError(format!(
             "unknown AI document kind {other}"
+        ))),
+    }
+}
+
+fn parse_source_format(value: String) -> Result<SourceFormat, DomainError> {
+    match value.as_str() {
+        "csv" => Ok(SourceFormat::Csv),
+        "pdf" => Ok(SourceFormat::Pdf),
+        "plain_text" => Ok(SourceFormat::PlainText),
+        other => Err(DomainError::ValidationError(format!(
+            "unknown AI source format {other}"
         ))),
     }
 }

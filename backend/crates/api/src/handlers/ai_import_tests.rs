@@ -4,7 +4,7 @@
 
 use breakdown_core::ai::{
     ApplyGateError, ApplyMapping, ApplyMappingDecision, DocumentKind, DraftScene, ScriptContext,
-    ensure_script_applyable, plan_scene_apply,
+    SourceFormat, ensure_script_applyable, plan_scene_apply,
 };
 use breakdown_core::shared::{AggregateVersion, EpisodeId, UserId};
 use uuid::Uuid;
@@ -15,15 +15,40 @@ use super::{ai_dedup_key, forbidden_ai_config, parse_ai_provider};
 fn reupload_dedup_key_is_stable_and_kind_specific() {
     let user = UserId::from_sub("handler-test-user");
     let other_user = UserId::from_sub("handler-test-other-user");
-    let script = ai_dedup_key(&user, DocumentKind::Script, "digest");
-    let same_script = ai_dedup_key(&user, DocumentKind::Script, "digest");
-    let schedule = ai_dedup_key(&user, DocumentKind::Schedule, "digest");
-    let other = ai_dedup_key(&other_user, DocumentKind::Script, "digest");
+    let script = ai_dedup_key(&user, DocumentKind::Script, SourceFormat::Pdf, "digest");
+    let same_script = ai_dedup_key(&user, DocumentKind::Script, SourceFormat::Pdf, "digest");
+    let schedule = ai_dedup_key(&user, DocumentKind::Schedule, SourceFormat::Csv, "digest");
+    let other = ai_dedup_key(
+        &other_user,
+        DocumentKind::Script,
+        SourceFormat::Pdf,
+        "digest",
+    );
     assert_eq!(script, same_script);
     assert_ne!(script, schedule);
     // The user segment stops one user's upload from matching another user's
     // job: the same document under a different user must never dedup.
     assert_ne!(script, other);
+}
+
+#[test]
+fn reupload_dedup_key_is_format_specific() {
+    // Issue #221: identical bytes declared as CSV vs. PDF/plain-text route to
+    // different extraction paths, so the dedup identity must include the
+    // declared format — a re-upload with a different Content-Type must enqueue
+    // a distinct job instead of reusing the CSV-routed one.
+    let user = UserId::from_sub("handler-test-user");
+    let csv = ai_dedup_key(&user, DocumentKind::Schedule, SourceFormat::Csv, "digest");
+    let pdf = ai_dedup_key(&user, DocumentKind::Schedule, SourceFormat::Pdf, "digest");
+    let plain = ai_dedup_key(
+        &user,
+        DocumentKind::Schedule,
+        SourceFormat::PlainText,
+        "digest",
+    );
+    assert_ne!(csv, pdf);
+    assert_ne!(csv, plain);
+    assert_ne!(pdf, plain);
 }
 
 #[test]

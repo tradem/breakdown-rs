@@ -13,8 +13,8 @@ use async_trait::async_trait;
 use breakdown_core::ai::{
     AiImportBounds, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
     AiImportMapping, AiImportMappingRepository, AiImportQueue, ApplyMapping, DocumentKind,
-    DraftScene, JobStatus, LlmChatRequest, LlmClient, LlmProvider, ScriptContext,
-    ShootingScheduleRow, Telemetry, TelemetryApplyState, merge_schedule_to_scenes,
+    DraftScene, JobStatus, LlmChatRequest, LlmClient, LlmProvider, ScriptContext, ShootingSchedule,
+    ShootingScheduleRow, SourceFormat, Telemetry, TelemetryApplyState, merge_schedule_to_scenes,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::shared::UserId;
@@ -24,8 +24,8 @@ use uuid::Uuid;
 
 use super::{
     AiImportFeature, AiPreviewStore, ApplyScriptRequest, ApplyWorker, MemoryAiPreviewStore,
-    ScheduleApplyRequest, ScheduleApplyWorker, ScriptImportWorker, classify_http_status,
-    merge_loaded_schedule, validate_chunk_count,
+    ScheduleApplyRequest, ScheduleApplyWorker, ScheduleImportWorker, ScriptImportWorker,
+    classify_http_status, merge_loaded_schedule, validate_chunk_count,
 };
 use crate::photo::sagas::retry_transient_value_with_delay;
 
@@ -125,6 +125,7 @@ async fn merge_worker_empty_input_is_non_retryable() {
                 id: breakdown_core::ai::AiImportJobId(Uuid::now_v7()),
                 user_id: UserId::from_sub("test-user"),
                 document_kind: DocumentKind::Schedule,
+                source_format: SourceFormat::Csv,
                 block_id: None,
                 dedup_key: "test-dedup".to_owned(),
                 document_digest: "test-digest".to_owned(),
@@ -358,6 +359,7 @@ fn script_job(id: AiImportJobId) -> AiImportJob {
         id,
         user_id: UserId::from_sub("ai-test-user"),
         document_kind: DocumentKind::Script,
+        source_format: SourceFormat::Pdf,
         block_id: None,
         dedup_key: "fixture".to_owned(),
         document_digest: "digest".to_owned(),
@@ -390,6 +392,183 @@ fn script_worker(
             ..AiImportBounds::default()
         },
     }
+}
+
+/// LLM client that records the `source_text` of every schedule extraction
+/// request and returns a fixed schedule, so worker tests can prove the LLM
+/// path was taken — and with which text — without a network call.
+#[derive(Clone, Default)]
+struct RecordingScheduleClient {
+    seen: Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+#[async_trait]
+impl LlmClient for RecordingScheduleClient {
+    async fn chat_constrained(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<ScriptContext, DomainError> {
+        Err(DomainError::ValidationError(
+            "RecordingScheduleClient only extracts schedules".to_owned(),
+        ))
+    }
+
+    async fn extract_schedule(
+        &self,
+        request: LlmChatRequest,
+    ) -> Result<ShootingSchedule, DomainError> {
+        self.seen.lock().unwrap().push(request.source_text);
+        Ok(ShootingSchedule {
+            block_id: None,
+            rows: vec![ShootingScheduleRow {
+                row_ref: "llm-0".to_owned(),
+                scene_number: Some(1),
+                shooting_day_label: Some("T1".to_owned()),
+                date: None,
+                location: None,
+                order: None,
+            }],
+        })
+    }
+}
+
+/// A schedule job carrying the given declared source format.
+fn schedule_job(format: SourceFormat) -> AiImportJob {
+    AiImportJob {
+        id: AiImportJobId::new(),
+        user_id: UserId::from_sub("ai-schedule-test-user"),
+        document_kind: DocumentKind::Schedule,
+        source_format: format,
+        block_id: None,
+        dedup_key: "schedule-fixture".to_owned(),
+        document_digest: "digest".to_owned(),
+        source_handle: "source".to_owned(),
+        status: JobStatus::Running,
+        preview_handle: None,
+        last_error: None,
+        retries: 0,
+        max_retries: 3,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    }
+}
+
+fn schedule_worker(
+    queue: Arc<FakeQueue>,
+    previews: Arc<MemoryAiPreviewStore>,
+    client: Arc<RecordingScheduleClient>,
+) -> ScheduleImportWorker<FakeQueue, RecordingScheduleClient> {
+    ScheduleImportWorker {
+        queue,
+        client,
+        previews: previews as Arc<dyn AiPreviewStore>,
+        extractor: super::PdfTextExtractor::new(1024 * 1024, std::time::Duration::from_secs(30)),
+        provider: LlmProvider::Neuralwatt,
+        model: "deepseek-v4-flash".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        bounds: AiImportBounds::default(),
+    }
+}
+
+/// Issue #221: a CSV job must stay on the native parser — the LLM must never
+/// be reached, and the preview must be produced from the CSV rows.
+#[tokio::test]
+async fn schedule_worker_parses_csv_natively_without_the_llm() {
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let client = Arc::new(RecordingScheduleClient::default());
+    let worker = schedule_worker(Arc::clone(&queue), Arc::clone(&previews), client.clone());
+    let job = schedule_job(SourceFormat::Csv);
+
+    let handle = worker
+        .process(
+            &job,
+            "test-worker",
+            b"scene_number,shooting_day_label\n1,T1\n".as_slice(),
+        )
+        .await
+        .expect("CSV must parse natively");
+
+    assert!(
+        client.seen.lock().unwrap().is_empty(),
+        "the LLM must not be reached for a CSV job"
+    );
+    let payload = previews.get(&handle).await.unwrap().unwrap();
+    let preview: ShootingSchedule = serde_json::from_slice(&payload).unwrap();
+    assert_eq!(preview.rows.len(), 1);
+    assert_eq!(
+        queue.state.lock().unwrap().succeeded,
+        vec![job.id],
+        "the job must be marked succeeded"
+    );
+    let telemetry = &queue.state.lock().unwrap().telemetry[0];
+    assert!(
+        telemetry.provider.is_none(),
+        "native CSV runs record no provider"
+    );
+}
+
+/// Issue #221: a plain-text job is routed through the LLM extraction path
+/// with the raw document text.
+#[tokio::test]
+async fn schedule_worker_routes_plain_text_through_the_llm() {
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let client = Arc::new(RecordingScheduleClient::default());
+    let worker = schedule_worker(Arc::clone(&queue), Arc::clone(&previews), client.clone());
+    let job = schedule_job(SourceFormat::PlainText);
+
+    let handle = worker
+        .process(
+            &job,
+            "test-worker",
+            b"T1 - scene 1: kitchen\nT2 - scene 2: park\n".as_slice(),
+        )
+        .await
+        .expect("plain text must be routed through the LLM");
+
+    let seen = client.seen.lock().unwrap().clone();
+    assert_eq!(seen.len(), 1, "the LLM must be called exactly once");
+    assert!(
+        seen[0].contains("kitchen"),
+        "the LLM must receive the document text, got: {}",
+        seen[0]
+    );
+    let payload = previews.get(&handle).await.unwrap().unwrap();
+    let preview: ShootingSchedule = serde_json::from_slice(&payload).unwrap();
+    assert_eq!(preview.rows.len(), 1);
+    assert_eq!(
+        queue.state.lock().unwrap().telemetry[0].provider,
+        Some(LlmProvider::Neuralwatt),
+        "an LLM extraction records the provider"
+    );
+}
+
+/// Issue #221: a PDF job is extracted to text first (same bounded
+/// `pdftotext` adapter as the script worker) and then routed through the LLM.
+#[tokio::test]
+async fn schedule_worker_routes_pdf_through_the_llm() {
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let client = Arc::new(RecordingScheduleClient::default());
+    let worker = schedule_worker(Arc::clone(&queue), Arc::clone(&previews), client.clone());
+    let job = schedule_job(SourceFormat::Pdf);
+
+    let handle = worker
+        .process(&job, "test-worker", &tiny_script_pdf())
+        .await
+        .expect("a PDF schedule must be extracted and routed through the LLM");
+
+    let seen = client.seen.lock().unwrap().clone();
+    assert_eq!(seen.len(), 1, "the LLM must be called exactly once");
+    assert!(
+        !seen[0].trim().is_empty(),
+        "the extracted PDF text must reach the LLM, got: {:?}",
+        seen[0]
+    );
+    let payload = previews.get(&handle).await.unwrap().unwrap();
+    let preview: ShootingSchedule = serde_json::from_slice(&payload).unwrap();
+    assert_eq!(preview.rows.len(), 1);
 }
 
 #[tokio::test]

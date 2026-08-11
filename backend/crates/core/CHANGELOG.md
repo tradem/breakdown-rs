@@ -12,6 +12,19 @@ commits (ADR-020 D5).
 
 ## [0.7.0] - Unreleased
 
+### Added — Persisted source document format for AI imports (issue #221)
+
+- `SourceFormat` (`csv` | `pdf` | `plain_text`): the declared format of an AI
+  import source document, captured at the API edge from the upload's
+  `Content-Type` and persisted on the job so the schedule worker can route
+  CSV natively and PDF/plain-text through the LLM extraction path.
+  `SourceFormat::uses_native_csv()` is the routing predicate; scripts are
+  always `Pdf`.
+- **Breaking:** `AiImportJob` and `AiImportEnqueueRequest` gain a required
+  `source_format: SourceFormat` field. Every constructor must set it; the
+  schedule worker derives the extraction path from the job instead of a
+  caller-supplied `native_csv` flag.
+
 ### Added — Non-resumable AI import jobs (issue #181)
 
 - `JobStatus::PayloadUnavailable` (`"payload_unavailable"`): a terminal status

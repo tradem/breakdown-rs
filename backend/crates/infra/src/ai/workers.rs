@@ -11,7 +11,7 @@ use anyhow::Error as AnyhowError;
 use breakdown_core::ai::{
     AiImportBounds, AiImportJob, AiImportJobId, AiImportMapping, AiImportMappingRepository,
     AiImportQueue, ApplyMapping, ApplyMappingDecision, DocumentKind, LlmChatRequest, LlmClient,
-    MergedPreview, ScriptContext, ShootingSchedule, Telemetry, TelemetryApplyState,
+    MergedPreview, ScriptContext, ShootingSchedule, SourceFormat, Telemetry, TelemetryApplyState,
     ensure_merge_applyable, ensure_script_applyable, extract_scenes, merge_schedule_to_scenes,
 };
 use breakdown_core::error::DomainError;
@@ -423,12 +423,15 @@ fn claim_lost_error(id: AiImportJobId, worker_id: &str) -> DomainError {
     ))
 }
 
-/// Schedule import pipeline. CSV is parsed native; unstructured input can
-/// be passed to an LLM client implementing `extract_schedule`.
+/// Schedule import pipeline. CSV is parsed native; PDF/plain-text input is
+/// extracted to text and passed to an LLM client implementing
+/// `extract_schedule`. The extraction path is derived from the job's persisted
+/// `source_format`, never from a caller-supplied flag (issue #221).
 pub struct ScheduleImportWorker<Q, C> {
     pub queue: Arc<Q>,
     pub client: Arc<C>,
     pub previews: Arc<dyn AiPreviewStore>,
+    pub extractor: PdfTextExtractor,
     pub provider: breakdown_core::ai::LlmProvider,
     pub model: String,
     pub prompt: String,
@@ -444,7 +447,6 @@ where
         &self,
         worker_id: &str,
         source: &dyn AiDocumentSource,
-        native_csv: bool,
     ) -> Result<bool, DomainError> {
         let job = match self
             .queue
@@ -461,9 +463,7 @@ where
                 return Err(error);
             }
         };
-        self.process(&job, worker_id, &bytes, native_csv)
-            .await
-            .map(|_| true)
+        self.process(&job, worker_id, &bytes).await.map(|_| true)
     }
 
     /// Claim and process the next runnable schedule job under a concurrency
@@ -474,7 +474,6 @@ where
         &self,
         worker_id: &str,
         source: &dyn AiDocumentSource,
-        native_csv: bool,
         limiter: &PgAiConcurrencyLimiter,
     ) -> Result<bool, DomainError> {
         let Some((job, _released)) = self
@@ -509,7 +508,7 @@ where
             if let Some(heartbeat) = heartbeat {
                 heartbeat.stop();
             }
-            self.process(&job, worker_id, &bytes, native_csv).await
+            self.process(&job, worker_id, &bytes).await
         })
         .await;
         release_permit_logging_errors(permit, job.id).await;
@@ -524,7 +523,6 @@ where
         job: &AiImportJob,
         worker_id: &str,
         bytes: &[u8],
-        native_csv: bool,
     ) -> Result<String, DomainError> {
         if job.document_kind != DocumentKind::Schedule {
             return Err(DomainError::ValidationError(
@@ -532,6 +530,10 @@ where
             ));
         }
         let started = Instant::now();
+        // The extraction path is derived from the job's persisted source
+        // format, never from a caller-supplied flag — the worker loop and the
+        // processor cannot disagree (issue #221).
+        let native_csv = job.source_format.uses_native_csv();
         // Native CSV parsing is fast and needs no heartbeat; the LLM path can
         // outlive the lease, so renew the claim while it runs.
         let heartbeat = (!native_csv)
@@ -540,11 +542,16 @@ where
         let mut schedule = if native_csv {
             super::csv_schedule::parse_schedule_csv(bytes)?
         } else {
-            let source_text = String::from_utf8(bytes.to_vec()).map_err(|error| {
-                DomainError::ValidationError(format!(
-                    "schedule document is not UTF-8 text: {error}"
-                ))
-            })?;
+            let source_text = match job.source_format {
+                SourceFormat::Pdf => self.extractor.extract(bytes).await?,
+                // `Csv` never reaches this branch (`native_csv` above), so the
+                // fallback is exactly `PlainText`.
+                _ => String::from_utf8(bytes.to_vec()).map_err(|error| {
+                    DomainError::ValidationError(format!(
+                        "schedule document is not UTF-8 text: {error}"
+                    ))
+                })?,
+            };
             let request = LlmChatRequest {
                 provider: self.provider,
                 model: self.model.clone(),

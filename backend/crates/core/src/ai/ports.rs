@@ -12,7 +12,7 @@ use crate::error::DomainError;
 use crate::shared::{AggregateVersion, BlockId, UserId};
 
 use super::preview::{ScriptContext, ShootingSchedule};
-use super::views::{AiImportJob, AiImportJobId, DocumentKind, Telemetry};
+use super::views::{AiImportJob, AiImportJobId, DocumentKind, SourceFormat, Telemetry};
 
 /// Curated providers. The enum is intentionally non-exhaustive so adding a
 /// provider is additive and does not break downstream matches.
@@ -146,6 +146,7 @@ pub struct AiImportEnqueueRequest {
     pub id: AiImportJobId,
     pub user_id: UserId,
     pub document_kind: DocumentKind,
+    pub source_format: SourceFormat,
     pub block_id: Option<BlockId>,
     pub dedup_key: String,
     pub document_digest: String,

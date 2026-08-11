@@ -36,6 +36,6 @@ pub use preview::{
     extract_scenes, merge_from_input, merge_schedule_to_scenes, plan_scene_apply,
 };
 pub use views::{
-    AiConfigView, AiImportJob, AiImportJobId, DocumentKind, JobStatus, Telemetry,
+    AiConfigView, AiImportJob, AiImportJobId, DocumentKind, JobStatus, SourceFormat, Telemetry,
     TelemetryApplyState,
 };
