@@ -25,8 +25,14 @@ use anyhow::Result;
 use api::auth::{AuthState, AuthorizationState};
 use api::routes::app_router;
 use api::state::{AiPorts, AppState, ProductionPorts};
+use breakdown_core::ai::AiImportBounds;
 use breakdown_core::membership::policy::AuthorizationPolicy;
-use infra::ai::{AiDocumentSource, AiDocumentStore, AiPreviewStore, UnconfiguredAiPayloadStore};
+use breakdown_core::settings::CredentialVault;
+use infra::ai::{
+    AiDocumentSource, AiDocumentStore, AiPreviewStore, AiWorkerRuntime, DRAIN_TIMEOUT,
+    PermitReclaimer, PgAiConcurrencyLimiter, UnconfiguredAiPayloadStore, WorkerDeps,
+    shutdown_signal, spawn_schedule_import_worker, spawn_script_import_worker,
+};
 use infra::event_store::{
     AiConfigCommandsImpl, BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl,
     CostumeCommandsImpl, EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl,
@@ -544,6 +550,14 @@ async fn main() -> Result<()> {
         info!("report archival worker + triggers spawned");
     }
 
+    // Clones for the AI import worker loops (issue #214). The originals are
+    // moved into `ProductionPorts` below; the workers get their own handles.
+    let worker_ai_import_queue = Arc::new(ai_import_queue.clone());
+    let worker_ai_config_repo = ai_config_repo.clone();
+    let worker_ai_document_source = ai_document_source.clone();
+    let worker_ai_preview_store = ai_preview_store.clone();
+    let worker_credential_vault: Arc<dyn CredentialVault> = Arc::new(credential_vault.clone());
+
     let ports = ProductionPorts::new(
         SceneCommandsImpl::new(cmd_service.clone()),
         scene_repo,
@@ -587,6 +601,68 @@ async fn main() -> Result<()> {
     );
     let app_state = AppState::new(ports);
 
+    // --- AI import concurrency limiter + worker loops (issue #214) ---
+    // Constructed only when AI_IMPORT_ENABLED so the default deployment is
+    // unaffected. The limiter is held (as an Arc clone) for the process
+    // lifetime so its reclaimer's sender clone stays alive; dropping it is
+    // step 2 of the shutdown sequence below.
+    let mut ai_shutdown_tx = None;
+    let mut ai_reclaimer = None;
+    let mut ai_limiter_arc = None;
+    let mut ai_runtime = None;
+    let mut ai_worker_handles: Vec<tokio::task::JoinHandle<()>> = Vec::new();
+
+    if ai_import_enabled {
+        let bounds = AiImportBounds::from_env();
+        let (limiter, reclaimer) = PgAiConcurrencyLimiter::new(
+            pool.clone(),
+            bounds.max_concurrent_jobs_global,
+            bounds.max_concurrent_jobs_per_user,
+        )?
+        .spawn_reclaimer();
+        let limiter_arc = Arc::new(limiter);
+        let runtime = Arc::new(AiWorkerRuntime::new(Arc::clone(&limiter_arc)));
+        let (shutdown_tx, shutdown_rx) = shutdown_signal();
+
+        // `ai_runtime` keeps a clone for the drain() call during shutdown;
+        // the workers get their own clones inside `WorkerDeps`.
+        ai_runtime = Some(Arc::clone(&runtime));
+
+        ai_worker_handles.push(spawn_script_import_worker(
+            WorkerDeps {
+                runtime: Arc::clone(&runtime),
+                queue: worker_ai_import_queue.clone(),
+                source: worker_ai_document_source.clone(),
+                previews: worker_ai_preview_store.clone(),
+                config_repo: worker_ai_config_repo.clone(),
+                credentials: worker_credential_vault.clone(),
+                bounds,
+            },
+            shutdown_rx.clone(),
+        ));
+        ai_worker_handles.push(spawn_schedule_import_worker(
+            WorkerDeps {
+                runtime,
+                queue: worker_ai_import_queue,
+                source: worker_ai_document_source,
+                previews: worker_ai_preview_store,
+                config_repo: worker_ai_config_repo,
+                credentials: worker_credential_vault,
+                bounds,
+            },
+            shutdown_rx,
+        ));
+
+        ai_shutdown_tx = Some(shutdown_tx);
+        ai_reclaimer = Some(reclaimer);
+        ai_limiter_arc = Some(limiter_arc);
+        info!(
+            max_global = bounds.max_concurrent_jobs_global,
+            max_per_user = bounds.max_concurrent_jobs_per_user,
+            "AI import concurrency limiter + workers spawned"
+        );
+    }
+
     // --- OIDC authentication + authorization wiring ---
     let auth = Arc::new(
         AuthState::from_env_or_dev().map_err(|e| anyhow::anyhow!("auth configuration: {e}"))?,
@@ -611,7 +687,169 @@ async fn main() -> Result<()> {
     let bind_addr = env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:3000".into());
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
     info!("🚀 Breakdown RS listening on {}", bind_addr);
-    axum::serve(listener, app).await?;
+
+    // Graceful shutdown (issue #214): SIGTERM/SIGINT triggers axum's graceful
+    // shutdown; once HTTP drains we stop the AI import workers in the exact
+    // order the permit reclaimer requires (see PermitReclaimer::shutdown).
+    // Run the shutdown sequence even if `serve` returns an error: returning
+    // early would drop `PermitReclaimer`, whose `Drop` aborts the reclaim task
+    // and strands capacity until the lease expires (issue #214).
+    let serve_result = axum::serve(listener, app)
+        .with_graceful_shutdown(wait_for_shutdown())
+        .await;
+
+    shutdown_ai_import(
+        ai_shutdown_tx,
+        ai_reclaimer,
+        ai_limiter_arc,
+        ai_runtime,
+        ai_worker_handles,
+    )
+    .await;
+
+    serve_result?;
 
     Ok(())
+}
+
+/// Wait for SIGTERM (unix) or Ctrl-C. Resolving this future begins axum's
+/// graceful shutdown.
+async fn wait_for_shutdown() {
+    // A signal-handler install failure must NOT resolve this future: an
+    // immediate resolution would begin graceful shutdown right after startup.
+    // `pending()` parks the failed branch so the other branch still controls
+    // shutdown (issue #214).
+    let ctrl_c = async {
+        match tokio::signal::ctrl_c().await {
+            Ok(()) => {}
+            Err(error) => {
+                warn!(error = %error, "failed to install Ctrl+C handler; parking this branch");
+                std::future::pending::<()>().await;
+            }
+        }
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut signal) => {
+                signal.recv().await;
+            }
+            Err(error) => {
+                warn!(error = %error, "failed to install SIGTERM handler; parking this branch");
+                std::future::pending::<()>().await;
+            }
+        }
+    };
+    #[cfg(unix)]
+    tokio::select! {
+        _ = ctrl_c => info!("Ctrl-C received; shutting down"),
+        _ = terminate => info!("SIGTERM received; shutting down"),
+    }
+    #[cfg(not(unix))]
+    ctrl_c.await;
+}
+
+/// Run the 3-step AI import shutdown sequence the permit reclaimer requires
+/// (issue #214). See `PermitReclaimer::shutdown` for the ordering contract.
+///
+/// 1. Signal workers to stop, then `drain()` — bounded by `DRAIN_TIMEOUT` (15s)
+///    — so in-flight jobs release their permits. If the drain budget is
+///    exceeded we log and proceed; an orchestrator SIGKILL would be strictly
+///    worse (it would skip the reclaims entirely).
+/// 2. Join the worker tasks (each holds a limiter clone via the runtime). If a
+///    worker does not stop within the join budget we abort it and log.
+/// 3. Drop the limiter clone held here, then `reclaimer.shutdown()`.
+async fn shutdown_ai_import(
+    shutdown_tx: Option<tokio::sync::watch::Sender<bool>>,
+    reclaimer: Option<PermitReclaimer>,
+    limiter_arc: Option<Arc<PgAiConcurrencyLimiter>>,
+    runtime: Option<Arc<AiWorkerRuntime>>,
+    worker_handles: Vec<tokio::task::JoinHandle<()>>,
+) {
+    let Some(reclaimer) = reclaimer else {
+        return;
+    };
+
+    // Step 1: signal workers to stop, then bounded drain of in-flight permits.
+    // The drain is bounded by DRAIN_TIMEOUT (15s) so a stuck job cannot block
+    // shutdown indefinitely.
+    if let Some(tx) = shutdown_tx
+        && let Err(error) = tx.send(true)
+    {
+        warn!(error = %error, "failed to send AI import shutdown signal");
+    }
+    if let Some(runtime) = &runtime {
+        info!("AI import: draining in-flight permits (bounded by DRAIN_TIMEOUT)");
+        runtime.drain().await;
+    }
+
+    // Step 2: join the worker tasks. Each holds a clone of the runtime (and
+    // thus the limiter) via the Arc it was spawned with, so joining drops
+    // those clones. Bounded so a worker that does not observe the signal
+    // within the budget is aborted rather than blocking exit.
+    for mut handle in worker_handles {
+        match tokio::time::timeout(WORKER_JOIN_TIMEOUT, &mut handle).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                warn!(error = %error, "AI import worker task panicked");
+            }
+            Err(_) => {
+                // Abort, then *await* the handle: joining is what proves the
+                // task (and the permit it holds) was actually dropped, which is
+                // what lets the reclaimer's channel close (issue #214).
+                warn!("AI import worker did not stop within budget; aborting");
+                handle.abort();
+            }
+        }
+        // Always await the handle — including after abort. `is_finished()` may
+        // still read `false` immediately after cancellation, so gating the
+        // await on it would let a worker retain its permit past this point.
+        if let Err(error) = handle.await {
+            // A `Cancelled` error is expected on the abort path; anything
+            // else is a panic that already logged above.
+            if !error.is_cancelled() {
+                warn!(error = %error, "AI import worker task failed");
+            }
+        }
+    }
+
+    drop(limiter_arc);
+    drop(runtime);
+    info!("AI import: shutting down permit reclaimer");
+    // Bound the reclaimer drain so a residual sender (e.g. a permit that
+    // outlived its task) cannot block exit. On timeout the `PermitReclaimer`
+    // is dropped, which aborts the reclaim task — capacity then returns when
+    // the leases expire, strictly better than hanging until SIGKILL.
+    match tokio::time::timeout(RECLAIMER_SHUTDOWN_TIMEOUT, reclaimer.shutdown()).await {
+        Ok(()) => info!("AI import: permit reclaimer stopped"),
+        Err(_) => warn!(
+            "AI import: permit reclaimer did not drain within budget; dropping (capacity returns when leases expire)"
+        ),
+    }
+    info!("AI import shutdown complete");
+}
+
+/// Bound for joining one worker task during graceful shutdown. A worker that
+/// outlives this is aborted (with a warn!) rather than blocking exit.
+const WORKER_JOIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Bound for draining the permit reclaimer during graceful shutdown. The
+/// reclaimer waits for its channel to close, which can hold open past the
+/// worker join if a permit outlives its task; this bounds that tail so exit
+/// cannot hang. On timeout the `PermitReclaimer` is dropped (its `Drop` aborts
+/// the reclaim task) and capacity returns when the leases expire.
+const RECLAIMER_SHUTDOWN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// Aggregate worst-case budget for the AI import shutdown sequence.
+///
+/// The sequence runs, in order: the bounded permit drain (`DRAIN_TIMEOUT`),
+/// then per-worker joins (`WORKER_JOIN_TIMEOUT` each), then the reclaimer
+/// drain (`RECLAIMER_SHUTDOWN_TIMEOUT`). With two workers the worst case is
+/// `DRAIN_TIMEOUT` + 2*`WORKER_JOIN_TIMEOUT` + `RECLAIMER_SHUTDOWN_TIMEOUT`,
+/// plus the time to flush queued reclaims, which depends on how many permits
+/// were held. Align the deployment `terminationGracePeriodSeconds` with this
+/// budget so the orchestrator does not SIGKILL while reclaims are still being
+/// drained.
+pub fn ai_import_shutdown_max_budget() -> std::time::Duration {
+    DRAIN_TIMEOUT + 2 * WORKER_JOIN_TIMEOUT + RECLAIMER_SHUTDOWN_TIMEOUT
 }

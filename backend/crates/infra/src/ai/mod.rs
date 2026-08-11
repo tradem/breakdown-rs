@@ -34,6 +34,7 @@ pub mod runtime;
 pub mod schedule_apply;
 pub mod shutdown;
 pub mod transport;
+pub mod worker_loop;
 pub mod workers;
 
 pub use catalog::OpenAiCompatibleModelCatalog;
@@ -66,9 +67,12 @@ pub use runtime::AiWorkerRuntime;
 pub use schedule_apply::{
     AppliedDay, ScheduleApplyRequest, ScheduleApplyResult, ScheduleApplyWorker,
 };
-pub use shutdown::{AiJobGuard, AiWorkerLifecycle};
+pub use shutdown::{AiJobGuard, AiWorkerLifecycle, DRAIN_TIMEOUT};
 pub use transport::{
     curated_provider_redirect_policy, hosted_provider_redirect_policy, ollama_redirect_policy,
+};
+pub use worker_loop::{
+    WorkerDeps, shutdown_signal, spawn_schedule_import_worker, spawn_script_import_worker,
 };
 pub use workers::{
     ApplyScriptRequest, ApplyWorker, MergeWorker, ScheduleImportWorker, ScriptImportWorker,

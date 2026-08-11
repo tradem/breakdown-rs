@@ -12,6 +12,26 @@ commits (ADR-020 D5).
 
 ## [0.6.1] - Unreleased
 
+### Changed — Wire the AI concurrency limiter into the composition root (issue #214)
+
+`main.rs` now constructs the AI import concurrency limiter and workers when
+`AI_IMPORT_ENABLED` is set, so the `AI_IMPORT_MAX_CONCURRENT_JOBS_*` ceilings
+are actually enforced at runtime and jobs consume capacity through
+`AiWorkerRuntime`.
+
+- `PgAiConcurrencyLimiter` is built from `AiImportBounds`, `.spawn_reclaimer()`
+  is called, and the `PermitReclaimer` is held for the process lifetime.
+- The script + schedule import worker loops are spawned and their
+  `JoinHandle`s stored.
+- Graceful shutdown is added: `axum::serve(...)` uses `with_graceful_shutdown`
+  driven by SIGTERM/SIGINT. On signal the process signals the workers to stop,
+  runs the bounded `AiWorkerRuntime::drain()` (bounded by `DRAIN_TIMEOUT`, 15s),
+  joins the worker tasks (aborting any that exceed the join budget), drops all
+  limiter clones, then awaits `PermitReclaimer::shutdown()`. The whole sequence
+  is bounded so shutdown cannot hang.
+- The whole path is gated behind `AI_IMPORT_ENABLED`; the default deployment
+  is unaffected.
+
 ### Changed — No in-memory AI payload store in the composition root (issue #181)
 
 - `main.rs` no longer constructs a `MemoryAiPreviewStore`. When AI payload

@@ -151,10 +151,10 @@ async fn release_permit_logging_errors(permit: PgAiConcurrencyPermit, job_id: Ai
 
 /// Script import pipeline. It is deliberately independent of HTTP and can be
 /// driven by a queue worker or deterministic integration tests.
-pub struct ScriptImportWorker<Q, C, S> {
+pub struct ScriptImportWorker<Q, C> {
     pub queue: Arc<Q>,
     pub client: Arc<C>,
-    pub previews: Arc<S>,
+    pub previews: Arc<dyn AiPreviewStore>,
     pub extractor: PdfTextExtractor,
     pub provider: breakdown_core::ai::LlmProvider,
     pub model: String,
@@ -162,11 +162,10 @@ pub struct ScriptImportWorker<Q, C, S> {
     pub bounds: AiImportBounds,
 }
 
-impl<Q, C, S> ScriptImportWorker<Q, C, S>
+impl<Q, C> ScriptImportWorker<Q, C>
 where
     Q: AiImportQueue + 'static,
     C: LlmClient + 'static,
-    S: AiPreviewStore + 'static,
 {
     /// Claim and process the next runnable script job.
     ///
@@ -424,23 +423,22 @@ fn claim_lost_error(id: AiImportJobId, worker_id: &str) -> DomainError {
     ))
 }
 
-/// Schedule import pipeline. CSV is parsed natively; unstructured input can
+/// Schedule import pipeline. CSV is parsed native; unstructured input can
 /// be passed to an LLM client implementing `extract_schedule`.
-pub struct ScheduleImportWorker<Q, C, S> {
+pub struct ScheduleImportWorker<Q, C> {
     pub queue: Arc<Q>,
     pub client: Arc<C>,
-    pub previews: Arc<S>,
+    pub previews: Arc<dyn AiPreviewStore>,
     pub provider: breakdown_core::ai::LlmProvider,
     pub model: String,
     pub prompt: String,
     pub bounds: AiImportBounds,
 }
 
-impl<Q, C, S> ScheduleImportWorker<Q, C, S>
+impl<Q, C> ScheduleImportWorker<Q, C>
 where
     Q: AiImportQueue + 'static,
     C: LlmClient + 'static,
-    S: AiPreviewStore + 'static,
 {
     pub async fn run_once(
         &self,

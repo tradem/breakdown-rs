@@ -65,8 +65,8 @@ use breakdown_core::ai::{
 };
 use breakdown_core::error::DomainError;
 use infra::ai::{
-    AiDocumentSource, MemoryAiPreviewStore, PgAiConcurrencyLimiter, PgAiImportQueue,
-    ScheduleImportWorker,
+    AiDocumentSource, AiPreviewStore, MemoryAiPreviewStore, PgAiConcurrencyLimiter,
+    PgAiImportQueue, ScheduleImportWorker,
 };
 use sqlx::PgPool;
 use tokio::sync::Notify;
@@ -174,11 +174,11 @@ impl LlmClient for UnusedLlmClient {
 /// LLM call, so the test stays hermetic and deterministic.
 fn schedule_worker(
     queue: Arc<PgAiImportQueue>,
-) -> ScheduleImportWorker<PgAiImportQueue, UnusedLlmClient, MemoryAiPreviewStore> {
+) -> ScheduleImportWorker<PgAiImportQueue, UnusedLlmClient> {
     ScheduleImportWorker {
         queue,
         client: Arc::new(UnusedLlmClient),
-        previews: Arc::new(MemoryAiPreviewStore::default()),
+        previews: Arc::new(MemoryAiPreviewStore::default()) as Arc<dyn AiPreviewStore>,
         provider: LlmProvider::Neuralwatt,
         model: "unused".to_owned(),
         prompt: "unused".to_owned(),

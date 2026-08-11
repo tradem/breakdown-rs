@@ -10,7 +10,7 @@ use tokio::sync::Notify;
 
 /// Graceful-shutdown budget for draining in-flight AI import jobs. A stuck
 /// worker must not block shutdown forever (the orchestrator would SIGKILL).
-const DRAIN_TIMEOUT: Duration = Duration::from_secs(15);
+pub const DRAIN_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Tracks jobs that have been claimed but have not yet reached a terminal
 /// queue transition. Shutdown waits for this count to reach zero.

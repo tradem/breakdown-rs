@@ -29,7 +29,9 @@ kameo_es.workspace = true
 async-trait.workspace = true
 
 # Async test runtime
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+# `test-util` enables the paused clock (`start_paused = true`) for
+# deterministic drain-deadline testing (issue #214).
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
 
 # Database access & migrations
 sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-native-tls", "uuid", "chrono", "json", "migrate"] }

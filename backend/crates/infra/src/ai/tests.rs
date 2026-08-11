@@ -376,11 +376,11 @@ fn script_worker(
     queue: Arc<FakeQueue>,
     previews: Arc<MemoryAiPreviewStore>,
     max_chunks: u32,
-) -> ScriptImportWorker<FakeQueue, FakeLlmClient, MemoryAiPreviewStore> {
+) -> ScriptImportWorker<FakeQueue, FakeLlmClient> {
     ScriptImportWorker {
         queue,
         client: Arc::new(FakeLlmClient),
-        previews,
+        previews: previews as Arc<dyn AiPreviewStore>,
         extractor: super::PdfTextExtractor::new(1024 * 1024, std::time::Duration::from_secs(30)),
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
