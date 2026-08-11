@@ -4441,7 +4441,9 @@ pub async fn upload_ai_schedule<P: Ports>(
         return Err((
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             Json(ErrorResponse {
-                message: "schedule imports require PDF or CSV content".to_owned(),
+                message: "schedule imports require text/csv, application/pdf or \
+                           text/plain"
+                    .to_owned(),
             }),
         ));
     }
