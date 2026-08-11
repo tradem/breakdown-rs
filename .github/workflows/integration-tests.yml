@@ -48,6 +48,7 @@ jobs:
       SIERRADB_IMAGE: tqwewe/sierradb:0.3.1
       POSTGRES_IMAGE: docker.io/postgres:16-alpine
       VAULT_IMAGE: hashicorp/vault:1.17
+      GARAGE_IMAGE: dxflrs/garage:v1.0.1
 
     steps:
       - name: Checkout repository
@@ -90,6 +91,11 @@ jobs:
           pull_with_retry "$SIERRADB_IMAGE"
           pull_with_retry "$POSTGRES_IMAGE"
           pull_with_retry "$VAULT_IMAGE"
+          # Garage is started by the photo and AI payload round-trip tests
+          # (photo_storage_tests, ai_payload_storage_round_trip, …) via
+          # `spawn_garage`; pre-pull it with the same retry policy so a
+          # transient pull failure cannot flake a test run.
+          pull_with_retry "$GARAGE_IMAGE"
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
@@ -177,6 +183,7 @@ jobs:
             --test scene_shoot_round_trip \
             --test shooting_day_round_trip \
             --test costume_category_round_trip \
+            --test ai_payload_storage_round_trip \
             --test projector_tests \
             --test query_repository_tests \
             --test command_adapter_tests \
