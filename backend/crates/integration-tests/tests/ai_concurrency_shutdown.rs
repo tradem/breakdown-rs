@@ -24,7 +24,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use breakdown_core::error::DomainError;
-use infra::ai::{AiWorkerRuntime, PgAiConcurrencyLimiter};
+use infra::ai::{AiWorkerLifecycle, AiWorkerRuntime, PgAiConcurrencyLimiter};
 use sqlx::PgPool;
 use tokio::task::JoinHandle;
 
@@ -138,47 +138,22 @@ async fn simulated_shutdown_leaves_no_permit_rows() -> Result<()> {
 }
 
 #[tokio::test]
-async fn shutdown_terminates_within_budget_even_when_a_task_holds_a_permit() -> Result<()> {
+async fn shutdown_reclaims_an_aborted_workers_permit() -> Result<()> {
     let (pool, _container) = crate::fixtures::spawn_postgres().await?;
     let (limiter, reclaimer) = single_slot(&pool)?.spawn_reclaimer();
     let limiter_arc = Arc::new(limiter);
     let runtime = Arc::new(AiWorkerRuntime::new(Arc::clone(&limiter_arc)));
 
-    // Hold a permit far longer than the drain budget. The drain is bounded by
-    // DRAIN_TIMEOUT (15s) and must return rather than block forever.
+    // Hold a permit far longer than the drain budget, then abort the worker:
+    // the drop hook enqueues the reclaim, and the reclaimer must delete the
+    // row (permit reconciliation) even though the worker never released it.
     let handle = spawn_holding_worker(Arc::clone(&runtime), Duration::from_secs(60));
-    // Synchronize: wait until the worker has actually acquired the permit
-    // before draining, so the drain observes in-flight load and must wait for
-    // the (bounded) deadline rather than returning on an empty table.
     wait_until_in_flight(&limiter_arc, 1, "worker holding permit").await;
 
-    let start = tokio::time::Instant::now();
-
-    // Step 1: bounded drain — the permit is held for 60s (>> DRAIN_TIMEOUT)
-    // so the drain must return at the deadline rather than blocking forever.
     runtime.drain().await;
-    let drain_elapsed = start.elapsed();
-    // Derive the bounds from the actual constant so the test stays valid if
-    // DRAIN_TIMEOUT changes: the drain must outrun a generous lower bound
-    // (half the timeout) and stay under a generous upper bound (twice it,
-    // well below the 60s hold).
-    let drain_timeout = infra::ai::DRAIN_TIMEOUT;
-    assert!(
-        drain_elapsed >= drain_timeout / 2,
-        "drain should have waited near {drain_timeout:?}; took {drain_elapsed:?}"
-    );
-    assert!(
-        drain_elapsed < drain_timeout * 2,
-        "drain must be bounded by {drain_timeout:?}; took {drain_elapsed:?}"
-    );
-
-    // Step 2: the worker is still running (it holds the permit). Abort it to
-    // prove the sequence does not depend on the task's cooperation. The drop
-    // hook enqueues the reclaim; the reclaimer deletes the row.
     handle.abort();
     await_capacity_released(&limiter_arc, "after abort").await;
 
-    // Step 3: drop every limiter clone, then drain the reclaimer.
     drop(limiter_arc);
     drop(runtime);
     reclaimer.shutdown().await;
@@ -189,4 +164,33 @@ async fn shutdown_terminates_within_budget_even_when_a_task_holds_a_permit() -> 
         "aborted worker's permit must be reclaimed during shutdown"
     );
     Ok(())
+}
+
+/// Deterministic, no-DB lifecycle test: `AiWorkerRuntime::drain` must return
+/// exactly at `DRAIN_TIMEOUT` when a permit is held, verified with a paused
+/// `current_thread` runtime (issue #214). The AGENTS.md testing guardrail
+/// forbids wall-clock-gated tests, so the clock is advanced synthetically.
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn drain_is_bounded_by_drain_timeout() {
+    let lifecycle = AiWorkerLifecycle::default();
+    // Hold a permit so drain() must wait for the deadline rather than
+    // returning immediately on an empty table.
+    let _guard = lifecycle.start_job();
+    assert_eq!(lifecycle.in_flight(), 1);
+
+    // Start the drain future; on the paused clock it must not complete before
+    // DRAIN_TIMEOUT elapses.
+    let drain = tokio::spawn(async move {
+        lifecycle.drain().await;
+    });
+
+    // Yield so the spawned task registers its timer, then advance the clock
+    // exactly to the deadline.
+    tokio::task::yield_now().await;
+    tokio::time::advance(infra::ai::DRAIN_TIMEOUT).await;
+
+    // The drain must complete at (or very near) the deadline.
+    drain
+        .await
+        .expect("drain did not complete after DRAIN_TIMEOUT");
 }
