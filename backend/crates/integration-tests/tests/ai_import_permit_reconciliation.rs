@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (pi)
 // Co-authored-by: longcat-2.0-free (pi)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: longcat-2.0-free (opencode)
 
 //! Permit reconciliation contract for the AI import queue (issue #180).
