@@ -178,19 +178,22 @@ async fn drain_is_bounded_by_drain_timeout() {
     let _guard = lifecycle.start_job();
     assert_eq!(lifecycle.in_flight(), 1);
 
-    // Start the drain future; on the paused clock it must not complete before
-    // DRAIN_TIMEOUT elapses.
-    let drain = tokio::spawn(async move {
-        lifecycle.drain().await;
-    });
+    // Poll the drain future directly: on the paused clock it must return
+    // `Pending` because the deadline has not been reached yet. This proves
+    // the drain registered its timer and is waiting (not returning early).
+    let mut drain_fut = std::pin::pin!(lifecycle.drain());
+    let poll = std::future::Future::poll(
+        drain_fut.as_mut(),
+        &mut std::task::Context::from_waker(std::task::Waker::noop()),
+    );
+    assert!(
+        matches!(poll, std::task::Poll::Pending),
+        "drain should be pending before the deadline"
+    );
 
-    // Yield so the spawned task registers its timer, then advance the clock
-    // exactly to the deadline.
-    tokio::task::yield_now().await;
+    // Advance exactly to the deadline — drain must complete at this point.
     tokio::time::advance(infra::ai::DRAIN_TIMEOUT).await;
 
-    // The drain must complete at (or very near) the deadline.
-    drain
-        .await
-        .expect("drain did not complete after DRAIN_TIMEOUT");
+    // Now the drain completes (the deadline fired).
+    drain_fut.await;
 }
