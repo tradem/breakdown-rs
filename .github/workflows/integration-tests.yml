@@ -20,8 +20,10 @@ permissions:
 # (up to 13 Postgres + 4 Garage containers per binary) run in the separate
 # `ai-import-integration-tests` job so the main job stays within its 30-minute
 # budget. SierraDB-requiring AI tests (`ai_payload_storage_round_trip`) stay in
-# the sequential group; `ai_llm_smoke_test` / `ai_gdrive_fixture_test` are
-# nightly-only by design (see ai-import-nightly.yml).
+# the sequential group; `ai_llm_smoke_test` is nightly-only by design (see
+# ai-import-nightly.yml), while `ai_gdrive_fixture_test` also runs here for
+# trusted pushes and trusted pull requests (see the AI GDrive fixture smoke
+# test step below).
 #
 # Flaky-test prevention:
 # - Docker images are pre-pulled with retries to handle transient network failures.
@@ -62,6 +64,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Read-only job: no authenticated git commands are run after checkout.
+          persist-credentials: false
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
@@ -257,6 +262,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Read-only job: no authenticated git commands are run after checkout.
+          persist-credentials: false
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
