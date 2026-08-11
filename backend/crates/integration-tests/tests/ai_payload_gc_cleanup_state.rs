@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: longcat-2.0-free (opencode)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! Per-payload cleanup-state contract for the AI payload GC sweep (issue
 //! #206).
@@ -45,6 +46,7 @@ mod fixtures;
 use anyhow::Result;
 use breakdown_core::ai::{
     AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJobId, AiImportQueue, DocumentKind,
+    SourceFormat,
 };
 use breakdown_core::error::DomainError;
 use fixtures::{GarageCredentials, spawn_garage, spawn_postgres};
@@ -64,6 +66,7 @@ async fn seed_job(queue: &PgAiImportQueue, dedup: &str) -> AiImportJobId {
             id,
             user_id: breakdown_core::shared::UserId::from_sub("payload-gc-user"),
             document_kind: DocumentKind::Script,
+            source_format: SourceFormat::Pdf,
             block_id: None,
             dedup_key: dedup.to_owned(),
             document_digest: "digest".to_owned(),

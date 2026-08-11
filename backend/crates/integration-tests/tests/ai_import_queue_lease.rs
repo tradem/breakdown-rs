@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: longcat-2.0-free (opencode)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! Worker-lease recovery contract for the AI import queue (issue #177).
 //!
@@ -41,7 +42,7 @@ use std::time::Duration;
 use anyhow::Result;
 use breakdown_core::ai::{
     AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJobId, AiImportQueue, DocumentKind,
-    JobStatus, Telemetry,
+    JobStatus, SourceFormat, Telemetry,
 };
 use breakdown_core::shared::UserId;
 use chrono::{DateTime, Utc};
@@ -61,6 +62,10 @@ async fn seed_job(
             id,
             user_id: UserId::from_sub(user),
             document_kind: kind,
+            source_format: match kind {
+                DocumentKind::Script => SourceFormat::Pdf,
+                DocumentKind::Schedule => SourceFormat::Csv,
+            },
             block_id: None,
             dedup_key: dedup.to_owned(),
             document_digest: "digest".to_owned(),

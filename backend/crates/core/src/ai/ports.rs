@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: longcat-2.0-free (opencode)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -12,7 +13,7 @@ use crate::error::DomainError;
 use crate::shared::{AggregateVersion, BlockId, UserId};
 
 use super::preview::{ScriptContext, ShootingSchedule};
-use super::views::{AiImportJob, AiImportJobId, DocumentKind, Telemetry};
+use super::views::{AiImportJob, AiImportJobId, DocumentKind, SourceFormat, Telemetry};
 
 /// Curated providers. The enum is intentionally non-exhaustive so adding a
 /// provider is additive and does not break downstream matches.
@@ -146,6 +147,7 @@ pub struct AiImportEnqueueRequest {
     pub id: AiImportJobId,
     pub user_id: UserId,
     pub document_kind: DocumentKind,
+    pub source_format: SourceFormat,
     pub block_id: Option<BlockId>,
     pub dedup_key: String,
     pub document_digest: String,

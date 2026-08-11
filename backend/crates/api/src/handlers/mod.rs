@@ -22,8 +22,8 @@ use axum::{Json, Router, routing};
 use breakdown_core::ai::{
     AiConfigCommands, AiConfigRepository, AiConfigView, AiImportEnqueueRequest,
     AiImportEnqueueResult, AiImportJobId, AiImportQueue, ApplyMapping, CreateAiConfig,
-    DocumentKind, LlmProvider, MergedPreview, ModelInfo, RevokeAiConfig, ScriptContext, Telemetry,
-    TelemetryApplyState, UpdateAiConfig,
+    DocumentKind, LlmProvider, MergedPreview, ModelInfo, RevokeAiConfig, ScriptContext,
+    SourceFormat, Telemetry, TelemetryApplyState, UpdateAiConfig,
 };
 use breakdown_core::audit::{AuditEntry, AuditRepository};
 use breakdown_core::block::commands::{CreateBlock, UpdateBlockTimeSpan};
@@ -4250,8 +4250,22 @@ fn digest_hex(body: &[u8]) -> String {
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn ai_dedup_key(user_id: &UserId, kind: DocumentKind, digest: &str) -> String {
-    format!("{}|{}|{digest}", user_id.as_str(), kind.as_str())
+fn ai_dedup_key(
+    user_id: &UserId,
+    kind: DocumentKind,
+    format: SourceFormat,
+    digest: &str,
+) -> String {
+    // The declared format is part of the identity: identical bytes declared
+    // as CSV vs. PDF/plain-text route to different extraction paths, so a
+    // re-upload with a different Content-Type must enqueue a distinct job
+    // (issue #221).
+    format!(
+        "{}|{}|{}|{digest}",
+        user_id.as_str(),
+        kind.as_str(),
+        format.as_str()
+    )
 }
 
 async fn enqueue_ai_upload<P: Ports>(
@@ -4269,6 +4283,28 @@ async fn enqueue_ai_upload<P: Ports>(
             }),
         ));
     }
+    // Capture the declared document format from the upload's Content-Type so
+    // the worker can route CSV natively and PDF/plain-text through the LLM
+    // extraction path (issue #221). The callers gate the content type before
+    // reaching this helper; a format that slips through is rejected rather
+    // than defaulted, so a mislabelled upload cannot silently take the wrong
+    // extraction path.
+    let source_format = match request_content_type(&headers).as_str() {
+        "text/csv" => SourceFormat::Csv,
+        "application/pdf" => SourceFormat::Pdf,
+        "text/plain" => SourceFormat::PlainText,
+        other => {
+            return Err((
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                Json(ErrorResponse {
+                    message: format!(
+                        "unsupported AI import content type {other}; expected \
+                         text/csv, application/pdf or text/plain"
+                    ),
+                }),
+            ));
+        }
+    };
     let block_id = authorize_ai_block(state, &current_user, &headers).await?;
     // Use the bound resolved once into AppState (shared with the extractor
     // limit in `routes()`); no per-request environment reads.
@@ -4295,8 +4331,9 @@ async fn enqueue_ai_upload<P: Ports>(
             id: job_id,
             user_id: current_user.sub.clone(),
             document_kind: kind,
+            source_format,
             block_id: Some(block_id),
-            dedup_key: ai_dedup_key(&current_user.sub, kind, &digest),
+            dedup_key: ai_dedup_key(&current_user.sub, kind, source_format, &digest),
             document_digest: digest,
             source_handle: source_handle.clone(),
         })
@@ -4323,7 +4360,11 @@ async fn enqueue_ai_upload<P: Ports>(
     Ok((status, Json(id)))
 }
 
-fn request_content_type(headers: &HeaderMap) -> &str {
+/// Normalize the raw `Content-Type` header: lowercase + trimmed media type
+/// without parameters, so `TEXT/CSV` and `text/csv ; charset=utf-8` both
+/// match `text/csv`. Media types are case-insensitive (RFC 9110), and the
+/// parameter list after `;` is not part of the type.
+fn request_content_type(headers: &HeaderMap) -> String {
     headers
         .get("content-type")
         .and_then(|value| value.to_str().ok())
@@ -4331,6 +4372,8 @@ fn request_content_type(headers: &HeaderMap) -> &str {
         .split(';')
         .next()
         .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase()
 }
 
 #[utoipa::path(
@@ -4391,11 +4434,16 @@ pub async fn upload_ai_schedule<P: Ports>(
 ) -> ApiResult<AiImportJobId> {
     // AUTHZ-GATE: schedule uploads require active costume-department membership.
     let content_type = request_content_type(&headers);
-    if !matches!(content_type, "application/pdf" | "text/csv" | "text/plain") {
+    if !matches!(
+        content_type.as_str(),
+        "application/pdf" | "text/csv" | "text/plain"
+    ) {
         return Err((
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             Json(ErrorResponse {
-                message: "schedule imports require PDF or CSV content".to_owned(),
+                message: "schedule imports require text/csv, application/pdf or \
+                           text/plain"
+                    .to_owned(),
             }),
         ));
     }

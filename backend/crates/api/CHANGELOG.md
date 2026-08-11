@@ -12,6 +12,15 @@ commits (ADR-020 D5).
 
 ## [0.6.1] - Unreleased
 
+### Changed — Persist the declared AI import source format (issue #221)
+
+- `POST /ai-import/schedules` persists the upload's declared format
+  (`text/csv` → `csv`, `application/pdf` → `pdf`, `text/plain` →
+  `plain_text`) on the job. The schedule worker now routes CSV natively and
+  PDF/plain-text through the LLM extraction path; PDF schedules are extracted
+  to text before the LLM call, so `application/pdf` schedule uploads work
+  end-to-end for the first time.
+
 ### Changed — Wire the AI concurrency limiter into the composition root (issue #214)
 
 `main.rs` now constructs the AI import concurrency limiter and workers when

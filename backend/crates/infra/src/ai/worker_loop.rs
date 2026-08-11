@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (pi)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! AI import queue worker loops (issue #214).
 //!
@@ -546,6 +547,10 @@ async fn schedule_worker_tick(
                 queue: deps.queue.clone(),
                 client,
                 previews: deps.previews.clone(),
+                extractor: PdfTextExtractor::new(
+                    usize::try_from(deps.bounds.max_document_bytes).unwrap_or(usize::MAX),
+                    Duration::from_secs(deps.bounds.request_timeout_secs),
+                ),
                 provider: config.provider,
                 model: config.model,
                 prompt: config.prompt,
@@ -553,7 +558,7 @@ async fn schedule_worker_tick(
             };
             deps.runtime
                 .run_job_as(user_id.as_str(), worker_id, || {
-                    worker.process(&job, worker_id, &bytes, true)
+                    worker.process(&job, worker_id, &bytes)
                 })
                 .await
         }
@@ -583,6 +588,10 @@ async fn schedule_worker_tick(
                 queue: deps.queue.clone(),
                 client,
                 previews: deps.previews.clone(),
+                extractor: PdfTextExtractor::new(
+                    usize::try_from(deps.bounds.max_document_bytes).unwrap_or(usize::MAX),
+                    Duration::from_secs(deps.bounds.request_timeout_secs),
+                ),
                 provider: config.provider,
                 model: config.model,
                 prompt: config.prompt,
@@ -590,7 +599,7 @@ async fn schedule_worker_tick(
             };
             deps.runtime
                 .run_job_as(user_id.as_str(), worker_id, || {
-                    worker.process(&job, worker_id, &bytes, true)
+                    worker.process(&job, worker_id, &bytes)
                 })
                 .await
         }

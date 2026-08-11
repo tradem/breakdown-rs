@@ -12,6 +12,22 @@ commits (ADR-020 D5).
 
 ## [0.12.0] - Unreleased
 
+### Added — Route non-CSV schedule imports through the LLM (issue #221)
+
+- `ScheduleImportWorker` derives the extraction path from the job's persisted
+  `source_format` instead of a caller-supplied `native_csv` flag: CSV stays on
+  the native parser, `plain_text` goes straight to the LLM, and `pdf` is
+  extracted to text with the same bounded `PdfTextExtractor` as the script
+  worker before the LLM call. The flag is gone from `process`, `run_once` and
+  `run_once_with_permit` — the worker loop and the processor cannot disagree
+  anymore.
+- New column `ai_import.ai_import_job.source_format` (NOT NULL, CHECK
+  `('csv','pdf','plain_text')`). Legacy schedule rows backfill to `csv` (their
+  previous routing) and script rows to `pdf`, so the claim path keeps working
+  across the migration.
+- **Breaking:** `ScheduleImportWorker` gains a required `extractor:
+  PdfTextExtractor` field.
+
 ### Added — AI import worker loops wired through the concurrency limiter (issue #214)
 
 The `PgAiConcurrencyLimiter` / `AiWorkerRuntime` were public API that nothing

@@ -32,7 +32,7 @@ mod fixtures;
 use anyhow::Result;
 use breakdown_core::ai::{
     AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJobId, AiImportQueue, DocumentKind,
-    Telemetry, TelemetryApplyState,
+    SourceFormat, Telemetry, TelemetryApplyState,
 };
 use breakdown_core::shared::UserId;
 use infra::ai::PgAiImportQueue;
@@ -46,6 +46,7 @@ async fn seed_job(queue: &PgAiImportQueue, user: &str, dedup: &str) -> AiImportJ
             id,
             user_id: UserId::from_sub(user),
             document_kind: DocumentKind::Script,
+            source_format: SourceFormat::Pdf,
             block_id: None,
             dedup_key: dedup.to_owned(),
             document_digest: "digest".to_owned(),

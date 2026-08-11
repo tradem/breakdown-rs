@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: longcat-2.0-free (opencode)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! Missing-payload semantics for the AI import workers (issue #181).
 //!
@@ -32,7 +33,7 @@ use async_trait::async_trait;
 use breakdown_core::ai::{
     AiImportBounds, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
     AiImportQueue, DocumentKind, JobStatus, LlmChatRequest, LlmClient, LlmProvider, ScriptContext,
-    Telemetry,
+    SourceFormat, Telemetry,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::shared::UserId;
@@ -68,6 +69,10 @@ impl RecordingQueue {
                 id: AiImportJobId::new(),
                 user_id: UserId::from_sub("payload-recovery-user"),
                 document_kind: kind,
+                source_format: match kind {
+                    DocumentKind::Script => SourceFormat::Pdf,
+                    DocumentKind::Schedule => SourceFormat::Csv,
+                },
                 block_id: None,
                 dedup_key: "payload-recovery".to_owned(),
                 document_digest: "digest".to_owned(),
@@ -234,6 +239,7 @@ fn schedule_worker(
         queue,
         client: Arc::new(UnusedLlmClient),
         previews: Arc::new(MemoryAiPreviewStore::default()) as Arc<dyn AiPreviewStore>,
+        extractor: super::PdfTextExtractor::new(1024 * 1024, std::time::Duration::from_secs(30)),
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
@@ -287,7 +293,7 @@ async fn schedule_worker_marks_an_absent_source_document_non_resumable() {
         "AI document source ai-import/missing/source".to_owned(),
     ));
 
-    let result = worker.run_once("worker-1", &source, true).await;
+    let result = worker.run_once("worker-1", &source).await;
 
     assert!(matches!(result, Err(DomainError::NotFound(_))));
     assert_eq!(queue.transitions(), vec![Transition::PayloadUnavailable]);
@@ -301,7 +307,7 @@ async fn schedule_worker_keeps_unreachable_storage_retryable() {
         "S3 endpoint unreachable".to_owned(),
     ));
 
-    let result = worker.run_once("worker-1", &source, true).await;
+    let result = worker.run_once("worker-1", &source).await;
 
     assert!(matches!(result, Err(DomainError::ServiceUnavailable(_))));
     assert_eq!(

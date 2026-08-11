@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (pi)
 // Co-authored-by: longcat-2.0-free (pi)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: longcat-2.0-free (opencode)
 
 //! Permit reconciliation contract for the AI import queue (issue #180).
@@ -97,9 +98,11 @@ async fn seed_pending_job_of_kind(pool: &PgPool, user_id: &str, kind: &str) -> R
     sqlx::query(
         r#"
         INSERT INTO ai_import.ai_import_job
-            (id, user_id, document_kind, dedup_key, document_digest, source_handle,
+            (id, user_id, document_kind, source_format, dedup_key, document_digest, source_handle,
              status, retries, max_retries, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, 'test-digest', 'test-source',
+        VALUES ($1, $2, $3,
+                CASE $3 WHEN 'schedule' THEN 'csv' ELSE 'pdf' END,
+                $4, 'test-digest', 'test-source',
                 'pending', 0, 5, now(), now())
         "#,
     )
@@ -171,7 +174,8 @@ impl LlmClient for UnusedLlmClient {
 }
 
 /// A schedule worker in native-CSV mode: no subprocess (`pdftotext`) and no
-/// LLM call, so the test stays hermetic and deterministic.
+/// LLM call, so the test stays hermetic and deterministic. The job is seeded
+/// with `source_format = 'csv'`, which drives the in-process parser.
 fn schedule_worker(
     queue: Arc<PgAiImportQueue>,
 ) -> ScheduleImportWorker<PgAiImportQueue, UnusedLlmClient> {
@@ -179,6 +183,10 @@ fn schedule_worker(
         queue,
         client: Arc::new(UnusedLlmClient),
         previews: Arc::new(MemoryAiPreviewStore::default()) as Arc<dyn AiPreviewStore>,
+        extractor: infra::ai::PdfTextExtractor::new(
+            1024 * 1024,
+            std::time::Duration::from_secs(30),
+        ),
         provider: LlmProvider::Neuralwatt,
         model: "unused".to_owned(),
         prompt: "unused".to_owned(),
@@ -512,7 +520,7 @@ async fn a_saturated_ceiling_returns_the_claim_unrun_and_uncharged() -> Result<(
     let source = CountingSource::default();
     let worker = schedule_worker(Arc::clone(&queue));
     let ran = worker
-        .run_once_with_permit("worker-a", &source, true, &limiter)
+        .run_once_with_permit("worker-a", &source, &limiter)
         .await?;
 
     assert!(!ran, "no job runs when the ceiling is saturated");
@@ -539,7 +547,7 @@ async fn a_saturated_ceiling_returns_the_claim_unrun_and_uncharged() -> Result<(
     // With capacity free again the same job runs — it was never penalised.
     blocker.release().await?;
     let ran = worker
-        .run_once_with_permit("worker-a", &source, true, &limiter)
+        .run_once_with_permit("worker-a", &source, &limiter)
         .await?;
     assert!(ran, "the returned job runs once capacity is available");
     assert_eq!(source.loads(), 1, "now the source is actually fetched");
@@ -587,7 +595,7 @@ async fn a_running_worker_links_its_permit_to_the_claim() -> Result<()> {
     let observer_pool = pool.clone();
     let run = async {
         let outcome = worker
-            .run_once_with_permit("worker-a", &source, true, &limiter)
+            .run_once_with_permit("worker-a", &source, &limiter)
             .await;
         finished.notify_one();
         outcome

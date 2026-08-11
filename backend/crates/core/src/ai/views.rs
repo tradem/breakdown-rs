@@ -29,6 +29,37 @@ impl DocumentKind {
     }
 }
 
+/// The declared format of an AI import source document, captured at the API
+/// edge from the upload's `Content-Type` and persisted on the job so the
+/// schedule worker can pick the extraction path without re-guessing the bytes
+/// (issue #221).
+///
+/// Only `Csv` is parsed natively; `Pdf` and `PlainText` are routed through the
+/// LLM extraction path. Scripts are always `Pdf`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceFormat {
+    Csv,
+    Pdf,
+    PlainText,
+}
+
+impl SourceFormat {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Csv => "csv",
+            Self::Pdf => "pdf",
+            Self::PlainText => "plain_text",
+        }
+    }
+
+    /// Whether the schedule worker should use the native CSV parser. Only CSV
+    /// is parsed in-process; PDF and plain text go through the LLM.
+    pub const fn uses_native_csv(self) -> bool {
+        matches!(self, Self::Csv)
+    }
+}
+
 /// Operational lifecycle of an AI import job.
 ///
 /// `Failed` is the *retryable* state (a due `next_attempt_at` makes the job
@@ -136,6 +167,7 @@ pub struct AiImportJob {
     pub id: AiImportJobId,
     pub user_id: UserId,
     pub document_kind: DocumentKind,
+    pub source_format: SourceFormat,
     pub block_id: Option<BlockId>,
     pub dedup_key: String,
     pub document_digest: String,
@@ -202,3 +234,7 @@ pub struct Telemetry {
     /// Apply outcome; `NotApplied` while the job is preview-only.
     pub apply_state: TelemetryApplyState,
 }
+
+#[cfg(test)]
+#[path = "views_tests.rs"]
+mod views_tests;

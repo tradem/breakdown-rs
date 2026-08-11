@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: longcat-2.0-free (opencode)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! Handler tests proving the AI import dependencies are reachable through the
 //! generic `Ports` seam (issue #176).
@@ -24,13 +25,13 @@ use api::auth::CurrentUser;
 use api::handlers::{
     ApplyAiImportRequest, CreateAiConfigRequest, RevokeAiConfigRequest, UpdateAiConfigRequest,
     apply_ai_import, create_ai_config, get_ai_config, get_ai_import_job, get_ai_import_preview,
-    revoke_ai_config, update_ai_config, upload_ai_script,
+    revoke_ai_config, update_ai_config, upload_ai_schedule, upload_ai_script,
 };
 use api::state::AppState;
 use breakdown_core::ai::{
     AiConfigView, AiImportJob, AiImportJobId, AiImportMappingRepository, AiImportQueue,
     ApplyMapping, ApplyMappingDecision, DocumentKind, DraftScene, JobStatus, LlmProvider,
-    ScriptContext,
+    ScriptContext, SourceFormat,
 };
 use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, UserId};
 use chrono::Utc;
@@ -63,12 +64,25 @@ fn pdf_headers(block_id: BlockId) -> HeaderMap {
     headers
 }
 
+/// A schedule upload request with the given Content-Type. The schedule
+/// handler accepts `text/csv`, `application/pdf` and `text/plain`.
+fn schedule_headers(content_type: &'static str, block_id: BlockId) -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert("content-type", HeaderValue::from_static(content_type));
+    headers.insert(
+        "x-active-block",
+        HeaderValue::from_str(&block_id.0.to_string()).expect("uuid is a valid header value"),
+    );
+    headers
+}
+
 fn succeeded_job(preview_handle: &str) -> AiImportJob {
     let now = Utc::now();
     AiImportJob {
         id: AiImportJobId::new(),
         user_id: UserId::from_sub(TEST_SUB),
         document_kind: DocumentKind::Script,
+        source_format: breakdown_core::ai::SourceFormat::Pdf,
         block_id: None,
         dedup_key: "test|script|digest".to_owned(),
         document_digest: "digest".to_owned(),
@@ -109,6 +123,7 @@ async fn upload_ai_script_enqueues_through_the_ports_seam() {
         .expect("enqueued job should be retrievable");
     assert_eq!(job.block_id, Some(block_id));
     assert_eq!(job.document_kind, DocumentKind::Script);
+    assert_eq!(job.source_format, SourceFormat::Pdf);
     assert_eq!(job.status, JobStatus::Pending);
 
     // The source bytes went to the document store, not the preview slot.
@@ -117,6 +132,78 @@ async fn upload_ai_script_enqueues_through_the_ports_seam() {
         .await
         .expect("document store read should succeed");
     assert_eq!(bytes.as_deref(), Some(&b"%PDF-1.7 fake"[..]));
+}
+
+/// Issue #221: the schedule upload persists the declared source format so the
+/// worker can route CSV natively and PDF/plain-text through the LLM path.
+#[tokio::test]
+async fn upload_ai_schedule_persists_the_declared_source_format() {
+    for (content_type, expected) in [
+        ("text/csv", SourceFormat::Csv),
+        ("application/pdf", SourceFormat::Pdf),
+        ("text/plain", SourceFormat::PlainText),
+    ] {
+        let ports = FakePorts::default();
+        let queue = ports.ai_import_queue.clone();
+        let block_id = BlockId::from_uuid(Uuid::now_v7());
+
+        let result = upload_ai_schedule::<FakePorts>(
+            State(state(ports)),
+            user(),
+            schedule_headers(content_type, block_id),
+            axum::body::Bytes::from_static(b"fake schedule bytes"),
+        )
+        .await;
+
+        let (status, Json(job_id)) = result.expect("authorized schedule upload should be accepted");
+        assert_eq!(status, StatusCode::ACCEPTED, "{content_type}");
+        let job = queue
+            .get(job_id)
+            .await
+            .expect("queue read should succeed")
+            .expect("enqueued job should be retrievable");
+        assert_eq!(job.document_kind, DocumentKind::Schedule);
+        assert_eq!(
+            job.source_format, expected,
+            "{content_type} must be persisted as {expected:?}"
+        );
+    }
+}
+
+/// Issue #221: the declared format match must tolerate real-world
+/// `Content-Type` spelling — uppercase media types and parameters after `;`
+/// are both valid HTTP and must not fall through to `415`.
+#[tokio::test]
+async fn upload_ai_schedule_accepts_normalized_content_types() {
+    for (content_type, expected) in [
+        ("TEXT/CSV", SourceFormat::Csv),
+        ("text/csv ; charset=utf-8", SourceFormat::Csv),
+        ("Application/PDF", SourceFormat::Pdf),
+    ] {
+        let ports = FakePorts::default();
+        let queue = ports.ai_import_queue.clone();
+        let block_id = BlockId::from_uuid(Uuid::now_v7());
+
+        let result = upload_ai_schedule::<FakePorts>(
+            State(state(ports)),
+            user(),
+            schedule_headers(content_type, block_id),
+            axum::body::Bytes::from_static(b"fake schedule bytes"),
+        )
+        .await;
+
+        let (status, Json(job_id)) = result.expect("a normalized content type must be accepted");
+        assert_eq!(status, StatusCode::ACCEPTED, "{content_type}");
+        let job = queue
+            .get(job_id)
+            .await
+            .expect("queue read should succeed")
+            .expect("enqueued job should be retrievable");
+        assert_eq!(
+            job.source_format, expected,
+            "{content_type} must normalize to {expected:?}"
+        );
+    }
 }
 
 #[tokio::test]
