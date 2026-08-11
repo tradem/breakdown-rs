@@ -29,6 +29,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use super::heartbeat::LeaseHeartbeat;
+use super::heartbeat::claim_lost;
 use breakdown_core::ai::{AiImportBounds, AiImportJobId, AiImportQueue, DocumentKind, LlmProvider};
 use breakdown_core::error::DomainError;
 use breakdown_core::settings::CredentialVault;
@@ -230,9 +232,22 @@ async fn script_worker_tick(
     // Load the source *outside* the permit: a slow or hung fetch of a large
     // PDF must not hold capacity. A failed load fails the job terminally —
     // the existing helper chooses the terminal state by error kind.
+    // Start a claim heartbeat before source loading (issue #214). A slow or
+    // hung load of a large PDF must not outlive the claim lease: another
+    // worker could otherwise reclaim the job while this one is still loading.
+    // Mirrors the protection the existing `run_once_with_permit` workers apply
+    // in `workers.rs`.
+    let heartbeat = deps
+        .queue
+        .lease_window()
+        .and_then(|lease| LeaseHeartbeat::start(deps.queue.clone(), job.id, worker_id, lease));
+
     let bytes = match deps.source.load(&job.source_handle).await {
         Ok(bytes) => bytes,
         Err(error) => {
+            if let Some(heartbeat) = heartbeat {
+                heartbeat.stop();
+            }
             warn!(
                 worker_id,
                 job_id = %job.id.as_uuid(),
@@ -243,6 +258,18 @@ async fn script_worker_tick(
             return Ok(());
         }
     };
+
+    if claim_lost(heartbeat.as_ref()) {
+        // Another worker owns the job now; every terminal write of ours would be
+        // rejected, so stop before any further work.
+        return Err(DomainError::Conflict(format!(
+            "AI import job {} was reclaimed while its source loaded",
+            job.id.as_uuid()
+        )));
+    }
+    if let Some(heartbeat) = heartbeat {
+        heartbeat.stop();
+    }
 
     let user_id = job.user_id.clone();
     let config = match resolve_config(&deps.config_repo, &user_id, DocumentKind::Script).await {
@@ -409,9 +436,22 @@ async fn schedule_worker_tick(
         );
     }
 
+    // Start a claim heartbeat before source loading (issue #214). A slow or
+    // hung load of a large PDF must not outlive the claim lease: another
+    // worker could otherwise reclaim the job while this one is still loading.
+    // Mirrors the protection the existing `run_once_with_permit` workers apply
+    // in `workers.rs`.
+    let heartbeat = deps
+        .queue
+        .lease_window()
+        .and_then(|lease| LeaseHeartbeat::start(deps.queue.clone(), job.id, worker_id, lease));
+
     let bytes = match deps.source.load(&job.source_handle).await {
         Ok(bytes) => bytes,
         Err(error) => {
+            if let Some(heartbeat) = heartbeat {
+                heartbeat.stop();
+            }
             warn!(
                 worker_id,
                 job_id = %job.id.as_uuid(),
@@ -422,6 +462,18 @@ async fn schedule_worker_tick(
             return Ok(());
         }
     };
+
+    if claim_lost(heartbeat.as_ref()) {
+        // Another worker owns the job now; every terminal write of ours would be
+        // rejected, so stop before any further work.
+        return Err(DomainError::Conflict(format!(
+            "AI import job {} was reclaimed while its source loaded",
+            job.id.as_uuid()
+        )));
+    }
+    if let Some(heartbeat) = heartbeat {
+        heartbeat.stop();
+    }
 
     let user_id = job.user_id.clone();
     let config = match resolve_config(&deps.config_repo, &user_id, DocumentKind::Schedule).await {
