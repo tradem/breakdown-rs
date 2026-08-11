@@ -150,7 +150,9 @@ async fn shutdown_reclaims_an_aborted_workers_permit() -> Result<()> {
     let handle = spawn_holding_worker(Arc::clone(&runtime), Duration::from_secs(60));
     wait_until_in_flight(&limiter_arc, 1, "worker holding permit").await;
 
-    runtime.drain().await;
+    // Abort the worker without draining first: the drop hook enqueues the
+    // reclaim, and the reclaimer must delete the row (permit reconciliation)
+    // even though the worker never released it.
     handle.abort();
     await_capacity_released(&limiter_arc, "after abort").await;
 

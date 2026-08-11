@@ -49,10 +49,11 @@ Add a `worker_loop` module to `crates/infra/src/ai/` that exposes:
 
 Each worker loop:
 - Polls `queue.claim_next_kind_reconciling(worker_id, kind)`.
-- On `Some(job)`, routes the job through
-  `runtime.run_job_as(job.user_id, worker_id, || worker.run_once_with_permit(...))`
-  so the permit lifecycle (acquire → renew → release) and the `AiJobGuard`
-  (in-flight tracking for `drain()`) are managed by the runtime.
+- On `Some(job)`, resolves the per-user AI config + vaulted API key, builds
+  the provider-matching LLM client, and routes the job through
+  `runtime.run_job_as(job.user_id, worker_id, || worker.process(...))` so the
+  permit lifecycle (acquire → renew → release) and the `AiJobGuard` (in-flight
+  tracking for `drain()`) are managed by the runtime.
 - On `None`, sleeps briefly (with shutdown-signal awareness) and retries.
 - On `Ok(None)` from `run_job` (capacity saturated), releases the claim via
   `queue.release_claim(...)` so the job is immediately runnable by another worker.

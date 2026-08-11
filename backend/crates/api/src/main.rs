@@ -29,9 +29,9 @@ use breakdown_core::ai::AiImportBounds;
 use breakdown_core::membership::policy::AuthorizationPolicy;
 use breakdown_core::settings::CredentialVault;
 use infra::ai::{
-    AiDocumentSource, AiDocumentStore, AiPreviewStore, AiWorkerRuntime, PermitReclaimer,
-    PgAiConcurrencyLimiter, UnconfiguredAiPayloadStore, WorkerDeps, shutdown_signal,
-    spawn_schedule_import_worker, spawn_script_import_worker,
+    AiDocumentSource, AiDocumentStore, AiPreviewStore, AiWorkerRuntime, DRAIN_TIMEOUT,
+    PermitReclaimer, PgAiConcurrencyLimiter, UnconfiguredAiPayloadStore, WorkerDeps,
+    shutdown_signal, spawn_schedule_import_worker, spawn_script_import_worker,
 };
 use infra::event_store::{
     AiConfigCommandsImpl, BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl,
@@ -801,23 +801,18 @@ async fn shutdown_ai_import(
                 handle.abort();
             }
         }
-        // Await aborted handles too so their permits are confirmed dropped
-        // before we wait on the reclaimer.
-        if handle.is_finished()
-            && let Err(error) = handle.await
-            && !error.is_cancelled()
-        {
+        // Always await the handle — including after abort. `is_finished()` may
+        // still read `false` immediately after cancellation, so gating the
+        // await on it would let a worker retain its permit past this point.
+        if let Err(error) = handle.await {
             // A `Cancelled` error is expected on the abort path; anything
             // else is a panic that already logged above.
-            warn!(error = %error, "AI import worker task failed");
+            if !error.is_cancelled() {
+                warn!(error = %error, "AI import worker task failed");
+            }
         }
     }
 
-    // Step 3: drop every limiter clone so the reclaimer's channel closes and
-    // it can finish. This MUST happen before `reclaimer.shutdown()`: the
-    // reclaimer waits for the channel to close, which only happens once the
-    // limiter (held here and inside `runtime`) is fully dropped. The worker
-    // tasks were joined in step 2, so the only remaining clones are these two.
     drop(limiter_arc);
     drop(runtime);
     info!("AI import: shutting down permit reclaimer");
@@ -828,7 +823,7 @@ async fn shutdown_ai_import(
     match tokio::time::timeout(RECLAIMER_SHUTDOWN_TIMEOUT, reclaimer.shutdown()).await {
         Ok(()) => info!("AI import: permit reclaimer stopped"),
         Err(_) => warn!(
-            "AI import: permit reclaimer did not drain within budget;              dropping (capacity returns when leases expire)"
+            "AI import: permit reclaimer did not drain within budget; dropping (capacity returns when leases expire)"
         ),
     }
     info!("AI import shutdown complete");
@@ -847,12 +842,14 @@ const RECLAIMER_SHUTDOWN_TIMEOUT: std::time::Duration = std::time::Duration::fro
 
 /// Aggregate worst-case budget for the AI import shutdown sequence.
 ///
-/// The sequence runs, in order: the bounded permit drain (DRAIN_TIMEOUT,
-/// 15s), then per-worker joins (WORKER_JOIN_TIMEOUT each), then the
-/// reclaimer drain (RECLAIMER_SHUTDOWN_TIMEOUT, 15s). With two workers the
-/// worst case is DRAIN_TIMEOUT + 2*WORKER_JOIN_TIMEOUT +
-/// RECLAIMER_SHUTDOWN_TIMEOUT = 55s, plus the time to flush queued
-/// reclaims, which depends on how many permits were held. Align the
-/// deployment terminationGracePeriodSeconds with this budget so the
-/// orchestrator does not SIGKILL while reclaims are still being drained.
-pub const AI_IMPORT_SHUTDOWN_MAX_BUDGET: std::time::Duration = std::time::Duration::from_secs(55);
+/// The sequence runs, in order: the bounded permit drain (`DRAIN_TIMEOUT`),
+/// then per-worker joins (`WORKER_JOIN_TIMEOUT` each), then the reclaimer
+/// drain (`RECLAIMER_SHUTDOWN_TIMEOUT`). With two workers the worst case is
+/// `DRAIN_TIMEOUT` + 2*`WORKER_JOIN_TIMEOUT` + `RECLAIMER_SHUTDOWN_TIMEOUT`,
+/// plus the time to flush queued reclaims, which depends on how many permits
+/// were held. Align the deployment `terminationGracePeriodSeconds` with this
+/// budget so the orchestrator does not SIGKILL while reclaims are still being
+/// drained.
+pub fn ai_import_shutdown_max_budget() -> std::time::Duration {
+    DRAIN_TIMEOUT + 2 * WORKER_JOIN_TIMEOUT + RECLAIMER_SHUTDOWN_TIMEOUT
+}
