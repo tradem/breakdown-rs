@@ -3,7 +3,6 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
-// Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: longcat-2.0-free (opencode)
 
 use std::collections::HashMap;

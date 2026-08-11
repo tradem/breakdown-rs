@@ -4289,7 +4289,7 @@ async fn enqueue_ai_upload<P: Ports>(
     // reaching this helper; a format that slips through is rejected rather
     // than defaulted, so a mislabelled upload cannot silently take the wrong
     // extraction path.
-    let source_format = match request_content_type(&headers) {
+    let source_format = match request_content_type(&headers).as_str() {
         "text/csv" => SourceFormat::Csv,
         "application/pdf" => SourceFormat::Pdf,
         "text/plain" => SourceFormat::PlainText,
@@ -4360,7 +4360,11 @@ async fn enqueue_ai_upload<P: Ports>(
     Ok((status, Json(id)))
 }
 
-fn request_content_type(headers: &HeaderMap) -> &str {
+/// Normalize the raw `Content-Type` header: lowercase + trimmed media type
+/// without parameters, so `TEXT/CSV` and `text/csv ; charset=utf-8` both
+/// match `text/csv`. Media types are case-insensitive (RFC 9110), and the
+/// parameter list after `;` is not part of the type.
+fn request_content_type(headers: &HeaderMap) -> String {
     headers
         .get("content-type")
         .and_then(|value| value.to_str().ok())
@@ -4368,6 +4372,8 @@ fn request_content_type(headers: &HeaderMap) -> &str {
         .split(';')
         .next()
         .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase()
 }
 
 #[utoipa::path(
@@ -4428,7 +4434,10 @@ pub async fn upload_ai_schedule<P: Ports>(
 ) -> ApiResult<AiImportJobId> {
     // AUTHZ-GATE: schedule uploads require active costume-department membership.
     let content_type = request_content_type(&headers);
-    if !matches!(content_type, "application/pdf" | "text/csv" | "text/plain") {
+    if !matches!(
+        content_type.as_str(),
+        "application/pdf" | "text/csv" | "text/plain"
+    ) {
         return Err((
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             Json(ErrorResponse {

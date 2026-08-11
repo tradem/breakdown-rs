@@ -170,6 +170,42 @@ async fn upload_ai_schedule_persists_the_declared_source_format() {
     }
 }
 
+/// Issue #221: the declared format match must tolerate real-world
+/// `Content-Type` spelling — uppercase media types and parameters after `;`
+/// are both valid HTTP and must not fall through to `415`.
+#[tokio::test]
+async fn upload_ai_schedule_accepts_normalized_content_types() {
+    for (content_type, expected) in [
+        ("TEXT/CSV", SourceFormat::Csv),
+        ("text/csv ; charset=utf-8", SourceFormat::Csv),
+        ("Application/PDF", SourceFormat::Pdf),
+    ] {
+        let ports = FakePorts::default();
+        let queue = ports.ai_import_queue.clone();
+        let block_id = BlockId::from_uuid(Uuid::now_v7());
+
+        let result = upload_ai_schedule::<FakePorts>(
+            State(state(ports)),
+            user(),
+            schedule_headers(content_type, block_id),
+            axum::body::Bytes::from_static(b"fake schedule bytes"),
+        )
+        .await;
+
+        let (status, Json(job_id)) = result.expect("a normalized content type must be accepted");
+        assert_eq!(status, StatusCode::ACCEPTED, "{content_type}");
+        let job = queue
+            .get(job_id)
+            .await
+            .expect("queue read should succeed")
+            .expect("enqueued job should be retrievable");
+        assert_eq!(
+            job.source_format, expected,
+            "{content_type} must normalize to {expected:?}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn upload_ai_script_deduplicates_identical_reuploads() {
     let ports = FakePorts::default();
