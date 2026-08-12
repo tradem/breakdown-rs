@@ -6,7 +6,7 @@
 
 This directory is the single source of truth for architecture documentation.
 
-```
+```text
 docs/architecture/
 ├── adrs/                 # Architecture Decision Records (Markdown)
 ├── arc42-typst/          # arc42 architecture documentation (Typst)

@@ -34,7 +34,8 @@ This document describes the architecture of Breakdown RS following the
 
 *Source of truth*: `backend/docs/architecture/arc42-typst/` — all chapters, the
 template, and the build script live next to the Architecture Decision Records
-(#link("../adrs/README.md")[ADRs]) in `backend/docs/architecture/`.
+(#link("https://github.com/tradem/breakdown-rs/tree/main/backend/docs/architecture/adrs")[ADRs])
+in `backend/docs/architecture/`.
 
 *Diagrams*: All diagrams are written in PlantUML (`../diagrams/*.puml`) and
 rendered to SVG by `./build.sh` before Typst compilation.
@@ -89,9 +90,11 @@ docker run --rm \
   plantuml/plantuml:latest -tsvg -o /out /src/*.puml
 
 # 2. Compile the document
+#    HTML export requires the `html` feature flag (Typst 0.15).
 typst compile main.typ dist/architecture.pdf \
   --input version=1.2.3 --input build-date=2026-01-01
 typst compile main.typ dist/architecture.html \
+  --features html \
   --format html --input version=1.2.3 --input build-date=2026-01-01
 
 # Watch mode for writing (PDF preview only)

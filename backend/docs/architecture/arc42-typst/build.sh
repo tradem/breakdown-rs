@@ -10,7 +10,9 @@
 #   DOCS_VERSION    — build version (default: "dev")
 #   DOCS_BUILD_DATE — build date, YYYY-MM-DD (default: today, via Typst fallback)
 #   PLANTUML_IMAGE  — container image for diagram rendering
-#                     (default: plantuml/plantuml:latest)
+#                     (default: plantuml/plantuml@sha256:47870c1f... — the same
+#                     multi-arch digest pinned in .github/workflows/docs.yml,
+#                     released as plantuml/plantuml:1.2026.6)
 
 set -euo pipefail
 
@@ -19,7 +21,9 @@ cd "$SCRIPT_DIR"
 
 DOCS_VERSION="${DOCS_VERSION:-dev}"
 DOCS_BUILD_DATE="${DOCS_BUILD_DATE:-$(date +%F)}"
-PLANTUML_IMAGE="${PLANTUML_IMAGE:-plantuml/plantuml:latest}"
+# Immutable image reference (same digest as the CI workflow) so local builds
+# reproduce exactly what CI renders; override for newer/older PlantUML.
+PLANTUML_IMAGE="${PLANTUML_IMAGE:-plantuml/plantuml@sha256:47870c1f76cfb3747bc7090bfe83013a4e3105b5a0bb1515e2baf5d3e2b3ee9d}"
 
 echo "🔨 arc42 build  (version: $DOCS_VERSION, date: $DOCS_BUILD_DATE)"
 echo "   diagrams  : ../diagrams/*.puml → ./diagrams/*.svg"
@@ -65,17 +69,15 @@ typst compile main.typ "dist/architecture-v${DOCS_VERSION}.pdf" \
 # --- compile HTML ---
 # HTML export is a document feature flag (`--features html`), not a Cargo
 # feature. The official GitHub release binaries support it; distro packages
-# (e.g. Arch) may not. It is experimental — CI treats warnings as non-fatal.
+# (e.g. Arch) may not. HTML is a mandatory artifact: GitHub Pages staging and
+# the release upload both consume dist/architecture-v${DOCS_VERSION}.html, so a
+# failure here must fail the whole build (set -e).
 echo "🌐 Compiling HTML → dist/architecture-v${DOCS_VERSION}.html"
-if ! typst compile main.typ "dist/architecture-v${DOCS_VERSION}.html" \
+typst compile main.typ "dist/architecture-v${DOCS_VERSION}.html" \
   --features html \
   --format html \
   --input version="${DOCS_VERSION}" \
-  --input build-date="${DOCS_BUILD_DATE}" 2>&1; then
-  echo "⚠️  HTML build failed - requires typst supporting '--features html'."
-  echo "   Install the official binary from https://github.com/typst/typst/releases"
-  echo "   Continuing without HTML output..."
-fi
+  --input build-date="${DOCS_BUILD_DATE}"
 
 echo ""
 echo "✅ Build complete."

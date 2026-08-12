@@ -25,26 +25,28 @@ authz --> api : allow / deny
 deactivate authz
 alt denied
   api --> user : 403 (problem+json)
+else allowed
+  api -> svc : CreateScene { validated fields }
+  activate svc
+  svc -> agg : execute
+  activate agg
+  agg -> agg : validate (name unique? episode exists?)
+  alt validation fails
+    agg --> svc : DomainError::Validation
+    deactivate agg
+    svc --> api : Err
+    api --> user : 4xx problem+json
+  else valid
+    agg --> svc : SceneCreated(event)
+    deactivate agg
+    svc -> es : append event
+    es --> svc : version
+    svc --> api : { id, version }
+    api --> user : 201 Created
+  end
+  deactivate svc
+  es ->> proj : SceneCreated
+  proj -> db : INSERT projection_scene
+  deactivate proj
 end
-api -> svc : CreateScene { validated fields }
-activate svc
-svc -> agg : execute
-activate agg
-agg -> agg : validate (name unique? episode exists?)
-alt validation fails
-  agg --> svc : DomainError::Validation
-  svc --> api : Err
-  api --> user : 4xx problem+json
-else valid
-  agg --> svc : SceneCreated(event)
-  svc -> es : append event
-  es --> svc : version
-  svc --> api : { scene_id, version }
-  api --> user : 201 Created
-end
-deactivate svc
-es ->> proj : SceneCreated
-proj -> db : INSERT projection_scene
-deactivate proj
-
 @enduml

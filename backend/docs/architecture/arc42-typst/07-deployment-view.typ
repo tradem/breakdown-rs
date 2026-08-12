@@ -19,7 +19,7 @@ supports an IdP overlay for OIDC development.
 | Database        | PostgreSQL 16-alpine | init script creates least-privilege roles |
 | Event store     | SierraDB (RESP3)     | pinned `tqwewe/sierradb:0.3.1` |
 | Object storage  | Garage               | local S3-compatible for photos and AI payloads |
-| Secrets         | none in compose      | optional Vault/LGTP overlay for OIDC flows |
+| Secrets         | none in compose      | optional Logto IdP overlay for OIDC flows |
 
 == Production Environment
 

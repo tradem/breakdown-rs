@@ -23,7 +23,8 @@
 - *Authentication*: OIDC JWT (#adr-ref(num: "010", slug: "authentication-with-oidc", title: "OIDC Auth")), validated against JWKS.
 - *Authorization*: season-scoped role membership checked per handler; some
   endpoints (photo handlers) additionally call `AuthorizationPolicy` explicitly.
-- *Dev toggle*: `DEV_AUTH_SUB` runs auth in without reaching an IdP; production never reaches it (#adr-ref(num: "018", slug: "oidc-jwt-validation-and-dev-auth-toggle", title: "OIDC JWT Validation & Dev-Auth Toggle").
+- *Dev toggle*: `DEV_AUTH_SUB` runs authentication in development without
+  reaching an IdP; production never reaches it (#adr-ref(num: "018", slug: "oidc-jwt-validation-and-dev-auth-toggle", title: "OIDC JWT Validation & Dev-Auth Toggle").
 - *Boundary*: `Requirement::Authenticated` middleware alone is not enough —
   sensitive handlers add their own AUTHZ-GATE inside the handler body.
 

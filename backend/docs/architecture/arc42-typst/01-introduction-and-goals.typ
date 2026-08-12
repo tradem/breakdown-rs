@@ -16,8 +16,9 @@ did the plan change.
 
 === Core Capabilities
 
-- *Production planning*: organize work as a four-level hierarchy
-  (Series → Season → Block → Episode → Scene) with shooting days per episode.
+- *Production planning*: organize work as a four-level hierarchy of
+  aggregates (Season → Block → Episode → Scene) below an opaque *Series*
+  seam, with shooting days per episode.
 - *Costume management*: season-scoped characters and costumes, with
   categories (Oberteil, Unterteil, Schuhe) maintained per season.
 - *Continuity tracking*: planned vs. actual shoot order per day
