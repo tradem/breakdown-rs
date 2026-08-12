@@ -26,7 +26,9 @@ builder (`crates/api/src/problems`) fed by the registry
   Clients must branch on `code` — see `docs/errors/` for the migration
   guide and the full code catalogue.
 - New runtime deps: `fluent`, `fluent-bundle`, `unic-langid`,
-  `accept-language` (core stays dependency-free).
+  `accept-language` (server-side i18n; core stays dependency-free);
+  `indexmap` (registry-woven OpenAPI docs); `http-body-util` promoted from
+  dev-dependencies (the `Json` extractor collects limited request bodies).
 - Bundle-coverage lint + golden snapshots enforce the surface; the S2
   ast-grep rule bans person identifiers in problem-builder code.
 - **Breaking (cascade):** re-pinned to `breakdown_core` 0.8.0 (ADR-020 D3);
