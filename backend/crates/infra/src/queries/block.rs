@@ -6,6 +6,7 @@
 use breakdown_core::block::ports::BlockRepository;
 use breakdown_core::block::views::BlockView;
 use breakdown_core::error::DomainError;
+use breakdown_core::error_registry::BLOCK_NOT_FOUND;
 use breakdown_core::shared::{AggregateVersion, SeasonId, SeriesId};
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
@@ -35,8 +36,12 @@ impl BlockRepository for BlockRepositoryImpl {
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?
-        .ok_or_else(|| DomainError::NotFound(format!("Block({id})")))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?
+        .ok_or(DomainError::NotFound {
+            code: &BLOCK_NOT_FOUND,
+            resource: "block",
+            id,
+        })?;
 
         map_block_row(row)
     }
@@ -61,7 +66,7 @@ impl BlockRepository for BlockRepositoryImpl {
         .bind(offset)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         rows.into_iter().map(map_block_row).collect()
     }
@@ -83,7 +88,7 @@ impl BlockRepository for BlockRepositoryImpl {
         .bind(number)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         match row {
             Some(row) => Ok(Some(map_block_row(row)?)),
@@ -108,5 +113,5 @@ fn map_block_row(row: sqlx::postgres::PgRow) -> Result<BlockView, DomainError> {
 }
 
 fn map_err(e: sqlx::Error) -> DomainError {
-    DomainError::Conflict(e.to_string())
+    DomainError::conflict(e.to_string())
 }

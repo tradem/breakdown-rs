@@ -1,0 +1,7 @@
+{
+  "code": "ai-config.empty-prompt",
+  "detail": "AI prompt must not be empty",
+  "status": 422,
+  "title": "AI prompt must not be empty",
+  "type": "https://docs.breakdown.example/problems/ai-config.empty-prompt"
+}

@@ -1,0 +1,7 @@
+{
+  "code": "http.bad-path-param",
+  "detail": "Invalid path parameter",
+  "status": 400,
+  "title": "Invalid path parameter",
+  "type": "https://docs.breakdown.example/problems/http.bad-path-param"
+}

@@ -147,9 +147,7 @@ impl OpenDalAiPayloadStorage {
             root_cert_path,
         )
         .map_err(|e| {
-            DomainError::ValidationError(format!(
-                "Failed to build AI payload storage operator: {e}"
-            ))
+            DomainError::validation(format!("Failed to build AI payload storage operator: {e}"))
         })
     }
 
@@ -215,7 +213,7 @@ impl AiDocumentSource for OpenDalAiPayloadStorage {
             .map(|data| data.to_vec())
             .map_err(|e| {
                 if is_not_found(&e) {
-                    DomainError::NotFound(format!("AI document source {handle}"))
+                    DomainError::not_found("ai-source")
                 } else {
                     map_storage_error(handle, e)
                 }
@@ -272,9 +270,9 @@ impl AiDocumentStore for OpenDalAiPayloadStorage {
 fn map_storage_error(key: &str, e: opendal::Error) -> DomainError {
     if e.is_temporary() {
         warn!(key = %key, error = %e, "Temporary AI payload storage error");
-        DomainError::ServiceUnavailable(format!("AI payload storage temporarily unavailable: {e}"))
+        DomainError::service_unavailable(format!("AI payload storage temporarily unavailable: {e}"))
     } else {
-        DomainError::ValidationError(format!("AI payload storage error for {key}: {e}"))
+        DomainError::validation(format!("AI payload storage error for {key}: {e}"))
     }
 }
 

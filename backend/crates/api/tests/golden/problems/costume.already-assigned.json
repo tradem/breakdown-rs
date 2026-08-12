@@ -1,0 +1,7 @@
+{
+  "code": "costume.already-assigned",
+  "detail": "Costume already assigned",
+  "status": 409,
+  "title": "Costume already assigned",
+  "type": "https://docs.breakdown.example/problems/costume.already-assigned"
+}

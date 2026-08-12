@@ -1,0 +1,7 @@
+{
+  "code": "block.not-found",
+  "detail": "Block not found",
+  "status": 404,
+  "title": "Block not found",
+  "type": "https://docs.breakdown.example/problems/block.not-found"
+}

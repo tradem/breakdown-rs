@@ -1,0 +1,7 @@
+{
+  "code": "http.internal-error",
+  "detail": "Internal server error",
+  "status": 500,
+  "title": "Internal server error",
+  "type": "https://docs.breakdown.example/problems/http.internal-error"
+}

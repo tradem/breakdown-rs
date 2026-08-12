@@ -21,7 +21,7 @@ impl AiConcurrencyLimiter {
     pub fn new(bounds: AiImportBounds) -> Result<Self, DomainError> {
         bounds
             .validate()
-            .map_err(|error| DomainError::ValidationError(error.to_owned()))?;
+            .map_err(|error| DomainError::validation(error.to_owned()))?;
         Ok(Self {
             global: Arc::new(Semaphore::new(bounds.max_concurrent_jobs_global as usize)),
             per_user: Arc::new(Mutex::new(HashMap::new())),

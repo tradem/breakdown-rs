@@ -167,8 +167,8 @@ impl LlmClient for UnusedLlmClient {
         &self,
         _request: LlmChatRequest,
     ) -> Result<ScriptContext, DomainError> {
-        Err(DomainError::ValidationError(
-            "the LLM must not be reached in native_csv mode".to_owned(),
+        Err(DomainError::validation(
+            "the LLM must not be reached in native_csv mode",
         ))
     }
 }

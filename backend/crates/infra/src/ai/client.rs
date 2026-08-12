@@ -33,10 +33,10 @@ impl OpenAiCompatibleChatClient {
     /// Ollama must be routed through `OllamaChatClient`.
     fn reject_ollama(provider: LlmProvider) -> Result<(), DomainError> {
         if provider == LlmProvider::Ollama {
-            return Err(DomainError::ValidationError(
+            return Err(DomainError::validation(
                 "Ollama must be routed through OllamaChatClient — the \
-                 OpenAI-compatible client would send bearer auth to its HTTP \
-                 base URL"
+             OpenAI-compatible client would send bearer auth to its HTTP \
+             base URL"
                     .to_owned(),
             ));
         }
@@ -50,9 +50,7 @@ impl OpenAiCompatibleChatClient {
     ) -> Result<Self, DomainError> {
         Self::reject_ollama(provider)?;
         if api_key.trim().is_empty() {
-            return Err(DomainError::ValidationError(
-                "LLM API key must not be empty".to_owned(),
-            ));
+            return Err(DomainError::validation("LLM API key must not be empty"));
         }
         // Transport policy (issue #170): HTTPS-only, same-origin redirects
         // AND a DNS-resolution guard — the curated provider hostname must
@@ -64,7 +62,7 @@ impl OpenAiCompatibleChatClient {
         let host = Self::hosted_origin_host(provider)?;
         let http = build_hosted_client(&host, timeout)
             .await
-            .map_err(|violation| DomainError::ValidationError(violation.to_string()))?;
+            .map_err(|violation| DomainError::validation(violation.to_string()))?;
         Ok(Self {
             http,
             provider,
@@ -79,12 +77,12 @@ impl OpenAiCompatibleChatClient {
     fn hosted_origin_host(provider: LlmProvider) -> Result<String, DomainError> {
         let base = CuratedProviderUrls::base_url(provider);
         let url = reqwest::Url::parse(base).map_err(|error| {
-            DomainError::ValidationError(format!(
+            DomainError::validation(format!(
                 "invalid curated base URL for {provider:?}: {error}"
             ))
         })?;
         url.host_str().map(str::to_owned).ok_or_else(|| {
-            DomainError::ValidationError(format!("curated base URL for {provider:?} has no host"))
+            DomainError::validation(format!("curated base URL for {provider:?} has no host"))
         })
     }
 
@@ -100,9 +98,7 @@ impl OpenAiCompatibleChatClient {
     ) -> Result<Self, DomainError> {
         Self::reject_ollama(provider)?;
         if api_key.trim().is_empty() {
-            return Err(DomainError::ValidationError(
-                "LLM API key must not be empty".to_owned(),
-            ));
+            return Err(DomainError::validation("LLM API key must not be empty"));
         }
         Ok(Self {
             http,
@@ -165,18 +161,14 @@ impl OpenAiCompatibleChatClient {
         let envelope = response
             .json::<ChatCompletionResponse>()
             .await
-            .map_err(|error| {
-                DomainError::ValidationError(format!("invalid LLM response: {error}"))
-            })?;
+            .map_err(|error| DomainError::validation(format!("invalid LLM response: {error}")))?;
         let content = envelope
             .choices
             .first()
             .and_then(|choice| choice.message.content.as_deref())
-            .ok_or_else(|| {
-                DomainError::ValidationError("LLM response contained no content".to_owned())
-            })?;
+            .ok_or_else(|| DomainError::validation("LLM response contained no content"))?;
         serde_json::from_str(content).map_err(|error| {
-            DomainError::ValidationError(format!("LLM JSON did not match ScriptContext: {error}"))
+            DomainError::validation(format!("LLM JSON did not match ScriptContext: {error}"))
         })
     }
 }
@@ -185,8 +177,8 @@ impl OpenAiCompatibleChatClient {
 impl LlmClient for OpenAiCompatibleChatClient {
     async fn chat_constrained(&self, req: LlmChatRequest) -> Result<ScriptContext, DomainError> {
         if req.provider != self.provider {
-            return Err(DomainError::ValidationError(
-                "LLM request provider does not match configured client".to_owned(),
+            return Err(DomainError::validation(
+                "LLM request provider does not match configured client",
             ));
         }
         self.request(&req).await
@@ -253,24 +245,24 @@ struct UncertaintySchema {
 
 pub fn classify_http_status(status: StatusCode) -> DomainError {
     if status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error() {
-        DomainError::ServiceUnavailable(format!("LLM provider returned HTTP {status}"))
+        DomainError::service_unavailable(format!("LLM provider returned HTTP {status}"))
     } else if status.is_client_error() {
-        DomainError::ValidationError(format!("LLM provider rejected request with HTTP {status}"))
+        DomainError::validation(format!("LLM provider rejected request with HTTP {status}"))
     } else {
-        DomainError::ValidationError(format!("unexpected LLM provider HTTP status {status}"))
+        DomainError::validation(format!("unexpected LLM provider HTTP status {status}"))
     }
 }
 
 pub fn classify_transport_error(error: reqwest::Error) -> DomainError {
     if error.is_timeout() || error.is_connect() {
-        DomainError::ServiceUnavailable(format!("LLM provider transport unavailable: {error}"))
+        DomainError::service_unavailable(format!("LLM provider transport unavailable: {error}"))
     } else if error.is_redirect() {
         // Deterministic policy rejection (issue #170): retrying cannot change
         // the outcome, so it is a permanent validation failure.
-        DomainError::ValidationError(format!(
+        DomainError::validation(format!(
             "LLM provider redirect rejected by transport policy: {error}"
         ))
     } else {
-        DomainError::ValidationError(format!("LLM provider request failed: {error}"))
+        DomainError::validation(format!("LLM provider request failed: {error}"))
     }
 }

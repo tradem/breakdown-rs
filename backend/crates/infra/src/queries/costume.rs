@@ -6,6 +6,7 @@
 use breakdown_core::costume::ports::CostumeRepository;
 use breakdown_core::costume::views::{CostumeDetailView, CostumePhotoView, CostumeView};
 use breakdown_core::error::DomainError;
+use breakdown_core::error_registry::COSTUME_NOT_FOUND;
 use breakdown_core::photo::views::PhotoVariantView;
 use breakdown_core::shared::{
     AggregateVersion, CostumeCategoryId, PhotoVariant, SeasonId, VariantStatus,
@@ -36,8 +37,12 @@ impl CostumeRepositoryImpl {
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?
-        .ok_or_else(|| DomainError::NotFound(format!("Costume({id})")))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?
+        .ok_or(DomainError::NotFound {
+            code: &COSTUME_NOT_FOUND,
+            resource: "costume",
+            id,
+        })?;
 
         self.enrich(map_costume_row(row)?).await
     }
@@ -54,7 +59,7 @@ impl CostumeRepositoryImpl {
         .bind(view.id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         let photos = sqlx::query(
             r#"
@@ -70,7 +75,7 @@ impl CostumeRepositoryImpl {
         .bind(view.id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         let details = details
             .into_iter()
@@ -106,7 +111,7 @@ impl CostumeRepositoryImpl {
             .bind(photo_id)
             .fetch_all(&self.pool)
             .await
-            .map_err(|e| DomainError::Conflict(e.to_string()))?;
+            .map_err(|e| DomainError::conflict(e.to_string()))?;
 
             let variants: Vec<PhotoVariantView> = variant_rows
                 .into_iter()
@@ -164,7 +169,7 @@ impl CostumeRepository for CostumeRepositoryImpl {
         .bind(offset)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         rows.into_iter()
             .map(map_costume_row)
@@ -186,7 +191,7 @@ impl CostumeRepository for CostumeRepositoryImpl {
         .bind(character_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         rows.into_iter()
             .map(map_costume_row)
@@ -213,7 +218,7 @@ fn map_costume_row(row: sqlx::postgres::PgRow) -> Result<CostumeView, DomainErro
 }
 
 fn map_err(e: sqlx::Error) -> DomainError {
-    DomainError::Conflict(e.to_string())
+    DomainError::conflict(e.to_string())
 }
 
 fn parse_variant(s: &str) -> Result<PhotoVariant, DomainError> {
@@ -221,7 +226,7 @@ fn parse_variant(s: &str) -> Result<PhotoVariant, DomainError> {
         "original" => Ok(PhotoVariant::Original),
         "thumb" => Ok(PhotoVariant::Thumb),
         "medium" => Ok(PhotoVariant::Medium),
-        _ => Err(DomainError::ValidationError(format!(
+        _ => Err(DomainError::validation(format!(
             "Unknown photo variant: {s}"
         ))),
     }
@@ -232,7 +237,7 @@ fn parse_status(s: &str) -> Result<VariantStatus, DomainError> {
         "pending" => Ok(VariantStatus::Pending),
         "ready" => Ok(VariantStatus::Ready),
         "failed" => Ok(VariantStatus::Failed),
-        _ => Err(DomainError::ValidationError(format!(
+        _ => Err(DomainError::validation(format!(
             "Unknown variant status: {s}"
         ))),
     }

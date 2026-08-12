@@ -4,6 +4,7 @@
 //! `sqlx`-backed implementation of the `ShootingDayRepository` port.
 
 use breakdown_core::error::DomainError;
+use breakdown_core::error_registry::SHOOTING_DAY_NOT_FOUND;
 use breakdown_core::scene::views::SceneView;
 use breakdown_core::shared::{AggregateVersion, EpisodeId, LexicalSortKey, ShootingDayId};
 use breakdown_core::shooting_day::events::ShootingDaySource;
@@ -37,8 +38,8 @@ impl ShootingDayRepository for ShootingDayRepositoryImpl {
         .bind(id.0)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?
-        .ok_or_else(|| DomainError::NotFound(format!("ShootingDay({id})")))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?
+        .ok_or(DomainError::NotFound { code: &SHOOTING_DAY_NOT_FOUND, resource: "shooting-day", id: id.0 })?;
 
         map_shooting_day_row(row)
     }
@@ -58,7 +59,7 @@ impl ShootingDayRepository for ShootingDayRepositoryImpl {
         .bind(episode_id.0)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         rows.into_iter().map(map_shooting_day_row).collect()
     }
@@ -93,7 +94,7 @@ impl ShootingDayRepository for ShootingDayRepositoryImpl {
         .bind(shooting_day_id.0)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         rows.into_iter().map(map_scene_view_row).collect()
     }
@@ -112,9 +113,9 @@ fn map_shooting_day_row(row: sqlx::postgres::PgRow) -> Result<ShootingDayView, D
     let updated_at: DateTime<Utc> = row.try_get("updated_at").map_err(map_err)?;
 
     let order_key =
-        LexicalSortKey::new(order_key).map_err(|e| DomainError::Conflict(e.to_string()))?;
+        LexicalSortKey::new(order_key).map_err(|e| DomainError::conflict(e.to_string()))?;
     let source = serde_json::from_value::<ShootingDaySource>(source_json)
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
     Ok(ShootingDayView {
         id: ShootingDayId(id),
@@ -131,7 +132,7 @@ fn map_shooting_day_row(row: sqlx::postgres::PgRow) -> Result<ShootingDayView, D
 }
 
 fn map_err(e: sqlx::Error) -> DomainError {
-    DomainError::Conflict(e.to_string())
+    DomainError::conflict(e.to_string())
 }
 
 /// Map a `projection_scene` row (joined via the scheduling link table) to a

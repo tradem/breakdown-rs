@@ -19,10 +19,12 @@ use axum::http::{StatusCode, header, request::Parts};
 use axum::response::{IntoResponse, Response};
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::{
-    CONCURRENCY_VERSION_MISMATCH, DOMAIN_CONFLICT, DOMAIN_FORBIDDEN, DOMAIN_NOT_FOUND,
-    DOMAIN_SERVICE_UNAVAILABLE, DOMAIN_VALIDATION, HTTP_BAD_JSON_BODY, HTTP_BAD_PATH_PARAM,
-    HTTP_BAD_QUERY_PARAM, HTTP_BAD_REQUEST, HTTP_INTERNAL_ERROR, HTTP_PAYLOAD_TOO_LARGE,
-    HTTP_REQUEST_TIMEOUT, HTTP_ROUTE_NOT_FOUND, HTTP_UNSUPPORTED_MEDIA_TYPE, ProblemCode,
+    CONCURRENCY_VERSION_MISMATCH, COSTUME_ALREADY_ASSIGNED, DOMAIN_CONFLICT, DOMAIN_FORBIDDEN,
+    DOMAIN_NOT_FOUND, DOMAIN_SERVICE_UNAVAILABLE, DOMAIN_VALIDATION, HTTP_BAD_JSON_BODY,
+    HTTP_BAD_PATH_PARAM, HTTP_BAD_QUERY_PARAM, HTTP_BAD_REQUEST, HTTP_INTERNAL_ERROR,
+    HTTP_PAYLOAD_TOO_LARGE, HTTP_REQUEST_TIMEOUT, HTTP_ROUTE_NOT_FOUND,
+    HTTP_UNSUPPORTED_MEDIA_TYPE, ProblemCode, SCENE_ALREADY_SCHEDULED, SCENE_NOT_SCHEDULED,
+    SCENE_SHOOT_ALREADY_LINKED,
 };
 use serde::Serialize;
 
@@ -199,21 +201,32 @@ pub fn current_trace_id() -> String {
 /// this crate (`DomainError` lives in `core`), so the mapping lives behind
 /// [`ApiError::Domain`] — the single `IntoResponse` at the HTTP boundary.
 ///
-/// Tranche 1 uses generic per-variant codes with the constant English title
-/// as `detail`; Tranche 2 registers per-aggregate codes with typed
-/// extensions, Tranche 3 localizes `detail`.
+/// Every variant carries its registry entry (Tranche 2); extension fields
+/// are built only from declared S0/S1 data (the builder drops anything not
+/// whitelisted, ADR-031 D4). `detail` is the constant English title until
+/// Tranche 3 localizes it.
 fn domain_error_problem(err: DomainError) -> ProblemDetails {
     match err {
-        DomainError::NotFound(_) => problem(DOMAIN_NOT_FOUND).build(),
-        DomainError::Unauthorized(_) => problem(DOMAIN_FORBIDDEN).build(),
-        DomainError::ValidationError(_) => problem(DOMAIN_VALIDATION).build(),
-        DomainError::Conflict(_) => problem(DOMAIN_CONFLICT).build(),
-        DomainError::ServiceUnavailable(_) => problem(DOMAIN_SERVICE_UNAVAILABLE).build(),
-        DomainError::VersionConflict {
-            expected, current, ..
-        } => problem(CONCURRENCY_VERSION_MISMATCH)
+        DomainError::NotFound { code, .. } => problem(*code).build(),
+        DomainError::Forbidden { code, .. } => problem(*code).build(),
+        DomainError::Validation { code, .. } => problem(*code).build(),
+        DomainError::Conflict { code, .. } => problem(*code).build(),
+        DomainError::ServiceUnavailable { code, .. } => problem(*code).build(),
+        DomainError::VersionConflict { expected, current } => problem(CONCURRENCY_VERSION_MISMATCH)
             .extension("expected_version", expected)
             .extension("current_version", current)
+            .build(),
+        DomainError::AlreadyAssigned { character_id } => problem(COSTUME_ALREADY_ASSIGNED)
+            .extension("assigned_character_id", character_id)
+            .build(),
+        DomainError::AlreadyScheduled { shooting_day_id } => problem(SCENE_ALREADY_SCHEDULED)
+            .extension("offending_shooting_day_id", shooting_day_id)
+            .build(),
+        DomainError::NotScheduled { shooting_day_id } => problem(SCENE_NOT_SCHEDULED)
+            .extension("shooting_day_id", shooting_day_id)
+            .build(),
+        DomainError::AlreadyLinked { photo_id } => problem(SCENE_SHOOT_ALREADY_LINKED)
+            .extension("photo_id", photo_id)
             .build(),
     }
 }
@@ -514,6 +527,7 @@ pub fn panic_response(_panic: Box<dyn std::any::Any + Send>) -> Response {
 mod tests {
     use super::*;
     use breakdown_core::error_registry::HTTP_BAD_JSON_BODY;
+    use uuid::Uuid;
 
     #[test]
     fn problem_envelope_matches_rfc_9457_shape() {
@@ -578,27 +592,69 @@ mod tests {
 
     #[test]
     fn domain_error_mapping_uses_generic_tranche1_codes() {
-        let response = ApiError::from(DomainError::NotFound("Character".into())).into_response();
+        let response = ApiError::from(DomainError::not_found("character")).into_response();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
-        let response = ApiError::from(DomainError::ValidationError("x".into())).into_response();
+        let response = ApiError::from(DomainError::validation("x")).into_response();
         assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
-        let response = ApiError::from(DomainError::Unauthorized("x".into())).into_response();
+        let response = ApiError::from(DomainError::forbidden("x")).into_response();
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
-        let response = ApiError::from(DomainError::Conflict("x".into())).into_response();
+        let response = ApiError::from(DomainError::conflict("x")).into_response();
         assert_eq!(response.status(), StatusCode::CONFLICT);
-        let response = ApiError::from(DomainError::ServiceUnavailable("x".into())).into_response();
+        let response = ApiError::from(DomainError::service_unavailable("x")).into_response();
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 
     #[test]
     fn version_conflict_carries_typed_extensions() {
         let response = ApiError::from(DomainError::VersionConflict {
-            entity: "Season".into(),
             expected: breakdown_core::shared::AggregateVersion(2),
             current: breakdown_core::shared::AggregateVersion(3),
         })
         .into_response();
         assert_eq!(response.status(), StatusCode::CONFLICT);
+    }
+
+    #[test]
+    fn structured_domain_variants_use_per_context_codes_and_extensions() {
+        use breakdown_core::scene::error::SceneError;
+        use breakdown_core::shared::ShootingDayId;
+
+        // scene.already-scheduled carries the S1 offending day id extension.
+        let problem = ApiError::from(DomainError::from(SceneError::AlreadyScheduled {
+            shooting_day_id: ShootingDayId::from_uuid(Uuid::now_v7()),
+        }))
+        .into_problem();
+        assert_eq!(problem.code, "scene.already-scheduled");
+        assert_eq!(problem.status, 409);
+        let extensions = problem.extensions.expect("extensions present");
+        assert!(extensions.contains_key("offending_shooting_day_id"));
+        // `type` is derived from the code (ADR-031 D2).
+        assert_eq!(
+            problem.type_,
+            "https://docs.breakdown.example/problems/scene.already-scheduled"
+        );
+
+        // scene.not-scheduled carries the S0 shooting day id.
+        let problem = ApiError::from(DomainError::from(SceneError::NotScheduled {
+            shooting_day_id: ShootingDayId::from_uuid(Uuid::now_v7()),
+        }))
+        .into_problem();
+        assert_eq!(problem.code, "scene.not-scheduled");
+        assert!(
+            problem
+                .extensions
+                .expect("extensions")
+                .contains_key("shooting_day_id")
+        );
+
+        // Per-context not-found codes flow through (no more generic domain.*).
+        use breakdown_core::costume::error::CostumeError;
+        let problem = ApiError::from(DomainError::from(CostumeError::NotFound {
+            id: Uuid::now_v7(),
+        }))
+        .into_problem();
+        assert_eq!(problem.code, "costume.not-found");
+        assert_eq!(problem.status, 404);
     }
 
     #[test]

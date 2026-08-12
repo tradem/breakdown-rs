@@ -29,9 +29,9 @@ use zeroize::Zeroizing;
 /// layout).
 pub fn map_storage_error(key: &str, e: opendal::Error) -> DomainError {
     if e.is_temporary() {
-        DomainError::ServiceUnavailable(format!("Temporary storage failure for {key}: {e}"))
+        DomainError::service_unavailable(format!("Temporary storage failure for {key}: {e}"))
     } else {
-        DomainError::ValidationError(format!("Failed to access storage object {key}: {e}"))
+        DomainError::validation(format!("Failed to access storage object {key}: {e}"))
     }
 }
 
@@ -53,8 +53,8 @@ struct NoKeySource;
 #[async_trait]
 impl PhotoStorageKeySource for NoKeySource {
     async fn resolve(&self) -> Result<Zeroizing<Vec<u8>>, DomainError> {
-        Err(DomainError::ServiceUnavailable(
-            "photo storage is not configured with a key source".to_owned(),
+        Err(DomainError::service_unavailable(
+            "photo storage is not configured with a key source",
         ))
     }
 }
@@ -171,7 +171,7 @@ impl OpenDalPhotoStorage {
         let key = self.inner.key_source.resolve().await.map_err(|e| {
             // Prefer the boot-time fail-closed reason when present.
             match &self.unavailable_reason {
-                Some(reason) => DomainError::ServiceUnavailable(reason.clone()),
+                Some(reason) => DomainError::service_unavailable(reason.clone()),
                 None => e,
             }
         })?;
@@ -213,14 +213,14 @@ impl OpenDalPhotoStorage {
     /// customer key — never plaintext or SSE-S3.
     fn build_operator(customer_key: &[u8]) -> Result<Operator, DomainError> {
         let endpoint = std::env::var("S3_ENDPOINT")
-            .map_err(|_| DomainError::ValidationError("S3_ENDPOINT must be set".into()))?;
+            .map_err(|_| DomainError::validation("S3_ENDPOINT must be set"))?;
         let access_key = std::env::var("S3_ACCESS_KEY")
-            .map_err(|_| DomainError::ValidationError("S3_ACCESS_KEY must be set".into()))?;
+            .map_err(|_| DomainError::validation("S3_ACCESS_KEY must be set"))?;
         let secret_key = std::env::var("S3_SECRET_KEY")
-            .map_err(|_| DomainError::ValidationError("S3_SECRET_KEY must be set".into()))?;
+            .map_err(|_| DomainError::validation("S3_SECRET_KEY must be set"))?;
         let bucket = std::env::var("S3_BUCKET").unwrap_or_else(|_| "costume-photos".into());
         let root_cert = crate::tls::root_cert_from_env("S3_TLS_ROOT_CERT")
-            .map_err(|e| DomainError::ValidationError(format!("Invalid S3_TLS_ROOT_CERT: {e}")))?;
+            .map_err(|e| DomainError::validation(format!("Invalid S3_TLS_ROOT_CERT: {e}")))?;
 
         let op = crate::tls::s3_builder_with_customer_key(
             &endpoint,
@@ -230,7 +230,7 @@ impl OpenDalPhotoStorage {
             root_cert.as_deref(),
             customer_key,
         )
-        .map_err(|e| DomainError::ValidationError(format!("Failed to configure S3: {e}")))?;
+        .map_err(|e| DomainError::validation(format!("Failed to configure S3: {e}")))?;
 
         Ok(op)
     }
@@ -270,7 +270,7 @@ impl OpenDalPhotoStorage {
                 if e.to_string().contains("Not Found") || e.to_string().contains("ObjectNotExist") {
                     Ok(None)
                 } else {
-                    Err(DomainError::ValidationError(format!(
+                    Err(DomainError::validation(format!(
                         "Failed to stat object {key}: {e}"
                     )))
                 }
@@ -309,14 +309,15 @@ impl PhotoStorage for OpenDalPhotoStorage {
         let op = self.operator().await?;
         let meta = op.stat(&key).await.map_err(|e| {
             if e.to_string().contains("Not Found") || e.to_string().contains("ObjectNotExist") {
-                DomainError::NotFound(format!("Photo {id:?} variant {variant:?}"))
+                DomainError::not_found("photo")
             } else {
-                DomainError::ValidationError(format!("Failed to stat object {key}: {e}"))
+                DomainError::validation(format!("Failed to stat object {key}: {e}"))
             }
         })?;
-        let buf = op.read(&key).await.map_err(|e| {
-            DomainError::ValidationError(format!("Failed to read object {key}: {e}"))
-        })?;
+        let buf = op
+            .read(&key)
+            .await
+            .map_err(|e| DomainError::validation(format!("Failed to read object {key}: {e}")))?;
         let content_type = meta
             .content_type()
             .unwrap_or("application/octet-stream")
@@ -361,13 +362,13 @@ impl PhotoStorage for OpenDalPhotoStorage {
             .lister_with("")
             .limit(1000)
             .await
-            .map_err(|e| DomainError::ValidationError(format!("Failed to list objects: {e}")))?;
+            .map_err(|e| DomainError::validation(format!("Failed to list objects: {e}")))?;
 
         while let Some(entry) = lister.next().await {
             let entry = match entry {
                 Ok(e) => e,
                 Err(e) => {
-                    return Err(DomainError::ValidationError(format!(
+                    return Err(DomainError::validation(format!(
                         "Failed to list object entry: {e}"
                     )));
                 }

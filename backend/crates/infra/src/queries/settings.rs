@@ -3,6 +3,7 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 use async_trait::async_trait;
 use breakdown_core::error::DomainError;
+use breakdown_core::error_registry::SETTINGS_NOT_FOUND;
 use breakdown_core::settings::ports::SettingsRepository;
 use breakdown_core::settings::views::{CredentialBindingState, SettingsView};
 use breakdown_core::shared::AggregateVersion;
@@ -33,17 +34,21 @@ impl SettingsRepository for SettingsRepositoryImpl {
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|err| DomainError::Conflict(err.to_string()))?
-        .ok_or_else(|| DomainError::NotFound(format!("Settings({id})")))?;
+        .map_err(|err| DomainError::conflict(err.to_string()))?
+        .ok_or(DomainError::NotFound {
+            code: &SETTINGS_NOT_FOUND,
+            resource: "settings",
+            id,
+        })?;
 
         let state: String = row
             .try_get("binding_state")
-            .map_err(|err| DomainError::Conflict(err.to_string()))?;
+            .map_err(|err| DomainError::conflict(err.to_string()))?;
         let binding_state = match state.as_str() {
             "active" => CredentialBindingState::Active,
             "revoked" => CredentialBindingState::Revoked,
             other => {
-                return Err(DomainError::Conflict(format!(
+                return Err(DomainError::conflict(format!(
                     "invalid binding state: {other}"
                 )));
             }
@@ -60,5 +65,5 @@ impl SettingsRepository for SettingsRepositoryImpl {
 }
 
 fn map_error(err: sqlx::Error) -> DomainError {
-    DomainError::Conflict(err.to_string())
+    DomainError::conflict(err.to_string())
 }

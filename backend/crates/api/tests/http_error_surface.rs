@@ -377,17 +377,15 @@ async fn domain_validation_is_422_domain_validation() {
     // Domain validation (well-formed document violating a domain rule) is
     // mapped by the registry to 422 (ADR-031 D6). The `IntoResponse` path is
     // identical to the one the HTTP layer uses for handler errors.
-    let problem = problems::ApiError::from(breakdown_core::error::DomainError::ValidationError(
-        "empty name".into(),
-    ))
-    .into_problem();
+    let problem =
+        problems::ApiError::from(breakdown_core::error::DomainError::validation("empty name"))
+            .into_problem();
     assert_eq!(problem.status, 422);
     assert_eq!(problem.code, "domain.validation");
 
-    let response = problems::ApiError::from(breakdown_core::error::DomainError::ValidationError(
-        "empty name".into(),
-    ))
-    .into_response();
+    let response =
+        problems::ApiError::from(breakdown_core::error::DomainError::validation("empty name"))
+            .into_response();
     assert_eq!(
         response.headers().get(header::CONTENT_TYPE).unwrap(),
         PROBLEM_CONTENT_TYPE
@@ -399,7 +397,6 @@ async fn version_conflict_is_409_with_typed_extensions() {
     // Optimistic-concurrency failure rendered through the same builder the
     // HTTP layer uses; the extensions carry the S0 versions.
     let document = problems::ApiError::from(breakdown_core::error::DomainError::VersionConflict {
-        entity: "Season".into(),
         expected: breakdown_core::shared::AggregateVersion(2),
         current: breakdown_core::shared::AggregateVersion(3),
     })

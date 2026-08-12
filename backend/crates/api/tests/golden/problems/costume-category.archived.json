@@ -1,0 +1,7 @@
+{
+  "code": "costume-category.archived",
+  "detail": "Costume category is archived",
+  "status": 409,
+  "title": "Costume category is archived",
+  "type": "https://docs.breakdown.example/problems/costume-category.archived"
+}

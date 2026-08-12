@@ -136,8 +136,8 @@ pub trait LlmClient: Send + Sync {
 
     async fn extract_schedule(&self, req: LlmChatRequest) -> Result<ShootingSchedule, DomainError> {
         let _ = req;
-        Err(DomainError::ValidationError(
-            "schedule extraction is not supported by this client".to_owned(),
+        Err(DomainError::validation(
+            "schedule extraction is not supported by this client",
         ))
     }
 }

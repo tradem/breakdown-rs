@@ -6,6 +6,7 @@
 use breakdown_core::episode::ports::EpisodeRepository;
 use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::error::DomainError;
+use breakdown_core::error_registry::EPISODE_NOT_FOUND;
 use breakdown_core::shared::{AggregateVersion, BlockId, SeriesId};
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
@@ -35,8 +36,12 @@ impl EpisodeRepository for EpisodeRepositoryImpl {
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?
-        .ok_or_else(|| DomainError::NotFound(format!("Episode({id})")))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?
+        .ok_or(DomainError::NotFound {
+            code: &EPISODE_NOT_FOUND,
+            resource: "episode",
+            id,
+        })?;
 
         map_episode_row(row)
     }
@@ -61,7 +66,7 @@ impl EpisodeRepository for EpisodeRepositoryImpl {
         .bind(offset)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         rows.into_iter().map(map_episode_row).collect()
     }
@@ -86,7 +91,7 @@ impl EpisodeRepository for EpisodeRepositoryImpl {
         .bind(offset)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         rows.into_iter().map(map_episode_row).collect()
     }
@@ -108,7 +113,7 @@ impl EpisodeRepository for EpisodeRepositoryImpl {
         .bind(number)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         match row {
             Some(row) => Ok(Some(map_episode_row(row)?)),
@@ -132,5 +137,5 @@ fn map_episode_row(row: sqlx::postgres::PgRow) -> Result<EpisodeView, DomainErro
 }
 
 fn map_err(e: sqlx::Error) -> DomainError {
-    DomainError::Conflict(e.to_string())
+    DomainError::conflict(e.to_string())
 }

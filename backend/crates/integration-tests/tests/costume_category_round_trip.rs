@@ -84,10 +84,12 @@ async fn await_category_found(
     loop {
         match repo.find_by_id(id.0).await {
             Ok(view) => return Ok(view),
-            Err(breakdown_core::error::DomainError::NotFound(_)) if Instant::now() < deadline => {
+            Err(breakdown_core::error::DomainError::NotFound { .. })
+                if Instant::now() < deadline =>
+            {
                 tokio::time::sleep(POLL_INTERVAL).await;
             }
-            Err(breakdown_core::error::DomainError::NotFound(_)) => {
+            Err(breakdown_core::error::DomainError::NotFound { .. }) => {
                 bail!(
                     "projection lag: CostumeCategory({id:?}) not projected within {PROJECTION_DEADLINE:?}"
                 );
@@ -141,10 +143,12 @@ async fn await_costume_found(repo: &CostumeRepositoryImpl, id: Uuid) -> Result<C
     loop {
         match repo.find_by_id(id).await {
             Ok(view) => return Ok(view),
-            Err(breakdown_core::error::DomainError::NotFound(_)) if Instant::now() < deadline => {
+            Err(breakdown_core::error::DomainError::NotFound { .. })
+                if Instant::now() < deadline =>
+            {
                 tokio::time::sleep(POLL_INTERVAL).await;
             }
-            Err(breakdown_core::error::DomainError::NotFound(_)) => {
+            Err(breakdown_core::error::DomainError::NotFound { .. }) => {
                 bail!("projection lag: Costume({id}) not projected within {PROJECTION_DEADLINE:?}");
             }
             Err(other) => return Err(anyhow!(other.to_string())),
@@ -173,10 +177,12 @@ async fn await_costume_with_details(
                     view.details.len()
                 );
             }
-            Err(breakdown_core::error::DomainError::NotFound(_)) if Instant::now() < deadline => {
+            Err(breakdown_core::error::DomainError::NotFound { .. })
+                if Instant::now() < deadline =>
+            {
                 tokio::time::sleep(POLL_INTERVAL).await;
             }
-            Err(breakdown_core::error::DomainError::NotFound(_)) => {
+            Err(breakdown_core::error::DomainError::NotFound { .. }) => {
                 bail!("projection lag: Costume({id}) not projected within {PROJECTION_DEADLINE:?}");
             }
             Err(other) => return Err(anyhow!(other.to_string())),
@@ -508,10 +514,12 @@ async fn await_costume_detail_category_name(
                     return Ok(());
                 }
             }
-            Err(breakdown_core::error::DomainError::NotFound(_)) if Instant::now() < deadline => {
+            Err(breakdown_core::error::DomainError::NotFound { .. })
+                if Instant::now() < deadline =>
+            {
                 tokio::time::sleep(POLL_INTERVAL).await;
             }
-            Err(breakdown_core::error::DomainError::NotFound(_)) => {
+            Err(breakdown_core::error::DomainError::NotFound { .. }) => {
                 bail!(
                     "projection lag: Costume({costume_id}) not projected within {PROJECTION_DEADLINE:?}"
                 );

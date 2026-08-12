@@ -1,0 +1,7 @@
+{
+  "code": "settings.already-revoked",
+  "detail": "Credential already revoked",
+  "status": 409,
+  "title": "Credential already revoked",
+  "type": "https://docs.breakdown.example/problems/settings.already-revoked"
+}

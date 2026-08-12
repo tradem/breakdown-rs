@@ -1,0 +1,7 @@
+{
+  "code": "ai-config.empty-provider",
+  "detail": "AI provider must be selected",
+  "status": 422,
+  "title": "AI provider must be selected",
+  "type": "https://docs.breakdown.example/problems/ai-config.empty-provider"
+}

@@ -40,9 +40,7 @@ impl OpenAiCompatibleModelCatalog {
             .timeout(CATALOG_REQUEST_TIMEOUT)
             .redirect(curated_provider_redirect_policy())
             .build()
-            .map_err(|error| {
-                DomainError::ValidationError(format!("invalid HTTP client: {error}"))
-            })?;
+            .map_err(|error| DomainError::validation(format!("invalid HTTP client: {error}")))?;
         Ok(Self {
             http,
             allowlist: default_allowlist(),
@@ -88,16 +86,16 @@ impl OpenAiCompatibleModelCatalog {
         }
         let base = CuratedProviderUrls::base_url(provider);
         let url = reqwest::Url::parse(base).map_err(|error| {
-            DomainError::ValidationError(format!(
+            DomainError::validation(format!(
                 "invalid curated base URL for {provider:?}: {error}"
             ))
         })?;
         let host = url.host_str().ok_or_else(|| {
-            DomainError::ValidationError(format!("curated base URL for {provider:?} has no host"))
+            DomainError::validation(format!("curated base URL for {provider:?} has no host"))
         })?;
         let client = build_hosted_client(host, CATALOG_REQUEST_TIMEOUT)
             .await
-            .map_err(|violation| DomainError::ValidationError(violation.to_string()))?;
+            .map_err(|violation| DomainError::validation(violation.to_string()))?;
         Ok(Cow::Owned(client))
     }
 }
@@ -110,9 +108,7 @@ impl LlmModelCatalog for OpenAiCompatibleModelCatalog {
         vaulted_key: &str,
     ) -> Result<Vec<ModelInfo>, DomainError> {
         if vaulted_key.trim().is_empty() {
-            return Err(DomainError::ValidationError(
-                "LLM API key must not be empty".to_owned(),
-            ));
+            return Err(DomainError::validation("LLM API key must not be empty"));
         }
         let key = SecretValue::new(vaulted_key.to_owned());
         let endpoint = format!("{}/models", CuratedProviderUrls::base_url(provider));
@@ -128,9 +124,10 @@ impl LlmModelCatalog for OpenAiCompatibleModelCatalog {
         if !status.is_success() {
             return Err(classify_http_status(status));
         }
-        let payload = response.json::<ModelsResponse>().await.map_err(|error| {
-            DomainError::ValidationError(format!("invalid model catalog: {error}"))
-        })?;
+        let payload = response
+            .json::<ModelsResponse>()
+            .await
+            .map_err(|error| DomainError::validation(format!("invalid model catalog: {error}")))?;
         Ok(payload
             .data
             .into_iter()

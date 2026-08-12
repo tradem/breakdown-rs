@@ -1,0 +1,7 @@
+{
+  "code": "photo.already-deleted",
+  "detail": "Photo already deleted",
+  "status": 409,
+  "title": "Photo already deleted",
+  "type": "https://docs.breakdown.example/problems/photo.already-deleted"
+}

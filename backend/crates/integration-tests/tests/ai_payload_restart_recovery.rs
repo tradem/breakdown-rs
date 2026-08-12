@@ -265,7 +265,7 @@ async fn payload_unavailable_is_owner_fenced() -> Result<()> {
         .mark_payload_unavailable(id, "worker-b", "stale worker")
         .await;
     assert!(
-        matches!(result, Err(DomainError::Conflict(_))),
+        matches!(result, Err(DomainError::Conflict { .. })),
         "expected Conflict, got {result:?}"
     );
     assert_eq!(

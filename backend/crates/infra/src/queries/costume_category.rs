@@ -6,6 +6,7 @@
 use breakdown_core::costume_category::ports::CostumeCategoryRepository;
 use breakdown_core::costume_category::views::CostumeCategoryView;
 use breakdown_core::error::DomainError;
+use breakdown_core::error_registry::COSTUME_CATEGORY_NOT_FOUND;
 use breakdown_core::shared::{AggregateVersion, LexicalSortKey, SeasonId};
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
@@ -39,7 +40,7 @@ impl CostumeCategoryRepository for CostumeCategoryRepositoryImpl {
         .bind(season_id.0)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         rows.into_iter().map(map_category_row).collect()
     }
@@ -53,7 +54,7 @@ impl CostumeCategoryRepository for CostumeCategoryRepositoryImpl {
         .bind(season_id.0)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
         Ok(count)
     }
 
@@ -68,8 +69,12 @@ impl CostumeCategoryRepository for CostumeCategoryRepositoryImpl {
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?
-        .ok_or_else(|| DomainError::NotFound(format!("CostumeCategory({id})")))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?
+        .ok_or(DomainError::NotFound {
+            code: &COSTUME_CATEGORY_NOT_FOUND,
+            resource: "costume-category",
+            id,
+        })?;
 
         map_category_row(row)
     }
@@ -85,7 +90,7 @@ fn map_category_row(row: sqlx::postgres::PgRow) -> Result<CostumeCategoryView, D
     let updated_at: DateTime<Utc> = row.try_get("updated_at").map_err(map_err)?;
 
     let order_key =
-        LexicalSortKey::new(order_key).map_err(|e| DomainError::Conflict(e.to_string()))?;
+        LexicalSortKey::new(order_key).map_err(|e| DomainError::conflict(e.to_string()))?;
 
     Ok(CostumeCategoryView {
         id,
@@ -99,5 +104,5 @@ fn map_category_row(row: sqlx::postgres::PgRow) -> Result<CostumeCategoryView, D
 }
 
 fn map_err(e: sqlx::Error) -> DomainError {
-    DomainError::Conflict(e.to_string())
+    DomainError::conflict(e.to_string())
 }

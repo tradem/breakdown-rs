@@ -134,7 +134,10 @@ async fn photo_key_uses_winner_after_kv_cas_conflict() {
 async fn photo_key_without_vault_token_is_unavailable() {
     let client = VaultClient::for_test("http://127.0.0.1:1".into(), None);
     let result = client.photo_sse_c_key().await;
-    assert!(matches!(result, Err(DomainError::ServiceUnavailable(_))));
+    assert!(matches!(
+        result,
+        Err(DomainError::ServiceUnavailable { .. })
+    ));
 }
 
 #[test]

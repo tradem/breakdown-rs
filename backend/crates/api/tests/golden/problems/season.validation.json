@@ -1,0 +1,7 @@
+{
+  "code": "season.validation",
+  "detail": "Season validation failed",
+  "status": 422,
+  "title": "Season validation failed",
+  "type": "https://docs.breakdown.example/problems/season.validation"
+}

@@ -4,6 +4,7 @@
 //! `sqlx`-backed implementation of the `SeasonRepository` port.
 
 use breakdown_core::error::DomainError;
+use breakdown_core::error_registry::SEASON_NOT_FOUND;
 use breakdown_core::season::ports::SeasonRepository;
 use breakdown_core::season::views::SeasonView;
 use breakdown_core::shared::{AggregateVersion, SeriesId};
@@ -35,8 +36,12 @@ impl SeasonRepository for SeasonRepositoryImpl {
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?
-        .ok_or_else(|| DomainError::NotFound(format!("Season({id})")))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?
+        .ok_or(DomainError::NotFound {
+            code: &SEASON_NOT_FOUND,
+            resource: "season",
+            id,
+        })?;
 
         map_season_row(row)
     }
@@ -61,7 +66,7 @@ impl SeasonRepository for SeasonRepositoryImpl {
         .bind(offset)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         rows.into_iter().map(map_season_row).collect()
     }
@@ -83,7 +88,7 @@ impl SeasonRepository for SeasonRepositoryImpl {
         .bind(number)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         match row {
             Some(row) => Ok(Some(map_season_row(row)?)),
@@ -106,5 +111,5 @@ fn map_season_row(row: sqlx::postgres::PgRow) -> Result<SeasonView, DomainError>
 }
 
 fn map_err(e: sqlx::Error) -> DomainError {
-    DomainError::Conflict(e.to_string())
+    DomainError::conflict(e.to_string())
 }

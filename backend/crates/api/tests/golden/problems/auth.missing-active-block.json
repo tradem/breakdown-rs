@@ -1,0 +1,7 @@
+{
+  "code": "auth.missing-active-block",
+  "detail": "Missing active block",
+  "status": 400,
+  "title": "Missing active block",
+  "type": "https://docs.breakdown.example/problems/auth.missing-active-block"
+}

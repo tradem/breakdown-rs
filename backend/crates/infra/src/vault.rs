@@ -75,12 +75,12 @@ impl VaultClient {
             .filter(|path| !path.trim().is_empty())
         {
             let pem = std::fs::read(&cert_path).map_err(|err| {
-                DomainError::ServiceUnavailable(format!(
+                DomainError::service_unavailable(format!(
                     "Vault TLS root certificate {cert_path}: {err}"
                 ))
             })?;
             let certificate = reqwest::Certificate::from_pem(&pem).map_err(|err| {
-                DomainError::ServiceUnavailable(format!(
+                DomainError::service_unavailable(format!(
                     "Vault TLS root certificate {cert_path}: {err}"
                 ))
             })?;
@@ -88,7 +88,7 @@ impl VaultClient {
         }
         let http = http_builder
             .build()
-            .map_err(|err| DomainError::ServiceUnavailable(format!("Vault client: {err}")))?;
+            .map_err(|err| DomainError::service_unavailable(format!("Vault client: {err}")))?;
         Ok(Self {
             http,
             addr,
@@ -116,7 +116,7 @@ impl VaultClient {
     }
 
     fn unavailable(detail: impl Into<String>) -> DomainError {
-        DomainError::ServiceUnavailable(format!("Vault unavailable: {}", detail.into()))
+        DomainError::service_unavailable(format!("Vault unavailable: {}", detail.into()))
     }
 
     async fn send<T: Serialize + ?Sized>(

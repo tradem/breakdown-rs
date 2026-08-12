@@ -115,5 +115,5 @@ where
 /// used by [`retry_transient`].
 pub fn is_transient(err: &anyhow::Error) -> bool {
     err.downcast_ref::<DomainError>()
-        .is_some_and(|e| matches!(e, DomainError::ServiceUnavailable(_)))
+        .is_some_and(|e| matches!(e, DomainError::ServiceUnavailable { .. }))
 }

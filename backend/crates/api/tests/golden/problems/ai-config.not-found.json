@@ -1,0 +1,7 @@
+{
+  "code": "ai-config.not-found",
+  "detail": "AI configuration not found",
+  "status": 404,
+  "title": "AI configuration not found",
+  "type": "https://docs.breakdown.example/problems/ai-config.not-found"
+}

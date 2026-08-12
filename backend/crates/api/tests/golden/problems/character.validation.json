@@ -1,0 +1,7 @@
+{
+  "code": "character.validation",
+  "detail": "Character validation failed",
+  "status": 422,
+  "title": "Character validation failed",
+  "type": "https://docs.breakdown.example/problems/character.validation"
+}

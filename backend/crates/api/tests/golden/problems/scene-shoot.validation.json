@@ -1,0 +1,7 @@
+{
+  "code": "scene-shoot.validation",
+  "detail": "Scene shoot validation failed",
+  "status": 422,
+  "title": "Scene shoot validation failed",
+  "type": "https://docs.breakdown.example/problems/scene-shoot.validation"
+}

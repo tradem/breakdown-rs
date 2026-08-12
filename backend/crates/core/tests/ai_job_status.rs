@@ -291,7 +291,7 @@ impl AiImportQueue for FailingQueue {
         _error_summary: &str,
         _retryable: bool,
     ) -> Result<(), DomainError> {
-        Err(DomainError::Conflict(format!(
+        Err(DomainError::conflict(format!(
             "worker {worker_id} no longer owns job {}",
             id.as_uuid()
         )))
@@ -350,7 +350,7 @@ fn default_mark_payload_unavailable_propagates_the_fence_error() {
     ));
 
     assert!(
-        matches!(result, Err(DomainError::Conflict(_))),
+        matches!(result, Err(DomainError::Conflict { .. })),
         "expected the fence error to propagate, got {result:?}"
     );
 }

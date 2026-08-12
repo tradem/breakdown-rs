@@ -7,6 +7,7 @@ use breakdown_core::character::category::CharacterCategory;
 use breakdown_core::character::ports::CharacterRepository;
 use breakdown_core::character::views::CharacterView;
 use breakdown_core::error::DomainError;
+use breakdown_core::error_registry::CHARACTER_NOT_FOUND;
 use breakdown_core::shared::{AggregateVersion, EpisodeId, SeasonId};
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
@@ -37,8 +38,12 @@ impl CharacterRepository for CharacterRepositoryImpl {
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?
-        .ok_or_else(|| DomainError::NotFound(format!("Character({id})")))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?
+        .ok_or(DomainError::NotFound {
+            code: &CHARACTER_NOT_FOUND,
+            resource: "character",
+            id,
+        })?;
 
         map_character_row(row)
     }
@@ -64,7 +69,7 @@ impl CharacterRepository for CharacterRepositoryImpl {
         .bind(offset)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         rows.into_iter().map(map_character_row).collect()
     }
@@ -93,7 +98,7 @@ impl CharacterRepository for CharacterRepositoryImpl {
         .bind(offset)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         rows.into_iter().map(map_character_row).collect()
     }
@@ -111,7 +116,7 @@ impl CharacterRepository for CharacterRepositoryImpl {
         .bind(character_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         rows.into_iter()
             .map(|row| {
@@ -142,5 +147,5 @@ fn map_character_row(row: sqlx::postgres::PgRow) -> Result<CharacterView, Domain
 }
 
 fn map_err(e: sqlx::Error) -> DomainError {
-    DomainError::Conflict(e.to_string())
+    DomainError::conflict(e.to_string())
 }

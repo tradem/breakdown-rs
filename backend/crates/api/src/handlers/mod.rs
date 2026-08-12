@@ -4368,7 +4368,7 @@ pub async fn list_ai_models<P: Ports>(
 fn parse_ai_provider(value: &str) -> Result<LlmProvider, DomainError> {
     // Delegate to the centralized provider registry (infra::ai::provider_registry).
     infra::ai::resolve_provider(value)
-        .ok_or_else(|| DomainError::ValidationError(format!("unknown AI provider {value}")))
+        .ok_or_else(|| DomainError::validation(format!("unknown AI provider {value}")))
 }
 
 #[cfg(test)]

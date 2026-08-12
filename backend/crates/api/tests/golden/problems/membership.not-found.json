@@ -1,0 +1,7 @@
+{
+  "code": "membership.not-found",
+  "detail": "Membership not found",
+  "status": 404,
+  "title": "Membership not found",
+  "type": "https://docs.breakdown.example/problems/membership.not-found"
+}

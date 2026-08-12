@@ -1,0 +1,7 @@
+{
+  "code": "concurrency.version-mismatch",
+  "detail": "Version conflict",
+  "status": 409,
+  "title": "Version conflict",
+  "type": "https://docs.breakdown.example/problems/concurrency.version-mismatch"
+}

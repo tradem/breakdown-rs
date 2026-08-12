@@ -114,7 +114,7 @@ async fn await_scene_shoot_version(
     loop {
         match repo.find_by_id(id).await {
             Ok(view) if view.version.0 >= min_version => return Ok(view),
-            Ok(_) | Err(DomainError::NotFound(_)) if Instant::now() < deadline => {
+            Ok(_) | Err(DomainError::NotFound { .. }) if Instant::now() < deadline => {
                 tokio::time::sleep(POLL_INTERVAL).await;
             }
             Ok(view) => {
@@ -123,7 +123,7 @@ async fn await_scene_shoot_version(
                     view.version.0
                 );
             }
-            Err(DomainError::NotFound(_)) => {
+            Err(DomainError::NotFound { .. }) => {
                 bail!("projection lag: SceneShoot({id}) not projected within deadline");
             }
             Err(other) => return Err(anyhow!(other.to_string())),

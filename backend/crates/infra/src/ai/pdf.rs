@@ -27,9 +27,7 @@ impl PdfTextExtractor {
 
     pub async fn extract(&self, pdf_bytes: &[u8]) -> Result<String, DomainError> {
         if pdf_bytes.is_empty() {
-            return Err(DomainError::ValidationError(
-                "PDF document must not be empty".to_owned(),
-            ));
+            return Err(DomainError::validation("PDF document must not be empty"));
         }
         let mut child = Command::new("pdftotext")
             .args(["-q", "-", "-"])
@@ -41,15 +39,17 @@ impl PdfTextExtractor {
             .stderr(Stdio::null())
             .spawn()
             .map_err(|error| {
-                DomainError::ValidationError(format!("could not start pdftotext: {error}"))
+                DomainError::validation(format!("could not start pdftotext: {error}"))
             })?;
 
-        let mut stdin = child.stdin.take().ok_or_else(|| {
-            DomainError::ValidationError("pdftotext stdin was not available".to_owned())
-        })?;
-        let stdout = child.stdout.take().ok_or_else(|| {
-            DomainError::ValidationError("pdftotext stdout was not available".to_owned())
-        })?;
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| DomainError::validation("pdftotext stdin was not available"))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| DomainError::validation("pdftotext stdout was not available"))?;
         let read_limit = self.max_output_bytes.saturating_add(1);
 
         let finished = async {
@@ -67,13 +67,13 @@ impl PdfTextExtractor {
             if let Err(error) = written {
                 // A broken stdin pipe is expected when pdftotext stops early.
                 if error.kind() != std::io::ErrorKind::BrokenPipe {
-                    return Err(DomainError::ValidationError(format!(
+                    return Err(DomainError::validation(format!(
                         "could not provide PDF to pdftotext: {error}"
                     )));
                 }
             }
             read_result.map_err(|error| {
-                DomainError::ValidationError(format!("could not read pdftotext output: {error}"))
+                DomainError::validation(format!("could not read pdftotext output: {error}"))
             })?;
             // Oversized output: the limited reader stopped draining, so
             // pdftotext may still be blocked writing to the full pipe. Kill it
@@ -85,12 +85,12 @@ impl PdfTextExtractor {
                 if let Err(error) = child.wait().await {
                     tracing::warn!(%error, "failed to reap oversized pdftotext process");
                 }
-                return Err(DomainError::ValidationError(
-                    "pdftotext output exceeds the configured bound".to_owned(),
+                return Err(DomainError::validation(
+                    "pdftotext output exceeds the configured bound",
                 ));
             }
             let status = child.wait().await.map_err(|error| {
-                DomainError::ValidationError(format!("could not reap pdftotext process: {error}"))
+                DomainError::validation(format!("could not reap pdftotext process: {error}"))
             })?;
             Ok::<(std::process::ExitStatus, Vec<u8>), DomainError>((status, output))
         };
@@ -106,7 +106,7 @@ impl PdfTextExtractor {
                 if let Err(error) = child.wait().await {
                     tracing::warn!(%error, "failed to reap timed-out pdftotext process");
                 }
-                return Err(DomainError::ValidationError(format!(
+                return Err(DomainError::validation(format!(
                     "pdftotext did not finish within {} seconds",
                     self.timeout.as_secs()
                 )));
@@ -114,12 +114,12 @@ impl PdfTextExtractor {
         };
 
         if !status.success() {
-            return Err(DomainError::ValidationError(format!(
+            return Err(DomainError::validation(format!(
                 "pdftotext failed with status {status}"
             )));
         }
         String::from_utf8(output).map_err(|error| {
-            DomainError::ValidationError(format!("pdftotext emitted invalid UTF-8: {error}"))
+            DomainError::validation(format!("pdftotext emitted invalid UTF-8: {error}"))
         })
     }
 }

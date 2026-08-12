@@ -83,7 +83,7 @@ impl LeaseHeartbeat {
                 tokio::time::sleep(interval).await;
                 match queue.mark_running(job_id, &worker_id).await {
                     Ok(()) => {}
-                    Err(breakdown_core::error::DomainError::Conflict(reason)) => {
+                    Err(breakdown_core::error::DomainError::Conflict { reason, .. }) => {
                         // The claim is gone (lease lapsed and someone else
                         // reclaimed, or the job already reached a terminal
                         // state). Renewing again would be pointless, and the
@@ -210,8 +210,10 @@ mod tests {
             self.renewed.notify_waiters();
             match &self.outcome {
                 None => Ok(()),
-                Some(DomainError::Conflict(reason)) => Err(DomainError::Conflict(reason.clone())),
-                Some(other) => Err(DomainError::ServiceUnavailable(other.to_string())),
+                Some(DomainError::Conflict { reason, .. }) => {
+                    Err(DomainError::conflict(reason.clone()))
+                }
+                Some(other) => Err(DomainError::service_unavailable(other.to_string())),
             }
         }
         async fn mark_succeeded(
@@ -293,7 +295,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread", start_paused = true)]
     async fn conflict_renewal_flags_the_claim_as_lost_and_stops() {
-        let queue = ScriptedQueue::failing_with(DomainError::Conflict("reclaimed".to_owned()));
+        let queue = ScriptedQueue::failing_with(DomainError::conflict("reclaimed"));
         let heartbeat = LeaseHeartbeat::start(
             Arc::clone(&queue),
             AiImportJobId::new(),
@@ -318,8 +320,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread", start_paused = true)]
     async fn transient_renewal_failure_keeps_the_claim_and_retries() {
-        let queue =
-            ScriptedQueue::failing_with(DomainError::ServiceUnavailable("db blip".to_owned()));
+        let queue = ScriptedQueue::failing_with(DomainError::service_unavailable("db blip"));
         let heartbeat = LeaseHeartbeat::start(
             Arc::clone(&queue),
             AiImportJobId::new(),
@@ -345,7 +346,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread", start_paused = true)]
     async fn a_zero_lease_starts_no_heartbeat() {
-        let queue = ScriptedQueue::failing_with(DomainError::Conflict("unused".to_owned()));
+        let queue = ScriptedQueue::failing_with(DomainError::conflict("unused"));
         // Duration::ZERO is the test-only "already dead worker" case; renewing
         // it would be meaningless.
         assert!(
@@ -356,7 +357,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread", start_paused = true)]
     async fn stopping_the_heartbeat_ends_renewals() {
-        let queue = ScriptedQueue::failing_with(DomainError::ServiceUnavailable("x".to_owned()));
+        let queue = ScriptedQueue::failing_with(DomainError::service_unavailable("x"));
         let heartbeat = LeaseHeartbeat::start(
             Arc::clone(&queue),
             AiImportJobId::new(),

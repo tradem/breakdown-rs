@@ -1,0 +1,7 @@
+{
+  "code": "domain.conflict",
+  "detail": "Conflict",
+  "status": 409,
+  "title": "Conflict",
+  "type": "https://docs.breakdown.example/problems/domain.conflict"
+}

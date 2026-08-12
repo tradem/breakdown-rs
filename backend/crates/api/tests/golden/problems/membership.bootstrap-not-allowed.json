@@ -1,0 +1,7 @@
+{
+  "code": "membership.bootstrap-not-allowed",
+  "detail": "Bootstrap not allowed",
+  "status": 409,
+  "title": "Bootstrap not allowed",
+  "type": "https://docs.breakdown.example/problems/membership.bootstrap-not-allowed"
+}

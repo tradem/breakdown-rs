@@ -1,0 +1,7 @@
+{
+  "code": "scene.character-not-found",
+  "detail": "Scene character not found",
+  "status": 404,
+  "title": "Scene character not found",
+  "type": "https://docs.breakdown.example/problems/scene.character-not-found"
+}

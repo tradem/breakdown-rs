@@ -1,0 +1,7 @@
+{
+  "code": "membership.missing-actor",
+  "detail": "Authenticated actor required",
+  "status": 422,
+  "title": "Authenticated actor required",
+  "type": "https://docs.breakdown.example/problems/membership.missing-actor"
+}

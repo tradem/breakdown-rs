@@ -1,0 +1,7 @@
+{
+  "code": "auth.idp-unavailable",
+  "detail": "Identity provider unavailable",
+  "status": 503,
+  "title": "Identity provider unavailable",
+  "type": "https://docs.breakdown.example/problems/auth.idp-unavailable"
+}

@@ -1,0 +1,7 @@
+{
+  "code": "shooting-day.duplicate-order-key",
+  "detail": "Duplicate order key",
+  "status": 409,
+  "title": "Duplicate order key",
+  "type": "https://docs.breakdown.example/problems/shooting-day.duplicate-order-key"
+}

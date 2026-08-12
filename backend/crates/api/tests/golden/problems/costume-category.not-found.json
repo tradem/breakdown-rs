@@ -1,0 +1,7 @@
+{
+  "code": "costume-category.not-found",
+  "detail": "Costume category not found",
+  "status": 404,
+  "title": "Costume category not found",
+  "type": "https://docs.breakdown.example/problems/costume-category.not-found"
+}

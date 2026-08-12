@@ -44,7 +44,7 @@ impl AuditRepository for AuditRepositoryImpl {
         .bind(offset)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         rows.into_iter().map(map_audit_row).collect()
     }
@@ -61,7 +61,7 @@ impl AuditRepository for AuditRepositoryImpl {
         .bind(offset)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         rows.into_iter().map(map_audit_row).collect()
     }
@@ -80,7 +80,7 @@ impl AuditRepository for AuditRepositoryImpl {
         .bind(offset)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         rows.into_iter().map(map_audit_row).collect()
     }
@@ -99,7 +99,7 @@ impl AuditRepository for AuditRepositoryImpl {
         .bind(offset)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         rows.into_iter().map(map_audit_row).collect()
     }
@@ -116,7 +116,7 @@ impl AuditRepository for AuditRepositoryImpl {
         .bind(offset)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         rows.into_iter().map(map_audit_row).collect()
     }
@@ -125,33 +125,33 @@ impl AuditRepository for AuditRepositoryImpl {
 fn map_audit_row(row: sqlx::postgres::PgRow) -> Result<AuditEntry, DomainError> {
     let id: Uuid = row
         .try_get("id")
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
     let entity_type: String = row
         .try_get("entity_type")
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
     let entity_id: String = row
         .try_get("entity_id")
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
     let event_type: String = row
         .try_get("event_type")
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
     let block_id: Option<BlockId> = row
         .try_get::<Option<Uuid>, _>("block_id")
-        .map_err(|e| DomainError::Conflict(e.to_string()))?
+        .map_err(|e| DomainError::conflict(e.to_string()))?
         .map(BlockId::from_uuid);
     let series_id: Option<Uuid> = row
         .try_get("series_id")
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
     let actor: Option<UserId> = row
         .try_get::<Option<String>, _>("actor")
-        .map_err(|e| DomainError::Conflict(e.to_string()))?
+        .map_err(|e| DomainError::conflict(e.to_string()))?
         .map(UserId::from_sub);
     let payload: serde_json::Value = row
         .try_get("payload")
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
     let occurred_at: DateTime<Utc> = row
         .try_get("occurred_at")
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
     Ok(AuditEntry {
         id,

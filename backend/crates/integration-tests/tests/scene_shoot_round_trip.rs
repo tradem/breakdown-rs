@@ -81,11 +81,11 @@ async fn await_version(
     loop {
         match repo.find_by_id(id).await {
             Ok(v) if v.version.0 >= min => return Ok(v),
-            Ok(_) | Err(DomainError::NotFound(_)) if Instant::now() < dl => {
+            Ok(_) | Err(DomainError::NotFound { .. }) if Instant::now() < dl => {
                 tokio::time::sleep(POLL).await;
             }
             Ok(v) => bail!("lag: version {} < {min}", v.version.0),
-            Err(DomainError::NotFound(_)) => bail!("not projected within deadline"),
+            Err(DomainError::NotFound { .. }) => bail!("not projected within deadline"),
             Err(e) => return Err(anyhow!("{e}")),
         }
     }

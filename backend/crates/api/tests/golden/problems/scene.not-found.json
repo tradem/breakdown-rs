@@ -1,0 +1,7 @@
+{
+  "code": "scene.not-found",
+  "detail": "Scene not found",
+  "status": 404,
+  "title": "Scene not found",
+  "type": "https://docs.breakdown.example/problems/scene.not-found"
+}

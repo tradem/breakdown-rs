@@ -1,0 +1,7 @@
+{
+  "code": "auth.invalid-active-block",
+  "detail": "Invalid active block",
+  "status": 400,
+  "title": "Invalid active block",
+  "type": "https://docs.breakdown.example/problems/auth.invalid-active-block"
+}

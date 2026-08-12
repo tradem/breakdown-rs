@@ -44,9 +44,7 @@ impl OllamaChatClient {
             .timeout(timeout)
             .redirect(ollama_redirect_policy())
             .build()
-            .map_err(|error| {
-                DomainError::ValidationError(format!("invalid HTTP client: {error}"))
-            })?;
+            .map_err(|error| DomainError::validation(format!("invalid HTTP client: {error}")))?;
         Ok(Self::with_http(http, max_parse_retries, timeout))
     }
 
@@ -89,7 +87,7 @@ impl OllamaChatClient {
             return Err(classify_http_status(status));
         }
         let payload = response.json::<OllamaResponse>().await.map_err(|error| {
-            DomainError::ValidationError(format!("invalid Ollama response: {error}"))
+            DomainError::validation(format!("invalid Ollama response: {error}"))
         })?;
         Ok(payload.message.content)
     }
@@ -99,8 +97,8 @@ impl OllamaChatClient {
 impl LlmClient for OllamaChatClient {
     async fn chat_constrained(&self, req: LlmChatRequest) -> Result<ScriptContext, DomainError> {
         if req.provider != LlmProvider::Ollama {
-            return Err(DomainError::ValidationError(
-                "Ollama client received a non-Ollama request".to_owned(),
+            return Err(DomainError::validation(
+                "Ollama client received a non-Ollama request",
             ));
         }
         let mut last_parse_error = None;
@@ -114,7 +112,7 @@ impl LlmClient for OllamaChatClient {
         let detail = last_parse_error
             .map(|error| error.to_string())
             .unwrap_or_else(|| "unknown JSON parse error".to_owned());
-        Err(DomainError::ValidationError(format!(
+        Err(DomainError::validation(format!(
             "Ollama returned invalid ScriptContext after bounded retries: {detail}"
         )))
     }

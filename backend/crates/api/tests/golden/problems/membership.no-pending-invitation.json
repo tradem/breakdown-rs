@@ -1,0 +1,7 @@
+{
+  "code": "membership.no-pending-invitation",
+  "detail": "No pending invitation",
+  "status": 409,
+  "title": "No pending invitation",
+  "type": "https://docs.breakdown.example/problems/membership.no-pending-invitation"
+}

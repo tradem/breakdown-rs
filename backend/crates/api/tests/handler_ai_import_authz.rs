@@ -70,7 +70,7 @@ async fn list_ai_providers_propagates_repo_failure_as_server_error() {
     // A read-model failure must remain a mapped server error (503), NOT be
     // conflated with an authorization denial (403) — issue #175 requirement.
     *ports.membership_repo.credential_role_override.lock().await = Some(Err(
-        DomainError::ServiceUnavailable("membership repo down".to_owned()),
+        DomainError::service_unavailable("membership repo down"),
     ));
     let state = ai_import_state(ports).await;
 
@@ -125,7 +125,7 @@ async fn list_ai_models_denies_non_credential_role_member() {
 async fn list_ai_models_propagates_repo_failure_as_server_error() {
     let ports = FakePorts::default();
     *ports.membership_repo.credential_role_override.lock().await = Some(Err(
-        DomainError::ServiceUnavailable("membership repo down".to_owned()),
+        DomainError::service_unavailable("membership repo down"),
     ));
     let state = ai_import_state(ports).await;
 

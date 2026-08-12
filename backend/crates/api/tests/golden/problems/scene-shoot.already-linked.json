@@ -1,0 +1,7 @@
+{
+  "code": "scene-shoot.already-linked",
+  "detail": "Continuity photo already linked",
+  "status": 409,
+  "title": "Continuity photo already linked",
+  "type": "https://docs.breakdown.example/problems/scene-shoot.already-linked"
+}

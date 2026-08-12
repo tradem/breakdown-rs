@@ -558,8 +558,8 @@ struct FailingHandle {
 impl FailingHandle {
     fn guard(&self, handle: &str) -> Result<(), DomainError> {
         if handle == self.handle {
-            return Err(DomainError::ServiceUnavailable(
-                "injected deletion failure".to_owned(),
+            return Err(DomainError::service_unavailable(
+                "injected deletion failure",
             ));
         }
         Ok(())

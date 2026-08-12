@@ -53,8 +53,8 @@ impl LlmClient for UnusedLlmClient {
         &self,
         _request: LlmChatRequest,
     ) -> Result<ScriptContext, DomainError> {
-        Err(DomainError::ValidationError(
-            "the LLM must not be reached in native_csv mode".to_owned(),
+        Err(DomainError::validation(
+            "the LLM must not be reached in native_csv mode",
         ))
     }
 }
@@ -113,10 +113,10 @@ async fn await_scene_projection(repo: &SceneRepositoryImpl, scene_id: Uuid) -> R
     loop {
         match repo.find_by_id(scene_id).await {
             Ok(view) => return Ok(view),
-            Err(DomainError::NotFound(_)) if std::time::Instant::now() < deadline => {
+            Err(DomainError::NotFound { .. }) if std::time::Instant::now() < deadline => {
                 tokio::time::sleep(POLL_INTERVAL).await;
             }
-            Err(DomainError::NotFound(_)) => {
+            Err(DomainError::NotFound { .. }) => {
                 bail!(
                     "projection lag: Scene({scene_id}) not projected within \
                      {PROJECTION_DEADLINE:?} — the PostgresProcessor did not catch up in time"

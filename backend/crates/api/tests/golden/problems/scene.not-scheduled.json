@@ -1,0 +1,7 @@
+{
+  "code": "scene.not-scheduled",
+  "detail": "Scene not scheduled on this day",
+  "status": 409,
+  "title": "Scene not scheduled on this day",
+  "type": "https://docs.breakdown.example/problems/scene.not-scheduled"
+}

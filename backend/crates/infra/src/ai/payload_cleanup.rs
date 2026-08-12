@@ -14,7 +14,7 @@ use uuid::Uuid;
 use super::preview_store::{AiDocumentStore, AiPreviewStore};
 
 fn is_not_found(err: &DomainError) -> bool {
-    matches!(err, DomainError::NotFound(_))
+    matches!(err, DomainError::NotFound { .. })
 }
 
 /// Terminal jobs whose payloads may be swept, oldest first.
@@ -159,7 +159,7 @@ impl CleanupMarks {
             .execute(pool)
             .await
             .map_err(|e| {
-                DomainError::ServiceUnavailable(format!(
+                DomainError::service_unavailable(format!(
                     "Failed to persist AI payload cleanup marks: {e}"
                 ))
             })?;
@@ -247,7 +247,7 @@ where
     // pg_try_advisory_lock is session-scoped, so we must use the same
     // connection for both lock and unlock.
     let mut conn = pool.acquire().await.map_err(|e| {
-        DomainError::ServiceUnavailable(format!("Failed to acquire connection for lock: {}", e))
+        DomainError::service_unavailable(format!("Failed to acquire connection for lock: {}", e))
     })?;
 
     let lock_acquired: Option<bool> = sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
@@ -255,7 +255,7 @@ where
         .fetch_one(&mut *conn)
         .await
         .map_err(|e| {
-            DomainError::ServiceUnavailable(format!("Failed to acquire advisory lock: {}", e))
+            DomainError::service_unavailable(format!("Failed to acquire advisory lock: {}", e))
         })?;
 
     if lock_acquired != Some(true) {
@@ -300,22 +300,18 @@ where
     S: AiPreviewStore + AiDocumentStore + ?Sized,
 {
     // Find terminal-state jobs older than grace period
-    let max_age_secs = i64::try_from(config.max_age_secs).map_err(|_| {
-        DomainError::ValidationError("AI_PAYLOAD_GC_MAX_AGE_SECS exceeds i64::MAX".into())
-    })?;
-    let batch_size = i64::try_from(config.batch_size).map_err(|_| {
-        DomainError::ValidationError("AI_PAYLOAD_GC_BATCH_SIZE exceeds i64::MAX".into())
-    })?;
+    let max_age_secs = i64::try_from(config.max_age_secs)
+        .map_err(|_| DomainError::validation("AI_PAYLOAD_GC_MAX_AGE_SECS exceeds i64::MAX"))?;
+    let batch_size = i64::try_from(config.batch_size)
+        .map_err(|_| DomainError::validation("AI_PAYLOAD_GC_BATCH_SIZE exceeds i64::MAX"))?;
     let grace_period = chrono::TimeDelta::try_seconds(max_age_secs).ok_or_else(|| {
-        DomainError::ValidationError(format!(
+        DomainError::validation(format!(
             "AI_PAYLOAD_GC_MAX_AGE_SECS ({}) exceeds Chrono TimeDelta range",
             config.max_age_secs
         ))
     })?;
     let cutoff = started_at.checked_sub_signed(grace_period).ok_or_else(|| {
-        DomainError::ValidationError(
-            "AI_PAYLOAD_GC_MAX_AGE_SECS produces cutoff outside DateTime range".into(),
-        )
+        DomainError::validation("AI_PAYLOAD_GC_MAX_AGE_SECS produces cutoff outside DateTime range")
     })?;
 
     let rows: Vec<sqlx::postgres::PgRow> = sqlx::query(TERMINAL_JOBS_SQL)
@@ -324,7 +320,7 @@ where
         .fetch_all(pool)
         .await
         .map_err(|e| {
-            DomainError::ServiceUnavailable(format!("Failed to query terminal jobs: {}", e))
+            DomainError::service_unavailable(format!("Failed to query terminal jobs: {}", e))
         })?;
 
     let scanned = rows.len() as i64;
@@ -348,20 +344,20 @@ where
     let run_id = Uuid::now_v7();
 
     for row in rows {
-        let job_id: Uuid = row
-            .try_get("id")
-            .map_err(|e| DomainError::ServiceUnavailable(format!("Failed to get job id: {}", e)))?;
+        let job_id: Uuid = row.try_get("id").map_err(|e| {
+            DomainError::service_unavailable(format!("Failed to get job id: {}", e))
+        })?;
         let source_handle: String = row.try_get("source_handle").map_err(|e| {
-            DomainError::ServiceUnavailable(format!("Failed to get source_handle: {}", e))
+            DomainError::service_unavailable(format!("Failed to get source_handle: {}", e))
         })?;
         let preview_handle: Option<String> = row.try_get("preview_handle").map_err(|e| {
-            DomainError::ServiceUnavailable(format!("Failed to get preview_handle: {}", e))
+            DomainError::service_unavailable(format!("Failed to get preview_handle: {}", e))
         })?;
         let source_pending: bool = row.try_get("source_pending").map_err(|e| {
-            DomainError::ServiceUnavailable(format!("Failed to get source_pending: {}", e))
+            DomainError::service_unavailable(format!("Failed to get source_pending: {}", e))
         })?;
         let preview_pending: bool = row.try_get("preview_pending").map_err(|e| {
-            DomainError::ServiceUnavailable(format!("Failed to get preview_pending: {}", e))
+            DomainError::service_unavailable(format!("Failed to get preview_pending: {}", e))
         })?;
 
         // A row can be selected because only *one* of its payloads is still
@@ -448,7 +444,7 @@ where
     .execute(pool)
     .await
     .map_err(|e| {
-        DomainError::ServiceUnavailable(format!("Failed to write GC history: {}", e))
+        DomainError::service_unavailable(format!("Failed to write GC history: {}", e))
     })?;
 
     info!(

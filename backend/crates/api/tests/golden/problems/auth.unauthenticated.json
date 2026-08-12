@@ -1,0 +1,7 @@
+{
+  "code": "auth.unauthenticated",
+  "detail": "Authentication required",
+  "status": 401,
+  "title": "Authentication required",
+  "type": "https://docs.breakdown.example/problems/auth.unauthenticated"
+}

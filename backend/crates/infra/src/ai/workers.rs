@@ -116,7 +116,7 @@ pub(crate) async fn fail_payload_load<Q: AiImportQueue + ?Sized>(
     worker_id: &str,
     error: &DomainError,
 ) -> Result<(), DomainError> {
-    if matches!(error, DomainError::NotFound(_)) {
+    if matches!(error, DomainError::NotFound { .. }) {
         return queue
             .mark_payload_unavailable(id, worker_id, &error.to_string())
             .await;
@@ -126,7 +126,7 @@ pub(crate) async fn fail_payload_load<Q: AiImportQueue + ?Sized>(
             id,
             worker_id,
             &error.to_string(),
-            matches!(error, DomainError::ServiceUnavailable(_)),
+            matches!(error, DomainError::ServiceUnavailable { .. }),
         )
         .await
 }
@@ -257,7 +257,7 @@ where
             if super::heartbeat::claim_lost(heartbeat.as_ref()) {
                 // Another worker owns the job now; every terminal write of
                 // ours would be rejected, so stop before the LLM spend.
-                return Err(DomainError::Conflict(format!(
+                return Err(DomainError::conflict(format!(
                     "AI import job {} was reclaimed while its source loaded",
                     job.id.as_uuid()
                 )));
@@ -282,8 +282,8 @@ where
         pdf_bytes: &[u8],
     ) -> Result<String, DomainError> {
         if job.document_kind != DocumentKind::Script {
-            return Err(DomainError::ValidationError(
-                "script worker received a non-script job".to_owned(),
+            return Err(DomainError::validation(
+                "script worker received a non-script job",
             ));
         }
         let text = self.extractor.extract(pdf_bytes).await?;
@@ -309,7 +309,7 @@ where
         let heartbeat = self.start_heartbeat(job.id, worker_id);
         let chunks = extract_scenes(text);
         let chunk_count = u32::try_from(chunks.len()).map_err(|error| {
-            DomainError::ValidationError(format!(
+            DomainError::validation(format!(
                 "script chunk count exceeds telemetry range: {error}"
             ))
         })?;
@@ -318,9 +318,8 @@ where
             return Err(error);
         }
         if chunks.is_empty() {
-            let error = DomainError::ValidationError(
-                "script did not contain an INT./EXT. scene heading".to_owned(),
-            );
+            let error =
+                DomainError::validation("script did not contain an INT./EXT. scene heading");
             self.fail(job.id, worker_id, &error).await?;
             return Err(error);
         }
@@ -360,7 +359,7 @@ where
             }
         }
         let payload = to_vec(&context).map_err(|error| {
-            DomainError::ValidationError(format!("could not serialize script preview: {error}"))
+            DomainError::validation(format!("could not serialize script preview: {error}"))
         })?;
         let handle = self.previews.put(job.id, payload).await?;
         // Stop renewing before the terminal writes so a heartbeat cannot race
@@ -407,7 +406,7 @@ where
                 id,
                 worker_id,
                 &error.to_string(),
-                matches!(error, DomainError::ServiceUnavailable(_)),
+                matches!(error, DomainError::ServiceUnavailable { .. }),
             )
             .await
     }
@@ -417,7 +416,7 @@ where
 /// Surfaced as a `Conflict` so the caller abandons the job instead of retrying
 /// — the new owner is already redoing the work.
 fn claim_lost_error(id: AiImportJobId, worker_id: &str) -> DomainError {
-    DomainError::Conflict(format!(
+    DomainError::conflict(format!(
         "worker {worker_id} lost its claim on AI import job {} mid-processing",
         id.as_uuid()
     ))
@@ -500,7 +499,7 @@ where
                 }
             };
             if super::heartbeat::claim_lost(heartbeat.as_ref()) {
-                return Err(DomainError::Conflict(format!(
+                return Err(DomainError::conflict(format!(
                     "AI import job {} was reclaimed while its source loaded",
                     job.id.as_uuid()
                 )));
@@ -525,8 +524,8 @@ where
         bytes: &[u8],
     ) -> Result<String, DomainError> {
         if job.document_kind != DocumentKind::Schedule {
-            return Err(DomainError::ValidationError(
-                "schedule worker received a non-schedule job".to_owned(),
+            return Err(DomainError::validation(
+                "schedule worker received a non-schedule job",
             ));
         }
         let started = Instant::now();
@@ -547,9 +546,7 @@ where
                 // `Csv` never reaches this branch (`native_csv` above), so the
                 // fallback is exactly `PlainText`.
                 _ => String::from_utf8(bytes.to_vec()).map_err(|error| {
-                    DomainError::ValidationError(format!(
-                        "schedule document is not UTF-8 text: {error}"
-                    ))
+                    DomainError::validation(format!("schedule document is not UTF-8 text: {error}"))
                 })?,
             };
             let request = LlmChatRequest {
@@ -571,7 +568,7 @@ where
             schedule.block_id = job.block_id;
         }
         let payload = to_vec(&schedule).map_err(|error| {
-            DomainError::ValidationError(format!("could not serialize schedule preview: {error}"))
+            DomainError::validation(format!("could not serialize schedule preview: {error}"))
         })?;
         let handle = self.previews.put(job.id, payload).await?;
         // Stop renewing before the terminal writes so a heartbeat cannot race
@@ -622,15 +619,15 @@ impl MergeWorker {
         scenes: &[breakdown_core::scene::views::SceneView],
     ) -> Result<MergedPreview, DomainError> {
         if scenes.is_empty() {
-            return Err(DomainError::Conflict(
-                "merge is pending until the block has applied scenes".to_owned(),
+            return Err(DomainError::conflict(
+                "merge is pending until the block has applied scenes",
             ));
         }
         Ok(merge_schedule_to_scenes(schedule, scenes))
     }
 
     pub fn validate_for_apply(preview: &MergedPreview) -> Result<(), DomainError> {
-        ensure_merge_applyable(preview).map_err(|error| DomainError::Conflict(error.to_string()))
+        ensure_merge_applyable(preview).map_err(|error| DomainError::conflict(error.to_string()))
     }
 }
 
@@ -662,7 +659,7 @@ where
             telemetry,
         } = request;
         ensure_script_applyable(preview)
-            .map_err(|error| DomainError::Conflict(error.to_string()))?;
+            .map_err(|error| DomainError::conflict(error.to_string()))?;
         let mut applied = Vec::with_capacity(preview.scenes.len());
         for (index, draft) in preview.scenes.iter().enumerate() {
             let draft_ref = if draft.draft_ref.is_empty() {
@@ -686,7 +683,7 @@ where
                         .map(|decision| decision.decision.clone())
                 })
                 .ok_or_else(|| {
-                    DomainError::ValidationError(format!("missing mapping for {draft_ref}"))
+                    DomainError::validation(format!("missing mapping for {draft_ref}"))
                 })?;
             let details = draft.scene_details();
             let (aggregate_id, version) = match decision {
@@ -763,7 +760,7 @@ pub struct UuidVersion {
 
 pub fn validate_chunk_count(chunk_count: usize, max_chunks: u32) -> Result<(), DomainError> {
     if chunk_count > max_chunks as usize {
-        return Err(DomainError::ValidationError(format!(
+        return Err(DomainError::validation(format!(
             "script contains {chunk_count} chunks, exceeding max_chunks_per_script {max_chunks}"
         )));
     }
@@ -818,7 +815,7 @@ where
         Ok(value) => Ok(value),
         Err(error) => match error.downcast::<DomainError>() {
             Ok(domain_error) => Err(domain_error),
-            Err(other) => Err(DomainError::ValidationError(other.to_string())),
+            Err(other) => Err(DomainError::validation(other.to_string())),
         },
     }
 }
@@ -845,7 +842,7 @@ where
         Ok(value) => Ok(value),
         Err(error) => match error.downcast::<DomainError>() {
             Ok(domain_error) => Err(domain_error),
-            Err(other) => Err(DomainError::ValidationError(other.to_string())),
+            Err(other) => Err(DomainError::validation(other.to_string())),
         },
     }
 }

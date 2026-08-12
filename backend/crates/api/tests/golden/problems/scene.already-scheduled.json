@@ -1,0 +1,7 @@
+{
+  "code": "scene.already-scheduled",
+  "detail": "Scene schedule conflict",
+  "status": 409,
+  "title": "Scene schedule conflict",
+  "type": "https://docs.breakdown.example/problems/scene.already-scheduled"
+}

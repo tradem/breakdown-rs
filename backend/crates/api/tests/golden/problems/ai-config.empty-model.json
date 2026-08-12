@@ -1,0 +1,7 @@
+{
+  "code": "ai-config.empty-model",
+  "detail": "AI assistant model must not be empty",
+  "status": 422,
+  "title": "AI assistant model must not be empty",
+  "type": "https://docs.breakdown.example/problems/ai-config.empty-model"
+}
