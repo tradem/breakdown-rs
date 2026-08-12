@@ -15,7 +15,7 @@
 skinparam shadowing false
 skinparam packageStyle rectangle
 skinparam entity {
-  BackgroundColor<> #FFFFFF
+  BackgroundColor #FFFFFF
 }
 hide circle
 hide methods

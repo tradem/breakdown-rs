@@ -1,0 +1,43 @@
+@startuml quality-tree
+' SPDX-License-Identifier: AGPL-3.0
+' Copyright (C) 2024-2026 Breakdown RS Contributors
+' Co-authored-by: kimi-k3 (neuralwatt)
+'
+' arc42 quality tree targets for Breakdown RS.
+
+skinparam shadowing false
+left to right direction
+
+component "Auditability & Integrity" as q1
+component "Correctness" as q2
+component "Operability" as q3
+component "Extensibility" as q4
+component "Performance" as q5
+
+component "Event sourcing, immutable events,\nno silent crashes" as q1a
+component "Insert-only audit projections,\nfull traceability" as q1b
+component "CQRS boundary enforced\n(ast-grep)" as q2a
+component "No panics in\nproduction code" as q2b
+component "Mutation testing\n(zero survivors)" as q2c
+component "OIDC + RBAC\n(AUTHZ-GATE)" as q3a
+component "Structured errors\n(RFC 9457)" as q3b
+component "Tracing + Metrics\n(OTel planned)" as q3c
+component "Hexagonal\nports/adapters" as q4a
+component "Event-driven sagas,\nno cross-cutting deps" as q4b
+component "Direct projection reads,\nno aggregate for queries" as q5a
+component "Async projectors,\neventual consistency" as q5b
+
+q1 --> q1a
+q1 --> q1b
+q2 --> q2a
+q2 --> q2b
+q2 --> q2c
+q3 --> q3a
+q3 --> q3b
+q3 --> q3c
+q4 --> q4a
+q4 --> q4b
+q5 --> q5a
+q5 --> q5b
+
+@enduml

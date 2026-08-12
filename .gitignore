@@ -53,3 +53,12 @@ mutants.out*/
 # Agent/IDE configuration directories
 .pi/**
 backend/.pi/plugins/ast-bro/**
+
+# arc42 documentation build artifacts
+backend/docs/architecture/arc42-typst/dist/
+# Generated diagram SVGs (rendered from backend/docs/architecture/diagrams/*.puml by build.sh)
+backend/docs/architecture/arc42-typst/diagrams/
+
+# Python
+__pycache__/
+*.pyc

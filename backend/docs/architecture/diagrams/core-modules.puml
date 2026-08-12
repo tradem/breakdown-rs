@@ -1,0 +1,61 @@
+@startuml core-modules
+' SPDX-License-Identifier: AGPL-3.0
+' Copyright (C) 2024-2026 Breakdown RS Contributors
+' Co-authored-by: kimi-k3 (neuralwatt)
+'
+' Bounded contexts inside crates/core and their relationships.
+
+skinparam shadowing false
+skinparam linetype ortho
+
+package "Production Hierarchy" {
+  [Series (ID seam)] as series
+  [Season] as season
+  [Block] as block
+  [Episode] as episode
+  [Scene] as scene
+  [ShootingDay] as day
+  [SceneShoot] as shoot
+}
+
+package "Costume Domain" {
+  [Character] as character
+  [Costume] as costume
+  [CostumeCategory] as cat
+}
+
+package "Photo" {
+  [Photo] as photo
+}
+
+package "Cross-Cutting" {
+  [Membership] as membership
+  [Audit] as audit
+  [AI Import] as ai
+  component "Reporting\n(Soll-Ist, Dispo)" as reporting
+  [Settings] as settings
+  component "Shared\n(sort keys, IDs)" as shared
+}
+
+series --> season : 1..n
+season --> block : 1..n
+block --> episode : 1..n
+episode --> scene : 1..n
+episode --> day : plans on
+scene --> shoot : 1..n (per day)
+shoot --> day : on
+
+season --> character : costumes assigned\n(season-scoped)
+character --> costume : owns
+costume ..> cat : category lookup\n(season vocab)
+
+shoot ..> photo : continuity photos
+costume ..> photo : costume photos
+
+episode ..> ai : import from script
+scene ..> reporting : reports reference
+membership ..> season : season-scoped roles
+audit ..> membership : audit trail
+settings ..> season : per-season access
+
+@enduml

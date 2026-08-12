@@ -1,0 +1,53 @@
+@startuml create-scene-sequence
+' SPDX-License-Identifier: AGPL-3.0
+' Copyright (C) 2024-2026 Breakdown RS Contributors
+' Co-authored-by: kimi-k3 (neuralwatt)
+'
+' Runtime view: POST scene command with authz gate.
+
+skinparam shadowing false
+skinparam sequenceArrowThickness 2
+
+participant "User" as user
+participant "POST /api/v1/episodes/{id}/scenes\nHandler" as api
+participant "AuthorizationPolicy\n(has_active_member_role)" as authz
+participant "CommandService" as svc
+participant "SceneAggregate" as agg
+database "SierraDB" as es
+participant "SceneProjector" as proj
+database "PostgreSQL" as db
+
+user -> api : POST { name, episode_id, shooting_day_id? }
+activate api
+api -> authz : check membership (block-scoped)
+activate authz
+authz --> api : allow / deny
+deactivate authz
+alt denied
+  api --> user : 403 (problem+json)
+else allowed
+  api -> svc : CreateScene { validated fields }
+  activate svc
+  svc -> agg : execute
+  activate agg
+  agg -> agg : validate (name unique? episode exists?)
+  alt validation fails
+    agg --> svc : DomainError::Validation
+    deactivate agg
+    svc --> api : Err
+    api --> user : 4xx problem+json
+  else valid
+    agg --> svc : SceneCreated(event)
+    deactivate agg
+    svc -> es : append event
+    es --> svc : version
+    svc --> api : { id, version }
+    api --> user : 201 Created
+    deactivate svc
+    es ->> proj : SceneCreated
+    activate proj
+    proj -> db : INSERT projection_scene
+    deactivate proj
+  end
+end
+@enduml

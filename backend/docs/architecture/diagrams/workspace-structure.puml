@@ -1,0 +1,58 @@
+@startuml workspace-structure
+' SPDX-License-Identifier: AGPL-3.0
+' Copyright (C) 2024-2026 Breakdown RS Contributors
+' Co-authored-by: kimi-k3 (neuralwatt)
+'
+' Crate-level structure of the Rust workspace and dependency directions.
+
+skinparam shadowing false
+skinparam linetype ortho
+left to right direction
+
+package "crates/core" as core {
+  component "Commands\n(imperative)" as cmd
+  [Events] as evt
+  [Aggregates] as agg
+  [Ports (traits)] as ports
+  [Read-Model DTOs] as dto
+  [Error Registry] as err
+  cmd --> evt
+  agg ..> ports
+}
+
+package "crates/infra" as infra {
+  component "Event Store adapters\n(kameo_es / SierraDB)" as es
+  component "Projectors\n(PostgresProcessor)" as proj
+  component "Repositories + Queries\n(sqlx)" as repo
+  component "Photo Storage\n(OpenDAL / Garage)" as s3
+  component "Sagas" as sagas
+  component "AI Import workers" as ai
+  es ..> ports : implements
+  repo ..> ports : implements
+  s3 ..> ports : implements
+  sagas ..> ports
+  proj --> evt
+  ai --> cmd
+}
+
+package "crates/api" as api {
+  component "HTTP Handlers\n(axum + utoipa)" as handlers
+  component "Middleware\n(OIDC validation)" as mw
+  component "Composition Root\n(main.rs)" as root
+  handlers --> cmd
+  handlers --> dto
+  root ..> infra
+  root ..> core
+}
+
+package "Test crates" as tests {
+  component "crates/integration-tests\n(Tier 1-4, testcontainers)" as it
+  component "crates/architecture\n(rust_arkitect, cargo-deny)" as at
+  component "crates/fuzz-targets" as fuzz
+}
+
+it ..> core : pub API only
+it ..> infra : pub API only
+at ..> core : boundary rules (ADR-017)
+
+@enduml

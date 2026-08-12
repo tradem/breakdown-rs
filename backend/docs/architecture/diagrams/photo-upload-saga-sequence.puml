@@ -1,0 +1,46 @@
+@startuml photo-upload-saga-sequence
+' SPDX-License-Identifier: AGPL-3.0
+' Copyright (C) 2024-2026 Breakdown RS Contributors
+' Co-authored-by: kimi-k3 (neuralwatt)
+'
+' Runtime view: photo upload with thumbnail saga.
+
+skinparam shadowing false
+skinparam sequenceArrowThickness 2
+
+participant "User" as user
+participant "POST /costumes/{id}/photos\nHandler" as api
+participant "CommandService" as svc
+participant "PhotoAggregate" as agg
+database "SierraDB" as es
+participant "PhotoThumbnailSaga" as saga
+participant "Garage (S3)" as s3
+database "PostgreSQL" as pg
+
+user -> api : multipart upload { bytes, binding: Costume{id} }
+activate api
+api -> svc : UploadPhoto { meta, bytes }
+svc -> agg : execute
+agg --> svc : PhotoUploaded { photo_id, meta }
+svc -> es : append
+svc --> api : { photo_id }
+api --> user : 202 Accepted
+deactivate api
+
+es ->> saga : PhotoUploaded
+activate saga
+saga -> s3 : fetch original bytes
+s3 --> saga : bytes
+saga -> saga : decode, strip EXIF,\ngenerate Thumb/Medium
+saga -> s3 : put Thumb, Medium\n(content-addressed)
+saga -> svc : GenerateVariantsCompleted { photo_id }
+svc -> es : append
+deactivate saga
+
+es ->> pg : all Photo events
+note right of pg
+  thumbnail projector updates
+  projection_photo variants
+end note
+
+@enduml
