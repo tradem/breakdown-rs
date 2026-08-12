@@ -1,6 +1,6 @@
 {
   "code": "auth.idp-unavailable",
-  "detail": "Identity provider unavailable",
+  "detail": "Der Identitätsanbieter ist derzeit nicht erreichbar.",
   "status": 503,
   "title": "Identity provider unavailable",
   "type": "https://docs.breakdown.example/problems/auth.idp-unavailable"

@@ -14,7 +14,7 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::auth::{AuthState, AuthorizationState, auth_middleware, authorize_middleware};
 use crate::handlers;
-use crate::problems::{self, route_not_found};
+use crate::problems::{self, locale::negotiate_language, route_not_found};
 use crate::state::{AppState, ProductionPorts};
 use crate::versioning::{DeprecationRegistry, deprecation_middleware};
 
@@ -38,6 +38,9 @@ where
 {
     api.layer(
         ServiceBuilder::new()
+            // Outermost: negotiate `Accept-Language` once so even auth
+            // rejections render a localized problem `detail` (ADR-031 D5).
+            .layer(middleware::from_fn(negotiate_language))
             .layer(middleware::from_fn_with_state(auth, auth_middleware))
             .layer(middleware::from_fn_with_state(authz, authorize_middleware))
             .layer(middleware::from_fn_with_state(

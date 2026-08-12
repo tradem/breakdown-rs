@@ -1,6 +1,6 @@
 {
   "code": "membership.already-invited",
-  "detail": "Already invited",
+  "detail": "Für diese Person besteht bereits eine Einladung.",
   "status": 409,
   "title": "Already invited",
   "type": "https://docs.breakdown.example/problems/membership.already-invited"

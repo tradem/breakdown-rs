@@ -1,6 +1,9 @@
 {
   "code": "shooting-day.not-found",
-  "detail": "Shooting day not found",
+  "detail": "Drehtag nicht gefunden.",
+  "extensions": {
+    "id": "00000000-0000-0000-0000-000000000001"
+  },
   "status": 404,
   "title": "Shooting day not found",
   "type": "https://docs.breakdown.example/problems/shooting-day.not-found"

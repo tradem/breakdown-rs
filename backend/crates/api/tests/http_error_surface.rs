@@ -499,6 +499,101 @@ async fn unhandled_panic_is_500_http_internal_error() {
     assert!(!detail.contains("boom"));
 }
 
+// ---------------------------------------------------------------------------
+// Locale negotiation (ADR-031 D5) — the same failure under different
+// `Accept-Language` headers renders a localized `detail`.
+// ---------------------------------------------------------------------------
+
+async fn detail_for_language(key: &RsaPrivateKey, accept_language: Option<&str>) -> String {
+    let token = signed_token(key);
+    let repo = Arc::new(FakeMembershipRepo::default());
+    let block = BlockId::new();
+    repo.members
+        .lock()
+        .await
+        .insert((block, UserId::from_sub(DEV_SUB)));
+    let policy = Arc::new(MembershipAuthorizationPolicy::new(repo));
+    let authz = Arc::new(AuthorizationState::new(policy, /*enforce=*/ true));
+    let app = test_router(prod_auth(key), authz);
+
+    let mut request = authed_request(
+        &token,
+        Some(block),
+        "GET",
+        "/v1/characters/00000000-0000-0000-0000-000000000001",
+        None,
+        None,
+    );
+    if let Some(header) = accept_language {
+        request.headers_mut().insert(
+            axum::http::header::ACCEPT_LANGUAGE,
+            header.parse().expect("header"),
+        );
+    }
+    let (_status, _headers, json) = send(&app, request).await;
+    json["detail"].as_str().unwrap_or("").to_string()
+}
+
+#[tokio::test]
+async fn detail_is_localized_per_accept_language() {
+    let key = test_key();
+
+    // German request → German detail (primary locale).
+    let de = detail_for_language(&key, Some("de")).await;
+    assert!(
+        de.contains("nicht gefunden"),
+        "de detail expected German, got: {de}"
+    );
+
+    // English request → English detail.
+    let en = detail_for_language(&key, Some("en")).await;
+    assert!(
+        en.contains("not found"),
+        "en detail expected English, got: {en}"
+    );
+    assert_ne!(de, en, "de and en details must differ");
+}
+
+#[tokio::test]
+async fn q_values_are_honoured_and_missing_header_defaults_to_german() {
+    let key = test_key();
+
+    // `uk` unsupported; de q=0.9 beats en q=0.2 → German.
+    let q = detail_for_language(&key, Some("uk, en;q=0.2, de;q=0.9")).await;
+    assert!(
+        q.contains("nicht gefunden"),
+        "q-negotiation must pick de, got: {q}"
+    );
+
+    // en q=0.9 beats de q=0.1 → English.
+    let q_en = detail_for_language(&key, Some("de;q=0.1, en;q=0.9")).await;
+    assert!(
+        q_en.contains("not found"),
+        "q-negotiation must pick en, got: {q_en}"
+    );
+
+    // Missing header → German.
+    let missing = detail_for_language(&key, None).await;
+    assert!(
+        missing.contains("nicht gefunden"),
+        "missing header must default to de, got: {missing}"
+    );
+
+    // Unsupported locale only → falls back to de.
+    let unsupported = detail_for_language(&key, Some("fr, uk;q=0.9")).await;
+    assert!(
+        unsupported.contains("nicht gefunden"),
+        "unsupported locale must fall back to de, got: {unsupported}"
+    );
+
+    // Garbage header → de.
+    let garbage = detail_for_language(&key, Some("!!!not-a-locale!!!")).await;
+    assert!(
+        garbage.contains("nicht gefunden"),
+        "garbage header must default to de, got: {garbage}"
+    );
+}
+
 #[test]
 fn openapi_documents_problem_details_with_problem_json_media_type() {
     let doc = api::api_doc();

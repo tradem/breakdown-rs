@@ -1,6 +1,6 @@
 {
   "code": "membership.no-pending-invitation",
-  "detail": "No pending invitation",
+  "detail": "Es liegt keine offene Einladung vor.",
   "status": 409,
   "title": "No pending invitation",
   "type": "https://docs.breakdown.example/problems/membership.no-pending-invitation"

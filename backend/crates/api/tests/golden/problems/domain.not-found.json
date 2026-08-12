@@ -1,6 +1,6 @@
 {
   "code": "domain.not-found",
-  "detail": "Not found",
+  "detail": "Die angeforderte Ressource wurde nicht gefunden.",
   "status": 404,
   "title": "Not found",
   "type": "https://docs.breakdown.example/problems/domain.not-found"

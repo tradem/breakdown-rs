@@ -1,6 +1,9 @@
 {
   "code": "scene-shoot.note-not-found",
-  "detail": "Scene shoot note not found",
+  "detail": "Notiz nicht gefunden.",
+  "extensions": {
+    "note_id": "00000000-0000-0000-0000-000000000001"
+  },
   "status": 404,
   "title": "Scene shoot note not found",
   "type": "https://docs.breakdown.example/problems/scene-shoot.note-not-found"

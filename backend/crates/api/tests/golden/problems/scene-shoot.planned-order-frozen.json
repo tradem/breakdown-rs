@@ -1,6 +1,6 @@
 {
   "code": "scene-shoot.planned-order-frozen",
-  "detail": "Planned order is frozen",
+  "detail": "Die geplante Reihenfolge ist eingefroren, nachdem Ausführungsdaten erfasst wurden.",
   "status": 409,
   "title": "Planned order is frozen",
   "type": "https://docs.breakdown.example/problems/scene-shoot.planned-order-frozen"

@@ -1,6 +1,6 @@
 {
   "code": "http.request-timeout",
-  "detail": "Request timeout",
+  "detail": "Die Anfrage hat das Zeitlimit überschritten.",
   "status": 408,
   "title": "Request timeout",
   "type": "https://docs.breakdown.example/problems/http.request-timeout"

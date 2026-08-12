@@ -63,12 +63,23 @@ tower-http.workspace = true
 http-body-util = "0.1"
 indexmap = "2"
 
+# Server-side `detail` localization (ADR-031 D5, Tranche 3). `fluent` is the
+# umbrella crate; `fluent-bundle` drives the message bundles. `accept-language`
+# parses q-valued `Accept-Language` headers; `unic-langid` models locales.
+# Core stays dependency-free — only the api crate touches i18n.
+fluent = "0.17"
+fluent-bundle = "0.16"
+unic-langid = "0.9"
+accept-language = "3"
+
 [dev-dependencies]
 # `test-util` enables deterministic Tokio clock control for cache-expiry tests.
 tokio = { workspace = true, features = ["test-util"] }
 rsa = "0.9"
 hyper = { version = "1", features = ["server", "http1"] }
 tower = "0.5"
+# Coverage lint parses the FTL bundles (tests only).
+fluent-syntax = "0.12"
 
 [lints]
 workspace = true

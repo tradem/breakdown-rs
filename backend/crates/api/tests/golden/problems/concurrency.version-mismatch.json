@@ -1,6 +1,10 @@
 {
   "code": "concurrency.version-mismatch",
-  "detail": "Version conflict",
+  "detail": "Die Daten wurden zwischenzeitlich geändert. Bitte neu laden und erneut versuchen (erwartet: ⁨2⁩, aktuell: ⁨3⁩).",
+  "extensions": {
+    "current_version": 3,
+    "expected_version": 2
+  },
   "status": 409,
   "title": "Version conflict",
   "type": "https://docs.breakdown.example/problems/concurrency.version-mismatch"

@@ -1,6 +1,6 @@
 {
   "code": "shooting-day.validation",
-  "detail": "Shooting day validation failed",
+  "detail": "Die Drehtag-Anfrage ist nicht gültig.",
   "status": 422,
   "title": "Shooting day validation failed",
   "type": "https://docs.breakdown.example/problems/shooting-day.validation"

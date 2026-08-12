@@ -1,6 +1,6 @@
 {
   "code": "http.bad-request",
-  "detail": "Bad request",
+  "detail": "Ungültige Anfrage.",
   "status": 400,
   "title": "Bad request",
   "type": "https://docs.breakdown.example/problems/http.bad-request"

@@ -1,6 +1,6 @@
 {
   "code": "scene-shoot.terminal-state",
-  "detail": "Scene shoot in terminal state",
+  "detail": "Die Aufnahme befindet sich in einem Endzustand.",
   "status": 409,
   "title": "Scene shoot in terminal state",
   "type": "https://docs.breakdown.example/problems/scene-shoot.terminal-state"

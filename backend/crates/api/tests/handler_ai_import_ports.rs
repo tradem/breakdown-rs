@@ -273,7 +273,8 @@ async fn upload_ai_script_rejects_oversize_documents() {
             .into_problem();
     assert_eq!(problem.status, StatusCode::PAYLOAD_TOO_LARGE.as_u16());
     assert_eq!(problem.code, "http.payload-too-large");
-    assert!(problem.detail.contains("size limit"));
+    // Detail is localized (ADR-031 D5); the code is the contract.
+    assert!(!problem.detail.is_empty());
 }
 
 #[tokio::test]
@@ -311,7 +312,8 @@ async fn get_ai_import_job_denies_a_foreign_owner() {
         .into_problem();
     assert_eq!(problem.status, StatusCode::FORBIDDEN.as_u16());
     assert_eq!(problem.code, "domain.forbidden");
-    assert!(problem.detail.contains("not authorized"));
+    // Detail is localized (ADR-031 D5); the code is the contract.
+    assert!(!problem.detail.is_empty());
 }
 
 #[tokio::test]
@@ -454,7 +456,8 @@ async fn apply_ai_import_rejects_an_episode_from_another_block() {
 
     assert_eq!(problem.status, StatusCode::FORBIDDEN.as_u16());
     assert_eq!(problem.code, "domain.forbidden");
-    assert!(problem.detail.contains("not authorized"));
+    // Detail is localized (ADR-031 D5); the code is the contract.
+    assert!(!problem.detail.is_empty());
     // The gate runs before the worker: nothing was written on *either* write
     // path — mappings and telemetry are separate sinks on the queue/mapping
     // ports, so both must stay empty.
@@ -504,7 +507,8 @@ async fn apply_ai_import_rejects_accept_as_is_with_a_nonzero_edit_distance() {
     // ADR-031 D6: domain validation is 422 (was 400 pre-change).
     assert_eq!(problem.status, StatusCode::UNPROCESSABLE_ENTITY.as_u16());
     assert_eq!(problem.code, "domain.validation");
-    assert!(problem.detail.contains("edit_distance = 0"));
+    // Detail is localized (ADR-031 D5); the code is the contract.
+    assert!(!problem.detail.is_empty());
     // The validation rejects before any write reaches either sink.
     assert!(
         mappings
@@ -624,7 +628,8 @@ async fn get_ai_config_denies_a_foreign_owner() {
         .into_problem();
     assert_eq!(problem.status, StatusCode::FORBIDDEN.as_u16());
     assert_eq!(problem.code, "domain.forbidden");
-    assert!(problem.detail.contains("not authorized"));
+    // Detail is localized (ADR-031 D5); the code is the contract.
+    assert!(!problem.detail.is_empty());
 }
 
 #[tokio::test]
@@ -648,7 +653,8 @@ async fn ai_config_creation_is_denied_without_the_credential_role() {
     .into_problem();
     assert_eq!(problem.status, StatusCode::FORBIDDEN.as_u16());
     assert_eq!(problem.code, "domain.forbidden");
-    assert!(problem.detail.contains("not authorized"));
+    // Detail is localized (ADR-031 D5); the code is the contract.
+    assert!(!problem.detail.is_empty());
 }
 
 #[tokio::test]
@@ -670,5 +676,6 @@ async fn ai_upload_is_not_found_when_the_feature_is_disabled() {
     .into_problem();
     assert_eq!(problem.status, StatusCode::NOT_FOUND.as_u16());
     assert_eq!(problem.code, "domain.not-found");
-    assert!(problem.detail.contains("disabled"));
+    // Detail is localized (ADR-031 D5); the code is the contract.
+    assert!(!problem.detail.is_empty());
 }

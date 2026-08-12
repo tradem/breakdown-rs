@@ -1,6 +1,6 @@
 {
   "code": "settings.provider-mismatch",
-  "detail": "Credential provider cannot change during rotation",
+  "detail": "Der Anbieter kann während der Rotation nicht gewechselt werden.",
   "status": 409,
   "title": "Credential provider cannot change during rotation",
   "type": "https://docs.breakdown.example/problems/settings.provider-mismatch"

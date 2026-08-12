@@ -1,6 +1,6 @@
 {
   "code": "scene-shoot.pair-already-exists",
-  "detail": "Scene shoot pair already exists",
+  "detail": "Für dieses Szenen-Drehtag-Paar existiert bereits eine Aufnahme.",
   "status": 409,
   "title": "Scene shoot pair already exists",
   "type": "https://docs.breakdown.example/problems/scene-shoot.pair-already-exists"

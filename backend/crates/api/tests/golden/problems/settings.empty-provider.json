@@ -1,6 +1,6 @@
 {
   "code": "settings.empty-provider",
-  "detail": "Credential provider must not be empty",
+  "detail": "Der Anbieter darf nicht leer sein.",
   "status": 422,
   "title": "Credential provider must not be empty",
   "type": "https://docs.breakdown.example/problems/settings.empty-provider"

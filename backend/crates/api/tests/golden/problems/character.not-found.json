@@ -1,6 +1,9 @@
 {
   "code": "character.not-found",
-  "detail": "Character not found",
+  "detail": "Charakter nicht gefunden.",
+  "extensions": {
+    "id": "00000000-0000-0000-0000-000000000001"
+  },
   "status": 404,
   "title": "Character not found",
   "type": "https://docs.breakdown.example/problems/character.not-found"

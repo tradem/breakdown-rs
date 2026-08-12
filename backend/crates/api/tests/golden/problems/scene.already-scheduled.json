@@ -1,6 +1,9 @@
 {
   "code": "scene.already-scheduled",
-  "detail": "Scene schedule conflict",
+  "detail": "Die Szene ist bereits auf einem anderen Drehtag eingeplant (Drehtag ⁨00000000-0000-0000-0000-000000000001⁩).",
+  "extensions": {
+    "offending_shooting_day_id": "00000000-0000-0000-0000-000000000001"
+  },
   "status": 409,
   "title": "Scene schedule conflict",
   "type": "https://docs.breakdown.example/problems/scene.already-scheduled"

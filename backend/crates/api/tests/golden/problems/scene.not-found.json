@@ -1,6 +1,9 @@
 {
   "code": "scene.not-found",
-  "detail": "Scene not found",
+  "detail": "Szene nicht gefunden.",
+  "extensions": {
+    "id": "00000000-0000-0000-0000-000000000001"
+  },
   "status": 404,
   "title": "Scene not found",
   "type": "https://docs.breakdown.example/problems/scene.not-found"

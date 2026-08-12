@@ -1,6 +1,6 @@
 {
   "code": "auth.unauthenticated",
-  "detail": "Authentication required",
+  "detail": "Authentifizierung erforderlich. Bitte melden Sie sich an.",
   "status": 401,
   "title": "Authentication required",
   "type": "https://docs.breakdown.example/problems/auth.unauthenticated"

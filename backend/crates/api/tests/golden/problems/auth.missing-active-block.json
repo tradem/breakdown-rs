@@ -1,6 +1,6 @@
 {
   "code": "auth.missing-active-block",
-  "detail": "Missing active block",
+  "detail": "Der X-Active-Block-Header fehlt.",
   "status": 400,
   "title": "Missing active block",
   "type": "https://docs.breakdown.example/problems/auth.missing-active-block"

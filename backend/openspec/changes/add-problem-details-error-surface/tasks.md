@@ -18,24 +18,24 @@
 
 ## 2. Tranche 2 — Structured domain errors & code registry
 
-- [ ] 2.1 Restructure `DomainError` variants from string-carrying to structured (resource kinds, typed IDs) in `crates/core`
-- [ ] 2.2 Port all `From<*Error> for DomainError` impls (12 modules) to the structured form, deleting interpolated `format!` messages
-- [ ] 2.3 Register every domain code (`{context}.{reason}`) with status, constant English title, and declared S0/S1 extension fields; derive `type` URI from code
-- [ ] 2.4 Populate extension whitelist per code; build extensions only from declared fields so undeclared fields fail compilation
-- [ ] 2.5 Classify every extension field S0/S1 in the registry and add the documented S2 ban (no person identifiers, no cross-tenant data)
-- [ ] 2.6 Golden-file serialization tests: snapshot the problem JSON per code; CI fails on any extension/envelope diff
-- [ ] 2.7 Add ast-grep rule to `architecture-checks.yml` + pre-commit hook forbidding `sub`/`email` field references in problem-builder code (S2 enforcement)
-- [ ] 2.8 Verify S1 gating: audit every S1-carrying code that its handler runs the authorization gate before the failure can occur (AUTHZ-GATE comment present)
+- [x] 2.1 Restructure `DomainError` variants from string-carrying to structured (resource kinds, typed IDs) in `crates/core`
+- [x] 2.2 Port all `From<*Error> for DomainError` impls (12 modules) to the structured form, deleting interpolated `format!` messages
+- [x] 2.3 Register every domain code (`{context}.{reason}`) with status, constant English title, and declared S0/S1 extension fields; derive `type` URI from code
+- [x] 2.4 Populate extension whitelist per code; build extensions only from declared fields so undeclared fields fail compilation
+- [x] 2.5 Classify every extension field S0/S1 in the registry and add the documented S2 ban (no person identifiers, no cross-tenant data)
+- [x] 2.6 Golden-file serialization tests: snapshot the problem JSON per code; CI fails on any extension/envelope diff
+- [x] 2.7 Add ast-grep rule to `architecture-checks.yml` + pre-commit hook forbidding `sub`/`email` field references in problem-builder code (S2 enforcement)
+- [x] 2.8 Verify S1 gating: audit every S1-carrying code that its handler runs the authorization gate before the failure can occur (AUTHZ-GATE comment present)
 
 ## 3. Tranche 3 — Server-side i18n
 
-- [ ] 3.1 Add `fluent`, `fluent-bundle`, `unic-langid`, `accept-language` to `crates/api` (and `cargo deny` review); core stays dependency-free
-- [ ] 3.2 Lay out `crates/api/locales/de/errors.ftl` and `crates/api/locales/en/errors.ftl` using standard Fluent syntax only (Pontoon/Weblate-importable)
-- [ ] 3.3 Implement the `Accept-Language` extractor with q-value parsing, supported-set matching, and fallback chain `requested… → de → en` (absent/garbage → `de`)
-- [ ] 3.4 Wire the problem builder to render `detail` from the negotiated locale bundle using declared extension values as Fluent arguments (interpolation, never `format!`)
-- [ ] 3.5 Add bundle-coverage lint (CI): every registry code has messages in all active locales; every bundle key maps to an existing (or deprecated) registry code
-- [ ] 3.6 Write `de` + `en` messages for every registered code, using `select` expressions wherever plural/gender applies (pre-validating the pl/uk readiness)
-- [ ] 3.7 HTTP integration tests: same failure under `de`, `en`, q-valued header, missing header (→ `de`), and unsupported locale (→ fallback chain)
+- [x] 3.1 Add `fluent`, `fluent-bundle`, `unic-langid`, `accept-language` to `crates/api` (and `cargo deny` review); core stays dependency-free
+- [x] 3.2 Lay out `crates/api/locales/de/errors.ftl` and `crates/api/locales/en/errors.ftl` using standard Fluent syntax only (Pontoon/Weblate-importable)
+- [x] 3.3 Implement the `Accept-Language` extractor with q-value parsing, supported-set matching, and fallback chain `requested… → de → en` (absent/garbage → `de`)
+- [x] 3.4 Wire the problem builder to render `detail` from the negotiated locale bundle using declared extension values as Fluent arguments (interpolation, never `format!`)
+- [x] 3.5 Add bundle-coverage lint (CI): every registry code has messages in all active locales; every bundle key maps to an existing (or deprecated) registry code
+- [x] 3.6 Write `de` + `en` messages for every registered code, using `select` expressions wherever plural/gender applies (pre-validating the pl/uk readiness)
+- [x] 3.7 HTTP integration tests: same failure under `de`, `en`, q-valued header, missing header (→ `de`), and unsupported locale (→ fallback chain)
 
 ## 4. Documentation & governance
 

@@ -61,7 +61,8 @@ async fn list_ai_providers_denies_non_credential_role_member() {
         .into_problem();
     assert_eq!(problem.status, 403);
     assert_eq!(problem.code, "domain.forbidden");
-    assert!(problem.detail.contains("not authorized"));
+    // Detail is localized (ADR-031 D5); the code is the contract.
+    assert!(!problem.detail.is_empty());
 }
 
 #[tokio::test]
@@ -118,7 +119,8 @@ async fn list_ai_models_denies_non_credential_role_member() {
         .into_problem();
     assert_eq!(problem.status, 403);
     assert_eq!(problem.code, "domain.forbidden");
-    assert!(problem.detail.contains("not authorized"));
+    // Detail is localized (ADR-031 D5); the code is the contract.
+    assert!(!problem.detail.is_empty());
 }
 
 #[tokio::test]

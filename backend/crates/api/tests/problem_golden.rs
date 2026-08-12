@@ -43,13 +43,36 @@ fn golden_dir() -> PathBuf {
         .join("problems")
 }
 
+/// Sample value for a declared extension field (golden rendering only).
+///
+/// Every declared field must be bound when the snapshot is built: the
+/// localized `detail` has to lock in the *bound* message. Without
+/// arguments, Fluent renders unbound placeholders surrounded by bidi-isolate
+/// markers (U+2068/U+2069) — a snapshot of that would pin rendering internals
+/// instead of the contract.
+fn sample_extension_value(field: &str) -> serde_json::Value {
+    match field {
+        // Integers per the OpenAPI example (`expected_version: 2,
+        // current_version: 3`).
+        "expected_version" => serde_json::json!(2),
+        "current_version" => serde_json::json!(3),
+        // UUID-typed S1 fields (character/shooting-day/photo ids): a
+        // syntactically valid placeholder id.
+        _ => serde_json::json!("00000000-0000-0000-0000-000000000001"),
+    }
+}
+
 #[test]
 fn problem_documents_match_golden_snapshots() {
     let update = std::env::var("UPDATE_GOLDEN").is_ok();
     let mut failures: Vec<String> = Vec::new();
 
     for entry in PROBLEM_CODES {
-        let document = problem(*entry).build();
+        let mut builder = problem(*entry);
+        for field in entry.extensions {
+            builder = builder.extension(*field, sample_extension_value(field));
+        }
+        let document = builder.build();
         let mut json = serde_json::to_value(&document).expect("problem serializes");
         // `trace_id` is request-scoped (otel span / random fallback) and must
         // not be part of the stable snapshot.

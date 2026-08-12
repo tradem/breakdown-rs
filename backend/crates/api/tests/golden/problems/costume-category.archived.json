@@ -1,6 +1,9 @@
 {
   "code": "costume-category.archived",
-  "detail": "Costume category is archived",
+  "detail": "Die Kostümkategorie ist archiviert und kann nicht mehr geändert werden.",
+  "extensions": {
+    "id": "00000000-0000-0000-0000-000000000001"
+  },
   "status": 409,
   "title": "Costume category is archived",
   "type": "https://docs.breakdown.example/problems/costume-category.archived"

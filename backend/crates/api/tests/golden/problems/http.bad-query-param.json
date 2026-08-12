@@ -1,6 +1,6 @@
 {
   "code": "http.bad-query-param",
-  "detail": "Invalid query parameter",
+  "detail": "Ungültiger oder fehlender Query-Parameter.",
   "status": 400,
   "title": "Invalid query parameter",
   "type": "https://docs.breakdown.example/problems/http.bad-query-param"

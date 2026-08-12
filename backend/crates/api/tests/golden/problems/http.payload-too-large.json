@@ -1,6 +1,6 @@
 {
   "code": "http.payload-too-large",
-  "detail": "Payload too large",
+  "detail": "Die Anfrage überschreitet das zulässige Größenlimit.",
   "status": 413,
   "title": "Payload too large",
   "type": "https://docs.breakdown.example/problems/http.payload-too-large"

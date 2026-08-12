@@ -28,6 +28,8 @@ use breakdown_core::error_registry::{
 };
 use serde::Serialize;
 
+pub mod locale;
+
 /// Media type of every problem response (RFC 9457 §3).
 pub const PROBLEM_CONTENT_TYPE: &str = "application/problem+json";
 
@@ -158,7 +160,7 @@ impl ProblemBuilder {
             }
             Some(map)
         };
-        ProblemDetails {
+        let mut document = ProblemDetails {
             type_: self.code.type_uri(),
             title: self.code.title.to_owned(),
             status: self.code.status,
@@ -166,7 +168,18 @@ impl ProblemBuilder {
             detail: self.detail.unwrap_or_else(|| self.code.title.to_owned()),
             trace_id: current_trace_id(),
             extensions,
+        };
+        // ADR-031 D5: render `detail` from the negotiated locale's Fluent
+        // bundle, using the declared S0/S1 extension values as arguments.
+        // The bundle message wins over the (English) title / explicit
+        // override; missing messages degrade to the title.
+        let locale = locale::current_locale();
+        if let Some(localized) =
+            locale::localize(&locale, self.code.code, &locale::fluent_args(&document))
+        {
+            document.detail = localized;
         }
+        document
     }
 }
 
@@ -543,7 +556,14 @@ mod tests {
             document.type_,
             "https://docs.breakdown.example/problems/concurrency.version-mismatch"
         );
-        assert_eq!(document.detail, "Version conflict");
+        // Detail is localized (default locale `de` in tests, ADR-031 D5);
+        // title stays the constant English string.
+        assert!(
+            document.detail.contains("neu laden"),
+            "detail should be the German version-conflict message, got: {}",
+            document.detail
+        );
+        assert_eq!(document.title, "Version conflict");
 
         let value: serde_json::Value = serde_json::to_value(&document).expect("serializable");
         assert_eq!(value["type"], document.type_);

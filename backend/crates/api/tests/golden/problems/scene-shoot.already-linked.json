@@ -1,6 +1,9 @@
 {
   "code": "scene-shoot.already-linked",
-  "detail": "Continuity photo already linked",
+  "detail": "Das Kontinuitätsfoto ist bereits mit dieser Aufnahme verknüpft.",
+  "extensions": {
+    "photo_id": "00000000-0000-0000-0000-000000000001"
+  },
   "status": 409,
   "title": "Continuity photo already linked",
   "type": "https://docs.breakdown.example/problems/scene-shoot.already-linked"

@@ -1,6 +1,6 @@
 {
   "code": "scene.character-already-assigned",
-  "detail": "Character already assigned to this scene",
+  "detail": "Der Charakter ist dieser Szene bereits zugeordnet.",
   "status": 409,
   "title": "Character already assigned to this scene",
   "type": "https://docs.breakdown.example/problems/scene.character-already-assigned"

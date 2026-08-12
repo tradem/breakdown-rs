@@ -1,6 +1,6 @@
 {
   "code": "episode.validation",
-  "detail": "Episode validation failed",
+  "detail": "Die Episode-Anfrage ist nicht gültig.",
   "status": 422,
   "title": "Episode validation failed",
   "type": "https://docs.breakdown.example/problems/episode.validation"

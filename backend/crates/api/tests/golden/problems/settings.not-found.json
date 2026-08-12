@@ -1,6 +1,6 @@
 {
   "code": "settings.not-found",
-  "detail": "Credential not found",
+  "detail": "Anmeldedaten nicht gefunden.",
   "status": 404,
   "title": "Credential not found",
   "type": "https://docs.breakdown.example/problems/settings.not-found"

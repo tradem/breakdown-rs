@@ -319,7 +319,7 @@ pub static PROBLEM_CODES: &[ProblemCode] = &[
 /// Resolve a registry entry by code. The problem builder never emits a code
 /// absent from the registry; this lookup exists for tests and for the
 /// bundle-coverage lint (Tranche 3).
-pub fn problem_code(code: &'static str) -> Option<&'static ProblemCode> {
+pub fn problem_code(code: &str) -> Option<&'static ProblemCode> {
     PROBLEM_CODES.iter().find(|entry| entry.code == code)
 }
 

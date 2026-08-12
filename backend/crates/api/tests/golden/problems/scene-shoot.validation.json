@@ -1,6 +1,6 @@
 {
   "code": "scene-shoot.validation",
-  "detail": "Scene shoot validation failed",
+  "detail": "Die Aufnahme-Anfrage ist nicht gültig.",
   "status": 422,
   "title": "Scene shoot validation failed",
   "type": "https://docs.breakdown.example/problems/scene-shoot.validation"

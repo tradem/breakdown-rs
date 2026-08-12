@@ -1,6 +1,9 @@
 {
   "code": "scene.character-not-found",
-  "detail": "Scene character not found",
+  "detail": "Charakter nicht gefunden.",
+  "extensions": {
+    "id": "00000000-0000-0000-0000-000000000001"
+  },
   "status": 404,
   "title": "Scene character not found",
   "type": "https://docs.breakdown.example/problems/scene.character-not-found"

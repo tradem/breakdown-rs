@@ -1,6 +1,9 @@
 {
   "code": "episode.not-found",
-  "detail": "Episode not found",
+  "detail": "Episode nicht gefunden.",
+  "extensions": {
+    "id": "00000000-0000-0000-0000-000000000001"
+  },
   "status": 404,
   "title": "Episode not found",
   "type": "https://docs.breakdown.example/problems/episode.not-found"
