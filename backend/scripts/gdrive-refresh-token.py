@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import http.server
+import secrets
 import sys
 import urllib.parse
 import urllib.request
@@ -81,10 +82,12 @@ def parse_args() -> argparse.Namespace:
             "client_id and client_secret are required "
             "(pass --client-id/--client-secret or set GDRIVE_CLIENT_ID/_SECRET)"
         )
+    if not 1 <= args.port <= 65535:
+        parser.error(f"invalid --port {args.port}: must be in 1..=65535")
     return args
 
 
-def build_auth_url(args: argparse.Namespace) -> str:
+def build_auth_url(args: argparse.Namespace, state: str) -> str:
     params = {
         "client_id": args.client_id,
         "redirect_uri": f"http://localhost:{args.port}/",
@@ -92,6 +95,7 @@ def build_auth_url(args: argparse.Namespace) -> str:
         "scope": args.scope,
         "access_type": "offline",
         "prompt": "consent",
+        "state": state,
     }
     return f"{AUTH_ENDPOINT}?{urllib.parse.urlencode(params)}"
 
@@ -100,11 +104,13 @@ class CallbackHandler(http.server.BaseHTTPRequestHandler):
     """Serves exactly one callback and stashes the query params on the class."""
 
     received = None  # type: dict | None
+    expected_state = None  # type: str | None
 
     def do_GET(self) -> None:  # noqa: N802 (http.server API)
         query = urllib.parse.urlparse(self.path).query
         params = urllib.parse.parse_qs(query)
         code = params.get("code", [None])[0]
+        state = params.get("state", [None])[0]
         error = params.get("error", [None])[0]
 
         if error:
@@ -114,6 +120,16 @@ class CallbackHandler(http.server.BaseHTTPRequestHandler):
                 f"OAuth error: {error} - {params.get('error_description', [''])[0]}".encode()
             )
             CallbackHandler.received = {"error": error}
+            return
+
+        # CSRF protection: the callback must echo the state we put into the
+        # authorization URL; otherwise an injected code could reach the
+        # token exchange (and, with --update-secret, replace the CI secret).
+        if not state or not CallbackHandler.expected_state or state != CallbackHandler.expected_state:
+            self.send_response(400)
+            self.end_headers()
+            self.wfile.write(b"state mismatch - close this tab and retry.")
+            CallbackHandler.received = {"error": "state_mismatch"}
             return
 
         if not code:
@@ -126,7 +142,7 @@ class CallbackHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
         self.wfile.write(
-            b"<html><body><h1>Token exchange successful.</h1>"
+            b"<html><body><h1>Authorization received; return to the terminal.</h1>"
             b"<p>You can close this tab.</p></body></html>"
         )
         CallbackHandler.received = {"code": code}
@@ -195,8 +211,12 @@ def exchange_code(client_id: str, client_secret: str, port: int, code: str) -> d
 def update_secret(token: str) -> None:
     import subprocess
 
+    # Feed the secret via stdin (not --body) so it never appears in the
+    # process list or shell history. `gh secret set NAME` reads the value
+    # from stdin when --body is omitted.
     result = subprocess.run(
-        ["gh", "secret", "set", "GDRIVE_REFRESH_TOKEN", "--body", token],
+        ["gh", "secret", "set", "GDRIVE_REFRESH_TOKEN"],
+        input=token + "\n",
         capture_output=True,
         text=True,
         check=False,
@@ -215,8 +235,9 @@ def main() -> NoReturn:
     # start the loopback server first so the redirect target exists
     server = http.server.HTTPServer(("127.0.0.1", args.port), CallbackHandler)
     CallbackHandler.received = None
+    CallbackHandler.expected_state = secrets.token_urlsafe(32)
 
-    url = build_auth_url(args)
+    url = build_auth_url(args, CallbackHandler.expected_state)
     print("👉 Opening the Google consent screen in your browser…")
     print(f"   (redirect target: http://localhost:{args.port}/ — keep this script running)")
     if not webbrowser.open(url):
