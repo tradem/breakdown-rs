@@ -10,6 +10,18 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.13.0] - Unreleased
+
+### Changed — Consume the structured `DomainError` surface (issue #230)
+
+Adapters, projectors and sagas construct `DomainError` with the typed
+registry-carrying variants instead of interpolated strings; read-model 404s
+are upgraded to per-context codes (e.g. `character.not-found`). No
+behavioural change beyond the error identity.
+
+- **Breaking (cascade):** re-pinned to `breakdown_core` 0.8.0 (ADR-020 D3);
+  infra bumps 0.12.0 → 0.13.0.
+
 ## [0.12.0] - Unreleased
 
 ### Added — Route non-CSV schedule imports through the LLM (issue #221)
