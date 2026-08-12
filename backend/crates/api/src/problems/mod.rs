@@ -230,7 +230,13 @@ fn domain_error_problem(err: DomainError) -> ProblemDetails {
         DomainError::Validation { code, .. } => problem(*code).build(),
         DomainError::Conflict { code, .. } => problem(*code).build(),
         DomainError::ServiceUnavailable { code, .. } => problem(*code).build(),
-        DomainError::Internal { code, .. } => problem(*code).build(),
+        // `Internal` has a fixed code (`http.internal-error`) and a log-only
+        // reason — the failure cause must be logged here so the server keeps
+        // the diagnostic even though the wire document is static.
+        DomainError::Internal { reason } => {
+            tracing::error!(error = %reason, "internal server fault");
+            problem(HTTP_INTERNAL_ERROR).build()
+        }
         DomainError::VersionConflict { expected, current } => problem(CONCURRENCY_VERSION_MISMATCH)
             .extension("expected_version", expected)
             .extension("current_version", current)

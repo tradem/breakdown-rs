@@ -17,7 +17,7 @@ use crate::error_registry::{
     AI_CONFIG_PROVIDER_MISMATCH, BLOCK_NOT_FOUND, CHARACTER_NOT_FOUND, CHARACTER_VALIDATION,
     COSTUME_CATEGORY_ARCHIVED, COSTUME_CATEGORY_VALIDATION, COSTUME_NOT_FOUND, COSTUME_VALIDATION,
     DOMAIN_CONFLICT, DOMAIN_FORBIDDEN, DOMAIN_NOT_FOUND, DOMAIN_SERVICE_UNAVAILABLE,
-    DOMAIN_VALIDATION, EPISODE_NOT_FOUND, HTTP_INTERNAL_ERROR, MEMBERSHIP_ALREADY_INVITED,
+    DOMAIN_VALIDATION, EPISODE_NOT_FOUND, MEMBERSHIP_ALREADY_INVITED,
     MEMBERSHIP_BOOTSTRAP_NOT_ALLOWED, MEMBERSHIP_MISSING_ACTOR, MEMBERSHIP_NO_PENDING_INVITATION,
     MEMBERSHIP_NOT_ACTIVE_MEMBER, MEMBERSHIP_NOT_FOUND, PHOTO_ALREADY_DELETED, PHOTO_NOT_FOUND,
     PHOTO_VALIDATION, ProblemCode, SCENE_CHARACTER_ALREADY_ASSIGNED, SCENE_CHARACTER_NOT_FOUND,
@@ -90,12 +90,11 @@ pub enum DomainError {
 
     /// Server-side fault (500, `http.internal-error`) — persisted projection
     /// drift, internal failures. `reason` is log-only; internal text never
-    /// reaches the wire (http-error-surface spec).
+    /// reaches the wire (http-error-surface spec). The code is fixed to
+    /// `http.internal-error` by construction — the variant cannot carry a
+    /// different registry entry.
     #[error("internal error: {reason}")]
-    Internal {
-        code: &'static ProblemCode,
-        reason: String,
-    },
+    Internal { reason: String },
 
     /// Optimistic-concurrency failure (409, `concurrency.version-mismatch`).
     #[error("version conflict: expected {expected:?}, current {current:?}")]
@@ -503,10 +502,9 @@ impl DomainError {
 
     /// 500 — server-side fault (projection/schema drift, internal failures).
     /// `reason` is log-only (http-error-surface spec: internal text never
-    /// leaves the server).
+    /// leaves the server). The code is fixed to `http.internal-error`.
     pub fn internal(reason: impl Into<String>) -> Self {
         DomainError::Internal {
-            code: &HTTP_INTERNAL_ERROR,
             reason: reason.into(),
         }
     }
