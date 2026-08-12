@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4-flash (opencode-go)
+
+# Problem-code registry (issue #232): every `pub const <NAME>: ProblemCode`
+# must be declared through the `problem_codes!` macro in
+# crates/core/src/error_registry.rs. A standalone declaration outside that
+# invocation compiles cleanly but is never registered — `problem_code()`
+# returns None, the bundle-coverage lint never requires a locale message,
+# and the uniqueness test never inspects the code.
+#
+# The only legitimate occurrence is the expansion template inside the macro
+# definition (`pub const $name: ProblemCode = ...`). It is NOT matched here:
+# `$name` is a Rust macro metavariable, and ast-grep's `$NAME` metavariable
+# does not bind to it (verified by the rule tests in rules-tests/).
+#
+# This rule is deliberately NON-suppressible: an `ast-grep-ignore:` directive
+# would let a standalone declaration compile unregistered, so the shared
+# checker rejects any suppression of this rule (see
+# scripts/check-problem-code-registry.sh).
+#
+# The `problem-code-registry` CI job and the pre-commit hook both invoke the
+# shared scanner scripts/check-problem-code-registry.sh, which runs this rule
+# with --json and fails closed on scanner errors. The in-tree compile-time
+# count assertion (PROBLEM_CODE_COUNT) is an independent, build-time guard.
+id: problem-code-registry
+message: >-
+  Standalone `pub const …: ProblemCode` declaration outside the
+  `problem_codes!` macro in crates/core/src/error_registry.rs. Declare new
+  codes as entries in that invocation — a code declared here compiles but is
+  never registered (issue #232).
+severity: error
+language: Rust
+rule:
+  pattern: "pub const $NAME: ProblemCode"

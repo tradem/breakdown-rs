@@ -15,7 +15,9 @@ permissions:
 #   Layer 5: test-shim-leak — ast-grep: production api code must not call test-only helpers
 #   Layer 6: error-hygiene — ast-grep: no discarded results (`let _ = <call>`), test helpers must be cfg-gated,
 #            UUIDv4 generation forbidden (UUIDv7 only), panic/unsafe-family `#[allow]` must carry a justification comment
-#   Layer 7: gitleaks — blocks accidental secret commits against 150+ patterns
+#   Layer 7: problem-code-registry — every `pub const …: ProblemCode` must be declared through the problem_codes!
+#            macro in error_registry.rs (a standalone declaration would compile but never be registered, issue #232)
+#   Layer 8: gitleaks — blocks accidental secret commits against 150+ patterns
 #
 # See backend/AGENTS.md § Testing & Guardrails and § Security
 # See backend/docs/architecture/adrs/ADR-017-architecture-testing-strategy.md
@@ -28,6 +30,8 @@ on:
       - "backend/Cargo.lock"
       - "backend/deny.toml"
       - "backend/rules/**"
+      - "backend/rules-tests/**"
+      - "backend/scripts/**"
       - "backend/sgconfig.yml"
       - ".gitleaks.toml"
       - ".github/workflows/architecture-checks.yml"
@@ -227,6 +231,47 @@ jobs:
           test -d crates/api/src/problems
           ast-grep scan -r rules/s2-extension-ban.yml crates/api/src/problems
           echo "OK: no discarded results / ungated test helpers / UUIDv4 / bare panic allows / no S2 extensions found"
+
+  problem-code-registry:
+    name: Problem-code registry (every code registered via the macro)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Read-only job: no authenticated git commands are run after checkout.
+          persist-credentials: false
+
+      - name: Install ast-grep 0.45.0 (SHA-pinned)
+        run: |
+          set -e
+          curl -fsSL -o /tmp/ast-grep.zip https://github.com/ast-grep/ast-grep/releases/download/0.45.0/app-x86_64-unknown-linux-gnu.zip
+          echo "78931ae35ebac33d9a72b3aecea3e3d62d6e5b0b718ac8bbedfbe69d68421e41  /tmp/ast-grep.zip" | sha256sum -c -
+          unzip -q /tmp/ast-grep.zip -d /tmp/ast-grep-install
+          sudo mv /tmp/ast-grep-install/ast-grep /usr/local/bin/
+          ast-grep --version
+
+      - name: Forbid standalone ProblemCode declarations outside the registry macro
+        run: |
+          set -e
+          # Shared, syntax-aware checker (issue #232): every `pub const
+          # <NAME>: ProblemCode` must be declared through the problem_codes!
+          # macro in crates/core/src/error_registry.rs. A standalone
+          # declaration compiles but is never registered (problem_code()
+          # returns None, the bundle-coverage lint never fires, the uniqueness
+          # test never sees it). The rule (rules/problem-code-registry.yml)
+          # matches canonical/spaced/multiline declarations and does not bind
+          # to the macro's `pub const $name` template; the script fails closed
+          # on scanner errors. The in-tree compile-time count assertion
+          # (PROBLEM_CODE_COUNT) is an independent build-time guard.
+          bash scripts/check-problem-code-registry.sh crates/
+          # The checker itself is guarded by its rule test-suite (fixtures for
+          # canonical/spaced/multiline/template/malformed inputs).
+          bash scripts/check-problem-code-registry.sh --self-test
 
   gitleaks:
     name: Gitleaks (secrets)

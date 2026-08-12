@@ -1,0 +1,60 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4-flash (opencode-go)
+
+# Rule tests for `problem-code-registry` (issue #232). Run via
+# `scripts/check-problem-code-registry.sh --self-test`, which invokes
+# `ast-grep test -c sgconfig.yml -t rules/tests`.
+#
+# `valid` cases must NOT match (no standalone `pub const …: ProblemCode`);
+# `invalid` cases MUST match. The malformed case exercises tree-sitter error
+# recovery: the standalone declaration must still be flagged.
+id: problem-code-registry
+language: Rust
+valid:
+  - |
+    // The only legitimate occurrence: the expansion template of the
+    // problem_codes! macro. `$name` is a Rust macro metavariable, which
+    // ast-grep's `$NAME` metavariable must not bind to.
+    macro_rules! problem_codes {
+      (
+        $(
+          $name:ident {
+            code: $code:literal,
+          }
+        )*
+      ) => {
+        $(
+          pub const $name: ProblemCode = ProblemCode {
+            code: $code,
+          };
+        )*
+      };
+    }
+  - |
+    // The registry array itself is not a const declaration.
+    pub static PROBLEM_CODES: &[ProblemCode] = &[HTTP_BAD_JSON_BODY];
+  - |
+    // Other types are unaffected by the rule.
+    pub const PROBLEM_CODE_COUNT: usize = 73;
+invalid:
+  - |
+    // Canonical standalone declaration (the pre-macro form).
+    pub const FOO_BAR: ProblemCode = ProblemCode {
+      code: "foo.bar",
+      status: 400,
+      title: "Foo",
+      extensions: &[],
+    };
+  - |
+    // Spaced around the colon.
+    pub const BAZ : ProblemCode = ProblemCode { code: "baz", status: 400, title: "Baz", extensions: &[] };
+  - |
+    // Multiline name/type.
+    pub const
+    QUX: ProblemCode = ProblemCode { code: "qux", status: 400, title: "Qux", extensions: &[] };
+  - |
+    // Malformed input (missing comma): tree-sitter error recovery must still
+    // surface the standalone declaration, so the scanner flags it.
+    pub const BROKEN: ProblemCode = ProblemCode { code: "broken"
+      status: 400, title: "Broken", extensions: &[] };

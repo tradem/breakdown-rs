@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: kimi-k3 (neuralwatt)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! Stable problem-code registry (ADR-031).
 //!
@@ -27,6 +28,13 @@
 /// hosting changes are non-breaking because the registry entry is the single
 /// source for the URI.
 pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
+
+/// Number of registered problem codes.
+///
+/// Kept in sync with the `problem_codes!` invocation below by a compile-time
+/// assertion — adding or removing a code without deliberately updating this
+/// count fails the build (issue #232).
+const PROBLEM_CODE_COUNT: usize = 73;
 
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,263 +67,683 @@ impl ProblemCode {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Framework codes (`http.*`, `auth.*`) and cross-cutting codes
-// (`concurrency.*`). These are registered in Tranche 1 because the envelope,
-// the auth middleware, the rejection handlers, and the panic fallback all
-// need them from day one.
-// ---------------------------------------------------------------------------
-
-/// 400 — malformed JSON request body (extractor rejection).
-pub const HTTP_BAD_JSON_BODY: ProblemCode = ProblemCode {
-    code: "http.bad-json-body",
-    status: 400,
-    title: "Malformed JSON body",
-    extensions: &[],
-};
-
-/// 400 — malformed path parameter (extractor rejection).
-pub const HTTP_BAD_PATH_PARAM: ProblemCode = ProblemCode {
-    code: "http.bad-path-param",
-    status: 400,
-    title: "Invalid path parameter",
-    extensions: &[],
-};
-
-/// 400 — malformed/absent query parameter (extractor rejection or
-/// handler-side required-param check).
-pub const HTTP_BAD_QUERY_PARAM: ProblemCode = ProblemCode {
-    code: "http.bad-query-param",
-    status: 400,
-    title: "Invalid query parameter",
-    extensions: &[],
-};
-
-/// 400 — generic malformed request (path/body mismatch, bad headers).
-pub const HTTP_BAD_REQUEST: ProblemCode = ProblemCode {
-    code: "http.bad-request",
-    status: 400,
-    title: "Bad request",
-    extensions: &[],
-};
-
-/// 415 — request content type not accepted (extractor/handler rejection).
-pub const HTTP_UNSUPPORTED_MEDIA_TYPE: ProblemCode = ProblemCode {
-    code: "http.unsupported-media-type",
-    status: 415,
-    title: "Unsupported media type",
-    extensions: &[],
-};
-
-/// 413 — request body exceeds the configured size limit.
-pub const HTTP_PAYLOAD_TOO_LARGE: ProblemCode = ProblemCode {
-    code: "http.payload-too-large",
-    status: 413,
-    title: "Payload too large",
-    extensions: &[],
-};
-
-/// 504 — the report renderer exceeded its time budget (the renderer is the
-/// slow party, not the client's request; 504 per RFC 9110 §15.6.5).
-pub const HTTP_REQUEST_TIMEOUT: ProblemCode = ProblemCode {
-    code: "http.request-timeout",
-    status: 504,
-    title: "Gateway timeout",
-    extensions: &[],
-};
-
-/// 404 — no route matches the request path.
-pub const HTTP_ROUTE_NOT_FOUND: ProblemCode = ProblemCode {
-    code: "http.route-not-found",
-    status: 404,
-    title: "Route not found",
-    extensions: &[],
-};
-
-/// 500 — unhandled internal failure (panic fallback and handler 500s).
-/// `detail` for this code is always static localized text; internal error
-/// text never leaves the server (ADR-031 decision 6).
-pub const HTTP_INTERNAL_ERROR: ProblemCode = ProblemCode {
-    code: "http.internal-error",
-    status: 500,
-    title: "Internal server error",
-    extensions: &[],
-};
-
-/// 401 — missing/invalid bearer token (auth middleware).
-pub const AUTH_UNAUTHENTICATED: ProblemCode = ProblemCode {
-    code: "auth.unauthenticated",
-    status: 401,
-    title: "Authentication required",
-    extensions: &[],
-};
-
-/// 400 — `X-Active-Block` header absent on a block-scoped request.
-pub const AUTH_MISSING_ACTIVE_BLOCK: ProblemCode = ProblemCode {
-    code: "auth.missing-active-block",
-    status: 400,
-    title: "Missing active block",
-    extensions: &[],
-};
-
-/// 400 — `X-Active-Block` header present but not a valid block id.
-pub const AUTH_INVALID_ACTIVE_BLOCK: ProblemCode = ProblemCode {
-    code: "auth.invalid-active-block",
-    status: 400,
-    title: "Invalid active block",
-    extensions: &[],
-};
-
-/// 503 — the identity provider / JWKS endpoint is unreachable.
-pub const AUTH_IDP_UNAVAILABLE: ProblemCode = ProblemCode {
-    code: "auth.idp-unavailable",
-    status: 503,
-    title: "Identity provider unavailable",
-    extensions: &[],
-};
-
-/// 409 — optimistic-concurrency check failed.
+/// Declare every registered problem code from a single list.
 ///
-/// Extensions (ADR-031 D4):
-/// - `expected_version` (S0 — client-supplied),
-/// - `current_version` (S0 — aggregate version, in-scope after authz).
-pub const CONCURRENCY_VERSION_MISMATCH: ProblemCode = ProblemCode {
-    code: "concurrency.version-mismatch",
-    status: 409,
-    title: "Version conflict",
-    extensions: &["expected_version", "current_version"],
-};
+/// Each entry expands to its `pub const` and registers the name in the
+/// generated `PROBLEM_CODES` array — the constant and its registration can
+/// never drift apart (issue #232). New codes MUST be added as entries here;
+/// a standalone `pub const ...: ProblemCode` outside this invocation is
+/// rejected by the `problem-code-registry` CI job (it would otherwise
+/// compile but never be registered, and the bundle-coverage lint / problem
+/// builder would silently ignore it).
+macro_rules! problem_codes {
+    (
+        $(
+            $(#[$attr:meta])*
+            $name:ident {
+                code: $code:literal,
+                status: $status:literal,
+                title: $title:literal,
+                extensions: $extensions:expr,
+            },
+        )*
+    ) => {
+        $(
+            $(#[$attr])*
+            pub const $name: ProblemCode = ProblemCode {
+                code: $code,
+                status: $status,
+                title: $title,
+                extensions: $extensions,
+            };
+        )*
 
-// ---------------------------------------------------------------------------
-// Generic `domain.*` codes.
-//
-// These back the generic `DomainError` constructors (`not_found`, `conflict`,
-// `validation`, `forbidden`, `service_unavailable`, `internal`) used by the
-// read side (infra) and the API edge. Per-aggregate codes are defined below
-// and are selected by the module `From` impls. Generic codes carry no
-// extension fields.
-// ---------------------------------------------------------------------------
+        /// The registry (ADR-031 D2), generated by the same
+        /// `problem_codes!` invocation that declares the constants — a
+        /// registered code cannot exist without its `PROBLEM_CODES` entry
+        /// (issue #232). The bundle-coverage lint and the problem builder
+        /// read only this slice.
+        pub static PROBLEM_CODES: &[ProblemCode] = &[
+            $($name,)*
+        ];
+    };
+}
 
-/// 404 — resource not found (or deliberately hidden per the existence-oracle
-/// policy, ADR-031 decision 5).
-pub const DOMAIN_NOT_FOUND: ProblemCode = ProblemCode {
-    code: "domain.not-found",
-    status: 404,
-    title: "Not found",
-    extensions: &[],
-};
+problem_codes! {
 
-/// 422 — well-formed request that violates a domain rule (RFC 9110
-/// §15.5.21). Tranche 1 generic code; per-aggregate codes in Tranche 2.
-pub const DOMAIN_VALIDATION: ProblemCode = ProblemCode {
-    code: "domain.validation",
-    status: 422,
-    title: "Validation failed",
-    extensions: &[],
-};
+    // ---------------------------------------------------------------------------
+    // Framework codes (`http.*`, `auth.*`) and cross-cutting codes
+    // (`concurrency.*`). These are registered in Tranche 1 because the envelope,
+    // the auth middleware, the rejection handlers, and the panic fallback all
+    // need them from day one.
+    // ---------------------------------------------------------------------------
+    /// 400 — malformed JSON request body (extractor rejection).
+    HTTP_BAD_JSON_BODY {
+        code: "http.bad-json-body",
+        status: 400,
+        title: "Malformed JSON body",
+        extensions: &[],
+    },
 
-/// 409 — state conflict (already assigned/scheduled, terminal state, …).
-pub const DOMAIN_CONFLICT: ProblemCode = ProblemCode {
-    code: "domain.conflict",
-    status: 409,
-    title: "Conflict",
-    extensions: &[],
-};
+    /// 400 — malformed path parameter (extractor rejection).
+    HTTP_BAD_PATH_PARAM {
+        code: "http.bad-path-param",
+        status: 400,
+        title: "Invalid path parameter",
+        extensions: &[],
+    },
 
-/// 403 — authenticated caller lacks permission (handler-internal authz gates).
-pub const DOMAIN_FORBIDDEN: ProblemCode = ProblemCode {
-    code: "domain.forbidden",
-    status: 403,
-    title: "Forbidden",
-    extensions: &[],
-};
+    /// 400 — malformed/absent query parameter (extractor rejection or
+    /// handler-side required-param check).
+    HTTP_BAD_QUERY_PARAM {
+        code: "http.bad-query-param",
+        status: 400,
+        title: "Invalid query parameter",
+        extensions: &[],
+    },
 
-/// 503 — an upstream dependency (Vault, renderer, …) is unavailable.
-pub const DOMAIN_SERVICE_UNAVAILABLE: ProblemCode = ProblemCode {
-    code: "domain.service-unavailable",
-    status: 503,
-    title: "Service unavailable",
-    extensions: &[],
-};
+    /// 400 — generic malformed request (path/body mismatch, bad headers).
+    HTTP_BAD_REQUEST {
+        code: "http.bad-request",
+        status: 400,
+        title: "Bad request",
+        extensions: &[],
+    },
 
-/// The registry (ADR-031 D2). Every `ProblemCode` constant in this module
-/// must appear here; the bundle-coverage lint and the problem builder read
-/// only this slice.
-pub static PROBLEM_CODES: &[ProblemCode] = &[
-    HTTP_BAD_JSON_BODY,
-    HTTP_BAD_PATH_PARAM,
-    HTTP_BAD_QUERY_PARAM,
-    HTTP_BAD_REQUEST,
-    HTTP_UNSUPPORTED_MEDIA_TYPE,
-    HTTP_PAYLOAD_TOO_LARGE,
-    HTTP_REQUEST_TIMEOUT,
-    HTTP_ROUTE_NOT_FOUND,
-    HTTP_INTERNAL_ERROR,
-    AUTH_UNAUTHENTICATED,
-    AUTH_MISSING_ACTIVE_BLOCK,
-    AUTH_INVALID_ACTIVE_BLOCK,
-    AUTH_IDP_UNAVAILABLE,
-    CONCURRENCY_VERSION_MISMATCH,
-    DOMAIN_NOT_FOUND,
-    DOMAIN_VALIDATION,
-    DOMAIN_CONFLICT,
-    DOMAIN_FORBIDDEN,
-    DOMAIN_SERVICE_UNAVAILABLE,
-    SEASON_NOT_FOUND,
-    SEASON_VALIDATION,
-    BLOCK_NOT_FOUND,
-    BLOCK_VALIDATION,
-    EPISODE_NOT_FOUND,
-    EPISODE_VALIDATION,
-    SCENE_NOT_FOUND,
-    SCENE_CHARACTER_NOT_FOUND,
-    SCENE_CHARACTER_ALREADY_ASSIGNED,
-    SCENE_ALREADY_SCHEDULED,
-    SCENE_NOT_SCHEDULED,
-    SCENE_VALIDATION,
-    CHARACTER_NOT_FOUND,
-    CHARACTER_VALIDATION,
-    COSTUME_NOT_FOUND,
-    COSTUME_ALREADY_ASSIGNED,
-    COSTUME_VALIDATION,
-    COSTUME_CATEGORY_NOT_FOUND,
-    COSTUME_CATEGORY_ARCHIVED,
-    COSTUME_CATEGORY_VALIDATION,
-    SHOOTING_DAY_NOT_FOUND,
-    SHOOTING_DAY_ARCHIVED,
-    SHOOTING_DAY_DUPLICATE_ORDER_KEY,
-    SHOOTING_DAY_VALIDATION,
-    SCENE_SHOOT_NOT_FOUND,
-    SCENE_SHOOT_PAIR_ALREADY_EXISTS,
-    SCENE_SHOOT_PLANNED_ORDER_FROZEN,
-    SCENE_SHOOT_NOTE_NOT_FOUND,
-    SCENE_SHOOT_ALREADY_LINKED,
-    SCENE_SHOOT_ALREADY_STARTED,
-    SCENE_SHOOT_TERMINAL_STATE,
-    SCENE_SHOOT_VALIDATION,
-    PHOTO_NOT_FOUND,
-    PHOTO_ALREADY_DELETED,
-    PHOTO_VALIDATION,
-    MEMBERSHIP_ALREADY_INVITED,
-    MEMBERSHIP_NO_PENDING_INVITATION,
-    MEMBERSHIP_NOT_ACTIVE_MEMBER,
-    MEMBERSHIP_MISSING_ACTOR,
-    MEMBERSHIP_BOOTSTRAP_NOT_ALLOWED,
-    MEMBERSHIP_NOT_FOUND,
-    MEMBERSHIP_VALIDATION,
-    SETTINGS_EMPTY_PROVIDER,
-    SETTINGS_EMPTY_VAULT_KEY,
-    SETTINGS_PROVIDER_MISMATCH,
-    SETTINGS_NOT_FOUND,
-    SETTINGS_ALREADY_REVOKED,
-    AI_CONFIG_NOT_FOUND,
-    AI_CONFIG_EMPTY_PROVIDER,
-    AI_CONFIG_EMPTY_MODEL,
-    AI_CONFIG_EMPTY_PROMPT,
-    AI_CONFIG_EMPTY_VAULT_KEY,
-    AI_CONFIG_PROVIDER_MISMATCH,
-    AI_CONFIG_ALREADY_REVOKED,
-];
+    /// 415 — request content type not accepted (extractor/handler rejection).
+    HTTP_UNSUPPORTED_MEDIA_TYPE {
+        code: "http.unsupported-media-type",
+        status: 415,
+        title: "Unsupported media type",
+        extensions: &[],
+    },
+
+    /// 413 — request body exceeds the configured size limit.
+    HTTP_PAYLOAD_TOO_LARGE {
+        code: "http.payload-too-large",
+        status: 413,
+        title: "Payload too large",
+        extensions: &[],
+    },
+
+    /// 504 — the report renderer exceeded its time budget (the renderer is the
+    /// slow party, not the client's request; 504 per RFC 9110 §15.6.5).
+    HTTP_REQUEST_TIMEOUT {
+        code: "http.request-timeout",
+        status: 504,
+        title: "Gateway timeout",
+        extensions: &[],
+    },
+
+    /// 404 — no route matches the request path.
+    HTTP_ROUTE_NOT_FOUND {
+        code: "http.route-not-found",
+        status: 404,
+        title: "Route not found",
+        extensions: &[],
+    },
+
+    /// 500 — unhandled internal failure (panic fallback and handler 500s).
+    /// `detail` for this code is always static localized text; internal error
+    /// text never leaves the server (ADR-031 decision 6).
+    HTTP_INTERNAL_ERROR {
+        code: "http.internal-error",
+        status: 500,
+        title: "Internal server error",
+        extensions: &[],
+    },
+
+    /// 401 — missing/invalid bearer token (auth middleware).
+    AUTH_UNAUTHENTICATED {
+        code: "auth.unauthenticated",
+        status: 401,
+        title: "Authentication required",
+        extensions: &[],
+    },
+
+    /// 400 — `X-Active-Block` header absent on a block-scoped request.
+    AUTH_MISSING_ACTIVE_BLOCK {
+        code: "auth.missing-active-block",
+        status: 400,
+        title: "Missing active block",
+        extensions: &[],
+    },
+
+    /// 400 — `X-Active-Block` header present but not a valid block id.
+    AUTH_INVALID_ACTIVE_BLOCK {
+        code: "auth.invalid-active-block",
+        status: 400,
+        title: "Invalid active block",
+        extensions: &[],
+    },
+
+    /// 503 — the identity provider / JWKS endpoint is unreachable.
+    AUTH_IDP_UNAVAILABLE {
+        code: "auth.idp-unavailable",
+        status: 503,
+        title: "Identity provider unavailable",
+        extensions: &[],
+    },
+
+    /// 409 — optimistic-concurrency check failed.
+    ///
+    /// Extensions (ADR-031 D4):
+    /// - `expected_version` (S0 — client-supplied),
+    /// - `current_version` (S0 — aggregate version, in-scope after authz).
+    CONCURRENCY_VERSION_MISMATCH {
+        code: "concurrency.version-mismatch",
+        status: 409,
+        title: "Version conflict",
+        extensions: &["expected_version", "current_version"],
+    },
+
+
+    // ---------------------------------------------------------------------------
+    // Generic `domain.*` codes.
+    //
+    // These back the generic `DomainError` constructors (`not_found`, `conflict`,
+    // `validation`, `forbidden`, `service_unavailable`, `internal`) used by the
+    // read side (infra) and the API edge. Per-aggregate codes are defined below
+    // and are selected by the module `From` impls. Generic codes carry no
+    // extension fields.
+    // ---------------------------------------------------------------------------
+    /// 404 — resource not found (or deliberately hidden per the existence-oracle
+    /// policy, ADR-031 decision 5).
+    DOMAIN_NOT_FOUND {
+        code: "domain.not-found",
+        status: 404,
+        title: "Not found",
+        extensions: &[],
+    },
+
+    /// 422 — well-formed request that violates a domain rule (RFC 9110
+    /// §15.5.21). Tranche 1 generic code; per-aggregate codes in Tranche 2.
+    DOMAIN_VALIDATION {
+        code: "domain.validation",
+        status: 422,
+        title: "Validation failed",
+        extensions: &[],
+    },
+
+    /// 409 — state conflict (already assigned/scheduled, terminal state, …).
+    DOMAIN_CONFLICT {
+        code: "domain.conflict",
+        status: 409,
+        title: "Conflict",
+        extensions: &[],
+    },
+
+    /// 403 — authenticated caller lacks permission (handler-internal authz gates).
+    DOMAIN_FORBIDDEN {
+        code: "domain.forbidden",
+        status: 403,
+        title: "Forbidden",
+        extensions: &[],
+    },
+
+    /// 503 — an upstream dependency (Vault, renderer, …) is unavailable.
+    DOMAIN_SERVICE_UNAVAILABLE {
+        code: "domain.service-unavailable",
+        status: 503,
+        title: "Service unavailable",
+        extensions: &[],
+    },
+
+
+    // ---------------------------------------------------------------------------
+    // Per-context domain codes (Tranche 2).
+    //
+    // Every typed error of every aggregate maps 1:1 to a code here. Naming:
+    // `{context}.{reason}` in lower kebab-case. `type` URIs and Fluent message
+    // keys are derived (see `ProblemCode::type_uri` / `message_key`); published
+    // codes are never reused (ADR-021 major-bump removal rule).
+    //
+    // Extension classification (ADR-031 D4):
+    //   S0 — identifier supplied by the client in the request (path/body/query):
+    //        always allowed.
+    //   S1 — aggregate identifier within the caller's authorized scope: allowed
+    //        only where the handler's AUTHZ-GATE ran before the failure.
+    //   S2 — person identifiers (OIDC `sub`, e-mail) and cross-tenant data:
+    //        structurally banned, enforced by the `s2-extension-ban` ast-grep
+    //        rule and the golden-file snapshots.
+    // ---------------------------------------------------------------------------
+
+    // --- season ---
+    SEASON_VALIDATION {
+        code: "season.validation",
+        status: 422,
+        title: "Season validation failed",
+        extensions: &[],
+    },
+
+    SEASON_NOT_FOUND {
+        code: "season.not-found",
+        status: 404,
+        title: "Season not found",
+        extensions: &["id"],
+    },
+
+
+    // --- block ---
+    BLOCK_VALIDATION {
+        code: "block.validation",
+        status: 422,
+        title: "Block validation failed",
+        extensions: &[],
+    },
+
+    BLOCK_NOT_FOUND {
+        code: "block.not-found",
+        status: 404,
+        title: "Block not found",
+        extensions: &["id"],
+    },
+
+
+    // --- episode ---
+    EPISODE_VALIDATION {
+        code: "episode.validation",
+        status: 422,
+        title: "Episode validation failed",
+        extensions: &[],
+    },
+
+    EPISODE_NOT_FOUND {
+        code: "episode.not-found",
+        status: 404,
+        title: "Episode not found",
+        extensions: &["id"],
+    },
+
+
+    // S1 gating audit (ADR-031 D4, task 2.8): every code below whose
+    // extension whitelist contains an S1 field is emitted only from handlers
+    // whose authorization gate ran *before* the failure can occur:
+    //   - `scene.already-scheduled` (offending_shooting_day_id S1) — produced by
+    //     `schedule_scene_on_shooting_day`; the route is `Requirement::BlockMember`
+    //     so `authorize_middleware` gates before the command runs.
+    //   - `costume.already-assigned` (assigned_character_id S1) — produced by
+    //     `assign_costume`; route `Requirement::BlockMember` (same gate).
+    //   - `scene-shoot.already-linked` (photo_id S1) — produced by
+    //     `link_continuity_photo`; the route is Authenticated-only, so the
+    //     handler runs its internal `// AUTHZ-GATE:` season-scoped membership
+    //     check before the command (verified in crates/api/src/handlers/mod.rs).
+    // The `http-error-surface` spec scenario "Conflict exposes the in-scope
+    // conflicting resource" is covered by golden snapshot
+    // `scene.already-scheduled.json`.
+
+    // --- scene ---
+    SCENE_NOT_FOUND {
+        code: "scene.not-found",
+        status: 404,
+        title: "Scene not found",
+        extensions: &["id"],
+    },
+
+    SCENE_CHARACTER_NOT_FOUND {
+        code: "scene.character-not-found",
+        status: 404,
+        title: "Scene character not found",
+        extensions: &["id"],
+    },
+
+    SCENE_CHARACTER_ALREADY_ASSIGNED {
+        code: "scene.character-already-assigned",
+        status: 409,
+        title: "Character already assigned to this scene",
+        extensions: &[],
+    },
+
+    /// Conflict: the scene is already scheduled on *another* shooting day.
+    /// The offending day is an in-scope aggregate id (S1) — emitted only after
+    /// the handler's AUTHZ-GATE has passed (ADR-031 D4).
+    SCENE_ALREADY_SCHEDULED {
+        code: "scene.already-scheduled",
+        status: 409,
+        title: "Scene schedule conflict",
+        extensions: &["offending_shooting_day_id"],
+    },
+
+    SCENE_NOT_SCHEDULED {
+        code: "scene.not-scheduled",
+        status: 409,
+        title: "Scene not scheduled on this day",
+        extensions: &["shooting_day_id"],
+    },
+
+    SCENE_VALIDATION {
+        code: "scene.validation",
+        status: 422,
+        title: "Scene validation failed",
+        extensions: &[],
+    },
+
+
+    // --- character ---
+    CHARACTER_NOT_FOUND {
+        code: "character.not-found",
+        status: 404,
+        title: "Character not found",
+        extensions: &["id"],
+    },
+
+    CHARACTER_VALIDATION {
+        code: "character.validation",
+        status: 422,
+        title: "Character validation failed",
+        extensions: &[],
+    },
+
+
+    // --- costume ---
+    COSTUME_NOT_FOUND {
+        code: "costume.not-found",
+        status: 404,
+        title: "Costume not found",
+        extensions: &["id"],
+    },
+
+    /// Conflict: the costume is already assigned to a character. The assigned
+    /// character is in-scope (S1) — the caller passed the season auth gate.
+    COSTUME_ALREADY_ASSIGNED {
+        code: "costume.already-assigned",
+        status: 409,
+        title: "Costume already assigned",
+        extensions: &["assigned_character_id"],
+    },
+
+    COSTUME_VALIDATION {
+        code: "costume.validation",
+        status: 422,
+        title: "Costume validation failed",
+        extensions: &[],
+    },
+
+
+    // --- costume category ---
+    COSTUME_CATEGORY_NOT_FOUND {
+        code: "costume-category.not-found",
+        status: 404,
+        title: "Costume category not found",
+        extensions: &["id"],
+    },
+
+    COSTUME_CATEGORY_ARCHIVED {
+        code: "costume-category.archived",
+        status: 409,
+        title: "Costume category is archived",
+        extensions: &["id"],
+    },
+
+    COSTUME_CATEGORY_VALIDATION {
+        code: "costume-category.validation",
+        status: 422,
+        title: "Costume category validation failed",
+        extensions: &[],
+    },
+
+
+    // --- shooting day ---
+    SHOOTING_DAY_NOT_FOUND {
+        code: "shooting-day.not-found",
+        status: 404,
+        title: "Shooting day not found",
+        extensions: &["id"],
+    },
+
+    SHOOTING_DAY_ARCHIVED {
+        code: "shooting-day.archived",
+        status: 409,
+        title: "Shooting day is archived",
+        extensions: &["id"],
+    },
+
+    SHOOTING_DAY_DUPLICATE_ORDER_KEY {
+        code: "shooting-day.duplicate-order-key",
+        status: 409,
+        title: "Duplicate order key",
+        extensions: &[],
+    },
+
+    SHOOTING_DAY_VALIDATION {
+        code: "shooting-day.validation",
+        status: 422,
+        title: "Shooting day validation failed",
+        extensions: &[],
+    },
+
+
+    // --- scene shoot ---
+    SCENE_SHOOT_NOT_FOUND {
+        code: "scene-shoot.not-found",
+        status: 404,
+        title: "Scene shoot not found",
+        extensions: &["id"],
+    },
+
+    SCENE_SHOOT_PAIR_ALREADY_EXISTS {
+        code: "scene-shoot.pair-already-exists",
+        status: 409,
+        title: "Scene shoot pair already exists",
+        extensions: &[],
+    },
+
+    SCENE_SHOOT_PLANNED_ORDER_FROZEN {
+        code: "scene-shoot.planned-order-frozen",
+        status: 409,
+        title: "Planned order is frozen",
+        extensions: &[],
+    },
+
+    SCENE_SHOOT_NOTE_NOT_FOUND {
+        code: "scene-shoot.note-not-found",
+        status: 404,
+        title: "Scene shoot note not found",
+        extensions: &["note_id"],
+    },
+
+    /// Conflict: the continuity photo is already linked to this scene shoot.
+    /// The photo id is in-scope (S1).
+    SCENE_SHOOT_ALREADY_LINKED {
+        code: "scene-shoot.already-linked",
+        status: 409,
+        title: "Continuity photo already linked",
+        extensions: &["photo_id"],
+    },
+
+    SCENE_SHOOT_ALREADY_STARTED {
+        code: "scene-shoot.already-started",
+        status: 409,
+        title: "Scene shoot already started",
+        extensions: &[],
+    },
+
+    SCENE_SHOOT_TERMINAL_STATE {
+        code: "scene-shoot.terminal-state",
+        status: 409,
+        title: "Scene shoot in terminal state",
+        extensions: &[],
+    },
+
+    SCENE_SHOOT_VALIDATION {
+        code: "scene-shoot.validation",
+        status: 422,
+        title: "Scene shoot validation failed",
+        extensions: &[],
+    },
+
+
+    // --- photo ---
+    PHOTO_NOT_FOUND {
+        code: "photo.not-found",
+        status: 404,
+        title: "Photo not found",
+        extensions: &["id"],
+    },
+
+    PHOTO_ALREADY_DELETED {
+        code: "photo.already-deleted",
+        status: 409,
+        title: "Photo already deleted",
+        extensions: &[],
+    },
+
+    PHOTO_VALIDATION {
+        code: "photo.validation",
+        status: 422,
+        title: "Photo validation failed",
+        extensions: &[],
+    },
+
+
+    // --- membership ---
+    // Deliberately no `user_id` extension on any membership code: the OIDC `sub`
+    // is an S2 person identifier and must never appear in a problem body
+    // (ADR-031 D4, http-error-surface spec scenario "Person identifier is never
+    // echoed"). The reason text never names the identity either.
+    MEMBERSHIP_VALIDATION {
+        code: "membership.validation",
+        status: 422,
+        title: "Membership validation failed",
+        extensions: &[],
+    },
+
+    MEMBERSHIP_ALREADY_INVITED {
+        code: "membership.already-invited",
+        status: 409,
+        title: "Already invited",
+        extensions: &[],
+    },
+
+    MEMBERSHIP_NO_PENDING_INVITATION {
+        code: "membership.no-pending-invitation",
+        status: 409,
+        title: "No pending invitation",
+        extensions: &[],
+    },
+
+    MEMBERSHIP_NOT_ACTIVE_MEMBER {
+        code: "membership.not-active-member",
+        status: 409,
+        title: "Not an active member",
+        extensions: &[],
+    },
+
+    MEMBERSHIP_MISSING_ACTOR {
+        code: "membership.missing-actor",
+        status: 422,
+        title: "Authenticated actor required",
+        extensions: &[],
+    },
+
+    MEMBERSHIP_BOOTSTRAP_NOT_ALLOWED {
+        code: "membership.bootstrap-not-allowed",
+        status: 409,
+        title: "Bootstrap not allowed",
+        extensions: &[],
+    },
+
+    MEMBERSHIP_NOT_FOUND {
+        code: "membership.not-found",
+        status: 404,
+        title: "Membership not found",
+        extensions: &[],
+    },
+
+
+    // --- settings (credentials) ---
+    SETTINGS_EMPTY_PROVIDER {
+        code: "settings.empty-provider",
+        status: 422,
+        title: "Credential provider must not be empty",
+        extensions: &[],
+    },
+
+    SETTINGS_EMPTY_VAULT_KEY {
+        code: "settings.empty-vault-key",
+        status: 422,
+        title: "Vault key reference must not be empty",
+        extensions: &[],
+    },
+
+    SETTINGS_PROVIDER_MISMATCH {
+        code: "settings.provider-mismatch",
+        status: 409,
+        title: "Credential provider cannot change during rotation",
+        extensions: &[],
+    },
+
+    SETTINGS_NOT_FOUND {
+        code: "settings.not-found",
+        status: 404,
+        title: "Credential not found",
+        extensions: &[],
+    },
+
+    SETTINGS_ALREADY_REVOKED {
+        code: "settings.already-revoked",
+        status: 409,
+        title: "Credential already revoked",
+        extensions: &[],
+    },
+
+
+    // --- ai config ---
+    AI_CONFIG_NOT_FOUND {
+        code: "ai-config.not-found",
+        status: 404,
+        title: "AI configuration not found",
+        extensions: &[],
+    },
+
+    AI_CONFIG_EMPTY_PROVIDER {
+        code: "ai-config.empty-provider",
+        status: 422,
+        title: "AI provider must be selected",
+        extensions: &[],
+    },
+
+    AI_CONFIG_EMPTY_MODEL {
+        code: "ai-config.empty-model",
+        status: 422,
+        title: "AI assistant model must not be empty",
+        extensions: &[],
+    },
+
+    AI_CONFIG_EMPTY_PROMPT {
+        code: "ai-config.empty-prompt",
+        status: 422,
+        title: "AI prompt must not be empty",
+        extensions: &[],
+    },
+
+    AI_CONFIG_EMPTY_VAULT_KEY {
+        code: "ai-config.empty-vault-key",
+        status: 422,
+        title: "AI vault key reference must not be empty",
+        extensions: &[],
+    },
+
+    AI_CONFIG_PROVIDER_MISMATCH {
+        code: "ai-config.provider-mismatch",
+        status: 409,
+        title: "AI provider cannot be changed",
+        extensions: &[],
+    },
+
+    AI_CONFIG_ALREADY_REVOKED {
+        code: "ai-config.already-revoked",
+        status: 409,
+        title: "AI configuration already revoked",
+        extensions: &[],
+    },
+
+}
+
+/// Compile-time guard: the generated registry must contain exactly
+/// `PROBLEM_CODE_COUNT` entries, so an added/removed code forces a
+/// deliberate count update (issue #232).
+const _: () = assert!(PROBLEM_CODES.len() == PROBLEM_CODE_COUNT);
 
 /// Resolve a registry entry by code. The problem builder never emits a code
 /// absent from the registry; this lookup exists for tests and for the
@@ -323,401 +751,6 @@ pub static PROBLEM_CODES: &[ProblemCode] = &[
 pub fn problem_code(code: &str) -> Option<&'static ProblemCode> {
     PROBLEM_CODES.iter().find(|entry| entry.code == code)
 }
-
-// ---------------------------------------------------------------------------
-// Per-context domain codes (Tranche 2).
-//
-// Every typed error of every aggregate maps 1:1 to a code here. Naming:
-// `{context}.{reason}` in lower kebab-case. `type` URIs and Fluent message
-// keys are derived (see `ProblemCode::type_uri` / `message_key`); published
-// codes are never reused (ADR-021 major-bump removal rule).
-//
-// Extension classification (ADR-031 D4):
-//   S0 — identifier supplied by the client in the request (path/body/query):
-//        always allowed.
-//   S1 — aggregate identifier within the caller's authorized scope: allowed
-//        only where the handler's AUTHZ-GATE ran before the failure.
-//   S2 — person identifiers (OIDC `sub`, e-mail) and cross-tenant data:
-//        structurally banned, enforced by the `s2-extension-ban` ast-grep
-//        rule and the golden-file snapshots.
-// ---------------------------------------------------------------------------
-
-// --- season ---
-pub const SEASON_VALIDATION: ProblemCode = ProblemCode {
-    code: "season.validation",
-    status: 422,
-    title: "Season validation failed",
-    extensions: &[],
-};
-pub const SEASON_NOT_FOUND: ProblemCode = ProblemCode {
-    code: "season.not-found",
-    status: 404,
-    title: "Season not found",
-    extensions: &["id"],
-};
-
-// --- block ---
-pub const BLOCK_VALIDATION: ProblemCode = ProblemCode {
-    code: "block.validation",
-    status: 422,
-    title: "Block validation failed",
-    extensions: &[],
-};
-pub const BLOCK_NOT_FOUND: ProblemCode = ProblemCode {
-    code: "block.not-found",
-    status: 404,
-    title: "Block not found",
-    extensions: &["id"],
-};
-
-// --- episode ---
-pub const EPISODE_VALIDATION: ProblemCode = ProblemCode {
-    code: "episode.validation",
-    status: 422,
-    title: "Episode validation failed",
-    extensions: &[],
-};
-pub const EPISODE_NOT_FOUND: ProblemCode = ProblemCode {
-    code: "episode.not-found",
-    status: 404,
-    title: "Episode not found",
-    extensions: &["id"],
-};
-
-// S1 gating audit (ADR-031 D4, task 2.8): every code below whose
-// extension whitelist contains an S1 field is emitted only from handlers
-// whose authorization gate ran *before* the failure can occur:
-//   - `scene.already-scheduled` (offending_shooting_day_id S1) — produced by
-//     `schedule_scene_on_shooting_day`; the route is `Requirement::BlockMember`
-//     so `authorize_middleware` gates before the command runs.
-//   - `costume.already-assigned` (assigned_character_id S1) — produced by
-//     `assign_costume`; route `Requirement::BlockMember` (same gate).
-//   - `scene-shoot.already-linked` (photo_id S1) — produced by
-//     `link_continuity_photo`; the route is Authenticated-only, so the
-//     handler runs its internal `// AUTHZ-GATE:` season-scoped membership
-//     check before the command (verified in crates/api/src/handlers/mod.rs).
-// The `http-error-surface` spec scenario "Conflict exposes the in-scope
-// conflicting resource" is covered by golden snapshot
-// `scene.already-scheduled.json`.
-
-// --- scene ---
-pub const SCENE_NOT_FOUND: ProblemCode = ProblemCode {
-    code: "scene.not-found",
-    status: 404,
-    title: "Scene not found",
-    extensions: &["id"],
-};
-pub const SCENE_CHARACTER_NOT_FOUND: ProblemCode = ProblemCode {
-    code: "scene.character-not-found",
-    status: 404,
-    title: "Scene character not found",
-    extensions: &["id"],
-};
-pub const SCENE_CHARACTER_ALREADY_ASSIGNED: ProblemCode = ProblemCode {
-    code: "scene.character-already-assigned",
-    status: 409,
-    title: "Character already assigned to this scene",
-    extensions: &[],
-};
-/// Conflict: the scene is already scheduled on *another* shooting day.
-/// The offending day is an in-scope aggregate id (S1) — emitted only after
-/// the handler's AUTHZ-GATE has passed (ADR-031 D4).
-pub const SCENE_ALREADY_SCHEDULED: ProblemCode = ProblemCode {
-    code: "scene.already-scheduled",
-    status: 409,
-    title: "Scene schedule conflict",
-    extensions: &["offending_shooting_day_id"],
-};
-pub const SCENE_NOT_SCHEDULED: ProblemCode = ProblemCode {
-    code: "scene.not-scheduled",
-    status: 409,
-    title: "Scene not scheduled on this day",
-    extensions: &["shooting_day_id"],
-};
-pub const SCENE_VALIDATION: ProblemCode = ProblemCode {
-    code: "scene.validation",
-    status: 422,
-    title: "Scene validation failed",
-    extensions: &[],
-};
-
-// --- character ---
-pub const CHARACTER_NOT_FOUND: ProblemCode = ProblemCode {
-    code: "character.not-found",
-    status: 404,
-    title: "Character not found",
-    extensions: &["id"],
-};
-pub const CHARACTER_VALIDATION: ProblemCode = ProblemCode {
-    code: "character.validation",
-    status: 422,
-    title: "Character validation failed",
-    extensions: &[],
-};
-
-// --- costume ---
-pub const COSTUME_NOT_FOUND: ProblemCode = ProblemCode {
-    code: "costume.not-found",
-    status: 404,
-    title: "Costume not found",
-    extensions: &["id"],
-};
-/// Conflict: the costume is already assigned to a character. The assigned
-/// character is in-scope (S1) — the caller passed the season auth gate.
-pub const COSTUME_ALREADY_ASSIGNED: ProblemCode = ProblemCode {
-    code: "costume.already-assigned",
-    status: 409,
-    title: "Costume already assigned",
-    extensions: &["assigned_character_id"],
-};
-pub const COSTUME_VALIDATION: ProblemCode = ProblemCode {
-    code: "costume.validation",
-    status: 422,
-    title: "Costume validation failed",
-    extensions: &[],
-};
-
-// --- costume category ---
-pub const COSTUME_CATEGORY_NOT_FOUND: ProblemCode = ProblemCode {
-    code: "costume-category.not-found",
-    status: 404,
-    title: "Costume category not found",
-    extensions: &["id"],
-};
-pub const COSTUME_CATEGORY_ARCHIVED: ProblemCode = ProblemCode {
-    code: "costume-category.archived",
-    status: 409,
-    title: "Costume category is archived",
-    extensions: &["id"],
-};
-pub const COSTUME_CATEGORY_VALIDATION: ProblemCode = ProblemCode {
-    code: "costume-category.validation",
-    status: 422,
-    title: "Costume category validation failed",
-    extensions: &[],
-};
-
-// --- shooting day ---
-pub const SHOOTING_DAY_NOT_FOUND: ProblemCode = ProblemCode {
-    code: "shooting-day.not-found",
-    status: 404,
-    title: "Shooting day not found",
-    extensions: &["id"],
-};
-pub const SHOOTING_DAY_ARCHIVED: ProblemCode = ProblemCode {
-    code: "shooting-day.archived",
-    status: 409,
-    title: "Shooting day is archived",
-    extensions: &["id"],
-};
-pub const SHOOTING_DAY_DUPLICATE_ORDER_KEY: ProblemCode = ProblemCode {
-    code: "shooting-day.duplicate-order-key",
-    status: 409,
-    title: "Duplicate order key",
-    extensions: &[],
-};
-pub const SHOOTING_DAY_VALIDATION: ProblemCode = ProblemCode {
-    code: "shooting-day.validation",
-    status: 422,
-    title: "Shooting day validation failed",
-    extensions: &[],
-};
-
-// --- scene shoot ---
-pub const SCENE_SHOOT_NOT_FOUND: ProblemCode = ProblemCode {
-    code: "scene-shoot.not-found",
-    status: 404,
-    title: "Scene shoot not found",
-    extensions: &["id"],
-};
-pub const SCENE_SHOOT_PAIR_ALREADY_EXISTS: ProblemCode = ProblemCode {
-    code: "scene-shoot.pair-already-exists",
-    status: 409,
-    title: "Scene shoot pair already exists",
-    extensions: &[],
-};
-pub const SCENE_SHOOT_PLANNED_ORDER_FROZEN: ProblemCode = ProblemCode {
-    code: "scene-shoot.planned-order-frozen",
-    status: 409,
-    title: "Planned order is frozen",
-    extensions: &[],
-};
-pub const SCENE_SHOOT_NOTE_NOT_FOUND: ProblemCode = ProblemCode {
-    code: "scene-shoot.note-not-found",
-    status: 404,
-    title: "Scene shoot note not found",
-    extensions: &["note_id"],
-};
-/// Conflict: the continuity photo is already linked to this scene shoot.
-/// The photo id is in-scope (S1).
-pub const SCENE_SHOOT_ALREADY_LINKED: ProblemCode = ProblemCode {
-    code: "scene-shoot.already-linked",
-    status: 409,
-    title: "Continuity photo already linked",
-    extensions: &["photo_id"],
-};
-pub const SCENE_SHOOT_ALREADY_STARTED: ProblemCode = ProblemCode {
-    code: "scene-shoot.already-started",
-    status: 409,
-    title: "Scene shoot already started",
-    extensions: &[],
-};
-pub const SCENE_SHOOT_TERMINAL_STATE: ProblemCode = ProblemCode {
-    code: "scene-shoot.terminal-state",
-    status: 409,
-    title: "Scene shoot in terminal state",
-    extensions: &[],
-};
-pub const SCENE_SHOOT_VALIDATION: ProblemCode = ProblemCode {
-    code: "scene-shoot.validation",
-    status: 422,
-    title: "Scene shoot validation failed",
-    extensions: &[],
-};
-
-// --- photo ---
-pub const PHOTO_NOT_FOUND: ProblemCode = ProblemCode {
-    code: "photo.not-found",
-    status: 404,
-    title: "Photo not found",
-    extensions: &["id"],
-};
-pub const PHOTO_ALREADY_DELETED: ProblemCode = ProblemCode {
-    code: "photo.already-deleted",
-    status: 409,
-    title: "Photo already deleted",
-    extensions: &[],
-};
-pub const PHOTO_VALIDATION: ProblemCode = ProblemCode {
-    code: "photo.validation",
-    status: 422,
-    title: "Photo validation failed",
-    extensions: &[],
-};
-
-// --- membership ---
-// Deliberately no `user_id` extension on any membership code: the OIDC `sub`
-// is an S2 person identifier and must never appear in a problem body
-// (ADR-031 D4, http-error-surface spec scenario "Person identifier is never
-// echoed"). The reason text never names the identity either.
-pub const MEMBERSHIP_VALIDATION: ProblemCode = ProblemCode {
-    code: "membership.validation",
-    status: 422,
-    title: "Membership validation failed",
-    extensions: &[],
-};
-pub const MEMBERSHIP_ALREADY_INVITED: ProblemCode = ProblemCode {
-    code: "membership.already-invited",
-    status: 409,
-    title: "Already invited",
-    extensions: &[],
-};
-pub const MEMBERSHIP_NO_PENDING_INVITATION: ProblemCode = ProblemCode {
-    code: "membership.no-pending-invitation",
-    status: 409,
-    title: "No pending invitation",
-    extensions: &[],
-};
-pub const MEMBERSHIP_NOT_ACTIVE_MEMBER: ProblemCode = ProblemCode {
-    code: "membership.not-active-member",
-    status: 409,
-    title: "Not an active member",
-    extensions: &[],
-};
-pub const MEMBERSHIP_MISSING_ACTOR: ProblemCode = ProblemCode {
-    code: "membership.missing-actor",
-    status: 422,
-    title: "Authenticated actor required",
-    extensions: &[],
-};
-pub const MEMBERSHIP_BOOTSTRAP_NOT_ALLOWED: ProblemCode = ProblemCode {
-    code: "membership.bootstrap-not-allowed",
-    status: 409,
-    title: "Bootstrap not allowed",
-    extensions: &[],
-};
-pub const MEMBERSHIP_NOT_FOUND: ProblemCode = ProblemCode {
-    code: "membership.not-found",
-    status: 404,
-    title: "Membership not found",
-    extensions: &[],
-};
-
-// --- settings (credentials) ---
-pub const SETTINGS_EMPTY_PROVIDER: ProblemCode = ProblemCode {
-    code: "settings.empty-provider",
-    status: 422,
-    title: "Credential provider must not be empty",
-    extensions: &[],
-};
-pub const SETTINGS_EMPTY_VAULT_KEY: ProblemCode = ProblemCode {
-    code: "settings.empty-vault-key",
-    status: 422,
-    title: "Vault key reference must not be empty",
-    extensions: &[],
-};
-pub const SETTINGS_PROVIDER_MISMATCH: ProblemCode = ProblemCode {
-    code: "settings.provider-mismatch",
-    status: 409,
-    title: "Credential provider cannot change during rotation",
-    extensions: &[],
-};
-pub const SETTINGS_NOT_FOUND: ProblemCode = ProblemCode {
-    code: "settings.not-found",
-    status: 404,
-    title: "Credential not found",
-    extensions: &[],
-};
-pub const SETTINGS_ALREADY_REVOKED: ProblemCode = ProblemCode {
-    code: "settings.already-revoked",
-    status: 409,
-    title: "Credential already revoked",
-    extensions: &[],
-};
-
-// --- ai config ---
-pub const AI_CONFIG_NOT_FOUND: ProblemCode = ProblemCode {
-    code: "ai-config.not-found",
-    status: 404,
-    title: "AI configuration not found",
-    extensions: &[],
-};
-pub const AI_CONFIG_EMPTY_PROVIDER: ProblemCode = ProblemCode {
-    code: "ai-config.empty-provider",
-    status: 422,
-    title: "AI provider must be selected",
-    extensions: &[],
-};
-pub const AI_CONFIG_EMPTY_MODEL: ProblemCode = ProblemCode {
-    code: "ai-config.empty-model",
-    status: 422,
-    title: "AI assistant model must not be empty",
-    extensions: &[],
-};
-pub const AI_CONFIG_EMPTY_PROMPT: ProblemCode = ProblemCode {
-    code: "ai-config.empty-prompt",
-    status: 422,
-    title: "AI prompt must not be empty",
-    extensions: &[],
-};
-pub const AI_CONFIG_EMPTY_VAULT_KEY: ProblemCode = ProblemCode {
-    code: "ai-config.empty-vault-key",
-    status: 422,
-    title: "AI vault key reference must not be empty",
-    extensions: &[],
-};
-pub const AI_CONFIG_PROVIDER_MISMATCH: ProblemCode = ProblemCode {
-    code: "ai-config.provider-mismatch",
-    status: 409,
-    title: "AI provider cannot be changed",
-    extensions: &[],
-};
-pub const AI_CONFIG_ALREADY_REVOKED: ProblemCode = ProblemCode {
-    code: "ai-config.already-revoked",
-    status: 409,
-    title: "AI configuration already revoked",
-    extensions: &[],
-};
 
 #[cfg(test)]
 mod tests {

@@ -110,8 +110,15 @@ membership check via the shooting_day → episode → block → season chain). T
 - **HTTP error surface (ADR-031):** Every HTTP failure is an RFC 9457
   `application/problem+json` document built by the single problem builder
   (`crates/api/src/problems`) from the code registry
-  (`crates/core/src/error_registry.rs`). Handlers return `Result<_, ApiError>`
-  and propagate with `?` — there is no per-handler HTTP status mapping and no
+  (`crates/core/src/error_registry.rs`). The registry is a single-source
+  `problem_codes!` macro: each entry expands to its `pub const` *and* its
+  `PROBLEM_CODES` array slot from one list, so a code that is not registered
+  cannot exist — a standalone `pub const ...: ProblemCode` outside the
+  invocation is rejected by the `problem-code-registry` CI job, and a
+  compile-time assertion keeps the registry count in sync (issue #232). New
+  codes MUST be added as entries in that invocation, never as a standalone
+  `pub const`. Handlers return `Result<_, ApiError>` and propagate with `?`
+  — there is no per-handler HTTP status mapping and no
   `map_err`-to-response conversion. Clients branch on the stable `code`
   (`{context}.{reason}`), never on `detail` text. Extension fields are
   whitelisted per code and classified S0/S1/S2: S1 fields are emitted only
@@ -179,9 +186,18 @@ membership check via the shooting_day → episode → block → season chain). T
   (`backend/rules/discard-result.yml`) and that `*_for_test` helpers are gated behind
   `#[cfg(feature = "test-support")]` (`backend/rules/test-helper-gate.yml`) — issue #165
   review lessons. All rules accept an explicit `// ast-grep-ignore: <rule-id>` suppression
-  with a justification comment. The `backend/git-hooks/pre-commit` hook mirrors all four
-  rules on staged files (warning only if ast-grep is not installed; CI remains the
-  authoritative gate).
+  with a justification comment — except `problem-code-registry`, which is
+  deliberately non-suppressible: the shared checker rejects any
+  `ast-grep-ignore: problem-code-registry` directive, because a suppressed
+  standalone declaration would compile unregistered (issue #232). The
+  `problem-code-registry` job (issue #232) runs the
+  shared, syntax-aware scanner `backend/scripts/check-problem-code-registry.sh`
+  (rule `backend/rules/problem-code-registry.yml`, rule tests in
+  `backend/rules-tests/`): every `pub const …: ProblemCode` must be declared
+  through the `problem_codes!` macro in `error_registry.rs` — a standalone
+  declaration compiles but is never registered. The `backend/git-hooks/pre-commit`
+  hook mirrors these guardrails on staged files (warning only if ast-grep is not
+  installed; CI remains the authoritative gate).
 
 ### Integration tests
 

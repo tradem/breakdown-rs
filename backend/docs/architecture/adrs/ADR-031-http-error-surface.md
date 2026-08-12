@@ -60,7 +60,13 @@ had to be fixed now (cheapest breaking-change window).
    `http.`, `auth.`. The single registry (in `core`, dependency-free data) is
    the source for the code, the English `title`, the localization key, and the
    dereferencable `type` URI anchor (`{docs-base}/problems/{code}` — derived,
-   never stored separately). Published codes are never reused and only removed
+   never stored separately). The registry is declared through one
+   `problem_codes!` macro: each entry expands to both the `pub const` and its
+   `PROBLEM_CODES` slot, so an unregistered code cannot exist; a standalone
+   `pub const ...: ProblemCode` outside the invocation is rejected by the
+   `problem-code-registry` CI job, and a compile-time assertion keeps the
+   registry count in sync (issue #232).
+   Published codes are never reused and only removed
    with an API major bump (ADR-021); deprecated codes keep their locale
    messages until removal.
 3. **Localization.** `detail` is localized server-side with **Mozilla Fluent**
