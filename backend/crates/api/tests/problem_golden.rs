@@ -64,7 +64,8 @@ fn sample_extension_value(field: &str) -> serde_json::Value {
 
 #[test]
 fn problem_documents_match_golden_snapshots() {
-    let update = std::env::var("UPDATE_GOLDEN").is_ok();
+    let update = std::env::var("UPDATE_GOLDEN")
+        .is_ok_and(|v| !v.is_empty() && v != "0" && !v.eq_ignore_ascii_case("false"));
     let mut failures: Vec<String> = Vec::new();
 
     for entry in PROBLEM_CODES {
@@ -97,6 +98,21 @@ fn problem_documents_match_golden_snapshots() {
                 }
             }
             Err(_) => failures.push(format!("MISSING golden for code {}", entry.code)),
+        }
+    }
+
+    // Reverse direction: a golden file with no registry entry is a leftover
+    // from a renamed or deleted code and must fail the build (renaming is
+    // otherwise only half-visible in review). Skipped in update mode.
+    if !update && let Ok(dir) = fs::read_dir(golden_dir()) {
+        for file in dir.flatten() {
+            let name = file.file_name().to_string_lossy().into_owned();
+            let Some(code) = name.strip_suffix(".json") else {
+                continue;
+            };
+            if !PROBLEM_CODES.iter().any(|entry| entry.code == code) {
+                failures.push(format!("ORPHAN golden {name} has no registry entry"));
+            }
         }
     }
 

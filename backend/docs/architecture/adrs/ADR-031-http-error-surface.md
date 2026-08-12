@@ -8,7 +8,7 @@
 **Date**: 2026-08-12
 **Author**: Tobias Rademacher (@tradem); Co-authored-by: kimi-k3 (neuralwatt)
 **Related**: ADR-012 (error handling types), ADR-021 (API versioning), ADR-030 (bounded contexts)
-**Source change**: `openspec/changes/add-problem-details-error-surface`
+**Source change**: `openspec/changes/archive/2026-08-12-add-problem-details-error-surface`
 
 > **Status history.** Proposed at the change's design; moved to **Accepted**
 > once Tranche 1 (envelope) and Tranche 2 (structured registry) merged and

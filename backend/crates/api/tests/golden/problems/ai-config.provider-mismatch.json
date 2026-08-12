@@ -2,6 +2,6 @@
   "code": "ai-config.provider-mismatch",
   "detail": "Der KI-Anbieter kann nicht geändert werden.",
   "status": 409,
-  "title": "AI provider cannot change",
+  "title": "AI provider cannot be changed",
   "type": "https://docs.breakdown.example/problems/ai-config.provider-mismatch"
 }

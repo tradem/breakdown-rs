@@ -105,7 +105,7 @@ major (ADR-021); deprecated codes keep their locale messages until removal
 ecosystem the clients live in; Zalando/OAuth-adjacent conventions favour
 kebab); URNs as codes (rejected: noise for clients; URIs stay in `type`).
 
-### D3 — Structured `DomainError`; one `IntoResponse`; rejections kesseled
+### D3 — Structured `DomainError`; one `IntoResponse`; all rejections routed through the problem builder
 
 `DomainError` variants become structured: `NotFound { resource: ResourceKind,
 id: Uuid }`, `AlreadyAssigned { costume_id, character_id }`, etc. Each variant
@@ -211,9 +211,10 @@ convenience for thin clients like Slint).
 ## Migration Plan
 
 1. **Tranche 1 (envelope)**: problem builder + `application/problem+json` +
-   content-type everywhere + registryskelett with framework codes; status
-   semantics switch incl. 422; auth middleware & rejections & panic fallback
-   kesseled; OpenAPI `ProblemDetails` schema. Clients migrate to `code`.
+   content-type everywhere + a registry skeleton with framework codes; status
+   semantics switch incl. 422; auth middleware rejections and the panic
+   fallback routed through the shared problem builder; OpenAPI `ProblemDetails`
+   schema. Clients migrate to `code`.
 2. **Tranche 2 (structure)**: `DomainError` → structured variants + full code
    registry + extension whitelists + golden tests + S2 ast-grep rule.
 3. **Tranche 3 (i18n)**: Fluent wiring, `locales/de|en/errors.ftl`,

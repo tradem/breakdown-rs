@@ -43,4 +43,4 @@
 - [x] 4.2 Finalize ADR-031 (status → Accepted after Tranche 1 merges), add existence-oracle policy and code depreciation rule text
 - [x] 4.3 Update `AGENTS.md` error-handling section to point at the problem builder + registry instead of `map_err`
 - [x] 4.4 Client migration note: one page describing the switch from `message` parsing to `code`-based handling (web/Flutter/Slint)
-- [ ] 4.5 `openspec validate add-problem-details-error-surface --strict` green; CI architecture checks green
+- [x] 4.5 `openspec validate add-problem-details-error-surface --strict` green; CI architecture checks green

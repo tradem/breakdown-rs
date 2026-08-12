@@ -63,7 +63,7 @@ before the first external integrator depends on the current ad-hoc shape.
   **422 Unprocessable Entity for domain validation failures**
   (**BREAKING** for any client branching on the old 400), 401/403/404/409/503
   retained with a documented existence-oracle policy.
-- Restriction into the OpenAPI spec: one `ProblemDetails` schema, registered
+- Update the OpenAPI spec with one `ProblemDetails` schema, a registered
   `application/problem+json` content type, documented code registry.
 
 ## Capabilities

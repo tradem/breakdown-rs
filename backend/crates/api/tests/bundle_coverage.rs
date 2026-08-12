@@ -111,10 +111,8 @@ fn every_bundle_key_maps_to_a_registered_code() {
 /// The deterministic key derivation matches `ProblemCode::message_key`.
 #[test]
 fn message_key_derivation_is_deterministic() {
-    assert_eq!(
-        PROBLEM_CODES[0].message_key(),
-        problem_code(PROBLEM_CODES[0].code)
-            .expect("registered")
-            .message_key()
-    );
+    for entry in PROBLEM_CODES {
+        let registered = problem_code(entry.code).expect("registered");
+        assert_eq!(entry.message_key(), registered.message_key());
+    }
 }

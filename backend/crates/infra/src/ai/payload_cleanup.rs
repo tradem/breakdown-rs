@@ -344,21 +344,42 @@ where
     let run_id = Uuid::now_v7();
 
     for row in rows {
-        let job_id: Uuid = row.try_get("id").map_err(|e| {
-            DomainError::service_unavailable(format!("Failed to get job id: {}", e))
-        })?;
-        let source_handle: String = row.try_get("source_handle").map_err(|e| {
-            DomainError::service_unavailable(format!("Failed to get source_handle: {}", e))
-        })?;
-        let preview_handle: Option<String> = row.try_get("preview_handle").map_err(|e| {
-            DomainError::service_unavailable(format!("Failed to get preview_handle: {}", e))
-        })?;
-        let source_pending: bool = row.try_get("source_pending").map_err(|e| {
-            DomainError::service_unavailable(format!("Failed to get source_pending: {}", e))
-        })?;
-        let preview_pending: bool = row.try_get("preview_pending").map_err(|e| {
-            DomainError::service_unavailable(format!("Failed to get preview_pending: {}", e))
-        })?;
+        // Row decoding is fallible; a failure must still flush the marks
+        // earned by earlier rows in this batch (their deletions already
+        // happened) before returning — same guarantee as `first_error` below
+        // (issue #206).
+        let decoded = (|| {
+            let job_id: Uuid = row.try_get("id").map_err(|e| {
+                DomainError::service_unavailable(format!("Failed to get job id: {}", e))
+            })?;
+            let source_handle: String = row.try_get("source_handle").map_err(|e| {
+                DomainError::service_unavailable(format!("Failed to get source_handle: {}", e))
+            })?;
+            let preview_handle: Option<String> = row.try_get("preview_handle").map_err(|e| {
+                DomainError::service_unavailable(format!("Failed to get preview_handle: {}", e))
+            })?;
+            let source_pending: bool = row.try_get("source_pending").map_err(|e| {
+                DomainError::service_unavailable(format!("Failed to get source_pending: {}", e))
+            })?;
+            let preview_pending: bool = row.try_get("preview_pending").map_err(|e| {
+                DomainError::service_unavailable(format!("Failed to get preview_pending: {}", e))
+            })?;
+            Ok::<(Uuid, String, Option<String>, bool, bool), DomainError>((
+                job_id,
+                source_handle,
+                preview_handle,
+                source_pending,
+                preview_pending,
+            ))
+        })();
+        let (job_id, source_handle, preview_handle, source_pending, preview_pending) = match decoded
+        {
+            Ok(fields) => fields,
+            Err(error) => {
+                marks.flush(pool, run_id).await?;
+                return Err(error.into());
+            }
+        };
 
         // A row can be selected because only *one* of its payloads is still
         // owed; re-deleting the other would be a harmless no-op but would

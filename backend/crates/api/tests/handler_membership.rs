@@ -187,7 +187,9 @@ async fn get_member_returns_404_when_absent() {
         Path((block_id.0, "ghost".to_string())),
     )
     .await;
-    assert_eq!(result.unwrap_err().into_problem().status, 404);
+    let problem = result.unwrap_err().into_problem();
+    assert_eq!(problem.status, 404);
+    assert_eq!(problem.code, "membership.not-found");
 }
 
 #[tokio::test]

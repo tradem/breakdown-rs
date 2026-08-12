@@ -344,8 +344,9 @@ pub async fn authorize_middleware(
     if !allowed {
         // ADR-031: the authorization layer produces a problem document like
         // every other error source (single builder at the HTTP boundary).
+        // `detail` is localized by the Fluent bundle (ADR-031 D5); no English
+        // override here — the client branches on the `domain.forbidden` code.
         return crate::problems::problem(breakdown_core::error_registry::DOMAIN_FORBIDDEN)
-            .detail("not an active member of the active block")
             .build()
             .into_response();
     }

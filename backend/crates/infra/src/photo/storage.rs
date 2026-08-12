@@ -270,9 +270,7 @@ impl OpenDalPhotoStorage {
                 if e.to_string().contains("Not Found") || e.to_string().contains("ObjectNotExist") {
                     Ok(None)
                 } else {
-                    Err(DomainError::validation(format!(
-                        "Failed to stat object {key}: {e}"
-                    )))
+                    Err(map_storage_error(&key, e))
                 }
             }
         }
@@ -311,13 +309,19 @@ impl PhotoStorage for OpenDalPhotoStorage {
             if e.to_string().contains("Not Found") || e.to_string().contains("ObjectNotExist") {
                 DomainError::not_found("photo")
             } else {
-                DomainError::validation(format!("Failed to stat object {key}: {e}"))
+                map_storage_error(&key, e)
             }
         })?;
-        let buf = op
-            .read(&key)
-            .await
-            .map_err(|e| DomainError::validation(format!("Failed to read object {key}: {e}")))?;
+        let buf = op.read(&key).await.map_err(|e| {
+            // A not-found between stat and read is the same "gone" state
+            // as the stat not-found; everything else goes through the
+            // transient/permanent classifier.
+            if e.to_string().contains("Not Found") || e.to_string().contains("ObjectNotExist") {
+                DomainError::not_found("photo")
+            } else {
+                map_storage_error(&key, e)
+            }
+        })?;
         let content_type = meta
             .content_type()
             .unwrap_or("application/octet-stream")
@@ -362,15 +366,13 @@ impl PhotoStorage for OpenDalPhotoStorage {
             .lister_with("")
             .limit(1000)
             .await
-            .map_err(|e| DomainError::validation(format!("Failed to list objects: {e}")))?;
+            .map_err(|e| map_storage_error("photo listing", e))?;
 
         while let Some(entry) = lister.next().await {
             let entry = match entry {
                 Ok(e) => e,
                 Err(e) => {
-                    return Err(DomainError::validation(format!(
-                        "Failed to list object entry: {e}"
-                    )));
+                    return Err(map_storage_error("photo listing", e));
                 }
             };
             let path = entry.path();

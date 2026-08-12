@@ -41,8 +41,7 @@ pub struct ProblemCode {
     /// Whitelisted extension fields (S0/S1 classified; S2 never allowed).
     ///
     /// The problem builder only serializes fields declared here; anything
-    /// else is refused loudly (Tranche 2 turns this into a compile-time
-    /// guarantee via typed extension builders).
+    /// else is refused loudly.
     pub extensions: &'static [&'static str],
 }
 
@@ -116,11 +115,12 @@ pub const HTTP_PAYLOAD_TOO_LARGE: ProblemCode = ProblemCode {
     extensions: &[],
 };
 
-/// 408 — upstream renderer exceeded its time budget.
+/// 504 — the report renderer exceeded its time budget (the renderer is the
+/// slow party, not the client's request; 504 per RFC 9110 §15.6.5).
 pub const HTTP_REQUEST_TIMEOUT: ProblemCode = ProblemCode {
     code: "http.request-timeout",
-    status: 408,
-    title: "Request timeout",
+    status: 504,
+    title: "Gateway timeout",
     extensions: &[],
 };
 
@@ -187,12 +187,13 @@ pub const CONCURRENCY_VERSION_MISMATCH: ProblemCode = ProblemCode {
 };
 
 // ---------------------------------------------------------------------------
-// Generic `domain.*` codes — Tranche 1 stand-ins.
+// Generic `domain.*` codes.
 //
-// These map the (still string-carrying) `DomainError` variants until Tranche 2
-// restructures `DomainError` and registers per-aggregate codes such as
-// `scene.already-scheduled`. They are deliberately generic: no extension
-// fields, static detail.
+// These back the generic `DomainError` constructors (`not_found`, `conflict`,
+// `validation`, `forbidden`, `service_unavailable`, `internal`) used by the
+// read side (infra) and the API edge. Per-aggregate codes are defined below
+// and are selected by the module `From` impls. Generic codes carry no
+// extension fields.
 // ---------------------------------------------------------------------------
 
 /// 404 — resource not found (or deliberately hidden per the existence-oracle
@@ -237,9 +238,9 @@ pub const DOMAIN_SERVICE_UNAVAILABLE: ProblemCode = ProblemCode {
     extensions: &[],
 };
 
-/// The registry (ADR-031 D2). The set below is deliberately small in
-/// Tranche 1; per-aggregate codes land in Tranche 2 when `DomainError`
-/// becomes structured.
+/// The registry (ADR-031 D2). Every `ProblemCode` constant in this module
+/// must appear here; the bundle-coverage lint and the problem builder read
+/// only this slice.
 pub static PROBLEM_CODES: &[ProblemCode] = &[
     HTTP_BAD_JSON_BODY,
     HTTP_BAD_PATH_PARAM,
@@ -708,7 +709,7 @@ pub const AI_CONFIG_EMPTY_VAULT_KEY: ProblemCode = ProblemCode {
 pub const AI_CONFIG_PROVIDER_MISMATCH: ProblemCode = ProblemCode {
     code: "ai-config.provider-mismatch",
     status: 409,
-    title: "AI provider cannot change",
+    title: "AI provider cannot be changed",
     extensions: &[],
 };
 pub const AI_CONFIG_ALREADY_REVOKED: ProblemCode = ProblemCode {

@@ -12,9 +12,9 @@
 #   crates/api/src/problems
 #
 # A deliberate, non-wire reference (e.g. a log statement) is permitted only
-# with an explicit suppression:
-#   // ast-grep-ignore: s2-extension-ban
-# on the offending line, carrying a justification comment above it.
+# with an explicit suppression comment naming the rule id `s2-extension-ban`
+# on the offending line, carrying a justification comment above it (the
+# discard-result rule documents the directive syntax).
 #
 # This mirrors the cqrs-boundary / discard-result guardrail pattern; the
 # golden-file snapshots (crates/api/tests/problem_golden.rs) back it up by
@@ -24,8 +24,8 @@ message: >-
   S2 person identifier referenced in problem-builder code. OIDC `sub` and
   e-mail must never appear in a problem document or its extension fields
   (ADR-031 D4). If this reference is genuinely not part of a problem body
-  (e.g. a log line), suppress with an explicit `// ast-grep-ignore:
-  s2-extension-ban` comment and a justification.
+  (e.g. a log line), suppress with an explicit ast-grep-ignore directive
+  naming the rule id `s2-extension-ban` and a justification.
 severity: error
 language: Rust
 rule:
@@ -33,12 +33,13 @@ rule:
     # Field access on identity carriers (CurrentUser.sub, claims.email, …).
     - pattern: $X.sub
     - pattern: $X.email
-    # Bare identifiers named after the S2 carriers.
-    - pattern: $sub
-    - pattern: $email
-  # Do not flag the auth module's own claims struct or the middleware —
-  # the scan scope (crates/api/src/problems) excludes them anyway; this
-  # constraint documents the intent for reviewers.
-  not:
-    any:
-      - kind: field_declaration
+    # Bare identifiers named after the S2 carriers. ast-grep metavariables
+    # must be UPPERCASE, so `$sub`/`$email` would be parsed as literals and
+    # silently match nothing — match by AST kind + regex instead.
+    - kind: identifier
+      regex: '^(sub|email)$'
+  # Note: no `not: field_declaration` clause here — the alternatives above
+  # match `field_expression` / `identifier` nodes, which are never
+  # `field_declaration`, so such a clause would be a no-op. The scan scope
+  # (crates/api/src/problems) excludes the auth module's own claims struct
+  # anyway.

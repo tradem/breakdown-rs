@@ -17,6 +17,7 @@
 //! the negotiated locale.
 
 use fluent_bundle::{FluentArgs, FluentBundle, FluentResource};
+use std::sync::{Arc, OnceLock};
 use tokio::task_local;
 use unic_langid::{LanguageIdentifier, langid};
 
@@ -103,23 +104,40 @@ fn bundle_source(locale: &LanguageIdentifier) -> &'static str {
     }
 }
 
+/// Cached parse of each embedded bundle. `FluentResource` is `Send + Sync`,
+/// so the (expensive) FTL parse happens once per locale; only the small
+/// `FluentBundle` is built per call. Error paths (auth floods, route
+/// scanning) therefore stop re-parsing the whole FTL on every problem.
+fn parsed_resource(locale: &LanguageIdentifier) -> &'static Arc<FluentResource> {
+    static DE: OnceLock<Arc<FluentResource>> = OnceLock::new();
+    static EN: OnceLock<Arc<FluentResource>> = OnceLock::new();
+    let (cell, source) = if locale == &langid!("en") {
+        (&EN, bundle_source(locale))
+    } else {
+        (&DE, bundle_source(locale))
+    };
+    cell.get_or_init(|| {
+        Arc::new(match FluentResource::try_new(source.to_owned()) {
+            Ok(resource) => resource,
+            Err((resource, errors)) => {
+                // The coverage lint validates parseability in CI; production
+                // degrades to the title fallback, never panics (AGENTS.md §3).
+                tracing::error!(
+                    ?errors,
+                    "malformed Fluent bundle; detail falls back to title"
+                );
+                resource
+            }
+        })
+    })
+}
+
 /// Render the localized `detail` for a problem code with the declared
 /// extension values as Fluent arguments (ADR-031 D5: interpolation only,
 /// never string building). Returns `None` when the locale has no message
 /// for the code (the builder then falls back to the constant English title).
 pub fn localize(locale: &LanguageIdentifier, code: &str, args: &FluentArgs) -> Option<String> {
-    let resource = match FluentResource::try_new(bundle_source(locale).to_owned()) {
-        Ok(resource) => resource,
-        Err((resource, errors)) => {
-            // The coverage lint validates parseability in CI; production
-            // degrades to the title fallback, never panics (AGENTS.md §3).
-            tracing::error!(
-                ?errors,
-                "malformed Fluent bundle; detail falls back to title"
-            );
-            resource
-        }
-    };
+    let resource = Arc::clone(parsed_resource(locale));
     let mut bundle = FluentBundle::new(vec![locale.clone()]);
     if let Err(errors) = bundle.add_resource(resource) {
         tracing::error!(

@@ -50,6 +50,7 @@ use breakdown_core::episode::commands::{CreateEpisode, RenameEpisode};
 use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::error::DomainError;
+use breakdown_core::error_registry::MEMBERSHIP_NOT_FOUND;
 use breakdown_core::membership::policy::{Action, PolicyDecision, SeasonAuthContext};
 use breakdown_core::membership::views::MembershipView;
 use breakdown_core::membership::{
@@ -1912,7 +1913,11 @@ pub async fn get_member<P: Ports>(
         .await?;
     match view {
         Some(v) => Ok((StatusCode::OK, Json(v))),
-        None => Err(ApiError::NotFound("membership not found")),
+        None => Err(ApiError::Domain(DomainError::NotFound {
+            code: &MEMBERSHIP_NOT_FOUND,
+            resource: "membership",
+            id: Uuid::nil(),
+        })),
     }
 }
 

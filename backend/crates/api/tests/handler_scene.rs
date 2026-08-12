@@ -83,5 +83,6 @@ async fn get_scene_returns_404_when_missing() {
     let problem = result.expect_err("handler should fail").into_problem();
 
     assert_eq!(problem.status, 404);
+    assert_eq!(problem.code, "scene.not-found");
     assert!(!problem.detail.is_empty());
 }

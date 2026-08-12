@@ -113,7 +113,7 @@ problem-http-payload-too-large =
     Die Anfrage überschreitet das zulässige Größenlimit.
 
 problem-http-request-timeout =
-    Die Anfrage hat das Zeitlimit überschritten.
+    Die Verarbeitung der Anfrage hat das Zeitlimit überschritten.
 
 problem-http-route-not-found =
     Die angeforderte Route existiert nicht.

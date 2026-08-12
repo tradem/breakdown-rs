@@ -78,7 +78,9 @@ fn test_map_render_error_input_bounds() {
 fn test_map_render_error_timeout() {
     let err = ReportRenderError::RenderTimeout;
     let problem = map_render_error(err).into_problem();
-    assert_eq!(problem.status, 408);
+    // The renderer is the slow party — 504 Gateway Timeout, not 408
+    // (which would tell the client to resend its request).
+    assert_eq!(problem.status, 504);
     assert_eq!(problem.code, "http.request-timeout");
 }
 
@@ -101,6 +103,9 @@ fn test_map_render_error_locale_unsupported() {
     };
     let problem = map_render_error(err).into_problem();
     assert_eq!(problem.status, 500);
+    // Internal renderer text must never leave the server (ADR-031 decision 6).
+    assert_eq!(problem.code, "http.internal-error");
+    assert!(!problem.detail.contains("xx"));
 }
 
 #[test]
@@ -110,6 +115,9 @@ fn test_map_render_error_template_not_found() {
     };
     let problem = map_render_error(err).into_problem();
     assert_eq!(problem.status, 500);
+    // Internal renderer text must never leave the server (ADR-031 decision 6).
+    assert_eq!(problem.code, "http.internal-error");
+    assert!(!problem.detail.contains("dispo"));
 }
 
 // ---------------------------------------------------------------------------

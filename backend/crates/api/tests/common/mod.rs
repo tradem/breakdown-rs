@@ -30,6 +30,7 @@ use breakdown_core::episode::commands::{CreateEpisode, RenameEpisode};
 use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::error::DomainError;
+use breakdown_core::error_registry::SCENE_NOT_FOUND;
 use breakdown_core::photo::commands::{
     DeletePhoto, GenerateVariant, MarkVariantFailed, NormalizeOriginal, UploadPhoto,
 };
@@ -497,7 +498,11 @@ impl SceneRepository for FakeSceneRepo {
             .await
             .get(&id)
             .cloned()
-            .ok_or_else(|| DomainError::not_found("scene"))
+            .ok_or(DomainError::NotFound {
+                code: &SCENE_NOT_FOUND,
+                resource: "scene",
+                id: Uuid::nil(),
+            })
     }
     async fn list_by_episode(
         &self,
@@ -587,7 +592,7 @@ impl CostumeCategoryRepository for FakeCostumeCategoryRepo {
         Ok(0)
     }
     async fn find_by_id(&self, _id: Uuid) -> Result<CostumeCategoryView, DomainError> {
-        Err(DomainError::not_found("costumecategory"))
+        Err(DomainError::not_found("costume-category"))
     }
 }
 
@@ -830,7 +835,7 @@ pub struct FakeShootingDayRepo;
 
 impl ShootingDayRepository for FakeShootingDayRepo {
     async fn find_by_id(&self, _id: ShootingDayId) -> Result<ShootingDayView, DomainError> {
-        Err(DomainError::not_found("shootingday"))
+        Err(DomainError::not_found("shooting-day"))
     }
     async fn list_by_episode(
         &self,
@@ -1362,7 +1367,7 @@ impl AiConfigRepository for FakeAiConfigRepo {
             .await
             .get(&id)
             .cloned()
-            .ok_or_else(|| DomainError::not_found("aiconfig"))
+            .ok_or_else(|| DomainError::not_found("ai-config"))
     }
 }
 

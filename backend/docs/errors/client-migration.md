@@ -24,10 +24,10 @@ The body-shape and 400→422 changes are done together so clients migrate once.
 
 ## Migration steps
 
-1. **Treat every non-2xx as a problem document.** Parse
+1. **Treat every HTTP error response (`status >= 400`) as a problem document.** Parse
    `application/problem+json` (Axios `response.data`, `http`/`dio` body,
    Slint `HttpResponse.body`); extract `code`, `status`, `detail`,
-   `trace_id`, `extensions`.
+   `trace_id`, `extensions`. 3xx redirects are not problem documents.
 
 2. **Branch on `code`, never on `detail`.** Replace every
    `message.includes("not found")`-style check with the corresponding code.
@@ -66,6 +66,13 @@ The body-shape and 400→422 changes are done together so clients migrate once.
 ## Fallback
 
 If a response is unparseable or the `code` is unknown, degrade to
-`http.internal-error`-style handling: log status + body, show a generic
-"something went wrong" message, and treat `status >= 500` as retryable
-(except `http.internal-error`, which is opaque by design).
+`http.internal-error`-style handling:
+
+- **Never log the raw response body** — it can carry PII, credentials, or
+  upstream diagnostics. Log the status and `trace_id`, plus at most a
+  bounded, redacted excerpt when diagnostics require it.
+- Show a generic "something went wrong" message to the user.
+- **Retry only documented transient codes** (e.g. `domain.service-unavailable`
+  / 503), never every 5xx, and only for idempotent requests or requests
+  carrying an idempotency key. `http.internal-error` is opaque by design and
+  must not be retried.

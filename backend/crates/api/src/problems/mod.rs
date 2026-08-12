@@ -160,6 +160,13 @@ impl ProblemBuilder {
             }
             Some(map)
         };
+        // An explicit caller override wins over the localized bundle message
+        // (used for messages with no Fluent equivalent, e.g. report-limit
+        // violations). Otherwise `detail` is rendered from the negotiated
+        // locale's bundle with the declared S0/S1 extension values as
+        // arguments (ADR-031 D5), degrading to the constant English title
+        // when the locale has no message for the code.
+        let has_override = self.detail.is_some();
         let mut document = ProblemDetails {
             type_: self.code.type_uri(),
             title: self.code.title.to_owned(),
@@ -169,15 +176,13 @@ impl ProblemBuilder {
             trace_id: current_trace_id(),
             extensions,
         };
-        // ADR-031 D5: render `detail` from the negotiated locale's Fluent
-        // bundle, using the declared S0/S1 extension values as arguments.
-        // The bundle message wins over the (English) title / explicit
-        // override; missing messages degrade to the title.
-        let locale = locale::current_locale();
-        if let Some(localized) =
-            locale::localize(&locale, self.code.code, &locale::fluent_args(&document))
-        {
-            document.detail = localized;
+        if !has_override {
+            let locale = locale::current_locale();
+            if let Some(localized) =
+                locale::localize(&locale, self.code.code, &locale::fluent_args(&document))
+            {
+                document.detail = localized;
+            }
         }
         document
     }
@@ -225,6 +230,7 @@ fn domain_error_problem(err: DomainError) -> ProblemDetails {
         DomainError::Validation { code, .. } => problem(*code).build(),
         DomainError::Conflict { code, .. } => problem(*code).build(),
         DomainError::ServiceUnavailable { code, .. } => problem(*code).build(),
+        DomainError::Internal { code, .. } => problem(*code).build(),
         DomainError::VersionConflict { expected, current } => problem(CONCURRENCY_VERSION_MISMATCH)
             .extension("expected_version", expected)
             .extension("current_version", current)
@@ -301,21 +307,53 @@ impl ApiError {
     pub fn into_problem(self) -> ProblemDetails {
         match self {
             ApiError::Domain(err) => domain_error_problem(err),
-            ApiError::Forbidden(msg) => problem(DOMAIN_FORBIDDEN).detail(msg).build(),
-            ApiError::BadRequest(msg) => problem(HTTP_BAD_REQUEST).detail(msg).build(),
-            ApiError::BadJsonBody(msg) => problem(HTTP_BAD_JSON_BODY).detail(msg).build(),
-            ApiError::Validation(msg) => problem(DOMAIN_VALIDATION).detail(msg).build(),
-            ApiError::BadPathParam(msg) => problem(HTTP_BAD_PATH_PARAM).detail(msg).build(),
-            ApiError::BadQueryParam(msg) => problem(HTTP_BAD_QUERY_PARAM).detail(msg).build(),
-            ApiError::NotFound(msg) => problem(DOMAIN_NOT_FOUND).detail(msg).build(),
-            ApiError::Conflict(msg) => problem(DOMAIN_CONFLICT).detail(msg).build(),
+            // `detail` is rendered by the Fluent bundle (ADR-031 D5); the
+            // static English reason carried by these variants is diagnostic
+            // context only and never reaches the wire.
+            ApiError::Forbidden(msg) => {
+                tracing::debug!(reason = msg, "rendering forbidden problem");
+                problem(DOMAIN_FORBIDDEN).build()
+            }
+            ApiError::BadRequest(msg) => {
+                tracing::debug!(reason = msg, "rendering bad-request problem");
+                problem(HTTP_BAD_REQUEST).build()
+            }
+            ApiError::BadJsonBody(msg) => {
+                tracing::debug!(reason = msg, "rendering bad-json-body problem");
+                problem(HTTP_BAD_JSON_BODY).build()
+            }
+            ApiError::Validation(msg) => {
+                tracing::debug!(reason = msg, "rendering validation problem");
+                problem(DOMAIN_VALIDATION).build()
+            }
+            ApiError::BadPathParam(msg) => {
+                tracing::debug!(reason = msg, "rendering bad-path-param problem");
+                problem(HTTP_BAD_PATH_PARAM).build()
+            }
+            ApiError::BadQueryParam(msg) => {
+                tracing::debug!(reason = msg, "rendering bad-query-param problem");
+                problem(HTTP_BAD_QUERY_PARAM).build()
+            }
+            ApiError::NotFound(msg) => {
+                tracing::debug!(reason = msg, "rendering not-found problem");
+                problem(DOMAIN_NOT_FOUND).build()
+            }
+            ApiError::Conflict(msg) => {
+                tracing::debug!(reason = msg, "rendering conflict problem");
+                problem(DOMAIN_CONFLICT).build()
+            }
             ApiError::ServiceUnavailable(msg) => {
-                problem(DOMAIN_SERVICE_UNAVAILABLE).detail(msg).build()
+                tracing::debug!(reason = msg, "rendering service-unavailable problem");
+                problem(DOMAIN_SERVICE_UNAVAILABLE).build()
             }
             ApiError::UnsupportedMediaType(msg) => {
-                problem(HTTP_UNSUPPORTED_MEDIA_TYPE).detail(msg).build()
+                tracing::debug!(reason = msg, "rendering unsupported-media-type problem");
+                problem(HTTP_UNSUPPORTED_MEDIA_TYPE).build()
             }
-            ApiError::PayloadTooLarge(msg) => problem(HTTP_PAYLOAD_TOO_LARGE).detail(msg).build(),
+            ApiError::PayloadTooLarge(msg) => {
+                tracing::debug!(reason = msg, "rendering payload-too-large problem");
+                problem(HTTP_PAYLOAD_TOO_LARGE).build()
+            }
             ApiError::Internal => problem(HTTP_INTERNAL_ERROR).build(),
             ApiError::ReportRender(err) => report_render_problem(err),
         }
@@ -394,7 +432,10 @@ where
         };
         match serde_json::from_slice::<T>(&bytes) {
             Ok(value) => Ok(Json(value)),
-            Err(error) if error.is_syntax() => {
+            // `is_eof()` catches truncated input (`{"name":`), which is not
+            // a syntax error in serde_json's classification but is equally
+            // malformed JSON — both are 400, not 422.
+            Err(error) if error.is_syntax() || error.is_eof() => {
                 Err(ApiError::BadJsonBody("malformed JSON request body"))
             }
             Err(_) => Err(ApiError::Validation(
