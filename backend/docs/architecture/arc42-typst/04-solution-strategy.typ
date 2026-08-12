@@ -39,8 +39,13 @@ decisions carry the most weight and shape everything else.
 - *Guarantees*: write order is total per aggregate stream; projections are
   eventually consistent; idempotency and redelivery are designed for via
   version guards.
-- *Hard rule*: CQRS boundary never crosses upward (read-model queries never
-  reach write-side sagas/adapters). This is enforced by `ast-grep` CI rules.
+- *Hard rule*: the CQRS boundary never crosses upward — write-side
+  sagas/adapters must not resolve audit or derived context by reading a
+  projection. A narrow, documented exception exists for AI-import mapping
+  lookups (`schedule_apply.rs` / `workers.rs`), which deterministically
+  match preview drafts to aggregate ids and carry an explicit
+  `// ast-grep-ignore: cqrs-boundary` suppression with justification. This
+  is enforced by `ast-grep` CI rules (issue #148).
 
 === 3. UUIDv7 Identity
 

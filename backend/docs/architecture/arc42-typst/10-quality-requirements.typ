@@ -41,7 +41,7 @@
 - *When* the API encounters a domain or validation error.
 - *Then* the response is `application/problem+json` with a stable code
   declared in `error_registry.rs`; the schema is covered by the
-  `problem-golden.rs` golden snapshots, the `detail` localized server-side.
+  `problem-golden.rs` golden snapshots, and `detail` is localized server-side.
 
 === Scenario 5: Soll-Ist Report Idempotency
 

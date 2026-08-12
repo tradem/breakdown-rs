@@ -72,7 +72,10 @@ payload GC — all visible in chapter 6 and 7.
 
 A saga or aggregate must never resolve audit/derived context (e.g. a
 `series_id`) by reading a projection. That context travels in the event data
-and, when needed, is enriched at the API edge before dispatch. This is
-mechanically enforced (issue #148).
+and, when needed, is enriched at the API edge before dispatch. The one
+permitted exception is the AI-import job worker: it performs deterministic
+mapping lookups (preview draft → aggregate id) under explicit
+`// ast-grep-ignore: cqrs-boundary` suppressions with justifications (issue
+#148). This is mechanically enforced.
 
 // TODO: describe scene_shoot and shooting_day aggregates in detail (level 3)

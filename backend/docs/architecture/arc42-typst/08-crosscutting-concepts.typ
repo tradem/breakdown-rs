@@ -32,7 +32,10 @@
 
 - Events are immutable facts; state rebuilds by replaying.
 - Sagas react to events by dispatching follow-up commands (e.g. `PhotoUploaded` → `GeneratePhotoVariants`).
-- Sagas must never query a projection — any derived context comes from the event or command.
+- Sagas must never query a projection — any derived context comes from
+  the event or command. The sole exception is the AI-import worker's
+  deterministic mapping lookup, which uses an explicit
+  `// ast-grep-ignore: cqrs-boundary` suppression per call (issue #148).
 - Projectors are idempotent via version guards (`WHERE version < $N`) and correctly replayed.
 
 == Error Classifications in Projectors and Workers

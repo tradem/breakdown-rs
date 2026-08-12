@@ -36,7 +36,9 @@
 
 *Observed properties*:
 
-- Upload acknowledged immediately (202), work happens asynchronously.
+- The handler stores the bytes, dispatches both commands (photo upload +
+  costume link), reads the projected photo view, and responds with
+  `201 Created` — only the thumbnail generation happens asynchronously.
 - The thumbnail saga decodes, strips EXIF, generates Thumb/Medium variants,
   and appends the follow-up command.
 

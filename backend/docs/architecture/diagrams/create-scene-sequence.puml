@@ -43,11 +43,11 @@ else allowed
     es --> svc : version
     svc --> api : { id, version }
     api --> user : 201 Created
+    deactivate svc
+    es ->> proj : SceneCreated
+    activate proj
+    proj -> db : INSERT projection_scene
+    deactivate proj
   end
-  deactivate svc
-  es ->> proj : SceneCreated
-  activate proj
-  proj -> db : INSERT projection_scene
-  deactivate proj
 end
 @enduml
