@@ -63,20 +63,18 @@ typst compile main.typ "dist/architecture-v${DOCS_VERSION}.pdf" \
   --input build-date="${DOCS_BUILD_DATE}"
 
 # --- compile HTML ---
-# HTML output requires typst built with `--features html`. Official GitHub
-# releases include it; distro packages (e.g. Arch) typically do not.
-if typst compile --help 2>&1 | grep -q -- 'format'; then
-  echo "🌐 Compiling HTML → dist/architecture-v${DOCS_VERSION}.html"
-  if ! typst compile main.typ "dist/architecture-v${DOCS_VERSION}.html" \
-    --format html \
-    --input version="${DOCS_VERSION}" \
-    --input build-date="${DOCS_BUILD_DATE}" 2>&1; then
-    echo "⚠️  HTML build failed - requires typst built with '--features html'."
-    echo "   Install the official binary from https://github.com/typst/typst/releases"
-    echo "   Continuing without HTML output..."
-  fi
-else
-  echo "⚠️  typst version does not support '--format html'. Skipping HTML."
+# HTML export is a document feature flag (`--features html`), not a Cargo
+# feature. The official GitHub release binaries support it; distro packages
+# (e.g. Arch) may not. It is experimental — CI treats warnings as non-fatal.
+echo "🌐 Compiling HTML → dist/architecture-v${DOCS_VERSION}.html"
+if ! typst compile main.typ "dist/architecture-v${DOCS_VERSION}.html" \
+  --features html \
+  --format html \
+  --input version="${DOCS_VERSION}" \
+  --input build-date="${DOCS_BUILD_DATE}" 2>&1; then
+  echo "⚠️  HTML build failed - requires typst supporting '--features html'."
+  echo "   Install the official binary from https://github.com/typst/typst/releases"
+  echo "   Continuing without HTML output..."
 fi
 
 echo ""

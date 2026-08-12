@@ -37,6 +37,19 @@ DOCS_VERSION=1.2.3 DOCS_BUILD_DATE=2026-01-01 ./build.sh
 
 Artifacts are written to `dist/`.
 
+## CI pipeline (`docs.yml`)
+
+The workflow `.github/workflows/docs.yml`:
+
+1. Renders PlantUML sources to SVG (Docker image, digest-pinned).
+2. Installs the pinned Typst CLI and builds PDF + HTML (version from the
+   `api-vX.Y.Z` tag, or `dev-<sha>` on main).
+3. On `main`: publishes the HTML to GitHub Pages (always latest).
+4. On `api-v*` tags: attaches the versioned PDF + HTML to the GitHub Release.
+
+> Repository setting required once: *Settings → Pages → Build and deployment
+> source: GitHub Actions*.
+
 ## Adding diagrams
 
 1. Create or edit `diagrams/<name>.puml` (PlantUML, SPDX header optional).
@@ -50,4 +63,3 @@ Generated SVGs are git-ignored; commit only `.puml` files.
 The Typst entry point is `arc42-typst/main.typ`. Chapters follow the
 official arc42 numbering (01–12).
 
-<!-- The CI workflow `docs.yml` (to be added) publishes PDF and HTML from every release tag. -->
