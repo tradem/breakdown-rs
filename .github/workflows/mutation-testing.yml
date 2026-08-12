@@ -31,6 +31,14 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: "backend"
+      # The unmutated-baseline `cargo test` in `cargo mutants` runs the whole
+      # workspace, including the AI PDF-extractor tests in
+      # `crates/infra/src/ai/tests.rs` which shell out to the `pdftotext`
+      # binary (poppler-utils); ubuntu-latest does not ship it. Without it the
+      # baseline fails and cargo-mutants aborts before testing any mutant
+      # (nightly runs Aug 2 & 9, 2026). Mirror of the step in ci.yml.
+      - name: Install poppler-utils (pdftotext for AI script PDF tests)
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
       - run: cargo install cargo-mutants
       - name: Run cargo mutants (full workspace)
         id: mutants
