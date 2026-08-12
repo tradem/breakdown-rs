@@ -1,0 +1,10 @@
+{
+  "code": "costume.already-assigned",
+  "detail": "Das Kostüm ist bereits einem Charakter zugeordnet (Charakter ⁨00000000-0000-0000-0000-000000000001⁩).",
+  "extensions": {
+    "assigned_character_id": "00000000-0000-0000-0000-000000000001"
+  },
+  "status": 409,
+  "title": "Costume already assigned",
+  "type": "https://docs.breakdown.example/problems/costume.already-assigned"
+}

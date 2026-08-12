@@ -218,7 +218,15 @@ jobs:
             ast-grep scan -r rules/uuid-v7-only.yml "${FILES[@]}"
             ast-grep scan -r rules/allow-panic-lint-justification.yml "${FILES[@]}"
           fi
-          echo "OK: no discarded results / ungated test helpers / UUIDv4 / bare panic allows found"
+          # S2 person identifiers (`sub`, `email`) are structurally banned
+          # from problem-builder code (ADR-031 D4, issue #230 Tranche 2).
+          # Scoped to the problem module — the only place problems are built.
+          # Fail closed: the module must exist and the scan must run, so a
+          # future relocation of the problem builder cannot silently skip
+          # the S2 enforcement.
+          test -d crates/api/src/problems
+          ast-grep scan -r rules/s2-extension-ban.yml crates/api/src/problems
+          echo "OK: no discarded results / ungated test helpers / UUIDv4 / bare panic allows / no S2 extensions found"
 
   gitleaks:
     name: Gitleaks (secrets)

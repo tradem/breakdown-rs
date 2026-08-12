@@ -293,9 +293,7 @@ impl MembershipRepository for MockSeasonMembershipRepo {
         _user_id: UserId,
     ) -> Result<bool, DomainError> {
         if !self.ok.load(Ordering::Relaxed) {
-            return Err(DomainError::ValidationError(
-                self.err.clone().unwrap_or_else(|| "mock error".into()),
-            ));
+            return Err(DomainError::validation(self.err.clone().unwrap_or_else(|| "mock error".into())));
         }
         Ok(self.result.load(Ordering::Relaxed))
     }

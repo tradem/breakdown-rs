@@ -105,19 +105,16 @@ impl GDriveCredentialBundle {
             refresh_token: self.refresh_token.as_str().to_owned(),
             root_folder_id: self.root_folder_id.clone(),
         };
-        let encoded = serde_json::to_string(&wire).map_err(|_| {
-            DomainError::ServiceUnavailable("failed to encode GDrive credential".into())
-        });
+        let encoded = serde_json::to_string(&wire)
+            .map_err(|_| DomainError::service_unavailable("failed to encode GDrive credential"));
         wire.zeroize();
         encoded.map(SecretValue::new)
     }
 
     /// Decode only at the Vault boundary.
     pub fn from_secret_value(secret: SecretValue) -> Result<Self, DomainError> {
-        let mut wire: GDriveCredentialWire =
-            serde_json::from_str(secret.as_str()).map_err(|_| {
-                DomainError::ServiceUnavailable("invalid GDrive credential in Vault".into())
-            })?;
+        let mut wire: GDriveCredentialWire = serde_json::from_str(secret.as_str())
+            .map_err(|_| DomainError::service_unavailable("invalid GDrive credential in Vault"))?;
         let client_id = std::mem::take(&mut wire.client_id);
         let client_secret = std::mem::take(&mut wire.client_secret);
         let refresh_token = std::mem::take(&mut wire.refresh_token);
@@ -157,8 +154,8 @@ fn normalize_required(value: String) -> Result<String, DomainError> {
     let mut value = value;
     value.zeroize();
     if normalized.is_empty() {
-        return Err(DomainError::ValidationError(
-            "GDrive client_id, client_secret and refresh_token must not be empty".into(),
+        return Err(DomainError::validation(
+            "GDrive client_id, client_secret and refresh_token must not be empty",
         ));
     }
     Ok(normalized)

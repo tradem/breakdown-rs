@@ -333,8 +333,8 @@ pub fn merge_schedule_to_scenes(
 /// function without touching any projection.
 pub fn merge_from_input(input: &MergeInput) -> Result<MergedPreview, DomainError> {
     if input.scenes.is_empty() {
-        return Err(DomainError::Conflict(
-            "merge pending: block has no applied scenes yet".to_owned(),
+        return Err(DomainError::conflict(
+            "merge pending: block has no applied scenes yet",
         ));
     }
     Ok(merge_schedule_to_scenes(&input.schedule, &input.scenes))

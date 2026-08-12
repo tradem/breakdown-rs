@@ -1,0 +1,10 @@
+{
+  "code": "shooting-day.archived",
+  "detail": "Der Drehtag ist archiviert und kann nicht mehr geändert werden.",
+  "extensions": {
+    "id": "00000000-0000-0000-0000-000000000001"
+  },
+  "status": 409,
+  "title": "Shooting day is archived",
+  "type": "https://docs.breakdown.example/problems/shooting-day.archived"
+}

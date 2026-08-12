@@ -4,6 +4,7 @@
 
 use breakdown_core::ai::{AiConfigRepository, AiConfigView, DocumentKind, LlmProvider};
 use breakdown_core::error::DomainError;
+use breakdown_core::error_registry::AI_CONFIG_NOT_FOUND;
 use breakdown_core::shared::{AggregateVersion, UserId};
 use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Row};
@@ -91,7 +92,11 @@ impl AiConfigRepository for AiConfigRepositoryImpl {
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx_error)?
-        .ok_or_else(|| DomainError::NotFound(format!("AiConfig({id})")))?;
+        .ok_or(DomainError::NotFound {
+            code: &AI_CONFIG_NOT_FOUND,
+            resource: "ai-config",
+            id,
+        })?;
 
         let provider = parse_provider(row.try_get("provider").map_err(map_sqlx_error)?)?;
         let prompts: HashMap<DocumentKind, String> = row
@@ -99,7 +104,7 @@ impl AiConfigRepository for AiConfigRepositoryImpl {
             .map_err(map_sqlx_error)
             .and_then(|value| {
                 serde_json::from_value(value).map_err(|error| {
-                    DomainError::ValidationError(format!("invalid AI prompt projection: {error}"))
+                    DomainError::validation(format!("invalid AI prompt projection: {error}"))
                 })
             })?;
         let mut prompt_kinds: Vec<_> = prompts.keys().copied().collect();
@@ -120,8 +125,8 @@ impl AiConfigRepository for AiConfigRepositoryImpl {
                 if raw < 0 {
                     // Projection-integrity defect: a permanent condition, not a
                     // transient service failure — retries cannot fix it.
-                    return Err(DomainError::ValidationError(
-                        "AI config aggregate version cannot be negative".to_owned(),
+                    return Err(DomainError::validation(
+                        "AI config aggregate version cannot be negative",
                     ));
                 }
                 AggregateVersion(raw as u64)
@@ -140,7 +145,7 @@ fn parse_provider(value: String) -> Result<LlmProvider, DomainError> {
         "opencode-go" => Ok(LlmProvider::OpenCodeGo),
         "opencode" => Ok(LlmProvider::OpenCode),
         "ollama" => Ok(LlmProvider::Ollama),
-        other => Err(DomainError::ValidationError(format!(
+        other => Err(DomainError::validation(format!(
             "unknown AI provider projection {other}"
         ))),
     }
@@ -156,15 +161,15 @@ fn parse_prompt_for_kind(row: &PgRow, kind: &DocumentKind) -> Result<String, Dom
         .map_err(map_sqlx_error)
         .and_then(|value| {
             serde_json::from_value(value).map_err(|error| {
-                DomainError::ValidationError(format!("invalid AI prompt projection: {error}"))
+                DomainError::validation(format!("invalid AI prompt projection: {error}"))
             })
         })?;
     prompts
         .get(kind)
         .cloned()
-        .ok_or_else(|| DomainError::ValidationError(format!("no prompt configured for {kind:?}")))
+        .ok_or_else(|| DomainError::validation(format!("no prompt configured for {kind:?}")))
 }
 
 fn map_sqlx_error(error: sqlx::Error) -> DomainError {
-    DomainError::ServiceUnavailable(format!("AI config database error: {error}"))
+    DomainError::service_unavailable(format!("AI config database error: {error}"))
 }

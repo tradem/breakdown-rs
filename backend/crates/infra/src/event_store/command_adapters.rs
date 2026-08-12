@@ -1423,7 +1423,6 @@ pub fn domain_to_stream(domain_version: AggregateVersion) -> Option<u64> {
 pub fn domain_to_stream_checked(version: AggregateVersion) -> Result<u64, DomainError> {
     if version.0 == 0 {
         Err(DomainError::VersionConflict {
-            entity: String::new(),
             expected: AggregateVersion(0),
             current: AggregateVersion(0),
         })
@@ -1445,24 +1444,25 @@ where
             let version = events
                 .last()
                 .map(|e| stream_to_domain(e.stream_version))
-                .ok_or_else(|| DomainError::Conflict("command produced no events".into()))?;
+                .ok_or_else(|| DomainError::conflict("command produced no events"))?;
             Ok((id, version))
         }
         Ok(ExecuteResult::Idempotent { current_version }) => {
             Ok((id, version_from_current(current_version)))
         }
-        Ok(ExecuteResult::PendingTransaction { .. }) => Err(DomainError::Conflict(
-            "pending transaction not supported".into(),
-        )),
+        Ok(ExecuteResult::PendingTransaction { .. }) => {
+            Err(DomainError::conflict("pending transaction not supported"))
+        }
         Err(ExecuteError::Handle(err)) => Err(err.into()),
         Err(ExecuteError::IncorrectExpectedVersion {
-            stream_id, current, ..
+            stream_id: _,
+            current,
+            ..
         }) => Err(DomainError::VersionConflict {
-            entity: stream_id.to_string(),
             expected: AggregateVersion(0),
             current: version_from_current(current),
         }),
-        Err(err) => Err(DomainError::Conflict(err.to_string())),
+        Err(err) => Err(DomainError::conflict(err.to_string())),
     }
 }
 
@@ -1492,7 +1492,6 @@ pub fn version_from_expected(expected: ExpectedVersion) -> AggregateVersion {
 pub fn check_nonzero_version(version: AggregateVersion) -> Result<(), DomainError> {
     if version.0 == 0 {
         Err(DomainError::VersionConflict {
-            entity: String::new(),
             expected: AggregateVersion(0),
             current: AggregateVersion(0),
         })

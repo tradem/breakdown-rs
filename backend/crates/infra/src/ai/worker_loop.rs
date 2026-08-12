@@ -179,7 +179,7 @@ async fn resolve_config(
     config_repo
         .find_worker_config(user_id, kind)
         .await?
-        .ok_or_else(|| DomainError::ValidationError("no active AI import configuration".to_owned()))
+        .ok_or_else(|| DomainError::validation("no active AI import configuration"))
 }
 
 /// Fetch the vaulted API key for an OpenAI-compatible provider.
@@ -263,7 +263,7 @@ async fn script_worker_tick(
     if claim_lost(heartbeat.as_ref()) {
         // Another worker owns the job now; every terminal write of ours would be
         // rejected, so stop before any further work.
-        return Err(DomainError::Conflict(format!(
+        return Err(DomainError::conflict(format!(
             "AI import job {} was reclaimed while its source loaded",
             job.id.as_uuid()
         )));
@@ -287,7 +287,7 @@ async fn script_worker_tick(
                     job.id,
                     worker_id,
                     &error.to_string(),
-                    matches!(error, DomainError::ServiceUnavailable(_)),
+                    matches!(error, DomainError::ServiceUnavailable { .. }),
                 )
                 .await?;
             return Ok(());
@@ -313,7 +313,7 @@ async fn script_worker_tick(
                         job.id,
                         worker_id,
                         &error.to_string(),
-                        matches!(error, DomainError::ServiceUnavailable(_)),
+                        matches!(error, DomainError::ServiceUnavailable { .. }),
                     )
                     .await?;
                 return Ok(());
@@ -467,7 +467,7 @@ async fn schedule_worker_tick(
     if claim_lost(heartbeat.as_ref()) {
         // Another worker owns the job now; every terminal write of ours would be
         // rejected, so stop before any further work.
-        return Err(DomainError::Conflict(format!(
+        return Err(DomainError::conflict(format!(
             "AI import job {} was reclaimed while its source loaded",
             job.id.as_uuid()
         )));
@@ -491,7 +491,7 @@ async fn schedule_worker_tick(
                     job.id,
                     worker_id,
                     &error.to_string(),
-                    matches!(error, DomainError::ServiceUnavailable(_)),
+                    matches!(error, DomainError::ServiceUnavailable { .. }),
                 )
                 .await?;
             return Ok(());
@@ -517,7 +517,7 @@ async fn schedule_worker_tick(
                         job.id,
                         worker_id,
                         &error.to_string(),
-                        matches!(error, DomainError::ServiceUnavailable(_)),
+                        matches!(error, DomainError::ServiceUnavailable { .. }),
                     )
                     .await?;
                 return Ok(());
@@ -644,7 +644,7 @@ async fn handle_job_result(
 fn is_permanent_processing_error(error: &DomainError) -> bool {
     !matches!(
         error,
-        DomainError::ServiceUnavailable(_) | DomainError::Conflict(_)
+        DomainError::ServiceUnavailable { .. } | DomainError::Conflict { .. }
     )
 }
 
@@ -691,7 +691,7 @@ async fn finalize_job_result<Q: AiImportQueue + ?Sized>(
                 // `fail` helper) or was reclaimed by another worker. Both mean
                 // there is nothing left to write — move on instead of backing
                 // off.
-                Err(DomainError::Conflict(_)) => Ok(()),
+                Err(DomainError::Conflict { .. }) => Ok(()),
                 Err(error) => Err(error),
             }
         }
@@ -815,7 +815,7 @@ mod tests {
         let id = job_id();
         let result = finalize_job_result(
             &queue,
-            Err(DomainError::ValidationError("rejected API key".to_owned())),
+            Err(DomainError::validation("rejected API key")),
             "test-worker",
             id,
         )
@@ -837,12 +837,15 @@ mod tests {
         let id = job_id();
         let result = finalize_job_result(
             &queue,
-            Err(DomainError::ServiceUnavailable("provider 503".to_owned())),
+            Err(DomainError::service_unavailable("provider 503")),
             "test-worker",
             id,
         )
         .await;
-        assert!(matches!(result, Err(DomainError::ServiceUnavailable(_))));
+        assert!(matches!(
+            result,
+            Err(DomainError::ServiceUnavailable { .. })
+        ));
         let state = queue.state.lock().unwrap();
         assert!(
             state.mark_failed_calls.is_empty(),
@@ -859,14 +862,12 @@ mod tests {
         let id = job_id();
         let result = finalize_job_result(
             &queue,
-            Err(DomainError::Conflict(
-                "claim lost mid-processing".to_owned(),
-            )),
+            Err(DomainError::conflict("claim lost mid-processing")),
             "test-worker",
             id,
         )
         .await;
-        assert!(matches!(result, Err(DomainError::Conflict(_))));
+        assert!(matches!(result, Err(DomainError::Conflict { .. })));
         let state = queue.state.lock().unwrap();
         assert!(state.mark_failed_calls.is_empty());
     }
@@ -878,16 +879,14 @@ mod tests {
     async fn already_terminal_job_is_not_rewritten() {
         let queue = RecordingQueue {
             state: Arc::new(Mutex::new(RecordingState {
-                mark_failed_result: Some(DomainError::Conflict(
-                    "worker no longer holds the claim".to_owned(),
-                )),
+                mark_failed_result: Some(DomainError::conflict("worker no longer holds the claim")),
                 ..RecordingState::default()
             })),
         };
         let id = job_id();
         let result = finalize_job_result(
             &queue,
-            Err(DomainError::ValidationError("permanent".to_owned())),
+            Err(DomainError::validation("permanent")),
             "test-worker",
             id,
         )

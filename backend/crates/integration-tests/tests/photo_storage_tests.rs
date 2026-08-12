@@ -141,7 +141,7 @@ async fn unavailable_photo_storage_does_not_write() -> Result<()> {
         .await;
     assert!(matches!(
         result,
-        Err(breakdown_core::error::DomainError::ServiceUnavailable(_))
+        Err(breakdown_core::error::DomainError::ServiceUnavailable { .. })
     ));
     Ok(())
 }

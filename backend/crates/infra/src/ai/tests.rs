@@ -33,15 +33,15 @@ use crate::photo::sagas::retry_transient_value_with_delay;
 fn transient_provider_statuses_are_service_unavailable() {
     assert!(matches!(
         classify_http_status(StatusCode::TOO_MANY_REQUESTS),
-        DomainError::ServiceUnavailable(_)
+        DomainError::ServiceUnavailable { .. }
     ));
     assert!(matches!(
         classify_http_status(StatusCode::INTERNAL_SERVER_ERROR),
-        DomainError::ServiceUnavailable(_)
+        DomainError::ServiceUnavailable { .. }
     ));
     assert!(matches!(
         classify_http_status(StatusCode::BAD_REQUEST),
-        DomainError::ValidationError(_)
+        DomainError::Validation { .. }
     ));
 }
 
@@ -55,9 +55,7 @@ async fn transient_provider_failure_retries_without_wall_clock_sleep() {
                 let attempts = Arc::clone(&attempts);
                 async move {
                     if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
-                        Err(anyhow!(DomainError::ServiceUnavailable(
-                            "simulated 503".to_owned()
-                        )))
+                        Err(anyhow!(DomainError::service_unavailable("simulated 503")))
                     } else {
                         Ok::<_, anyhow::Error>("success")
                     }
@@ -81,7 +79,7 @@ fn oversized_script_is_rejected_before_provider_calls() {
 fn merge_blocks_when_no_applied_scenes_exist() {
     let schedule = breakdown_core::ai::ShootingSchedule::default();
     let result = merge_loaded_schedule(&schedule, &[]);
-    assert!(matches!(result, Err(DomainError::Conflict(_))));
+    assert!(matches!(result, Err(DomainError::Conflict { .. })));
 }
 
 /// Verify that an empty MergeInput (no applied scenes) is marked
@@ -408,8 +406,8 @@ impl LlmClient for RecordingScheduleClient {
         &self,
         _request: LlmChatRequest,
     ) -> Result<ScriptContext, DomainError> {
-        Err(DomainError::ValidationError(
-            "RecordingScheduleClient only extracts schedules".to_owned(),
+        Err(DomainError::validation(
+            "RecordingScheduleClient only extracts schedules",
         ))
     }
 
@@ -616,7 +614,7 @@ async fn oversized_script_transitions_to_failed_without_llm_calls() {
             "1. INT. KITCHEN - DAY\nA\n2. EXT. PARK - NIGHT\nB",
         )
         .await;
-    assert!(matches!(result, Err(DomainError::ValidationError(_))));
+    assert!(matches!(result, Err(DomainError::Validation { .. })));
     let state = queue.state.lock().unwrap();
     assert_eq!(state.failed, vec![job.id]);
     assert!(state.succeeded.is_empty());
@@ -760,8 +758,8 @@ impl AiImportMappingRepository for FakeMappings {
             let mut fail = self.fail_insert_at.lock().unwrap();
             if *fail == Some(call) {
                 *fail = None;
-                return Err(DomainError::ServiceUnavailable(
-                    "simulated mapping write failure".to_owned(),
+                return Err(DomainError::service_unavailable(
+                    "simulated mapping write failure",
                 ));
             }
         }
@@ -814,7 +812,6 @@ impl breakdown_core::shooting_day::ports::ShootingDayCommands for FakeShootingDa
         // written) stream cannot append and reports the current version.
         if created.contains(&command.id) {
             return Err(DomainError::VersionConflict {
-                entity: format!("shooting_day-{}", command.id),
                 expected: breakdown_core::shared::AggregateVersion(0),
                 current: breakdown_core::shared::AggregateVersion::INITIAL,
             });
@@ -895,7 +892,6 @@ impl breakdown_core::scene_shoot::ports::SceneShootCommands for FakeSceneShootCo
     > {
         if *self.zero_version_conflict.lock().unwrap() {
             return Err(DomainError::VersionConflict {
-                entity: format!("scene_shoot-{}", command.id),
                 expected: breakdown_core::shared::AggregateVersion(0),
                 current: breakdown_core::shared::AggregateVersion(0),
             });
@@ -906,7 +902,6 @@ impl breakdown_core::scene_shoot::ports::SceneShootCommands for FakeSceneShootCo
         // rather than appending a duplicate `SceneShootPlanned`.
         if planned.contains(&command.id) {
             return Err(DomainError::VersionConflict {
-                entity: format!("scene_shoot-{}", command.id),
                 expected: breakdown_core::shared::AggregateVersion(0),
                 current: breakdown_core::shared::AggregateVersion::INITIAL,
             });
@@ -1101,7 +1096,7 @@ async fn schedule_apply_retry_after_a_scene_shoot_mapping_failure_plans_once() {
         .apply()
         .await
         .expect_err("the confirming mapping write must fail");
-    assert!(matches!(error, DomainError::ServiceUnavailable(_)));
+    assert!(matches!(error, DomainError::ServiceUnavailable { .. }));
 
     // The command DID append: exactly one scene shoot is planned, and the
     // mapping is left as a bare reservation.
@@ -1157,7 +1152,7 @@ async fn schedule_apply_retry_after_a_day_mapping_failure_creates_one_day() {
         .apply()
         .await
         .expect_err("the day confirm must fail");
-    assert!(matches!(error, DomainError::ServiceUnavailable(_)));
+    assert!(matches!(error, DomainError::ServiceUnavailable { .. }));
 
     let created = fixture.shooting_days.created.lock().unwrap().clone();
     assert_eq!(created.len(), 1, "the day command DID append");
@@ -1242,7 +1237,7 @@ async fn schedule_apply_retry_after_day_command_success_creates_one_day() {
         .apply()
         .await
         .expect_err("the day confirm must fail");
-    assert!(matches!(error, DomainError::ServiceUnavailable(_)));
+    assert!(matches!(error, DomainError::ServiceUnavailable { .. }));
 
     let created = fixture.shooting_days.created.lock().unwrap().clone();
     assert_eq!(created.len(), 1, "the day command DID append");
@@ -1292,7 +1287,7 @@ async fn schedule_apply_retry_after_scene_shoot_command_success_plans_once() {
         .apply()
         .await
         .expect_err("the scene-shoot confirm must fail");
-    assert!(matches!(error, DomainError::ServiceUnavailable(_)));
+    assert!(matches!(error, DomainError::ServiceUnavailable { .. }));
 
     assert_eq!(fixture.scene_shoots.planned.lock().unwrap().len(), 1);
     let pair_key = fixture.scene_shoot_pair_key();

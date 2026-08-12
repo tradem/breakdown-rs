@@ -206,12 +206,12 @@ async fn operation_error_propagates_and_still_releases() -> Result<()> {
 
     let error = runtime
         .run_job("failing-user", || async {
-            Err::<(), _>(DomainError::ValidationError("boom".to_owned()))
+            Err::<(), _>(DomainError::validation("boom"))
         })
         .await
         .expect_err("the operation error must not be swallowed");
     assert!(
-        matches!(error, DomainError::ValidationError(ref reason) if reason == "boom"),
+        matches!(error, DomainError::Validation { ref reason, .. } if reason == "boom"),
         "the original error must be preserved, got {error:?}"
     );
     assert_eq!(
@@ -398,7 +398,7 @@ async fn renew_cannot_resurrect_an_expired_permit() -> Result<()> {
         .await
         .expect_err("an expired lease must not be extendable");
     assert!(
-        matches!(error, DomainError::Conflict(_)),
+        matches!(error, DomainError::Conflict { .. }),
         "expiry must be irreversible, got {error:?}"
     );
 
@@ -428,7 +428,7 @@ async fn renew_reports_conflict_when_the_permit_is_gone() -> Result<()> {
         .await
         .expect_err("renewing a swept permit must not silently succeed");
     assert!(
-        matches!(error, DomainError::Conflict(_)),
+        matches!(error, DomainError::Conflict { .. }),
         "a holder must learn its capacity is gone, got {error:?}"
     );
     Ok(())
@@ -470,7 +470,7 @@ async fn empty_user_id_is_rejected_before_touching_capacity() -> Result<()> {
         .try_acquire("   ")
         .await
         .expect_err("a blank owner would make a permit unattributable");
-    assert!(matches!(error, DomainError::ValidationError(_)));
+    assert!(matches!(error, DomainError::Validation { .. }));
     assert_eq!(
         limiter.in_flight().await?,
         0,

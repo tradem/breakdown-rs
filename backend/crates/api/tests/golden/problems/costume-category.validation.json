@@ -1,0 +1,7 @@
+{
+  "code": "costume-category.validation",
+  "detail": "Die Kostümkategorie-Anfrage ist nicht gültig.",
+  "status": 422,
+  "title": "Costume category validation failed",
+  "type": "https://docs.breakdown.example/problems/costume-category.validation"
+}

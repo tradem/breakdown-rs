@@ -20,20 +20,19 @@ struct PromptEntry {
 pub fn default_prompt(kind: DocumentKind) -> Result<String, DomainError> {
     let source = match std::env::var("AI_IMPORT_DEFAULT_PROMPTS_PATH") {
         Ok(path) if !path.trim().is_empty() => std::fs::read_to_string(&path).map_err(|error| {
-            DomainError::ValidationError(format!("could not read AI prompt config {path}: {error}"))
+            DomainError::validation(format!("could not read AI prompt config {path}: {error}"))
         })?,
         _ => include_str!("../../../../config/default_ai_prompts.toml").to_owned(),
     };
-    let file: PromptFile = toml::from_str(&source).map_err(|error| {
-        DomainError::ValidationError(format!("invalid default AI prompts: {error}"))
-    })?;
+    let file: PromptFile = toml::from_str(&source)
+        .map_err(|error| DomainError::validation(format!("invalid default AI prompts: {error}")))?;
     let prompt = match kind {
         DocumentKind::Script => file.script.text,
         DocumentKind::Schedule => file.schedule.text,
     };
     if prompt.trim().is_empty() {
-        return Err(DomainError::ValidationError(
-            "default AI prompt must not be empty".to_owned(),
+        return Err(DomainError::validation(
+            "default AI prompt must not be empty",
         ));
     }
     Ok(prompt)

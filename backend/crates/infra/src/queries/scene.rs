@@ -4,6 +4,7 @@
 //! `sqlx`-backed implementation of the `SceneRepository` port.
 
 use breakdown_core::error::DomainError;
+use breakdown_core::error_registry::SCENE_NOT_FOUND;
 use breakdown_core::scene::ports::SceneRepository;
 use breakdown_core::scene::views::SceneView;
 use breakdown_core::shared::{AggregateVersion, EpisodeId, ShootingDayId};
@@ -59,8 +60,8 @@ impl SceneRepository for SceneRepositoryImpl {
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?
-        .ok_or_else(|| DomainError::NotFound(format!("Scene({id})")))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?
+        .ok_or(DomainError::NotFound { code: &SCENE_NOT_FOUND, resource: "scene", id })?;
 
         map_scene_row(row)
     }
@@ -100,7 +101,7 @@ impl SceneRepository for SceneRepositoryImpl {
         .bind(offset)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         rows.into_iter().map(map_scene_row).collect()
     }
@@ -132,7 +133,7 @@ impl SceneRepository for SceneRepositoryImpl {
         .bind(character_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         rows.into_iter().map(map_scene_row).collect()
     }
@@ -162,5 +163,5 @@ fn map_scene_row(row: sqlx::postgres::PgRow) -> Result<SceneView, DomainError> {
 }
 
 fn map_err(e: sqlx::Error) -> DomainError {
-    DomainError::Conflict(e.to_string())
+    DomainError::conflict(e.to_string())
 }

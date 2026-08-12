@@ -645,22 +645,20 @@ impl TelemetryValues {
             provider: telemetry.provider.map(|provider| provider.as_str()),
             model: telemetry.model,
             chunk_count: i32::try_from(telemetry.chunk_count).map_err(|error| {
-                DomainError::ValidationError(format!(
-                    "AI chunk count exceeds database range: {error}"
-                ))
+                DomainError::validation(format!("AI chunk count exceeds database range: {error}"))
             })?,
             tokens_in: i64::try_from(telemetry.tokens_in).map_err(|error| {
-                DomainError::ValidationError(format!(
+                DomainError::validation(format!(
                     "AI input token count exceeds database range: {error}"
                 ))
             })?,
             tokens_out: i64::try_from(telemetry.tokens_out).map_err(|error| {
-                DomainError::ValidationError(format!(
+                DomainError::validation(format!(
                     "AI output token count exceeds database range: {error}"
                 ))
             })?,
             latency_total: i64::try_from(telemetry.latency_total).map_err(|error| {
-                DomainError::ValidationError(format!("AI latency exceeds database range: {error}"))
+                DomainError::validation(format!("AI latency exceeds database range: {error}"))
             })?,
             accept_as_is: telemetry.apply_state.accept_as_is(),
             edit_distance: telemetry
@@ -668,7 +666,7 @@ impl TelemetryValues {
                 .edit_distance()
                 .map(|distance| {
                     i32::try_from(distance).map_err(|error| {
-                        DomainError::ValidationError(format!(
+                        DomainError::validation(format!(
                             "AI edit distance exceeds database range: {error}"
                         ))
                     })
@@ -713,7 +711,7 @@ fn ensure_claim_owned(
             action,
             "AI import worker lost its claim; refusing a stale lifecycle write"
         );
-        return Err(DomainError::Conflict(format!(
+        return Err(DomainError::conflict(format!(
             "worker {worker_id} no longer holds the claim on AI import job {} and cannot {action} it",
             id.as_uuid()
         )));
@@ -787,7 +785,7 @@ fn parse_document_kind(value: String) -> Result<DocumentKind, DomainError> {
     match value.as_str() {
         "script" => Ok(DocumentKind::Script),
         "schedule" => Ok(DocumentKind::Schedule),
-        other => Err(DomainError::ValidationError(format!(
+        other => Err(DomainError::validation(format!(
             "unknown AI document kind {other}"
         ))),
     }
@@ -798,7 +796,7 @@ fn parse_source_format(value: String) -> Result<SourceFormat, DomainError> {
         "csv" => Ok(SourceFormat::Csv),
         "pdf" => Ok(SourceFormat::Pdf),
         "plain_text" => Ok(SourceFormat::PlainText),
-        other => Err(DomainError::ValidationError(format!(
+        other => Err(DomainError::validation(format!(
             "unknown AI source format {other}"
         ))),
     }
@@ -812,7 +810,7 @@ fn parse_status(value: String) -> Result<JobStatus, DomainError> {
         "failed" => Ok(JobStatus::Failed),
         "dead_letter" => Ok(JobStatus::DeadLetter),
         "payload_unavailable" => Ok(JobStatus::PayloadUnavailable),
-        other => Err(DomainError::ValidationError(format!(
+        other => Err(DomainError::validation(format!(
             "unknown AI job status {other}"
         ))),
     }
@@ -822,7 +820,7 @@ fn map_sqlx_error(error: sqlx::Error) -> DomainError {
     // Log the raw error (with bound values) internally; the HTTP-facing message
     // must not leak SQL details or bound values (CWE-209).
     tracing::error!(%error, "AI import database error");
-    DomainError::ServiceUnavailable("AI import database error".to_owned())
+    DomainError::service_unavailable("AI import database error")
 }
 
 #[cfg(test)]

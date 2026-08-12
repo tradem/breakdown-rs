@@ -148,7 +148,7 @@ fn merge_from_input_blocks_on_empty_scenes() {
     };
     assert!(matches!(
         merge_from_input(&input),
-        Err(DomainError::Conflict(_))
+        Err(DomainError::Conflict { .. })
     ));
 }
 

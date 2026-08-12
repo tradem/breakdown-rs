@@ -43,7 +43,7 @@ impl MembershipRepository for MembershipRepositoryImpl {
         .bind(user_id.as_str())
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::internal(e.to_string()))?;
 
         match row {
             Some(row) => Ok(Some(map_membership_row(row)?)),
@@ -71,7 +71,7 @@ impl MembershipRepository for MembershipRepositoryImpl {
         .bind(offset)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::internal(e.to_string()))?;
 
         rows.into_iter().map(map_membership_row).collect()
     }
@@ -108,7 +108,7 @@ impl MembershipRepository for MembershipRepositoryImpl {
         .bind(season_id.0)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::internal(e.to_string()))?;
 
         Ok(row.is_some())
     }
@@ -136,7 +136,7 @@ impl MembershipRepository for MembershipRepositoryImpl {
         .bind(season_id.0)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::internal(e.to_string()))?;
 
         Ok(row.is_some())
     }
@@ -155,7 +155,7 @@ impl MembershipRepository for MembershipRepositoryImpl {
         .bind(user_id.as_str())
         .fetch_optional(&self.pool)
         .await
-        .map_err(|err| DomainError::Conflict(err.to_string()))?;
+        .map_err(|err| DomainError::internal(err.to_string()))?;
         Ok(row.is_some())
     }
 }
@@ -163,29 +163,29 @@ impl MembershipRepository for MembershipRepositoryImpl {
 fn map_membership_row(row: sqlx::postgres::PgRow) -> Result<MembershipView, DomainError> {
     let role_str: String = row
         .try_get("role")
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::internal(e.to_string()))?;
     let state_str: String = row
         .try_get("state")
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::internal(e.to_string()))?;
 
     let role = serde_json::from_str(&role_str)
-        .map_err(|e| DomainError::Conflict(format!("invalid role in projection: {e}")))?;
+        .map_err(|e| DomainError::internal(format!("invalid role in projection: {e}")))?;
     let state = serde_json::from_str(&state_str)
-        .map_err(|e| DomainError::Conflict(format!("invalid state in projection: {e}")))?;
+        .map_err(|e| DomainError::internal(format!("invalid state in projection: {e}")))?;
 
     Ok(MembershipView {
         block_id: BlockId(
             row.try_get("block_id")
-                .map_err(|e| DomainError::Conflict(e.to_string()))?,
+                .map_err(|e| DomainError::internal(e.to_string()))?,
         ),
         user_id: UserId::from_sub(
             row.try_get::<String, _>("user_id")
-                .map_err(|e| DomainError::Conflict(e.to_string()))?,
+                .map_err(|e| DomainError::internal(e.to_string()))?,
         ),
         role,
         state,
         joined_at: row
             .try_get("joined_at")
-            .map_err(|e| DomainError::Conflict(e.to_string()))?,
+            .map_err(|e| DomainError::internal(e.to_string()))?,
     })
 }

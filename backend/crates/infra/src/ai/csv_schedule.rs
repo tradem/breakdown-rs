@@ -16,9 +16,7 @@ pub fn parse_schedule_csv(bytes: &[u8]) -> Result<ShootingSchedule, DomainError>
         .from_reader(bytes);
     let headers = reader
         .headers()
-        .map_err(|error| {
-            DomainError::ValidationError(format!("invalid schedule CSV headers: {error}"))
-        })?
+        .map_err(|error| DomainError::validation(format!("invalid schedule CSV headers: {error}")))?
         .clone();
 
     // Fail fast on a document with no supported header (wrong column names or
@@ -37,7 +35,7 @@ pub fn parse_schedule_csv(bytes: &[u8]) -> Result<ShootingSchedule, DomainError>
             .iter()
             .any(|supported| header.eq_ignore_ascii_case(supported))
     }) {
-        return Err(DomainError::ValidationError(format!(
+        return Err(DomainError::validation(format!(
             "schedule CSV has no supported header; expected one of {}",
             SUPPORTED_HEADERS.join(", ")
         )));
@@ -46,7 +44,7 @@ pub fn parse_schedule_csv(bytes: &[u8]) -> Result<ShootingSchedule, DomainError>
     let mut rows = Vec::new();
     for (index, record) in reader.records().enumerate() {
         let record = record.map_err(|error| {
-            DomainError::ValidationError(format!("invalid schedule CSV row: {error}"))
+            DomainError::validation(format!("invalid schedule CSV row: {error}"))
         })?;
         let value = |name: &str| {
             headers
@@ -61,7 +59,7 @@ pub fn parse_schedule_csv(bytes: &[u8]) -> Result<ShootingSchedule, DomainError>
         let date = value("date")
             .map(|raw| {
                 raw.parse::<NaiveDate>().map_err(|error| {
-                    DomainError::ValidationError(format!("invalid schedule date {raw}: {error}"))
+                    DomainError::validation(format!("invalid schedule date {raw}: {error}"))
                 })
             })
             .transpose()?;
@@ -86,7 +84,7 @@ fn parse_optional_u32(value: Option<&str>, field: &str) -> Result<Option<u32>, D
     value
         .map(|raw| {
             raw.parse::<u32>().map_err(|error| {
-                DomainError::ValidationError(format!("invalid {field} value {raw}: {error}"))
+                DomainError::validation(format!("invalid {field} value {raw}: {error}"))
             })
         })
         .transpose()

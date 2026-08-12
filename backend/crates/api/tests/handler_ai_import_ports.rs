@@ -17,8 +17,9 @@
 #![allow(clippy::expect_used)]
 mod common;
 
-use axum::Json;
-use axum::extract::{Path, State};
+use api::problems::Json; // test-only alias for the wrapper extractor (ADR-031)
+use api::problems::Path;
+use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 
 use api::auth::CurrentUser;
@@ -108,7 +109,7 @@ async fn upload_ai_script_enqueues_through_the_ports_seam() {
         State(state(ports)),
         user(),
         pdf_headers(block_id),
-        axum::body::Bytes::from_static(b"%PDF-1.7 fake"),
+        api::problems::Bytes(axum::body::Bytes::from_static(b"%PDF-1.7 fake")),
     )
     .await;
 
@@ -151,7 +152,7 @@ async fn upload_ai_schedule_persists_the_declared_source_format() {
             State(state(ports)),
             user(),
             schedule_headers(content_type, block_id),
-            axum::body::Bytes::from_static(b"fake schedule bytes"),
+            api::problems::Bytes(axum::body::Bytes::from_static(b"fake schedule bytes")),
         )
         .await;
 
@@ -188,7 +189,7 @@ async fn upload_ai_schedule_accepts_normalized_content_types() {
             State(state(ports)),
             user(),
             schedule_headers(content_type, block_id),
-            axum::body::Bytes::from_static(b"fake schedule bytes"),
+            api::problems::Bytes(axum::body::Bytes::from_static(b"fake schedule bytes")),
         )
         .await;
 
@@ -218,7 +219,7 @@ async fn upload_ai_script_deduplicates_identical_reuploads() {
         State(state.clone()),
         user(),
         pdf_headers(block_id),
-        axum::body::Bytes::from_static(b"%PDF same bytes"),
+        api::problems::Bytes(axum::body::Bytes::from_static(b"%PDF same bytes")),
     )
     .await
     .expect("first upload should be accepted");
@@ -228,7 +229,7 @@ async fn upload_ai_script_deduplicates_identical_reuploads() {
         State(state),
         user(),
         pdf_headers(block_id),
-        axum::body::Bytes::from_static(b"%PDF same bytes"),
+        api::problems::Bytes(axum::body::Bytes::from_static(b"%PDF same bytes")),
     )
     .await
     .expect("duplicate upload should resolve to the existing job");
@@ -263,14 +264,17 @@ async fn upload_ai_script_rejects_oversize_documents() {
     let ports = FakePorts::default();
     let block_id = BlockId::from_uuid(Uuid::now_v7());
     // `with_ai_import` caps the document at 4096 bytes.
-    let body = axum::body::Bytes::from(vec![b'x'; 4097]);
+    let body = api::problems::Bytes(axum::body::Bytes::from(vec![b'x'; 4097]));
 
-    let (status, Json(body)) =
+    let problem =
         upload_ai_script::<FakePorts>(State(state(ports)), user(), pdf_headers(block_id), body)
             .await
-            .expect_err("oversize upload must be rejected");
-    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
-    assert!(body.message.contains("size limit"));
+            .expect_err("oversize upload must be rejected")
+            .into_problem();
+    assert_eq!(problem.status, StatusCode::PAYLOAD_TOO_LARGE.as_u16());
+    assert_eq!(problem.code, "http.payload-too-large");
+    // Detail is localized (ADR-031 D5); the code is the contract.
+    assert!(!problem.detail.is_empty());
 }
 
 #[tokio::test]
@@ -302,12 +306,14 @@ async fn get_ai_import_job_denies_a_foreign_owner() {
     let job_id = job.id;
     ports.ai_import_queue.seed(job).await;
 
-    let (status, Json(body)) =
-        get_ai_import_job::<FakePorts>(State(state(ports)), user(), Path(job_id))
-            .await
-            .expect_err("a foreign owner must be denied");
-    assert_eq!(status, StatusCode::FORBIDDEN);
-    assert!(body.message.contains("not authorized"));
+    let problem = get_ai_import_job::<FakePorts>(State(state(ports)), user(), Path(job_id))
+        .await
+        .expect_err("a foreign owner must be denied")
+        .into_problem();
+    assert_eq!(problem.status, StatusCode::FORBIDDEN.as_u16());
+    assert_eq!(problem.code, "domain.forbidden");
+    // Detail is localized (ADR-031 D5); the code is the contract.
+    assert!(!problem.detail.is_empty());
 }
 
 #[tokio::test]
@@ -429,7 +435,7 @@ async fn apply_ai_import_rejects_an_episode_from_another_block() {
     let queue = ports.ai_import_queue.clone();
     let job_id = seed_applyable_script_job(&ports, Some(job_block), 1).await;
 
-    let (status, Json(body)) = apply_ai_import::<FakePorts>(
+    let problem = apply_ai_import::<FakePorts>(
         State(state(ports)),
         user(),
         Path(job_id),
@@ -445,10 +451,13 @@ async fn apply_ai_import_rejects_an_episode_from_another_block() {
         }),
     )
     .await
-    .expect_err("a cross-block apply must be rejected");
+    .expect_err("a cross-block apply must be rejected")
+    .into_problem();
 
-    assert_eq!(status, StatusCode::FORBIDDEN);
-    assert!(body.message.contains("not authorized"));
+    assert_eq!(problem.status, StatusCode::FORBIDDEN.as_u16());
+    assert_eq!(problem.code, "domain.forbidden");
+    // Detail is localized (ADR-031 D5); the code is the contract.
+    assert!(!problem.detail.is_empty());
     // The gate runs before the worker: nothing was written on *either* write
     // path — mappings and telemetry are separate sinks on the queue/mapping
     // ports, so both must stay empty.
@@ -475,7 +484,7 @@ async fn apply_ai_import_rejects_accept_as_is_with_a_nonzero_edit_distance() {
     let queue = ports.ai_import_queue.clone();
     let job_id = seed_applyable_script_job(&ports, Some(block_id), 1).await;
 
-    let (status, Json(body)) = apply_ai_import::<FakePorts>(
+    let problem = apply_ai_import::<FakePorts>(
         State(state(ports)),
         user(),
         Path(job_id),
@@ -492,10 +501,14 @@ async fn apply_ai_import_rejects_accept_as_is_with_a_nonzero_edit_distance() {
         }),
     )
     .await
-    .expect_err("contradictory telemetry must be rejected");
+    .expect_err("contradictory telemetry must be rejected")
+    .into_problem();
 
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(body.message.contains("edit_distance = 0"));
+    // ADR-031 D6: domain validation is 422 (was 400 pre-change).
+    assert_eq!(problem.status, StatusCode::UNPROCESSABLE_ENTITY.as_u16());
+    assert_eq!(problem.code, "domain.validation");
+    // Detail is localized (ADR-031 D5); the code is the contract.
+    assert!(!problem.detail.is_empty());
     // The validation rejects before any write reaches either sink.
     assert!(
         mappings
@@ -609,11 +622,14 @@ async fn get_ai_config_denies_a_foreign_owner() {
         },
     );
 
-    let (status, Json(body)) = get_ai_config::<FakePorts>(State(state(ports)), user(), Path(id))
+    let problem = get_ai_config::<FakePorts>(State(state(ports)), user(), Path(id))
         .await
-        .expect_err("a foreign owner must be denied");
-    assert_eq!(status, StatusCode::FORBIDDEN);
-    assert!(body.message.contains("not authorized"));
+        .expect_err("a foreign owner must be denied")
+        .into_problem();
+    assert_eq!(problem.status, StatusCode::FORBIDDEN.as_u16());
+    assert_eq!(problem.code, "domain.forbidden");
+    // Detail is localized (ADR-031 D5); the code is the contract.
+    assert!(!problem.detail.is_empty());
 }
 
 #[tokio::test]
@@ -621,7 +637,7 @@ async fn ai_config_creation_is_denied_without_the_credential_role() {
     let ports = FakePorts::default();
     *ports.membership_repo.credential_role_override.lock().await = Some(Ok(false));
 
-    let (status, Json(body)) = create_ai_config::<FakePorts>(
+    let problem = create_ai_config::<FakePorts>(
         State(state(ports)),
         user(),
         Json(CreateAiConfigRequest {
@@ -633,9 +649,12 @@ async fn ai_config_creation_is_denied_without_the_credential_role() {
         }),
     )
     .await
-    .expect_err("a non-credential-role caller must be denied");
-    assert_eq!(status, StatusCode::FORBIDDEN);
-    assert!(body.message.contains("not authorized"));
+    .expect_err("a non-credential-role caller must be denied")
+    .into_problem();
+    assert_eq!(problem.status, StatusCode::FORBIDDEN.as_u16());
+    assert_eq!(problem.code, "domain.forbidden");
+    // Detail is localized (ADR-031 D5); the code is the contract.
+    assert!(!problem.detail.is_empty());
 }
 
 #[tokio::test]
@@ -646,14 +665,17 @@ async fn ai_upload_is_not_found_when_the_feature_is_disabled() {
         ports, /*ai_import_enabled=*/ false, /*max_document_bytes=*/ 4096,
     );
 
-    let (status, Json(body)) = upload_ai_script::<FakePorts>(
+    let problem = upload_ai_script::<FakePorts>(
         State(state),
         user(),
         pdf_headers(block_id),
-        axum::body::Bytes::from_static(b"%PDF"),
+        api::problems::Bytes(axum::body::Bytes::from_static(b"%PDF")),
     )
     .await
-    .expect_err("the disabled feature must hide the route");
-    assert_eq!(status, StatusCode::NOT_FOUND);
-    assert!(body.message.contains("disabled"));
+    .expect_err("the disabled feature must hide the route")
+    .into_problem();
+    assert_eq!(problem.status, StatusCode::NOT_FOUND.as_u16());
+    assert_eq!(problem.code, "domain.not-found");
+    // Detail is localized (ADR-031 D5); the code is the contract.
+    assert!(!problem.detail.is_empty());
 }

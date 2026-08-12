@@ -1,0 +1,10 @@
+{
+  "code": "photo.not-found",
+  "detail": "Foto nicht gefunden.",
+  "extensions": {
+    "id": "00000000-0000-0000-0000-000000000001"
+  },
+  "status": 404,
+  "title": "Photo not found",
+  "type": "https://docs.breakdown.example/problems/photo.not-found"
+}

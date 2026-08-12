@@ -11,8 +11,7 @@ mod common;
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
-use axum::http::StatusCode;
-use axum::{Json, extract::State};
+use axum::extract::State;
 
 use breakdown_core::reporting::ReportRenderError;
 use breakdown_core::shared::ShootingDayId;
@@ -57,9 +56,10 @@ fn test_map_render_error_page_limit() {
         max: 50,
         actual: 51,
     };
-    let (status, Json(_resp)) = map_render_error(err);
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(_resp.message.contains("50"));
+    let problem = map_render_error(err).into_problem();
+    assert_eq!(problem.status, 422);
+    assert_eq!(problem.code, "domain.validation");
+    assert!(!problem.detail.is_empty());
 }
 
 #[test]
@@ -68,17 +68,20 @@ fn test_map_render_error_input_bounds() {
         limit: 1000,
         field: "rows".into(),
     };
-    let (status, Json(_resp)) = map_render_error(err);
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(_resp.message.contains("rows"));
+    let problem = map_render_error(err).into_problem();
+    assert_eq!(problem.status, 422);
+    assert_eq!(problem.code, "domain.validation");
+    assert!(!problem.detail.is_empty());
 }
 
 #[test]
 fn test_map_render_error_timeout() {
     let err = ReportRenderError::RenderTimeout;
-    let (status, Json(resp)) = map_render_error(err);
-    assert_eq!(status, StatusCode::REQUEST_TIMEOUT);
-    assert_eq!(resp.message, "Render timeout");
+    let problem = map_render_error(err).into_problem();
+    // The renderer is the slow party — 504 Gateway Timeout, not 408
+    // (which would tell the client to resend its request).
+    assert_eq!(problem.status, 504);
+    assert_eq!(problem.code, "http.request-timeout");
 }
 
 #[test]
@@ -86,9 +89,11 @@ fn test_map_render_error_generic() {
     let err = ReportRenderError::CompilerFailure {
         detail: "syntax error".into(),
     };
-    let (status, Json(resp)) = map_render_error(err);
-    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
-    assert!(resp.message.contains("syntax error"));
+    let problem = map_render_error(err).into_problem();
+    assert_eq!(problem.status, 500);
+    // Internal renderer text must never leave the server (ADR-031 decision 6).
+    assert_eq!(problem.code, "http.internal-error");
+    assert!(!problem.detail.contains("syntax error"));
 }
 
 #[test]
@@ -96,8 +101,11 @@ fn test_map_render_error_locale_unsupported() {
     let err = ReportRenderError::LocaleUnsupported {
         locale: "xx".into(),
     };
-    let (status, Json(_resp)) = map_render_error(err);
-    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    let problem = map_render_error(err).into_problem();
+    assert_eq!(problem.status, 500);
+    // Internal renderer text must never leave the server (ADR-031 decision 6).
+    assert_eq!(problem.code, "http.internal-error");
+    assert!(!problem.detail.contains("xx"));
 }
 
 #[test]
@@ -105,8 +113,11 @@ fn test_map_render_error_template_not_found() {
     let err = ReportRenderError::TemplateNotFound {
         kind: "dispo".into(),
     };
-    let (status, Json(_resp)) = map_render_error(err);
-    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    let problem = map_render_error(err).into_problem();
+    assert_eq!(problem.status, 500);
+    // Internal renderer text must never leave the server (ADR-031 decision 6).
+    assert_eq!(problem.code, "http.internal-error");
+    assert!(!problem.detail.contains("dispo"));
 }
 
 // ---------------------------------------------------------------------------
@@ -119,11 +130,13 @@ async fn test_dispo_report_pdf_shooting_day_not_found() {
     let day_id = ShootingDayId::new();
     let user = CurrentUser::dummy("test-user");
 
-    let result = dispo_report_pdf(State(state), user, axum::extract::Path(day_id)).await;
+    let result = dispo_report_pdf(State(state), user, api::problems::Path(day_id)).await;
 
-    let (status, Json(resp)) = result.expect_err("handler should fail for missing shooting day");
-    assert_eq!(status, StatusCode::NOT_FOUND);
-    assert!(!resp.message.is_empty());
+    let problem = result
+        .expect_err("handler should fail for missing shooting day")
+        .into_problem();
+    assert_eq!(problem.status, 404);
+    assert!(!problem.detail.is_empty());
 }
 
 #[tokio::test]
@@ -132,11 +145,13 @@ async fn test_shoot_day_report_pdf_shooting_day_not_found() {
     let day_id = ShootingDayId::new();
     let user = CurrentUser::dummy("test-user");
 
-    let result = shoot_day_report_pdf(State(state), user, axum::extract::Path(day_id)).await;
+    let result = shoot_day_report_pdf(State(state), user, api::problems::Path(day_id)).await;
 
-    let (status, Json(resp)) = result.expect_err("handler should fail for missing shooting day");
-    assert_eq!(status, StatusCode::NOT_FOUND);
-    assert!(!resp.message.is_empty());
+    let problem = result
+        .expect_err("handler should fail for missing shooting day")
+        .into_problem();
+    assert_eq!(problem.status, 404);
+    assert!(!problem.detail.is_empty());
 }
 
 #[tokio::test]
@@ -146,9 +161,11 @@ async fn test_planned_vs_actual_report_pdf_shooting_day_not_found() {
     let user = CurrentUser::dummy("test-user");
 
     let result =
-        planned_vs_actual_report_pdf(State(state), user, axum::extract::Path(day_id)).await;
+        planned_vs_actual_report_pdf(State(state), user, api::problems::Path(day_id)).await;
 
-    let (status, Json(resp)) = result.expect_err("handler should fail for missing shooting day");
-    assert_eq!(status, StatusCode::NOT_FOUND);
-    assert!(!resp.message.is_empty());
+    let problem = result
+        .expect_err("handler should fail for missing shooting day")
+        .into_problem();
+    assert_eq!(problem.status, 404);
+    assert!(!problem.detail.is_empty());
 }

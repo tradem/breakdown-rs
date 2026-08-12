@@ -60,10 +60,10 @@ async fn await_scene_projection(
     loop {
         match repo.find_by_id(scene_id).await {
             Ok(view) => return Ok(view),
-            Err(DomainError::NotFound(_)) if std::time::Instant::now() < deadline => {
+            Err(DomainError::NotFound { .. }) if std::time::Instant::now() < deadline => {
                 tokio::time::sleep(POLL_INTERVAL).await;
             }
-            Err(DomainError::NotFound(_)) => {
+            Err(DomainError::NotFound { .. }) => {
                 bail!(
                     "projection lag: Scene({scene_id}) not projected within {PROJECTION_DEADLINE:?} \
                      — the PostgresProcessor did not catch up in time"
@@ -169,10 +169,10 @@ async fn await_scene_version(
                      within {PROJECTION_DEADLINE:?}"
                 );
             }
-            Err(DomainError::NotFound(_)) if std::time::Instant::now() < deadline => {
+            Err(DomainError::NotFound { .. }) if std::time::Instant::now() < deadline => {
                 tokio::time::sleep(POLL_INTERVAL).await;
             }
-            Err(DomainError::NotFound(_)) => {
+            Err(DomainError::NotFound { .. }) => {
                 bail!(
                     "projection lag: Scene({scene_id}) disappeared or not yet created \
                      within {PROJECTION_DEADLINE:?}"

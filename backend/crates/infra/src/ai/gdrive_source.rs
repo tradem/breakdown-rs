@@ -47,8 +47,9 @@ impl GDriveDocumentSource {
         if let Some(root) = bundle.root_folder_id() {
             builder = builder.root(root);
         }
-        let operator = Operator::new(builder)
-            .map_err(|error| DomainError::ServiceUnavailable(format!("GDrive adapter: {error}")))?;
+        let operator = Operator::new(builder).map_err(|error| {
+            DomainError::service_unavailable(format!("GDrive adapter: {error}"))
+        })?;
         Ok(Self {
             operator: Arc::new(operator),
             max_document_bytes,
@@ -85,7 +86,7 @@ impl GDriveDocumentSource {
             .await
             .map_err(map_opendal_error)?;
         if metadata.content_length() > self.max_document_bytes {
-            return Err(DomainError::ValidationError(format!(
+            return Err(DomainError::validation(format!(
                 "GDrive document exceeds the configured {} byte limit",
                 self.max_document_bytes
             )));
@@ -101,8 +102,8 @@ impl GDriveDocumentSource {
             .map_err(map_opendal_error)?
             .to_vec();
         if bytes.len() as u64 > self.max_document_bytes {
-            return Err(DomainError::ValidationError(
-                "GDrive document exceeded the configured byte limit while reading".to_owned(),
+            return Err(DomainError::validation(
+                "GDrive document exceeded the configured byte limit while reading",
             ));
         }
         Ok(bytes)
@@ -121,9 +122,7 @@ fn validate_handle(handle: &str) -> Result<(), DomainError> {
         || handle.starts_with('/')
         || handle.split('/').any(|part| part == "..")
     {
-        return Err(DomainError::ValidationError(
-            "invalid GDrive document handle".to_owned(),
-        ));
+        return Err(DomainError::validation("invalid GDrive document handle"));
     }
     Ok(())
 }
@@ -135,10 +134,10 @@ fn is_supported_document(path: &str) -> bool {
 
 fn map_opendal_error(error: opendal::Error) -> DomainError {
     if error.is_temporary() {
-        DomainError::ServiceUnavailable("temporary GDrive storage failure".to_owned())
+        DomainError::service_unavailable("temporary GDrive storage failure")
     } else if error.kind() == opendal::ErrorKind::NotFound {
-        DomainError::NotFound("GDrive document not found".to_owned())
+        DomainError::not_found("gdrive-document")
     } else {
-        DomainError::ValidationError("GDrive document operation failed".to_owned())
+        DomainError::validation("GDrive document operation failed")
     }
 }

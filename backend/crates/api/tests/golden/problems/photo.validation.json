@@ -1,0 +1,7 @@
+{
+  "code": "photo.validation",
+  "detail": "Die Foto-Anfrage ist nicht gültig.",
+  "status": 422,
+  "title": "Photo validation failed",
+  "type": "https://docs.breakdown.example/problems/photo.validation"
+}

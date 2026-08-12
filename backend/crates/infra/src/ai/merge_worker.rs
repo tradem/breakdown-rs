@@ -41,9 +41,7 @@ where
         };
         let started = Instant::now();
         let Some(preview_handle) = job.preview_handle.as_deref() else {
-            let error = DomainError::ValidationError(
-                "schedule job has no preview handle for merge".to_owned(),
-            );
+            let error = DomainError::validation("schedule job has no preview handle for merge");
             self.fail(job.id, worker_id, &error, false).await?;
             return Err(error);
         };
@@ -71,7 +69,7 @@ where
             }
         };
         let Some(payload) = stored else {
-            let error = DomainError::NotFound(format!("schedule preview {preview_handle}"));
+            let error = DomainError::not_found("schedule-preview");
             self.queue
                 .mark_payload_unavailable(job.id, worker_id, &error.to_string())
                 .await?;
@@ -80,7 +78,7 @@ where
         let input: MergeInput = match from_slice(&payload) {
             Ok(input) => input,
             Err(error) => {
-                let error = DomainError::ValidationError(format!("invalid merge input: {error}"));
+                let error = DomainError::validation(format!("invalid merge input: {error}"));
                 self.fail(job.id, worker_id, &error, false).await?;
                 return Err(error);
             }
@@ -93,13 +91,13 @@ where
                 // immutable and the worker cannot observe later applied scenes.
                 // The caller must re-prepare a fresh MergeInput at the API boundary
                 // after scenes are applied (CQRS boundary, AGENTS.md §1).
-                let retryable = !matches!(error, DomainError::Conflict(_));
+                let retryable = !matches!(error, DomainError::Conflict { .. });
                 self.fail(job.id, worker_id, &error, retryable).await?;
                 return Err(error);
             }
         };
         let payload = to_vec(&merged).map_err(|error| {
-            DomainError::ValidationError(format!("could not serialize merged preview: {error}"))
+            DomainError::validation(format!("could not serialize merged preview: {error}"))
         })?;
         let handle = self.previews.put(job.id, payload).await?;
         // The merge is a pure in-process transform (no LLM call), so it cannot
@@ -142,8 +140,8 @@ pub fn merge_loaded_schedule(
     scenes: &[breakdown_core::scene::views::SceneView],
 ) -> Result<MergedPreview, DomainError> {
     if scenes.is_empty() {
-        return Err(DomainError::Conflict(
-            "merge pending: block has no applied scenes yet".to_owned(),
+        return Err(DomainError::conflict(
+            "merge pending: block has no applied scenes yet",
         ));
     }
     Ok(breakdown_core::ai::merge_schedule_to_scenes(

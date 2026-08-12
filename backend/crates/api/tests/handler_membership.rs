@@ -11,8 +11,9 @@ mod common;
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 
 use api::auth::CurrentUser;
-use axum::Json;
-use axum::extract::{Path, Query, State};
+use api::problems::Json; // test-only alias for the wrapper extractor (ADR-031)
+use api::problems::{Path, Query};
+use axum::extract::State;
 use axum::http::StatusCode;
 use breakdown_core::membership::Role;
 use breakdown_core::shared::{BlockId, UserId};
@@ -186,7 +187,9 @@ async fn get_member_returns_404_when_absent() {
         Path((block_id.0, "ghost".to_string())),
     )
     .await;
-    assert_eq!(result.unwrap_err().0, StatusCode::NOT_FOUND);
+    let problem = result.unwrap_err().into_problem();
+    assert_eq!(problem.status, 404);
+    assert_eq!(problem.code, "membership.not-found");
 }
 
 #[tokio::test]

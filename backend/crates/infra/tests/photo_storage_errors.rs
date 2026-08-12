@@ -28,7 +28,7 @@ fn temporary_write_failure_is_service_unavailable() {
     // Write boundary (`store`): a temporary OpenDAL error must be retried by
     // `retry_transient`, never treated as a permanent failure.
     let err = map_storage_error("photo/123/original", temporary_error());
-    assert!(matches!(err, DomainError::ServiceUnavailable(_)));
+    assert!(matches!(err, DomainError::ServiceUnavailable { .. }));
 }
 
 #[test]
@@ -37,7 +37,7 @@ fn temporary_delete_failure_is_service_unavailable() {
     // retried in-loop so the event is not acknowledged while the object
     // still exists in storage.
     let err = map_storage_error("photo/123/thumb", temporary_error());
-    assert!(matches!(err, DomainError::ServiceUnavailable(_)));
+    assert!(matches!(err, DomainError::ServiceUnavailable { .. }));
 }
 
 #[test]
@@ -48,6 +48,6 @@ fn permanent_failure_is_validation_error() {
         "photo/123/original",
         opendal::Error::new(opendal::ErrorKind::Unexpected, "checksum mismatch"),
     );
-    assert!(matches!(err, DomainError::ValidationError(_)));
+    assert!(matches!(err, DomainError::Validation { .. }));
     assert!(err.to_string().contains("photo/123/original"));
 }

@@ -9,10 +9,12 @@ use std::sync::Arc;
 use axum::Router;
 use axum::middleware;
 use tower::ServiceBuilder;
+use tower_http::catch_panic::CatchPanicLayer;
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::auth::{AuthState, AuthorizationState, auth_middleware, authorize_middleware};
 use crate::handlers;
+use crate::problems::{self, locale::negotiate_language, route_not_found};
 use crate::state::{AppState, ProductionPorts};
 use crate::versioning::{DeprecationRegistry, deprecation_middleware};
 
@@ -36,6 +38,9 @@ where
 {
     api.layer(
         ServiceBuilder::new()
+            // Outermost: negotiate `Accept-Language` once so even auth
+            // rejections render a localized problem `detail` (ADR-031 D5).
+            .layer(middleware::from_fn(negotiate_language))
             .layer(middleware::from_fn_with_state(auth, auth_middleware))
             .layer(middleware::from_fn_with_state(authz, authorize_middleware))
             .layer(middleware::from_fn_with_state(
@@ -65,11 +70,23 @@ pub fn app_router(
     // (ADR-021 D4) — release-time configuration, not per-request.
     let deprecations = DeprecationRegistry::new();
     let api = apply_api_middleware(
-        Router::new().nest("/v1", handlers::routes()),
+        Router::new()
+            .nest("/v1", handlers::routes())
+            // ADR-031 D3: unknown routes are a problem document, not an
+            // empty 404 (http-error-surface spec). The fallback lives on
+            // the outer router; axum falls through to it for unmatched
+            // nested `/v1` paths too.
+            .fallback(route_not_found),
         auth,
         authz,
         deprecations,
     );
+
+    // Panic catch-all (ADR-031 D3): any panic in the api stack (auth
+    // middleware included) becomes a static `http.internal-error` problem
+    // with the request trace id. Placed outside the middleware stack (so it
+    // wraps auth), and inside TraceLayer (added in main.rs).
+    let api = api.layer(CatchPanicLayer::custom(problems::panic_response));
 
     let doc = crate::api_doc();
     let swagger: Router<()> =

@@ -1,0 +1,7 @@
+{
+  "code": "http.route-not-found",
+  "detail": "Die angeforderte Route existiert nicht.",
+  "status": 404,
+  "title": "Route not found",
+  "type": "https://docs.breakdown.example/problems/http.route-not-found"
+}

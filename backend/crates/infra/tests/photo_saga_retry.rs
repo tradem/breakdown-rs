@@ -20,8 +20,8 @@ async fn transient_service_unavailable_is_retried_until_success() {
         let attempts = &attempts;
         async move {
             if attempts.fetch_add(1, Ordering::SeqCst) < 1 {
-                Err(anyhow::Error::new(DomainError::ServiceUnavailable(
-                    "vault down".into(),
+                Err(anyhow::Error::new(DomainError::service_unavailable(
+                    "vault down",
                 )))
             } else {
                 Ok(())
@@ -55,7 +55,7 @@ async fn permanent_errors_propagate_immediately() {
 
 #[test]
 fn is_transient_detects_service_unavailable_through_the_error_chain() {
-    let plain: anyhow::Error = DomainError::ServiceUnavailable("down".into()).into();
+    let plain: anyhow::Error = DomainError::service_unavailable("down").into();
     assert!(is_transient(&plain));
 
     // The saga wraps storage errors with context; the DomainError must
@@ -63,7 +63,7 @@ fn is_transient_detects_service_unavailable_through_the_error_chain() {
     let chained = plain.context("fetching original bytes");
     assert!(is_transient(&chained));
 
-    let validation: anyhow::Error = DomainError::ValidationError("nope".into()).into();
+    let validation: anyhow::Error = DomainError::validation("nope").into();
     assert!(!is_transient(&validation));
     assert!(!is_transient(&anyhow::anyhow!("corrupt image")));
 }

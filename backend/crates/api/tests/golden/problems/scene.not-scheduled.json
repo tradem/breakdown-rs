@@ -1,0 +1,10 @@
+{
+  "code": "scene.not-scheduled",
+  "detail": "Die Szene ist an diesem Drehtag nicht eingeplant.",
+  "extensions": {
+    "shooting_day_id": "00000000-0000-0000-0000-000000000001"
+  },
+  "status": 409,
+  "title": "Scene not scheduled on this day",
+  "type": "https://docs.breakdown.example/problems/scene.not-scheduled"
+}

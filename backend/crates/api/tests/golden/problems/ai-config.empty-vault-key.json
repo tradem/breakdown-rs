@@ -1,0 +1,7 @@
+{
+  "code": "ai-config.empty-vault-key",
+  "detail": "Der KI-Vault-Schlüsselverweis darf nicht leer sein.",
+  "status": 422,
+  "title": "AI vault key reference must not be empty",
+  "type": "https://docs.breakdown.example/problems/ai-config.empty-vault-key"
+}

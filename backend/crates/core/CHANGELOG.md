@@ -10,6 +10,27 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.8.0] - Unreleased
+
+### Changed — Structured `DomainError` variants + problem-code registry (issue #230)
+
+`DomainError` is restructured from string-carrying variants to structured ones
+that carry their registry entry (`code`) and typed S0/S1 data:
+`NotFound { resource, id }`, `VersionConflict { expected, current }`, …;
+`membership` errors drop the S2 `user_id` entirely. All 12 `From<*Error>`
+impls are ported; interpolated `format!` messages are deleted from the wire
+path (`Display` is log-only).
+
+- **Breaking:** every consumer matching on `DomainError` variants must switch
+  to the structured fields (`code` + typed ids). ~460 construction sites
+  across the workspace were ported (ast-grep-assisted).
+- The code registry (`error_registry`) grows from 19 to 73 codes — every
+  aggregate error gets `{context}.{reason}` with status, constant English
+  title and declared S0/S1 extension whitelists; per-context validation
+  codes; S1 gating audit documented.
+- `problem_code(&str)` resolves a registry entry by code (registry + lint
+  lookup).
+
 ## [0.7.0] - Unreleased
 
 ### Added — Persisted source document format for AI imports (issue #221)

@@ -93,10 +93,10 @@ async fn await_shooting_day_found(
     loop {
         match repo.find_by_id(id).await {
             Ok(view) => return Ok(view),
-            Err(DomainError::NotFound(_)) if Instant::now() < deadline => {
+            Err(DomainError::NotFound { .. }) if Instant::now() < deadline => {
                 tokio::time::sleep(POLL_INTERVAL).await;
             }
-            Err(DomainError::NotFound(_)) => {
+            Err(DomainError::NotFound { .. }) => {
                 bail!(
                     "projection lag: ShootingDay({id}) not projected within {PROJECTION_DEADLINE:?}"
                 );
@@ -147,10 +147,10 @@ async fn await_scene_found(repo: &SceneRepositoryImpl, scene_id: Uuid) -> Result
     loop {
         match repo.find_by_id(scene_id).await {
             Ok(view) => return Ok(view),
-            Err(DomainError::NotFound(_)) if Instant::now() < deadline => {
+            Err(DomainError::NotFound { .. }) if Instant::now() < deadline => {
                 tokio::time::sleep(POLL_INTERVAL).await;
             }
-            Err(DomainError::NotFound(_)) => {
+            Err(DomainError::NotFound { .. }) => {
                 bail!(
                     "projection lag: Scene({scene_id}) not projected within {PROJECTION_DEADLINE:?}"
                 );
@@ -177,10 +177,10 @@ async fn await_scene_version(
             Ok(_) => bail!(
                 "projection lag: Scene({scene_id}) version did not reach {min_version:?} within {PROJECTION_DEADLINE:?}"
             ),
-            Err(DomainError::NotFound(_)) if Instant::now() < deadline => {
+            Err(DomainError::NotFound { .. }) if Instant::now() < deadline => {
                 tokio::time::sleep(POLL_INTERVAL).await;
             }
-            Err(DomainError::NotFound(_)) => {
+            Err(DomainError::NotFound { .. }) => {
                 bail!(
                     "projection lag: Scene({scene_id}) not projected within {PROJECTION_DEADLINE:?}"
                 );
@@ -208,10 +208,10 @@ async fn await_scene_links(
             Ok(_) => bail!(
                 "projection lag: Scene({scene_id}) did not link ShootingDay({sd_id}) within {PROJECTION_DEADLINE:?}"
             ),
-            Err(DomainError::NotFound(_)) if Instant::now() < deadline => {
+            Err(DomainError::NotFound { .. }) if Instant::now() < deadline => {
                 tokio::time::sleep(POLL_INTERVAL).await;
             }
-            Err(DomainError::NotFound(_)) => {
+            Err(DomainError::NotFound { .. }) => {
                 bail!(
                     "projection lag: Scene({scene_id}) not projected within {PROJECTION_DEADLINE:?}"
                 );

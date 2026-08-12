@@ -122,9 +122,7 @@ impl PgAiConcurrencyLimiter {
         let max_global = i64::from(max_global);
         let max_per_user = i64::from(max_per_user);
         if max_global <= 0 || max_per_user <= 0 || max_per_user > max_global {
-            return Err(DomainError::ValidationError(
-                "invalid AI concurrency limits".to_owned(),
-            ));
+            return Err(DomainError::validation("invalid AI concurrency limits"));
         }
         Ok(Self {
             pool,
@@ -191,8 +189,8 @@ impl PgAiConcurrencyLimiter {
         worker_id: &str,
     ) -> Result<Option<PgAiConcurrencyPermit>, DomainError> {
         if user_id.trim().is_empty() {
-            return Err(DomainError::ValidationError(
-                "AI concurrency user id must not be empty".to_owned(),
+            return Err(DomainError::validation(
+                "AI concurrency user id must not be empty",
             ));
         }
         let mut tx = self.pool.begin().await.map_err(map_sqlx_error)?;
@@ -503,7 +501,7 @@ impl PgAiConcurrencyPermit {
             // transaction start. Expired and already-swept are reported
             // identically because they mean the same thing to the caller: this
             // permit no longer grants capacity.
-            return Err(DomainError::Conflict(format!(
+            return Err(DomainError::conflict(format!(
                 "AI concurrency permit {} is no longer live (expired or reclaimed)",
                 self.id
             )));
@@ -555,7 +553,7 @@ async fn delete_permit(pool: &PgPool, id: Uuid) -> Result<bool, DomainError> {
 }
 
 fn map_sqlx_error(error: sqlx::Error) -> DomainError {
-    DomainError::ServiceUnavailable(format!("AI concurrency database error: {error}"))
+    DomainError::service_unavailable(format!("AI concurrency database error: {error}"))
 }
 
 #[cfg(test)]

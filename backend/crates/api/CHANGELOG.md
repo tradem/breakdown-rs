@@ -10,6 +10,30 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.7.0] - Unreleased
+
+### Added — RFC 9457 problem-detail error surface (issue #230)
+
+Every error response is now an `application/problem+json` document with a
+stable `{context}.{reason}` code, `trace_id`, typed S0/S1 extension fields
+and an `Accept-Language`-localized `detail` (Fluent, `de` default / `en`).
+Handlers propagate with `?`; status mapping lives in the single problem
+builder (`crates/api/src/problems`) fed by the registry
+(`crates/core/src/error_registry.rs`, 73 codes).
+
+- **Breaking:** response bodies change from `{message}` to the problem
+  envelope; domain-validation failures return 422 instead of 400 (ADR-031).
+  Clients must branch on `code` — see `docs/errors/` for the migration
+  guide and the full code catalogue.
+- New runtime deps: `fluent`, `fluent-bundle`, `unic-langid`,
+  `accept-language` (server-side i18n; core stays dependency-free);
+  `indexmap` (registry-woven OpenAPI docs); `http-body-util` promoted from
+  dev-dependencies (the `Json` extractor collects limited request bodies).
+- Bundle-coverage lint + golden snapshots enforce the surface; the S2
+  ast-grep rule bans person identifiers in problem-builder code.
+- **Breaking (cascade):** re-pinned to `breakdown_core` 0.8.0 (ADR-020 D3);
+  api bumps 0.6.1 → 0.7.0.
+
 ## [0.6.1] - Unreleased
 
 ### Changed — Persist the declared AI import source format (issue #221)

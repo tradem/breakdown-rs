@@ -9,11 +9,13 @@ use std::time::Duration;
 use async_trait::async_trait;
 use breakdown_core::ai::{CuratedLlmProvider, LlmModelCatalog, LlmProvider, ModelInfo};
 use breakdown_core::error::DomainError;
+use breakdown_core::error_registry::AI_CONFIG_EMPTY_VAULT_KEY;
 use breakdown_core::settings::SecretValue;
 use serde::Deserialize;
 
 use super::CuratedProviderUrls;
 use super::client::{classify_http_status, classify_transport_error};
+use super::transport::RedirectViolation;
 use super::transport::build_hosted_client;
 use super::transport::curated_provider_redirect_policy;
 
@@ -40,8 +42,10 @@ impl OpenAiCompatibleModelCatalog {
             .timeout(CATALOG_REQUEST_TIMEOUT)
             .redirect(curated_provider_redirect_policy())
             .build()
+            // TLS backend / proxy configuration fault — a server-side problem,
+            // not a client validation failure (503, not 422).
             .map_err(|error| {
-                DomainError::ValidationError(format!("invalid HTTP client: {error}"))
+                DomainError::service_unavailable(format!("invalid HTTP client: {error}"))
             })?;
         Ok(Self {
             http,
@@ -87,17 +91,21 @@ impl OpenAiCompatibleModelCatalog {
             return Ok(Cow::Borrowed(&self.http));
         }
         let base = CuratedProviderUrls::base_url(provider);
+        // The curated base URLs are hardcoded operator configuration; a parse
+        // failure is a server-side defect (503), not a client input error.
         let url = reqwest::Url::parse(base).map_err(|error| {
-            DomainError::ValidationError(format!(
+            DomainError::service_unavailable(format!(
                 "invalid curated base URL for {provider:?}: {error}"
             ))
         })?;
         let host = url.host_str().ok_or_else(|| {
-            DomainError::ValidationError(format!("curated base URL for {provider:?} has no host"))
+            DomainError::service_unavailable(format!(
+                "curated base URL for {provider:?} has no host"
+            ))
         })?;
         let client = build_hosted_client(host, CATALOG_REQUEST_TIMEOUT)
             .await
-            .map_err(|violation| DomainError::ValidationError(violation.to_string()))?;
+            .map_err(map_redirect_violation)?;
         Ok(Cow::Owned(client))
     }
 }
@@ -110,9 +118,10 @@ impl LlmModelCatalog for OpenAiCompatibleModelCatalog {
         vaulted_key: &str,
     ) -> Result<Vec<ModelInfo>, DomainError> {
         if vaulted_key.trim().is_empty() {
-            return Err(DomainError::ValidationError(
-                "LLM API key must not be empty".to_owned(),
-            ));
+            return Err(DomainError::Validation {
+                code: &AI_CONFIG_EMPTY_VAULT_KEY,
+                reason: "LLM API key must not be empty".into(),
+            });
         }
         let key = SecretValue::new(vaulted_key.to_owned());
         let endpoint = format!("{}/models", CuratedProviderUrls::base_url(provider));
@@ -128,9 +137,15 @@ impl LlmModelCatalog for OpenAiCompatibleModelCatalog {
         if !status.is_success() {
             return Err(classify_http_status(status));
         }
-        let payload = response.json::<ModelsResponse>().await.map_err(|error| {
-            DomainError::ValidationError(format!("invalid model catalog: {error}"))
-        })?;
+        let payload = response
+            .json::<ModelsResponse>()
+            .await
+            // The upstream provider returned something that is not a
+            // `ModelsResponse` — an upstream fault (503), never the caller's
+            // request being invalid (422).
+            .map_err(|error| {
+                DomainError::service_unavailable(format!("invalid model catalog: {error}"))
+            })?;
         Ok(payload
             .data
             .into_iter()
@@ -152,6 +167,27 @@ struct ModelsResponse {
 #[derive(Debug, Deserialize)]
 struct ModelRecord {
     id: String,
+}
+
+/// Map a curated-client construction violation to a domain error.
+///
+/// Transient upstream/DNS faults are 503 (`service_unavailable`); permanent
+/// security-guard rejections (the DNS-rebinding guard) stay `validation` per
+/// the permanent-error classification (AGENTS.md §3). The `reason` string is
+/// log-only — it never reaches the wire.
+fn map_redirect_violation(violation: RedirectViolation) -> DomainError {
+    match &violation {
+        RedirectViolation::DnsLookupFailed { host } => DomainError::service_unavailable(format!(
+            "could not resolve curated provider host {host}"
+        )),
+        RedirectViolation::ClientBuildFailed { .. } => {
+            DomainError::service_unavailable(violation.to_string())
+        }
+        RedirectViolation::InternalDestination { .. } => {
+            DomainError::validation(violation.to_string())
+        }
+        other => DomainError::validation(other.to_string()),
+    }
 }
 
 fn default_allowlist() -> HashSet<String> {

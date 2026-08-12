@@ -1,0 +1,7 @@
+{
+  "code": "http.unsupported-media-type",
+  "detail": "Nicht unterstützter Medientyp.",
+  "status": 415,
+  "title": "Unsupported media type",
+  "type": "https://docs.breakdown.example/problems/http.unsupported-media-type"
+}

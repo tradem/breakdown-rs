@@ -30,6 +30,7 @@ use breakdown_core::episode::commands::{CreateEpisode, RenameEpisode};
 use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::error::DomainError;
+use breakdown_core::error_registry::SCENE_NOT_FOUND;
 use breakdown_core::photo::commands::{
     DeletePhoto, GenerateVariant, MarkVariantFailed, NormalizeOriginal, UploadPhoto,
 };
@@ -497,7 +498,11 @@ impl SceneRepository for FakeSceneRepo {
             .await
             .get(&id)
             .cloned()
-            .ok_or_else(|| DomainError::NotFound(format!("Scene({id})")))
+            .ok_or(DomainError::NotFound {
+                code: &SCENE_NOT_FOUND,
+                resource: "scene",
+                id: Uuid::nil(),
+            })
     }
     async fn list_by_episode(
         &self,
@@ -520,8 +525,8 @@ impl SceneRepository for FakeSceneRepo {
 pub struct FakeCharacterRepo;
 
 impl CharacterRepository for FakeCharacterRepo {
-    async fn find_by_id(&self, id: Uuid) -> Result<CharacterView, DomainError> {
-        Err(DomainError::NotFound(format!("Character({id})")))
+    async fn find_by_id(&self, _id: Uuid) -> Result<CharacterView, DomainError> {
+        Err(DomainError::not_found("character"))
     }
     async fn list_by_season(
         &self,
@@ -550,8 +555,8 @@ impl CharacterRepository for FakeCharacterRepo {
 pub struct FakeCostumeRepo;
 
 impl CostumeRepository for FakeCostumeRepo {
-    async fn find_by_id(&self, id: Uuid) -> Result<CostumeView, DomainError> {
-        Err(DomainError::NotFound(format!("Costume({id})")))
+    async fn find_by_id(&self, _id: Uuid) -> Result<CostumeView, DomainError> {
+        Err(DomainError::not_found("costume"))
     }
     async fn list_by_season(
         &self,
@@ -567,8 +572,8 @@ impl CostumeRepository for FakeCostumeRepo {
     ) -> Result<Vec<CostumeView>, DomainError> {
         Ok(Vec::new())
     }
-    async fn costume_with_details_photos(&self, id: Uuid) -> Result<CostumeView, DomainError> {
-        Err(DomainError::NotFound(format!("Costume({id})")))
+    async fn costume_with_details_photos(&self, _id: Uuid) -> Result<CostumeView, DomainError> {
+        Err(DomainError::not_found("costume"))
     }
 }
 
@@ -586,8 +591,8 @@ impl CostumeCategoryRepository for FakeCostumeCategoryRepo {
     async fn count_for_season(&self, _season_id: SeasonId) -> Result<i64, DomainError> {
         Ok(0)
     }
-    async fn find_by_id(&self, id: Uuid) -> Result<CostumeCategoryView, DomainError> {
-        Err(DomainError::NotFound(format!("CostumeCategory({id})")))
+    async fn find_by_id(&self, _id: Uuid) -> Result<CostumeCategoryView, DomainError> {
+        Err(DomainError::not_found("costume-category"))
     }
 }
 
@@ -829,8 +834,8 @@ impl ShootingDayCommands for FakeShootingDayCommands {
 pub struct FakeShootingDayRepo;
 
 impl ShootingDayRepository for FakeShootingDayRepo {
-    async fn find_by_id(&self, id: ShootingDayId) -> Result<ShootingDayView, DomainError> {
-        Err(DomainError::NotFound(format!("ShootingDay({id})")))
+    async fn find_by_id(&self, _id: ShootingDayId) -> Result<ShootingDayView, DomainError> {
+        Err(DomainError::not_found("shooting-day"))
     }
     async fn list_by_episode(
         &self,
@@ -872,8 +877,8 @@ impl PhotoStorage for FakePhotoStorage {
     ) -> Result<(), DomainError> {
         Ok(())
     }
-    async fn fetch(&self, id: PhotoId, _variant: PhotoVariant) -> Result<PhotoBytes, DomainError> {
-        Err(DomainError::NotFound(format!("Photo({id:?})")))
+    async fn fetch(&self, _id: PhotoId, _variant: PhotoVariant) -> Result<PhotoBytes, DomainError> {
+        Err(DomainError::not_found("photo"))
     }
     async fn delete_all(&self, _id: PhotoId) -> Result<(), DomainError> {
         Ok(())
@@ -924,8 +929,8 @@ impl PhotoCommands for FakePhotoCommands {
 
 #[async_trait]
 impl PhotoRepository for FakePhotoRepo {
-    async fn find_by_id(&self, id: PhotoId) -> Result<PhotoView, DomainError> {
-        Err(DomainError::NotFound(format!("Photo({id:?})")))
+    async fn find_by_id(&self, _id: PhotoId) -> Result<PhotoView, DomainError> {
+        Err(DomainError::not_found("photo"))
     }
     async fn list_known_ids(&self) -> Result<Vec<PhotoId>, DomainError> {
         Ok(Vec::new())
@@ -1173,7 +1178,7 @@ impl SettingsCommands for FakeSettingsCommands {
         cmd: CreateCredentialBinding,
     ) -> Result<(Uuid, AggregateVersion), DomainError> {
         self.create_result.lock().await.take().unwrap_or_else(|| {
-            Err(DomainError::ServiceUnavailable(format!(
+            Err(DomainError::service_unavailable(format!(
                 "fake settings command for {}",
                 cmd.id
             )))
@@ -1186,11 +1191,11 @@ impl SettingsCommands for FakeSettingsCommands {
         cmd: RotateCredentialBinding,
     ) -> Result<AggregateVersion, DomainError> {
         *self.last_rotate.lock().await = Some(cmd);
-        self.rotate_result.lock().await.take().unwrap_or_else(|| {
-            Err(DomainError::ServiceUnavailable(
-                "fake settings rotation".into(),
-            ))
-        })
+        self.rotate_result
+            .lock()
+            .await
+            .take()
+            .unwrap_or_else(|| Err(DomainError::service_unavailable("fake settings rotation")))
     }
 
     async fn revoke(
@@ -1198,11 +1203,11 @@ impl SettingsCommands for FakeSettingsCommands {
         _actor: UserId,
         _cmd: RevokeCredential,
     ) -> Result<AggregateVersion, DomainError> {
-        self.revoke_result.lock().await.take().unwrap_or_else(|| {
-            Err(DomainError::ServiceUnavailable(
-                "fake settings command".into(),
-            ))
-        })
+        self.revoke_result
+            .lock()
+            .await
+            .take()
+            .unwrap_or_else(|| Err(DomainError::service_unavailable("fake settings command")))
     }
 }
 
@@ -1222,12 +1227,12 @@ impl Default for FakeSettingsRepo {
 
 #[async_trait]
 impl SettingsRepository for FakeSettingsRepo {
-    async fn find_by_id(&self, id: Uuid) -> Result<SettingsView, DomainError> {
+    async fn find_by_id(&self, _id: Uuid) -> Result<SettingsView, DomainError> {
         self.view
             .lock()
             .await
             .clone()
-            .ok_or_else(|| DomainError::NotFound(format!("Settings({id})")))
+            .ok_or_else(|| DomainError::not_found("settings"))
     }
 }
 
@@ -1259,11 +1264,13 @@ impl CredentialVault for FakeCredentialVault {
         _secret: SecretValue,
     ) -> Result<breakdown_core::settings::ports::VaultBinding, DomainError> {
         if !*self.available.lock().await {
-            return Err(DomainError::ServiceUnavailable("fake vault".into()));
+            return Err(DomainError::service_unavailable("fake vault"));
         }
-        self.binding.lock().await.clone().ok_or_else(|| {
-            DomainError::ServiceUnavailable("fake vault binding not configured".into())
-        })
+        self.binding
+            .lock()
+            .await
+            .clone()
+            .ok_or_else(|| DomainError::service_unavailable("fake vault binding not configured"))
     }
 
     async fn fetch(
@@ -1272,21 +1279,19 @@ impl CredentialVault for FakeCredentialVault {
         _vault_key_id: &str,
     ) -> Result<SecretValue, DomainError> {
         if !*self.available.lock().await {
-            return Err(DomainError::ServiceUnavailable("fake vault".into()));
+            return Err(DomainError::service_unavailable("fake vault"));
         }
         self.secret
             .lock()
             .await
             .clone()
             .map(SecretValue::new)
-            .ok_or_else(|| {
-                DomainError::ServiceUnavailable("fake vault secret not configured".into())
-            })
+            .ok_or_else(|| DomainError::service_unavailable("fake vault secret not configured"))
     }
 
     async fn destroy(&self, _settings_id: Uuid, _vault_key_id: &str) -> Result<(), DomainError> {
         if !*self.available.lock().await {
-            return Err(DomainError::ServiceUnavailable("fake vault".into()));
+            return Err(DomainError::service_unavailable("fake vault"));
         }
         *self.binding.lock().await = None;
         *self.secret.lock().await = None;
@@ -1297,7 +1302,7 @@ impl CredentialVault for FakeCredentialVault {
         if *self.available.lock().await {
             Ok(())
         } else {
-            Err(DomainError::ServiceUnavailable("fake vault".into()))
+            Err(DomainError::service_unavailable("fake vault"))
         }
     }
 }
@@ -1362,7 +1367,7 @@ impl AiConfigRepository for FakeAiConfigRepo {
             .await
             .get(&id)
             .cloned()
-            .ok_or_else(|| DomainError::NotFound(format!("AiConfig({id})")))
+            .ok_or_else(|| DomainError::not_found("ai-config"))
     }
 }
 

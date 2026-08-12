@@ -66,7 +66,7 @@ fi
 
 # 5. Run ast-grep guardrails on staged files (mirrors the CI jobs)
 if [ -n "$STAGED_RS_FILES" ]; then
-    echo "🛡️  Running ast-grep guardrails (cqrs-boundary / test-shim-leak / discard-result / test-helper-gate / uuid-v7-only / allow-panic-lint-justification)..."
+    echo "🛡️  Running ast-grep guardrails (cqrs-boundary / test-shim-leak / discard-result / test-helper-gate / uuid-v7-only / allow-panic-lint-justification / s2-extension-ban)..."
     if command -v ast-grep &> /dev/null; then
         # Write-side dirs → cqrs-boundary rule (see backend/rules/cqrs-boundary.yml).
         # AI workers are write-side code too and must stay projection-free.
@@ -91,6 +91,11 @@ if [ -n "$STAGED_RS_FILES" ]; then
             echo "$PROD_FILES" | xargs -r ast-grep scan -r rules/test-helper-gate.yml
             echo "$PROD_FILES" | xargs -r ast-grep scan -r rules/uuid-v7-only.yml
             echo "$PROD_FILES" | xargs -r ast-grep scan -r rules/allow-panic-lint-justification.yml
+        fi
+        # Problem-builder code → S2 person-identifier ban (ADR-031 D4).
+        PROBLEM_FILES=$(echo "$STAGED_RS_FILES" | grep '^crates/api/src/problems/' || true)
+        if [ -n "$PROBLEM_FILES" ]; then
+            echo "$PROBLEM_FILES" | xargs -r ast-grep scan -r rules/s2-extension-ban.yml
         fi
         echo "✓ ast-grep guardrails passed"
     else

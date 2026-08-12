@@ -211,8 +211,8 @@ impl LlmClient for UnusedLlmClient {
         _request: LlmChatRequest,
     ) -> Result<ScriptContext, DomainError> {
         // The worker must terminate on the payload load, before any paid call.
-        Err(DomainError::ValidationError(
-            "the LLM must not be called when the payload is missing".to_owned(),
+        Err(DomainError::validation(
+            "the LLM must not be called when the payload is missing",
         ))
     }
 }
@@ -251,13 +251,11 @@ fn schedule_worker(
 async fn script_worker_marks_an_absent_source_document_non_resumable() {
     let queue = Arc::new(RecordingQueue::new(DocumentKind::Script, None));
     let worker = script_worker(Arc::clone(&queue));
-    let source = FailingSource(DomainError::NotFound(
-        "AI document source ai-import/missing/source".to_owned(),
-    ));
+    let source = FailingSource(DomainError::not_found("ai-source"));
 
     let result = worker.run_once("worker-1", &source).await;
 
-    assert!(matches!(result, Err(DomainError::NotFound(_))));
+    assert!(matches!(result, Err(DomainError::NotFound { .. })));
     assert_eq!(
         queue.transitions(),
         vec![Transition::PayloadUnavailable],
@@ -271,13 +269,14 @@ async fn script_worker_keeps_unreachable_storage_retryable() {
     let queue = Arc::new(RecordingQueue::new(DocumentKind::Script, None));
     let worker = script_worker(Arc::clone(&queue));
     // Storage being down says nothing about whether the bytes exist.
-    let source = FailingSource(DomainError::ServiceUnavailable(
-        "S3 endpoint unreachable".to_owned(),
-    ));
+    let source = FailingSource(DomainError::service_unavailable("S3 endpoint unreachable"));
 
     let result = worker.run_once("worker-1", &source).await;
 
-    assert!(matches!(result, Err(DomainError::ServiceUnavailable(_))));
+    assert!(matches!(
+        result,
+        Err(DomainError::ServiceUnavailable { .. })
+    ));
     assert_eq!(
         queue.transitions(),
         vec![Transition::Failed { retryable: true }],
@@ -289,13 +288,11 @@ async fn script_worker_keeps_unreachable_storage_retryable() {
 async fn schedule_worker_marks_an_absent_source_document_non_resumable() {
     let queue = Arc::new(RecordingQueue::new(DocumentKind::Schedule, None));
     let worker = schedule_worker(Arc::clone(&queue));
-    let source = FailingSource(DomainError::NotFound(
-        "AI document source ai-import/missing/source".to_owned(),
-    ));
+    let source = FailingSource(DomainError::not_found("ai-source"));
 
     let result = worker.run_once("worker-1", &source).await;
 
-    assert!(matches!(result, Err(DomainError::NotFound(_))));
+    assert!(matches!(result, Err(DomainError::NotFound { .. })));
     assert_eq!(queue.transitions(), vec![Transition::PayloadUnavailable]);
 }
 
@@ -303,13 +300,14 @@ async fn schedule_worker_marks_an_absent_source_document_non_resumable() {
 async fn schedule_worker_keeps_unreachable_storage_retryable() {
     let queue = Arc::new(RecordingQueue::new(DocumentKind::Schedule, None));
     let worker = schedule_worker(Arc::clone(&queue));
-    let source = FailingSource(DomainError::ServiceUnavailable(
-        "S3 endpoint unreachable".to_owned(),
-    ));
+    let source = FailingSource(DomainError::service_unavailable("S3 endpoint unreachable"));
 
     let result = worker.run_once("worker-1", &source).await;
 
-    assert!(matches!(result, Err(DomainError::ServiceUnavailable(_))));
+    assert!(matches!(
+        result,
+        Err(DomainError::ServiceUnavailable { .. })
+    ));
     assert_eq!(
         queue.transitions(),
         vec![Transition::Failed { retryable: true }]
@@ -333,7 +331,7 @@ async fn merge_worker_marks_an_absent_preview_non_resumable() {
 
     let result = worker.run_once("worker-1").await;
 
-    assert!(matches!(result, Err(DomainError::NotFound(_))));
+    assert!(matches!(result, Err(DomainError::NotFound { .. })));
     assert_eq!(queue.transitions(), vec![Transition::PayloadUnavailable]);
 }
 
@@ -368,14 +366,17 @@ async fn merge_worker_persists_a_retryable_failure_when_the_store_is_unreachable
     ));
     let worker = super::merge_worker::QueueMergeWorker {
         queue: Arc::clone(&queue),
-        previews: Arc::new(FailingPreviewStore(DomainError::ServiceUnavailable(
-            "S3 endpoint unreachable".to_owned(),
+        previews: Arc::new(FailingPreviewStore(DomainError::service_unavailable(
+            "S3 endpoint unreachable",
         ))),
     };
 
     let result = worker.run_once("worker-1").await;
 
-    assert!(matches!(result, Err(DomainError::ServiceUnavailable(_))));
+    assert!(matches!(
+        result,
+        Err(DomainError::ServiceUnavailable { .. })
+    ));
     assert_eq!(
         queue.transitions(),
         vec![Transition::Failed { retryable: true }],
@@ -395,14 +396,14 @@ async fn merge_worker_does_not_dead_end_on_a_permanent_store_error() {
     ));
     let worker = super::merge_worker::QueueMergeWorker {
         queue: Arc::clone(&queue),
-        previews: Arc::new(FailingPreviewStore(DomainError::ValidationError(
-            "malformed storage key".to_owned(),
+        previews: Arc::new(FailingPreviewStore(DomainError::validation(
+            "malformed storage key",
         ))),
     };
 
     let result = worker.run_once("worker-1").await;
 
-    assert!(matches!(result, Err(DomainError::ValidationError(_))));
+    assert!(matches!(result, Err(DomainError::Validation { .. })));
     assert_eq!(
         queue.transitions(),
         vec![Transition::Failed { retryable: false }],
@@ -433,7 +434,7 @@ async fn unconfigured_store_refuses_every_operation_as_unavailable() {
 
     for error in errors {
         assert!(
-            matches!(error, DomainError::ServiceUnavailable(_)),
+            matches!(error, DomainError::ServiceUnavailable { .. }),
             "expected ServiceUnavailable, got {error:?}"
         );
     }

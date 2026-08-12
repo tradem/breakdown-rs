@@ -5,6 +5,7 @@
 //! `sqlx`-backed implementation of the `SceneShootRepository` port.
 
 use breakdown_core::error::DomainError;
+use breakdown_core::error_registry::SCENE_SHOOT_NOT_FOUND;
 use breakdown_core::scene_shoot::ports::SceneShootRepository;
 use breakdown_core::scene_shoot::views::{SceneShootView, SerializedNote};
 use breakdown_core::shared::{AggregateVersion, LexicalSortKey, SceneShootId, ShootingDayId};
@@ -38,8 +39,12 @@ impl SceneShootRepository for SceneShootRepositoryImpl {
         .bind(id.0)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?
-        .ok_or_else(|| DomainError::NotFound(format!("SceneShoot({id})")))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?
+        .ok_or(DomainError::NotFound {
+            code: &SCENE_SHOOT_NOT_FOUND,
+            resource: "scene-shoot",
+            id: id.0,
+        })?;
 
         map_scene_shoot_row(row)
     }
@@ -61,7 +66,7 @@ impl SceneShootRepository for SceneShootRepositoryImpl {
         .bind(shooting_day_id.0)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         rows.into_iter().map(map_scene_shoot_row).collect()
     }
@@ -84,11 +89,13 @@ impl SceneShootRepository for SceneShootRepositoryImpl {
         .bind(shooting_day_id.0)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?
-        .ok_or_else(|| {
-            DomainError::NotFound(format!(
-                "SceneShoot(scene={scene_id}, day={shooting_day_id})"
-            ))
+        .map_err(|e| DomainError::conflict(e.to_string()))?
+        .ok_or({
+            DomainError::NotFound {
+                code: &SCENE_SHOOT_NOT_FOUND,
+                resource: "scene-shoot",
+                id: scene_id,
+            }
         })?;
 
         map_scene_shoot_row(row)
@@ -108,7 +115,7 @@ impl SceneShootRepository for SceneShootRepositoryImpl {
         .bind(scene_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         rows.into_iter().map(map_scene_shoot_row).collect()
     }
@@ -129,11 +136,11 @@ fn map_scene_shoot_row(row: sqlx::postgres::PgRow) -> Result<SceneShootView, Dom
     let updated_at: DateTime<Utc> = row.try_get("updated_at").map_err(map_err)?;
 
     let planned_order =
-        LexicalSortKey::new(planned_order_str).map_err(|e| DomainError::Conflict(e.to_string()))?;
+        LexicalSortKey::new(planned_order_str).map_err(|e| DomainError::conflict(e.to_string()))?;
     let actual_order = actual_order_str
         .map(LexicalSortKey::new)
         .transpose()
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
     let notes: Vec<SerializedNote> = serde_json::from_value(notes_json).unwrap_or_default();
 
@@ -144,7 +151,7 @@ fn map_scene_shoot_row(row: sqlx::postgres::PgRow) -> Result<SceneShootView, Dom
         "Shot" => breakdown_core::shared::SceneShootStatus::Shot,
         "Skipped" => breakdown_core::shared::SceneShootStatus::Skipped,
         other => {
-            return Err(DomainError::Conflict(format!("unknown status: {other}")));
+            return Err(DomainError::conflict(format!("unknown status: {other}")));
         }
     };
 
@@ -170,5 +177,5 @@ fn map_scene_shoot_row(row: sqlx::postgres::PgRow) -> Result<SceneShootView, Dom
 }
 
 fn map_err(e: sqlx::Error) -> DomainError {
-    DomainError::Conflict(e.to_string())
+    DomainError::conflict(e.to_string())
 }

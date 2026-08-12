@@ -205,7 +205,7 @@ where
                 permit_id()
             );
             tracing::warn!(permit_id = %permit_id(), "{reason}");
-            return Err(DomainError::Conflict(reason));
+            return Err(DomainError::conflict(reason));
         }
 
         let outcome = if let Some(renewal) = in_flight.as_mut() {
@@ -242,13 +242,13 @@ where
                 // database could have applied it.
                 confirmed_deadline = tokio::time::Instant::now() + lease;
             }
-            Ok(Err(DomainError::Conflict(reason))) => {
+            Ok(Err(DomainError::Conflict { reason, .. })) => {
                 tracing::warn!(
                     permit_id = %permit_id(),
                     reason = %reason,
                     "AI concurrency permit lost while the job was running; aborting"
                 );
-                return Err(DomainError::Conflict(reason));
+                return Err(DomainError::conflict(reason));
             }
             Ok(Err(error)) => tracing::warn!(
                 permit_id = %permit_id(),
@@ -326,7 +326,7 @@ mod tests {
         let result = renew_while(
             LEASE,
             acquired_now(),
-            || std::future::ready(Err(DomainError::Conflict("swept".to_owned()))),
+            || std::future::ready(Err(DomainError::conflict("swept"))),
             || id,
             async {
                 // Would outlive the test if the conflict were ignored.
@@ -337,7 +337,7 @@ mod tests {
         .await;
 
         assert!(
-            matches!(result, Err(DomainError::Conflict(ref reason)) if reason == "swept"),
+            matches!(result, Err(DomainError::Conflict { ref reason, .. }) if reason == "swept"),
             "a lost permit must abort the job, got {result:?}"
         );
     }
@@ -355,7 +355,7 @@ mod tests {
             || {
                 let attempt = attempts.fetch_add(1, Ordering::AcqRel);
                 std::future::ready(if attempt == 0 {
-                    Err(DomainError::ServiceUnavailable("blip".to_owned()))
+                    Err(DomainError::service_unavailable("blip"))
                 } else {
                     Ok(())
                 })
@@ -392,7 +392,7 @@ mod tests {
             // past the deadline and only notice afterward.
             || async {
                 tokio::time::sleep(interval() - Duration::from_secs(1)).await;
-                Err(DomainError::ServiceUnavailable("still down".to_owned()))
+                Err(DomainError::service_unavailable("still down"))
             },
             || id,
             async {
@@ -403,7 +403,7 @@ mod tests {
         .await;
 
         assert!(
-            matches!(result, Err(DomainError::Conflict(_))),
+            matches!(result, Err(DomainError::Conflict { .. })),
             "an unconfirmed lease must abort the job, got {result:?}"
         );
         // The decisive property: it stopped *before* the row became
@@ -438,7 +438,7 @@ mod tests {
         .await;
 
         assert!(
-            matches!(result, Err(DomainError::Conflict(_))),
+            matches!(result, Err(DomainError::Conflict { .. })),
             "a renewal that never completes must abort the job, got {result:?}"
         );
         assert!(

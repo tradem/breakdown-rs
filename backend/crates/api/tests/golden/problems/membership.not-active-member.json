@@ -1,0 +1,7 @@
+{
+  "code": "membership.not-active-member",
+  "detail": "Sie sind kein aktives Mitglied dieses Blocks.",
+  "status": 409,
+  "title": "Not an active member",
+  "type": "https://docs.breakdown.example/problems/membership.not-active-member"
+}

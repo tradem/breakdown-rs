@@ -1,0 +1,7 @@
+{
+  "code": "domain.service-unavailable",
+  "detail": "Der Dienst ist derzeit nicht verfügbar.",
+  "status": 503,
+  "title": "Service unavailable",
+  "type": "https://docs.breakdown.example/problems/domain.service-unavailable"
+}

@@ -38,8 +38,8 @@ where
         vault_key_id: &str,
     ) -> Result<SecretValue, DomainError> {
         if vault_key_id.trim().is_empty() {
-            return Err(DomainError::ValidationError(
-                "AI vault key reference must not be empty".to_owned(),
+            return Err(DomainError::validation(
+                "AI vault key reference must not be empty",
             ));
         }
         self.vault.fetch(ai_config_id, vault_key_id).await

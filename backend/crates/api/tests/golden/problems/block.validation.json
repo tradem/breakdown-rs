@@ -1,0 +1,7 @@
+{
+  "code": "block.validation",
+  "detail": "Die Block-Anfrage ist nicht gültig.",
+  "status": 422,
+  "title": "Block validation failed",
+  "type": "https://docs.breakdown.example/problems/block.validation"
+}

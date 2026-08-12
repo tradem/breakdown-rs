@@ -1,0 +1,7 @@
+{
+  "code": "domain.conflict",
+  "detail": "Der Vorgang steht im Konflikt mit dem aktuellen Zustand.",
+  "status": 409,
+  "title": "Conflict",
+  "type": "https://docs.breakdown.example/problems/domain.conflict"
+}

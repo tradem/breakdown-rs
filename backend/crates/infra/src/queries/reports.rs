@@ -44,14 +44,14 @@ impl SceneShootReportRepository for SceneShootReportRepositoryImpl {
         .bind(shooting_day_id.0)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         rows.into_iter()
             .map(|row| {
                 let order_str: String = row.try_get("planned_order").map_err(map_err)?;
                 Ok(DispoRow {
                     planned_order: LexicalSortKey::new(order_str)
-                        .map_err(|e| DomainError::Conflict(e.to_string()))?,
+                        .map_err(|e| DomainError::conflict(e.to_string()))?,
                     scene_id: row.try_get("scene_id").map_err(map_err)?,
                     scene_number: row
                         .try_get::<Option<i32>, _>("scene_number")
@@ -84,7 +84,7 @@ impl SceneShootReportRepository for SceneShootReportRepositoryImpl {
         .bind(shooting_day_id.0)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         rows.into_iter().map(map_shoot_day_row).collect()
     }
@@ -104,7 +104,7 @@ impl SceneShootReportRepository for SceneShootReportRepositoryImpl {
         .bind(shooting_day_id.0)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?
+        .map_err(|e| DomainError::conflict(e.to_string()))?
         .flatten();
 
         let is_final = wrapped_at.is_some();
@@ -124,7 +124,7 @@ impl SceneShootReportRepository for SceneShootReportRepositoryImpl {
         .bind(shooting_day_id.0)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         // Collect scene_ids for reshoot candidate check.
         let scene_ids: Vec<Uuid> = rows
@@ -134,7 +134,7 @@ impl SceneShootReportRepository for SceneShootReportRepositoryImpl {
                     .map_err(|e| anyhow::anyhow!("Failed to read scene_id: {e}"))
             })
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| DomainError::Conflict(e.to_string()))?;
+            .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         // For each scene, check if it has a Shot record on a *different* day.
         let reshot_scenes: Vec<Uuid> = if !scene_ids.is_empty() {
@@ -151,7 +151,7 @@ impl SceneShootReportRepository for SceneShootReportRepositoryImpl {
             .bind(shooting_day_id.0)
             .fetch_all(&self.pool)
             .await
-            .map_err(|e| DomainError::Conflict(e.to_string()))?
+            .map_err(|e| DomainError::conflict(e.to_string()))?
         } else {
             vec![]
         };
@@ -168,12 +168,12 @@ impl SceneShootReportRepository for SceneShootReportRepositoryImpl {
 
                 let planned_order = Some(
                     LexicalSortKey::new(planned_str)
-                        .map_err(|e| DomainError::Conflict(e.to_string()))?,
+                        .map_err(|e| DomainError::conflict(e.to_string()))?,
                 );
                 let actual_order = actual_str
                     .map(LexicalSortKey::new)
                     .transpose()
-                    .map_err(|e| DomainError::Conflict(e.to_string()))?;
+                    .map_err(|e| DomainError::conflict(e.to_string()))?;
 
                 let status = parse_status(&status_str)?;
                 let is_skipped = status == SceneShootStatus::Skipped;
@@ -218,7 +218,7 @@ fn parse_status(s: &str) -> Result<SceneShootStatus, DomainError> {
         "InProgress" => Ok(SceneShootStatus::InProgress),
         "Shot" => Ok(SceneShootStatus::Shot),
         "Skipped" => Ok(SceneShootStatus::Skipped),
-        other => Err(DomainError::Conflict(format!("unknown status: {other}"))),
+        other => Err(DomainError::conflict(format!("unknown status: {other}"))),
     }
 }
 
@@ -227,7 +227,7 @@ fn map_shoot_day_row(row: sqlx::postgres::PgRow) -> Result<ShootDayRow, DomainEr
     let actual_order = actual_str
         .map(LexicalSortKey::new)
         .transpose()
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
     let status_str: String = row.try_get("status").map_err(map_err)?;
     let status = parse_status(&status_str)?;
     let notes_json: serde_json::Value = row.try_get("notes").map_err(map_err)?;
@@ -252,5 +252,5 @@ fn map_shoot_day_row(row: sqlx::postgres::PgRow) -> Result<ShootDayRow, DomainEr
 }
 
 fn map_err(e: sqlx::Error) -> DomainError {
-    DomainError::Conflict(e.to_string())
+    DomainError::conflict(e.to_string())
 }

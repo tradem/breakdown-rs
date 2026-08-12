@@ -1,0 +1,10 @@
+{
+  "code": "costume.not-found",
+  "detail": "Kostüm nicht gefunden.",
+  "extensions": {
+    "id": "00000000-0000-0000-0000-000000000001"
+  },
+  "status": 404,
+  "title": "Costume not found",
+  "type": "https://docs.breakdown.example/problems/costume.not-found"
+}

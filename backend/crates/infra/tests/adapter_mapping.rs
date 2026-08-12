@@ -89,7 +89,7 @@ fn map_executed_result_handle_error_is_domain_error() {
     let err = map_executed_result(id, result).unwrap_err();
     assert!(matches!(
         err,
-        breakdown_core::error::DomainError::ValidationError(_)
+        breakdown_core::error::DomainError::Validation { .. }
     ));
 }
 

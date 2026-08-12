@@ -38,7 +38,7 @@ impl PhotoStorageKeySource for FlakyKeySource {
     async fn resolve(&self) -> Result<Zeroizing<Vec<u8>>, DomainError> {
         let call = self.calls.fetch_add(1, Ordering::SeqCst);
         if call < self.failures {
-            Err(DomainError::ServiceUnavailable("vault down".into()))
+            Err(DomainError::service_unavailable("vault down"))
         } else {
             Ok(Zeroizing::new(vec![0x42; 32]))
         }
@@ -76,7 +76,7 @@ async fn storage_recovers_after_key_source_becomes_available() {
         )
         .await
         .unwrap_err();
-    assert!(matches!(err, DomainError::ServiceUnavailable(_)));
+    assert!(matches!(err, DomainError::ServiceUnavailable { .. }));
 
     let err = storage
         .store(
@@ -87,7 +87,7 @@ async fn storage_recovers_after_key_source_becomes_available() {
         )
         .await
         .unwrap_err();
-    assert!(matches!(err, DomainError::ServiceUnavailable(_)));
+    assert!(matches!(err, DomainError::ServiceUnavailable { .. }));
 
     // The key source recovers: the SSE-C operator is now built (S3 connects
     // lazily, so the build itself succeeds) and cached. The op now fails at
@@ -133,5 +133,5 @@ async fn unavailable_storage_fails_closed_without_key_source() {
         )
         .await
         .unwrap_err();
-    assert!(matches!(err, DomainError::ServiceUnavailable(_)));
+    assert!(matches!(err, DomainError::ServiceUnavailable { .. }));
 }

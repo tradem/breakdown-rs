@@ -381,7 +381,7 @@ impl SceneRepository for FakeSceneRepo {
             .await
             .get(&id)
             .cloned()
-            .ok_or_else(|| DomainError::NotFound(format!("Scene({id})")))
+            .ok_or_else(|| DomainError::not_found("scene"))
     }
     async fn list_by_episode(
         &self,
@@ -404,7 +404,7 @@ pub(crate) struct FakeCharacterRepo;
 
 impl CharacterRepository for FakeCharacterRepo {
     async fn find_by_id(&self, id: Uuid) -> Result<CharacterView, DomainError> {
-        Err(DomainError::NotFound(format!("Character({id})")))
+        Err(DomainError::not_found("character"))
     }
     async fn list_by_season(
         &self,
@@ -433,7 +433,7 @@ pub(crate) struct FakeCostumeRepo;
 
 impl CostumeRepository for FakeCostumeRepo {
     async fn find_by_id(&self, id: Uuid) -> Result<CostumeView, DomainError> {
-        Err(DomainError::NotFound(format!("Costume({id})")))
+        Err(DomainError::not_found("costume"))
     }
     async fn list_by_season(
         &self,
@@ -450,7 +450,7 @@ impl CostumeRepository for FakeCostumeRepo {
         Ok(Vec::new())
     }
     async fn costume_with_details_photos(&self, id: Uuid) -> Result<CostumeView, DomainError> {
-        Err(DomainError::NotFound(format!("Costume({id})")))
+        Err(DomainError::not_found("costume"))
     }
 }
 
@@ -468,7 +468,7 @@ impl CostumeCategoryRepository for FakeCostumeCategoryRepo {
         Ok(0)
     }
     async fn find_by_id(&self, id: Uuid) -> Result<CostumeCategoryView, DomainError> {
-        Err(DomainError::NotFound(format!("CostumeCategory({id})")))
+        Err(DomainError::not_found("costumecategory"))
     }
 }
 
@@ -477,7 +477,7 @@ pub(crate) struct FakeSeasonRepo;
 
 impl SeasonRepository for FakeSeasonRepo {
     async fn find_by_id(&self, id: Uuid) -> Result<SeasonView, DomainError> {
-        Err(DomainError::NotFound(format!("Season({id})")))
+        Err(DomainError::not_found("season"))
     }
     async fn list_by_series(
         &self,
@@ -501,7 +501,7 @@ pub(crate) struct FakeBlockRepo;
 
 impl BlockRepository for FakeBlockRepo {
     async fn find_by_id(&self, id: Uuid) -> Result<BlockView, DomainError> {
-        Err(DomainError::NotFound(format!("Block({id})")))
+        Err(DomainError::not_found("block"))
     }
     async fn list_by_season(
         &self,
@@ -525,7 +525,7 @@ pub(crate) struct FakeEpisodeRepo;
 
 impl EpisodeRepository for FakeEpisodeRepo {
     async fn find_by_id(&self, id: Uuid) -> Result<EpisodeView, DomainError> {
-        Err(DomainError::NotFound(format!("Episode({id})")))
+        Err(DomainError::not_found("episode"))
     }
     async fn list_by_block(
         &self,
@@ -638,7 +638,7 @@ pub(crate) struct FakeShootingDayRepo;
 
 impl ShootingDayRepository for FakeShootingDayRepo {
     async fn find_by_id(&self, id: ShootingDayId) -> Result<ShootingDayView, DomainError> {
-        Err(DomainError::NotFound(format!("ShootingDay({id})")))
+        Err(DomainError::not_found("shootingday"))
     }
     async fn list_by_episode(
         &self,

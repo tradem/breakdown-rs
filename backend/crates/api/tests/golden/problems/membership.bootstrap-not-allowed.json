@@ -1,0 +1,7 @@
+{
+  "code": "membership.bootstrap-not-allowed",
+  "detail": "Das Bootstrap ist nur für einen leeren Block zulässig.",
+  "status": 409,
+  "title": "Bootstrap not allowed",
+  "type": "https://docs.breakdown.example/problems/membership.bootstrap-not-allowed"
+}

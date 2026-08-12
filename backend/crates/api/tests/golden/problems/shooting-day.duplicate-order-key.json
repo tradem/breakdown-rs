@@ -1,0 +1,7 @@
+{
+  "code": "shooting-day.duplicate-order-key",
+  "detail": "Dieser Sortierschlüssel existiert bereits für die Episode.",
+  "status": 409,
+  "title": "Duplicate order key",
+  "type": "https://docs.breakdown.example/problems/shooting-day.duplicate-order-key"
+}

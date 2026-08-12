@@ -1,0 +1,7 @@
+{
+  "code": "settings.empty-vault-key",
+  "detail": "Der Vault-Schlüsselverweis darf nicht leer sein.",
+  "status": 422,
+  "title": "Vault key reference must not be empty",
+  "type": "https://docs.breakdown.example/problems/settings.empty-vault-key"
+}

@@ -1,0 +1,10 @@
+{
+  "code": "season.not-found",
+  "detail": "Staffel nicht gefunden.",
+  "extensions": {
+    "id": "00000000-0000-0000-0000-000000000001"
+  },
+  "status": 404,
+  "title": "Season not found",
+  "type": "https://docs.breakdown.example/problems/season.not-found"
+}

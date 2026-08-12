@@ -1,0 +1,7 @@
+{
+  "code": "http.bad-json-body",
+  "detail": "Der Anforderungstext ist kein gültiges JSON.",
+  "status": 400,
+  "title": "Malformed JSON body",
+  "type": "https://docs.breakdown.example/problems/http.bad-json-body"
+}

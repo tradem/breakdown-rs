@@ -100,7 +100,7 @@ impl AiDocumentSource for MemoryAiPreviewStore {
     async fn load(&self, handle: &str) -> Result<Vec<u8>, DomainError> {
         self.get(handle)
             .await?
-            .ok_or_else(|| DomainError::NotFound(format!("AI document source {handle}")))
+            .ok_or_else(|| DomainError::not_found("ai-source"))
     }
 }
 
@@ -134,7 +134,7 @@ pub struct UnconfiguredAiPayloadStore;
 
 impl UnconfiguredAiPayloadStore {
     fn unavailable(operation: &str) -> DomainError {
-        DomainError::ServiceUnavailable(format!(
+        DomainError::service_unavailable(format!(
             "AI payload storage is not configured; cannot {operation}. \
              Set AI_PAYLOAD_S3_ENDPOINT, AI_PAYLOAD_S3_ACCESS_KEY and \
              AI_PAYLOAD_S3_SECRET_KEY."

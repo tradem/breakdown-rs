@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 
-use axum::Json;
+use api::problems::Json;  // test-only alias for the wrapper extractor (ADR-031)
 use axum::extract::State;
 use axum::http::StatusCode;
 use breakdown_core::scene::events::SceneDetails;
@@ -56,7 +56,7 @@ async fn get_scene_returns_view_from_repo() {
         .insert(scene_id, view.clone());
     let state = AppState::new(ports);
 
-    let result = get_scene(State(state), axum::extract::Path(scene_id)).await;
+    let result = get_scene(State(state), api::problems::Path(scene_id)).await;
     let (status, Json(body)) = result.expect("handler should succeed");
 
     assert_eq!(status, StatusCode::OK);
@@ -67,9 +67,9 @@ async fn get_scene_returns_view_from_repo() {
 async fn get_scene_returns_404_when_missing() {
     let state = AppState::new(FakePorts::default());
 
-    let result = get_scene(State(state), axum::extract::Path(Uuid::now_v7())).await;
-    let (status, Json(body)) = result.expect_err("handler should fail");
+    let result = get_scene(State(state), api::problems::Path(Uuid::now_v7())).await;
+    let problem = result.expect_err("handler should fail").into_problem();
 
-    assert_eq!(status, StatusCode::NOT_FOUND);
-    assert!(!body.message.is_empty());
+    assert_eq!(problem.status, 404);
+    assert!(!problem.detail.is_empty());
 }

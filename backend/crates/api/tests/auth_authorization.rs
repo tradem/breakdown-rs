@@ -310,7 +310,7 @@ impl MembershipRepository for MockSeasonMembershipRepo {
         _user_id: UserId,
     ) -> Result<bool, DomainError> {
         if !self.ok.load(Ordering::Relaxed) {
-            return Err(DomainError::ValidationError(
+            return Err(DomainError::validation(
                 self.err.clone().unwrap_or_else(|| "mock error".into()),
             ));
         }
@@ -412,7 +412,7 @@ async fn membership_policy_season_result_propagates_repo_error() {
     };
     let result = policy.authorize_season_result(&ctx).await;
     assert!(
-        matches!(result, Err(DomainError::ValidationError(ref msg)) if msg == "db down"),
+        matches!(result, Err(DomainError::Validation { ref reason, .. }) if reason == "db down"),
         "repo failure must propagate, not be conflated with a denial: {result:?}"
     );
 }
@@ -447,7 +447,7 @@ async fn membership_policy_credential_role_propagates_repo_error() {
         .authorize_credential_role(&UserId::from_sub("test-user".to_string()))
         .await;
     assert!(
-        matches!(result, Err(DomainError::ValidationError(ref msg)) if msg == "db down"),
+        matches!(result, Err(DomainError::Validation { ref reason, .. }) if reason == "db down"),
         "repo failure must propagate, not be conflated with a denial: {result:?}"
     );
 }
@@ -463,7 +463,7 @@ async fn season_photo_policy_season_result_propagates_repo_error() {
     };
     let result = policy.authorize_season_result(&ctx).await;
     assert!(
-        matches!(result, Err(DomainError::ValidationError(ref msg)) if msg == "db down"),
+        matches!(result, Err(DomainError::Validation { ref reason, .. }) if reason == "db down"),
         "fallible season check must propagate repo errors (unlike authorize_season): {result:?}"
     );
 }

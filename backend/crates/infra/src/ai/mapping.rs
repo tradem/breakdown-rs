@@ -77,8 +77,8 @@ impl AiImportMappingRepository for PgAiImportMappingRepository {
                 .find(mapping.preview_id, &mapping.draft_ref)
                 .await?
                 .ok_or_else(|| {
-                    DomainError::ServiceUnavailable(
-                        "AI mapping reservation vanished after conflict".to_owned(),
+                    DomainError::service_unavailable(
+                        "AI mapping reservation vanished after conflict",
                     )
                 }),
         }
@@ -135,7 +135,7 @@ impl AiImportMappingRepository for PgAiImportMappingRepository {
 /// (`map_mapping`) — fail loudly instead.
 fn version_to_db(version: breakdown_core::shared::AggregateVersion) -> Result<i64, DomainError> {
     i64::try_from(version.0).map_err(|error| {
-        DomainError::ValidationError(format!(
+        DomainError::validation(format!(
             "AI mapping aggregate version exceeds database range: {error}"
         ))
     })
@@ -145,8 +145,8 @@ fn map_mapping(row: sqlx::postgres::PgRow) -> Result<AiImportMapping, DomainErro
     let preview_id: Uuid = row.try_get("preview_id").map_err(map_sqlx_error)?;
     let aggregate_version: i64 = row.try_get("aggregate_version").map_err(map_sqlx_error)?;
     if aggregate_version < 0 {
-        return Err(DomainError::ValidationError(
-            "AI mapping aggregate version cannot be negative".to_owned(),
+        return Err(DomainError::validation(
+            "AI mapping aggregate version cannot be negative",
         ));
     }
     Ok(AiImportMapping {
@@ -162,5 +162,5 @@ fn map_sqlx_error(error: sqlx::Error) -> DomainError {
     // Log the raw error (with bound values) internally; the HTTP-facing message
     // must not leak SQL details or bound values (CWE-209).
     tracing::error!(%error, "AI mapping database error");
-    DomainError::ServiceUnavailable("AI mapping database error".to_owned())
+    DomainError::service_unavailable("AI mapping database error")
 }

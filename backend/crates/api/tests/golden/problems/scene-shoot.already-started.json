@@ -1,0 +1,7 @@
+{
+  "code": "scene-shoot.already-started",
+  "detail": "Die Aufnahme wurde bereits gestartet.",
+  "status": 409,
+  "title": "Scene shoot already started",
+  "type": "https://docs.breakdown.example/problems/scene-shoot.already-started"
+}

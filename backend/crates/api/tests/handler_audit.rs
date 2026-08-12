@@ -10,8 +10,9 @@ mod common;
 use utoipa::OpenApi;
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 
-use axum::Json;
-use axum::extract::{Path, Query, State};
+use api::problems::Json; // test-only alias for the wrapper extractor (ADR-031)
+use api::problems::{Path, Query};
+use axum::extract::State;
 use axum::http::StatusCode;
 use breakdown_core::audit::AuditEntry;
 use breakdown_core::shared::{BlockId, UserId};

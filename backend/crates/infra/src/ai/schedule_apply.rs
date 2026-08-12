@@ -52,7 +52,7 @@ where
         request: ScheduleApplyRequest<'_>,
     ) -> Result<ScheduleApplyResult, DomainError> {
         ensure_merge_applyable(request.preview)
-            .map_err(|error| DomainError::Conflict(error.to_string()))?;
+            .map_err(|error| DomainError::conflict(error.to_string()))?;
 
         let mut day_by_key: HashMap<String, AppliedDay> = HashMap::new();
         let mut scene_versions: HashMap<Uuid, AggregateVersion> = request
@@ -141,15 +141,15 @@ where
                         // unique fallback value above it — fail loudly instead
                         // of saturating onto a duplicate order key.
                         fallback_order = fallback_order.checked_add(1).ok_or_else(|| {
-                            DomainError::ValidationError(
-                                "cannot allocate a unique fallback planned order".to_owned(),
+                            DomainError::validation(
+                                "cannot allocate a unique fallback planned order",
                             )
                         })?;
                         fallback_order
                     }
                 };
                 let planned_order = LexicalSortKey::new(format!("{order:08}"))
-                    .map_err(|error| DomainError::ValidationError(error.to_string()))?;
+                    .map_err(|error| DomainError::validation(error.to_string()))?;
 
                 // Step 1 (reserve): make the SceneShootId durable *before* the
                 // command so a crash between append and confirm retries onto the
@@ -177,7 +177,7 @@ where
                         .get(&merged.scene.id)
                         .copied()
                         .ok_or_else(|| {
-                            DomainError::ValidationError(format!(
+                            DomainError::validation(format!(
                                 "missing scene version for {}",
                                 merged.scene.id
                             ))
@@ -289,7 +289,7 @@ where
         // #182). See derive_id for why this is the one UUIDv7-rule exception.
         let id = ShootingDayId::from_uuid(derive_id(draft.preview_id, &draft.draft_ref));
         let order_key = LexicalSortKey::new(format!("day-{id}"))
-            .map_err(|error| DomainError::ValidationError(error.to_string()))?;
+            .map_err(|error| DomainError::validation(error.to_string()))?;
 
         // Step 1 (reserve): persist the ShootingDayId before the command, so a
         // crash before the confirm retries onto the same aggregate.
@@ -395,11 +395,8 @@ fn recover_version(
 ) -> Result<AggregateVersion, DomainError> {
     match result {
         Ok(version) => Ok(version),
-        Err(DomainError::VersionConflict {
-            entity, current, ..
-        }) if current != AggregateVersion(0) => {
+        Err(DomainError::VersionConflict { current, .. }) if current != AggregateVersion(0) => {
             tracing::info!(
-                %entity,
                 current = current.0,
                 "recovered AI schedule-apply aggregate version from a reserved stream"
             );

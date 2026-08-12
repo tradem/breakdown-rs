@@ -1,0 +1,7 @@
+{
+  "code": "membership.validation",
+  "detail": "Die Mitgliedschafts-Anfrage ist nicht gültig.",
+  "status": 422,
+  "title": "Membership validation failed",
+  "type": "https://docs.breakdown.example/problems/membership.validation"
+}

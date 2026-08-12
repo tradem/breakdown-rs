@@ -118,7 +118,7 @@ async fn test_dispo_report_pdf_shooting_day_not_found() {
     let day_id = ShootingDayId::new();
     let user = CurrentUser::dummy("test-user");
 
-    let result = dispo_report_pdf(State(state), user, axum::extract::Path(day_id)).await;
+    let result = dispo_report_pdf(State(state), user, api::problems::Path(day_id)).await;
 
     let (status, Json(resp)) = result.expect_err("handler should fail for missing shooting day");
     assert_eq!(status, StatusCode::NOT_FOUND);
@@ -131,7 +131,7 @@ async fn test_shoot_day_report_pdf_shooting_day_not_found() {
     let day_id = ShootingDayId::new();
     let user = CurrentUser::dummy("test-user");
 
-    let result = shoot_day_report_pdf(State(state), user, axum::extract::Path(day_id)).await;
+    let result = shoot_day_report_pdf(State(state), user, api::problems::Path(day_id)).await;
 
     let (status, Json(resp)) = result.expect_err("handler should fail for missing shooting day");
     assert_eq!(status, StatusCode::NOT_FOUND);
@@ -145,7 +145,7 @@ async fn test_planned_vs_actual_report_pdf_shooting_day_not_found() {
     let user = CurrentUser::dummy("test-user");
 
     let result =
-        planned_vs_actual_report_pdf(State(state), user, axum::extract::Path(day_id)).await;
+        planned_vs_actual_report_pdf(State(state), user, api::problems::Path(day_id)).await;
 
     let (status, Json(resp)) = result.expect_err("handler should fail for missing shooting day");
     assert_eq!(status, StatusCode::NOT_FOUND);

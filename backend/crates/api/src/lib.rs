@@ -10,6 +10,7 @@
 )]
 pub mod auth;
 pub mod handlers;
+pub mod problems;
 pub mod routes;
 pub mod state;
 pub mod tls_config;
@@ -106,7 +107,7 @@ use utoipa::OpenApi;
     ),
     components(schemas(
         handlers::IdVersionResponse,
-        handlers::ErrorResponse,
+        crate::problems::ProblemDetails,
         handlers::ManualArchiveResponse,
         handlers::ManualArchiveJobResult,
         handlers::CreateSceneRequest,
@@ -209,7 +210,12 @@ pub fn api_doc() -> utoipa::openapi::OpenApi {
     doc.info.description = Some(
         "Costume scheduling API for Breakdown RS (ADR-006). Routes are mounted \
          under the /v1 path prefix; the path version is bumped only on a \
-         breaking wire change (ADR-021)."
+         breaking wire change (ADR-021).\n\
+         Error contract (ADR-031): every error response (status ≥ 400) is an \
+         RFC 9457 `application/problem+json` document carrying a stable \
+         `code` (`{context}.{reason}` kebab-case) and a `trace_id` extension. \
+         The full code registry is exposed under `x-code-registry`; per-code \
+         documentation lives at `docs/errors/`."
             .to_string(),
     );
     // Prefix every documented path with the /v1 context path (ADR-021 D1).
@@ -219,5 +225,70 @@ pub fn api_doc() -> utoipa::openapi::OpenApi {
         .into_iter()
         .map(|(path, item)| (format!("/v1{path}"), item))
         .collect();
+
+    // ADR-031 D1: every documented error response must carry the RFC 9457
+    // media type. utoipa emits `application/json` for `body = ProblemDetails`;
+    // we rewrite the media type centrally so the spec matches the wire
+    // contract (single source of truth — no per-handler annotation drift).
+    use utoipa::openapi::RefOr;
+    for path_item in doc.paths.paths.values_mut() {
+        for operation in [
+            path_item.get.as_mut(),
+            path_item.put.as_mut(),
+            path_item.post.as_mut(),
+            path_item.delete.as_mut(),
+            path_item.options.as_mut(),
+            path_item.head.as_mut(),
+            path_item.patch.as_mut(),
+            path_item.trace.as_mut(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            for response in operation.responses.responses.values_mut() {
+                let RefOr::T(response) = response else {
+                    continue;
+                };
+                let mut renamed: indexmap::IndexMap<String, utoipa::openapi::Content> =
+                    indexmap::IndexMap::new();
+                for (media_type, content) in std::mem::take(&mut response.content) {
+                    let is_problem = matches!(
+                        &content.schema,
+                        Some(RefOr::Ref(reference))
+                            if reference.ref_location.ends_with("/ProblemDetails")
+                    );
+                    let key = if is_problem {
+                        "application/problem+json".to_string()
+                    } else {
+                        media_type.clone()
+                    };
+                    renamed.insert(key, content);
+                }
+                response.content = renamed;
+            }
+        }
+    }
+
+    // Registry-woven docs (ADR-031 D2): the code registry is published as a
+    // machine-readable extension so clients and tooling can validate codes
+    // against the spec without scraping docs pages.
+    doc.extensions.get_or_insert_default().insert(
+        "x-code-registry".to_string(),
+        serde_json::json!(
+            breakdown_core::error_registry::PROBLEM_CODES
+                .iter()
+                .map(|entry| {
+                    serde_json::json!({
+                        "code": entry.code,
+                        "status": entry.status,
+                        "title": entry.title,
+                        "type": entry.type_uri(),
+                        "extensions": entry.extensions,
+                    })
+                })
+                .collect::<Vec<_>>()
+        ),
+    );
+
     doc
 }

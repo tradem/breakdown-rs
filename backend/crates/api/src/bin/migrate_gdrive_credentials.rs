@@ -112,7 +112,7 @@ async fn run() -> Result<()> {
 
     let existing = match settings_repo.find_by_id(options.settings_id).await {
         Ok(view) => Some(view),
-        Err(DomainError::NotFound(_)) => None,
+        Err(DomainError::NotFound { .. }) => None,
         Err(error) => return Err(anyhow::Error::msg(error)),
     };
     if let Some(view) = &existing {

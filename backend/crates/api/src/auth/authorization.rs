@@ -14,7 +14,7 @@
 use std::sync::Arc;
 
 use axum::extract::FromRequestParts;
-use axum::http::{Method, StatusCode};
+use axum::http::Method;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use breakdown_core::error::DomainError;
@@ -342,12 +342,12 @@ pub async fn authorize_middleware(
     };
 
     if !allowed {
-        return (
-            StatusCode::FORBIDDEN,
-            axum::Json(
-                serde_json::json!({ "message": "not an active member of the active block" }),
-            ),
-        )
+        // ADR-031: the authorization layer produces a problem document like
+        // every other error source (single builder at the HTTP boundary).
+        // `detail` is localized by the Fluent bundle (ADR-031 D5); no English
+        // override here — the client branches on the `domain.forbidden` code.
+        return crate::problems::problem(breakdown_core::error_registry::DOMAIN_FORBIDDEN)
+            .build()
             .into_response();
     }
 

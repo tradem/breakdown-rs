@@ -1,0 +1,7 @@
+{
+  "code": "season.validation",
+  "detail": "Die Staffel-Anfrage ist nicht gültig.",
+  "status": 422,
+  "title": "Season validation failed",
+  "type": "https://docs.breakdown.example/problems/season.validation"
+}

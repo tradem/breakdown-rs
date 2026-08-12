@@ -1,0 +1,7 @@
+{
+  "code": "domain.validation",
+  "detail": "Die Anfrage ist nicht gültig.",
+  "status": 422,
+  "title": "Validation failed",
+  "type": "https://docs.breakdown.example/problems/domain.validation"
+}

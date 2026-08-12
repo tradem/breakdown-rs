@@ -1,0 +1,7 @@
+{
+  "code": "domain.forbidden",
+  "detail": "Sie sind nicht berechtigt, diese Aktion auszuführen.",
+  "status": 403,
+  "title": "Forbidden",
+  "type": "https://docs.breakdown.example/problems/domain.forbidden"
+}

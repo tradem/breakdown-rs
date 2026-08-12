@@ -1,0 +1,7 @@
+{
+  "code": "http.request-timeout",
+  "detail": "Die Verarbeitung der Anfrage hat das Zeitlimit überschritten.",
+  "status": 504,
+  "title": "Gateway timeout",
+  "type": "https://docs.breakdown.example/problems/http.request-timeout"
+}

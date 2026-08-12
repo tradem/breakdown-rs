@@ -455,7 +455,10 @@ async fn displaced_worker_cannot_succeed_a_reclaimed_job() -> Result<()> {
         .mark_succeeded(id, "worker-a", "stale-handle")
         .await;
     assert!(
-        matches!(stale, Err(breakdown_core::error::DomainError::Conflict(_))),
+        matches!(
+            stale,
+            Err(breakdown_core::error::DomainError::Conflict { .. })
+        ),
         "a displaced worker must be rejected with Conflict, got {stale:?}"
     );
 
@@ -497,7 +500,10 @@ async fn displaced_worker_cannot_fail_a_reclaimed_job() -> Result<()> {
         .mark_failed(id, "worker-a", "stale timeout", true)
         .await;
     assert!(
-        matches!(stale, Err(breakdown_core::error::DomainError::Conflict(_))),
+        matches!(
+            stale,
+            Err(breakdown_core::error::DomainError::Conflict { .. })
+        ),
         "a displaced worker must not fail the new owner's job, got {stale:?}"
     );
 
@@ -529,7 +535,10 @@ async fn displaced_worker_cannot_renew_a_reclaimed_lease() -> Result<()> {
 
     let stale = recovering.mark_running(id, "worker-a").await;
     assert!(
-        matches!(stale, Err(breakdown_core::error::DomainError::Conflict(_))),
+        matches!(
+            stale,
+            Err(breakdown_core::error::DomainError::Conflict { .. })
+        ),
         "a heartbeat must not let a displaced worker steal the claim back, got {stale:?}"
     );
 
@@ -560,7 +569,7 @@ async fn lifecycle_writes_on_a_terminal_job_are_rejected() -> Result<()> {
     assert!(
         matches!(
             duplicate,
-            Err(breakdown_core::error::DomainError::Conflict(_))
+            Err(breakdown_core::error::DomainError::Conflict { .. })
         ),
         "a completed job must not accept a second completion, got {duplicate:?}"
     );
@@ -619,7 +628,10 @@ async fn displaced_worker_cannot_overwrite_telemetry() -> Result<()> {
         )
         .await;
     assert!(
-        matches!(stale, Err(breakdown_core::error::DomainError::Conflict(_))),
+        matches!(
+            stale,
+            Err(breakdown_core::error::DomainError::Conflict { .. })
+        ),
         "a displaced worker must not overwrite telemetry, got {stale:?}"
     );
 

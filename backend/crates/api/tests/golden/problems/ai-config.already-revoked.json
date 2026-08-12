@@ -1,0 +1,7 @@
+{
+  "code": "ai-config.already-revoked",
+  "detail": "Die KI-Konfiguration wurde bereits widerrufen.",
+  "status": 409,
+  "title": "AI configuration already revoked",
+  "type": "https://docs.breakdown.example/problems/ai-config.already-revoked"
+}

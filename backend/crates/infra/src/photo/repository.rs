@@ -4,6 +4,7 @@
 
 use async_trait::async_trait;
 use breakdown_core::error::DomainError;
+use breakdown_core::error_registry::PHOTO_NOT_FOUND;
 use breakdown_core::photo::binding::PhotoBinding;
 use breakdown_core::photo::ports::PhotoRepository;
 use breakdown_core::photo::views::{PhotoVariantView, PhotoView};
@@ -37,8 +38,12 @@ impl PhotoRepository for PhotoRepositoryImpl {
         .bind(id.0)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?
-        .ok_or_else(|| DomainError::NotFound(format!("Photo({})", id.0)))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?
+        .ok_or(DomainError::NotFound {
+            code: &PHOTO_NOT_FOUND,
+            resource: "photo",
+            id: id.0,
+        })?;
 
         let photo_id: Uuid = row.try_get("photo_id").map_err(map_err)?;
         let version: i64 = row.try_get("version").map_err(map_err)?;
@@ -56,7 +61,7 @@ impl PhotoRepository for PhotoRepositoryImpl {
         .bind(photo_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         let variants: Vec<PhotoVariantView> = variant_rows
             .into_iter()
@@ -73,7 +78,7 @@ impl PhotoRepository for PhotoRepositoryImpl {
             .collect::<Result<Vec<_>, DomainError>>()?;
 
         let binding: String = row.try_get("binding").map_err(map_err)?;
-        let binding = parse_binding(&binding).map_err(DomainError::Conflict)?;
+        let binding = parse_binding(&binding).map_err(DomainError::conflict)?;
 
         Ok(PhotoView {
             id: PhotoId::from_uuid(photo_id),
@@ -95,7 +100,7 @@ impl PhotoRepository for PhotoRepositoryImpl {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         Ok(rows.into_iter().map(PhotoId::from_uuid).collect())
     }
@@ -110,7 +115,7 @@ impl PhotoRepository for PhotoRepositoryImpl {
         .bind(photo_id.0)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| DomainError::Conflict(e.to_string()))?;
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
 
         Ok(count.unwrap_or(0) as u64)
     }
@@ -121,7 +126,7 @@ fn parse_variant(s: &str) -> Result<PhotoVariant, DomainError> {
         "original" => Ok(PhotoVariant::Original),
         "thumb" => Ok(PhotoVariant::Thumb),
         "medium" => Ok(PhotoVariant::Medium),
-        _ => Err(DomainError::ValidationError(format!(
+        _ => Err(DomainError::validation(format!(
             "Unknown photo variant: {s}"
         ))),
     }
@@ -132,7 +137,7 @@ fn parse_status(s: &str) -> Result<VariantStatus, DomainError> {
         "pending" => Ok(VariantStatus::Pending),
         "ready" => Ok(VariantStatus::Ready),
         "failed" => Ok(VariantStatus::Failed),
-        _ => Err(DomainError::ValidationError(format!(
+        _ => Err(DomainError::validation(format!(
             "Unknown variant status: {s}"
         ))),
     }
@@ -153,5 +158,5 @@ fn parse_binding(val: &str) -> Result<PhotoBinding, String> {
 }
 
 fn map_err(e: sqlx::Error) -> DomainError {
-    DomainError::Conflict(e.to_string())
+    DomainError::conflict(e.to_string())
 }
