@@ -102,10 +102,18 @@ classified (ADR-031 D4):
   + de/en bundle messages + golden snapshot
   (`UPDATE_GOLDEN=1 cargo test -p api --test problem_golden`). The
   bundle-coverage lint and golden tests are the mechanical gate.
+- The registry entries are declared through the single-source
+  `problem_codes!` macro: one invocation per code expands to both the
+  `pub const` and its `PROBLEM_CODES` slot, so an unregistered code cannot
+  exist (issue #232). Adding a code outside that invocation leaves it
+  unregistered by construction.
 
 ## Registry
 
 The single source of truth is `crates/core/src/error_registry.rs` — code,
-status, constant English title, extension whitelist. `type` URIs, Fluent keys,
-and the OpenAPI `x-code-registry` extension are all derived from it, never
-stored separately.
+status, constant English title, extension whitelist. The `problem_codes!`
+macro emits each `pub const` and its `PROBLEM_CODES` entry from the same
+invocation, so the constant list and the registry array can never drift
+apart (issue #232). `type` URIs, Fluent keys, and the OpenAPI
+`x-code-registry` extension are all derived from it, never stored
+separately.

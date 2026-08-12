@@ -110,15 +110,19 @@ membership check via the shooting_day → episode → block → season chain). T
 - **HTTP error surface (ADR-031):** Every HTTP failure is an RFC 9457
   `application/problem+json` document built by the single problem builder
   (`crates/api/src/problems`) from the code registry
-  (`crates/core/src/error_registry.rs`). Handlers return `Result<_, ApiError>`
-  and propagate with `?` — there is no per-handler HTTP status mapping and no
-  `map_err`-to-response conversion. Clients branch on the stable `code`
-  (`{context}.{reason}`), never on `detail` text. Extension fields are
-  whitelisted per code and classified S0/S1/S2: S1 fields are emitted only
-  after the handler's `AUTHZ-GATE` has run; S2 data (OIDC `sub`, e-mail) is
-  structurally banned. `detail` is localized server-side via Fluent
-  (`crates/api/locales/<lang>/errors.ftl`, `de` default) — never build
-  client-facing error strings with `format!` in core. Golden snapshots
+  (`crates/core/src/error_registry.rs`). The registry is a single-source
+  `problem_codes!` macro: each entry expands to its `pub const` *and* its
+  `PROBLEM_CODES` array slot from one list, so a code that is not registered
+  cannot exist (issue #232) — new codes MUST be added as entries in that
+  invocation, never as a standalone `pub const`. Handlers return
+  `Result<_, ApiError>` and propagate with `?` — there is no per-handler HTTP
+  status mapping and no `map_err`-to-response conversion. Clients branch on
+  the stable `code` (`{context}.{reason}`), never on `detail` text. Extension
+  fields are whitelisted per code and classified S0/S1/S2: S1 fields are
+  emitted only after the handler's `AUTHZ-GATE` has run; S2 data (OIDC
+  `sub`, e-mail) is structurally banned. `detail` is localized server-side
+  via Fluent (`crates/api/locales/<lang>/errors.ftl`, `de` default) — never
+  build client-facing error strings with `format!` in core. Golden snapshots
   (`crates/api/tests/problem_golden.rs`), the bundle-coverage lint
   (`crates/api/tests/bundle_coverage.rs`), and the `s2-extension-ban`
   ast-grep rule enforce the surface mechanically. See `docs/errors/`.

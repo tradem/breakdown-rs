@@ -31,6 +31,16 @@ path (`Display` is log-only).
 - `problem_code(&str)` resolves a registry entry by code (registry + lint
   lookup).
 
+### Changed — Single-source problem-code registry (issue #232)
+
+- The `error_registry` is rewritten as a single-source `problem_codes!`
+  macro: every `pub const …: ProblemCode` and its `PROBLEM_CODES` array
+  entry are now emitted from one invocation, so a code that is not
+  registered cannot exist (previously a new constant omitted from
+  `PROBLEM_CODES` compiled silently and `problem_code()` returned `None`).
+  No public API change — all 73 codes, values, ordering and documentation
+  are preserved (verified by the unchanged golden snapshots).
+
 ## [0.7.0] - Unreleased
 
 ### Added — Persisted source document format for AI imports (issue #221)
