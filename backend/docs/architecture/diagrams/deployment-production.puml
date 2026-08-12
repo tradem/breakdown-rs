@@ -1,0 +1,38 @@
+@startuml deployment-production
+' SPDX-License-Identifier: AGPL-3.0
+' Copyright (C) 2024-2026 Breakdown RS Contributors
+' Co-authored-by: kimi-k3 (neuralwatt)
+'
+' Deployment view: production environment with TLS edge and Vault.
+
+skinparam shadowing false
+skinparam linetype ortho
+
+cloud "Internet" as internet
+
+node "Caddy (Reverse Proxy)\nHTTPS, TLS termination\ncert rotation" as caddy
+
+node "App Container\ncrates/api (Rust)\n0.0.0.0:3000" as app
+
+together {
+  database "PostgreSQL 16+\n(breakdown)" as pg
+  database "SierraDB\n(Event Store)" as sierra
+  rectangle "Garage\n(S3-compatible)" as garage
+  database "Vault\n(Secrets)" as vault
+}
+
+cloud "OIDC IdP\n(Logto/Zitadel)" as idp
+
+internet --> caddy : HTTPS (443)
+caddy --> app : internal TLS
+app --> pg : SQL (TLS, verify-full)
+app --> sierra : RESP3 (TLS)
+app --> garage : S3 API (HTTPS)
+app --> vault : secrets fetch
+app --> idp : JWKS, token validation
+
+note bottom of pg : Migrations via breakdown_migrator\n(DDL, schema owner)
+note bottom of sierra : Append-only streams;\nsingle logical DB per env
+note bottom of garage : Buckets: costume-photos,\nai-import-payloads
+
+@enduml

@@ -1,0 +1,42 @@
+@startuml technical-context
+' SPDX-License-Identifier: AGPL-3.0
+' Copyright (C) 2024-2026 Breakdown RS Contributors
+' Co-authored-by: kimi-k3 (neuralwatt)
+'
+' Technical context: external systems and protocols of Breakdown RS.
+
+skinparam shadowing false
+skinparam linetype ortho
+
+cloud "Users\n(Web Browser)" as users
+cloud "OIDC Identity\nProvider" as idp
+
+together {
+  rectangle "Breakdown RS API\n(Axum)" as api
+  database "SierraDB\n(Event Store, RESP3)" as sierra
+  database "PostgreSQL\n(Projections / Read Model)" as pg
+  rectangle "Garage\n(S3 Object Store)" as garage
+  database "Vault\n(Secrets)" as vault
+  queue "AI Provider\n(LLM API)" as llm
+}
+
+users --> api : HTTPS / JSON (REST)
+users .right.> idp : Login (OIDC)
+api --> idp : JWKS validation
+api --> sierra : RESP3 protocol
+api --> pg : SQL (TLS in prod)
+api --> garage : S3 API
+api ..> vault : secrets fetch
+api ..> llm : HTTPS (AI import queue)
+
+note bottom of pg
+  Read side: flat projection tables,
+  updated asynchronously by projectors.
+end note
+
+note bottom of sierra
+  Write side: immutable event streams,
+  one stream per aggregate instance.
+end note
+
+@enduml

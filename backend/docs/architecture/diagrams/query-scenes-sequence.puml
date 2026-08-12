@@ -1,0 +1,32 @@
+@startuml query-scenes-sequence
+' SPDX-License-Identifier: AGPL-3.0
+' Copyright (C) 2024-2026 Breakdown RS Contributors
+' Co-authored-by: kimi-k3 (neuralwatt)
+'
+' Runtime view: GET scenes query — read side only, no aggregate involved.
+
+skinparam shadowing false
+skinparam sequenceArrowThickness 2
+
+participant "User" as user
+participant "GET /api/v1/episodes/{id}/scenes\nHandler" as api
+participant "SceneRepository\n(Repository, sqlx)" as repo
+database "PostgreSQL\n(projection_scene)" as db
+
+user -> api : GET with filters (episode_id, shooting_day_id?)
+activate api
+api -> repo : list_by_episode(episode_id, filters)
+activate repo
+repo -> db : SELECT ... WHERE episode_id = $1\n(ORDER BY lexical sort key)
+db --> repo : rows
+repo --> api : Vec<SceneDto>
+deactivate repo
+api --> user : 200 OK { scenes: [...] }
+deactivate api
+
+note over api, db
+  Read path never touches the event store.
+  Writes and reads use separate models (CQRS).
+end note
+
+@enduml

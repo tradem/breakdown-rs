@@ -1,0 +1,35 @@
+@startuml business-context
+' SPDX-License-Identifier: AGPL-3.0
+' Copyright (C) 2024-2026 Breakdown RS Contributors
+' Co-authored-by: kimi-k3 (neuralwatt)
+'
+' Business context: actors and the flows between them and Breakdown RS.
+
+skinparam shadowing false
+skinparam linetype ortho
+left to right direction
+
+actor "Production\nManager" as pm
+actor "Costume\nDesigner" as cd
+actor "Wardrobe\nSupervisor" as ws
+actor "Continuity /\nScript Dept." as cont
+
+rectangle "Breakdown RS" as sys {
+  usecase "Costume Planning" as uc1
+  usecase "Scene Continuity\nTracking" as uc2
+  usecase "Shooting Day\nReports (Soll-Ist)" as uc3
+  usecase "Photo\nDocumentation" as uc4
+  usecase "AI Script / Schedule\nImport" as uc5
+}
+
+pm --> uc1
+cd --> uc1
+ws --> uc2
+cont --> uc2
+pm --> uc3
+ws --> uc3
+cd --> uc4
+ws --> uc4
+cont --> uc5
+
+@enduml

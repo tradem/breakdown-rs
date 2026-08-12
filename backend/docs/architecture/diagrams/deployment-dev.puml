@@ -1,0 +1,35 @@
+@startuml deployment-dev
+' SPDX-License-Identifier: AGPL-3.0
+' Copyright (C) 2024-2026 Breakdown RS Contributors
+' Co-authored-by: kimi-k3 (neuralwatt)
+'
+' Deployment view: local development stack (docker-compose.dev.yml).
+
+skinparam shadowing false
+skinparam linetype ortho
+
+node "Developer Machine" {
+
+  node "cargo run -p api" <<process>> as app
+  note right of app
+    Env: DATABASE_URL,
+    SIERRADB_URL, S3_ENDPOINT
+  end note
+
+  package "docker compose (dev)" as dc {
+    database "PostgreSQL 16\n:5432" as pg
+    database "SierraDB\n:9090 (RESP3)" as sierra
+    rectangle "Garage\n:3900 (S3)" as garage
+  }
+}
+
+app --> pg
+app --> sierra
+app --> garage
+
+note bottom of dc
+  Optional: Logto IdP via
+  docker-compose.idp.yml overlay
+end note
+
+@enduml

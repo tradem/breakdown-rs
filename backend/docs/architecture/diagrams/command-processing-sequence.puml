@@ -1,0 +1,47 @@
+@startuml command-processing-sequence
+' SPDX-License-Identifier: AGPL-3.0
+' Copyright (C) 2024-2026 Breakdown RS Contributors
+' Co-authored-by: kimi-k3 (neuralwatt)
+'
+' Runtime view: how a command flows through the event-sourced write path.
+
+skinparam shadowing false
+skinparam sequenceArrowThickness 2
+
+participant "User /\nFrontend" as user
+participant "Axum\nHandler" as api
+participant "CommandService\n(kameo_es)" as svc
+participant "Aggregate\nActor" as agg
+database "SierraDB" as es
+participant "Projector" as proj
+database "PostgreSQL\n(Projection)" as db
+
+user -> api : POST /api/...\n(JSON Command)
+activate api
+api -> svc : dispatch(command)\n(enriched with auth/audit ctx)
+activate svc
+svc -> agg : execute(command, state)
+activate agg
+agg -> agg : validate invariants
+agg --> svc : Ok(Event(s))
+deactivate agg
+svc -> es : appendToStream(events, expectedVersion)
+activate es
+es --> svc : newStreamVersion
+deactivate es
+svc --> api : Reply (entity id / version)
+deactivate svc
+api --> user : 2xx + Location / DTO
+deactivate api
+
+es ->> proj : (async) subscription push
+activate proj
+proj -> db : UPSERT projection\n(idempotent, version-guarded)
+deactivate proj
+
+note over agg, es
+  Events are the single source of truth.
+  State is rebuilt by replaying events.
+end note
+
+@enduml
