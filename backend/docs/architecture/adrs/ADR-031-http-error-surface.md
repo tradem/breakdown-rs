@@ -4,11 +4,18 @@
 
 # ADR-031: HTTP Error Surface — RFC 9457 Problem Details, Stable Codes, Server-Side i18n
 
-**Status**: Proposed
+**Status**: Accepted
 **Date**: 2026-08-12
 **Author**: Tobias Rademacher (@tradem); Co-authored-by: kimi-k3 (neuralwatt)
 **Related**: ADR-012 (error handling types), ADR-021 (API versioning), ADR-030 (bounded contexts)
 **Source change**: `openspec/changes/add-problem-details-error-surface`
+
+> **Status history.** Proposed at the change's design; moved to **Accepted**
+> once Tranche 1 (envelope) and Tranche 2 (structured registry) merged and
+> the full surface — envelope, codes, golden snapshots, S2 lint,
+> bundle-coverage lint, Fluent localization — shipped and is CI-enforced.
+> Per-code documentation and the client-migration guide live under
+> `docs/errors/`.
 
 ---
 
