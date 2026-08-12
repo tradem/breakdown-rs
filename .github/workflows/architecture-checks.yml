@@ -30,6 +30,8 @@ on:
       - "backend/Cargo.lock"
       - "backend/deny.toml"
       - "backend/rules/**"
+      - "backend/rules-tests/**"
+      - "backend/scripts/**"
       - "backend/sgconfig.yml"
       - ".gitleaks.toml"
       - ".github/workflows/architecture-checks.yml"
@@ -240,28 +242,36 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Read-only job: no authenticated git commands are run after checkout.
+          persist-credentials: false
+
+      - name: Install ast-grep 0.45.0 (SHA-pinned)
+        run: |
+          set -e
+          curl -fsSL -o /tmp/ast-grep.zip https://github.com/ast-grep/ast-grep/releases/download/0.45.0/app-x86_64-unknown-linux-gnu.zip
+          echo "78931ae35ebac33d9a72b3aecea3e3d62d6e5b0b718ac8bbedfbe69d68421e41  /tmp/ast-grep.zip" | sha256sum -c -
+          unzip -q /tmp/ast-grep.zip -d /tmp/ast-grep-install
+          sudo mv /tmp/ast-grep-install/ast-grep /usr/local/bin/
+          ast-grep --version
 
       - name: Forbid standalone ProblemCode declarations outside the registry macro
         run: |
           set -e
-          # Every problem code must be declared through the problem_codes! macro
-          # in crates/core/src/error_registry.rs (issue #232). A standalone
-          # `pub const <NAME>: ProblemCode` outside the invocation would compile
-          # but never be registered: problem_code() returns None, the
-          # bundle-coverage lint never requires a locale message, and the
-          # uniqueness test never sees the code. The macro expansion emits
-          # `pub const $name: ProblemCode` — a metavariable, not an identifier
-          # — so any literal match here is a violation. The in-tree
-          # compile-time count assertion (PROBLEM_CODE_COUNT) catches the same
-          # drift at build time.
-          if grep -rnE 'pub const [A-Z_][A-Z0-9_]*: ProblemCode' crates/; then
-            echo "" >&2
-            echo "ERROR: standalone ProblemCode declaration outside the problem_codes! invocation" >&2
-            echo "Declare new codes as entries in the problem_codes! macro in" >&2
-            echo "crates/core/src/error_registry.rs (issue #232)." >&2
-            exit 1
-          fi
-          echo "OK: every ProblemCode constant is declared through the registry macro"
+          # Shared, syntax-aware checker (issue #232): every `pub const
+          # <NAME>: ProblemCode` must be declared through the problem_codes!
+          # macro in crates/core/src/error_registry.rs. A standalone
+          # declaration compiles but is never registered (problem_code()
+          # returns None, the bundle-coverage lint never fires, the uniqueness
+          # test never sees it). The rule (rules/problem-code-registry.yml)
+          # matches canonical/spaced/multiline declarations and does not bind
+          # to the macro's `pub const $name` template; the script fails closed
+          # on scanner errors. The in-tree compile-time count assertion
+          # (PROBLEM_CODE_COUNT) is an independent build-time guard.
+          bash scripts/check-problem-code-registry.sh crates/
+          # The checker itself is guarded by its rule test-suite (fixtures for
+          # canonical/spaced/multiline/template/malformed inputs).
+          bash scripts/check-problem-code-registry.sh --self-test
 
   gitleaks:
     name: Gitleaks (secrets)

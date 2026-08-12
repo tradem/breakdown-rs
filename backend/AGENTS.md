@@ -186,9 +186,14 @@ membership check via the shooting_day → episode → block → season chain). T
   (`backend/rules/discard-result.yml`) and that `*_for_test` helpers are gated behind
   `#[cfg(feature = "test-support")]` (`backend/rules/test-helper-gate.yml`) — issue #165
   review lessons. All rules accept an explicit `// ast-grep-ignore: <rule-id>` suppression
-  with a justification comment. The `backend/git-hooks/pre-commit` hook mirrors all four
-  rules on staged files (warning only if ast-grep is not installed; CI remains the
-  authoritative gate).
+  with a justification comment. The `problem-code-registry` job (issue #232) runs the
+  shared, syntax-aware scanner `backend/scripts/check-problem-code-registry.sh`
+  (rule `backend/rules/problem-code-registry.yml`, rule tests in
+  `backend/rules-tests/`): every `pub const …: ProblemCode` must be declared
+  through the `problem_codes!` macro in `error_registry.rs` — a standalone
+  declaration compiles but is never registered. The `backend/git-hooks/pre-commit`
+  hook mirrors these guardrails on staged files (warning only if ast-grep is not
+  installed; CI remains the authoritative gate).
 
 ### Integration tests
 

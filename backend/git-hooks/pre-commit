@@ -67,19 +67,6 @@ fi
 # 5. Run ast-grep guardrails on staged files (mirrors the CI jobs)
 if [ -n "$STAGED_RS_FILES" ]; then
     echo "🛡️  Running ast-grep guardrails (cqrs-boundary / test-shim-leak / discard-result / test-helper-gate / uuid-v7-only / allow-panic-lint-justification / s2-extension-ban / problem-code-registry)..."
-    # Problem-code registry (issue #232): every `pub const …: ProblemCode`
-    # must be declared through the problem_codes! macro in
-    # crates/core/src/error_registry.rs. A standalone declaration would
-    # compile but never be registered. Grep-based, so it runs even when
-    # ast-grep is unavailable (mirrors the problem-code-registry job in
-    # architecture-checks.yml).
-    if grep -rnE 'pub const [A-Z_][A-Z0-9_]*: ProblemCode' crates/; then
-        echo "" >&2
-        echo "ERROR: standalone ProblemCode declaration outside the problem_codes! invocation" >&2
-        echo "Declare new codes as entries in the problem_codes! macro in" >&2
-        echo "crates/core/src/error_registry.rs (issue #232)." >&2
-        exit 1
-    fi
     if command -v ast-grep &> /dev/null; then
         # Write-side dirs → cqrs-boundary rule (see backend/rules/cqrs-boundary.yml).
         # AI workers are write-side code too and must stay projection-free.
@@ -110,6 +97,11 @@ if [ -n "$STAGED_RS_FILES" ]; then
         if [ -n "$PROBLEM_FILES" ]; then
             echo "$PROBLEM_FILES" | xargs -r ast-grep scan -r rules/s2-extension-ban.yml
         fi
+        # Problem-code registry (issue #232): every `pub const …: ProblemCode`
+        # must be declared through the problem_codes! macro in
+        # crates/core/src/error_registry.rs. Runs the same shared, syntax-aware
+        # checker as the problem-code-registry CI job (no logic duplication).
+        bash scripts/check-problem-code-registry.sh crates/
         echo "✓ ast-grep guardrails passed"
     else
         echo "⚠️  Warning: ast-grep not installed. Install with: cargo install ast-grep"
