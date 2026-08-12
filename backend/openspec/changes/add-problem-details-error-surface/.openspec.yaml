@@ -1,0 +1,6 @@
+schema: spec-driven
+created: 2026-08-12
+goal: Every error response from the API is a problem+json document carrying a
+  stable, kebab-case machine code, typed S0/S1 extensions, trace_id, and an
+  Accept-Language-localized detail; ADR-031 records the HTTP error-surface
+  decisions.
