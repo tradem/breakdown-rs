@@ -54,7 +54,9 @@ fn reupload_dedup_key_is_format_specific() {
 
 #[test]
 fn unauthorized_response_is_forbidden() {
-    assert_eq!(forbidden_ai_config().0, axum::http::StatusCode::FORBIDDEN);
+    let problem = forbidden_ai_config().into_problem();
+    assert_eq!(problem.status, 403);
+    assert_eq!(problem.code, "domain.forbidden");
 }
 
 #[test]

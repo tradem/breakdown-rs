@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 
-use axum::Json;
-use axum::extract::{Path, Query, State};
+use api::problems::Json;  // test-only alias for the wrapper extractor (ADR-031)
+use axum::extract::State;
+use api::problems::{Path, Query};
 use axum::http::StatusCode;
 use breakdown_core::membership::Role;
 use breakdown_core::shared::{BlockId, UserId};
@@ -176,7 +177,7 @@ async fn get_member_returns_404_when_absent() {
         Path((block_id.0, "ghost".to_string())),
     )
     .await;
-    assert_eq!(result.unwrap_err().0, StatusCode::NOT_FOUND);
+    assert_eq!(result.unwrap_err().into_problem().status, 404);
 }
 
 #[tokio::test]

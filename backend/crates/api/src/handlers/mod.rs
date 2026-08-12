@@ -14,11 +14,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use axum::body::Bytes;
-use axum::extract::{DefaultBodyLimit, Path, Query, State};
+use crate::problems::{ApiError, Bytes, Json, Path, ProblemDetails, Query};
+use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::{Json, Router, routing};
+use axum::{Router, routing};
 use breakdown_core::ai::{
     AiConfigCommands, AiConfigRepository, AiConfigView, AiImportEnqueueRequest,
     AiImportEnqueueResult, AiImportJobId, AiImportQueue, ApplyMapping, CreateAiConfig,
@@ -116,12 +116,6 @@ use infra::ai::{
 
 use crate::auth::CurrentUser;
 use crate::state::{AppState, Ports, ProductionPorts};
-
-/// JSON error body returned on command/query failures.
-#[derive(Debug, Clone, Serialize, ToSchema)]
-pub struct ErrorResponse {
-    pub message: String,
-}
 
 /// Response for aggregate creation endpoints.
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -347,42 +341,28 @@ pub struct GrantRoleRequest {
     pub role: Role,
 }
 
-type ApiResult<T> = Result<(StatusCode, Json<T>), (StatusCode, Json<ErrorResponse>)>;
+type ApiResult<T> = Result<(StatusCode, Json<T>), ApiError>;
 
-fn map_err(err: DomainError) -> (StatusCode, Json<ErrorResponse>) {
-    let status = match &err {
-        DomainError::NotFound(_) => StatusCode::NOT_FOUND,
-        DomainError::Unauthorized(_) => StatusCode::FORBIDDEN,
-        DomainError::ValidationError(_) => StatusCode::BAD_REQUEST,
-        DomainError::Conflict(_) | DomainError::VersionConflict { .. } => StatusCode::CONFLICT,
-        DomainError::ServiceUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
-    };
-    (
-        status,
-        Json(ErrorResponse {
-            message: err.to_string(),
-        }),
-    )
+/// Required `episode_id` query parameter (ADR-031 D3: missing/invalid query
+/// params are `http.bad-query-param`, 400).
+fn require_episode(params: &ListParams) -> Result<EpisodeId, ApiError> {
+    params
+        .episode_id
+        .ok_or(ApiError::BadQueryParam("episode_id is required"))
 }
 
-fn require_episode(params: &ListParams) -> Result<EpisodeId, (StatusCode, Json<ErrorResponse>)> {
-    params.episode_id.ok_or_else(|| {
-        map_err(DomainError::ValidationError(
-            "episode_id is required".into(),
-        ))
-    })
-}
-
-fn require_season(params: &ListParams) -> Result<SeasonId, (StatusCode, Json<ErrorResponse>)> {
+/// Required `season_id` query parameter (`http.bad-query-param`, 400).
+fn require_season(params: &ListParams) -> Result<SeasonId, ApiError> {
     params
         .season_id
-        .ok_or_else(|| map_err(DomainError::ValidationError("season_id is required".into())))
+        .ok_or(ApiError::BadQueryParam("season_id is required"))
 }
 
-fn require_series(params: &ListParams) -> Result<SeriesId, (StatusCode, Json<ErrorResponse>)> {
+/// Required `series_id` query parameter (`http.bad-query-param`, 400).
+fn require_series(params: &ListParams) -> Result<SeriesId, ApiError> {
     params
         .series_id
-        .ok_or_else(|| map_err(DomainError::ValidationError("series_id is required".into())))
+        .ok_or(ApiError::BadQueryParam("series_id is required"))
 }
 
 /// Resolve the `series_id` for a scene at the API edge (scene → episode → series).
@@ -394,19 +374,13 @@ fn require_series(params: &ListParams) -> Result<SeriesId, (StatusCode, Json<Err
 async fn series_id_for_scene<P: Ports>(
     state: &AppState<P>,
     scene_id: Uuid,
-) -> Result<SeriesId, (StatusCode, Json<ErrorResponse>)> {
-    let scene = state
-        .ports
-        .scene_repo()
-        .find_by_id(scene_id)
-        .await
-        .map_err(map_err)?;
+) -> Result<SeriesId, ApiError> {
+    let scene = state.ports.scene_repo().find_by_id(scene_id).await?;
     let episode = state
         .ports
         .episode_repo()
         .find_by_id(scene.episode_id.0)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok(episode.series_id)
 }
 
@@ -414,19 +388,13 @@ async fn series_id_for_scene<P: Ports>(
 async fn series_id_for_shooting_day<P: Ports>(
     state: &AppState<P>,
     day_id: ShootingDayId,
-) -> Result<SeriesId, (StatusCode, Json<ErrorResponse>)> {
-    let day = state
-        .ports
-        .shooting_day_repo()
-        .find_by_id(day_id)
-        .await
-        .map_err(map_err)?;
+) -> Result<SeriesId, ApiError> {
+    let day = state.ports.shooting_day_repo().find_by_id(day_id).await?;
     let episode = state
         .ports
         .episode_repo()
         .find_by_id(day.episode_id.0)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok(episode.series_id)
 }
 
@@ -434,19 +402,13 @@ async fn series_id_for_shooting_day<P: Ports>(
 async fn series_id_for_character<P: Ports>(
     state: &AppState<P>,
     character_id: Uuid,
-) -> Result<SeriesId, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<SeriesId, ApiError> {
     let ch = state
         .ports
         .character_repo()
         .find_by_id(character_id)
-        .await
-        .map_err(map_err)?;
-    let season = state
-        .ports
-        .season_repo()
-        .find_by_id(ch.season_id.0)
-        .await
-        .map_err(map_err)?;
+        .await?;
+    let season = state.ports.season_repo().find_by_id(ch.season_id.0).await?;
     Ok(season.series_id)
 }
 
@@ -454,19 +416,13 @@ async fn series_id_for_character<P: Ports>(
 async fn series_id_for_costume_category<P: Ports>(
     state: &AppState<P>,
     category_id: Uuid,
-) -> Result<SeriesId, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<SeriesId, ApiError> {
     let cc = state
         .ports
         .costume_category_repo()
         .find_by_id(category_id)
-        .await
-        .map_err(map_err)?;
-    let season = state
-        .ports
-        .season_repo()
-        .find_by_id(cc.season_id.0)
-        .await
-        .map_err(map_err)?;
+        .await?;
+    let season = state.ports.season_repo().find_by_id(cc.season_id.0).await?;
     Ok(season.series_id)
 }
 
@@ -474,25 +430,14 @@ async fn series_id_for_costume_category<P: Ports>(
 async fn series_id_for_scene_shoot<P: Ports>(
     state: &AppState<P>,
     shoot_id: SceneShootId,
-) -> Result<SeriesId, (StatusCode, Json<ErrorResponse>)> {
-    let ss = state
-        .ports
-        .scene_shoot_repo()
-        .find_by_id(shoot_id)
-        .await
-        .map_err(map_err)?;
-    let scene = state
-        .ports
-        .scene_repo()
-        .find_by_id(ss.scene_id)
-        .await
-        .map_err(map_err)?;
+) -> Result<SeriesId, ApiError> {
+    let ss = state.ports.scene_shoot_repo().find_by_id(shoot_id).await?;
+    let scene = state.ports.scene_repo().find_by_id(ss.scene_id).await?;
     let episode = state
         .ports
         .episode_repo()
         .find_by_id(scene.episode_id.0)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok(episode.series_id)
 }
 
@@ -504,27 +449,16 @@ async fn series_id_for_scene_shoot<P: Ports>(
 async fn series_id_for_costume<P: Ports>(
     state: &AppState<P>,
     costume_id: Uuid,
-) -> Result<Option<SeriesId>, (StatusCode, Json<ErrorResponse>)> {
-    let costume = state
-        .ports
-        .costume_repo()
-        .find_by_id(costume_id)
-        .await
-        .map_err(map_err)?;
+) -> Result<Option<SeriesId>, ApiError> {
+    let costume = state.ports.costume_repo().find_by_id(costume_id).await?;
     match costume.character_id {
         Some(character_id) => {
             let ch = state
                 .ports
                 .character_repo()
                 .find_by_id(character_id)
-                .await
-                .map_err(map_err)?;
-            let season = state
-                .ports
-                .season_repo()
-                .find_by_id(ch.season_id.0)
-                .await
-                .map_err(map_err)?;
+                .await?;
+            let season = state.ports.season_repo().find_by_id(ch.season_id.0).await?;
             Ok(Some(season.series_id))
         }
         None => Ok(None),
@@ -537,8 +471,8 @@ async fn series_id_for_costume<P: Ports>(
     params(ListParams),
     responses(
         (status = 200, body = Vec<AuditEntry>, description = "Audit journal entries, newest first"),
-        (status = 403, body = ErrorResponse, description = "Not authorized"),
-        (status = 400, body = ErrorResponse, description = "Validation error"),
+        (status = 403, body = ProblemDetails, description = "Not authorized"),
+        (status = 422, body = ProblemDetails, description = "Validation error"),
     ),
 )]
 pub async fn get_audit_history<P: Ports>(
@@ -561,8 +495,7 @@ pub async fn get_audit_history<P: Ports>(
             params.limit.unwrap_or(50),
             params.offset.unwrap_or(0),
         )
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(entries)))
 }
 
@@ -592,8 +525,7 @@ pub async fn create_season<P: Ports>(
         .ports
         .season_commands()
         .create(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::CREATED, Json(IdVersionResponse { id, version })))
 }
 
@@ -601,18 +533,13 @@ pub async fn create_season<P: Ports>(
     get,
     path = "/seasons/{id}",
     params(("id" = Uuid, Path, description = "Season id")),
-    responses((status = 200, body = SeasonView), (status = 404, body = ErrorResponse)),
+    responses((status = 200, body = SeasonView), (status = 404, body = ProblemDetails)),
 )]
 pub async fn get_season<P: Ports>(
     State(state): State<AppState<P>>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<SeasonView> {
-    let view = state
-        .ports
-        .season_repo()
-        .find_by_id(id)
-        .await
-        .map_err(map_err)?;
+    let view = state.ports.season_repo().find_by_id(id).await?;
     Ok((StatusCode::OK, Json(view)))
 }
 
@@ -628,15 +555,7 @@ pub async fn rename_season<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<RenameSeasonRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(
-        state
-            .ports
-            .season_repo()
-            .find_by_id(id)
-            .await
-            .map_err(map_err)?
-            .series_id,
-    );
+    let series_id = Some(state.ports.season_repo().find_by_id(id).await?.series_id);
     let cmd = RenameSeason {
         id,
         title: req.title,
@@ -647,8 +566,7 @@ pub async fn rename_season<P: Ports>(
         .ports
         .season_commands()
         .rename(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -680,8 +598,7 @@ pub async fn create_block<P: Ports>(
         .ports
         .block_commands()
         .create(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
 
     // Decision A: the block creator becomes the first (owner) member, breaking
     // the chicken-and-egg between invitation and active-membership gating. The
@@ -698,12 +615,8 @@ pub async fn create_block<P: Ports>(
         .bootstrap_owner(current_user.sub.clone(), bootstrap)
         .await
     {
-        return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                message: format!("failed to bootstrap block owner: {e}"),
-            }),
-        ));
+        tracing::error!(error = %e, "failed to bootstrap block owner");
+        return Err(ApiError::Internal);
     }
 
     Ok((StatusCode::CREATED, Json(IdVersionResponse { id, version })))
@@ -713,18 +626,13 @@ pub async fn create_block<P: Ports>(
     get,
     path = "/blocks/{id}",
     params(("id" = Uuid, Path, description = "Block id")),
-    responses((status = 200, body = BlockView), (status = 404, body = ErrorResponse)),
+    responses((status = 200, body = BlockView), (status = 404, body = ProblemDetails)),
 )]
 pub async fn get_block<P: Ports>(
     State(state): State<AppState<P>>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<BlockView> {
-    let view = state
-        .ports
-        .block_repo()
-        .find_by_id(id)
-        .await
-        .map_err(map_err)?;
+    let view = state.ports.block_repo().find_by_id(id).await?;
     Ok((StatusCode::OK, Json(view)))
 }
 
@@ -734,8 +642,8 @@ pub async fn get_block<P: Ports>(
     params(("id" = Uuid, Path, description = "Block id"), ListParams),
     responses(
         (status = 200, body = Vec<AuditEntry>, description = "Audit journal entries for the block, newest first"),
-        (status = 403, body = ErrorResponse, description = "Caller is not an active member of the active block (X-Active-Block header)"),
-        (status = 400, body = ErrorResponse, description = "Missing or malformed X-Active-Block header"),
+        (status = 403, body = ProblemDetails, description = "Caller is not an active member of the active block (X-Active-Block header)"),
+        (status = 400, body = ProblemDetails, description = "Missing or malformed X-Active-Block header"),
     ),
 )]
 pub async fn get_block_audit<P: Ports>(
@@ -751,8 +659,7 @@ pub async fn get_block_audit<P: Ports>(
             params.limit.unwrap_or(50),
             params.offset.unwrap_or(0),
         )
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(entries)))
 }
 
@@ -775,8 +682,7 @@ pub async fn list_blocks<P: Ports>(
             params.limit.unwrap_or(50),
             params.offset.unwrap_or(0),
         )
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(views)))
 }
 
@@ -792,15 +698,7 @@ pub async fn update_block_time_span<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateBlockTimeSpanRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(
-        state
-            .ports
-            .block_repo()
-            .find_by_id(id)
-            .await
-            .map_err(map_err)?
-            .series_id,
-    );
+    let series_id = Some(state.ports.block_repo().find_by_id(id).await?.series_id);
     let cmd = UpdateBlockTimeSpan {
         id,
         start_date: req.start_date,
@@ -812,8 +710,7 @@ pub async fn update_block_time_span<P: Ports>(
         .ports
         .block_commands()
         .update_time_span(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -844,8 +741,7 @@ pub async fn create_episode<P: Ports>(
         .ports
         .episode_commands()
         .create(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::CREATED, Json(IdVersionResponse { id, version })))
 }
 
@@ -853,18 +749,13 @@ pub async fn create_episode<P: Ports>(
     get,
     path = "/episodes/{id}",
     params(("id" = Uuid, Path, description = "Episode id")),
-    responses((status = 200, body = EpisodeView), (status = 404, body = ErrorResponse)),
+    responses((status = 200, body = EpisodeView), (status = 404, body = ProblemDetails)),
 )]
 pub async fn get_episode<P: Ports>(
     State(state): State<AppState<P>>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<EpisodeView> {
-    let view = state
-        .ports
-        .episode_repo()
-        .find_by_id(id)
-        .await
-        .map_err(map_err)?;
+    let view = state.ports.episode_repo().find_by_id(id).await?;
     Ok((StatusCode::OK, Json(view)))
 }
 
@@ -887,8 +778,7 @@ pub async fn list_episodes<P: Ports>(
             params.limit.unwrap_or(50),
             params.offset.unwrap_or(0),
         )
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(views)))
 }
 
@@ -904,15 +794,7 @@ pub async fn rename_episode<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<RenameEpisodeRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(
-        state
-            .ports
-            .episode_repo()
-            .find_by_id(id)
-            .await
-            .map_err(map_err)?
-            .series_id,
-    );
+    let series_id = Some(state.ports.episode_repo().find_by_id(id).await?.series_id);
     let cmd = RenameEpisode {
         id,
         name: req.name,
@@ -923,8 +805,7 @@ pub async fn rename_episode<P: Ports>(
         .ports
         .episode_commands()
         .rename(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -938,8 +819,8 @@ pub async fn rename_episode<P: Ports>(
     request_body = CreateSceneRequest,
     responses(
         (status = 201, description = "Scene created", body = IdVersionResponse),
-        (status = 400, description = "Validation error", body = ErrorResponse),
-        (status = 409, description = "Conflict", body = ErrorResponse),
+        (status = 422, description = "Validation error", body = ProblemDetails),
+        (status = 409, description = "Conflict", body = ProblemDetails),
     )
 )]
 pub async fn create_scene<P: Ports>(
@@ -953,8 +834,7 @@ pub async fn create_scene<P: Ports>(
             .ports
             .episode_repo()
             .find_by_id(req.episode_id.0)
-            .await
-            .map_err(map_err)?
+            .await?
             .series_id,
     );
     let cmd = CreateScene {
@@ -967,8 +847,7 @@ pub async fn create_scene<P: Ports>(
         .ports
         .scene_commands()
         .create(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::CREATED, Json(IdVersionResponse { id, version })))
 }
 
@@ -978,19 +857,14 @@ pub async fn create_scene<P: Ports>(
     params(("id" = Uuid, Path, description = "Scene id")),
     responses(
         (status = 200, body = SceneView),
-        (status = 404, body = ErrorResponse),
+        (status = 404, body = ProblemDetails),
     )
 )]
 pub async fn get_scene<P: Ports>(
     State(state): State<AppState<P>>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<SceneView> {
-    let view = state
-        .ports
-        .scene_repo()
-        .find_by_id(id)
-        .await
-        .map_err(map_err)?;
+    let view = state.ports.scene_repo().find_by_id(id).await?;
     Ok((StatusCode::OK, Json(view)))
 }
 
@@ -1013,8 +887,7 @@ pub async fn list_scenes<P: Ports>(
             params.limit.unwrap_or(50),
             params.offset.unwrap_or(0),
         )
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(views)))
 }
 
@@ -1024,8 +897,8 @@ pub async fn list_scenes<P: Ports>(
     request_body = UpdateSceneDetailsRequest,
     responses(
         (status = 200, body = AggregateVersion),
-        (status = 404, body = ErrorResponse),
-        (status = 409, body = ErrorResponse),
+        (status = 404, body = ProblemDetails),
+        (status = 409, body = ProblemDetails),
     )
 )]
 pub async fn update_scene_details<P: Ports>(
@@ -1045,8 +918,7 @@ pub async fn update_scene_details<P: Ports>(
         .ports
         .scene_commands()
         .update_details(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -1054,7 +926,7 @@ pub async fn update_scene_details<P: Ports>(
     post,
     path = "/scenes/{id}/characters",
     request_body = AssignCharacterRequest,
-    responses((status = 200, body = AggregateVersion), (status = 409, body = ErrorResponse)),
+    responses((status = 200, body = AggregateVersion), (status = 409, body = ProblemDetails)),
 )]
 pub async fn assign_scene_character<P: Ports>(
     State(state): State<AppState<P>>,
@@ -1073,8 +945,7 @@ pub async fn assign_scene_character<P: Ports>(
         .ports
         .scene_commands()
         .assign_character(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -1082,7 +953,7 @@ pub async fn assign_scene_character<P: Ports>(
     delete,
     path = "/scenes/{id}/characters/{character_id}",
     params(("id" = Uuid, Path), ("character_id" = Uuid, Path)),
-    responses((status = 200, body = AggregateVersion), (status = 409, body = ErrorResponse)),
+    responses((status = 200, body = AggregateVersion), (status = 409, body = ProblemDetails)),
 )]
 pub async fn remove_scene_character<P: Ports>(
     State(state): State<AppState<P>>,
@@ -1101,8 +972,7 @@ pub async fn remove_scene_character<P: Ports>(
         .ports
         .scene_commands()
         .remove_character(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -1129,8 +999,7 @@ pub async fn create_shooting_day<P: Ports>(
             .ports
             .episode_repo()
             .find_by_id(episode_id.0)
-            .await
-            .map_err(map_err)?
+            .await?
             .series_id,
     );
     let cmd = CreateShootingDay {
@@ -1146,8 +1015,7 @@ pub async fn create_shooting_day<P: Ports>(
         .ports
         .shooting_day_commands()
         .create(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((
         StatusCode::CREATED,
         Json(IdVersionResponse { id: id.0, version }),
@@ -1168,8 +1036,7 @@ pub async fn list_shooting_days<P: Ports>(
         .ports
         .shooting_day_repo()
         .list_by_episode(episode_id)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(views)))
 }
 
@@ -1177,18 +1044,13 @@ pub async fn list_shooting_days<P: Ports>(
     get,
     path = "/shooting-days/{id}",
     params(("id" = ShootingDayId, Path, description = "Shooting day id")),
-    responses((status = 200, body = ShootingDayView), (status = 404, body = ErrorResponse)),
+    responses((status = 200, body = ShootingDayView), (status = 404, body = ProblemDetails)),
 )]
 pub async fn get_shooting_day<P: Ports>(
     State(state): State<AppState<P>>,
     Path(id): Path<ShootingDayId>,
 ) -> ApiResult<ShootingDayView> {
-    let view = state
-        .ports
-        .shooting_day_repo()
-        .find_by_id(id)
-        .await
-        .map_err(map_err)?;
+    let view = state.ports.shooting_day_repo().find_by_id(id).await?;
     Ok((StatusCode::OK, Json(view)))
 }
 
@@ -1199,8 +1061,8 @@ pub async fn get_shooting_day<P: Ports>(
     request_body = UpdateShootingDayRequest,
     responses(
         (status = 200, body = AggregateVersion),
-        (status = 400, description = "No update field provided"),
-        (status = 409, body = ErrorResponse),
+        (status = 422, description = "No update field provided"),
+        (status = 409, body = ProblemDetails),
     ),
 )]
 pub async fn update_shooting_day<P: Ports>(
@@ -1223,8 +1085,7 @@ pub async fn update_shooting_day<P: Ports>(
                     version: req.version,
                 },
             )
-            .await
-            .map_err(map_err)?;
+            .await?;
         return Ok((StatusCode::OK, Json(version)));
     }
     if req.date.is_some() {
@@ -1238,8 +1099,7 @@ pub async fn update_shooting_day<P: Ports>(
                     version: req.version,
                 },
             )
-            .await
-            .map_err(map_err)?;
+            .await?;
         return Ok((StatusCode::OK, Json(version)));
     }
     if req.label.is_some() {
@@ -1253,15 +1113,11 @@ pub async fn update_shooting_day<P: Ports>(
                     version: req.version,
                 },
             )
-            .await
-            .map_err(map_err)?;
+            .await?;
         return Ok((StatusCode::OK, Json(version)));
     }
-    Err((
-        StatusCode::BAD_REQUEST,
-        Json(ErrorResponse {
-            message: "no update field provided (order_key, date, or label)".into(),
-        }),
+    Err(ApiError::Validation(
+        "no update field provided (order_key, date, or label)",
     ))
 }
 
@@ -1270,7 +1126,7 @@ pub async fn update_shooting_day<P: Ports>(
     path = "/shooting-days/{id}/archive",
     params(("id" = ShootingDayId, Path, description = "Shooting day id")),
     request_body = VersionRequest,
-    responses((status = 200, body = AggregateVersion), (status = 409, body = ErrorResponse)),
+    responses((status = 200, body = AggregateVersion), (status = 409, body = ProblemDetails)),
 )]
 pub async fn archive_shooting_day<P: Ports>(
     State(state): State<AppState<P>>,
@@ -1290,8 +1146,7 @@ pub async fn archive_shooting_day<P: Ports>(
                 version: req.version,
             },
         )
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -1304,7 +1159,7 @@ pub async fn archive_shooting_day<P: Ports>(
     path = "/scenes/{id}/shooting-days",
     params(("id" = Uuid, Path, description = "Scene id")),
     request_body = ScheduleSceneRequest,
-    responses((status = 200, body = AggregateVersion), (status = 409, body = ErrorResponse)),
+    responses((status = 200, body = AggregateVersion), (status = 409, body = ProblemDetails)),
 )]
 pub async fn schedule_scene_on_shooting_day<P: Ports>(
     State(state): State<AppState<P>>,
@@ -1323,8 +1178,7 @@ pub async fn schedule_scene_on_shooting_day<P: Ports>(
         .ports
         .scene_commands()
         .schedule_on_shooting_day(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -1335,7 +1189,7 @@ pub async fn schedule_scene_on_shooting_day<P: Ports>(
         ("id" = Uuid, Path, description = "Scene id"),
         ("shooting_day_id" = ShootingDayId, Path, description = "Shooting day id")
     ),
-    responses((status = 200, body = AggregateVersion), (status = 409, body = ErrorResponse)),
+    responses((status = 200, body = AggregateVersion), (status = 409, body = ProblemDetails)),
 )]
 pub async fn unschedule_scene_from_shooting_day<P: Ports>(
     State(state): State<AppState<P>>,
@@ -1354,8 +1208,7 @@ pub async fn unschedule_scene_from_shooting_day<P: Ports>(
         .ports
         .scene_commands()
         .unschedule_from_shooting_day(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -1369,7 +1222,7 @@ pub async fn unschedule_scene_from_shooting_day<P: Ports>(
     request_body = CreateCharacterRequest,
     responses(
         (status = 201, description = "Character created", body = IdVersionResponse),
-        (status = 400, description = "Validation error", body = ErrorResponse),
+        (status = 422, description = "Validation error", body = ProblemDetails),
     )
 )]
 pub async fn create_character<P: Ports>(
@@ -1383,8 +1236,7 @@ pub async fn create_character<P: Ports>(
             .ports
             .season_repo()
             .find_by_id(req.season_id.0)
-            .await
-            .map_err(map_err)?
+            .await?
             .series_id,
     );
     let cmd = CreateCharacter {
@@ -1398,8 +1250,7 @@ pub async fn create_character<P: Ports>(
         .ports
         .character_commands()
         .create(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::CREATED, Json(IdVersionResponse { id, version })))
 }
 
@@ -1407,18 +1258,13 @@ pub async fn create_character<P: Ports>(
     get,
     path = "/characters/{id}",
     params(("id" = Uuid, Path, description = "Character id")),
-    responses((status = 200, body = CharacterView), (status = 404, body = ErrorResponse))
+    responses((status = 200, body = CharacterView), (status = 404, body = ProblemDetails))
 )]
 pub async fn get_character<P: Ports>(
     State(state): State<AppState<P>>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<CharacterView> {
-    let view = state
-        .ports
-        .character_repo()
-        .find_by_id(id)
-        .await
-        .map_err(map_err)?;
+    let view = state.ports.character_repo().find_by_id(id).await?;
     Ok((StatusCode::OK, Json(view)))
 }
 
@@ -1441,8 +1287,7 @@ pub async fn list_characters<P: Ports>(
             params.limit.unwrap_or(50),
             params.offset.unwrap_or(0),
         )
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(views)))
 }
 
@@ -1452,8 +1297,8 @@ pub async fn list_characters<P: Ports>(
     request_body = UpdateMeasurementsRequest,
     responses(
         (status = 200, body = AggregateVersion),
-        (status = 404, body = ErrorResponse),
-        (status = 409, body = ErrorResponse),
+        (status = 404, body = ProblemDetails),
+        (status = 409, body = ProblemDetails),
     )
 )]
 pub async fn update_measurements<P: Ports>(
@@ -1473,8 +1318,7 @@ pub async fn update_measurements<P: Ports>(
         .ports
         .character_commands()
         .update_measurements(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -1501,8 +1345,7 @@ pub async fn update_contact_info<P: Ports>(
         .ports
         .character_commands()
         .update_contact_info(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -1516,7 +1359,7 @@ pub async fn update_contact_info<P: Ports>(
     request_body = CreateCostumeRequest,
     responses(
         (status = 201, description = "Costume created", body = IdVersionResponse),
-        (status = 400, description = "Validation error", body = ErrorResponse),
+        (status = 422, description = "Validation error", body = ProblemDetails),
     )
 )]
 pub async fn create_costume<P: Ports>(
@@ -1535,8 +1378,7 @@ pub async fn create_costume<P: Ports>(
         .ports
         .costume_commands()
         .create(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::CREATED, Json(IdVersionResponse { id, version })))
 }
 
@@ -1544,18 +1386,13 @@ pub async fn create_costume<P: Ports>(
     get,
     path = "/costumes/{id}",
     params(("id" = Uuid, Path, description = "Costume id")),
-    responses((status = 200, body = CostumeView), (status = 404, body = ErrorResponse))
+    responses((status = 200, body = CostumeView), (status = 404, body = ProblemDetails))
 )]
 pub async fn get_costume<P: Ports>(
     State(state): State<AppState<P>>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<CostumeView> {
-    let view = state
-        .ports
-        .costume_repo()
-        .find_by_id(id)
-        .await
-        .map_err(map_err)?;
+    let view = state.ports.costume_repo().find_by_id(id).await?;
     Ok((StatusCode::OK, Json(view)))
 }
 
@@ -1578,8 +1415,7 @@ pub async fn list_costumes<P: Ports>(
             params.limit.unwrap_or(50),
             params.offset.unwrap_or(0),
         )
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(views)))
 }
 
@@ -1589,8 +1425,8 @@ pub async fn list_costumes<P: Ports>(
     request_body = UpdateCostumeNotesRequest,
     responses(
         (status = 200, body = AggregateVersion),
-        (status = 404, body = ErrorResponse),
-        (status = 409, body = ErrorResponse),
+        (status = 404, body = ProblemDetails),
+        (status = 409, body = ProblemDetails),
     )
 )]
 pub async fn update_costume_notes<P: Ports>(
@@ -1610,8 +1446,7 @@ pub async fn update_costume_notes<P: Ports>(
         .ports
         .costume_commands()
         .update_notes(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -1619,7 +1454,7 @@ pub async fn update_costume_notes<P: Ports>(
     post,
     path = "/costumes/{id}/assign",
     request_body = AssignCostumeRequest,
-    responses((status = 200, body = AggregateVersion), (status = 409, body = ErrorResponse)),
+    responses((status = 200, body = AggregateVersion), (status = 409, body = ProblemDetails)),
 )]
 pub async fn assign_costume<P: Ports>(
     State(state): State<AppState<P>>,
@@ -1638,8 +1473,7 @@ pub async fn assign_costume<P: Ports>(
         .ports
         .costume_commands()
         .assign_to_character(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -1665,8 +1499,7 @@ pub async fn unassign_costume<P: Ports>(
         .ports
         .costume_commands()
         .unassign(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -1699,8 +1532,7 @@ pub async fn add_costume_detail<P: Ports>(
                 version: req.version,
             },
         )
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -1727,8 +1559,7 @@ pub async fn create_costume_category<P: Ports>(
             .ports
             .season_repo()
             .find_by_id(season_id.0)
-            .await
-            .map_err(map_err)?
+            .await?
             .series_id,
     );
     let cmd = CreateCostumeCategory {
@@ -1742,8 +1573,7 @@ pub async fn create_costume_category<P: Ports>(
         .ports
         .costume_category_commands()
         .create(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::CREATED, Json(IdVersionResponse { id, version })))
 }
 
@@ -1761,8 +1591,7 @@ pub async fn list_costume_categories<P: Ports>(
         .ports
         .costume_category_repo()
         .list_by_season(season_id)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(views)))
 }
 
@@ -1773,8 +1602,8 @@ pub async fn list_costume_categories<P: Ports>(
     request_body = UpdateCostumeCategoryRequest,
     responses(
         (status = 200, body = AggregateVersion),
-        (status = 400, description = "No update field provided"),
-        (status = 409, body = ErrorResponse),
+        (status = 422, description = "No update field provided"),
+        (status = 409, body = ProblemDetails),
     ),
 )]
 pub async fn update_costume_category<P: Ports>(
@@ -1797,8 +1626,7 @@ pub async fn update_costume_category<P: Ports>(
                     version: req.version,
                 },
             )
-            .await
-            .map_err(map_err)?;
+            .await?;
         return Ok((StatusCode::OK, Json(version)));
     }
     if let Some(order_key) = req.order_key {
@@ -1812,15 +1640,11 @@ pub async fn update_costume_category<P: Ports>(
                     version: req.version,
                 },
             )
-            .await
-            .map_err(map_err)?;
+            .await?;
         return Ok((StatusCode::OK, Json(version)));
     }
-    Err((
-        StatusCode::BAD_REQUEST,
-        Json(ErrorResponse {
-            message: "no update field provided (name or order_key)".into(),
-        }),
+    Err(ApiError::Validation(
+        "no update field provided (name or order_key)",
     ))
 }
 
@@ -1829,7 +1653,7 @@ pub async fn update_costume_category<P: Ports>(
     path = "/costume-categories/{id}/archive",
     params(("id" = Uuid, Path, description = "Costume category id")),
     request_body = VersionRequest,
-    responses((status = 200, body = AggregateVersion), (status = 409, body = ErrorResponse)),
+    responses((status = 200, body = AggregateVersion), (status = 409, body = ProblemDetails)),
 )]
 pub async fn archive_costume_category<P: Ports>(
     State(state): State<AppState<P>>,
@@ -1849,8 +1673,7 @@ pub async fn archive_costume_category<P: Ports>(
                 version: req.version,
             },
         )
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -1869,9 +1692,9 @@ pub async fn archive_costume_category<P: Ports>(
     request_body = InviteMemberRequest,
     responses(
         (status = 204, description = "Invitation created (pending until the invitee accepts)"),
-        (status = 400, body = ErrorResponse, description = "Invalid request (e.g., malformed user_id)"),
-        (status = 403, body = ErrorResponse, description = "Caller is not an active member of the active block (X-Active-Block header)"),
-        (status = 409, body = ErrorResponse, description = "Conflicting state (e.g., user is already a member)"),
+        (status = 400, body = ProblemDetails, description = "Invalid request (e.g., malformed user_id)"),
+        (status = 403, body = ProblemDetails, description = "Caller is not an active member of the active block (X-Active-Block header)"),
+        (status = 409, body = ProblemDetails, description = "Conflicting state (e.g., user is already a member)"),
     ),
 )]
 pub async fn invite_member<P: Ports>(
@@ -1880,13 +1703,7 @@ pub async fn invite_member<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<InviteMemberRequest>,
 ) -> ApiResult<()> {
-    let series_id = state
-        .ports
-        .block_repo()
-        .find_by_id(id)
-        .await
-        .map_err(map_err)?
-        .series_id;
+    let series_id = state.ports.block_repo().find_by_id(id).await?.series_id;
     let cmd = InviteMember {
         block_id: BlockId::from_uuid(id),
         series_id,
@@ -1897,8 +1714,7 @@ pub async fn invite_member<P: Ports>(
         .ports
         .membership_commands()
         .invite(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::NO_CONTENT, Json(())))
 }
 
@@ -1915,8 +1731,8 @@ pub async fn invite_member<P: Ports>(
     params(("id" = Uuid, Path, description = "Block id")),
     responses(
         (status = 204, description = "Invitation accepted; caller is now an active member"),
-        (status = 400, body = ErrorResponse, description = "No pending invitation for the caller in this block"),
-        (status = 403, body = ErrorResponse, description = "Unauthorized"),
+        (status = 409, body = ProblemDetails, description = "No pending invitation for the caller in this block"),
+        (status = 403, body = ProblemDetails, description = "Unauthorized"),
     ),
 )]
 pub async fn accept_invitation<P: Ports>(
@@ -1924,13 +1740,7 @@ pub async fn accept_invitation<P: Ports>(
     current_user: CurrentUser,
     Path(id): Path<Uuid>,
 ) -> ApiResult<()> {
-    let series_id = state
-        .ports
-        .block_repo()
-        .find_by_id(id)
-        .await
-        .map_err(map_err)?
-        .series_id;
+    let series_id = state.ports.block_repo().find_by_id(id).await?.series_id;
     let cmd = AcceptInvitation {
         block_id: BlockId::from_uuid(id),
         series_id,
@@ -1940,8 +1750,7 @@ pub async fn accept_invitation<P: Ports>(
         .ports
         .membership_commands()
         .accept_invitation(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::NO_CONTENT, Json(())))
 }
 
@@ -1956,9 +1765,9 @@ pub async fn accept_invitation<P: Ports>(
     request_body = GrantRoleRequest,
     responses(
         (status = 204, description = "Role updated"),
-        (status = 400, body = ErrorResponse),
-        (status = 403, body = ErrorResponse, description = "Caller is not an active member of the active block"),
-        (status = 404, body = ErrorResponse, description = "Target user is not a member of the block"),
+        (status = 422, body = ProblemDetails, description = "Validation error"),
+        (status = 403, body = ProblemDetails, description = "Caller is not an active member of the active block"),
+        (status = 404, body = ProblemDetails, description = "Target user is not a member of the block"),
     ),
 )]
 pub async fn grant_role<P: Ports>(
@@ -1967,13 +1776,7 @@ pub async fn grant_role<P: Ports>(
     Path((id, user_id)): Path<(Uuid, String)>,
     Json(req): Json<GrantRoleRequest>,
 ) -> ApiResult<()> {
-    let series_id = state
-        .ports
-        .block_repo()
-        .find_by_id(id)
-        .await
-        .map_err(map_err)?
-        .series_id;
+    let series_id = state.ports.block_repo().find_by_id(id).await?.series_id;
     let cmd = GrantRole {
         block_id: BlockId::from_uuid(id),
         series_id,
@@ -1984,8 +1787,7 @@ pub async fn grant_role<P: Ports>(
         .ports
         .membership_commands()
         .grant_role(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::NO_CONTENT, Json(())))
 }
 
@@ -1999,9 +1801,9 @@ pub async fn grant_role<P: Ports>(
     params(("id" = Uuid, Path, description = "Block id"), ("user_id" = String, Path, description = "OIDC sub of the member to remove")),
     responses(
         (status = 204, description = "Member removed"),
-        (status = 400, body = ErrorResponse),
-        (status = 403, body = ErrorResponse, description = "Caller is not an active member of the active block"),
-        (status = 404, body = ErrorResponse, description = "Target user is not a member of the block"),
+        (status = 422, body = ProblemDetails, description = "Validation error"),
+        (status = 403, body = ProblemDetails, description = "Caller is not an active member of the active block"),
+        (status = 404, body = ProblemDetails, description = "Target user is not a member of the block"),
     ),
 )]
 pub async fn remove_member<P: Ports>(
@@ -2009,13 +1811,7 @@ pub async fn remove_member<P: Ports>(
     current_user: CurrentUser,
     Path((id, user_id)): Path<(Uuid, String)>,
 ) -> ApiResult<()> {
-    let series_id = state
-        .ports
-        .block_repo()
-        .find_by_id(id)
-        .await
-        .map_err(map_err)?
-        .series_id;
+    let series_id = state.ports.block_repo().find_by_id(id).await?.series_id;
     let cmd = RemoveMember {
         block_id: BlockId::from_uuid(id),
         series_id,
@@ -2025,8 +1821,7 @@ pub async fn remove_member<P: Ports>(
         .ports
         .membership_commands()
         .remove_member(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::NO_CONTENT, Json(())))
 }
 
@@ -2040,8 +1835,8 @@ pub async fn remove_member<P: Ports>(
     params(("id" = Uuid, Path, description = "Block id")),
     responses(
         (status = 204, description = "Caller left the block"),
-        (status = 400, body = ErrorResponse),
-        (status = 403, body = ErrorResponse, description = "Caller is not an active member of the active block"),
+        (status = 422, body = ProblemDetails, description = "Validation error"),
+        (status = 403, body = ProblemDetails, description = "Caller is not an active member of the active block"),
     ),
 )]
 pub async fn leave_block<P: Ports>(
@@ -2049,13 +1844,7 @@ pub async fn leave_block<P: Ports>(
     current_user: CurrentUser,
     Path(id): Path<Uuid>,
 ) -> ApiResult<()> {
-    let series_id = state
-        .ports
-        .block_repo()
-        .find_by_id(id)
-        .await
-        .map_err(map_err)?
-        .series_id;
+    let series_id = state.ports.block_repo().find_by_id(id).await?.series_id;
     let cmd = LeaveBlock {
         block_id: BlockId::from_uuid(id),
         series_id,
@@ -2064,8 +1853,7 @@ pub async fn leave_block<P: Ports>(
         .ports
         .membership_commands()
         .leave_block(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::NO_CONTENT, Json(())))
 }
 
@@ -2078,8 +1866,8 @@ pub async fn leave_block<P: Ports>(
     params(("id" = Uuid, Path, description = "Block id"), ListParams),
     responses(
         (status = 200, body = Vec<MembershipView>, description = "Members of the block (active and pending)"),
-        (status = 400, body = ErrorResponse, description = "Missing or malformed X-Active-Block header"),
-        (status = 403, body = ErrorResponse, description = "Caller is not an active member of the active block"),
+        (status = 400, body = ProblemDetails, description = "Missing or malformed X-Active-Block header"),
+        (status = 403, body = ProblemDetails, description = "Caller is not an active member of the active block"),
     ),
 )]
 pub async fn list_members<P: Ports>(
@@ -2095,8 +1883,7 @@ pub async fn list_members<P: Ports>(
             params.limit.unwrap_or(50),
             params.offset.unwrap_or(0),
         )
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(views)))
 }
 
@@ -2109,9 +1896,9 @@ pub async fn list_members<P: Ports>(
     params(("id" = Uuid, Path, description = "Block id"), ("user_id" = String, Path, description = "OIDC sub of the member")),
     responses(
         (status = 200, body = MembershipView, description = "Membership of the user in the block"),
-        (status = 400, body = ErrorResponse, description = "Missing or malformed X-Active-Block header"),
-        (status = 403, body = ErrorResponse, description = "Caller is not an active member of the active block"),
-        (status = 404, body = ErrorResponse, description = "Membership not found"),
+        (status = 400, body = ProblemDetails, description = "Missing or malformed X-Active-Block header"),
+        (status = 403, body = ProblemDetails, description = "Caller is not an active member of the active block"),
+        (status = 404, body = ProblemDetails, description = "Membership not found"),
     ),
 )]
 pub async fn get_member<P: Ports>(
@@ -2122,16 +1909,10 @@ pub async fn get_member<P: Ports>(
         .ports
         .membership_repo()
         .find(BlockId::from_uuid(id), UserId::from_sub(user_id))
-        .await
-        .map_err(map_err)?;
+        .await?;
     match view {
         Some(v) => Ok((StatusCode::OK, Json(v))),
-        None => Err((
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                message: "membership not found".to_string(),
-            }),
-        )),
+        None => Err(ApiError::NotFound("membership not found")),
     }
 }
 
@@ -2149,10 +1930,10 @@ pub async fn get_member<P: Ports>(
         content_type = "image/jpeg"),
     responses(
         (status = 201, description = "Photo uploaded", body = PhotoView),
-        (status = 400, body = ErrorResponse, description = "Validation error"),
-        (status = 403, body = ErrorResponse, description = "Not authorized"),
-        (status = 413, body = ErrorResponse, description = "Payload too large"),
-        (status = 415, body = ErrorResponse, description = "Unsupported media type"),
+        (status = 422, body = ProblemDetails, description = "Validation error"),
+        (status = 403, body = ProblemDetails, description = "Not authorized"),
+        (status = 413, body = ProblemDetails, description = "Payload too large"),
+        (status = 415, body = ProblemDetails, description = "Unsupported media type"),
     ),
 )]
 pub async fn upload_costume_photo<P: Ports>(
@@ -2174,20 +1955,12 @@ pub async fn upload_costume_photo<P: Ports>(
         "image/jpeg" | "image/png" | "image/webp"
     ) {
         if content_type == "image/heic" || content_type == "image/heif" {
-            return Err((
-                StatusCode::UNSUPPORTED_MEDIA_TYPE,
-                Json(ErrorResponse {
-                    message: "HEIC/HEIF not supported. Convert to JPEG before upload.".into(),
-                }),
+            return Err(ApiError::UnsupportedMediaType(
+                "HEIC/HEIF not supported. Convert to JPEG before upload.",
             ));
         }
-        return Err((
-            StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            Json(ErrorResponse {
-                message: format!(
-                    "Unsupported content-type: {content_type}. Accepted: image/jpeg, image/png, image/webp"
-                ),
-            }),
+        return Err(ApiError::UnsupportedMediaType(
+            "unsupported photo content type; accepted: image/jpeg, image/png, image/webp",
         ));
     }
 
@@ -2198,42 +1971,23 @@ pub async fn upload_costume_photo<P: Ports>(
         .unwrap_or(20);
     let max_bytes = max_size_mb * 1024 * 1024;
     if body.len() > max_bytes {
-        return Err((
-            StatusCode::PAYLOAD_TOO_LARGE,
-            Json(ErrorResponse {
-                message: format!(
-                    "File exceeds {max_size_mb} MB limit ({:.1} MB)",
-                    body.len() as f64 / (1024.0 * 1024.0)
-                ),
-            }),
+        return Err(ApiError::PayloadTooLarge(
+            "uploaded file exceeds the configured size limit",
         ));
     }
 
     // Fetch the costume to get its season_id for authorization.
-    let costume = state
-        .ports
-        .costume_repo()
-        .find_by_id(costume_id)
-        .await
-        .map_err(map_err)?;
+    let costume = state.ports.costume_repo().find_by_id(costume_id).await?;
 
     // Resolve season_id from the costume's character.
     let season_id = match costume.character_id {
         Some(char_id) => {
-            let character = state
-                .ports
-                .character_repo()
-                .find_by_id(char_id)
-                .await
-                .map_err(map_err)?;
+            let character = state.ports.character_repo().find_by_id(char_id).await?;
             character.season_id
         }
         None => {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    message: "costume has no assigned character — cannot determine season".into(),
-                }),
+            return Err(ApiError::Validation(
+                "costume has no assigned character — cannot determine season",
             ));
         }
     };
@@ -2246,11 +2000,8 @@ pub async fn upload_costume_photo<P: Ports>(
         .await
         .unwrap_or(false);
     if !is_authorized {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                message: "not authorized to upload photos in this season".into(),
-            }),
+        return Err(ApiError::Forbidden(
+            "not authorized to upload photos in this season",
         ));
     }
 
@@ -2268,8 +2019,7 @@ pub async fn upload_costume_photo<P: Ports>(
             body.to_vec(),
             content_type.clone(),
         )
-        .await
-        .map_err(map_err)?;
+        .await?;
 
     // Dispatch UploadPhoto command.
     let series_id = series_id_for_costume(&state, costume_id).await?;
@@ -2287,10 +2037,9 @@ pub async fn upload_costume_photo<P: Ports>(
             },
         )
         .await
-        .map_err(|e| {
+        .inspect_err(|_| {
             // Compensating delete: best-effort, cannot await in sync closure.
             drop(state.ports.photo_storage().delete_all(photo_id));
-            map_err(e)
         })?;
 
     // Dispatch LinkPhoto command on the costume aggregate.
@@ -2309,19 +2058,13 @@ pub async fn upload_costume_photo<P: Ports>(
             },
         )
         .await
-        .map_err(|e| {
+        .inspect_err(|_| {
             // Compensating delete: best-effort, cannot await in sync closure.
             drop(state.ports.photo_storage().delete_all(photo_id));
-            map_err(e)
         })?;
 
     // Read back the projected photo view.
-    let view = state
-        .ports
-        .photo_repo()
-        .find_by_id(photo_id)
-        .await
-        .map_err(map_err)?;
+    let view = state.ports.photo_repo().find_by_id(photo_id).await?;
 
     Ok((StatusCode::CREATED, Json(view)))
 }
@@ -2340,42 +2083,27 @@ pub async fn upload_costume_photo<P: Ports>(
     ),
     responses(
         (status = 200, description = "Photo bytes", content_type = "image/jpeg"),
-        (status = 403, body = ErrorResponse, description = "Not authorized"),
-        (status = 404, body = ErrorResponse, description = "Photo or costume not found"),
+        (status = 403, body = ProblemDetails, description = "Not authorized"),
+        (status = 404, body = ProblemDetails, description = "Photo or costume not found"),
     ),
 )]
 pub async fn get_costume_photo_bytes<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
     Path((costume_id, photo_id)): Path<(Uuid, Uuid)>,
-    query: Query<PhotoBytesQuery>,
-) -> Result<(StatusCode, axum::http::HeaderMap, Vec<u8>), (StatusCode, Json<ErrorResponse>)> {
+    Query(query): Query<PhotoBytesQuery>,
+) -> Result<(StatusCode, axum::http::HeaderMap, Vec<u8>), ApiError> {
     // Fetch the costume to get its season_id for authorization.
-    let costume = state
-        .ports
-        .costume_repo()
-        .find_by_id(costume_id)
-        .await
-        .map_err(map_err)?;
+    let costume = state.ports.costume_repo().find_by_id(costume_id).await?;
 
     // Resolve season_id from the costume's character.
     let season_id = match costume.character_id {
         Some(char_id) => {
-            let character = state
-                .ports
-                .character_repo()
-                .find_by_id(char_id)
-                .await
-                .map_err(map_err)?;
+            let character = state.ports.character_repo().find_by_id(char_id).await?;
             character.season_id
         }
         None => {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    message: "costume has no assigned character".into(),
-                }),
-            ));
+            return Err(ApiError::Validation("costume has no assigned character"));
         }
     };
 
@@ -2387,11 +2115,8 @@ pub async fn get_costume_photo_bytes<P: Ports>(
         .await
         .unwrap_or(false);
     if !is_authorized {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                message: "not authorized to download photos in this season".into(),
-            }),
+        return Err(ApiError::Forbidden(
+            "not authorized to download photos in this season",
         ));
     }
 
@@ -2407,8 +2132,7 @@ pub async fn get_costume_photo_bytes<P: Ports>(
         .ports
         .photo_storage()
         .fetch(PhotoId::from_uuid(photo_id), variant)
-        .await
-        .map_err(map_err)?;
+        .await?;
 
     // Build response headers for streaming.
     let mut headers = axum::http::HeaderMap::new();
@@ -2416,12 +2140,8 @@ pub async fn get_costume_photo_bytes<P: Ports>(
         .content_type
         .parse::<axum::http::HeaderValue>()
         .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    message: format!("invalid content-type in photo metadata: {e}"),
-                }),
-            )
+            tracing::error!(error = %e, "invalid content-type in photo metadata");
+            ApiError::Internal
         })?;
     headers.insert(axum::http::header::CONTENT_TYPE, content_type_header);
     let content_length_header = photo_bytes
@@ -2429,12 +2149,8 @@ pub async fn get_costume_photo_bytes<P: Ports>(
         .to_string()
         .parse::<axum::http::HeaderValue>()
         .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    message: format!("invalid content-length in photo metadata: {e}"),
-                }),
-            )
+            tracing::error!(error = %e, "invalid content-length in photo metadata");
+            ApiError::Internal
         })?;
     headers.insert(axum::http::header::CONTENT_LENGTH, content_length_header);
     headers.insert(
@@ -2446,12 +2162,8 @@ pub async fn get_costume_photo_bytes<P: Ports>(
     );
     if let Some(ref etag) = photo_bytes.etag {
         let etag_header = etag.parse::<axum::http::HeaderValue>().map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    message: format!("invalid etag in photo metadata: {e}"),
-                }),
-            )
+            tracing::error!(error = %e, "invalid etag in photo metadata");
+            ApiError::Internal
         })?;
         headers.insert(axum::http::header::ETAG, etag_header);
     }
@@ -2472,8 +2184,8 @@ pub async fn get_costume_photo_bytes<P: Ports>(
     ),
     responses(
         (status = 204, description = "Photo unlinked"),
-        (status = 403, body = ErrorResponse, description = "Not authorized"),
-        (status = 404, body = ErrorResponse, description = "Costume not found"),
+        (status = 403, body = ProblemDetails, description = "Not authorized"),
+        (status = 404, body = ProblemDetails, description = "Costume not found"),
     ),
 )]
 pub async fn delete_costume_photo<P: Ports>(
@@ -2482,31 +2194,16 @@ pub async fn delete_costume_photo<P: Ports>(
     Path((costume_id, photo_id)): Path<(Uuid, Uuid)>,
 ) -> ApiResult<()> {
     // Fetch the costume to get its season_id for authorization.
-    let costume = state
-        .ports
-        .costume_repo()
-        .find_by_id(costume_id)
-        .await
-        .map_err(map_err)?;
+    let costume = state.ports.costume_repo().find_by_id(costume_id).await?;
 
     // Resolve season_id from the costume's character.
     let season_id = match costume.character_id {
         Some(char_id) => {
-            let character = state
-                .ports
-                .character_repo()
-                .find_by_id(char_id)
-                .await
-                .map_err(map_err)?;
+            let character = state.ports.character_repo().find_by_id(char_id).await?;
             character.season_id
         }
         None => {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    message: "costume has no assigned character".into(),
-                }),
-            ));
+            return Err(ApiError::Validation("costume has no assigned character"));
         }
     };
 
@@ -2518,11 +2215,8 @@ pub async fn delete_costume_photo<P: Ports>(
         .await
         .unwrap_or(false);
     if !is_authorized {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                message: "not authorized to delete photos in this season".into(),
-            }),
+        return Err(ApiError::Forbidden(
+            "not authorized to delete photos in this season",
         ));
     }
 
@@ -2540,8 +2234,7 @@ pub async fn delete_costume_photo<P: Ports>(
                 version: costume.version,
             },
         )
-        .await
-        .map_err(map_err)?;
+        .await?;
 
     Ok((StatusCode::NO_CONTENT, Json(())))
 }
@@ -2645,11 +2338,8 @@ pub async fn plan_scene_shoot<P: Ports>(
     Json(req): Json<PlanSceneShootRequest>,
 ) -> ApiResult<IdVersionResponse> {
     if req.shooting_day_id != day_id {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                message: "shooting_day_id in body must match path parameter".into(),
-            }),
+        return Err(ApiError::BadRequest(
+            "shooting_day_id in body must match path parameter",
         ));
     }
     let id = SceneShootId::new();
@@ -2665,8 +2355,7 @@ pub async fn plan_scene_shoot<P: Ports>(
         .ports
         .scene_shoot_commands()
         .plan(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((
         StatusCode::CREATED,
         Json(IdVersionResponse { id: id.0, version }),
@@ -2696,8 +2385,7 @@ pub async fn replan_scene_shoot<P: Ports>(
         .ports
         .scene_shoot_commands()
         .replan(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -2724,8 +2412,7 @@ pub async fn start_scene_shoot<P: Ports>(
         .ports
         .scene_shoot_commands()
         .start(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -2752,8 +2439,7 @@ pub async fn set_actual_order<P: Ports>(
         .ports
         .scene_shoot_commands()
         .set_actual_order(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -2780,8 +2466,7 @@ pub async fn finish_scene_shoot<P: Ports>(
         .ports
         .scene_shoot_commands()
         .finish(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -2807,8 +2492,7 @@ pub async fn skip_scene_shoot<P: Ports>(
         .ports
         .scene_shoot_commands()
         .skip(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -2821,12 +2505,7 @@ pub async fn get_scene_shoot<P: Ports>(
     State(state): State<AppState<P>>,
     Path((_day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
 ) -> ApiResult<SceneShootView> {
-    let view = state
-        .ports
-        .scene_shoot_repo()
-        .find_by_id(shoot_id)
-        .await
-        .map_err(map_err)?;
+    let view = state.ports.scene_shoot_repo().find_by_id(shoot_id).await?;
     Ok((StatusCode::OK, Json(view)))
 }
 
@@ -2843,8 +2522,7 @@ pub async fn list_scene_shoots<P: Ports>(
         .ports
         .scene_shoot_repo()
         .list_by_shooting_day(day_id)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(views)))
 }
 
@@ -2877,8 +2555,7 @@ pub async fn add_scene_shoot_note<P: Ports>(
         .ports
         .scene_shoot_commands()
         .add_note(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -2906,8 +2583,7 @@ pub async fn update_scene_shoot_note<P: Ports>(
         .ports
         .scene_shoot_commands()
         .update_note(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -2933,8 +2609,7 @@ pub async fn remove_scene_shoot_note<P: Ports>(
         .ports
         .scene_shoot_commands()
         .remove_note(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -2956,24 +2631,17 @@ pub async fn link_continuity_photo<P: Ports>(
 ) -> ApiResult<AggregateVersion> {
     // AUTHZ-GATE: handler-internal auth gate for authenticated-only routes
     // Resolve season_id from the shoot_day's episode → block → season chain.
-    let shooting_day = state
-        .ports
-        .shooting_day_repo()
-        .find_by_id(day_id)
-        .await
-        .map_err(map_err)?;
+    let shooting_day = state.ports.shooting_day_repo().find_by_id(day_id).await?;
     let episode = state
         .ports
         .episode_repo()
         .find_by_id(shooting_day.episode_id.0)
-        .await
-        .map_err(map_err)?;
+        .await?;
     let block = state
         .ports
         .block_repo()
         .find_by_id(episode.block_id.0)
-        .await
-        .map_err(map_err)?;
+        .await?;
     // block.season_id is a SeasonId — extract inner Uuid
     let season_id = block.season_id;
 
@@ -2984,11 +2652,8 @@ pub async fn link_continuity_photo<P: Ports>(
         .await
         .unwrap_or(false);
     if !is_authorized {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                message: "not authorized to link continuity photos".into(),
-            }),
+        return Err(ApiError::Forbidden(
+            "not authorized to link continuity photos",
         ));
     }
 
@@ -3003,8 +2668,7 @@ pub async fn link_continuity_photo<P: Ports>(
         .ports
         .scene_shoot_commands()
         .link_continuity_photo(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -3017,12 +2681,7 @@ pub async fn list_continuity_photos<P: Ports>(
     State(state): State<AppState<P>>,
     Path((_day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
 ) -> ApiResult<Vec<PhotoId>> {
-    let view = state
-        .ports
-        .scene_shoot_repo()
-        .find_by_id(shoot_id)
-        .await
-        .map_err(map_err)?;
+    let view = state.ports.scene_shoot_repo().find_by_id(shoot_id).await?;
     Ok((StatusCode::OK, Json(view.continuity_photo_ids)))
 }
 
@@ -3044,24 +2703,17 @@ pub async fn unlink_continuity_photo<P: Ports>(
 ) -> ApiResult<AggregateVersion> {
     // AUTHZ-GATE: handler-internal auth gate for authenticated-only routes
     // Resolve season_id from the shoot_day's episode → block → season chain.
-    let shooting_day = state
-        .ports
-        .shooting_day_repo()
-        .find_by_id(day_id)
-        .await
-        .map_err(map_err)?;
+    let shooting_day = state.ports.shooting_day_repo().find_by_id(day_id).await?;
     let episode = state
         .ports
         .episode_repo()
         .find_by_id(shooting_day.episode_id.0)
-        .await
-        .map_err(map_err)?;
+        .await?;
     let block = state
         .ports
         .block_repo()
         .find_by_id(episode.block_id.0)
-        .await
-        .map_err(map_err)?;
+        .await?;
     let season_id = block.season_id;
 
     let is_authorized = state
@@ -3071,11 +2723,8 @@ pub async fn unlink_continuity_photo<P: Ports>(
         .await
         .unwrap_or(false);
     if !is_authorized {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                message: "not authorized to unlink continuity photos".into(),
-            }),
+        return Err(ApiError::Forbidden(
+            "not authorized to unlink continuity photos",
         ));
     }
 
@@ -3090,8 +2739,7 @@ pub async fn unlink_continuity_photo<P: Ports>(
         .ports
         .scene_shoot_commands()
         .unlink_continuity_photo(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -3122,8 +2770,7 @@ pub async fn wrap_shooting_day<P: Ports>(
         .ports
         .shooting_day_commands()
         .wrap(current_user.sub.clone(), cmd)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -3142,24 +2789,17 @@ pub async fn dispo_report<P: Ports>(
     Path(id): Path<ShootingDayId>,
 ) -> ApiResult<Vec<DispoRow>> {
     // AUTHZ-GATE: handler-internal auth gate
-    let shooting_day = state
-        .ports
-        .shooting_day_repo()
-        .find_by_id(id)
-        .await
-        .map_err(map_err)?;
+    let shooting_day = state.ports.shooting_day_repo().find_by_id(id).await?;
     let episode = state
         .ports
         .episode_repo()
         .find_by_id(shooting_day.episode_id.0)
-        .await
-        .map_err(map_err)?;
+        .await?;
     let block = state
         .ports
         .block_repo()
         .find_by_id(episode.block_id.0)
-        .await
-        .map_err(map_err)?;
+        .await?;
     let is_authorized = state
         .ports
         .membership_repo()
@@ -3167,20 +2807,14 @@ pub async fn dispo_report<P: Ports>(
         .await
         .unwrap_or(false);
     if !is_authorized {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                message: "not authorized to view reports".into(),
-            }),
-        ));
+        return Err(ApiError::Forbidden("not authorized to view reports"));
     }
 
     let rows = state
         .ports
         .scene_shoot_report_repo()
         .dispo_report(id)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(rows)))
 }
 
@@ -3195,24 +2829,17 @@ pub async fn shoot_day_report<P: Ports>(
     Path(id): Path<ShootingDayId>,
 ) -> ApiResult<Vec<ShootDayRow>> {
     // AUTHZ-GATE: handler-internal auth gate
-    let shooting_day = state
-        .ports
-        .shooting_day_repo()
-        .find_by_id(id)
-        .await
-        .map_err(map_err)?;
+    let shooting_day = state.ports.shooting_day_repo().find_by_id(id).await?;
     let episode = state
         .ports
         .episode_repo()
         .find_by_id(shooting_day.episode_id.0)
-        .await
-        .map_err(map_err)?;
+        .await?;
     let block = state
         .ports
         .block_repo()
         .find_by_id(episode.block_id.0)
-        .await
-        .map_err(map_err)?;
+        .await?;
     let is_authorized = state
         .ports
         .membership_repo()
@@ -3220,20 +2847,14 @@ pub async fn shoot_day_report<P: Ports>(
         .await
         .unwrap_or(false);
     if !is_authorized {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                message: "not authorized to view reports".into(),
-            }),
-        ));
+        return Err(ApiError::Forbidden("not authorized to view reports"));
     }
 
     let rows = state
         .ports
         .scene_shoot_report_repo()
         .shoot_day_report(id)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(rows)))
 }
 
@@ -3248,24 +2869,17 @@ pub async fn soll_ist_report<P: Ports>(
     Path(id): Path<ShootingDayId>,
 ) -> ApiResult<SollIstReport> {
     // AUTHZ-GATE: handler-internal auth gate
-    let shooting_day = state
-        .ports
-        .shooting_day_repo()
-        .find_by_id(id)
-        .await
-        .map_err(map_err)?;
+    let shooting_day = state.ports.shooting_day_repo().find_by_id(id).await?;
     let episode = state
         .ports
         .episode_repo()
         .find_by_id(shooting_day.episode_id.0)
-        .await
-        .map_err(map_err)?;
+        .await?;
     let block = state
         .ports
         .block_repo()
         .find_by_id(episode.block_id.0)
-        .await
-        .map_err(map_err)?;
+        .await?;
     let is_authorized = state
         .ports
         .membership_repo()
@@ -3273,20 +2887,14 @@ pub async fn soll_ist_report<P: Ports>(
         .await
         .unwrap_or(false);
     if !is_authorized {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                message: "not authorized to view reports".into(),
-            }),
-        ));
+        return Err(ApiError::Forbidden("not authorized to view reports"));
     }
 
     let report = state
         .ports
         .scene_shoot_report_repo()
         .soll_ist_report(id)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(report)))
 }
 
@@ -3308,33 +2916,14 @@ pub fn sanitize_pdf_filename(kind: &str, locale: &str) -> String {
     format!("report-{}-{}.pdf", safe_kind, safe_locale)
 }
 
-/// Map a `ReportRenderError` to an HTTP status code and error response.
+/// Map a `ReportRenderError` to an `ApiError` (ADR-031).
+///
+/// The status/code mapping (422 limits, 408 timeout, 500 otherwise) lives in
+/// `crate::problems::report_render_problem`; per-code registry entries land
+/// in Tranche 2.
 #[allow(dead_code)]
-pub fn map_render_error(
-    err: breakdown_core::reporting::ReportRenderError,
-) -> (StatusCode, Json<ErrorResponse>) {
-    use breakdown_core::reporting::ReportRenderError;
-    match err {
-        ReportRenderError::PageLimitExceeded { .. }
-        | ReportRenderError::InputBoundsExceeded { .. } => (
-            StatusCode::UNPROCESSABLE_ENTITY,
-            Json(ErrorResponse {
-                message: err.to_string(),
-            }),
-        ),
-        ReportRenderError::RenderTimeout => (
-            StatusCode::REQUEST_TIMEOUT,
-            Json(ErrorResponse {
-                message: err.to_string(),
-            }),
-        ),
-        _ => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                message: err.to_string(),
-            }),
-        ),
-    }
+pub fn map_render_error(err: breakdown_core::reporting::ReportRenderError) -> ApiError {
+    ApiError::ReportRender(err)
 }
 
 #[utoipa::path(
@@ -3346,26 +2935,19 @@ pub async fn dispo_report_pdf<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
     Path(id): Path<ShootingDayId>,
-) -> Result<(StatusCode, HeaderMap, Vec<u8>), (StatusCode, Json<ErrorResponse>)> {
+) -> Result<(StatusCode, HeaderMap, Vec<u8>), ApiError> {
     // AUTHZ-GATE: handler-internal auth gate
-    let shooting_day = state
-        .ports
-        .shooting_day_repo()
-        .find_by_id(id)
-        .await
-        .map_err(map_err)?;
+    let shooting_day = state.ports.shooting_day_repo().find_by_id(id).await?;
     let episode = state
         .ports
         .episode_repo()
         .find_by_id(shooting_day.episode_id.0)
-        .await
-        .map_err(map_err)?;
+        .await?;
     let block = state
         .ports
         .block_repo()
         .find_by_id(episode.block_id.0)
-        .await
-        .map_err(map_err)?;
+        .await?;
     let is_authorized = state
         .ports
         .membership_repo()
@@ -3373,12 +2955,7 @@ pub async fn dispo_report_pdf<P: Ports>(
         .await
         .unwrap_or(false);
     if !is_authorized {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                message: "not authorized to view reports".into(),
-            }),
-        ));
+        return Err(ApiError::Forbidden("not authorized to view reports"));
     }
 
     // Query report data
@@ -3386,8 +2963,7 @@ pub async fn dispo_report_pdf<P: Ports>(
         .ports
         .scene_shoot_report_repo()
         .dispo_report(id)
-        .await
-        .map_err(map_err)?;
+        .await?;
 
     // Render PDF via shared renderer
     let req = ReportRenderRequest {
@@ -3398,12 +2974,8 @@ pub async fn dispo_report_pdf<P: Ports>(
             template_version: TEMPLATE_VERSION.to_string(),
         },
         data: serde_json::to_value(rows).map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    message: format!("serialization error: {e}"),
-                }),
-            )
+            tracing::error!(error = %e, "report serialization failed");
+            ApiError::Internal
         })?,
     };
     let renderer = state.ports.report_renderer_ref();
@@ -3414,12 +2986,8 @@ pub async fn dispo_report_pdf<P: Ports>(
         .content_type
         .parse::<axum::http::HeaderValue>()
         .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    message: format!("renderer produced invalid content-type: {e}"),
-                }),
-            )
+            tracing::error!(error = %e, "renderer produced invalid content-type");
+            ApiError::Internal
         })?;
     headers.insert(axum::http::header::CONTENT_TYPE, content_type_value);
     let disposition_format = format!(
@@ -3429,12 +2997,8 @@ pub async fn dispo_report_pdf<P: Ports>(
     let disposition_value = disposition_format
         .parse::<axum::http::HeaderValue>()
         .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    message: "failed to construct Content-Disposition header".into(),
-                }),
-            )
+            tracing::error!("failed to construct Content-Disposition header");
+            ApiError::Internal
         })?;
     headers.insert(axum::http::header::CONTENT_DISPOSITION, disposition_value);
     Ok((StatusCode::OK, headers, rendered.pdf_bytes))
@@ -3449,26 +3013,19 @@ pub async fn shoot_day_report_pdf<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
     Path(id): Path<ShootingDayId>,
-) -> Result<(StatusCode, HeaderMap, Vec<u8>), (StatusCode, Json<ErrorResponse>)> {
+) -> Result<(StatusCode, HeaderMap, Vec<u8>), ApiError> {
     // AUTHZ-GATE: handler-internal auth gate
-    let shooting_day = state
-        .ports
-        .shooting_day_repo()
-        .find_by_id(id)
-        .await
-        .map_err(map_err)?;
+    let shooting_day = state.ports.shooting_day_repo().find_by_id(id).await?;
     let episode = state
         .ports
         .episode_repo()
         .find_by_id(shooting_day.episode_id.0)
-        .await
-        .map_err(map_err)?;
+        .await?;
     let block = state
         .ports
         .block_repo()
         .find_by_id(episode.block_id.0)
-        .await
-        .map_err(map_err)?;
+        .await?;
     let is_authorized = state
         .ports
         .membership_repo()
@@ -3476,12 +3033,7 @@ pub async fn shoot_day_report_pdf<P: Ports>(
         .await
         .unwrap_or(false);
     if !is_authorized {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                message: "not authorized to view reports".into(),
-            }),
-        ));
+        return Err(ApiError::Forbidden("not authorized to view reports"));
     }
 
     // Query report data
@@ -3489,8 +3041,7 @@ pub async fn shoot_day_report_pdf<P: Ports>(
         .ports
         .scene_shoot_report_repo()
         .shoot_day_report(id)
-        .await
-        .map_err(map_err)?;
+        .await?;
 
     // Render PDF via shared renderer
     let req = ReportRenderRequest {
@@ -3501,12 +3052,8 @@ pub async fn shoot_day_report_pdf<P: Ports>(
             template_version: TEMPLATE_VERSION.to_string(),
         },
         data: serde_json::to_value(rows).map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    message: format!("serialization error: {e}"),
-                }),
-            )
+            tracing::error!(error = %e, "report serialization failed");
+            ApiError::Internal
         })?,
     };
     let renderer = state.ports.report_renderer_ref();
@@ -3517,12 +3064,8 @@ pub async fn shoot_day_report_pdf<P: Ports>(
         .content_type
         .parse::<axum::http::HeaderValue>()
         .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    message: format!("renderer produced invalid content-type: {e}"),
-                }),
-            )
+            tracing::error!(error = %e, "renderer produced invalid content-type");
+            ApiError::Internal
         })?;
     headers.insert(axum::http::header::CONTENT_TYPE, content_type_value);
     let disposition_format = format!(
@@ -3532,12 +3075,8 @@ pub async fn shoot_day_report_pdf<P: Ports>(
     let disposition_value = disposition_format
         .parse::<axum::http::HeaderValue>()
         .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    message: "failed to construct Content-Disposition header".into(),
-                }),
-            )
+            tracing::error!("failed to construct Content-Disposition header");
+            ApiError::Internal
         })?;
     headers.insert(axum::http::header::CONTENT_DISPOSITION, disposition_value);
     Ok((StatusCode::OK, headers, rendered.pdf_bytes))
@@ -3552,26 +3091,19 @@ pub async fn planned_vs_actual_report_pdf<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
     Path(id): Path<ShootingDayId>,
-) -> Result<(StatusCode, HeaderMap, Vec<u8>), (StatusCode, Json<ErrorResponse>)> {
+) -> Result<(StatusCode, HeaderMap, Vec<u8>), ApiError> {
     // AUTHZ-GATE: handler-internal auth gate
-    let shooting_day = state
-        .ports
-        .shooting_day_repo()
-        .find_by_id(id)
-        .await
-        .map_err(map_err)?;
+    let shooting_day = state.ports.shooting_day_repo().find_by_id(id).await?;
     let episode = state
         .ports
         .episode_repo()
         .find_by_id(shooting_day.episode_id.0)
-        .await
-        .map_err(map_err)?;
+        .await?;
     let block = state
         .ports
         .block_repo()
         .find_by_id(episode.block_id.0)
-        .await
-        .map_err(map_err)?;
+        .await?;
     let is_authorized = state
         .ports
         .membership_repo()
@@ -3579,12 +3111,7 @@ pub async fn planned_vs_actual_report_pdf<P: Ports>(
         .await
         .unwrap_or(false);
     if !is_authorized {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                message: "not authorized to view reports".into(),
-            }),
-        ));
+        return Err(ApiError::Forbidden("not authorized to view reports"));
     }
 
     // Query report data
@@ -3592,8 +3119,7 @@ pub async fn planned_vs_actual_report_pdf<P: Ports>(
         .ports
         .scene_shoot_report_repo()
         .soll_ist_report(id)
-        .await
-        .map_err(map_err)?;
+        .await?;
 
     // Render PDF via shared renderer
     let req = ReportRenderRequest {
@@ -3604,12 +3130,8 @@ pub async fn planned_vs_actual_report_pdf<P: Ports>(
             template_version: TEMPLATE_VERSION.to_string(),
         },
         data: serde_json::to_value(report).map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    message: format!("serialization error: {e}"),
-                }),
-            )
+            tracing::error!(error = %e, "report serialization failed");
+            ApiError::Internal
         })?,
     };
     let renderer = state.ports.report_renderer_ref();
@@ -3620,12 +3142,8 @@ pub async fn planned_vs_actual_report_pdf<P: Ports>(
         .content_type
         .parse::<axum::http::HeaderValue>()
         .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    message: format!("renderer produced invalid content-type: {e}"),
-                }),
-            )
+            tracing::error!(error = %e, "renderer produced invalid content-type");
+            ApiError::Internal
         })?;
     headers.insert(axum::http::header::CONTENT_TYPE, content_type_value);
     let disposition_format = format!(
@@ -3635,12 +3153,8 @@ pub async fn planned_vs_actual_report_pdf<P: Ports>(
     let disposition_value = disposition_format
         .parse::<axum::http::HeaderValue>()
         .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    message: "failed to construct Content-Disposition header".into(),
-                }),
-            )
+            tracing::error!("failed to construct Content-Disposition header");
+            ApiError::Internal
         })?;
     headers.insert(axum::http::header::CONTENT_DISPOSITION, disposition_value);
     Ok((StatusCode::OK, headers, rendered.pdf_bytes))
@@ -3681,26 +3195,19 @@ pub async fn manual_archive_reports<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
     Path(id): Path<ShootingDayId>,
-) -> Result<(StatusCode, Json<ManualArchiveResponse>), (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<ManualArchiveResponse> {
     // Resolve shooting day → episode → block → season (fail closed).
-    let shooting_day = state
-        .ports
-        .shooting_day_repo()
-        .find_by_id(id)
-        .await
-        .map_err(map_err)?;
+    let shooting_day = state.ports.shooting_day_repo().find_by_id(id).await?;
     let episode = state
         .ports
         .episode_repo()
         .find_by_id(shooting_day.episode_id.0)
-        .await
-        .map_err(map_err)?;
+        .await?;
     let block = state
         .ports
         .block_repo()
         .find_by_id(episode.block_id.0)
-        .await
-        .map_err(map_err)?;
+        .await?;
 
     // AUTHZ-GATE: manual archive — CostumeDesigner + WardrobeSupervisor only
     // (stricter than PDF routes; CostumeAssistant is excluded). Fail closed.
@@ -3711,11 +3218,8 @@ pub async fn manual_archive_reports<P: Ports>(
         .await
         .unwrap_or(false);
     if !is_authorized {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                message: "not authorized to enqueue report archival".into(),
-            }),
+        return Err(ApiError::Forbidden(
+            "not authorized to enqueue report archival",
         ));
     }
 
@@ -3741,12 +3245,8 @@ pub async fn manual_archive_reports<P: Ports>(
             .enqueue(req)
             .await
             .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        message: e.to_string(),
-                    }),
-                )
+                tracing::error!(error = %e, "failed to enqueue manual report archival job");
+                ApiError::Internal
             })?;
         jobs.push(ManualArchiveJobResult {
             kind: kind.to_string(),
@@ -3765,9 +3265,9 @@ pub async fn manual_archive_reports<P: Ports>(
     request_body = GDriveCredentialRequest,
     responses(
         (status = 201, description = "GDrive credential reference created", body = IdVersionResponse),
-        (status = 400, description = "Invalid GDrive credential bundle", body = ErrorResponse),
-        (status = 403, description = "Credential management forbidden", body = ErrorResponse),
-        (status = 503, description = "Vault unavailable", body = ErrorResponse)
+        (status = 400, description = "Invalid GDrive credential bundle", body = ProblemDetails),
+        (status = 403, description = "Credential management forbidden", body = ProblemDetails),
+        (status = 503, description = "Vault unavailable", body = ProblemDetails)
     )
 )]
 pub async fn create_gdrive_credential<P: Ports>(
@@ -3784,21 +3284,17 @@ pub async fn create_gdrive_credential<P: Ports>(
         .await
         .unwrap_or(false);
     if !authorized {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                message: "not authorized to manage external credentials".into(),
-            }),
+        return Err(ApiError::Forbidden(
+            "not authorized to manage external credentials",
         ));
     }
     let id = Uuid::now_v7();
-    let bundle = req.into_bundle().map_err(map_err)?;
+    let bundle = req.into_bundle()?;
     let binding = state
         .ports
         .credential_vault()
         .store_gdrive(id, bundle)
-        .await
-        .map_err(map_err)?;
+        .await?;
     let cmd = CreateCredentialBinding {
         id,
         provider: "gdrive".into(),
@@ -3825,7 +3321,7 @@ pub async fn create_gdrive_credential<P: Ports>(
                     "failed to compensate GDrive Vault write"
                 );
             }
-            Err(map_err(err))
+            Err(ApiError::from(err))
         }
     }
 }
@@ -3837,11 +3333,11 @@ pub async fn create_gdrive_credential<P: Ports>(
     params(("id" = Uuid, Path, description = "Settings id")),
     responses(
         (status = 200, description = "GDrive credential reference rotated", body = IdVersionResponse),
-        (status = 400, description = "Invalid GDrive credential bundle", body = ErrorResponse),
-        (status = 403, description = "Credential management forbidden", body = ErrorResponse),
-        (status = 404, body = ErrorResponse),
-        (status = 409, description = "GDrive binding cannot be rotated", body = ErrorResponse),
-        (status = 503, description = "Vault unavailable", body = ErrorResponse)
+        (status = 400, description = "Invalid GDrive credential bundle", body = ProblemDetails),
+        (status = 403, description = "Credential management forbidden", body = ProblemDetails),
+        (status = 404, body = ProblemDetails),
+        (status = 409, description = "GDrive binding cannot be rotated", body = ProblemDetails),
+        (status = 503, description = "Vault unavailable", body = ProblemDetails)
     )
 )]
 pub async fn rotate_gdrive_credential<P: Ports>(
@@ -3859,36 +3355,24 @@ pub async fn rotate_gdrive_credential<P: Ports>(
         .await
         .unwrap_or(false);
     if !authorized {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                message: "not authorized to manage external credentials".into(),
-            }),
+        return Err(ApiError::Forbidden(
+            "not authorized to manage external credentials",
         ));
     }
-    let view = state
-        .ports
-        .settings_repo()
-        .find_by_id(id)
-        .await
-        .map_err(map_err)?;
+    let view = state.ports.settings_repo().find_by_id(id).await?;
     if view.provider != "gdrive"
         || view.binding_state == breakdown_core::settings::views::CredentialBindingState::Revoked
     {
-        return Err((
-            StatusCode::CONFLICT,
-            Json(ErrorResponse {
-                message: "non-revoked GDrive credential binding required".into(),
-            }),
+        return Err(ApiError::Conflict(
+            "non-revoked GDrive credential binding required",
         ));
     }
-    let bundle = req.bundle.into_bundle().map_err(map_err)?;
+    let bundle = req.bundle.into_bundle()?;
     let binding = state
         .ports
         .credential_vault()
         .store_gdrive(id, bundle)
-        .await
-        .map_err(map_err)?;
+        .await?;
     let binding_ref = breakdown_core::settings::ports::VaultBinding {
         vault_key_id: binding.vault_key_id.clone(),
         vault_version: binding.vault_version,
@@ -3903,6 +3387,7 @@ pub async fn rotate_gdrive_credential<P: Ports>(
     )
     .await
     {
+        tracing::error!(error = %error, "candidate GDrive binding failed provider validation");
         if let Err(destroy_err) = state
             .ports
             .credential_vault()
@@ -3915,11 +3400,8 @@ pub async fn rotate_gdrive_credential<P: Ports>(
                 "failed to compensate unvalidated GDrive Vault binding"
             );
         }
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ErrorResponse {
-                message: error.to_string(),
-            }),
+        return Err(ApiError::ServiceUnavailable(
+            "credential provider is temporarily unavailable",
         ));
     }
     let cmd = RotateCredentialBinding {
@@ -3965,7 +3447,7 @@ pub async fn rotate_gdrive_credential<P: Ports>(
                     "failed to compensate rotated GDrive Vault binding"
                 );
             }
-            Err(map_err(err))
+            Err(ApiError::from(err))
         }
     }
 }
@@ -3983,7 +3465,7 @@ pub struct GDriveCredentialUpdateRequest {
     request_body = CreateCredentialRequest,
     responses(
         (status = 201, description = "Credential reference created", body = IdVersionResponse),
-        (status = 503, description = "Vault unavailable", body = ErrorResponse)
+        (status = 503, description = "Vault unavailable", body = ProblemDetails)
     )
 )]
 pub async fn create_credential<P: Ports>(
@@ -4000,28 +3482,19 @@ pub async fn create_credential<P: Ports>(
         .await
         .unwrap_or(false);
     if !authorized {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                message: "not authorized to manage external credentials".into(),
-            }),
+        return Err(ApiError::Forbidden(
+            "not authorized to manage external credentials",
         ));
     }
     if req.provider.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                message: "provider must not be empty".into(),
-            }),
-        ));
+        return Err(ApiError::Validation("provider must not be empty"));
     }
     let id = Uuid::now_v7();
     let binding = state
         .ports
         .credential_vault()
         .store(id, &req.provider, SecretValue::new(req.secret))
-        .await
-        .map_err(map_err)?;
+        .await?;
     let cmd = CreateCredentialBinding {
         id,
         provider: req.provider,
@@ -4051,7 +3524,7 @@ pub async fn create_credential<P: Ports>(
                     "failed to compensate Vault write after command persistence failure"
                 );
             }
-            Err(map_err(err))
+            Err(ApiError::from(err))
         }
     }
 }
@@ -4060,7 +3533,7 @@ pub async fn create_credential<P: Ports>(
     get,
     path = "/settings/{id}",
     params(("id" = Uuid, Path, description = "Settings id")),
-    responses((status = 200, body = SettingsView), (status = 404, body = ErrorResponse))
+    responses((status = 200, body = SettingsView), (status = 404, body = ProblemDetails))
 )]
 pub async fn get_settings<P: Ports>(
     State(state): State<AppState<P>>,
@@ -4076,19 +3549,11 @@ pub async fn get_settings<P: Ports>(
         .await
         .unwrap_or(false);
     if !authorized {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                message: "not authorized to manage external credentials".into(),
-            }),
+        return Err(ApiError::Forbidden(
+            "not authorized to manage external credentials",
         ));
     }
-    let mut view = state
-        .ports
-        .settings_repo()
-        .find_by_id(id)
-        .await
-        .map_err(map_err)?;
+    let mut view = state.ports.settings_repo().find_by_id(id).await?;
     if view.binding_state == breakdown_core::settings::views::CredentialBindingState::Active
         && state.ports.credential_vault().check().await.is_err()
     {
@@ -4102,7 +3567,7 @@ pub async fn get_settings<P: Ports>(
     path = "/settings/{id}",
     params(("id" = Uuid, Path, description = "Settings id")),
     request_body = VersionRequest,
-    responses((status = 200, body = AggregateVersion), (status = 503, body = ErrorResponse))
+    responses((status = 200, body = AggregateVersion), (status = 503, body = ProblemDetails))
 )]
 pub async fn revoke_settings<P: Ports>(
     State(state): State<AppState<P>>,
@@ -4119,19 +3584,11 @@ pub async fn revoke_settings<P: Ports>(
         .await
         .unwrap_or(false);
     if !authorized {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                message: "not authorized to manage external credentials".into(),
-            }),
+        return Err(ApiError::Forbidden(
+            "not authorized to manage external credentials",
         ));
     }
-    let view = state
-        .ports
-        .settings_repo()
-        .find_by_id(id)
-        .await
-        .map_err(map_err)?;
+    let view = state.ports.settings_repo().find_by_id(id).await?;
     let version = state
         .ports
         .settings_commands()
@@ -4142,8 +3599,7 @@ pub async fn revoke_settings<P: Ports>(
                 version: req.version,
             },
         )
-        .await
-        .map_err(map_err)?;
+        .await?;
     // The binding is now revoked in the aggregate. Destroy the Vault secret
     // best-effort; cleanup failure must not undo the successful revocation.
     if let Err(err) = state
@@ -4165,27 +3621,17 @@ async fn authorize_ai_block<P: Ports>(
     state: &AppState<P>,
     current_user: &CurrentUser,
     headers: &HeaderMap,
-) -> Result<BlockId, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<BlockId, ApiError> {
     let raw = headers
         .get("x-active-block")
         .and_then(|value| value.to_str().ok())
-        .ok_or_else(|| {
-            map_err(DomainError::ValidationError(
-                "X-Active-Block header is required for AI import".to_owned(),
-            ))
-        })?;
-    let uuid = Uuid::parse_str(raw).map_err(|error| {
-        map_err(DomainError::ValidationError(format!(
-            "invalid X-Active-Block header: {error}"
-        )))
-    })?;
+        .ok_or(ApiError::BadRequest(
+            "X-Active-Block header is required for AI import",
+        ))?;
+    let uuid =
+        Uuid::parse_str(raw).map_err(|_| ApiError::BadRequest("invalid X-Active-Block header"))?;
     let block_id = BlockId::from_uuid(uuid);
-    let block = state
-        .ports
-        .block_repo()
-        .find_by_id(uuid)
-        .await
-        .map_err(map_err)?;
+    let block = state.ports.block_repo().find_by_id(uuid).await?;
     // AUTHZ-GATE: block-scoped AI import (script/schedule upload, apply)
     // requires active costume-dept membership in the block's season — decided
     // via the (fallible) season policy so read-model failures surface as
@@ -4197,14 +3643,10 @@ async fn authorize_ai_block<P: Ports>(
             season_id: block.season_id,
             action: Action::Write,
         })
-        .await
-        .map_err(map_err)?;
+        .await?;
     if decision != PolicyDecision::Allow {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                message: "not authorized for this production block".to_owned(),
-            }),
+        return Err(ApiError::Forbidden(
+            "not authorized for this production block",
         ));
     }
     Ok(block_id)
@@ -4215,17 +3657,12 @@ async fn authorize_ai_job<P: Ports>(
     current_user: &CurrentUser,
     job: &breakdown_core::ai::AiImportJob,
     action: Action,
-) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+) -> Result<(), ApiError> {
     if job.user_id != current_user.sub {
         return Err(forbidden_ai_config());
     }
     if let Some(block_id) = job.block_id {
-        let block = state
-            .ports
-            .block_repo()
-            .find_by_id(block_id.0)
-            .await
-            .map_err(map_err)?;
+        let block = state.ports.block_repo().find_by_id(block_id.0).await?;
         // AUTHZ-GATE: AI job status/preview/apply is privileged — the caller
         // must hold an active costume-dept role in the job's season, decided
         // via the (fallible) season policy.
@@ -4236,8 +3673,7 @@ async fn authorize_ai_job<P: Ports>(
                 season_id: block.season_id,
                 action,
             })
-            .await
-            .map_err(map_err)?;
+            .await?;
         if decision != PolicyDecision::Allow {
             return Err(forbidden_ai_config());
         }
@@ -4276,12 +3712,7 @@ async fn enqueue_ai_upload<P: Ports>(
     kind: DocumentKind,
 ) -> ApiResult<AiImportJobId> {
     if !state.ai_import_enabled {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                message: "AI import is disabled".to_owned(),
-            }),
-        ));
+        return Err(ApiError::NotFound("AI import is disabled"));
     }
     // Capture the declared document format from the upload's Content-Type so
     // the worker can route CSV natively and PDF/plain-text through the LLM
@@ -4294,14 +3725,9 @@ async fn enqueue_ai_upload<P: Ports>(
         "application/pdf" => SourceFormat::Pdf,
         "text/plain" => SourceFormat::PlainText,
         other => {
-            return Err((
-                StatusCode::UNSUPPORTED_MEDIA_TYPE,
-                Json(ErrorResponse {
-                    message: format!(
-                        "unsupported AI import content type {other}; expected \
-                         text/csv, application/pdf or text/plain"
-                    ),
-                }),
+            tracing::warn!(content_type = %other, "unsupported AI import content type");
+            return Err(ApiError::UnsupportedMediaType(
+                "unsupported AI import content type; expected text/csv, application/pdf or text/plain",
             ));
         }
     };
@@ -4309,11 +3735,8 @@ async fn enqueue_ai_upload<P: Ports>(
     // Use the bound resolved once into AppState (shared with the extractor
     // limit in `routes()`); no per-request environment reads.
     if body.len() as u64 > state.ai_import_max_document_bytes {
-        return Err((
-            StatusCode::PAYLOAD_TOO_LARGE,
-            Json(ErrorResponse {
-                message: "AI import document exceeds the configured size limit".to_owned(),
-            }),
+        return Err(ApiError::PayloadTooLarge(
+            "AI import document exceeds the configured size limit",
         ));
     }
     let digest = digest_hex(&body);
@@ -4322,8 +3745,7 @@ async fn enqueue_ai_upload<P: Ports>(
         .ports
         .ai_document_store()
         .put_source(job_id, body.to_vec())
-        .await
-        .map_err(map_err)?;
+        .await?;
     let result = state
         .ports
         .ai_import_queue()
@@ -4337,8 +3759,7 @@ async fn enqueue_ai_upload<P: Ports>(
             document_digest: digest,
             source_handle: source_handle.clone(),
         })
-        .await
-        .map_err(map_err)?;
+        .await?;
     let (status, id) = match result {
         AiImportEnqueueResult::Enqueued(id) => (StatusCode::ACCEPTED, id),
         AiImportEnqueueResult::Existing(id) => {
@@ -4383,10 +3804,10 @@ fn request_content_type(headers: &HeaderMap) -> String {
     responses(
         (status = 200, body = AiImportJobId, description = "Duplicate upload — existing job id"),
         (status = 202, body = AiImportJobId, description = "Job enqueued"),
-        (status = 404, body = ErrorResponse, description = "AI import disabled"),
-        (status = 413, body = ErrorResponse, description = "Document exceeds the configured size limit"),
-        (status = 415, body = ErrorResponse, description = "Unsupported media type"),
-        (status = 403, body = ErrorResponse, description = "Not authorized")
+        (status = 404, body = ProblemDetails, description = "AI import disabled"),
+        (status = 413, body = ProblemDetails, description = "Document exceeds the configured size limit"),
+        (status = 415, body = ProblemDetails, description = "Unsupported media type"),
+        (status = 403, body = ProblemDetails, description = "Not authorized")
     )
 )]
 pub async fn upload_ai_script<P: Ports>(
@@ -4398,11 +3819,8 @@ pub async fn upload_ai_script<P: Ports>(
     // AUTHZ-GATE: script uploads require active costume-department membership.
     let content_type = request_content_type(&headers);
     if content_type != "application/pdf" {
-        return Err((
-            StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            Json(ErrorResponse {
-                message: "script imports require application/pdf".to_owned(),
-            }),
+        return Err(ApiError::UnsupportedMediaType(
+            "script imports require application/pdf",
         ));
     }
     enqueue_ai_upload(&state, current_user, headers, body, DocumentKind::Script).await
@@ -4420,10 +3838,10 @@ pub async fn upload_ai_script<P: Ports>(
     responses(
         (status = 200, body = AiImportJobId, description = "Duplicate upload — existing job id"),
         (status = 202, body = AiImportJobId, description = "Job enqueued"),
-        (status = 404, body = ErrorResponse, description = "AI import disabled"),
-        (status = 413, body = ErrorResponse, description = "Document exceeds the configured size limit"),
-        (status = 415, body = ErrorResponse, description = "Unsupported media type"),
-        (status = 403, body = ErrorResponse, description = "Not authorized")
+        (status = 404, body = ProblemDetails, description = "AI import disabled"),
+        (status = 413, body = ProblemDetails, description = "Document exceeds the configured size limit"),
+        (status = 415, body = ProblemDetails, description = "Unsupported media type"),
+        (status = 403, body = ProblemDetails, description = "Not authorized")
     )
 )]
 pub async fn upload_ai_schedule<P: Ports>(
@@ -4438,13 +3856,8 @@ pub async fn upload_ai_schedule<P: Ports>(
         content_type.as_str(),
         "application/pdf" | "text/csv" | "text/plain"
     ) {
-        return Err((
-            StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            Json(ErrorResponse {
-                message: "schedule imports require text/csv, application/pdf or \
-                           text/plain"
-                    .to_owned(),
-            }),
+        return Err(ApiError::UnsupportedMediaType(
+            "schedule imports require text/csv, application/pdf or text/plain",
         ));
     }
     enqueue_ai_upload(&state, current_user, headers, body, DocumentKind::Schedule).await
@@ -4459,26 +3872,16 @@ pub struct AiImportJobResponse {
     get,
     path = "/ai-import/jobs/{id}",
     params(("id" = Uuid, Path)),
-    responses((status = 200, body = AiImportJobResponse), (status = 404, body = ErrorResponse))
+    responses((status = 200, body = AiImportJobResponse), (status = 404, body = ProblemDetails))
 )]
 pub async fn get_ai_import_job<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
     Path(id): Path<AiImportJobId>,
-) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Response, ApiError> {
     // AUTHZ-GATE: job status is visible only to its submitting user.
-    let job = state
-        .ports
-        .ai_import_queue()
-        .get(id)
-        .await
-        .map_err(map_err)?;
-    let job = job.ok_or_else(|| {
-        map_err(DomainError::NotFound(format!(
-            "AiImportJob({})",
-            id.as_uuid()
-        )))
-    })?;
+    let job = state.ports.ai_import_queue().get(id).await?;
+    let job = job.ok_or(ApiError::NotFound("AI import job not found"))?;
     authorize_ai_job(&state, &current_user, &job, Action::Read).await?;
     Ok(no_store_json(StatusCode::OK, AiImportJobResponse { job }))
 }
@@ -4487,41 +3890,27 @@ pub async fn get_ai_import_job<P: Ports>(
     get,
     path = "/ai-import/jobs/{id}/preview",
     params(("id" = Uuid, Path)),
-    responses((status = 200, body = Object), (status = 404, body = ErrorResponse))
+    responses((status = 200, body = Object), (status = 404, body = ProblemDetails))
 )]
 pub async fn get_ai_import_preview<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
     Path(id): Path<AiImportJobId>,
-) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Response, ApiError> {
     // AUTHZ-GATE: preview content is visible only to its submitting user.
-    let job = state
-        .ports
-        .ai_import_queue()
-        .get(id)
-        .await
-        .map_err(map_err)?;
-    let job = job.ok_or_else(|| {
-        map_err(DomainError::NotFound(format!(
-            "AiImportJob({})",
-            id.as_uuid()
-        )))
-    })?;
+    let job = state.ports.ai_import_queue().get(id).await?;
+    let job = job.ok_or(ApiError::NotFound("AI import job not found"))?;
     authorize_ai_job(&state, &current_user, &job, Action::Read).await?;
-    let handle = job
-        .preview_handle
-        .ok_or_else(|| map_err(DomainError::NotFound("AI preview".to_owned())))?;
+    let handle = job.preview_handle.ok_or(ApiError::NotFound("AI preview"))?;
     let payload = state
         .ports
         .ai_preview_store()
         .get(&handle)
-        .await
-        .map_err(map_err)?
-        .ok_or_else(|| map_err(DomainError::NotFound("AI preview".to_owned())))?;
+        .await?
+        .ok_or(ApiError::NotFound("AI preview"))?;
     let value: serde_json::Value = serde_json::from_slice(&payload).map_err(|error| {
-        map_err(DomainError::ValidationError(format!(
-            "invalid AI preview JSON: {error}"
-        )))
+        tracing::error!(error = %error, "invalid AI preview JSON");
+        ApiError::Validation("invalid AI preview JSON")
     })?;
     Ok(no_store_json(StatusCode::OK, value))
 }
@@ -4547,7 +3936,7 @@ pub struct ApplyAiImportResponse {
     path = "/ai-import/jobs/{id}/apply",
     params(("id" = Uuid, Path)),
     request_body = ApplyAiImportRequest,
-    responses((status = 200, body = ApplyAiImportResponse), (status = 403, body = ErrorResponse))
+    responses((status = 200, body = ApplyAiImportResponse), (status = 403, body = ProblemDetails))
 )]
 pub async fn apply_ai_import<P: Ports>(
     State(state): State<AppState<P>>,
@@ -4556,42 +3945,31 @@ pub async fn apply_ai_import<P: Ports>(
     Json(request): Json<ApplyAiImportRequest>,
 ) -> ApiResult<ApplyAiImportResponse> {
     // AUTHZ-GATE: applying an AI preview is a privileged production mutation.
-    let job = state
-        .ports
-        .ai_import_queue()
-        .get(id)
-        .await
-        .map_err(map_err)?;
-    let job = job.ok_or_else(|| {
-        map_err(DomainError::NotFound(format!(
-            "AiImportJob({})",
-            id.as_uuid()
-        )))
-    })?;
+    let job = state.ports.ai_import_queue().get(id).await?;
+    let job = job.ok_or(ApiError::NotFound("AI import job not found"))?;
     authorize_ai_job(&state, &current_user, &job, Action::Write).await?;
     if job.status != breakdown_core::ai::JobStatus::Succeeded {
-        return Err(map_err(DomainError::Conflict(
-            "only a succeeded AI preview can be applied".to_owned(),
-        )));
+        return Err(ApiError::Conflict(
+            "only a succeeded AI preview can be applied",
+        ));
     }
     let handle = job
         .preview_handle
         .as_deref()
-        .ok_or_else(|| map_err(DomainError::NotFound("AI preview".to_owned())))?;
+        .ok_or(ApiError::NotFound("AI preview"))?;
     let payload = state
         .ports
         .ai_preview_store()
         .get(handle)
-        .await
-        .map_err(map_err)?
-        .ok_or_else(|| map_err(DomainError::NotFound("AI preview".to_owned())))?;
+        .await?
+        .ok_or(ApiError::NotFound("AI preview"))?;
     // An accept-as-is outcome means the user made zero edits; a nonzero
     // edit_distance alongside it is contradictory and would persist an
     // invalid applied outcome (issue #171 review).
     if request.accept_as_is && request.edit_distance != 0 {
-        return Err(map_err(DomainError::ValidationError(
-            "accept_as_is requires edit_distance = 0".to_owned(),
-        )));
+        return Err(ApiError::Validation(
+            "accept_as_is requires edit_distance = 0",
+        ));
     }
     let telemetry = Telemetry {
         doc_kind: Some(job.document_kind),
@@ -4613,8 +3991,7 @@ pub async fn apply_ai_import<P: Ports>(
                 .ports
                 .episode_repo()
                 .find_by_id(request.episode_id.0)
-                .await
-                .map_err(map_err)?;
+                .await?;
             if let Some(job_block) = job.block_id
                 && episode.block_id != job_block
             {
@@ -4625,9 +4002,8 @@ pub async fn apply_ai_import<P: Ports>(
             let series_id = Some(episode.series_id);
 
             let preview: ScriptContext = serde_json::from_slice(&payload).map_err(|error| {
-                map_err(DomainError::ValidationError(format!(
-                    "invalid ScriptContext preview: {error}"
-                )))
+                tracing::error!(error = %error, "invalid ScriptContext preview");
+                ApiError::Validation("invalid ScriptContext preview")
             })?;
 
             // AUTHZ-GATE (CWE-639): the client may supply `Update` decisions
@@ -4640,10 +4016,9 @@ pub async fn apply_ai_import<P: Ports>(
             let mut seen_update_ids = std::collections::HashSet::new();
             for mapping in &request.mappings {
                 if !seen_draft_refs.insert(mapping.draft_ref.clone()) {
-                    return Err(map_err(DomainError::ValidationError(format!(
-                        "duplicate mapping for draft row {}",
-                        mapping.draft_ref
-                    ))));
+                    return Err(ApiError::Validation(
+                        "duplicate mapping for the same draft row",
+                    ));
                 }
                 if let breakdown_core::ai::ApplyMappingDecision::Update { aggregate_id, .. } =
                     mapping.decision
@@ -4651,23 +4026,16 @@ pub async fn apply_ai_import<P: Ports>(
                     if !seen_update_ids.insert(aggregate_id) {
                         continue;
                     }
-                    let scene = state
-                        .ports
-                        .scene_repo()
-                        .find_by_id(aggregate_id)
-                        .await
-                        .map_err(map_err)?;
+                    let scene = state.ports.scene_repo().find_by_id(aggregate_id).await?;
                     if scene.episode_id != EpisodeId::from_uuid(episode.id) {
                         return Err(forbidden_ai_config());
                     }
                 }
             }
             if request.mappings.len() > preview.scenes.len() {
-                return Err(map_err(DomainError::ValidationError(format!(
-                    "apply carries {} mappings for a {} scene preview",
-                    request.mappings.len(),
-                    preview.scenes.len()
-                ))));
+                return Err(ApiError::Validation(
+                    "apply carries more mappings than the preview contains scenes",
+                ));
             }
             let worker = ApplyWorker {
                 scene_commands: Arc::new(state.ports.scene_commands().clone()),
@@ -4684,8 +4052,7 @@ pub async fn apply_ai_import<P: Ports>(
                     series_id,
                     telemetry: Some(telemetry),
                 })
-                .await
-                .map_err(map_err)?;
+                .await?;
             Ok((
                 StatusCode::OK,
                 Json(ApplyAiImportResponse {
@@ -4697,9 +4064,8 @@ pub async fn apply_ai_import<P: Ports>(
         }
         DocumentKind::Schedule => {
             let preview: MergedPreview = serde_json::from_slice(&payload).map_err(|error| {
-                map_err(DomainError::ValidationError(format!(
-                    "invalid merged preview: {error}"
-                )))
+                tracing::error!(error = %error, "invalid merged preview");
+                ApiError::Validation("invalid merged preview")
             })?;
             let worker = ScheduleApplyWorker {
                 scene_commands: Arc::new(state.ports.scene_commands().clone()),
@@ -4714,8 +4080,7 @@ pub async fn apply_ai_import<P: Ports>(
                     preview: &preview,
                     series_id: request.series_id,
                 })
-                .await
-                .map_err(map_err)?;
+                .await?;
             // Telemetry is not part of the apply success contract: the mutation
             // already committed. Log a failed record so the client still sees
             // the successful apply result (mirrors the script branch).
@@ -4769,25 +4134,19 @@ pub struct RevokeAiConfigRequest {
 async fn credential_role_gate<P: Ports>(
     state: &AppState<P>,
     user: &CurrentUser,
-) -> Result<bool, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<bool, ApiError> {
     // AUTHZ-GATE: AI configuration management requires an active credential
     // role — decided via the (fallible) credential-role policy so read-model
     // failures surface as mapped errors, not as a silent 403.
     let decision = state
         .authorization_policy
         .authorize_credential_role(&user.sub)
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok(decision == PolicyDecision::Allow)
 }
 
-fn forbidden_ai_config() -> (StatusCode, Json<ErrorResponse>) {
-    (
-        StatusCode::FORBIDDEN,
-        Json(ErrorResponse {
-            message: "not authorized to manage AI configuration".to_owned(),
-        }),
-    )
+fn forbidden_ai_config() -> ApiError {
+    ApiError::Forbidden("not authorized to manage AI configuration")
 }
 
 /// Render a JSON response with `Cache-Control: no-store` — AI import job and
@@ -4805,7 +4164,7 @@ fn no_store_json<T: serde::Serialize>(status: StatusCode, value: T) -> Response 
     post,
     path = "/ai-import/config",
     request_body = CreateAiConfigRequest,
-    responses((status = 201, body = IdVersionResponse), (status = 403, body = ErrorResponse))
+    responses((status = 201, body = IdVersionResponse), (status = 403, body = ProblemDetails))
 )]
 pub async fn create_ai_config<P: Ports>(
     State(state): State<AppState<P>>,
@@ -4832,8 +4191,7 @@ pub async fn create_ai_config<P: Ports>(
                 vault_key_id: request.vault_key_id,
             },
         )
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::CREATED, Json(IdVersionResponse { id, version })))
 }
 
@@ -4841,7 +4199,7 @@ pub async fn create_ai_config<P: Ports>(
     get,
     path = "/ai-import/config/{id}",
     params(("id" = Uuid, Path)),
-    responses((status = 200, body = AiConfigView), (status = 403, body = ErrorResponse))
+    responses((status = 200, body = AiConfigView), (status = 403, body = ProblemDetails))
 )]
 pub async fn get_ai_config<P: Ports>(
     State(state): State<AppState<P>>,
@@ -4852,12 +4210,7 @@ pub async fn get_ai_config<P: Ports>(
     if !credential_role_gate(&state, &current_user).await? {
         return Err(forbidden_ai_config());
     }
-    let view = state
-        .ports
-        .ai_config_repo()
-        .find_by_id(id)
-        .await
-        .map_err(map_err)?;
+    let view = state.ports.ai_config_repo().find_by_id(id).await?;
     if view.user_id != current_user.sub {
         return Err(forbidden_ai_config());
     }
@@ -4869,7 +4222,7 @@ pub async fn get_ai_config<P: Ports>(
     path = "/ai-import/config/{id}",
     params(("id" = Uuid, Path)),
     request_body = UpdateAiConfigRequest,
-    responses((status = 200, body = AggregateVersion), (status = 403, body = ErrorResponse))
+    responses((status = 200, body = AggregateVersion), (status = 403, body = ProblemDetails))
 )]
 pub async fn update_ai_config<P: Ports>(
     State(state): State<AppState<P>>,
@@ -4881,12 +4234,7 @@ pub async fn update_ai_config<P: Ports>(
     if !credential_role_gate(&state, &current_user).await? {
         return Err(forbidden_ai_config());
     }
-    let view = state
-        .ports
-        .ai_config_repo()
-        .find_by_id(id)
-        .await
-        .map_err(map_err)?;
+    let view = state.ports.ai_config_repo().find_by_id(id).await?;
     if view.user_id != current_user.sub {
         return Err(forbidden_ai_config());
     }
@@ -4905,8 +4253,7 @@ pub async fn update_ai_config<P: Ports>(
                 version: request.version,
             },
         )
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -4915,7 +4262,7 @@ pub async fn update_ai_config<P: Ports>(
     path = "/ai-import/config/{id}/revoke",
     params(("id" = Uuid, Path)),
     request_body = RevokeAiConfigRequest,
-    responses((status = 200, body = AggregateVersion), (status = 403, body = ErrorResponse))
+    responses((status = 200, body = AggregateVersion), (status = 403, body = ProblemDetails))
 )]
 pub async fn revoke_ai_config<P: Ports>(
     State(state): State<AppState<P>>,
@@ -4927,12 +4274,7 @@ pub async fn revoke_ai_config<P: Ports>(
     if !credential_role_gate(&state, &current_user).await? {
         return Err(forbidden_ai_config());
     }
-    let view = state
-        .ports
-        .ai_config_repo()
-        .find_by_id(id)
-        .await
-        .map_err(map_err)?;
+    let view = state.ports.ai_config_repo().find_by_id(id).await?;
     if view.user_id != current_user.sub {
         return Err(forbidden_ai_config());
     }
@@ -4946,8 +4288,7 @@ pub async fn revoke_ai_config<P: Ports>(
                 version: request.version,
             },
         )
-        .await
-        .map_err(map_err)?;
+        .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -4961,7 +4302,7 @@ pub struct AiProviderInfo {
 #[utoipa::path(
     get,
     path = "/ai-import/providers",
-    responses((status = 200, body = [AiProviderInfo]), (status = 403, body = ErrorResponse))
+    responses((status = 200, body = [AiProviderInfo]), (status = 403, body = ProblemDetails))
 )]
 pub async fn list_ai_providers<P: Ports>(
     State(state): State<AppState<P>>,
@@ -4973,23 +4314,14 @@ pub async fn list_ai_providers<P: Ports>(
     let decision = state
         .authorization_policy
         .authorize_credential_role(&current_user.sub)
-        .await
-        .map_err(map_err)?;
+        .await?;
     if decision != PolicyDecision::Allow {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                message: "not authorized to discover AI providers".to_owned(),
-            }),
+        return Err(ApiError::Forbidden(
+            "not authorized to discover AI providers",
         ));
     }
     if !state.ai_import_enabled {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                message: "AI import is disabled".to_owned(),
-            }),
-        ));
+        return Err(ApiError::NotFound("AI import is disabled"));
     }
     Ok((
         StatusCode::OK,
@@ -5010,7 +4342,7 @@ pub async fn list_ai_providers<P: Ports>(
     get,
     path = "/ai-import/providers/{provider}/models",
     params(("provider" = String, Path, description = "Curated provider key")),
-    responses((status = 200, body = [ModelInfo]), (status = 400, body = ErrorResponse), (status = 403, body = ErrorResponse))
+    responses((status = 200, body = [ModelInfo]), (status = 422, body = ProblemDetails), (status = 403, body = ProblemDetails))
 )]
 pub async fn list_ai_models<P: Ports>(
     State(state): State<AppState<P>>,
@@ -5022,25 +4354,14 @@ pub async fn list_ai_models<P: Ports>(
     let decision = state
         .authorization_policy
         .authorize_credential_role(&current_user.sub)
-        .await
-        .map_err(map_err)?;
+        .await?;
     if decision != PolicyDecision::Allow {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                message: "not authorized to discover AI models".to_owned(),
-            }),
-        ));
+        return Err(ApiError::Forbidden("not authorized to discover AI models"));
     }
     if !state.ai_import_enabled {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                message: "AI import is disabled".to_owned(),
-            }),
-        ));
+        return Err(ApiError::NotFound("AI import is disabled"));
     }
-    let provider = parse_ai_provider(&provider).map_err(map_err)?;
+    let provider = parse_ai_provider(&provider)?;
     Ok((StatusCode::OK, Json(infra::ai::curated_models(provider))))
 }
 

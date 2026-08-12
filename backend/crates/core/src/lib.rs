@@ -16,6 +16,7 @@ pub mod costume;
 pub mod costume_category;
 pub mod episode;
 pub mod error;
+pub mod error_registry;
 pub mod membership;
 pub mod photo;
 pub mod reporting;

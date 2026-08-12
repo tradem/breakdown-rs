@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::extract::{FromRequestParts, Request, State};
-use axum::http::{StatusCode, header::AUTHORIZATION, request::Parts};
+use axum::http::{header::AUTHORIZATION, request::Parts};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use breakdown_core::shared::{BlockId, UserId};
@@ -222,24 +222,18 @@ pub enum AuthError {
 
 impl IntoResponse for AuthError {
     fn into_response(self) -> Response {
-        let (status, message) = match self {
-            AuthError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized"),
-            AuthError::MissingActiveBlock => {
-                (StatusCode::BAD_REQUEST, "missing X-Active-Block header")
-            }
-            AuthError::InvalidActiveBlock => {
-                (StatusCode::BAD_REQUEST, "invalid X-Active-Block header")
-            }
-            AuthError::JwksUnavailable => (
-                StatusCode::SERVICE_UNAVAILABLE,
-                "identity provider unavailable",
-            ),
+        use crate::problems::{ProblemDetails, problem};
+        use breakdown_core::error_registry::{
+            AUTH_IDP_UNAVAILABLE, AUTH_INVALID_ACTIVE_BLOCK, AUTH_MISSING_ACTIVE_BLOCK,
+            AUTH_UNAUTHENTICATED,
         };
-        (
-            status,
-            axum::Json(serde_json::json!({ "message": message })),
-        )
-            .into_response()
+        let document: ProblemDetails = match self {
+            AuthError::Unauthorized => problem(AUTH_UNAUTHENTICATED).build(),
+            AuthError::MissingActiveBlock => problem(AUTH_MISSING_ACTIVE_BLOCK).build(),
+            AuthError::InvalidActiveBlock => problem(AUTH_INVALID_ACTIVE_BLOCK).build(),
+            AuthError::JwksUnavailable => problem(AUTH_IDP_UNAVAILABLE).build(),
+        };
+        document.into_response()
     }
 }
 

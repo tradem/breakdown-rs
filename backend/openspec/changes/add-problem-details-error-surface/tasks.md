@@ -6,15 +6,15 @@
 
 ## 1. Tranche 1 — Problem envelope & unified catch-all
 
-- [ ] 1.1 Add `ProblemDetails` type + shared problem builder module in `crates/api` (envelope members, `application/problem+json` content type, `trace_id` capture from the otel span)
-- [ ] 1.2 Create the code-registry skeleton in `crates/core` (registry entry type: code, status, title, allowed extension fields) with framework codes (`http.*`, `auth.*`, `concurrency.version-mismatch`)
-- [ ] 1.3 Implement `IntoResponse for DomainError` via the registry (temporary: generic per-variant codes where structure isn't ported yet) and collapse the `map_err` call sites in handlers to `?` propagation
-- [ ] 1.4 Route `AuthError` middleware rejections through the problem builder (`auth.unauthenticated`, `auth.missing-active-block`, `auth.invalid-active-block`, `auth.idp-unavailable`)
-- [ ] 1.5 Add rejection handlers for Axum extractor failures (`http.bad-json-body`, `http.bad-path-param`, `http.bad-query-param`), body-size limit (`http.payload-too-large`, 413), unknown routes (`http.route-not-found`, 404)
-- [ ] 1.6 Add panic catch-all returning `http.internal-error` with static localized-safe text and correct `trace_id`
-- [ ] 1.7 Switch domain validation failures from 400 to 422 and document the breaking change in the OpenAPI spec/changelog
-- [ ] 1.8 Update the OpenAPI spec: `ProblemDetails` schema, `application/problem+json` for all error responses, registry-woven docs
-- [ ] 1.9 Integration test: one HTTP-layer test per error source asserting envelope, content-type, `code`, and `trace_id` presence
+- [x] 1.1 Add `ProblemDetails` type + shared problem builder module in `crates/api` (envelope members, `application/problem+json` content type, `trace_id` capture from the otel span)
+- [x] 1.2 Create the code-registry skeleton in `crates/core` (registry entry type: code, status, title, allowed extension fields) with framework codes (`http.*`, `auth.*`, `concurrency.version-mismatch`)
+- [x] 1.3 Implement `IntoResponse for DomainError` via the registry (temporary: generic per-variant codes where structure isn't ported yet) and collapse the `map_err` call sites in handlers to `?` propagation
+- [x] 1.4 Route `AuthError` middleware rejections through the problem builder (`auth.unauthenticated`, `auth.missing-active-block`, `auth.invalid-active-block`, `auth.idp-unavailable`)
+- [x] 1.5 Add rejection handlers for Axum extractor failures (`http.bad-json-body`, `http.bad-path-param`, `http.bad-query-param`), body-size limit (`http.payload-too-large`, 413), unknown routes (`http.route-not-found`, 404)
+- [x] 1.6 Add panic catch-all returning `http.internal-error` with static localized-safe text and correct `trace_id`
+- [x] 1.7 Switch domain validation failures from 400 to 422 and document the breaking change in the OpenAPI spec/changelog
+- [x] 1.8 Update the OpenAPI spec: `ProblemDetails` schema, `application/problem+json` for all error responses, registry-woven docs
+- [x] 1.9 Integration test: one HTTP-layer test per error source asserting envelope, content-type, `code`, and `trace_id` presence
 
 ## 2. Tranche 2 — Structured domain errors & code registry
 

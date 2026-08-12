@@ -16,7 +16,7 @@
 #![allow(clippy::expect_used)]
 mod common;
 
-use axum::Json;
+use api::problems::Json; // test-only alias for the wrapper extractor (ADR-031)
 use axum::extract::State;
 use axum::http::StatusCode;
 
@@ -56,9 +56,12 @@ async fn list_ai_providers_denies_non_credential_role_member() {
     let state = ai_import_state(ports).await;
 
     let result = list_ai_providers::<FakePorts>(State(state), dummy_user()).await;
-    let (status, Json(body)) = result.expect_err("denied caller must get an error");
-    assert_eq!(status, StatusCode::FORBIDDEN);
-    assert!(body.message.contains("not authorized"));
+    let problem = result
+        .expect_err("denied caller must get an error")
+        .into_problem();
+    assert_eq!(problem.status, 403);
+    assert_eq!(problem.code, "domain.forbidden");
+    assert!(problem.detail.contains("not authorized"));
 }
 
 #[tokio::test]
@@ -72,9 +75,14 @@ async fn list_ai_providers_propagates_repo_failure_as_server_error() {
     let state = ai_import_state(ports).await;
 
     let result = list_ai_providers::<FakePorts>(State(state), dummy_user()).await;
-    let (status, Json(body)) = result.expect_err("repo failure must surface as an error");
-    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
-    assert!(body.message.contains("membership repo down"));
+    let problem = result
+        .expect_err("repo failure must surface as an error")
+        .into_problem();
+    assert_eq!(problem.status, 503);
+    // Tranche 1: internal error text never leaves the server; the code is the
+    // contract (ADR-031 decision 6).
+    assert_eq!(problem.code, "domain.service-unavailable");
+    assert!(!problem.detail.contains("membership repo down"));
 }
 
 #[tokio::test]
@@ -86,7 +94,7 @@ async fn list_ai_models_allows_credential_role_member() {
     let result = list_ai_models::<FakePorts>(
         State(state),
         dummy_user(),
-        axum::extract::Path("neuralwatt".to_owned()),
+        api::problems::Path("neuralwatt".to_owned()),
     )
     .await;
     let (status, Json(_)) = result.expect("granted caller should succeed");
@@ -102,12 +110,15 @@ async fn list_ai_models_denies_non_credential_role_member() {
     let result = list_ai_models::<FakePorts>(
         State(state),
         dummy_user(),
-        axum::extract::Path("neuralwatt".to_owned()),
+        api::problems::Path("neuralwatt".to_owned()),
     )
     .await;
-    let (status, Json(body)) = result.expect_err("denied caller must get an error");
-    assert_eq!(status, StatusCode::FORBIDDEN);
-    assert!(body.message.contains("not authorized"));
+    let problem = result
+        .expect_err("denied caller must get an error")
+        .into_problem();
+    assert_eq!(problem.status, 403);
+    assert_eq!(problem.code, "domain.forbidden");
+    assert!(problem.detail.contains("not authorized"));
 }
 
 #[tokio::test]
@@ -121,10 +132,15 @@ async fn list_ai_models_propagates_repo_failure_as_server_error() {
     let result = list_ai_models::<FakePorts>(
         State(state),
         dummy_user(),
-        axum::extract::Path("neuralwatt".to_owned()),
+        api::problems::Path("neuralwatt".to_owned()),
     )
     .await;
-    let (status, Json(body)) = result.expect_err("repo failure must surface as an error");
-    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
-    assert!(body.message.contains("membership repo down"));
+    let problem = result
+        .expect_err("repo failure must surface as an error")
+        .into_problem();
+    assert_eq!(problem.status, 503);
+    // Tranche 1: internal error text never leaves the server; the code is the
+    // contract (ADR-031 decision 6).
+    assert_eq!(problem.code, "domain.service-unavailable");
+    assert!(!problem.detail.contains("membership repo down"));
 }
