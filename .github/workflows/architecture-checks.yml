@@ -15,7 +15,9 @@ permissions:
 #   Layer 5: test-shim-leak — ast-grep: production api code must not call test-only helpers
 #   Layer 6: error-hygiene — ast-grep: no discarded results (`let _ = <call>`), test helpers must be cfg-gated,
 #            UUIDv4 generation forbidden (UUIDv7 only), panic/unsafe-family `#[allow]` must carry a justification comment
-#   Layer 7: gitleaks — blocks accidental secret commits against 150+ patterns
+#   Layer 7: problem-code-registry — every `pub const …: ProblemCode` must be declared through the problem_codes!
+#            macro in error_registry.rs (a standalone declaration would compile but never be registered, issue #232)
+#   Layer 8: gitleaks — blocks accidental secret commits against 150+ patterns
 #
 # See backend/AGENTS.md § Testing & Guardrails and § Security
 # See backend/docs/architecture/adrs/ADR-017-architecture-testing-strategy.md
@@ -227,6 +229,39 @@ jobs:
           test -d crates/api/src/problems
           ast-grep scan -r rules/s2-extension-ban.yml crates/api/src/problems
           echo "OK: no discarded results / ungated test helpers / UUIDv4 / bare panic allows / no S2 extensions found"
+
+  problem-code-registry:
+    name: Problem-code registry (every code registered via the macro)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Forbid standalone ProblemCode declarations outside the registry macro
+        run: |
+          set -e
+          # Every problem code must be declared through the problem_codes! macro
+          # in crates/core/src/error_registry.rs (issue #232). A standalone
+          # `pub const <NAME>: ProblemCode` outside the invocation would compile
+          # but never be registered: problem_code() returns None, the
+          # bundle-coverage lint never requires a locale message, and the
+          # uniqueness test never sees the code. The macro expansion emits
+          # `pub const $name: ProblemCode` — a metavariable, not an identifier
+          # — so any literal match here is a violation. The in-tree
+          # compile-time count assertion (PROBLEM_CODE_COUNT) catches the same
+          # drift at build time.
+          if grep -rnE 'pub const [A-Z_][A-Z0-9_]*: ProblemCode' crates/; then
+            echo "" >&2
+            echo "ERROR: standalone ProblemCode declaration outside the problem_codes! invocation" >&2
+            echo "Declare new codes as entries in the problem_codes! macro in" >&2
+            echo "crates/core/src/error_registry.rs (issue #232)." >&2
+            exit 1
+          fi
+          echo "OK: every ProblemCode constant is declared through the registry macro"
 
   gitleaks:
     name: Gitleaks (secrets)

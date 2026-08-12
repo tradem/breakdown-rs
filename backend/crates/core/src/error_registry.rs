@@ -29,6 +29,13 @@
 /// source for the URI.
 pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
 
+/// Number of registered problem codes.
+///
+/// Kept in sync with the `problem_codes!` invocation below by a compile-time
+/// assertion — adding or removing a code without deliberately updating this
+/// count fails the build (issue #232).
+const PROBLEM_CODE_COUNT: usize = 73;
+
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProblemCode {
@@ -65,9 +72,10 @@ impl ProblemCode {
 /// Each entry expands to its `pub const` and registers the name in the
 /// generated `PROBLEM_CODES` array — the constant and its registration can
 /// never drift apart (issue #232). New codes MUST be added as entries here;
-/// a standalone `pub const ...: ProblemCode` outside this invocation would
-/// compile but would never be registered, and the bundle-coverage lint /
-/// problem builder would silently ignore it.
+/// a standalone `pub const ...: ProblemCode` outside this invocation is
+/// rejected by the `problem-code-registry` CI job (it would otherwise
+/// compile but never be registered, and the bundle-coverage lint / problem
+/// builder would silently ignore it).
 macro_rules! problem_codes {
     (
         $(
@@ -731,6 +739,11 @@ problem_codes! {
     },
 
 }
+
+/// Compile-time guard: the generated registry must contain exactly
+/// `PROBLEM_CODE_COUNT` entries, so an added/removed code forces a
+/// deliberate count update (issue #232).
+const _: () = assert!(PROBLEM_CODES.len() == PROBLEM_CODE_COUNT);
 
 /// Resolve a registry entry by code. The problem builder never emits a code
 /// absent from the registry; this lookup exists for tests and for the
