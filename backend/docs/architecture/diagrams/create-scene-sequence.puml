@@ -46,6 +46,7 @@ else allowed
   end
   deactivate svc
   es ->> proj : SceneCreated
+  activate proj
   proj -> db : INSERT projection_scene
   deactivate proj
 end
