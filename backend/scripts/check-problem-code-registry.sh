@@ -19,12 +19,16 @@
 # macro's `pub const $name` expansion template (verified by the rule tests in
 # rules-tests/, run with --self-test).
 #
+# Non-suppressible: the registry rule must never carry an `ast-grep-ignore:`
+# directive (a suppressed declaration would compile unregistered), so any
+# suppression of this rule is itself a failure.
+#
 # Fail-closed: a missing scanner/rule, a scanner crash, or unparseable scanner
 # output all fail the script; only a clean scan with zero matches passes.
 #
 # Usage:
 #   check-problem-code-registry.sh [TARGET...]   # scan paths (default: crates/)
-#   check-problem-code-registry.sh --self-test   # run the rule test-suite
+#   check-problem-code-registry.sh --self-test   # rule tests + suppression regression
 
 set -euo pipefail
 
@@ -42,8 +46,29 @@ if [ "${1:-}" = "--self-test" ]; then
         echo "ERROR: sgconfig.yml not found — run from backend/" >&2
         exit 1
     }
+    # 1) Rule behavior: fixtures for canonical/spaced/multiline/template/
+    #    malformed inputs (rules-tests/).
     ast-grep test -c sgconfig.yml -t rules-tests
-    exit $?
+    # 2) Suppression regression (issue #232, CodeRabbit round 3): the rule is
+    #    non-suppressible — a declaration hidden behind an ast-grep-ignore
+    #    directive must fail the scan, not report OK.
+    TMP="$(mktemp -d)"
+    trap 'rm -rf "$TMP"' EXIT
+    cat > "$TMP/suppressed.rs" <<'RS'
+// ast-grep-ignore: problem-code-registry
+pub const SUPPRESSED_CODE: ProblemCode = ProblemCode {
+    code: "suppressed.code",
+    status: 400,
+    title: "Suppressed",
+    extensions: &[],
+};
+RS
+    if bash "$0" "$TMP" >/dev/null 2>&1; then
+        echo "FAIL: suppression directive for problem-code-registry was accepted" >&2
+        exit 1
+    fi
+    echo "OK: suppression directives for problem-code-registry are rejected"
+    exit 0
 fi
 
 TARGETS=("$@")
@@ -63,6 +88,14 @@ command -v python3 >/dev/null 2>&1 || {
     echo "ERROR: rule file not found: $RULE" >&2
     exit 1
 }
+
+# Non-suppressible (issue #232): an `ast-grep-ignore: problem-code-registry`
+# directive would let a standalone declaration compile unregistered, so any
+# suppression of this rule is itself a failure.
+if grep -rnE 'ast-grep-ignore:[[:space:]]*problem-code-registry' "${TARGETS[@]}" 2>/dev/null; then
+    echo "ERROR: suppression directives are not permitted for problem-code-registry (issue #232)" >&2
+    exit 1
+fi
 
 ERR=$(mktemp)
 trap 'rm -f "$ERR"' EXIT

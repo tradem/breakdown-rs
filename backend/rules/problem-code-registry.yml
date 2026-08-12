@@ -12,7 +12,12 @@
 # The only legitimate occurrence is the expansion template inside the macro
 # definition (`pub const $name: ProblemCode = ...`). It is NOT matched here:
 # `$name` is a Rust macro metavariable, and ast-grep's `$NAME` metavariable
-# does not bind to it (verified by the rule tests in rules/tests/).
+# does not bind to it (verified by the rule tests in rules-tests/).
+#
+# This rule is deliberately NON-suppressible: an `ast-grep-ignore:` directive
+# would let a standalone declaration compile unregistered, so the shared
+# checker rejects any suppression of this rule (see
+# scripts/check-problem-code-registry.sh).
 #
 # The `problem-code-registry` CI job and the pre-commit hook both invoke the
 # shared scanner scripts/check-problem-code-registry.sh, which runs this rule

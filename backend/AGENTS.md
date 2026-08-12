@@ -186,7 +186,11 @@ membership check via the shooting_day → episode → block → season chain). T
   (`backend/rules/discard-result.yml`) and that `*_for_test` helpers are gated behind
   `#[cfg(feature = "test-support")]` (`backend/rules/test-helper-gate.yml`) — issue #165
   review lessons. All rules accept an explicit `// ast-grep-ignore: <rule-id>` suppression
-  with a justification comment. The `problem-code-registry` job (issue #232) runs the
+  with a justification comment — except `problem-code-registry`, which is
+  deliberately non-suppressible: the shared checker rejects any
+  `ast-grep-ignore: problem-code-registry` directive, because a suppressed
+  standalone declaration would compile unregistered (issue #232). The
+  `problem-code-registry` job (issue #232) runs the
   shared, syntax-aware scanner `backend/scripts/check-problem-code-registry.sh`
   (rule `backend/rules/problem-code-registry.yml`, rule tests in
   `backend/rules-tests/`): every `pub const …: ProblemCode` must be declared
