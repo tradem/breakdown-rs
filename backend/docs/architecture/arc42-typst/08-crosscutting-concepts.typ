@@ -40,11 +40,13 @@
 
 == Error Classifications in Projectors and Workers
 
-| Classification | Example | Behaviour |
-|----------------|---------|-----------|
-| Transient (`ServiceUnavailable`) | network hiccup, Garage down | retry loop (`retry_transient`) |
-| Permanent (`ValidationError`) | unsupported file type | fall through to redelivery/dead-letter |
-| Not found (`NotFound`) | expected path missing | handle as success in delete paths |
+#table(
+  columns: 3,
+  table.header([Classification], [Example], [Behaviour]),
+  [Transient (`ServiceUnavailable`)], [network hiccup, Garage down], [retry loop (`retry_transient`)],
+  [Permanent (`ValidationError`)], [unsupported file type], [fall through to redelivery/dead-letter],
+  [Not found (`NotFound`)], [expected path missing], [handle as success in delete paths],
+)
 
 #important[
   Never discard a fallible result with `let _ = <call>`. Propagate (`?` / `map_err`), handle explicitly, or suppress with

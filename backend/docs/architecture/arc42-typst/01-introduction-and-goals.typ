@@ -32,24 +32,28 @@ did the plan change.
 
 === Stakeholders
 
-| Role            | Primary Goal                                     | Key Artifact               |
-|-----------------|--------------------------------------------------|----------------------------|
-| Production Manager | Plan blocks, episodes, days; assess schedules | Breakdown reports (PDF)     |
-| Costume Designer   | Define costumes per character per season        | Costume photos, categories |
-| Wardrobe Supervisor| Keep continuity, note changes after each shoot  | Continuity photos, Soll-Ist|
-| Script / Continuity| Import scripts; compare plan vs. reality       | AI import, scene lists     |
-| End User (Actor)   | See own costume assignments                     | (read-only) overview       |
-| Platform Operator  | Keep service running, secure and observable     | Deployment view            |
+#table(
+  columns: 3,
+  table.header([Role], [Primary Goal], [Key Artifact]),
+  [Production Manager], [Plan blocks, episodes, days; assess schedules], [Breakdown reports (PDF)],
+  [Costume Designer], [Define costumes per character per season], [Costume photos, categories],
+  [Wardrobe Supervisor], [Keep continuity, note changes after each shoot], [Continuity photos, Soll-Ist],
+  [Script / Continuity], [Import scripts; compare plan vs. reality], [AI import, scene lists],
+  [End User (Actor)], [See own costume assignments], [(read-only) overview],
+  [Platform Operator], [Keep service running, secure and observable], [Deployment view],
+)
 
 == Quality Goals
 
-| Priority | Quality             | How it is enforced                                          |
-|----------|---------------------|-------------------------------------------------------------|
-| 1 (must) | Auditability / integrity | Event sourcing, insert-only audit projections, no panics |
-| 2 (must) | Correctness         | CQRS write guard, mutation testing, architecture tests      |
-| 3 (should)| Operability        | OIDC auth, structured error surface (RFC 9457), metrics      |
-| 4 (should)| Extensibility      | Hexagonal ports/adapters; new aggregates without cross-cuts  |
-| 5 (could) | Performance        | Projections read directly from PostgreSQL; async projectors  |
+#table(
+  columns: 3,
+  table.header([Priority], [Quality], [How it is enforced]),
+  [1 (must)], [Auditability / integrity], [Event sourcing, insert-only audit projections, no panics],
+  [2 (must)], [Correctness], [CQRS write guard, mutation testing, architecture tests],
+  [3 (should)], [Operability], [OIDC auth, structured error surface (RFC 9457), metrics],
+  [4 (should)], [Extensibility], [Hexagonal ports/adapters; new aggregates without cross-cuts],
+  [5 (could)], [Performance], [Projections read directly from PostgreSQL; async projectors],
+)
 
 #note[
   *Quality goal 1* is a hard rule in this codebase: audit metadata must never

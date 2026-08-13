@@ -70,13 +70,15 @@ decisions carry the most weight and shape everything else.
 
 == Additional Design Rules
 
-| Rule                             | Enforcement |
-|----------------------------------|-------------|
-| Write side never queries projections | `ast-grep` rule `cqrs-boundary` in CI |
-| No panics in prod adapters/sagas   | `clippy` lints deny `unwrap`/`expect`/`panic` |
-| No string-interpolated SQL         | `ast-grep` rule `no-string-interpolation-sql` |
-| No discarded fallible results      | `ast-grep` rule `discard-result` |
-| Release reproducible from git tag   | `release-image.yml` + cargo-release (#adr-ref(num: "020", slug: "rust-component-versioning", title: "Rust Component Versioning")) |
+#table(
+  columns: 2,
+  table.header([Rule], [Enforcement]),
+  [Write side never queries projections], [`ast-grep` rule `cqrs-boundary` in CI],
+  [No panics in prod adapters/sagas], [`clippy` lints deny `unwrap`/`expect`/`panic`],
+  [No string-interpolated SQL], [`ast-grep` rule `no-string-interpolation-sql`],
+  [No discarded fallible results], [`ast-grep` rule `discard-result`],
+  [Release reproducible from git tag], [`release-image.yml` + cargo-release (#adr-ref(num: "020", slug: "rust-component-versioning", title: "Rust Component Versioning"))],
+)
 
 == Views Referenced Later
 

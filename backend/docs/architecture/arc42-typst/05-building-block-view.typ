@@ -15,13 +15,15 @@ command→event→projection round-trip against live containers.
 
 #diagram("workspace-structure", caption: [Crates and dependency directions])
 
-| Crate | Responsibility | Key dependencies |
-|-------|---------------|------------------|
-| `crates/core` | Commands, events, aggregates, port traits, read DTOs, error registry | `serde`, `uuid`, `chrono`, no infra |
-| `crates/infra` | Event-store adapter, projectors, queries, photo storage (OpenDAL), sagas, AI import, reporting | `sqlx`, `kameo_es`, `opendal`, `typst` |
-| `crates/api` | Axum routes, OIDC middleware, composition root, lifecycle | `axum`, `utoipa`, `core`, `infra` |
-| `crates/architecture` | Boundary tests (`rust_arkitect`) | core, infra, api |
-| `crates/integration-tests` | Tiers 1–4, black-box over live PG / SierraDB | `testcontainers` |
+#table(
+  columns: 3,
+  table.header([Crate], [Responsibility], [Key dependencies]),
+  [`crates/core`], [Commands, events, aggregates, port traits, read DTOs, error registry], [`serde`, `uuid`, `chrono`, no infra],
+  [`crates/infra`], [Event-store adapter, projectors, queries, photo storage (OpenDAL), sagas, AI import, reporting], [`sqlx`, `kameo_es`, `opendal`, `typst`],
+  [`crates/api`], [Axum routes, OIDC middleware, composition root, lifecycle], [`axum`, `utoipa`, `core`, `infra`],
+  [`crates/architecture`], [Boundary tests (`rust_arkitect`)], [core, infra, api],
+  [`crates/integration-tests`], [Tiers 1–4, black-box over live PG / SierraDB], [`testcontainers`],
+)
 
 == Core Bounded Contexts
 
@@ -57,11 +59,13 @@ payload GC — all visible in chapter 6 and 7.
 
 == Persistence Strategy (Level 2 Whitebox)
 
-| Aggregate | Event store | Projection table | Projector |
-|-----------|------------|------------------|-----------|
-| Scene, SceneShoot, ShootingDay, Character | SierraDB topic per category + UUIDv7 ID | `projection_scene`, etc. | PostgresProcessor per projection set |
-| Photo | SierraDB on costume / scene_shoot streams | `projection_photo` | photo projector |
-| AI imports | none (queue owned by infra) | `ai_import.job` | PG job table — no events |
+#table(
+  columns: 4,
+  table.header([Aggregate], [Event store], [Projection table], [Projector]),
+  [Scene, SceneShoot, ShootingDay, Character], [SierraDB topic per category + UUIDv7 ID], [`projection_scene`, etc.], [PostgresProcessor per projection set],
+  [Photo], [SierraDB on costume / scene_shoot streams], [`projection_photo`], [photo projector],
+  [AI imports], [none (queue owned by infra)], [`ai_import.job`], [PG job table — no events],
+)
 
 #important[
   The projection table layout is intentionally flat and query-friendly. Do

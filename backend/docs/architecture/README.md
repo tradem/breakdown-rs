@@ -37,13 +37,19 @@ DOCS_VERSION=1.2.3 DOCS_BUILD_DATE=2026-01-01 ./build.sh
 
 Artifacts are written to `dist/`.
 
+The HTML is post-processed by `postprocess-html.py` (part of `build.sh`,
+issue #235): the experimental Typst HTML export ships without any CSS, so
+`build.sh` injects a `<style>` block that gives tables a visible grid and keeps
+PlantUML diagrams proportional (natural size, `max-width: 100%`).
+
 ## CI pipeline (`docs.yml`)
 
 The workflow `.github/workflows/docs.yml`:
 
 1. Renders PlantUML sources to SVG (Docker image, digest-pinned).
 2. Installs the pinned Typst CLI and builds PDF + HTML (version from the
-   `api-vX.Y.Z` tag, or `dev-<sha>` on main).
+   `api-vX.Y.Z` tag, or `dev-<sha>` on main), then applies the Pages style
+   layer (`postprocess-html.py`).
 3. On `main`: publishes the HTML to GitHub Pages (always latest).
 4. On `api-v*` tags: attaches the versioned PDF + HTML to the GitHub Release.
 

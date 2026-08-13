@@ -9,13 +9,15 @@
 
 == Active Risks
 
-| Risk | Probability | Impact | Mitigation |
-|------|-------------|--------|------------|
-| CQRS projection lag | Medium | Medium | Idempotency, version guards, retries in projectors |
-| Event schema drift | Medium | High | Version events, upcast pattern, never delete old event types |
-| SaaS dependency drift (SierraDB, Garage, Vault) | Medium | Medium | Pin images / lockfiles; keep adapters thin |
-| AI-provisional semantics | Low | Low | AI is opt-in (`AI_IMPORT_ENABLED` default false); retries are bounded |
-| Lost audit context from swallowed errors | Low | Critical | Compiler denial + `ast-grep` `discard-result` rule |
+#table(
+  columns: 4,
+  table.header([Risk], [Probability], [Impact], [Mitigation]),
+  [CQRS projection lag], [Medium], [Medium], [Idempotency, version guards, retries in projectors],
+  [Event schema drift], [Medium], [High], [Version events, upcast pattern, never delete old event types],
+  [SaaS dependency drift (SierraDB, Garage, Vault)], [Medium], [Medium], [Pin images / lockfiles; keep adapters thin],
+  [AI-provisional semantics], [Low], [Low], [AI is opt-in (`AI_IMPORT_ENABLED` default false); retries are bounded],
+  [Lost audit context from swallowed errors], [Low], [Critical], [Compiler denial + `ast-grep` `discard-result` rule],
+)
 
 == Known Technical Debt
 
