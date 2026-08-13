@@ -10,6 +10,17 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.7.1] - 2026-08-13
+
+### Changed — Publish documentation assets via draft release (immutable releases)
+
+- Re-release to attach the versioned architecture PDF/HTML to the GitHub
+  Release: `docs.yml` now creates the release as a draft with the assets
+  attached inline and publishes afterwards (`gh release edit --draft=false`),
+  because GitHub immutable releases (2025+) reject post-hoc asset uploads
+  (HTTP 422) and lock the tag once published. No code changes; version bump
+  only (ADR-020 D6, PATCH).
+
 ## [0.7.0] - 2026-08-13
 
 ### Added — RFC 9457 problem-detail error surface (issue #230)
