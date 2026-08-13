@@ -10,7 +10,7 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
-## [0.8.0] - Unreleased
+## [0.8.0] - 2026-08-13
 
 ### Changed — Structured `DomainError` variants + problem-code registry (issue #230)
 
