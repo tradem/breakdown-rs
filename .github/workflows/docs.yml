@@ -137,11 +137,11 @@ jobs:
 
       # --- attach versioned artifacts to the release (tags only) --------------
       # GitHub immutable releases (2025+): assets must be attached at release
-      # creation; a post-hoc `gh release upload` is rejected with HTTP 422
-      # "Cannot upload assets to an immutable release". So create the release
-      # with the artifacts inline, and if it already exists (workflow re-run)
-      # delete + recreate it. The docs PDF/HTML are deterministic per commit,
-      # so recreate carries no drift risk.
+      # creation; a post-hoc `gh release upload` is rejected with HTTP 422, and
+      # once published the Git tag is locked — a deleted release's tag name can
+      # never be reused (docs.github.com immutable-releases). So create the
+      # release with the artifacts inline in one step. If the release already
+      # exists (workflow re-run), skip: nothing can be attached or recreated.
       - name: Publish documentation to GitHub Release
         if: startsWith(github.ref, 'refs/tags/api-v')
         env:
@@ -150,11 +150,12 @@ jobs:
           DOCS_VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "Release ${RELEASE_TAG} already exists (immutable); skipping"
+            exit 0
+          fi
           artifacts=(backend/docs/architecture/arc42-typst/dist/architecture-*.pdf \
                      backend/docs/architecture/arc42-typst/dist/architecture-*.html)
-          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
-            gh release delete "${RELEASE_TAG}" --yes
-          fi
           gh release create "${RELEASE_TAG}" \
             --title "${RELEASE_TAG}" \
             --generate-notes \
