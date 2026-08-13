@@ -17,7 +17,7 @@ use std::env;
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
-use breakdown_core::ai::{LlmChatRequest, LlmClient, LlmProvider, ScriptContext};
+use breakdown_core::ai::{AiImportBounds, LlmChatRequest, LlmClient, LlmProvider, ScriptContext};
 use infra::ai::OpenAiCompatibleChatClient;
 
 /// Curated provider keys (mirror of the API handler's `parse_ai_provider`).
@@ -63,7 +63,13 @@ async fn llm_reads_a_document_and_returns_script_context() -> Result<()> {
                      cannot read as null; do not invent values."
                 .to_owned(),
             source_text: SMALL_SCRIPT.to_owned(),
-            max_tokens: 2048,
+            // Production parity: the per-request output-token ceiling is
+            // `AiImportBounds::default().max_tokens_per_req` (8_192). A smaller
+            // nightly budget truncated the JSON mid-object (finish_reason
+            // "length", nightly 2026-08-13); the client now grows the budget on
+            // truncation, but the smoke test should exercise the production
+            // budget rather than the retry path.
+            max_tokens: AiImportBounds::default().max_tokens_per_req,
             response_schema: None,
         })
         .await

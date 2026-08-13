@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: deepseek-v4-flash (opencode-go)
 
 use std::time::Duration;
 
@@ -26,6 +27,19 @@ pub struct OpenAiCompatibleChatClient {
     api_key: SecretValue,
     timeout: Duration,
 }
+
+/// Output-token budget growth per truncation retry (doubling) and the number
+/// of bounded retries granted when a provider reports a token-ceiling
+/// truncation (`finish_reason: "length"`). Together they bound the worst-case
+/// paid cost of one `chat_constrained` call: at most
+/// `MAX_TRUNCATION_RETRIES + 1` attempts with budgets
+/// `B, B·2, …, B·2^MAX_TRUNCATION_RETRIES` (saturating at the `u32` ceiling) —
+/// mirroring the Ollama adapter's bounded parse-or-retry. Without the growth a
+/// response cut off at the caller's `max_tokens` budget failed permanently
+/// although a larger budget would have succeeded (nightly AI Import smoke
+/// 2026-08-13: `EOF while parsing an object at line 1 column 1158`).
+const TRUNCATION_RETRY_BUDGET_GROWTH: u32 = 2;
+const MAX_TRUNCATION_RETRIES: u32 = 2;
 
 impl OpenAiCompatibleChatClient {
     /// Reject Ollama in this client: its curated base URL is plain HTTP and
@@ -120,56 +134,90 @@ impl OpenAiCompatibleChatClient {
             .response_schema
             .clone()
             .unwrap_or_else(|| schemars::schema_for!(ScriptContextSchema).to_value());
-        let body = ChatCompletionRequest {
-            model: req.model.clone(),
-            // The configured prompt (instructions) is carried in a system
-            // message; the source document is untrusted user data in its own
-            // message so it cannot override prompt directives via delimiters.
-            messages: vec![
-                ChatMessage {
-                    role: "system".to_owned(),
-                    content: req.prompt.clone(),
-                },
-                ChatMessage {
-                    role: "user".to_owned(),
-                    content: format!("<context>\n{}\n</context>", req.source_text),
-                },
-            ],
-            max_tokens: req.max_tokens,
-            response_format: Some(json!({
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "script_context",
-                    "strict": true,
-                    "schema": schema,
+        let mut budget = req.max_tokens;
+        let mut truncation_retries = MAX_TRUNCATION_RETRIES;
+        loop {
+            let body = ChatCompletionRequest {
+                model: req.model.clone(),
+                // The configured prompt (instructions) is carried in a system
+                // message; the source document is untrusted user data in its own
+                // message so it cannot override prompt directives via delimiters.
+                messages: vec![
+                    ChatMessage {
+                        role: "system".to_owned(),
+                        content: req.prompt.clone(),
+                    },
+                    ChatMessage {
+                        role: "user".to_owned(),
+                        content: format!("<context>\n{}\n</context>", req.source_text),
+                    },
+                ],
+                max_tokens: budget,
+                response_format: Some(json!({
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "script_context",
+                        "strict": true,
+                        "schema": schema,
+                    }
+                })),
+            };
+            let response = self
+                .http
+                .post(self.endpoint())
+                .timeout(self.timeout)
+                .bearer_auth(self.api_key.as_str())
+                .json(&body)
+                .send()
+                .await
+                .map_err(classify_transport_error)?;
+            let status = response.status();
+            if !status.is_success() {
+                return Err(classify_http_status(status));
+            }
+            let envelope = response
+                .json::<ChatCompletionResponse>()
+                .await
+                .map_err(|error| {
+                    DomainError::validation(format!("invalid LLM response: {error}"))
+                })?;
+            let choice = envelope
+                .choices
+                .first()
+                .ok_or_else(|| DomainError::validation("LLM response contained no choices"))?;
+            let content = choice
+                .message
+                .content
+                .as_deref()
+                .ok_or_else(|| DomainError::validation("LLM response contained no content"))?;
+            match serde_json::from_str(content) {
+                Ok(context) => return Ok(context),
+                Err(error) => {
+                    match next_truncation_budget(
+                        choice.finish_reason.as_deref(),
+                        budget,
+                        truncation_retries,
+                    ) {
+                        Some(grown) => {
+                            budget = grown;
+                            truncation_retries -= 1;
+                        }
+                        None => {
+                            let truncated = choice.finish_reason.as_deref() == Some("length");
+                            let suffix = if truncated {
+                                " (response truncated at the output-token budget \
+                                 after bounded retries)"
+                            } else {
+                                ""
+                            };
+                            return Err(DomainError::validation(format!(
+                                "LLM JSON did not match ScriptContext: {error}{suffix}"
+                            )));
+                        }
+                    }
                 }
-            })),
-        };
-        let response = self
-            .http
-            .post(self.endpoint())
-            .timeout(self.timeout)
-            .bearer_auth(self.api_key.as_str())
-            .json(&body)
-            .send()
-            .await
-            .map_err(classify_transport_error)?;
-        let status = response.status();
-        if !status.is_success() {
-            return Err(classify_http_status(status));
+            }
         }
-        let envelope = response
-            .json::<ChatCompletionResponse>()
-            .await
-            .map_err(|error| DomainError::validation(format!("invalid LLM response: {error}")))?;
-        let content = envelope
-            .choices
-            .first()
-            .and_then(|choice| choice.message.content.as_deref())
-            .ok_or_else(|| DomainError::validation("LLM response contained no content"))?;
-        serde_json::from_str(content).map_err(|error| {
-            DomainError::validation(format!("LLM JSON did not match ScriptContext: {error}"))
-        })
     }
 }
 
@@ -208,6 +256,10 @@ struct ChatCompletionResponse {
 #[derive(Debug, Deserialize)]
 struct ChatChoice {
     message: ChatMessageResponse,
+    /// Provider-side stop reason. `Some("length")` signals the response was
+    /// cut off at the `max_tokens` ceiling — the JSON payload is typically
+    /// truncated mid-object and must be retried with a grown budget.
+    finish_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -264,5 +316,62 @@ pub fn classify_transport_error(error: reqwest::Error) -> DomainError {
         ))
     } else {
         DomainError::validation(format!("LLM provider request failed: {error}"))
+    }
+}
+
+/// Output-token budget for the next truncation retry, or `None` when the
+/// response must fail permanently. Only a provider-reported token-ceiling
+/// truncation (`finish_reason == "length"`) qualifies for a retry: a
+/// well-formed JSON that decodes to the wrong shape (`finish_reason ==
+/// "stop"`) is not retried, because re-paying a paid LLM call on arbitrary
+/// malformed output is a cost risk, not a recovery. Retries are bounded by
+/// `truncation_retries_left`, so the worst-case spend of one call stays
+/// bounded (see [`MAX_TRUNCATION_RETRIES`]).
+fn next_truncation_budget(
+    finish_reason: Option<&str>,
+    budget: u32,
+    truncation_retries_left: u32,
+) -> Option<u32> {
+    if finish_reason == Some("length") && truncation_retries_left > 0 {
+        Some(budget.saturating_mul(TRUNCATION_RETRY_BUDGET_GROWTH))
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncated_response_grows_budget_while_retries_remain() {
+        assert_eq!(next_truncation_budget(Some("length"), 2048, 2), Some(4096));
+        assert_eq!(next_truncation_budget(Some("length"), 4096, 1), Some(8192));
+    }
+
+    #[test]
+    fn truncation_without_retries_left_fails_permanently() {
+        assert_eq!(next_truncation_budget(Some("length"), 2048, 0), None);
+    }
+
+    #[test]
+    fn non_truncated_malformed_response_is_not_retried() {
+        // A `stop` or missing `finish_reason` means the JSON is genuinely
+        // malformed — retrying would re-pay a paid call for the same input.
+        assert_eq!(next_truncation_budget(Some("stop"), 2048, 2), None);
+        assert_eq!(
+            next_truncation_budget(Some("content_filter"), 2048, 2),
+            None
+        );
+        assert_eq!(next_truncation_budget(None, 2048, 2), None);
+    }
+
+    #[test]
+    fn truncation_budget_growth_saturates_at_u32_ceiling() {
+        // `saturating_mul` keeps the budget growth total even at the ceiling.
+        assert_eq!(
+            next_truncation_budget(Some("length"), u32::MAX, 1),
+            Some(u32::MAX)
+        );
     }
 }
