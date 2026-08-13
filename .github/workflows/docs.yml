@@ -136,6 +136,12 @@ jobs:
         uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
 
       # --- attach versioned artifacts to the release (tags only) --------------
+      # GitHub immutable releases (2025+): assets must be attached at release
+      # creation; a post-hoc `gh release upload` is rejected with HTTP 422
+      # "Cannot upload assets to an immutable release". So create the release
+      # with the artifacts inline, and if it already exists (workflow re-run)
+      # delete + recreate it. The docs PDF/HTML are deterministic per commit,
+      # so recreate carries no drift risk.
       - name: Publish documentation to GitHub Release
         if: startsWith(github.ref, 'refs/tags/api-v')
         env:
@@ -147,11 +153,10 @@ jobs:
           artifacts=(backend/docs/architecture/arc42-typst/dist/architecture-*.pdf \
                      backend/docs/architecture/arc42-typst/dist/architecture-*.html)
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
-            gh release upload "${RELEASE_TAG}" "${artifacts[@]}" --clobber
-          else
-            gh release create "${RELEASE_TAG}" \
-              --title "${RELEASE_TAG}" \
-              --generate-notes
-            gh release upload "${RELEASE_TAG}" "${artifacts[@]}"
+            gh release delete "${RELEASE_TAG}" --yes
           fi
+          gh release create "${RELEASE_TAG}" \
+            --title "${RELEASE_TAG}" \
+            --generate-notes \
+            "${artifacts[@]}"
           echo "Published docs v${DOCS_VERSION} to release ${RELEASE_TAG}"
