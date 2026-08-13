@@ -22,6 +22,20 @@ behavioural change beyond the error identity.
 - **Breaking (cascade):** re-pinned to `breakdown_core` 0.8.0 (ADR-020 D3);
   infra bumps 0.12.0 → 0.13.0.
 
+### Changed — Retry LLM responses truncated at the output-token budget
+
+`OpenAiCompatibleChatClient` now inspects the provider `finish_reason`: a
+response cut off at the caller's `max_tokens` ceiling (`finish_reason:
+"length"`, unparseable JSON) is retried in-loop with a doubled output-token
+budget, bounded by `MAX_TRUNCATION_RETRIES` (2). Previously such a response
+failed permanently although a larger budget would have succeeded — this is
+what broke the AI Import Nightly smoke on 2026-08-13 (`EOF while parsing an
+object at line 1 column 1158`). Genuinely malformed JSON (`finish_reason:
+"stop"` or absent) is still a permanent validation error: re-paying a paid
+call on arbitrary malformed output is a cost risk, not a recovery. Budget
+growth saturates at the `u32` ceiling, so the worst-case spend of one call
+stays bounded (budgets `B, 2B, 4B` at most).
+
 ## [0.12.0] - Unreleased
 
 ### Added — Route non-CSV schedule imports through the LLM (issue #221)
