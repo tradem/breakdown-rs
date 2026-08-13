@@ -10,7 +10,7 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
-## [0.13.0] - Unreleased
+## [0.13.0] - 2026-08-13
 
 ### Changed — Consume the structured `DomainError` surface (issue #230)
 
