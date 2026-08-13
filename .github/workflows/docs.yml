@@ -136,12 +136,13 @@ jobs:
         uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
 
       # --- attach versioned artifacts to the release (tags only) --------------
-      # GitHub immutable releases (2025+): assets must be attached at release
-      # creation; a post-hoc `gh release upload` is rejected with HTTP 422, and
-      # once published the Git tag is locked — a deleted release's tag name can
-      # never be reused (docs.github.com immutable-releases). So create the
-      # release with the artifacts inline in one step. If the release already
-      # exists (workflow re-run), skip: nothing can be attached or recreated.
+      # GitHub immutable releases (2025+): once published, the Git tag is locked
+      # and post-hoc `gh release upload` is rejected with HTTP 422 — a deleted
+      # release's tag name can never be reused. So create the release as a DRAFT
+      # (drafts are not yet immutable: assets and tag remain adjustable), attach
+      # the PDF/HTML artifacts inline, and only then publish. If the release
+      # already exists (workflow re-run), skip: nothing can be attached or
+      # recreated.
       - name: Publish documentation to GitHub Release
         if: startsWith(github.ref, 'refs/tags/api-v')
         env:
@@ -159,5 +160,7 @@ jobs:
           gh release create "${RELEASE_TAG}" \
             --title "${RELEASE_TAG}" \
             --generate-notes \
+            --draft \
             "${artifacts[@]}"
+          gh release edit "${RELEASE_TAG}" --draft=false
           echo "Published docs v${DOCS_VERSION} to release ${RELEASE_TAG}"
