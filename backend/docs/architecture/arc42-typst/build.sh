@@ -34,6 +34,10 @@ if ! command -v typst &>/dev/null; then
   echo "❌ typst not found. Install: https://github.com/typst/typst/releases"
   exit 1
 fi
+if ! command -v python3 &>/dev/null; then
+  echo "❌ python3 not found. Required for postprocess-html.py (Pages style layer)."
+  exit 1
+fi
 
 # --- generate SVGs from PlantUML ---
 mkdir -p diagrams dist
@@ -78,6 +82,15 @@ typst compile main.typ "dist/architecture-v${DOCS_VERSION}.html" \
   --format html \
   --input version="${DOCS_VERSION}" \
   --input build-date="${DOCS_BUILD_DATE}"
+
+# --- Pages presentation layer (issue #235) -----------------------------------
+# The experimental HTML export is unstyled: tables have no visible grid and
+# PlantUML SVGs render distorted (fixed pixel height + `width: 100%`).
+# postprocess-html.py injects a small <style> block before </head> that keeps
+# images proportional at natural size and gives tables real column/row
+# structure. It fails loudly if the exporter output shape changes.
+echo "🎨 Applying Pages style layer → dist/architecture-v${DOCS_VERSION}.html"
+python3 postprocess-html.py "dist/architecture-v${DOCS_VERSION}.html"
 
 echo ""
 echo "✅ Build complete."

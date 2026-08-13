@@ -18,14 +18,16 @@ costumes and continuity.
 
 === Business Responsibilities
 
-| Responsibility                    | Description |
-|-----------------------------------|-------------|
-| Episode/Script import             | Fed by AI or manual entry; becomes the plan. |
-| Shooting-day planning             | Planned order, notes, wrap status per shooting day. |
-| Costume assignment                | Characters scoped to season; costumes assigned to characters. |
-| Continuity                        | Actual shoot order recorded; differences surfaced as Soll-Ist. |
-| Photo documentation               | Costume and continuity photos stored and versioned. |
-| Reporting                         | Breakdown and Soll-Ist PDFs per production state. |
+#table(
+  columns: 2,
+  table.header([Responsibility], [Description]),
+  [Episode/Script import], [Fed by AI or manual entry; becomes the plan.],
+  [Shooting-day planning], [Planned order, notes, wrap status per shooting day.],
+  [Costume assignment], [Characters scoped to season; costumes assigned to characters.],
+  [Continuity], [Actual shoot order recorded; differences surfaced as Soll-Ist.],
+  [Photo documentation], [Costume and continuity photos stored and versioned.],
+  [Reporting], [Breakdown and Soll-Ist PDFs per production state.],
+)
 
 == Technical Context
 
@@ -35,15 +37,17 @@ The API is the only entry point. Everything else is infrastructure.
 
 #diagram("technical-context", caption: [Technical context and protocols])
 
-| System | Interface | Protocol | Auth |
-|--------|-----------|----------|------|
-| Web / Frontend | REST API (JSON) | HTTPS | OIDC JWT |
-| OIDC IdP       | Token validation | HTTPS JWKS | mTLS-pinned root (optional) |
-| SierraDB       | Event streams    | RESP3    | TLS, passwordless |
-| PostgreSQL     | Projections      | SQL      | TLS, least-privilege role |
-| Garage         | Object store     | S3 API   | S3 access key |
-| Vault          | Secrets          | HTTPS    | AppRole / token |
-| LLM Provider   | AI script import | HTTPS    | Bearer token |
+#table(
+  columns: 4,
+  table.header([System], [Interface], [Protocol], [Auth]),
+  [Web / Frontend], [REST API (JSON)], [HTTPS], [OIDC JWT],
+  [OIDC IdP], [Token validation], [HTTPS JWKS], [mTLS-pinned root (optional)],
+  [SierraDB], [Event streams], [RESP3], [TLS, passwordless],
+  [PostgreSQL], [Projections], [SQL], [TLS, least-privilege role],
+  [Garage], [Object store], [S3 API], [S3 access key],
+  [Vault], [Secrets], [HTTPS], [AppRole / token],
+  [LLM Provider], [AI script import], [HTTPS], [Bearer token],
+)
 
 #note[
   SierraDB speaks RESP3 only — no Redis-specific commands beyond the RESP3

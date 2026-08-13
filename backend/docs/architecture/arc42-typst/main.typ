@@ -97,29 +97,38 @@ typst compile main.typ dist/architecture.html \
   --features html \
   --format html --input version=1.2.3 --input build-date=2026-01-01
 
+# 3. Pages presentation layer (issue #235)
+#    build.sh runs this after the HTML compile; it injects a <style> block so
+#    tables show a grid and diagrams keep their aspect ratio on GitHub Pages.
+python3 postprocess-html.py dist/architecture.html
+
 # Watch mode for writing (PDF preview only)
 typst watch main.typ dist/architecture.pdf
 ```
 
 == Tooling Comparison
 
-| Feature | Typst | AsciiDoc |
-|---------|-------|----------|
-| Dependencies | Single binary | Ruby + Gems |
-| Compilation speed | Milliseconds | Seconds |
-| PDF output | Native | Needs extensions |
-| HTML output | Native (`--format html`) | Needs extensions |
-| Syntax | Intuitive | Verbose |
+#table(
+  columns: 3,
+  table.header([Feature], [Typst], [AsciiDoc]),
+  [Dependencies], [Single binary], [Ruby + Gems],
+  [Compilation speed], [Milliseconds], [Seconds],
+  [PDF output], [Native], [Needs extensions],
+  [HTML output], [Native (`--format html`)], [Needs extensions],
+  [Syntax], [Intuitive], [Verbose],
+)
 
 == Directory Layout
 
-| Path | Purpose |
-|------|---------|
-| `arc42-typst/main.typ` | Document entry point (this file) |
-| `arc42-typst/template.typ` | Styling template + helpers |
-| `arc42-typst/0x-*.typ` | arc42 chapters |
-| `arc42-typst/diagrams/` | Generated SVGs (git-ignored, created by build) |
-| `../diagrams/*.puml` | PlantUML diagram sources (versioned) |
-| `../adrs/` | Architecture Decision Records (Markdown) |
+#table(
+  columns: 2,
+  table.header([Path], [Purpose]),
+  [`arc42-typst/main.typ`], [Document entry point (this file)],
+  [`arc42-typst/template.typ`], [Styling template + helpers],
+  [`arc42-typst/0x-*.typ`], [arc42 chapters],
+  [`arc42-typst/diagrams/`], [Generated SVGs (git-ignored, created by build)],
+  [`../diagrams/*.puml`], [PlantUML diagram sources (versioned)],
+  [`../adrs/`], [Architecture Decision Records (Markdown)],
+)
 
 // This is a living document. Update it as the architecture evolves.
