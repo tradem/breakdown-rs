@@ -40,7 +40,7 @@ jobs:
           # the last release tag of each changed crate.
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
-      - uses: Swatinem/rust-cache@258712b0b7b1ddf8bddc9fc3b0faca682b2736c3 # v2
+      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
           workspaces: "backend"
       - uses: taiki-e/install-action@7f4eb899022d8fe70b20c4f3de697aa85c309026
