@@ -9,7 +9,7 @@
 
 # syntax=docker/dockerfile:1.7
 
-FROM rust:1.94-bookworm AS builder
+FROM rust:1.98-bookworm AS builder
 
 WORKDIR /build
 

@@ -3,7 +3,7 @@ name = "kameo_es_core"
 version = "0.1.0"
 edition = "2021"
 # MSRV aligned with the workspace floor (see sibling kameo_es patch crate).
-rust-version = "1.94"
+rust-version = "1.98"
 authors = ["Ari Seyhun <dev@tqwewe.com>"]
 license = "MIT OR Apache-2.0"
 description = "Core types and traits for kameo_es event sourcing library"
