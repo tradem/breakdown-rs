@@ -10,6 +10,12 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.8.0] - 2026-08-23
+
+### Changed — Bump MSRV to 1.98 (issue #257)
+
+- **Breaking (MAJOR, ADR-020 D2/D3):** `rust-version` raised from `1.94` to `1.98` (workspace floor + Dockerfile builder `rust:1.98-bookworm`). Re-pinned to `breakdown_core` 0.9.0 and `infra` 0.14.0 (cascade).
+
 ## [0.7.1] - 2026-08-13
 
 ### Changed — Publish documentation assets via draft release (immutable releases)

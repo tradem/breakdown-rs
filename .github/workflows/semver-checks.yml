@@ -8,8 +8,8 @@ name: Semver Checks
 # tag of the changed crate (`core-v*`, `infra-v*`, `api-v*`). A MAJOR drift
 # with no version bump fails the PR. Crates with no baseline tag yet are
 # skipped with a notice (the discipline starts paying on the first release).
-# The MSRV floor (rust-version = 1.94, ADR-020 D2/D5) is verified by the
-# `msrv` job in ci.yml with the pinned 1.94.0 toolchain.
+# The MSRV floor (rust-version = 1.98, ADR-020 D2/D5) is verified by the
+# `msrv` job in ci.yml with the pinned 1.98.0 toolchain.
 
 on:
   pull_request:
