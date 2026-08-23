@@ -27,7 +27,7 @@ itself (ADR-020 D7).
   baseline = last tag of the changed crate).
 - Tier-4 integration run green (`cargo test -p integration-tests`).
 - `cargo-deny check advisories bans licenses sources` green (ADR-017).
-- MSRV job green (`rust-version = 1.94`, ci.yml).
+- MSRV job green (`rust-version = 1.98`, ci.yml).
 
 ## 2. Cut a per-crate release (local, `cargo-release`)
 

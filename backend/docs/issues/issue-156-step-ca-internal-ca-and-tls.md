@@ -30,7 +30,7 @@ object-store link TLS-encrypted and **pinned to the internal step-ca root**.
 | SierraDB healthcheck | **broken** — `redis-cli` does not exist in the image |
 | Garage healthcheck | **broken** — image is a bare binary without a shell |
 | Garage config | **missing** — no `config.toml` mounted; garage never started |
-| `api` Docker build | **broken** — Dockerfile misses `.patches/` and `config/`, pins rust 1.91 (locked deps need 1.94) |
+| `api` Docker build | **broken** — Dockerfile misses `.patches/` and `config/`, pins rust 1.91 (locked deps need 1.98) |
 
 ## 3. Implementation plan
 
@@ -112,7 +112,7 @@ shipped mechanism (the ADR's documented fallback).
   live in `scripts/` now — no inline heredocs / inline perl in compose YAML.
 - **`api` Docker build**: Dockerfile now copies `.patches/` + `config/`
   (needed by the workspace manifest and the embedded seed TOML) and pins
-  `rust:1.94-bookworm` (locked deps — e.g. `sqlx 0.9` — require ≥1.94).
+  `rust:1.98-bookworm` (locked deps — e.g. `sqlx 0.9` — require ≥1.98).
 - **OpenDAL region**: the S3 operator never set a region (would fail with
   "region is missing"); `S3_REGION` defaults to `garage` (matches the tests).
 
