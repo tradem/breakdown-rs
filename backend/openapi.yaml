@@ -1,0 +1,4386 @@
+components:
+  schemas:
+    AddCostumeDetailRequest:
+      properties:
+        detail:
+          $ref: '#/components/schemas/CostumeDetail'
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - detail
+      - version
+      type: object
+    AggregateVersion:
+      description: |-
+        Aggregate version for optimistic locking.
+
+        The canonical version contract is **1-based**: `AggregateVersion::INITIAL = 1`,
+        and every mutation increments the version by one.
+
+        The SierraDB stream version (0-based) is an infrastructure-internal detail.
+        The translation rule is: `domain_version = stream_version + 1`
+        (and inversely `stream_version = domain_version - 1`) which is performed
+        exclusively inside `crates::infra` at the `*Commands` adapter boundary.
+        `core` does not reference `stream_version`, `ExpectedVersion`, or `CurrentVersion`.
+      format: int64
+      minimum: 0
+      type: integer
+    AiConfigView:
+      description: |-
+        Public AI configuration view. It contains only the opaque vault reference,
+        never a key or other secret material.
+      properties:
+        assistant_model:
+          type: string
+        id:
+          format: uuid
+          type: string
+        image_model:
+          type:
+          - string
+          - 'null'
+        prompt_kinds:
+          items:
+            $ref: '#/components/schemas/DocumentKind'
+          type: array
+        provider:
+          $ref: '#/components/schemas/LlmProvider'
+        revoked:
+          type: boolean
+        user_id:
+          $ref: '#/components/schemas/UserId'
+        vault_key_id:
+          type: string
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - id
+      - user_id
+      - provider
+      - assistant_model
+      - prompt_kinds
+      - vault_key_id
+      - version
+      - revoked
+      type: object
+    AiImportJob:
+      description: |-
+        Operational job row. Preview blobs and errors are represented by opaque
+        handles/summaries; credentials and document bytes are deliberately absent.
+      properties:
+        block_id:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/BlockId'
+        created_at:
+          format: date-time
+          type: string
+        dedup_key:
+          type: string
+        document_digest:
+          type: string
+        document_kind:
+          $ref: '#/components/schemas/DocumentKind'
+        id:
+          $ref: '#/components/schemas/AiImportJobId'
+        last_error:
+          type:
+          - string
+          - 'null'
+        max_retries:
+          format: int32
+          minimum: 0
+          type: integer
+        preview_handle:
+          type:
+          - string
+          - 'null'
+        retries:
+          format: int32
+          minimum: 0
+          type: integer
+        source_format:
+          $ref: '#/components/schemas/SourceFormat'
+        source_handle:
+          type: string
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        updated_at:
+          format: date-time
+          type: string
+        user_id:
+          $ref: '#/components/schemas/UserId'
+      required:
+      - id
+      - user_id
+      - document_kind
+      - source_format
+      - dedup_key
+      - document_digest
+      - source_handle
+      - status
+      - retries
+      - max_retries
+      - created_at
+      - updated_at
+      type: object
+    AiImportJobId:
+      description: Opaque identifier for an operational AI import job.
+      format: uuid
+      type: string
+    AiImportJobResponse:
+      properties:
+        job:
+          $ref: '#/components/schemas/AiImportJob'
+      required:
+      - job
+      type: object
+    AiProviderInfo:
+      properties:
+        key:
+          description: Canonical lowercase path key for `/ai-import/providers/{provider}/models`.
+          type: string
+        provider:
+          $ref: '#/components/schemas/LlmProvider'
+      required:
+      - provider
+      - key
+      type: object
+    ApplyAiImportRequest:
+      properties:
+        accept_as_is:
+          type: boolean
+        edit_distance:
+          format: int32
+          minimum: 0
+          type: integer
+        episode_id:
+          $ref: '#/components/schemas/EpisodeId'
+        mappings:
+          items:
+            $ref: '#/components/schemas/ApplyMapping'
+          type: array
+        series_id:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SeriesId'
+      required:
+      - episode_id
+      - mappings
+      - accept_as_is
+      - edit_distance
+      type: object
+    ApplyAiImportResponse:
+      properties:
+        applied_count:
+          format: int32
+          minimum: 0
+          type: integer
+        created_days:
+          format: int32
+          minimum: 0
+          type: integer
+        planned_scene_shoots:
+          format: int32
+          minimum: 0
+          type: integer
+      required:
+      - applied_count
+      - created_days
+      - planned_scene_shoots
+      type: object
+    ApplyMapping:
+      description: |-
+        User decision for one draft row. A create decision leaves the aggregate id
+        absent; an update decision carries the existing id and optimistic version.
+      properties:
+        decision:
+          $ref: '#/components/schemas/ApplyMappingDecision'
+        draft_ref:
+          type: string
+      required:
+      - draft_ref
+      - decision
+      type: object
+    ApplyMappingDecision:
+      oneOf:
+      - enum:
+        - Create
+        type: string
+      - properties:
+          Update:
+            properties:
+              aggregate_id:
+                format: uuid
+                type: string
+              version:
+                $ref: '#/components/schemas/AggregateVersion'
+            required:
+            - aggregate_id
+            - version
+            type: object
+        required:
+        - Update
+        type: object
+    AssignCharacterRequest:
+      properties:
+        character_id:
+          format: uuid
+          type: string
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - character_id
+      - version
+      type: object
+    AssignCostumeRequest:
+      properties:
+        character_id:
+          format: uuid
+          type: string
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - character_id
+      - version
+      type: object
+    AuditEntry:
+      description: |-
+        One row of the audit journal: who (`actor`) did what (`event_type` on
+        `entity_type`/`entity_id`) when (`occurred_at`), with the event `payload`.
+
+        `series_id` is the tenant dimension prepared for per-`SeriesId` tenancy
+        (decision 9.2) and is `NULL` in v1. `payload` is the raw event serialized
+        as JSON (generic, so any context's events fit the same row).
+      properties:
+        actor:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/UserId'
+        block_id:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/BlockId'
+        entity_id:
+          type: string
+        entity_type:
+          type: string
+        event_type:
+          type: string
+        id:
+          format: uuid
+          type: string
+        occurred_at:
+          format: date-time
+          type: string
+        payload: {}
+        series_id:
+          format: uuid
+          type:
+          - string
+          - 'null'
+      required:
+      - id
+      - entity_type
+      - entity_id
+      - event_type
+      - payload
+      - occurred_at
+      type: object
+    BlockId:
+      description: Opaque identifier for a `Block` aggregate.
+      format: uuid
+      type: string
+    BlockView:
+      description: |-
+        Complete block read model.
+
+        `updated_at` is sourced from the timestamp of the last applied `BlockEvent`.
+      properties:
+        end_date:
+          type: string
+        id:
+          format: uuid
+          type: string
+        number:
+          format: int32
+          type: integer
+        season_id:
+          $ref: '#/components/schemas/SeasonId'
+        series_id:
+          $ref: '#/components/schemas/SeriesId'
+        start_date:
+          type: string
+        updated_at:
+          format: date-time
+          type: string
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+          description: Aggregate version for optimistic-locking round-trips.
+      required:
+      - id
+      - season_id
+      - series_id
+      - number
+      - start_date
+      - end_date
+      - version
+      - updated_at
+      type: object
+    CharacterCategory:
+      description: |-
+        Exhaustive category for a Character.
+
+        Designed for **purely additive extension**: a new variant can be appended
+        later without breaking deserialization of already-persisted data (existing
+        rows only ever contain the original variants). Removing or renaming a variant
+        is a *breaking* change and requires a separate proposal.
+
+        The single enum makes illegal states unrepresentable — there is no
+        `(is_main_character = true, is_extra = true)` combination.
+      enum:
+      - main_cast
+      - guest
+      - extra
+      type: string
+    CharacterMeasurements:
+      description: Payload for measurement fields updated as a God-Command.
+      properties:
+        chest:
+          type: string
+        hat_size:
+          type: string
+        height:
+          type: string
+        hips:
+          type: string
+        shoe_size:
+          type: string
+        waist:
+          type: string
+        weight:
+          type: string
+      required:
+      - shoe_size
+      - hat_size
+      - height
+      - weight
+      - chest
+      - waist
+      - hips
+      type: object
+    CharacterView:
+      description: |-
+        Complete character read model.
+
+        `updated_at` is sourced from the timestamp of the last applied `CharacterEvent`.
+      properties:
+        category:
+          $ref: '#/components/schemas/CharacterCategory'
+        contact:
+          $ref: '#/components/schemas/ContactInfo'
+        id:
+          format: uuid
+          type: string
+        measurements:
+          $ref: '#/components/schemas/CharacterMeasurements'
+        name:
+          type: string
+        season_id:
+          $ref: '#/components/schemas/SeasonId'
+        updated_at:
+          format: date-time
+          type: string
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+          description: Aggregate version for optimistic-locking round-trips.
+      required:
+      - id
+      - season_id
+      - name
+      - category
+      - measurements
+      - contact
+      - version
+      - updated_at
+      type: object
+    ContactInfo:
+      description: Payload for contact information updated as a God-Command.
+      properties:
+        email:
+          type:
+          - string
+          - 'null'
+        phone:
+          type:
+          - string
+          - 'null'
+      type: object
+    CostumeCategoryId:
+      description: |-
+        Opaque identifier for a `CostumeCategory` aggregate.
+
+        A `CostumeCategory` is a season-scoped, user-editable vocabulary of part
+        types (Oberteil, Schuhe, …) used to categorise `CostumeDetail`s. Like the
+        other hierarchy ids it is a UUIDv7 opaque value type that is never decoded
+        inside `core`.
+      format: uuid
+      type: string
+    CostumeCategoryView:
+      description: |-
+        Complete costume-category read model (season-scoped vocabulary entry).
+
+        `updated_at` is sourced from the timestamp of the last applied
+        `CostumeCategoryEvent` (ADR-004 + ADR-015).
+      properties:
+        archived:
+          type: boolean
+        id:
+          format: uuid
+          type: string
+        name:
+          type: string
+        order_key:
+          $ref: '#/components/schemas/LexicalSortKey'
+        season_id:
+          $ref: '#/components/schemas/SeasonId'
+        updated_at:
+          format: date-time
+          type: string
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+          description: Aggregate version for optimistic-locking round-trips.
+      required:
+      - id
+      - season_id
+      - name
+      - order_key
+      - archived
+      - version
+      - updated_at
+      type: object
+    CostumeDetail:
+      properties:
+        category_id:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/CostumeCategoryId'
+            description: |-
+              Reference to a `CostumeCategory` (season-scoped vocabulary). Optional;
+              `None` until the owning Costume is bound to a Season's character.
+        id:
+          format: uuid
+          type: string
+        subject:
+          description: Free-form per-detail micro-title (e.g. "Rote Lederjacke"). Optional.
+          type:
+          - string
+          - 'null'
+        text:
+          description: The description (unchanged meaning — never reinterpreted from `subject`).
+          type: string
+      required:
+      - id
+      - text
+      type: object
+    CostumeDetailView:
+      description: Detailed costume element (e.g. belt, hat, shoes).
+      properties:
+        category_id:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/CostumeCategoryId'
+            description: Reference to the categorising `CostumeCategory`, if any.
+        category_name:
+          description: Denormalised category name, resolved by join at projection time.
+          type:
+          - string
+          - 'null'
+        id:
+          format: uuid
+          type: string
+        subject:
+          description: Free-form per-detail micro-title (e.g. "Rote Lederjacke").
+          type:
+          - string
+          - 'null'
+        text:
+          description: The description (unchanged meaning).
+          type: string
+      required:
+      - id
+      - text
+      type: object
+    CostumePhotoView:
+      description: Linked photo reference for a costume, enriched with variant metadata.
+      properties:
+        content_type:
+          description: MIME type of the uploaded original (e.g. `image/jpeg`).
+          type: string
+        id:
+          format: uuid
+          type: string
+        size_bytes:
+          description: Size of the re-encoded original in bytes.
+          format: int64
+          minimum: 0
+          type: integer
+        variants:
+          description: Generation status and size of each variant.
+          items:
+            $ref: '#/components/schemas/PhotoVariantView'
+          type: array
+      required:
+      - id
+      - content_type
+      - size_bytes
+      - variants
+      type: object
+    CostumeView:
+      description: |-
+        Complete costume read model, optionally populated with child details/photos.
+
+        `updated_at` is sourced from the timestamp of the last applied `CostumeEvent`.
+      properties:
+        character_id:
+          format: uuid
+          type:
+          - string
+          - 'null'
+        details:
+          items:
+            $ref: '#/components/schemas/CostumeDetailView'
+          type: array
+        id:
+          format: uuid
+          type: string
+        notes:
+          type: string
+        photos:
+          items:
+            $ref: '#/components/schemas/CostumePhotoView'
+          type: array
+        updated_at:
+          format: date-time
+          type: string
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+          description: Aggregate version for optimistic-locking round-trips.
+      required:
+      - id
+      - notes
+      - details
+      - photos
+      - version
+      - updated_at
+      type: object
+    CreateAiConfigRequest:
+      properties:
+        assistant_model:
+          type: string
+        image_model:
+          type:
+          - string
+          - 'null'
+        prompts:
+          additionalProperties:
+            type: string
+          propertyNames:
+            description: The two document kinds supported by the import pipeline.
+            enum:
+            - script
+            - schedule
+            type: string
+          type: object
+        provider:
+          $ref: '#/components/schemas/LlmProvider'
+        vault_key_id:
+          type: string
+      required:
+      - provider
+      - assistant_model
+      - prompts
+      - vault_key_id
+      type: object
+    CreateBlockRequest:
+      properties:
+        end_date:
+          format: date
+          type:
+          - string
+          - 'null'
+        number:
+          format: int32
+          type: integer
+        season_id:
+          $ref: '#/components/schemas/SeasonId'
+        series_id:
+          $ref: '#/components/schemas/SeriesId'
+        start_date:
+          format: date
+          type:
+          - string
+          - 'null'
+      required:
+      - season_id
+      - series_id
+      - number
+      type: object
+    CreateCharacterRequest:
+      properties:
+        category:
+          $ref: '#/components/schemas/CharacterCategory'
+        name:
+          type: string
+        season_id:
+          $ref: '#/components/schemas/SeasonId'
+      required:
+      - season_id
+      - name
+      - category
+      type: object
+    CreateCostumeCategoryRequest:
+      properties:
+        name:
+          type: string
+        order_key:
+          $ref: '#/components/schemas/LexicalSortKey'
+        season_id:
+          $ref: '#/components/schemas/SeasonId'
+      required:
+      - season_id
+      - name
+      - order_key
+      type: object
+    CreateCostumeRequest:
+      type: object
+    CreateCredentialRequest:
+      description: |-
+        Generic credential submission kept for non-GDrive providers. GDrive uses
+        the typed write-only request below so its complete bundle is stored as one
+        Vault binding.
+      properties:
+        provider:
+          type: string
+        secret:
+          type: string
+      required:
+      - provider
+      - secret
+      type: object
+    CreateEpisodeRequest:
+      properties:
+        block_id:
+          $ref: '#/components/schemas/BlockId'
+        name:
+          type:
+          - string
+          - 'null'
+        number:
+          format: int32
+          type: integer
+        series_id:
+          $ref: '#/components/schemas/SeriesId'
+      required:
+      - block_id
+      - series_id
+      - number
+      type: object
+    CreateSceneRequest:
+      properties:
+        details:
+          $ref: '#/components/schemas/SceneDetails'
+        episode_id:
+          $ref: '#/components/schemas/EpisodeId'
+      required:
+      - episode_id
+      - details
+      type: object
+    CreateSeasonRequest:
+      properties:
+        number:
+          format: int32
+          type: integer
+        series_id:
+          $ref: '#/components/schemas/SeriesId'
+        title:
+          type:
+          - string
+          - 'null'
+      required:
+      - series_id
+      - number
+      type: object
+    CreateShootingDayRequest:
+      description: Request body for creating a `ShootingDay` (a Drehtag) inside an Episode.
+      properties:
+        date:
+          description: Calendar date; `None` while planning.
+          format: date
+          type:
+          - string
+          - 'null'
+        episode_id:
+          $ref: '#/components/schemas/EpisodeId'
+        label:
+          description: Free-form display label (e.g. "1. Tag").
+          type:
+          - string
+          - 'null'
+        order_key:
+          $ref: '#/components/schemas/LexicalSortKey'
+          description: Canonical ordering key within the Episode (lexicographically sortable).
+        source:
+          $ref: '#/components/schemas/ShootingDaySource'
+          description: Import provenance (`Manual` or `AiExtracted`).
+      required:
+      - episode_id
+      - order_key
+      - source
+      type: object
+    CredentialBindingState:
+      description: Public binding state. It contains no secret material or ciphertext.
+      enum:
+      - active
+      - revoked
+      - unreachable
+      type: string
+    DocumentKind:
+      description: The two document kinds supported by the import pipeline.
+      enum:
+      - script
+      - schedule
+      type: string
+    EpisodeId:
+      description: Opaque identifier for an `Episode` aggregate.
+      format: uuid
+      type: string
+    EpisodeView:
+      description: |-
+        Complete episode read model.
+
+        `updated_at` is sourced from the timestamp of the last applied `EpisodeEvent`.
+      properties:
+        block_id:
+          $ref: '#/components/schemas/BlockId'
+        id:
+          format: uuid
+          type: string
+        name:
+          type:
+          - string
+          - 'null'
+        number:
+          format: int32
+          type: integer
+        series_id:
+          $ref: '#/components/schemas/SeriesId'
+        updated_at:
+          format: date-time
+          type: string
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+          description: Aggregate version for optimistic-locking round-trips.
+      required:
+      - id
+      - block_id
+      - series_id
+      - number
+      - version
+      - updated_at
+      type: object
+    GDriveCredentialRequest:
+      description: |-
+        Write-only GDrive credentials. This type intentionally does not implement
+        `Debug` or `Serialize`; it is converted immediately at the API edge into a
+        non-serializable `GDriveCredentialBundle`.
+      properties:
+        client_id:
+          type: string
+        client_secret:
+          type: string
+        refresh_token:
+          type: string
+        root_folder_id:
+          type:
+          - string
+          - 'null'
+      required:
+      - client_id
+      - client_secret
+      - refresh_token
+      type: object
+    GDriveCredentialUpdateRequest:
+      allOf:
+      - $ref: '#/components/schemas/GDriveCredentialRequest'
+      - properties:
+          version:
+            $ref: '#/components/schemas/AggregateVersion'
+        required:
+        - version
+        type: object
+    GrantRoleRequest:
+      properties:
+        role:
+          $ref: '#/components/schemas/Role'
+          description: New role for the active member (their prior role is replaced).
+      required:
+      - role
+      type: object
+    IdVersionResponse:
+      description: Response for aggregate creation endpoints.
+      properties:
+        id:
+          format: uuid
+          type: string
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - id
+      - version
+      type: object
+    InviteMemberRequest:
+      properties:
+        role:
+          $ref: '#/components/schemas/Role'
+          description: Proposed role for the invited user (pending until they accept).
+        user_id:
+          description: OIDC `sub` of the user to invite to the block.
+          type: string
+      required:
+      - user_id
+      - role
+      type: object
+    JobStatus:
+      description: |-
+        Operational lifecycle of an AI import job.
+
+        `Failed` is the *retryable* state (a due `next_attempt_at` makes the job
+        claimable again); `DeadLetter` and `PayloadUnavailable` are terminal.
+      enum:
+      - pending
+      - running
+      - succeeded
+      - failed
+      - dead_letter
+      - payload_unavailable
+      type: string
+    LexicalSortKey:
+      description: |-
+        A validated, lexicographically-sortable key used for ordering entities
+        (e.g. `ShootingDay`s within an `Episode`) without renumbering siblings.
+
+        The key is a non-empty string over a fixed printable-ASCII alphabet
+        (`!`..`~`, i.e. bytes `33..=126`). It carries **no** ordering semantics of
+        its own beyond raw byte/lexicographic order, which matches the SQL
+        `ORDER BY order_key ASC` semantics of the read model. To insert an entity
+        between two existing siblings, use [`LexicalSortKey::midpoint`], which
+        produces a key strictly between the two in exactly one event.
+      type: string
+    LlmProvider:
+      description: |-
+        Curated providers. The enum is intentionally non-exhaustive so adding a
+        provider is additive and does not break downstream matches.
+      enum:
+      - openai
+      - openrouter
+      - eurouter
+      - neuralwatt
+      - opencode-go
+      - opencode
+      - ollama
+      type: string
+    ManualArchiveJobResult:
+      description: One job enqueue outcome.
+      properties:
+        already_enqueued:
+          type: boolean
+        job_id:
+          format: uuid
+          type: string
+        kind:
+          type: string
+        status:
+          type: string
+      required:
+      - kind
+      - job_id
+      - already_enqueued
+      - status
+      type: object
+    ManualArchiveResponse:
+      description: Response body for a manual "archive now" request.
+      properties:
+        jobs:
+          description: Per-kind enqueue results (dedup-aware).
+          items:
+            $ref: '#/components/schemas/ManualArchiveJobResult'
+          type: array
+      required:
+      - jobs
+      type: object
+    MembershipStateKind:
+      description: |-
+        Membership lifecycle state in the read model.
+
+        `snake_case` serialization keeps the Postgres `state` text column stable
+        and human-readable.
+      enum:
+      - pending
+      - active
+      type: string
+    MembershipView:
+      description: |-
+        Complete membership read model row for one `(block_id, user_id)` pair.
+
+        `joined_at` is the timestamp of the `InvitationAccepted` event, sourced
+        from the event stream (not from aggregate state).
+      properties:
+        block_id:
+          $ref: '#/components/schemas/BlockId'
+        joined_at:
+          format: date-time
+          type: string
+        role:
+          $ref: '#/components/schemas/Role'
+        state:
+          $ref: '#/components/schemas/MembershipStateKind'
+        user_id:
+          $ref: '#/components/schemas/UserId'
+      required:
+      - block_id
+      - user_id
+      - role
+      - state
+      - joined_at
+      type: object
+    ModelInfo:
+      properties:
+        display_name:
+          type:
+          - string
+          - 'null'
+        id:
+          type: string
+        provider:
+          $ref: '#/components/schemas/LlmProvider'
+      required:
+      - id
+      - provider
+      type: object
+    PhotoBinding:
+      description: |-
+        Discriminates what a photo is attached to.
+
+        `Costume` — Anprobe/planning photo (taken before the shoot).
+        `Continuity` — continuity photo taken during the shoot; `costume_id` is
+        `Option` so prop-only continuity shots are permitted (the edge case).
+
+        The `Default` implementation returns `Costume { costume_id: Uuid::nil() }`
+        so that historical `PhotoUploaded` events (pre-binding) deserialise as
+        costume photos, matching the backward-compat requirement.
+      oneOf:
+      - description: Costume (Anprobe) photo — taken before the shoot for planning.
+        properties:
+          costume:
+            description: Costume (Anprobe) photo — taken before the shoot for planning.
+            properties:
+              costume_id:
+                format: uuid
+                type: string
+            required:
+            - costume_id
+            type: object
+        required:
+        - costume
+        type: object
+      - description: Continuity (Anschluss) photo — taken during the shoot.
+        properties:
+          continuity:
+            description: Continuity (Anschluss) photo — taken during the shoot.
+            properties:
+              costume_id:
+                format: uuid
+                type:
+                - string
+                - 'null'
+              scene_shoot_id:
+                $ref: '#/components/schemas/SceneShootId'
+            required:
+            - scene_shoot_id
+            type: object
+        required:
+        - continuity
+        type: object
+    PhotoBytesQuery:
+      description: Query parameters for the photo bytes endpoint.
+      properties:
+        variant:
+          description: 'Variant: "original", "thumb", or "medium". Defaults to "original".'
+          type:
+          - string
+          - 'null'
+      type: object
+    PhotoId:
+      description: |-
+        Opaque identifier for a `Photo` aggregate.
+
+        A `Photo` is an event-sourced aggregate that tracks the lifecycle
+        (upload, normalisation, variant generation, deletion) of a costume
+        photo. Like the other identifiers it is a UUIDv7 opaque value type
+        never decoded inside `core`. The actual bytes are stored in Garage
+        via the `PhotoStorage` port.
+      format: uuid
+      type: string
+    PhotoVariant:
+      description: |-
+        The three image variants stored for each photo.
+
+        `Original` is the re-encoded, upright, EXIF-stripped source image
+        (quality ~95). `Thumb` is a ~200×200 JPEG (quality 80). `Medium` is
+        an ~800×800 JPEG (quality 85). Adding a new variant is additive —
+        only the enum gains a variant and the saga gains a generation step.
+      enum:
+      - Original
+      - Thumb
+      - Medium
+      type: string
+    PhotoVariantView:
+      description: A single variant's public view.
+      properties:
+        kind:
+          $ref: '#/components/schemas/PhotoVariant'
+        size_bytes:
+          format: int64
+          minimum: 0
+          type: integer
+        status:
+          $ref: '#/components/schemas/VariantStatus'
+      required:
+      - kind
+      - status
+      - size_bytes
+      type: object
+    PhotoView:
+      description: Complete photo read model, populated by the projector.
+      properties:
+        binding:
+          $ref: '#/components/schemas/PhotoBinding'
+          description: What this photo is attached to (Costume or Continuity).
+        content_type:
+          type: string
+        exif_stripped_at:
+          format: date-time
+          type:
+          - string
+          - 'null'
+        id:
+          $ref: '#/components/schemas/PhotoId'
+        size_bytes:
+          format: int64
+          minimum: 0
+          type: integer
+        variants:
+          items:
+            $ref: '#/components/schemas/PhotoVariantView'
+          type: array
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - id
+      - content_type
+      - size_bytes
+      - variants
+      - binding
+      - version
+      type: object
+    ProblemDetails:
+      description: |-
+        An RFC 9457 problem document (ADR-031 D1).
+
+        Every error response (status ≥ 400) produced by the API is an instance of
+        this document: `type` (derived from `code`), constant English `title`,
+        `status`, stable `code`, localized `detail` (English until Tranche 3), and
+        the `trace_id` extension for otel correlation.
+      example:
+        code: concurrency.version-mismatch
+        detail: Version conflict
+        extensions:
+          current_version: 3
+          expected_version: 2
+        status: 409
+        title: Version conflict
+        trace_id: 4bf92f3577b34da6a3ce929d0e0e4736
+        type: https://docs.breakdown.example/problems/scene.already-scheduled
+      properties:
+        code:
+          description: Stable machine identity `{context}.{reason}` (the client contract).
+          example: concurrency.version-mismatch
+          type: string
+        detail:
+          description: Human-readable explanation; localized server-side (Tranche 3).
+          example: Version conflict
+          type: string
+        extensions:
+          additionalProperties: {}
+          description: Declared S0/S1 extension fields, if any (ADR-031 D4).
+          propertyNames:
+            type: string
+          type:
+          - object
+          - 'null'
+        status:
+          description: Canonical HTTP status of this problem.
+          example: 409
+          format: int32
+          minimum: 0
+          type: integer
+        title:
+          description: Constant English title (never localized; cacheable, spec-stable).
+          type: string
+        trace_id:
+          description: W3C trace id of the request's otel span (support correlation).
+          example: 4bf92f3577b34da6a3ce929d0e0e4736
+          type: string
+        type:
+          description: Dereferencable documentation anchor, derived from the `code`.
+          example: https://docs.breakdown.example/problems/scene.already-scheduled
+          type: string
+      required:
+      - type
+      - title
+      - status
+      - code
+      - detail
+      - trace_id
+      type: object
+    RenameEpisodeRequest:
+      properties:
+        name:
+          type:
+          - string
+          - 'null'
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - version
+      type: object
+    RenameSeasonRequest:
+      properties:
+        title:
+          type:
+          - string
+          - 'null'
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - version
+      type: object
+    RevokeAiConfigRequest:
+      properties:
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - version
+      type: object
+    Role:
+      description: |-
+        Block-scoped costume-department role.
+
+        Roles are **domain-local** and **block-scoped** (Decision 4): the same
+        `UserId` may hold a different `Role` in two blocks of the same season
+        because staff rotate roles at Block boundaries. The initial v1 set is
+        `CostumeDesigner` + `WardrobeSupervisor`, plus `CostumeAssistant` which is
+        the default role assigned to the block creator during the owner bootstrap
+        (see `BootstrapOwner`).
+
+        **Ubiquitous Language is English.** The enum variants and their `snake_case`
+        serde form are the canonical domain vocabulary, so events and projection
+        rows are persisted as English strings (`"costume_designer"`,
+        `"wardrobe_supervisor"`, `"costume_assistant"`).
+
+        The enum is **open for additive extension** (see `block-membership` spec,
+        "Initial role set"): adding a new variant is a non-breaking change for
+        writers, but renaming or removing an existing variant is a breaking change
+        requiring a separate proposal. Variants are serialized by their stable
+        `snake_case` name, so events/rows written today stay readable after a
+        future addition.
+      enum:
+      - costume_designer
+      - wardrobe_supervisor
+      - costume_assistant
+      type: string
+    SceneDetails:
+      properties:
+        is_schedule_set:
+          type: boolean
+        location:
+          type:
+          - string
+          - 'null'
+        mood:
+          type:
+          - string
+          - 'null'
+        scene_number:
+          format: int32
+          minimum: 0
+          type:
+          - integer
+          - 'null'
+        script_day:
+          description: |-
+            Fictional script-chronology day (e.g. "1. Spieltag"), distinct
+            from the calendar `ShootingDay.date`. Free-form search index.
+          type:
+          - string
+          - 'null'
+        summary:
+          description: Free-form scene description/prose summary.
+          type:
+          - string
+          - 'null'
+      required:
+      - is_schedule_set
+      type: object
+    SceneShootId:
+      description: |-
+        Opaque identifier for a `SceneShoot` aggregate.
+
+        A `SceneShoot` models the association between a `Scene` and a
+        `ShootingDay`, carrying both planned and actual execution data.
+        Each `(scene_id, shooting_day_id)` pair gets its own stream.
+        Like the other identifiers it is a UUIDv7 opaque value type
+        never decoded inside `core`.
+      format: uuid
+      type: string
+    SceneView:
+      description: |-
+        Complete scene read model.
+
+        `updated_at` is sourced from the timestamp of the last applied `SceneEvent`,
+        not from the UUIDv7 event id (ADR-004 + ADR-015).
+      properties:
+        assigned_characters:
+          items:
+            format: uuid
+            type: string
+          type: array
+        episode_id:
+          $ref: '#/components/schemas/EpisodeId'
+        id:
+          format: uuid
+          type: string
+        is_schedule_set:
+          type: boolean
+        location:
+          type:
+          - string
+          - 'null'
+        mood:
+          type:
+          - string
+          - 'null'
+        scene_number:
+          format: int32
+          minimum: 0
+          type:
+          - integer
+          - 'null'
+        script_day:
+          description: |-
+            Fictional script-chronology day (e.g. "1. Spieltag"), distinct
+            from the calendar `ShootingDay.date`.
+          type:
+          - string
+          - 'null'
+        shooting_day_ids:
+          description: Shooting days this scene is scheduled on.
+          items:
+            $ref: '#/components/schemas/ShootingDayId'
+          type: array
+        summary:
+          type:
+          - string
+          - 'null'
+        updated_at:
+          format: date-time
+          type: string
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+          description: Aggregate version of the last applied event; echo back in optimistic-locking commands.
+      required:
+      - id
+      - episode_id
+      - is_schedule_set
+      - shooting_day_ids
+      - assigned_characters
+      - version
+      - updated_at
+      type: object
+    ScheduleSceneRequest:
+      description: Request body for linking a `Scene` to a `ShootingDay`.
+      properties:
+        shooting_day_id:
+          $ref: '#/components/schemas/ShootingDayId'
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - shooting_day_id
+      - version
+      type: object
+    SeasonId:
+      description: Opaque identifier for a `Season` aggregate.
+      format: uuid
+      type: string
+    SeasonView:
+      description: |-
+        Complete season read model.
+
+        `updated_at` is sourced from the timestamp of the last applied `SeasonEvent`.
+      properties:
+        id:
+          format: uuid
+          type: string
+        number:
+          format: int32
+          type: integer
+        series_id:
+          $ref: '#/components/schemas/SeriesId'
+        title:
+          type:
+          - string
+          - 'null'
+        updated_at:
+          format: date-time
+          type: string
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+          description: Aggregate version for optimistic-locking round-trips.
+      required:
+      - id
+      - series_id
+      - number
+      - version
+      - updated_at
+      type: object
+    SeriesId:
+      description: |-
+        Opaque identifier for a `Series` (a show run).
+
+        `SeriesId` is an opaque UUIDv7 value type introduced by the
+        `introduce-season-block-episode-hierarchy` change. It is the seam for a
+        future additive `Series` aggregate: every hierarchy entity (Season, Block,
+        Episode) references it but no `Series` aggregate exists yet.
+      format: uuid
+      type: string
+    SettingsView:
+      properties:
+        binding_state:
+          $ref: '#/components/schemas/CredentialBindingState'
+        id:
+          format: uuid
+          type: string
+        provider:
+          type: string
+        vault_key_id:
+          type: string
+        vault_version:
+          format: int64
+          minimum: 0
+          type: integer
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - id
+      - provider
+      - vault_key_id
+      - vault_version
+      - binding_state
+      - version
+      type: object
+    ShootingDayId:
+      description: |-
+        Opaque identifier for a `ShootingDay` aggregate.
+
+        A `ShootingDay` is an Episode-scoped scheduling unit (a Drehtag). It is its
+        own event-sourced aggregate, so it gets a dedicated UUIDv7 opaque id that
+        is never decoded inside `core`.
+      format: uuid
+      type: string
+    ShootingDaySource:
+      description: |-
+        Provenance discriminator for how a `ShootingDay` came into existence.
+
+        `Manual` is the user-created path. `AiExtracted` reserves the shape for the
+        future AI call-sheet extraction increment; retrofitting this onto already
+        persisted events would be impossible, so the field exists from day one.
+
+        Serialized as an externally-tagged enum, e.g. `{"Manual":null}` or
+        `{"AiExtracted":{"document_id":...,"external_ref":...,"confidence":...}}`,
+        which maps directly onto the `source JSONB` projection column.
+      oneOf:
+      - enum:
+        - Manual
+        type: string
+      - properties:
+          AiExtracted:
+            properties:
+              confidence:
+                format: float
+                type: number
+              document_id:
+                format: uuid
+                type: string
+              external_ref:
+                type:
+                - string
+                - 'null'
+            required:
+            - document_id
+            - confidence
+            type: object
+        required:
+        - AiExtracted
+        type: object
+    ShootingDayView:
+      description: |-
+        Complete shooting-day read model.
+
+        `updated_at` is sourced from the timestamp of the last applied
+        `ShootingDayEvent`, not from the UUIDv7 event id.
+      properties:
+        archived:
+          type: boolean
+        date:
+          format: date
+          type:
+          - string
+          - 'null'
+        episode_id:
+          $ref: '#/components/schemas/EpisodeId'
+        id:
+          $ref: '#/components/schemas/ShootingDayId'
+        label:
+          type:
+          - string
+          - 'null'
+        order_key:
+          $ref: '#/components/schemas/LexicalSortKey'
+        source:
+          $ref: '#/components/schemas/ShootingDaySource'
+        updated_at:
+          format: date-time
+          type: string
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+          description: Aggregate version of the last applied event; echo back in optimistic-locking commands.
+        wrapped_at:
+          description: When this shooting day was wrapped (finalised). `None` means open.
+          format: date-time
+          type:
+          - string
+          - 'null'
+      required:
+      - id
+      - episode_id
+      - order_key
+      - source
+      - archived
+      - version
+      - updated_at
+      type: object
+    SourceFormat:
+      description: |-
+        The declared format of an AI import source document, captured at the API
+        edge from the upload's `Content-Type` and persisted on the job so the
+        schedule worker can pick the extraction path without re-guessing the bytes
+        (issue #221).
+
+        Only `Csv` is parsed natively; `Pdf` and `PlainText` are routed through the
+        LLM extraction path. Scripts are always `Pdf`.
+      enum:
+      - csv
+      - pdf
+      - plain_text
+      type: string
+    UpdateAiConfigRequest:
+      properties:
+        assistant_model:
+          type: string
+        image_model:
+          type:
+          - string
+          - 'null'
+        prompts:
+          additionalProperties:
+            type: string
+          propertyNames:
+            description: The two document kinds supported by the import pipeline.
+            enum:
+            - script
+            - schedule
+            type: string
+          type: object
+        provider:
+          $ref: '#/components/schemas/LlmProvider'
+        vault_key_id:
+          type: string
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - provider
+      - assistant_model
+      - prompts
+      - vault_key_id
+      - version
+      type: object
+    UpdateBlockTimeSpanRequest:
+      properties:
+        end_date:
+          format: date
+          type:
+          - string
+          - 'null'
+        start_date:
+          format: date
+          type:
+          - string
+          - 'null'
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - version
+      type: object
+    UpdateContactInfoRequest:
+      properties:
+        contact_info:
+          $ref: '#/components/schemas/ContactInfo'
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - contact_info
+      - version
+      type: object
+    UpdateCostumeCategoryRequest:
+      properties:
+        name:
+          type:
+          - string
+          - 'null'
+        order_key:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/LexicalSortKey'
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - version
+      type: object
+    UpdateCostumeNotesRequest:
+      properties:
+        notes:
+          type: string
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - notes
+      - version
+      type: object
+    UpdateMeasurementsRequest:
+      properties:
+        measurements:
+          $ref: '#/components/schemas/CharacterMeasurements'
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - measurements
+      - version
+      type: object
+    UpdateSceneDetailsRequest:
+      properties:
+        details:
+          $ref: '#/components/schemas/SceneDetails'
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - details
+      - version
+      type: object
+    UpdateShootingDayRequest:
+      description: |-
+        Request body for mutating a `ShootingDay`.
+
+        Exactly one of `order_key` / `date` / `label` should be set; the handler
+        dispatches the matching command (reorder > reschedule > rename). `date`
+        being `Some(None)` is the explicit "unschedule" (clear the calendar date).
+      properties:
+        date:
+          format: date
+          type:
+          - string
+          - 'null'
+        label:
+          type:
+          - string
+          - 'null'
+        order_key:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/LexicalSortKey'
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - version
+      type: object
+    UserId:
+      description: |-
+        Opaque identifier for a user, wrapping the OIDC `sub` claim.
+
+        `UserId` references the authenticated principal without ever decoding,
+        storing, or dereferencing identity attributes in `core`. The backend only
+        trusts the IdP-issued `sub`; account lifecycle lives exclusively in the
+        OIDC provider (ADR-010). Unlike the hierarchy ids, `UserId` is *not* a
+        UUIDv7 — it is the raw string subject the IdP assigns.
+      type: string
+    VariantStatus:
+      description: |-
+        The generation status of a single photo variant.
+
+        Every variant starts as `Pending` on upload. The thumbnail saga
+        transitions it to `Ready` on success or `Failed` on error.
+      enum:
+      - Pending
+      - Ready
+      - Failed
+      type: string
+    VersionRequest:
+      properties:
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - version
+      type: object
+info:
+  description: |-
+    Costume scheduling API for Breakdown RS (ADR-006). Routes are mounted under the /v1 path prefix; the path version is bumped only on a breaking wire change (ADR-021).
+    Error contract (ADR-031): every error response (status ≥ 400) is an RFC 9457 `application/problem+json` document carrying a stable `code` (`{context}.{reason}` kebab-case) and a `trace_id` extension. The full code registry is exposed under `x-code-registry`; per-code documentation lives at `docs/errors/`.
+  license:
+    identifier: AGPL-3.0
+    name: AGPL-3.0
+  title: Breakdown RS API
+  version: v1
+openapi: 3.1.0
+paths:
+  /v1/ai-import/config:
+    post:
+      operationId: create_ai_config
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAiConfigRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdVersionResponse'
+          description: ''
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
+  /v1/ai-import/config/{id}:
+    get:
+      operationId: get_ai_config
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AiConfigView'
+          description: ''
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
+    patch:
+      operationId: update_ai_config
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAiConfigRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
+  /v1/ai-import/config/{id}/revoke:
+    post:
+      operationId: revoke_ai_config
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevokeAiConfigRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
+  /v1/ai-import/jobs/{id}:
+    get:
+      operationId: get_ai_import_job
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AiImportJobResponse'
+          description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
+  /v1/ai-import/jobs/{id}/apply:
+    post:
+      operationId: apply_ai_import
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApplyAiImportRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplyAiImportResponse'
+          description: ''
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
+  /v1/ai-import/jobs/{id}/preview:
+    get:
+      operationId: get_ai_import_preview
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+          description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
+  /v1/ai-import/providers:
+    get:
+      operationId: list_ai_providers
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/AiProviderInfo'
+                type: array
+          description: ''
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
+  /v1/ai-import/providers/{provider}/models:
+    get:
+      operationId: list_ai_models
+      parameters:
+      - description: Curated provider key
+        in: path
+        name: provider
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/ModelInfo'
+                type: array
+          description: ''
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
+  /v1/ai-import/schedules:
+    post:
+      operationId: upload_ai_schedule
+      requestBody:
+        content:
+          text/plain:
+            schema:
+              type: string
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AiImportJobId'
+          description: Duplicate upload — existing job id
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AiImportJobId'
+          description: Job enqueued
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Not authorized
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: AI import disabled
+        '413':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Document exceeds the configured size limit
+        '415':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Unsupported media type
+      tags:
+      - handlers
+  /v1/ai-import/scripts:
+    post:
+      operationId: upload_ai_script
+      requestBody:
+        content:
+          application/pdf:
+            schema:
+              type: string
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AiImportJobId'
+          description: Duplicate upload — existing job id
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AiImportJobId'
+          description: Job enqueued
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Not authorized
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: AI import disabled
+        '413':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Document exceeds the configured size limit
+        '415':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Unsupported media type
+      tags:
+      - handlers
+  /v1/blocks:
+    get:
+      operationId: list_blocks
+      parameters:
+      - in: query
+        name: limit
+        required: false
+        schema:
+          default: 50
+          format: int64
+          type:
+          - integer
+          - 'null'
+      - in: query
+        name: offset
+        required: false
+        schema:
+          default: 0
+          format: int64
+          type:
+          - integer
+          - 'null'
+      - in: query
+        name: episode_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/EpisodeId'
+      - in: query
+        name: season_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SeasonId'
+      - in: query
+        name: series_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SeriesId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/BlockView'
+                type: array
+          description: ''
+      tags:
+      - handlers
+    post:
+      operationId: create_block
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBlockRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdVersionResponse'
+          description: Block created
+      tags:
+      - handlers
+  /v1/blocks/{id}:
+    get:
+      operationId: get_block
+      parameters:
+      - description: Block id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlockView'
+          description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
+  /v1/blocks/{id}/audit:
+    get:
+      operationId: get_block_audit
+      parameters:
+      - description: Block id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - in: query
+        name: limit
+        required: false
+        schema:
+          default: 50
+          format: int64
+          type:
+          - integer
+          - 'null'
+      - in: query
+        name: offset
+        required: false
+        schema:
+          default: 0
+          format: int64
+          type:
+          - integer
+          - 'null'
+      - in: query
+        name: episode_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/EpisodeId'
+      - in: query
+        name: season_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SeasonId'
+      - in: query
+        name: series_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SeriesId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/AuditEntry'
+                type: array
+          description: Audit journal entries for the block, newest first
+        '400':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Missing or malformed X-Active-Block header
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Caller is not an active member of the active block (X-Active-Block header)
+      tags:
+      - handlers
+  /v1/blocks/{id}/members:
+    get:
+      description: 'Gated `BlockMember`: the caller must be an active member of the block.'
+      operationId: list_members
+      parameters:
+      - description: Block id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - in: query
+        name: limit
+        required: false
+        schema:
+          default: 50
+          format: int64
+          type:
+          - integer
+          - 'null'
+      - in: query
+        name: offset
+        required: false
+        schema:
+          default: 0
+          format: int64
+          type:
+          - integer
+          - 'null'
+      - in: query
+        name: episode_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/EpisodeId'
+      - in: query
+        name: season_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SeasonId'
+      - in: query
+        name: series_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SeriesId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/MembershipView'
+                type: array
+          description: Members of the block (active and pending)
+        '400':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Missing or malformed X-Active-Block header
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Caller is not an active member of the active block
+      summary: List the members of a block (paginated).
+      tags:
+      - handlers
+    post:
+      description: |-
+        Gated `BlockMember`: the caller must be an active member of the active
+        block (see `authorize_middleware`). The actor is the authenticated caller.
+      operationId: invite_member
+      parameters:
+      - description: Block id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InviteMemberRequest'
+        required: true
+      responses:
+        '204':
+          description: Invitation created (pending until the invitee accepts)
+        '400':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Invalid request (e.g., malformed user_id)
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Caller is not an active member of the active block (X-Active-Block header)
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Conflicting state (e.g., user is already a member)
+      summary: Invite a user to the block with a proposed role (pending until accepted).
+      tags:
+      - handlers
+  /v1/blocks/{id}/members/accept:
+    post:
+      description: |-
+        Self-service: the invitee proves who they are via OIDC and the command
+        binds `user_id` to the authenticated `sub`, so a caller can only accept
+        their own invitation. Gated `Authenticated` (not `BlockMember`) because the
+        invitee is not yet an active member; the domain command enforces that a
+        pending invitation exists for this block.
+      operationId: accept_invitation
+      parameters:
+      - description: Block id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '204':
+          description: Invitation accepted; caller is now an active member
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Unauthorized
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: No pending invitation for the caller in this block
+      summary: Accept a pending invitation for the authenticated caller.
+      tags:
+      - handlers
+  /v1/blocks/{id}/members/leave:
+    post:
+      description: 'Gated `BlockMember`: only an active member can leave.'
+      operationId: leave_block
+      parameters:
+      - description: Block id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '204':
+          description: Caller left the block
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Caller is not an active member of the active block
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
+      summary: |-
+        Leave the block (self-service). The authenticated caller removes
+        themselves; the actor is supplied as command metadata by the adapter.
+      tags:
+      - handlers
+  /v1/blocks/{id}/members/{user_id}:
+    delete:
+      description: |-
+        Gated `BlockMember`: the caller must be an active member. The targeted
+        `user_id` is taken from the path.
+      operationId: remove_member
+      parameters:
+      - description: Block id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - description: OIDC sub of the member to remove
+        in: path
+        name: user_id
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: Member removed
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Caller is not an active member of the active block
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Target user is not a member of the block
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
+      summary: Remove an active member from the block.
+      tags:
+      - handlers
+    get:
+      description: 'Gated `BlockMember`: the caller must be an active member of the block.'
+      operationId: get_member
+      parameters:
+      - description: Block id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - description: OIDC sub of the member
+        in: path
+        name: user_id
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MembershipView'
+          description: Membership of the user in the block
+        '400':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Missing or malformed X-Active-Block header
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Caller is not an active member of the active block
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Membership not found
+      summary: Fetch a single membership (a block member's role and state).
+      tags:
+      - handlers
+  /v1/blocks/{id}/members/{user_id}/role:
+    post:
+      description: |-
+        Gated `BlockMember`: the caller must be an active member. The targeted
+        `user_id` is taken from the path.
+      operationId: grant_role
+      parameters:
+      - description: Block id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - description: OIDC sub of the member
+        in: path
+        name: user_id
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GrantRoleRequest'
+        required: true
+      responses:
+        '204':
+          description: Role updated
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Caller is not an active member of the active block
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Target user is not a member of the block
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
+      summary: Change an active member's role (prior role replaced).
+      tags:
+      - handlers
+  /v1/blocks/{id}/time-span:
+    patch:
+      operationId: update_block_time_span
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateBlockTimeSpanRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+      tags:
+      - handlers
+  /v1/characters:
+    get:
+      operationId: list_characters
+      parameters:
+      - in: query
+        name: limit
+        required: false
+        schema:
+          default: 50
+          format: int64
+          type:
+          - integer
+          - 'null'
+      - in: query
+        name: offset
+        required: false
+        schema:
+          default: 0
+          format: int64
+          type:
+          - integer
+          - 'null'
+      - in: query
+        name: episode_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/EpisodeId'
+      - in: query
+        name: season_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SeasonId'
+      - in: query
+        name: series_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SeriesId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/CharacterView'
+                type: array
+          description: ''
+      tags:
+      - handlers
+    post:
+      operationId: create_character
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCharacterRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdVersionResponse'
+          description: Character created
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
+      tags:
+      - handlers
+  /v1/characters/{id}:
+    get:
+      operationId: get_character
+      parameters:
+      - description: Character id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CharacterView'
+          description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
+  /v1/characters/{id}/contact:
+    patch:
+      operationId: update_contact_info
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateContactInfoRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+      tags:
+      - handlers
+  /v1/characters/{id}/measurements:
+    patch:
+      operationId: update_measurements
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMeasurementsRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
+  /v1/costume-categories/{id}:
+    patch:
+      operationId: update_costume_category
+      parameters:
+      - description: Costume category id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCostumeCategoryRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+        '422':
+          description: No update field provided
+      tags:
+      - handlers
+  /v1/costume-categories/{id}/archive:
+    post:
+      operationId: archive_costume_category
+      parameters:
+      - description: Costume category id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VersionRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
+  /v1/costumes:
+    get:
+      operationId: list_costumes
+      parameters:
+      - in: query
+        name: limit
+        required: false
+        schema:
+          default: 50
+          format: int64
+          type:
+          - integer
+          - 'null'
+      - in: query
+        name: offset
+        required: false
+        schema:
+          default: 0
+          format: int64
+          type:
+          - integer
+          - 'null'
+      - in: query
+        name: episode_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/EpisodeId'
+      - in: query
+        name: season_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SeasonId'
+      - in: query
+        name: series_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SeriesId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/CostumeView'
+                type: array
+          description: ''
+      tags:
+      - handlers
+    post:
+      operationId: create_costume
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCostumeRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdVersionResponse'
+          description: Costume created
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
+      tags:
+      - handlers
+  /v1/costumes/{costume_id}/photos:
+    post:
+      description: |-
+        The request body is raw image bytes; the `Content-Type` header MUST be one of
+        `image/jpeg`, `image/png`, or `image/webp`. HEIC/HEIF is rejected with 415.
+        The file size MUST NOT exceed `PHOTO_MAX_SIZE_MB` (default 20 MB).
+        Authorization is checked per-request via season-scoped membership.
+      operationId: upload_costume_photo
+      parameters:
+      - description: Costume id
+        in: path
+        name: costume_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          image/jpeg:
+            schema:
+              type: string
+        description: Raw image bytes (JPEG/PNG/WebP)
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PhotoView'
+          description: Photo uploaded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Not authorized
+        '413':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Payload too large
+        '415':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Unsupported media type
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
+      summary: Upload a photo and link it to a costume.
+      tags:
+      - handlers
+  /v1/costumes/{costume_id}/photos/{photo_id}:
+    delete:
+      description: |-
+        Authorization is checked per-request via season-scoped membership.
+        The photo bytes are only deleted when the refcount reaches zero.
+      operationId: delete_costume_photo
+      parameters:
+      - description: Costume id
+        in: path
+        name: costume_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - description: Photo id
+        in: path
+        name: photo_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '204':
+          description: Photo unlinked
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Not authorized
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Costume not found
+      summary: Unlink a photo from a costume (deletion saga handles refcount + bytes cleanup).
+      tags:
+      - handlers
+  /v1/costumes/{costume_id}/photos/{photo_id}/bytes:
+    get:
+      description: |-
+        Authorization is checked on every request via season-scoped membership.
+        The response includes `Cache-Control: private, max-age=300`.
+      operationId: get_costume_photo_bytes
+      parameters:
+      - description: Costume id
+        in: path
+        name: costume_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - description: Photo id
+        in: path
+        name: photo_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - description: 'Variant: original, thumb, or medium'
+        in: query
+        name: variant
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            image/jpeg: {}
+          description: Photo bytes
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Not authorized
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Photo or costume not found
+      summary: Download photo bytes (proxy download with per-request authorization).
+      tags:
+      - handlers
+  /v1/costumes/{id}:
+    get:
+      operationId: get_costume
+      parameters:
+      - description: Costume id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CostumeView'
+          description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
+  /v1/costumes/{id}/assign:
+    post:
+      operationId: assign_costume
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignCostumeRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
+  /v1/costumes/{id}/details:
+    post:
+      operationId: add_costume_detail
+      parameters:
+      - description: Costume id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddCostumeDetailRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+      tags:
+      - handlers
+  /v1/costumes/{id}/notes:
+    patch:
+      operationId: update_costume_notes
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCostumeNotesRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
+  /v1/costumes/{id}/unassign:
+    post:
+      operationId: unassign_costume
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCostumeNotesRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+      tags:
+      - handlers
+  /v1/episodes:
+    get:
+      operationId: list_episodes
+      parameters:
+      - in: query
+        name: limit
+        required: false
+        schema:
+          default: 50
+          format: int64
+          type:
+          - integer
+          - 'null'
+      - in: query
+        name: offset
+        required: false
+        schema:
+          default: 0
+          format: int64
+          type:
+          - integer
+          - 'null'
+      - in: query
+        name: episode_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/EpisodeId'
+      - in: query
+        name: season_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SeasonId'
+      - in: query
+        name: series_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SeriesId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/EpisodeView'
+                type: array
+          description: ''
+      tags:
+      - handlers
+    post:
+      operationId: create_episode
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEpisodeRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdVersionResponse'
+          description: Episode created
+      tags:
+      - handlers
+  /v1/episodes/{episode_id}/shooting-days:
+    get:
+      operationId: list_shooting_days
+      parameters:
+      - description: Episode id
+        in: path
+        name: episode_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/EpisodeId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/ShootingDayView'
+                type: array
+          description: ''
+      tags:
+      - handlers
+    post:
+      operationId: create_shooting_day
+      parameters:
+      - description: Episode id
+        in: path
+        name: episode_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/EpisodeId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateShootingDayRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdVersionResponse'
+          description: Shooting day created
+      tags:
+      - handlers
+  /v1/episodes/{id}:
+    get:
+      operationId: get_episode
+      parameters:
+      - description: Episode id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EpisodeView'
+          description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
+  /v1/episodes/{id}/name:
+    patch:
+      operationId: rename_episode
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenameEpisodeRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+      tags:
+      - handlers
+  /v1/scenes:
+    get:
+      operationId: list_scenes
+      parameters:
+      - in: query
+        name: limit
+        required: false
+        schema:
+          default: 50
+          format: int64
+          type:
+          - integer
+          - 'null'
+      - in: query
+        name: offset
+        required: false
+        schema:
+          default: 0
+          format: int64
+          type:
+          - integer
+          - 'null'
+      - in: query
+        name: episode_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/EpisodeId'
+      - in: query
+        name: season_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SeasonId'
+      - in: query
+        name: series_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SeriesId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/SceneView'
+                type: array
+          description: ''
+      tags:
+      - handlers
+    post:
+      operationId: create_scene
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSceneRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdVersionResponse'
+          description: Scene created
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Conflict
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
+      tags:
+      - handlers
+  /v1/scenes/{id}:
+    get:
+      operationId: get_scene
+      parameters:
+      - description: Scene id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SceneView'
+          description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
+  /v1/scenes/{id}/characters:
+    post:
+      operationId: assign_scene_character
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignCharacterRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
+  /v1/scenes/{id}/characters/{character_id}:
+    delete:
+      operationId: remove_scene_character
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - in: path
+        name: character_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
+  /v1/scenes/{id}/details:
+    patch:
+      operationId: update_scene_details
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSceneDetailsRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
+  /v1/scenes/{id}/shooting-days:
+    post:
+      operationId: schedule_scene_on_shooting_day
+      parameters:
+      - description: Scene id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleSceneRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
+  /v1/scenes/{id}/shooting-days/{shooting_day_id}:
+    delete:
+      operationId: unschedule_scene_from_shooting_day
+      parameters:
+      - description: Scene id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - description: Shooting day id
+        in: path
+        name: shooting_day_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/ShootingDayId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
+  /v1/seasons:
+    post:
+      operationId: create_season
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSeasonRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdVersionResponse'
+          description: Season created
+      tags:
+      - handlers
+  /v1/seasons/{id}:
+    get:
+      operationId: get_season
+      parameters:
+      - description: Season id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeasonView'
+          description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
+  /v1/seasons/{id}/name:
+    patch:
+      operationId: rename_season
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenameSeasonRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+      tags:
+      - handlers
+  /v1/seasons/{season_id}/costume-categories:
+    get:
+      operationId: list_costume_categories
+      parameters:
+      - description: Season id
+        in: path
+        name: season_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/SeasonId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/CostumeCategoryView'
+                type: array
+          description: ''
+      tags:
+      - handlers
+    post:
+      operationId: create_costume_category
+      parameters:
+      - description: Season id
+        in: path
+        name: season_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/SeasonId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCostumeCategoryRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdVersionResponse'
+          description: Costume category created
+      tags:
+      - handlers
+  /v1/settings/credentials:
+    post:
+      operationId: create_credential
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCredentialRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdVersionResponse'
+          description: Credential reference created
+        '503':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Vault unavailable
+      tags:
+      - handlers
+  /v1/settings/gdrive:
+    post:
+      operationId: create_gdrive_credential
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GDriveCredentialRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdVersionResponse'
+          description: GDrive credential reference created
+        '400':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Invalid GDrive credential bundle
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Credential management forbidden
+        '503':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Vault unavailable
+      tags:
+      - handlers
+  /v1/settings/{id}:
+    delete:
+      operationId: revoke_settings
+      parameters:
+      - description: Settings id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VersionRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+        '503':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
+    get:
+      operationId: get_settings
+      parameters:
+      - description: Settings id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettingsView'
+          description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
+  /v1/settings/{id}/gdrive:
+    patch:
+      operationId: rotate_gdrive_credential
+      parameters:
+      - description: Settings id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GDriveCredentialUpdateRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdVersionResponse'
+          description: GDrive credential reference rotated
+        '400':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Invalid GDrive credential bundle
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Credential management forbidden
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: GDrive binding cannot be rotated
+        '503':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Vault unavailable
+      tags:
+      - handlers
+  /v1/shooting-days/{id}:
+    get:
+      operationId: get_shooting_day
+      parameters:
+      - description: Shooting day id
+        in: path
+        name: id
+        required: true
+        schema:
+          $ref: '#/components/schemas/ShootingDayId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShootingDayView'
+          description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
+    patch:
+      operationId: update_shooting_day
+      parameters:
+      - description: Shooting day id
+        in: path
+        name: id
+        required: true
+        schema:
+          $ref: '#/components/schemas/ShootingDayId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateShootingDayRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+        '422':
+          description: No update field provided
+      tags:
+      - handlers
+  /v1/shooting-days/{id}/archive:
+    post:
+      operationId: archive_shooting_day
+      parameters:
+      - description: Shooting day id
+        in: path
+        name: id
+        required: true
+        schema:
+          $ref: '#/components/schemas/ShootingDayId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VersionRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
+  /v1/shooting-days/{id}/report/archive:
+    post:
+      description: |-
+        Setting-gerechte fallback when automation fails or is delayed. Uses the
+        **same** dedup key and pipeline as schedule / wrap triggers — never a
+        parallel pipeline. Gated stricter than PDF routes: only `CostumeDesigner`
+        and `WardrobeSupervisor` (excludes `CostumeAssistant`).
+      operationId: manual_archive_reports
+      responses:
+        '202':
+          description: Archival job(s) enqueued
+        '403':
+          description: Forbidden
+        '404':
+          description: Shooting day not found
+      summary: Manual "archive now" remediation endpoint.
+      tags:
+      - handlers
+  /v1/shooting-days/{id}/report/dispo.pdf:
+    get:
+      operationId: dispo_report_pdf
+      responses:
+        '200':
+          description: PDF report
+      tags:
+      - handlers
+  /v1/shooting-days/{id}/report/planned-vs-actual.pdf:
+    get:
+      operationId: planned_vs_actual_report_pdf
+      responses:
+        '200':
+          description: PDF report
+      tags:
+      - handlers
+  /v1/shooting-days/{id}/report/shoot-day.pdf:
+    get:
+      operationId: shoot_day_report_pdf
+      responses:
+        '200':
+          description: PDF report
+      tags:
+      - handlers
+tags:
+- description: 'Production hierarchy: Series > Season'
+  name: Seasons
+- description: 'Production hierarchy: Season > Block'
+  name: Blocks
+- description: 'Production hierarchy: Season > Episode'
+  name: Episodes
+- description: Scene read/write endpoints (scoped to an Episode)
+  name: Scenes
+- description: Character read/write endpoints (scoped to a Season)
+  name: Characters
+- description: Costume read/write endpoints (scope-free; bound to a Character)
+  name: Costumes
+- description: Costume photo upload/download/delete endpoints
+  name: Photos
+x-code-registry:
+- code: http.bad-json-body
+  extensions: []
+  status: 400
+  title: Malformed JSON body
+  type: https://docs.breakdown.example/problems/http.bad-json-body
+- code: http.bad-path-param
+  extensions: []
+  status: 400
+  title: Invalid path parameter
+  type: https://docs.breakdown.example/problems/http.bad-path-param
+- code: http.bad-query-param
+  extensions: []
+  status: 400
+  title: Invalid query parameter
+  type: https://docs.breakdown.example/problems/http.bad-query-param
+- code: http.bad-request
+  extensions: []
+  status: 400
+  title: Bad request
+  type: https://docs.breakdown.example/problems/http.bad-request
+- code: http.unsupported-media-type
+  extensions: []
+  status: 415
+  title: Unsupported media type
+  type: https://docs.breakdown.example/problems/http.unsupported-media-type
+- code: http.payload-too-large
+  extensions: []
+  status: 413
+  title: Payload too large
+  type: https://docs.breakdown.example/problems/http.payload-too-large
+- code: http.request-timeout
+  extensions: []
+  status: 504
+  title: Gateway timeout
+  type: https://docs.breakdown.example/problems/http.request-timeout
+- code: http.route-not-found
+  extensions: []
+  status: 404
+  title: Route not found
+  type: https://docs.breakdown.example/problems/http.route-not-found
+- code: http.internal-error
+  extensions: []
+  status: 500
+  title: Internal server error
+  type: https://docs.breakdown.example/problems/http.internal-error
+- code: auth.unauthenticated
+  extensions: []
+  status: 401
+  title: Authentication required
+  type: https://docs.breakdown.example/problems/auth.unauthenticated
+- code: auth.missing-active-block
+  extensions: []
+  status: 400
+  title: Missing active block
+  type: https://docs.breakdown.example/problems/auth.missing-active-block
+- code: auth.invalid-active-block
+  extensions: []
+  status: 400
+  title: Invalid active block
+  type: https://docs.breakdown.example/problems/auth.invalid-active-block
+- code: auth.idp-unavailable
+  extensions: []
+  status: 503
+  title: Identity provider unavailable
+  type: https://docs.breakdown.example/problems/auth.idp-unavailable
+- code: concurrency.version-mismatch
+  extensions:
+  - expected_version
+  - current_version
+  status: 409
+  title: Version conflict
+  type: https://docs.breakdown.example/problems/concurrency.version-mismatch
+- code: domain.not-found
+  extensions: []
+  status: 404
+  title: Not found
+  type: https://docs.breakdown.example/problems/domain.not-found
+- code: domain.validation
+  extensions: []
+  status: 422
+  title: Validation failed
+  type: https://docs.breakdown.example/problems/domain.validation
+- code: domain.conflict
+  extensions: []
+  status: 409
+  title: Conflict
+  type: https://docs.breakdown.example/problems/domain.conflict
+- code: domain.forbidden
+  extensions: []
+  status: 403
+  title: Forbidden
+  type: https://docs.breakdown.example/problems/domain.forbidden
+- code: domain.service-unavailable
+  extensions: []
+  status: 503
+  title: Service unavailable
+  type: https://docs.breakdown.example/problems/domain.service-unavailable
+- code: season.validation
+  extensions: []
+  status: 422
+  title: Season validation failed
+  type: https://docs.breakdown.example/problems/season.validation
+- code: season.not-found
+  extensions:
+  - id
+  status: 404
+  title: Season not found
+  type: https://docs.breakdown.example/problems/season.not-found
+- code: block.validation
+  extensions: []
+  status: 422
+  title: Block validation failed
+  type: https://docs.breakdown.example/problems/block.validation
+- code: block.not-found
+  extensions:
+  - id
+  status: 404
+  title: Block not found
+  type: https://docs.breakdown.example/problems/block.not-found
+- code: episode.validation
+  extensions: []
+  status: 422
+  title: Episode validation failed
+  type: https://docs.breakdown.example/problems/episode.validation
+- code: episode.not-found
+  extensions:
+  - id
+  status: 404
+  title: Episode not found
+  type: https://docs.breakdown.example/problems/episode.not-found
+- code: scene.not-found
+  extensions:
+  - id
+  status: 404
+  title: Scene not found
+  type: https://docs.breakdown.example/problems/scene.not-found
+- code: scene.character-not-found
+  extensions:
+  - id
+  status: 404
+  title: Scene character not found
+  type: https://docs.breakdown.example/problems/scene.character-not-found
+- code: scene.character-already-assigned
+  extensions: []
+  status: 409
+  title: Character already assigned to this scene
+  type: https://docs.breakdown.example/problems/scene.character-already-assigned
+- code: scene.already-scheduled
+  extensions:
+  - offending_shooting_day_id
+  status: 409
+  title: Scene schedule conflict
+  type: https://docs.breakdown.example/problems/scene.already-scheduled
+- code: scene.not-scheduled
+  extensions:
+  - shooting_day_id
+  status: 409
+  title: Scene not scheduled on this day
+  type: https://docs.breakdown.example/problems/scene.not-scheduled
+- code: scene.validation
+  extensions: []
+  status: 422
+  title: Scene validation failed
+  type: https://docs.breakdown.example/problems/scene.validation
+- code: character.not-found
+  extensions:
+  - id
+  status: 404
+  title: Character not found
+  type: https://docs.breakdown.example/problems/character.not-found
+- code: character.validation
+  extensions: []
+  status: 422
+  title: Character validation failed
+  type: https://docs.breakdown.example/problems/character.validation
+- code: costume.not-found
+  extensions:
+  - id
+  status: 404
+  title: Costume not found
+  type: https://docs.breakdown.example/problems/costume.not-found
+- code: costume.already-assigned
+  extensions:
+  - assigned_character_id
+  status: 409
+  title: Costume already assigned
+  type: https://docs.breakdown.example/problems/costume.already-assigned
+- code: costume.validation
+  extensions: []
+  status: 422
+  title: Costume validation failed
+  type: https://docs.breakdown.example/problems/costume.validation
+- code: costume-category.not-found
+  extensions:
+  - id
+  status: 404
+  title: Costume category not found
+  type: https://docs.breakdown.example/problems/costume-category.not-found
+- code: costume-category.archived
+  extensions:
+  - id
+  status: 409
+  title: Costume category is archived
+  type: https://docs.breakdown.example/problems/costume-category.archived
+- code: costume-category.validation
+  extensions: []
+  status: 422
+  title: Costume category validation failed
+  type: https://docs.breakdown.example/problems/costume-category.validation
+- code: shooting-day.not-found
+  extensions:
+  - id
+  status: 404
+  title: Shooting day not found
+  type: https://docs.breakdown.example/problems/shooting-day.not-found
+- code: shooting-day.archived
+  extensions:
+  - id
+  status: 409
+  title: Shooting day is archived
+  type: https://docs.breakdown.example/problems/shooting-day.archived
+- code: shooting-day.duplicate-order-key
+  extensions: []
+  status: 409
+  title: Duplicate order key
+  type: https://docs.breakdown.example/problems/shooting-day.duplicate-order-key
+- code: shooting-day.validation
+  extensions: []
+  status: 422
+  title: Shooting day validation failed
+  type: https://docs.breakdown.example/problems/shooting-day.validation
+- code: scene-shoot.not-found
+  extensions:
+  - id
+  status: 404
+  title: Scene shoot not found
+  type: https://docs.breakdown.example/problems/scene-shoot.not-found
+- code: scene-shoot.pair-already-exists
+  extensions: []
+  status: 409
+  title: Scene shoot pair already exists
+  type: https://docs.breakdown.example/problems/scene-shoot.pair-already-exists
+- code: scene-shoot.planned-order-frozen
+  extensions: []
+  status: 409
+  title: Planned order is frozen
+  type: https://docs.breakdown.example/problems/scene-shoot.planned-order-frozen
+- code: scene-shoot.note-not-found
+  extensions:
+  - note_id
+  status: 404
+  title: Scene shoot note not found
+  type: https://docs.breakdown.example/problems/scene-shoot.note-not-found
+- code: scene-shoot.already-linked
+  extensions:
+  - photo_id
+  status: 409
+  title: Continuity photo already linked
+  type: https://docs.breakdown.example/problems/scene-shoot.already-linked
+- code: scene-shoot.already-started
+  extensions: []
+  status: 409
+  title: Scene shoot already started
+  type: https://docs.breakdown.example/problems/scene-shoot.already-started
+- code: scene-shoot.terminal-state
+  extensions: []
+  status: 409
+  title: Scene shoot in terminal state
+  type: https://docs.breakdown.example/problems/scene-shoot.terminal-state
+- code: scene-shoot.validation
+  extensions: []
+  status: 422
+  title: Scene shoot validation failed
+  type: https://docs.breakdown.example/problems/scene-shoot.validation
+- code: photo.not-found
+  extensions:
+  - id
+  status: 404
+  title: Photo not found
+  type: https://docs.breakdown.example/problems/photo.not-found
+- code: photo.already-deleted
+  extensions: []
+  status: 409
+  title: Photo already deleted
+  type: https://docs.breakdown.example/problems/photo.already-deleted
+- code: photo.validation
+  extensions: []
+  status: 422
+  title: Photo validation failed
+  type: https://docs.breakdown.example/problems/photo.validation
+- code: membership.validation
+  extensions: []
+  status: 422
+  title: Membership validation failed
+  type: https://docs.breakdown.example/problems/membership.validation
+- code: membership.already-invited
+  extensions: []
+  status: 409
+  title: Already invited
+  type: https://docs.breakdown.example/problems/membership.already-invited
+- code: membership.no-pending-invitation
+  extensions: []
+  status: 409
+  title: No pending invitation
+  type: https://docs.breakdown.example/problems/membership.no-pending-invitation
+- code: membership.not-active-member
+  extensions: []
+  status: 409
+  title: Not an active member
+  type: https://docs.breakdown.example/problems/membership.not-active-member
+- code: membership.missing-actor
+  extensions: []
+  status: 422
+  title: Authenticated actor required
+  type: https://docs.breakdown.example/problems/membership.missing-actor
+- code: membership.bootstrap-not-allowed
+  extensions: []
+  status: 409
+  title: Bootstrap not allowed
+  type: https://docs.breakdown.example/problems/membership.bootstrap-not-allowed
+- code: membership.not-found
+  extensions: []
+  status: 404
+  title: Membership not found
+  type: https://docs.breakdown.example/problems/membership.not-found
+- code: settings.empty-provider
+  extensions: []
+  status: 422
+  title: Credential provider must not be empty
+  type: https://docs.breakdown.example/problems/settings.empty-provider
+- code: settings.empty-vault-key
+  extensions: []
+  status: 422
+  title: Vault key reference must not be empty
+  type: https://docs.breakdown.example/problems/settings.empty-vault-key
+- code: settings.provider-mismatch
+  extensions: []
+  status: 409
+  title: Credential provider cannot change during rotation
+  type: https://docs.breakdown.example/problems/settings.provider-mismatch
+- code: settings.not-found
+  extensions: []
+  status: 404
+  title: Credential not found
+  type: https://docs.breakdown.example/problems/settings.not-found
+- code: settings.already-revoked
+  extensions: []
+  status: 409
+  title: Credential already revoked
+  type: https://docs.breakdown.example/problems/settings.already-revoked
+- code: ai-config.not-found
+  extensions: []
+  status: 404
+  title: AI configuration not found
+  type: https://docs.breakdown.example/problems/ai-config.not-found
+- code: ai-config.empty-provider
+  extensions: []
+  status: 422
+  title: AI provider must be selected
+  type: https://docs.breakdown.example/problems/ai-config.empty-provider
+- code: ai-config.empty-model
+  extensions: []
+  status: 422
+  title: AI assistant model must not be empty
+  type: https://docs.breakdown.example/problems/ai-config.empty-model
+- code: ai-config.empty-prompt
+  extensions: []
+  status: 422
+  title: AI prompt must not be empty
+  type: https://docs.breakdown.example/problems/ai-config.empty-prompt
+- code: ai-config.empty-vault-key
+  extensions: []
+  status: 422
+  title: AI vault key reference must not be empty
+  type: https://docs.breakdown.example/problems/ai-config.empty-vault-key
+- code: ai-config.provider-mismatch
+  extensions: []
+  status: 409
+  title: AI provider cannot be changed
+  type: https://docs.breakdown.example/problems/ai-config.provider-mismatch
+- code: ai-config.already-revoked
+  extensions: []
+  status: 409
+  title: AI configuration already revoked
+  type: https://docs.breakdown.example/problems/ai-config.already-revoked

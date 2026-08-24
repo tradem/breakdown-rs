@@ -10,6 +10,15 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [Unreleased]
+
+### Added — OpenAPI review artifact & drift check (issue #29)
+
+- **Test-only:** `crates/api/tests/openapi_drift.rs` renders `api_doc()` as
+  canonical YAML and diffs it against the checked-in review artifact
+  `backend/openapi.yaml` (`UPDATE_OPENAPI=1` regenerates). No public API
+  change; no version bump.
+
 ## [0.8.0] - 2026-08-23
 
 ### Changed — Bump MSRV to 1.98 (issue #257)

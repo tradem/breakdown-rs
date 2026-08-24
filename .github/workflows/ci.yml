@@ -45,6 +45,11 @@ jobs:
       - name: Install poppler-utils (pdftotext for AI script PDF tests)
         run: sudo apt-get update && sudo apt-get install -y poppler-utils
       - run: cargo test --workspace --features infra/test-support --exclude integration-tests --exclude breakdown-fuzz-targets
+      # OpenAPI drift check (issue #29): the checked-in review artifact
+      # backend/openapi.yaml must match the utoipa-generated wire contract
+      # (ADR-006). Regenerate locally with
+      # `UPDATE_OPENAPI=1 cargo test -p api --test openapi_drift`.
+      - run: cargo test -p api --test openapi_drift
       # The patched kameo_es crate is not a workspace member, so its ack
       # tracker tests are run explicitly here (issue #165 ack semantics).
       - run: cargo test --manifest-path .patches/kameo_es/Cargo.toml --test ack_tracker

@@ -34,6 +34,22 @@ Breakdown RS needs a reliable way to generate and maintain API documentation tha
 
 We will use **utoipa** to automatically generate OpenAPI 3.0 specifications from our Axum handlers and use the generated spec for frontend code generation.
 
+### Review artifact & drift check (issue #29)
+
+The contract is authored code-first, but it is **reviewed** through a
+checked-in snapshot: `backend/openapi.yaml` is rendered from `api_doc()`
+(canonical, alphabetically-keyed YAML) and MUST be regenerated in any PR
+that changes the wire contract:
+
+```bash
+UPDATE_OPENAPI=1 cargo test -p api --test openapi_drift
+```
+
+CI runs the same test as an explicit step and fails on drift, so every
+contract change shows up as a reviewable diff instead of only surfacing at
+runtime under `/swagger-ui`. The generated document *is* the source of
+truth; the YAML is its reviewed mirror.
+
 ### Why utoipa?
 
 - ✅ **Compile-time generation**: OpenAPI spec generated at compile time, always in sync

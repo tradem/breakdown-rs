@@ -84,7 +84,12 @@ membership check via the shooting_day → episode → block → season chain). T
   1. **Event** (Past tense, e.g., `SceneCreated`) -> `enum` in `core`
   2. **Command** (Imperative, e.g., `CreateScene`) -> `struct` in `core`
   3. **Aggregate** (Noun) -> State `struct` in `core`
-- **Open-Spec / API First:** Define the API in the OpenAPI spec before writing code. Map exact types using `serde`.
+- **Open-Spec / API First:** The API contract is authored **code-first** via
+  `utoipa` derives (ADR-006); the checked-in **`backend/openapi.yaml`** is the
+  review artifact and MUST be kept in sync with it. Any PR that changes the
+  wire contract regenerates the artifact (`UPDATE_OPENAPI=1 cargo test -p api
+  --test openapi_drift`) so contract changes are visible in review; CI fails
+  on drift. Map exact types using `serde`.
 - **ID Generation:** Strictly use **UUIDv7** (`uuid::Uuid::now_v7()`) for all entities and events. No UUIDv4.
 - **Security:** Never hardcode secrets. Your code must pass `gitleaks`.
 - **Security architecture:** the authoritative threat model, trust
