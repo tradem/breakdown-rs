@@ -21,7 +21,7 @@ defaults:
 
 jobs:
   mutate:
-    name: Mutate (shard ${{ matrix.shard }}/${{ matrix.shards }})
+    name: Mutate (shard ${{ matrix.shard }}/8)
     runs-on: ubuntu-latest
     timeout-minutes: 360
     strategy:
@@ -30,8 +30,9 @@ jobs:
         # cargo-mutants --shard is 0-indexed (despite docs saying "1/4");
         # --shard 8/8 errors with "shard k must be less than n", so we
         # use 0-7 to cover all 3096 mutants across 8 equal shards.
+        # `shards` count (8) is hardcoded in the cargo-mutants command below
+        # because GitHub Actions matrix values must be arrays, not scalars.
         shard: [0, 1, 2, 3, 4, 5, 6, 7]
-        shards: 8
     permissions:
       contents: read
       issues: write
@@ -70,14 +71,14 @@ jobs:
       # (~120-300s each). With `--copy-target=true` the incremental build
       # reuses the copied deps (3-7s) and `Swatinem/rust-cache` provides the
       # cached deps layer.
-      - name: Run cargo mutants (shard ${{ matrix.shard }}/${{ matrix.shards }})
+      - name: Run cargo mutants (shard ${{ matrix.shard }}/8)
         id: mutants
         run: |
           set +e
           cargo mutants \
             --copy-target=true \
             --test-workspace false \
-            --shard ${{ matrix.shard }}/${{ matrix.shards }}
+            --shard ${{ matrix.shard }}/8
           MUTANTS_EXIT=$?
           set -e
           # Count missed (surviving) mutants for downstream step
