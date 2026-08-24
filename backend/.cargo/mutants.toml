@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0
-# Copyright (C) 2024 Breakdown RS Contributors
+# Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: laguna-s-2.1-free (opencode)
+# Co-authored-by: mimo-v2.5 (opencode-go)
 # == File-based exclusion ==
 
 # Exclude the `integration-tests` crate from mutation testing: it operates on real external
@@ -31,6 +32,8 @@ exclude_globs = [
 # The broad `mutate-core` job (continue-on-error) still covers the entire `breakdown_core` crate.
 
 # Enable the test-support feature to match CI: `cargo test --workspace --features infra/test-support`
+# Note: breakdown_core now has a dummy test-support feature (issue #267) to avoid
+# the shard-2 baseline bug where cargo-mutants fails with "does not contain this feature".
 features = ["infra/test-support"]
 
 # == Regex-based survivor acceptance (known false-positives) ==

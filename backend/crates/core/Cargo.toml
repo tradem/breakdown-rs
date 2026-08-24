@@ -9,6 +9,13 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+# Dummy feature to satisfy cargo-mutants global `features = ["infra/test-support"]`
+# in .cargo/mutants.toml. The feature is unused in core but cargo-mutants applies
+# it to all packages; without it, the unmutated baseline for core-only shards
+# fails with "does not contain this feature" (issue #267, shard-2 bug).
+test-support = []
+
 [dependencies]
 # Domain-Modell: keine sqlx, kein axum, keine Infrastruktur
 serde.workspace = true
