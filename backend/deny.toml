@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: deepseek-v4-flash (opencode-go)
+# Co-authored-by: ox-alpha-free (opencode-go)
 #
 # cargo-deny configuration (ADR-017)
 # See https://embarkstudios.github.io/cargo-deny/
@@ -60,9 +61,15 @@ allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = []
 
 [advisories]
-# unmaintained = "none" preserves the old rustsec/audit-check behaviour
-# which only flagged security vulnerabilities, not "unmaintained" annotations.
-unmaintained = "none"
+# unmaintained = "all" enables the fail-closed gate for "unmaintained"
+# advisories on BOTH direct workspace dependencies and transitive ones
+# (the scopes are disjoint: "transitive" alone would let an unmaintained
+# direct dependency pass silently). Every unmaintained crate must either be
+# fixed via an upstream upgrade or be explicitly listed in `ignore` below
+# with a justification comment. This matches the fail-closed philosophy of
+# `yanked = "deny"` and replaces the previous lenient `unmaintained =
+# "none"` (issues #70, #95).
+unmaintained = "all"
 # yanked = "deny" ensures fail-closed: any new yanked dependency fails CI.
 yanked = "deny"
 # RUSTSEC-2023-0071 ("Marvin Attack", crate `rsa`): pulled transitively by
@@ -73,8 +80,39 @@ yanked = "deny"
 # RUSTSEC-2026-0194 / RUSTSEC-2026-0195 (quick-xml DoS), transitive via
 # `opendal`. Affected API not exposed; trusted S3 endpoints only. Revisit
 # on opendal upgrade.
+#
+# RUSTSEC-2024-0436 (`paste` unmaintained, issue #95): build-time-only
+# proc-macro, transitive via typst -> hayagriva -> biblatex,
+# image -> exr -> pulp and rav1e. All of those crates are already at their
+# latest releases and none offers a paste-free path yet, so there is no
+# actionable upgrade; no runtime code from `paste` ships in our binaries.
+# Revisit when typst/image/rav1e migrate off `paste`.
+#
+# RUSTSEC-2021-0139 (`ansi_term` unmaintained, issue #70): transitive via
+# `rust_arkitect`, which is used only by the `architecture_tests` crate —
+# never compiled into production binaries. rust_arkitect is at its latest
+# release and has not migrated to `anstyle` yet. Revisit on rust_arkitect
+# upgrade.
+#
+# RUSTSEC-2024-0320 (`yaml-rust` unmaintained) / RUSTSEC-2025-0141 (`bincode`
+# 1.x unmaintained), both transitive via `typst-library -> two-face ->
+# syntect` for syntax-highlighting data files. syntect/two-face pin these
+# leaf crates; no maintained path exists at current versions. Revisit on
+# typst/syntect upgrade.
+#
+# RUSTSEC-2026-0192 (`ttf-parser` unmaintained), transitive via `usvg ->
+# fontdb`, and RUSTSEC-2026-0206 (`rustybuzz` unmaintained), transitive via
+# `typst-pdf -> krilla` / `typst-layout`. Both are text-shaping internals of
+# the typst PDF/SVG pipeline, pinned by typst 0.15.x. Revisit on typst
+# upgrade.
 ignore = [
     "RUSTSEC-2023-0071",
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
+    "RUSTSEC-2024-0436", # paste (issue #95)
+    "RUSTSEC-2021-0139", # ansi_term (issue #70)
+    "RUSTSEC-2024-0320", # yaml-rust via typst/syntect
+    "RUSTSEC-2025-0141", # bincode 1.x via typst/syntect
+    "RUSTSEC-2026-0192", # ttf-parser via typst/usvg
+    "RUSTSEC-2026-0206", # rustybuzz via typst/krilla
 ]
