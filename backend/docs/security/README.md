@@ -3,6 +3,12 @@
 
 # Security Guidelines
 
+> **Authoritative security overview:** see
+> [security-architecture.md](security-architecture.md) for the threat model,
+> trust boundaries, authorization architecture (Deny-by-Default, fail-closed),
+> OIDC/JWT validation, supply-chain posture, and the target security-test
+> pyramid. This file stays focused on SQL & DB safety guidance.
+
 ## SQL Injection Prevention
 
 ### Hard rule

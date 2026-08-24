@@ -4,7 +4,8 @@
 **Date**: 2026-06-30
 **Author**: Tobias Rademacher (@tradem)
 **Supersedes**: the defunct `arch_test`-based guardrail (never functional, Issue #27)
-**Related**: ADR-001 (Hexagonal Architecture), Issue #27
+**Related**: ADR-001 (Hexagonal Architecture), Issue #27,
+[Security Architecture & Test Pyramid](../../security/security-architecture.md) (§5 Supply chain, §6 pyramid)
 **Source change**: `openspec/changes/enable-architecture-guardrails`
 
 ---
@@ -66,6 +67,9 @@ discovery and the fluent `ArchitecturalRules` DSL.
 - **Source checks**: `cargo test -p architecture_tests` (runs the `rust_arkitect` test)
 
 Both commands are integrated into CI (see `.github/workflows/architecture-checks.yml`).
+
+These two layers also form the architecture-tests tier of the
+[security-test pyramid](../../security/security-architecture.md#6-security-test-pyramid-target).
 
 ## Alternatives Considered
 
