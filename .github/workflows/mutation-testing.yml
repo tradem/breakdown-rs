@@ -88,6 +88,12 @@ jobs:
             echo "missed=0" >> "$GITHUB_OUTPUT"
           fi
           echo "exit_code=${MUTANTS_EXIT}" >> "$GITHUB_OUTPUT"
+          # Re-raise non-survivor exit codes (e.g. 4 = baseline test failure)
+          # so the shard fails visibly. Exit codes 0 (clean) and 2 (surviving
+          # mutants found) are expected for a nightly run and should pass.
+          if [ "$MUTANTS_EXIT" -ne 0 ] && [ "$MUTANTS_EXIT" -ne 2 ]; then
+            exit "$MUTANTS_EXIT"
+          fi
       - name: Upload shard artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
