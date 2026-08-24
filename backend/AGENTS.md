@@ -206,11 +206,13 @@ membership check via the shooting_day → episode → block → season chain). T
   installed; CI remains the authoritative gate).
   The `rust-security-ast-grep` job (Layer 9, issue #262) enforces two Rust
   security rules on all production `crates/*/src` files: no reqwest TLS bypass
-  (`danger_accept_invalid_certs/hostnames(true)` — CWE-295; ADR-024 mandates
-  rustls + pinned root CAs) via `backend/rules/reqwest-no-dangerous-tls.yml`, and
-  no hardcoded HTTP auth credentials (`.basic_auth`/`.bearer_auth` with an inline
-  string literal — CWE-798, complements the gitleaks text scan structurally) via
-  `backend/rules/reqwest-no-hardcoded-auth.yml`. Both are vendored from
+  (`danger_accept_invalid_certs/hostnames(...)` with anything but the literal
+  `false` — consts/variables/expressions are rejected fail-closed; CWE-295;
+  ADR-024 mandates rustls + pinned root CAs) via
+  `backend/rules/reqwest-no-dangerous-tls.yml`, and no hardcoded HTTP auth
+  credentials (`.basic_auth`/`.bearer_auth` with an inline ordinary or raw
+  string literal — CWE-798, complements the gitleaks text scan structurally)
+  via `backend/rules/reqwest-no-hardcoded-auth.yml`. Both are vendored from
   [`coderabbitai/ast-grep-essentials`](https://github.com/coderabbitai/ast-grep-essentials)
   (upstream ids `reqwest-accept-invalid-rust` and
   `secrets-reqwest-hardcoded-auth-rust`, generalized to receiver-agnostic

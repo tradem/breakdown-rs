@@ -11,13 +11,14 @@
 # literal regardless of its shape.
 #
 # Vendored from `coderabbitai/ast-grep-essentials` (rules/rust/security/
-# secrets-reqwest-hardcoded-auth-rust.yml), re-id'd and simplified: the
-# upstream rule only fires when the client was let-bound to
+# secrets-reqwest-hardcoded-auth-rust.yml), re-id'd and simplified/hardened:
+# the upstream rule only fires when the client was let-bound to
 # `reqwest::Client::new()` in the same block, missing the chained
 # `Client::builder()` style used throughout this codebase. We instead match
 # any `.basic_auth(<string-literal>, …)` / `.bearer_auth(<string-literal>)`
-# call; these methods exist only on reqwest builders, so receiver-agnostic
-# matching has no false-positive surface outside reqwest.
+# call, covering ordinary AND raw string literals (`r#"…"#`) — these methods
+# exist only on reqwest builders, so receiver-agnostic matching has no
+# false-positive surface outside reqwest.
 #
 # Scan scope is restricted to production source files (crates/*/src, test
 # modules excluded) by the rust-security-ast-grep CI job and the pre-commit
@@ -30,12 +31,13 @@
 # on the same line as the call, carrying a justification comment above it.
 id: reqwest-no-hardcoded-auth
 message: >-
-  Hardcoded auth credential: a string literal is passed to basic_auth /
-  bearer_auth (CWE-798). Secrets embedded in source leak via VCS history and
-  binaries — load credentials from configuration, the environment, or Vault
-  and pass them as runtime values. If a literal is genuinely unavoidable,
-  suppress with an explicit `// ast-grep-ignore: reqwest-no-hardcoded-auth`
-  comment and a justification above the call.
+  Hardcoded auth credential: a string literal (ordinary or raw r#"…"#) is
+  passed to basic_auth / bearer_auth (CWE-798). Secrets embedded in source
+  leak via VCS history and binaries — load credentials from configuration,
+  the environment, or Vault and pass them as runtime values. If a literal is
+  genuinely unavoidable, suppress with an explicit
+  `// ast-grep-ignore: reqwest-no-hardcoded-auth` comment and a justification
+  above the call.
 severity: error
 language: Rust
 rule:
@@ -55,4 +57,9 @@ rule:
         field: arguments
         kind: arguments
         has:
-          kind: string_literal
+          any:
+            # Ordinary strings and raw strings (r#"…"#) are distinct
+            # tree-sitter node kinds — match both or raw-string credentials
+            # slip through.
+            - kind: string_literal
+            - kind: raw_string_literal

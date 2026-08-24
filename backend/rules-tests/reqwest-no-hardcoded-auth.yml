@@ -44,7 +44,17 @@ invalid:
         builder.bearer_auth("hardcoded-token")
     }
   - |
+    // Raw string literal (r#"…"#) is a distinct node kind — must also match.
+    fn leaky_raw(builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        builder.bearer_auth(r#"hardcoded-token"#)
+    }
+  - |
     // Inline literals in basic_auth (username AND/OR password).
     fn leaky_basic(builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
         builder.basic_auth("admin", Some("password123"))
+    }
+  - |
+    // Raw-string password in basic_auth.
+    fn leaky_basic_raw(builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        builder.basic_auth(r#"svc-account"#, Some(password_from_env))
     }

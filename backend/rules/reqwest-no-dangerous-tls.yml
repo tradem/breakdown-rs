@@ -10,11 +10,14 @@
 # that posture.
 #
 # Vendored from `coderabbitai/ast-grep-essentials` (rules/rust/security/
-# reqwest-accept-invalid-rust.yml), re-id'd and generalized: the upstream rule
+# reqwest-accept-invalid-rust.yml), re-id'd and hardened: the upstream rule
 # constrains the receiver to a literal `reqwest::Client::builder()` chain,
-# which misses builders bound to variables or built in helpers. These methods
-# only exist on reqwest's `ClientBuilder`/`RequestBuilder`, so matching the
-# method call regardless of receiver is safe and strictly broader.
+# which misses builders bound to variables or built in helpers, and matches
+# only a literal `true` argument — an indirect value (a `const INSECURE:
+# bool = true` or an inlined variable) slipped past it. These methods only
+# exist on reqwest's `ClientBuilder`/`RequestBuilder`, and the only safe
+# value they can take is the literal `false`, so this rule matches ANY call
+# whose argument is not the literal `false` (fail-closed).
 #
 # Scan scope is restricted to production source files (crates/*/src, test
 # modules excluded) by the rust-security-ast-grep CI job and the pre-commit
@@ -28,15 +31,38 @@
 id: reqwest-no-dangerous-tls
 message: >-
   Dangerous TLS bypass: certificate/hostname verification must never be
-  disabled (`danger_accept_invalid_certs(true)` /
-  `danger_accept_invalid_hostnames(true)`, CWE-295). ADR-024 requires rustls
+  disabled (`danger_accept_invalid_certs(...)` /
+  `danger_accept_invalid_hostnames(...)`, CWE-295). ADR-024 requires rustls
   with pinned root CAs — configure the root cert via the pinned-CA mechanism
-  instead. If a bypass is genuinely unavoidable, suppress with an explicit
-  `// ast-grep-ignore: reqwest-no-dangerous-tls` comment and a justification
-  above the call.
+  instead. Only the literal `false` argument (verification explicitly ON) is
+  accepted; indirect values (consts, variables, expressions resolving to
+  true) are rejected fail-closed. If a bypass is genuinely unavoidable,
+  suppress with an explicit `// ast-grep-ignore: reqwest-no-dangerous-tls`
+  comment and a justification above the call.
 severity: error
 language: Rust
 rule:
-  any:
-    - pattern: $BUILDER.danger_accept_invalid_hostnames(true)
-    - pattern: $BUILDER.danger_accept_invalid_certs(true)
+  all:
+    - kind: call_expression
+    - has:
+        stopBy: neighbor
+        field: function
+        kind: field_expression
+        has:
+          stopBy: neighbor
+          field: field
+          kind: field_identifier
+          regex: '^danger_accept_invalid_(certs|hostnames)$'
+    # Fail-closed argument check: accept a call only when its arguments
+    # contain the literal `false` (verification explicitly ON). Everything
+    # else — literal `true`, consts, variables, expressions — is flagged.
+    # (Positive lookahead inside a top-level `not`: a lone negative branch
+    # inside `has` would match every candidate.)
+    - not:
+        has:
+          stopBy: neighbor
+          field: arguments
+          kind: arguments
+          has:
+            kind: boolean_literal
+            regex: '^false$'
