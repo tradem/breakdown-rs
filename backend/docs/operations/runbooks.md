@@ -8,6 +8,11 @@
 > [release-runbook.md](release-runbook.md) — per-crate semver flow, `api-v*`
 > image tags, the 8-week API deprecation window, and the read-model
 > additivity rule (ADR-020 / ADR-021).
+>
+> **Provisioning or patching the VPS host?** See
+> [host-hardening.md](host-hardening.md) — LUKS2 at-rest encryption (ADR-023),
+> nftables/sshd/auditd baseline, Docker daemon hardening and the manual
+> patching SLA (ADR-026, issue #158).
 
 Runtime tiers (ADR-015 / ADR-016 / ADR-025 / ADR-024):
 
@@ -26,7 +31,9 @@ Runtime tiers (ADR-015 / ADR-016 / ADR-025 / ADR-024):
 Runtime compose files:
 
 - `backend/docker-compose.dev.yml` — minimal dev surface (no `api` service).
-- `backend/docker-compose.prod.yml` — production (adds the `api` service, restart
+- `backend/docker-compose.prod.yml` — production (digest-pinned images,
+  loopback-only Postgres publish per [host-hardening.md](host-hardening.md),
+  adds the `api` service, restart
   policies, OTEL env, `depends_on` health gating, the `caddy` HTTPS edge, and
   the internal TLS mesh: `step-ca` + `tls-provision` + `stunnel` sidecar,
   ADR-024).
