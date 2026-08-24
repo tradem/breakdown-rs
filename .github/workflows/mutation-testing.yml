@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024 Breakdown RS Contributors
+# Co-authored-by: laguna-s-2.1-free (opencode)
 
 name: Mutation Testing
 
@@ -20,8 +21,18 @@ defaults:
 
 jobs:
   mutate:
-    name: Mutate
+    name: Mutate (shard ${{ matrix.shard }}/8)
     runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        # cargo-mutants --shard is 0-indexed (despite docs saying "1/4");
+        # --shard 8/8 errors with "shard k must be less than n", so we
+        # use 0-7 to cover all 3096 mutants across 8 equal shards.
+        # `shards` count (8) is hardcoded in the cargo-mutants command below
+        # because GitHub Actions matrix values must be arrays, not scalars.
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
     permissions:
       contents: read
       issues: write
@@ -35,32 +46,106 @@ jobs:
       # workspace, including the AI PDF-extractor tests in
       # `crates/infra/src/ai/tests.rs` which shell out to the `pdftotext`
       # binary (poppler-utils); ubuntu-latest does not ship it. Without it the
-      # baseline fails and cargo-mutants aborts before testing any mutant
-      # (nightly runs Aug 2 & 9, 2026). Mirror of the step in ci.yml.
+      # baseline fails (exit code 4) and cargo-mutants aborts before testing
+      # any mutant (nightly runs Aug 2 & 9, 2026). Fixed in commit 577e0b4.
       - name: Install poppler-utils (pdftotext for AI script PDF tests)
         run: sudo apt-get update && sudo apt-get install -y poppler-utils
       - run: cargo install cargo-mutants
-      - name: Run cargo mutants (full workspace)
+      # cargo-mutants exits non-zero (code 2) when surviving mutants are found;
+      # this is expected for a nightly run whose purpose is to discover and
+      # report them. `set +e` captures the exit code so that the counting +
+      # issue-creation steps still run (they would otherwise be skipped under
+      # `set -e`). The exit code is stored for potential future diagnostics.
+      #
+      # `--test-workspace false` runs only the mutated package's tests (not the
+      # entire workspace), cutting per-mutant test time by ~50% (from ~40-50s
+      # per mutant to ~15-25s). This is the single biggest speedup.
+      #
+      # 8-way sharding (0-indexed) splits the 3096 mutants into 8 parallel jobs
+      # of 387 each. With the reduced test time, each shard should complete in
+      # ~3-4h, well within the 360-minute timeout.
+      #
+      # `--copy-target=true` is kept because `--copy-target=false` in
+      # cargo-mutants 27.x may build in a scratch dir without a shared
+      # CARGO_TARGET_DIR, forcing a full dependency recompilation per mutant
+      # (~120-300s each). With `--copy-target=true` the incremental build
+      # reuses the copied deps (3-7s) and `Swatinem/rust-cache` provides the
+      # cached deps layer.
+      - name: Run cargo mutants (shard ${{ matrix.shard }}/8)
         id: mutants
         run: |
-          cargo mutants --copy-target=true
-          # Count missed mutants for downstream step
+          set +e
+          cargo mutants \
+            --copy-target=true \
+            --test-workspace false \
+            --shard ${{ matrix.shard }}/8
+          MUTANTS_EXIT=$?
+          set -e
+          # Count missed (surviving) mutants for downstream step
           if [ -f mutants.out/missed.txt ] && [ -s mutants.out/missed.txt ]; then
             echo "missed=$(wc -l < mutants.out/missed.txt)" >> "$GITHUB_OUTPUT"
           else
             echo "missed=0" >> "$GITHUB_OUTPUT"
           fi
+          echo "exit_code=${MUTANTS_EXIT}" >> "$GITHUB_OUTPUT"
+          # Re-raise non-survivor exit codes (e.g. 4 = baseline test failure)
+          # so the shard fails visibly. Exit codes 0 (clean) and 2 (surviving
+          # mutants found) are expected for a nightly run and should pass.
+          if [ "$MUTANTS_EXIT" -ne 0 ] && [ "$MUTANTS_EXIT" -ne 2 ]; then
+            exit "$MUTANTS_EXIT"
+          fi
+      - name: Upload shard artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: mutants-out-weekly-shard-${{ matrix.shard }}
+          path: backend/mutants.out/
+
+  combine:
+    name: Combine mutant results
+    runs-on: ubuntu-latest
+    needs: mutate
+    # The combine job does not run cargo-mutants; it aggregates artifacts.
+    # Override working-directory to repo root so download-artifact paths
+    # resolve correctly.
+    defaults:
+      run:
+        working-directory: .
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Download all shard artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          path: mutants-fragments
+      - name: Combine missed mutants from all shards
+        id: combine
+        run: |
+          mkdir -p backend/mutants.out
+          TOTAL=0
+          for shard_dir in mutants-fragments/*/; do
+            # Artifacts uploaded via `path: backend/mutants.out/` store files
+            # at the top level of each shard directory, not inside mutants.out/
+            f="${shard_dir}missed.txt"
+            if [ -f "$f" ] && [ -s "$f" ]; then
+              cat "$f" >> backend/mutants.out/missed.txt
+              TOTAL=$((TOTAL + $(wc -l < "$f")))
+            fi
+          done
+          echo "missed=${TOTAL}" >> "$GITHUB_OUTPUT"
       - name: Open issue for surviving mutants
-        if: ${{ steps.mutants.outputs.missed > 0 }}
+        if: ${{ steps.combine.outputs.missed > 0 }}
         env:
           GH_TOKEN: ${{ github.token }}
-          MISSED: ${{ steps.mutants.outputs.missed }}
+          MISSED: ${{ steps.combine.outputs.missed }}
           GH_REPO: ${{ github.repository }}
         run: |
           gh issue create \
             --title "mutation: ${MISSED} surviving mutants (nightly)" \
             --label security,testing/security \
-            --body-file mutants.out/missed.txt \
+            --body-file backend/mutants.out/missed.txt \
             --repo "${GH_REPO}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
