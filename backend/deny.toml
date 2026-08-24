@@ -61,14 +61,15 @@ allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = []
 
 [advisories]
-# unmaintained = "transitive" enables the fail-closed gate for "unmaintained"
-# advisories on transitive dependencies (direct workspace deps are covered by
-# `workspace` implicitly): every unmaintained crate must either be fixed via an
-# upstream upgrade or be explicitly listed in `ignore` below with a
-# justification comment. This matches the fail-closed philosophy of
-# `yanked = "deny"` and replaces the previous lenient `unmaintained = "none"`
-# (issues #70, #95).
-unmaintained = "transitive"
+# unmaintained = "all" enables the fail-closed gate for "unmaintained"
+# advisories on BOTH direct workspace dependencies and transitive ones
+# (the scopes are disjoint: "transitive" alone would let an unmaintained
+# direct dependency pass silently). Every unmaintained crate must either be
+# fixed via an upstream upgrade or be explicitly listed in `ignore` below
+# with a justification comment. This matches the fail-closed philosophy of
+# `yanked = "deny"` and replaces the previous lenient `unmaintained =
+# "none"` (issues #70, #95).
+unmaintained = "all"
 # yanked = "deny" ensures fail-closed: any new yanked dependency fails CI.
 yanked = "deny"
 # RUSTSEC-2023-0071 ("Marvin Attack", crate `rsa`): pulled transitively by
