@@ -118,7 +118,9 @@ jobs:
           mkdir -p backend/mutants.out
           TOTAL=0
           for shard_dir in mutants-fragments/*/; do
-            f="${shard_dir}mutants.out/missed.txt"
+            # Artifacts uploaded via `path: backend/mutants.out/` store files
+            # at the top level of each shard directory, not inside mutants.out/
+            f="${shard_dir}missed.txt"
             if [ -f "$f" ] && [ -s "$f" ]; then
               cat "$f" >> backend/mutants.out/missed.txt
               TOTAL=$((TOTAL + $(wc -l < "$f")))
