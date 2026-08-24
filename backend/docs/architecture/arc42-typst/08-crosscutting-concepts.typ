@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: kimi-k3 (neuralwatt)
+// Co-authored-by: ox-alpha-free (opencode-go)
 
 #import "template.typ": *
 
@@ -27,6 +28,59 @@
   reaching an IdP; production never reaches it (#adr-ref(num: "018", slug: "oidc-jwt-validation-and-dev-auth-toggle", title: "OIDC JWT Validation & Dev-Auth Toggle").
 - *Boundary*: `Requirement::Authenticated` middleware alone is not enough —
   sensitive handlers add their own AUTHZ-GATE inside the handler body.
+
+== Security Architecture (Overview)
+
+#adr-ref(num: "010", slug: "authentication-with-oidc", title: "OIDC Auth") and
+#adr-ref(num: "018", slug: "oidc-jwt-validation-and-dev-auth-toggle", title: "OIDC JWT Validation & Dev-Auth Toggle") define the
+identity stack; the authoritative deep-dive with threat model, control index,
+and file pointers lives in
+#link("../../security/security-architecture.md")[`backend/docs/security/security-architecture.md`] (issue #85).
+
+=== Trust boundaries
+
+- *TB1* — `auth_middleware`: verifies the OIDC JWT (RS256, `iss`/`aud`/`exp`)
+  before any handler runs; JWKS cached with a 3600 s TTL, refreshed on miss or
+  validation failure.
+- *TB2* — `authorize_middleware`: enforces the membership policy for
+  block-scoped requests after authentication.
+- SierraDB is *untrusted durability*: projectors must be idempotent (version guards).
+- Garage is an IAM-less API-key byte store; Postgres is the least-privilege read model
+  (`breakdown_migrator` DDL vs. `breakdown_app` DML).
+
+=== Deny-by-default and fail-closed
+
+- Every route passes through both middlewares; the only allowlist is the
+  declarative path map `requirement_for()` in `crates/api/src/auth/authorization.rs`.
+  Its default arm is `Requirement::BlockMember` — unclassified paths are block-scoped, never open.
+- Allowlisted exceptions (`Authenticated` only) are safe by construction:
+  public docs (path-check inside the middleware, not layer omission), block
+  create/list, invitation acceptance (domain command binds the caller's `sub`),
+  photo/AI-import/report handlers (internal AUTHZ-GATE + `// AUTHZ-GATE:` marker).
+- *Fail-closed*: a panicking policy yields `403`, never `500` — the async policy
+  call is isolated via `tokio::task::spawn(...).await.unwrap_or(PolicyDecision::Deny)`;
+  repository errors collapse to `Deny` as well.
+- `AUTHZ_ENFORCE=false` enables log-only staged rollout; dev mode defaults enforcement off.
+
+=== Security-test pyramid (target)
+
+#align(center)[
+  #table(
+    columns: 2,
+    align: (left, center),
+    table.header([Layer], [Status]),
+    [Fuzzing (nightly, cargo-fuzz)], [⏳],
+    [Property-based tests (proptest)], [🟡],
+    [Mutation testing in-diff (cargo-mutants)], [🟡],
+    [Integration tests Tier-4 round-trip], [✅],
+    [Auth tests (authz, jwks)], [✅],
+    [Architecture tests (cargo-deny, rust_arkitect)], [✅],
+    [Unit tests (core)], [✅],
+  )
+]
+
+Status legend: ✅ present · 🟡 partially present (gap tracked in epic #83:
+property tests #89, mutation review gate #90, fuzzing #91).
 
 == Event Sourcing and Sagas
 
