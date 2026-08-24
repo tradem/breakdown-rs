@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: ox-alpha-free (opencode-go)
+#
+# auditd ruleset for the Arch Linux VPS (ADR-026 §9).
+#
+# Install:  sudo install -D -m 640 docs/operations/host/audit.rules \
+#               /etc/audit/rules.d/50-breakdown.rules
+#           sudo augenrules --load
+# Verify:   sudo auditctl -l | wc -l   # > 0
+#           sudo ausearch -k host-exec --recent
+#
+# Log storage: auditd writes to /var/log/audit/audit.log (see auditd.conf in
+# this directory for rotation/retention — journald does NOT manage that file).
+# Mirror into journald via the audisp syslog plugin for OpenTelemetry shipping
+# (ADR-011).
+
+# Delete any pre-existing rules.
+-D
+
+# Buffer and failure mode: 8 MiB backlog, fail loudly (but not panic) on overflow.
+-b 8192
+-f 1
+
+## ---- Exec tracing ----------------------------------------------------------
+# Every command run as root (package updates, cryptsetup, docker admin…).
+-a always,exit -F arch=b64 -S execve,execveat -F euid=0 -k host-exec-root
+-a always,exit -F arch=b32 -S execve,execveat -F euid=0 -k host-exec-root
+# Every command run by human users (uid >= 1000, excluding the userns nobody).
+-a always,exit -F arch=b64 -S execve,execveat -F euid>=1000 -k user-exec
+-a always,exit -F arch=b32 -S execve,execveat -F euid>=1000 -k user-exec
+
+## ---- Privilege escalation --------------------------------------------------
+-w /etc/sudoers -p wa -k sudoers-change
+-w /etc/sudoers.d/ -p wa -k sudoers-change
+-a always,exit -F arch=b64 -S execve -F euid=0 -F path=/usr/bin/sudo -k sudo-exec
+
+## ---- Host configuration tampering -----------------------------------------
+-w /etc/ssh/sshd_config -p wa -k sshd-config
+-w /etc/ssh/sshd_config.d/ -p wa -k sshd-config
+-w /etc/crypttab -p wa -k crypttab
+-w /etc/nftables.conf -p wa -k nftables-config
+-w /etc/docker/daemon.json -p wa -k docker-config
+-w /etc/systemd/system/ -p wa -k systemd-units
+-w /usr/bin/sudo -p x -k sudo-binary
+-w /usr/bin/cryptsetup -p x -k cryptsetup-exec
+
+## ---- Data & secret volumes (adjust paths to the real mounts) ---------------
+# Watches are recursive over the directory subtree. These catch writes under
+# the LUKS-mounted data root and the Docker data-root (relocated there per
+# runbook §6) holding all named volumes incl. vault material.
+-w /srv/breakdown/data/ -p wa -k data-volume-write
+
+## ---- Lock the rules until reboot (optional hardening; uncomment when stable)
+# -e 2

@@ -91,7 +91,8 @@ services:
         condition: service_started
 
   postgres:
-    image: postgres:16-alpine
+    # Digest-pinned host hardening baseline (ADR-026 §7).
+    image: postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
     restart: unless-stopped
     # Native TLS (ADR-024): server cert + key issued by the internal step-ca
     # (tls-provision loop) and mounted read-only from the shared tls_data
@@ -109,7 +110,11 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       POSTGRES_DB: ${POSTGRES_DB:-breakdown}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      # Host hardening baseline (ADR-026 §1): loopback-only bind. Postgres is
+      # never reachable from other hosts — clients connect through the internal
+      # compose network (api, migrator) over native TLS. The published port
+      # exists solely for admin/debug sessions on the VPS itself.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - tls_data:/tls:ro
@@ -126,7 +131,8 @@ services:
     # Pinned upstream image (ADR-016). SierraDB speaks RESP3 only.
     # Internal-only (ADR-024): no host port — the event store is reachable
     # exclusively from the `stunnel` sidecar over the Docker network.
-    image: tqwewe/sierradb:0.3.1
+    # Digest-pinned per ADR-026 §7 (host hardening baseline).
+    image: tqwewe/sierradb:0.3.1@sha256:a9fe5dc8eb5a9f7d3c9038c87b52eaf6f8646ffc35b69cdbec068f5939b52444
     restart: unless-stopped
     command: ["--dir", "/app/data"]
     volumes:
@@ -243,7 +249,8 @@ services:
     # The `dxflrs/garage` image is a bare static binary (no shell, no
     # env-var config) — the TOML is rendered into the garage_config volume by
     # the `garage-config` one-shot service from $GARAGE_* (gitleaks-clean).
-    image: dxflrs/garage:v1.0.1
+    # Digest-pinned per ADR-026 §7 (host hardening baseline).
+    image: dxflrs/garage:v1.0.1@sha256:a5706cf1f3d7b349ac5133ec59ad8181b709270b75e5f2fa7b3e1a5c07d67137
     restart: unless-stopped
     # The image CMD (`/garage server`) uses the default config search path;
     # point it at the rendered TOML explicitly.
