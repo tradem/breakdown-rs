@@ -64,7 +64,7 @@ jobs:
       # any mutant (nightly runs Aug 2 & 9, 2026). Fixed in commit 577e0b4.
       - name: Install poppler-utils (pdftotext for AI script PDF tests)
         run: sudo apt-get update && sudo apt-get install -y poppler-utils
-      - run: cargo install cargo-mutants
+      - run: cargo install cargo-mutants --version 27.1.0
       # cargo-mutants exits non-zero (code 2) when surviving mutants are found;
       # this is expected for a nightly run whose purpose is to discover and
       # report them. `set +e` captures the exit code so that the counting +
@@ -134,6 +134,23 @@ jobs:
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           path: mutants-fragments
+      - name: Validate all shard artifacts exist
+        run: |
+          EXPECTED=32
+          FOUND=0
+          for i in $(seq 0 $((EXPECTED - 1))); do
+            DIR="mutants-fragments/mutants-out-weekly-shard-${i}"
+            if [ -d "$DIR" ]; then
+              FOUND=$((FOUND + 1))
+            else
+              echo "ERROR: Missing artifact for shard ${i}: ${DIR}"
+            fi
+          done
+          if [ "$FOUND" -ne "$EXPECTED" ]; then
+            echo "FATAL: Expected ${EXPECTED} shard artifacts, found ${FOUND}"
+            exit 1
+          fi
+          echo "All ${EXPECTED} shard artifacts present"
       - name: Combine missed mutants from all shards
         id: combine
         run: |
