@@ -1,0 +1,60 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: ox-alpha-free (opencode-go)
+
+# Rule tests for `reqwest-no-hardcoded-auth` (issue #262). Run via
+# `ast-grep test -c sgconfig.yml -t rules-tests`.
+#
+# `valid` cases must NOT match (variable-backed credentials, the pattern used
+# throughout crates/infra/src/ai); `invalid` cases MUST match (inline string
+# literals).
+id: reqwest-no-hardcoded-auth
+language: Rust
+valid:
+  - |
+    // Variable-backed bearer token (the production pattern, e.g.
+    // crates/infra/src/ai/client.rs).
+    fn auth(builder: reqwest::RequestBuilder, api_key: &str) -> reqwest::RequestBuilder {
+        builder.bearer_auth(api_key)
+    }
+  - |
+    // Method-call-backed credential is fine too.
+    fn self_key(builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        builder.bearer_auth(self.api_key.as_str())
+    }
+  - |
+    // basic_auth with non-literal arguments is fine.
+    fn basic(
+        builder: reqwest::RequestBuilder,
+        user: &str,
+        password: String,
+    ) -> reqwest::RequestBuilder {
+        builder.basic_auth(user, Some(password))
+    }
+  - |
+    // A format!-built header value is not a hardcoded literal (it may still be
+    // a design smell, but gitleaks/config review owns that).
+    fn composed(builder: reqwest::RequestBuilder, key: &str) -> reqwest::RequestBuilder {
+        builder.bearer_auth(format!("Bearer {key}"))
+    }
+invalid:
+  - |
+    // Canonical case: inline literal token.
+    fn leaky(builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        builder.bearer_auth("hardcoded-token")
+    }
+  - |
+    // Raw string literal (r#"…"#) is a distinct node kind — must also match.
+    fn leaky_raw(builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        builder.bearer_auth(r#"hardcoded-token"#)
+    }
+  - |
+    // Inline literals in basic_auth (username AND/OR password).
+    fn leaky_basic(builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        builder.basic_auth("admin", Some("password123"))
+    }
+  - |
+    // Raw-string password in basic_auth.
+    fn leaky_basic_raw(builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        builder.basic_auth(r#"svc-account"#, Some(password_from_env))
+    }

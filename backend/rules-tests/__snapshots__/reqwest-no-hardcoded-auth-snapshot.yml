@@ -1,0 +1,106 @@
+id: reqwest-no-hardcoded-auth
+snapshots:
+  ? |
+    // Canonical case: inline literal token.
+    fn leaky(builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        builder.bearer_auth("hardcoded-token")
+    }
+  : labels:
+    - source: builder.bearer_auth("hardcoded-token")
+      style: primary
+      start: 117
+      end: 155
+    - source: bearer_auth
+      style: secondary
+      start: 125
+      end: 136
+    - source: builder.bearer_auth
+      style: secondary
+      start: 117
+      end: 136
+    - source: '"hardcoded-token"'
+      style: secondary
+      start: 137
+      end: 154
+    - source: ("hardcoded-token")
+      style: secondary
+      start: 136
+      end: 155
+  ? |
+    // Inline literals in basic_auth (username AND/OR password).
+    fn leaky_basic(builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        builder.basic_auth("admin", Some("password123"))
+    }
+  : labels:
+    - source: builder.basic_auth("admin", Some("password123"))
+      style: primary
+      start: 143
+      end: 191
+    - source: basic_auth
+      style: secondary
+      start: 151
+      end: 161
+    - source: builder.basic_auth
+      style: secondary
+      start: 143
+      end: 161
+    - source: '"admin"'
+      style: secondary
+      start: 162
+      end: 169
+    - source: ("admin", Some("password123"))
+      style: secondary
+      start: 161
+      end: 191
+  ? |
+    // Raw string literal (r#"…"#) is a distinct node kind — must also match.
+    fn leaky_raw(builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        builder.bearer_auth(r#"hardcoded-token"#)
+    }
+  : labels:
+    - source: builder.bearer_auth(r#"hardcoded-token"#)
+      style: primary
+      start: 158
+      end: 199
+    - source: bearer_auth
+      style: secondary
+      start: 166
+      end: 177
+    - source: builder.bearer_auth
+      style: secondary
+      start: 158
+      end: 177
+    - source: r#"hardcoded-token"#
+      style: secondary
+      start: 178
+      end: 198
+    - source: (r#"hardcoded-token"#)
+      style: secondary
+      start: 177
+      end: 199
+  ? |
+    // Raw-string password in basic_auth.
+    fn leaky_basic_raw(builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        builder.basic_auth(r#"svc-account"#, Some(password_from_env))
+    }
+  : labels:
+    - source: builder.basic_auth(r#"svc-account"#, Some(password_from_env))
+      style: primary
+      start: 124
+      end: 185
+    - source: basic_auth
+      style: secondary
+      start: 132
+      end: 142
+    - source: builder.basic_auth
+      style: secondary
+      start: 124
+      end: 142
+    - source: r#"svc-account"#
+      style: secondary
+      start: 143
+      end: 159
+    - source: (r#"svc-account"#, Some(password_from_env))
+      style: secondary
+      start: 142
+      end: 185

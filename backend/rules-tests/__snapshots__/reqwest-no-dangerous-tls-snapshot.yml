@@ -1,0 +1,103 @@
+id: reqwest-no-dangerous-tls
+snapshots:
+  ? |
+    // Any non-literal expression is rejected too (fail-closed).
+    fn indirect_expr(
+        builder: reqwest::ClientBuilder,
+        env_flag: Option<bool>,
+    ) -> reqwest::ClientBuilder {
+        builder.danger_accept_invalid_certs(env_flag.unwrap_or(false))
+    }
+  : labels:
+    - source: builder.danger_accept_invalid_certs(env_flag.unwrap_or(false))
+      style: primary
+      start: 178
+      end: 240
+    - source: danger_accept_invalid_certs
+      style: secondary
+      start: 186
+      end: 213
+    - source: builder.danger_accept_invalid_certs
+      style: secondary
+      start: 178
+      end: 213
+  ? |
+    // Canonical case: disabling certificate verification on a chained builder.
+    fn insecure() -> reqwest::Result<reqwest::Client> {
+        reqwest::Client::builder()
+            .danger_accept_invalid_certs(true)
+            .build()
+    }
+  : labels:
+    - source: |-
+        reqwest::Client::builder()
+                .danger_accept_invalid_certs(true)
+      style: primary
+      start: 132
+      end: 201
+    - source: danger_accept_invalid_certs
+      style: secondary
+      start: 168
+      end: 195
+    - source: |-
+        reqwest::Client::builder()
+                .danger_accept_invalid_certs
+      style: secondary
+      start: 132
+      end: 195
+  ? |
+    // Disabling hostname verification is equally forbidden.
+    fn no_verify(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+        builder.danger_accept_invalid_hostnames(true)
+    }
+  : labels:
+    - source: builder.danger_accept_invalid_hostnames(true)
+      style: primary
+      start: 135
+      end: 180
+    - source: danger_accept_invalid_hostnames
+      style: secondary
+      start: 143
+      end: 174
+    - source: builder.danger_accept_invalid_hostnames
+      style: secondary
+      start: 135
+      end: 174
+  ? |
+    // Indirect true via const: must be flagged (fail-closed argument check).
+    const INSECURE: bool = true;
+    fn indirect_const(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+        builder.danger_accept_invalid_certs(INSECURE)
+    }
+  : labels:
+    - source: builder.danger_accept_invalid_certs(INSECURE)
+      style: primary
+      start: 186
+      end: 231
+    - source: danger_accept_invalid_certs
+      style: secondary
+      start: 194
+      end: 221
+    - source: builder.danger_accept_invalid_certs
+      style: secondary
+      start: 186
+      end: 221
+  ? |
+    // Indirect true via local: equally flagged.
+    fn indirect_local(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+        let skip = true;
+        builder.danger_accept_invalid_hostnames(skip)
+    }
+  : labels:
+    - source: builder.danger_accept_invalid_hostnames(skip)
+      style: primary
+      start: 149
+      end: 194
+    - source: danger_accept_invalid_hostnames
+      style: secondary
+      start: 157
+      end: 188
+    - source: builder.danger_accept_invalid_hostnames
+      style: secondary
+      start: 149
+      end: 188

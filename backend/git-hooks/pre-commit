@@ -9,8 +9,8 @@
 # To install: cd backend && ln -sf ../../git-hooks/pre-commit .git/hooks/pre-commit
 #
 # The ast-grep steps mirror the cqrs-boundary / test-shim-leak / error-hygiene
-# jobs in .github/workflows/architecture-checks.yml. Keep the path scoping in
-# sync with backend/rules/*.yml and the CI jobs.
+# / rust-security-ast-grep jobs in .github/workflows/architecture-checks.yml.
+# Keep the path scoping in sync with backend/rules/*.yml and the CI jobs.
 
 set -e
 
@@ -66,7 +66,7 @@ fi
 
 # 5. Run ast-grep guardrails on staged files (mirrors the CI jobs)
 if [ -n "$STAGED_RS_FILES" ]; then
-    echo "🛡️  Running ast-grep guardrails (cqrs-boundary / test-shim-leak / discard-result / test-helper-gate / uuid-v7-only / allow-panic-lint-justification / s2-extension-ban / problem-code-registry)..."
+    echo "🛡️  Running ast-grep guardrails (cqrs-boundary / test-shim-leak / discard-result / test-helper-gate / uuid-v7-only / allow-panic-lint-justification / s2-extension-ban / problem-code-registry / reqwest-no-dangerous-tls / reqwest-no-hardcoded-auth)..."
     if command -v ast-grep &> /dev/null; then
         # Write-side dirs → cqrs-boundary rule (see backend/rules/cqrs-boundary.yml).
         # AI workers are write-side code too and must stay projection-free.
@@ -91,6 +91,11 @@ if [ -n "$STAGED_RS_FILES" ]; then
             echo "$PROD_FILES" | xargs -r ast-grep scan -r rules/test-helper-gate.yml
             echo "$PROD_FILES" | xargs -r ast-grep scan -r rules/uuid-v7-only.yml
             echo "$PROD_FILES" | xargs -r ast-grep scan -r rules/allow-panic-lint-justification.yml
+            # Rust security rules (issue #262, vendored from
+            # coderabbitai/ast-grep-essentials): no reqwest TLS bypasses, no
+            # hardcoded HTTP auth credentials.
+            echo "$PROD_FILES" | xargs -r ast-grep scan -r rules/reqwest-no-dangerous-tls.yml
+            echo "$PROD_FILES" | xargs -r ast-grep scan -r rules/reqwest-no-hardcoded-auth.yml
         fi
         # Problem-builder code → S2 person-identifier ban (ADR-031 D4).
         PROBLEM_FILES=$(echo "$STAGED_RS_FILES" | grep '^crates/api/src/problems/' || true)
