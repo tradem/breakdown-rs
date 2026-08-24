@@ -10,9 +10,10 @@
 # Verify:   sudo auditctl -l | wc -l   # > 0
 #           sudo ausearch -k host-exec --recent
 #
-# Logs go to journald via audispd/syslog plugin with retention enforced by
-# journald (SystemMaxUse in /etc/systemd/journald.conf). Alerting hooks into
-# OpenTelemetry where available (ADR-011).
+# Log storage: auditd writes to /var/log/audit/audit.log (see auditd.conf in
+# this directory for rotation/retention — journald does NOT manage that file).
+# Mirror into journald via the audisp syslog plugin for OpenTelemetry shipping
+# (ADR-011).
 
 # Delete any pre-existing rules.
 -D
@@ -44,11 +45,11 @@
 -w /usr/bin/sudo -p x -k sudo-binary
 -w /usr/bin/cryptsetup -p x -k cryptsetup-exec
 
-## ---- Data & secret volumes (adjust DATA_ROOT to the real mount point) ------
+## ---- Data & secret volumes (adjust paths to the real mounts) ---------------
 # Watches are recursive over the directory subtree. These catch writes under
-# the LUKS-mounted data root and any bind-mounts holding vault material.
+# the LUKS-mounted data root and the Docker data-root (relocated there per
+# runbook §6) holding all named volumes incl. vault material.
 -w /srv/breakdown/data/ -p wa -k data-volume-write
--w /var/lib/docker/volumes/ -p wa -k docker-volume-write
 
 ## ---- Lock the rules until reboot (optional hardening; uncomment when stable)
 # -e 2

@@ -59,12 +59,16 @@ Throughout, substitute real values:
 | `/srv/breakdown/data` | Mount point of the unlocked LUKS device |
 | `deploy` | The non-root SSH user |
 
-All persistent container state lives under one of:
+All persistent container state lives under **one** location: the **Docker data
+root**, relocated onto the LUKS mount (`/srv/breakdown/data/docker` via
+`data-root`, §6) → named volumes such as `postgres_data`, `sierradb_data`,
+`garage_data`, `caddy_data`, `vault_data`, `step_ca_data`, `tls_data`. Any
+bind-mounted host directories also go under `/srv/breakdown/data`.
 
-- the **Docker data root** (`/var/lib/docker` → named volumes such as
-  `postgres_data`, `sierradb_data`, `garage_data`, `caddy_data`, `vault_data`,
-  `step_ca_data`, `tls_data`), and
-- any **bind-mounted host directories** under `/srv/breakdown/data`.
+> ⚠️ Do **not** leave Docker at the default `/var/lib/docker`: that path sits on
+> the unencrypted rootfs and every named volume would silently escape LUKS.
+> Set `data-root` **before creating the first volume** (fresh host), or migrate
+> an existing data root per §6.
 
 Because both sit on the same LUKS device, one key and one unlock procedure
 covers every tier (Postgres, SierraDB, Garage, Caddy ACME state, Vault,
@@ -97,8 +101,12 @@ after each reboot, open the hoster's rescue/VNC console and run:
 
 ```bash
 sudo cryptsetup open /dev/vdb breakdown-data && \
-  sudo mount -a && sudo systemctl start docker
+  sudo mount /srv/breakdown/data && sudo systemctl start docker
 ```
+
+(`mount -a` would skip the fstab entry below because it is `noauto`; the mount
+must be explicit so Docker never starts against the unmounted, unencrypted
+path.)
 
 Optionally add a second keyslot backed by a keyfile stored on the (unencrypted)
 rootfs for semi-automatic unlock — but understand that this weakens the model:
@@ -132,13 +140,22 @@ Also store offline:
   Vault `kv/host/luks-passphrase` per ADR-027),
 - the printed recovery instructions from this section.
 
-**Verify:**
+**Verify** (quarterly, see §9). Two separate operations:
 
 ```bash
-# Restore drill against a scratch file (quarterly, see §9):
+# (a) Non-destructive validation of the offline header backup — parses the
+# backup file itself; touches no live device.
+sudo cryptsetup luksDump /run/media/usb/breakdown-luks-header.img   # must parse cleanly
+
+# (b) Actual restore drill — DESTRUCTIVE by design: luksHeaderRestore has NO
+# dry-run mode; it overwrites the target's LUKS metadata AND all keyslots.
+# Only ever run it against a disposable loop device, never /dev/vdb:
 truncate -s 64M /tmp/header-test.img
-cryptsetup luksHeaderRestore --header-backup-file /run/media/usb/breakdown-luks-header.img /dev/loop-test  # dry-run on a loop device first
-sudo cryptsetup luksDump /run/media/usb/breakdown-luks-header.img   # parses cleanly
+LOOP_DEV=$(sudo losetup --find --show /tmp/header-test.img)   # e.g. /dev/loop0
+sudo cryptsetup luksHeaderRestore "$LOOP_DEV" \
+  --header-backup-file /run/media/usb/breakdown-luks-header.img   # prompts for confirmation
+sudo cryptsetup luksDump "$LOOP_DEV"                          # restored layout visible
+sudo losetup -d "$LOOP_DEV" && rm /tmp/header-test.img
 ```
 
 ## 4. Network & SSH hardening (ADR-026 §1–§4)
@@ -155,6 +172,10 @@ sudo systemctl enable --now nftables
 ```
 
 Only `:22` (rate-limited SSH), `:80`/`:443` (Caddy edge, ADR-025) are public.
+The ruleset owns a dedicated `breakdown_filter` table only (no top-level
+`flush ruleset`) so a reload can never wipe Docker's DNAT/port-publish rules;
+its forward chain accepts established flows, Docker-DNAT traffic, and local
+bridge routing, and drops anything else leaving via the WAN interface.
 
 > **Why the firewall alone is not enough:** published container ports bypass
 > the `input` chain entirely — Docker installs DNAT + FORWARD accepts. That is
@@ -219,8 +240,13 @@ Brute-force protection with fail2ban:
 
 ```bash
 sudo pacman -S fail2ban
-printf '%s\n' '[sshd]' enabled = true maxretry = 5 bantime = 1h findtime = 10m \
-  | sudo tee /etc/fail2ban/jail.d/sshd.local
+sudo tee /etc/fail2ban/jail.d/sshd.local >/dev/null <<'EOF'
+[sshd]
+enabled = true
+maxretry = 5
+bantime = 1h
+findtime = 10m
+EOF
 sudo systemctl enable --now fail2ban
 ```
 
@@ -262,13 +288,15 @@ vault write transit/keys/backup-age type=ed25519   # wrapping key, ADR-027
 # Store the private age.key OFFLINE (same medium class as the LUKS header).
 ```
 
-Encrypted logical backup:
+Encrypted logical backup (`POSTGRES_USER`/`POSTGRES_DB` are expanded *inside*
+the container where Compose sets them — not in the host shell, where they may
+be unset):
 
 ```bash
 set -euo pipefail
 AGE_RECIPIENT="$(vault kv get -field=recipient kv/backup-age)"
-docker compose -f docker-compose.prod.yml exec -T postgres \
-  pg_dump -U "$POSTGRES_USER" --format=custom breakdown \
+docker compose -f docker-compose.prod.yml exec -T postgres sh -c \
+  'pg_dump -U "$POSTGRES_USER" --format=custom "$POSTGRES_DB"' \
   | age -r "$AGE_RECIPIENT" > "/backups/breakdown-$(date -u +%Y%m%dT%H%M%SZ).dump.age"
 ```
 
@@ -291,20 +319,40 @@ head -c 200 /backups/<latest>.age   # binary ciphertext, no readable SQL
 
 ## 6. Docker daemon hardening (ADR-026 §5–§6)
 
-`/etc/docker/daemon.json`:
+`/etc/docker/daemon.json` — note `data-root` relocates ALL named volumes onto
+the LUKS mount (§2); apply it before creating the first volume, or migrate:
 
 ```json
 {
+  "data-root": "/srv/breakdown/data/docker",
   "userns-remap": "default",
   "live-restore": true,
   "no-new-privileges": true,
-  "log-driver": "journald",
-  "log-opts": { "max-size": "50m", "max-file": "5" }
+  "log-driver": "journald"
 }
 ```
 
+> The `journald` log driver supports neither `max-size` nor `max-file` — those
+> options belong to the `json-file`/`local` drivers. Journal retention is
+> enforced centrally by `journald.conf` (§8).
+
+Migrate an existing data root (once, with the stack down):
+
 ```bash
-sudo systemctl restart docker
+sudo systemctl stop docker.socket docker.service
+sudo rsync -aHAX /var/lib/docker/ /srv/breakdown/data/docker/
+sudo mv /var/lib/docker /var/lib/docker.old   # keep until verified, then delete
+sudo systemctl start docker.service           # now uses the LUKS-backed root
+docker volume ls && docker compose ps          # volumes intact?
+```
+
+Make Docker depend on the unlocked mount so it can never start first:
+
+```bash
+sudo systemctl edit docker.service   # enter:
+# [Unit]
+# Requires=srv-breakdown-data.mount
+# After=srv-breakdown-data.mount
 ```
 
 Notes and caveats:
@@ -363,19 +411,25 @@ Honest limitation (accepted risk): between reviews there is a window of up to
 
 Install the checked-in ruleset [`host/audit.rules`](host/audit.rules)
 (exec tracing incl. sudo, tamper watches on sshd/nftables/crypttab/docker
-config and the data/volume subtrees):
+config and the data/volume subtrees) plus the retention config
+[`host/auditd.conf`](host/auditd.conf):
 
 ```bash
 sudo pacman -S audit
 sudo install -D -m 640 docs/operations/host/audit.rules /etc/audit/rules.d/50-breakdown.rules
-# Adjust the DATA_ROOT watch path (/srv/breakdown/data/) to the real mount first.
+# Adjust the DATA_ROOT watch paths to the real mounts first.
 sudo augenrules --load
+sudo install -D -m 640 docs/operations/host/auditd.conf /etc/audit/auditd.conf
 sudo systemctl enable --now auditd
 ```
 
-Logs flow into `journald`; enforce retention in `/etc/systemd/journald.conf`
-(`SystemMaxUse=2G`, `MaxRetentionSec=90day`). Where OpenTelemetry collectors
-run (ADR-011), ship journald audit events to the alert pipeline.
+Log storage & retention: `auditd` writes natively to
+**`/var/log/audit/audit.log`** — journald retention settings do **not** apply
+to that file. Rotation/retention is enforced by `auditd.conf`
+(`max_log_file = 64` MiB, `num_logs = 10`, `max_log_file_action = keep_logs`).
+For OpenTelemetry shipping (ADR-011), either run the audisp syslog plugin
+(`/etc/audit/plugins.d/syslog.conf`, `active = yes`) to mirror events into
+journald, or ship `audit.log` directly from the collector.
 
 **Verify:**
 
@@ -396,10 +450,11 @@ encrypted form restores end-to-end — you cannot just `cat` a dump:
 
    ```bash
    AGE_IDENTITY_FILE=/secure/path/age.key
-   docker compose -f docker-compose.prod.yml exec -T postgres createdb -U "$POSTGRES_USER" restore_drill
+   docker compose -f docker-compose.prod.yml exec -T postgres sh -c \
+     'createdb -U "$POSTGRES_USER" restore_drill'
    age -d -i "$AGE_IDENTITY_FILE" < /backups/<latest>.dump.age \
-     | docker compose -f docker-compose.prod.yml exec -T postgres \
-         pg_restore -U "$POSTGRES_USER" -d restore_drill --no-owner
+     | docker compose -f docker-compose.prod.yml exec -T postgres sh -c \
+         'pg_restore -U "$POSTGRES_USER" -d restore_drill --no-owner'
    ```
 
 3. Sanity-check row counts against expectations (e.g. `projection_audit`,
@@ -424,9 +479,10 @@ live data.
   ```
 
 - **Caddy ACME state & Vault data on LUKS (ADR-025/027):** both are named
-  Docker volumes (`caddy_data`, `vault_data`) under `/var/lib/docker`, which
-  sits on the LUKS-backed data root — covered automatically by §3. If either
-  is ever moved to a bind-mount, it MUST go under `/srv/breakdown/data`.
+  Docker volumes (`caddy_data`, `vault_data`) under the Docker data root,
+  which is relocated onto the LUKS mount (`data-root`, §6) — covered
+  automatically by §3. If either is ever moved to a bind-mount, it MUST go
+  under `/srv/breakdown/data`.
 - **DNS-01 provider token (ADR-025):** if DNS-01 issuance is used, the provider
   API token comes from Vault KV-v2 at container start — never from `.env`.
   `gitleaks` guards the repo side; this runbook guards the runtime side.
@@ -441,7 +497,7 @@ live data.
 | 4 | nftables default-deny; only :22/:80/:443 public | §4.1 external probe |
 | 5 | No internal port published (postgres loopback-only) | §4.2 |
 | 6 | sshd key-only, hardened; fail2ban active | §4.3 |
-| 7 | Docker userns-remap + cap/resource hygiene | §6 |
+| 7 | Docker userns-remap + cap/resource hygiene; data-root on LUKS | §6 |
 | 8 | auditd exec/tamper/sudo rules loaded | §8 |
 | 9 | Image digests pinned in prod compose | `grep -cE 'image:.*@sha256:' docker-compose.prod.yml` ≥ number of services |
 | 10 | Weekly patching SLA, owner @tradem, Monday reminder | §7 ops journal |
