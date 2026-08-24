@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024 Breakdown RS Contributors
+# Co-authored-by: laguna-s-2.1-free (opencode)
 # == File-based exclusion ==
 
 # Exclude the `integration-tests` crate from mutation testing: it operates on real external
