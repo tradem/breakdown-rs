@@ -87,6 +87,12 @@ membership check via the shooting_day → episode → block → season chain). T
 - **Open-Spec / API First:** Define the API in the OpenAPI spec before writing code. Map exact types using `serde`.
 - **ID Generation:** Strictly use **UUIDv7** (`uuid::Uuid::now_v7()`) for all entities and events. No UUIDv4.
 - **Security:** Never hardcode secrets. Your code must pass `gitleaks`.
+- **Security architecture:** the authoritative threat model, trust
+  boundaries, authorization architecture (Deny-by-Default `requirement_for()`,
+  fail-closed policy evaluation), OIDC/JWT validation, supply-chain posture,
+  and the target security-test pyramid are documented in
+  `docs/security/security-architecture.md` — keep it in sync when touching
+  auth/authz code (issue #85).
 - **No panics in production code (hard rule).** Panics are the "safe" equivalent of `unsafe` for crashing production: they bypass structured error handling (`?` / `DomainError`/`anyhow`), produce no tracing span, and (in spawned tasks like projectors and sagas) silently kill the worker — defeating the entire tracing/audit effort. **`unwrap()` / `expect()` / `panic!()` / `unreachable!()` / `todo!()` are forbidden** in production code paths (adapters, sagas, projectors, handlers, `main.rs`). Use `?` with `DomainError`/`anyhow`, or `match` with an explicit fallback. The workspace clippy lints `clippy::unwrap_used`, `clippy::expect_used`, `clippy::panic` are `deny` (CI-enforced via `-D warnings`). `#[allow]` is only acceptable for (a) const-time construction from a known-valid literal (e.g. `LexicalSortKey::from_static`) or (b) test code — both must carry a justification comment. Audit metadata (e.g. `series_id`) must **never** block command processing: resolve it best-effort, returning `None`/default on projection misses (see CQRS-boundary rule in §1).
 - **Security — No string-interpolated SQL (hard rule).** Every SQL statement passed to
   `sqlx::query(...)`, `sqlx::query_as(...)`, or `sqlx::query_scalar(...)` must be a static
