@@ -6,6 +6,13 @@
 # default behaviour, stated here explicitly to document the intent.)
 exclude_globs = [
     "crates/integration-tests/**",
+    # Exclude the `fuzz-targets` crate: it requires nightly cargo-fuzz and the
+    # `fuzzing` cfg-gate; it is excluded from CI builds (`--exclude
+    # breakdown-fuzz-targets`) and does not compile under mutation testing.
+    "crates/fuzz-targets/**",
+    # `test_support` is a test-helper crate with no domain logic to mutate;
+    # covering it adds runtime with zero defect-finding value.
+    "crates/test_support/**",
 ]
 
 # == Security-critical allowlist (documentation) ==
@@ -19,6 +26,9 @@ exclude_globs = [
 #
 # These patterns are documented here so they stay in sync between the workflow and the config.
 # The broad `mutate-core` job (continue-on-error) still covers the entire `breakdown_core` crate.
+
+# Enable the test-support feature to match CI: `cargo test --workspace --features infra/test-support`
+features = ["infra/test-support"]
 
 # == Regex-based survivor acceptance (known false-positives) ==
 #
