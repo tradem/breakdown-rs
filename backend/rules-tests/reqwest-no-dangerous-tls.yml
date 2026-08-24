@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: ox-alpha-free (opencode-go)
+
+# Rule tests for `reqwest-no-dangerous-tls` (issue #262). Run via
+# `ast-grep test -c sgconfig.yml -t rules-tests`.
+#
+# `valid` cases must NOT match; `invalid` cases MUST match.
+id: reqwest-no-dangerous-tls
+language: Rust
+valid:
+  - |
+    // A builder without any dangerous-TLS flag is clean.
+    fn build() -> reqwest::Result<reqwest::Client> {
+        reqwest::Client::builder()
+            .use_rustls_tls()
+            .add_root_certificate(root_ca)
+            .build()
+    }
+  - |
+    // Explicitly enabling verification (false) is fine.
+    fn strict(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+        builder.danger_accept_invalid_certs(false)
+    }
+  - |
+    // Other builders (e.g. OpenDAL runtime config) are not flagged by name.
+    let client = http_client.build();
+invalid:
+  - |
+    // Canonical case: disabling certificate verification on a chained builder.
+    fn insecure() -> reqwest::Result<reqwest::Client> {
+        reqwest::Client::builder()
+            .danger_accept_invalid_certs(true)
+            .build()
+    }
+  - |
+    // Disabling hostname verification is equally forbidden.
+    fn no_verify(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+        builder.danger_accept_invalid_hostnames(true)
+    }

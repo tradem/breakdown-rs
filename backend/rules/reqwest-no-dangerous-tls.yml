@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: ox-alpha-free (opencode-go)
+
+# Reqwest TLS bypass: `danger_accept_invalid_hostnames(true)` /
+# `danger_accept_invalid_certs(true)` disable certificate verification and
+# open the door to machine-in-the-middle attacks (CWE-295). ADR-024 mandates
+# rustls with pinned root CAs for every outbound TLS link (SierraDB, S3/Garage,
+# AI provider); a dangerous-TLS flag on any client builder is a regression of
+# that posture.
+#
+# Vendored from `coderabbitai/ast-grep-essentials` (rules/rust/security/
+# reqwest-accept-invalid-rust.yml), re-id'd and generalized: the upstream rule
+# constrains the receiver to a literal `reqwest::Client::builder()` chain,
+# which misses builders bound to variables or built in helpers. These methods
+# only exist on reqwest's `ClientBuilder`/`RequestBuilder`, so matching the
+# method call regardless of receiver is safe and strictly broader.
+#
+# Scan scope is restricted to production source files (crates/*/src, test
+# modules excluded) by the rust-security-ast-grep CI job and the pre-commit
+# hook.
+#
+# A genuinely required TLS bypass (e.g. talking to a dev endpoint with a
+# self-signed cert inside #[cfg(test)]-adjacent code) is permitted only with
+# an explicit suppression:
+#   // ast-grep-ignore: reqwest-no-dangerous-tls
+# on the same line as the call, carrying a justification comment above it.
+id: reqwest-no-dangerous-tls
+message: >-
+  Dangerous TLS bypass: certificate/hostname verification must never be
+  disabled (`danger_accept_invalid_certs(true)` /
+  `danger_accept_invalid_hostnames(true)`, CWE-295). ADR-024 requires rustls
+  with pinned root CAs — configure the root cert via the pinned-CA mechanism
+  instead. If a bypass is genuinely unavoidable, suppress with an explicit
+  `// ast-grep-ignore: reqwest-no-dangerous-tls` comment and a justification
+  above the call.
+severity: error
+language: Rust
+rule:
+  any:
+    - pattern: $BUILDER.danger_accept_invalid_hostnames(true)
+    - pattern: $BUILDER.danger_accept_invalid_certs(true)

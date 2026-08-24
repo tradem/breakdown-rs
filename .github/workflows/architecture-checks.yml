@@ -18,6 +18,10 @@ permissions:
 #   Layer 7: problem-code-registry — every `pub const …: ProblemCode` must be declared through the problem_codes!
 #            macro in error_registry.rs (a standalone declaration would compile but never be registered, issue #232)
 #   Layer 8: gitleaks — blocks accidental secret commits against 150+ patterns
+#   Layer 9: rust-security-ast-grep — ast-grep: no reqwest TLS bypasses
+#            (danger_accept_invalid_{certs,hostnames}(true)) and no hardcoded
+#            HTTP auth credentials (.basic_auth/.bearer_auth string literals);
+#            vendored from coderabbitai/ast-grep-essentials (issue #262)
 #
 # See backend/AGENTS.md § Testing & Guardrails and § Security
 # See backend/docs/architecture/adrs/ADR-017-architecture-testing-strategy.md
@@ -30,6 +34,8 @@ on:
       - "backend/Cargo.lock"
       - "backend/deny.toml"
       - "backend/rules/**"
+      - "backend/rules/reqwest-no-dangerous-tls.yml"
+      - "backend/rules/reqwest-no-hardcoded-auth.yml"
       - "backend/rules-tests/**"
       - "backend/scripts/**"
       - "backend/sgconfig.yml"
@@ -272,6 +278,55 @@ jobs:
           # The checker itself is guarded by its rule test-suite (fixtures for
           # canonical/spaced/multiline/template/malformed inputs).
           bash scripts/check-problem-code-registry.sh --self-test
+
+  rust-security-ast-grep:
+    name: Rust security rules (no TLS bypass, no hardcoded auth)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Read-only job: no authenticated git commands are run after checkout.
+          persist-credentials: false
+
+      - name: Install ast-grep 0.45.0 (SHA-pinned)
+        run: |
+          set -e
+          curl -fsSL -o /tmp/ast-grep.zip https://github.com/ast-grep/ast-grep/releases/download/0.45.0/app-x86_64-unknown-linux-gnu.zip
+          echo "78931ae35ebac33d9a72b3aecea3e3d62d6e5b0b718ac8bbedfbe69d68421e41  /tmp/ast-grep.zip" | sha256sum -c -
+          unzip -q /tmp/ast-grep.zip -d /tmp/ast-grep-install
+          sudo mv /tmp/ast-grep-install/ast-grep /usr/local/bin/
+          ast-grep --version
+
+      - name: Forbid reqwest TLS bypasses and hardcoded auth credentials (ast-grep)
+        run: |
+          set -e
+          # Production source files under crates/*/src — test modules excluded
+          # (*_tests.rs, *_test.rs, test_helpers.rs, any tests/ dir). Bins are
+          # included (they are production code). Same scope as error-hygiene.
+          mapfile -t FILES < <(find crates -path '*/src/*' -name '*.rs' \
+            ! -name '*_tests.rs' ! -name '*_test.rs' ! -name 'test_helpers.rs' \
+            ! -path '*/tests/*' ! -path '*/test_helpers/*')
+          # AST-based security rules, vendored from coderabbitai/
+          # ast-grep-essentials and re-id'd (issue #262):
+          #   backend/rules/reqwest-no-dangerous-tls.yml — a reqwest builder
+          #     must never disable certificate/hostname verification
+          #     (CWE-295); ADR-024 mandates rustls + pinned root CAs.
+          #   backend/rules/reqwest-no-hardcoded-auth.yml — .basic_auth /
+          #     .bearer_auth must never receive an inline string literal
+          #     (CWE-798); complements the gitleaks text scan with structural
+          #     AST-level detection.
+          # Intentional cases require an explicit
+          # `// ast-grep-ignore: <rule-id>` + justification.
+          if [ "${#FILES[@]}" -gt 0 ]; then
+            ast-grep scan -r rules/reqwest-no-dangerous-tls.yml "${FILES[@]}"
+            ast-grep scan -r rules/reqwest-no-hardcoded-auth.yml "${FILES[@]}"
+          fi
+          echo "OK: no reqwest TLS bypasses / hardcoded auth credentials found"
 
   gitleaks:
     name: Gitleaks (secrets)

@@ -1,0 +1,26 @@
+id: reqwest-no-dangerous-tls
+snapshots:
+  ? |
+    // Canonical case: disabling certificate verification on a chained builder.
+    fn insecure() -> reqwest::Result<reqwest::Client> {
+        reqwest::Client::builder()
+            .danger_accept_invalid_certs(true)
+            .build()
+    }
+  : labels:
+    - source: |-
+        reqwest::Client::builder()
+                .danger_accept_invalid_certs(true)
+      style: primary
+      start: 132
+      end: 201
+  ? |
+    // Disabling hostname verification is equally forbidden.
+    fn no_verify(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+        builder.danger_accept_invalid_hostnames(true)
+    }
+  : labels:
+    - source: builder.danger_accept_invalid_hostnames(true)
+      style: primary
+      start: 135
+      end: 180

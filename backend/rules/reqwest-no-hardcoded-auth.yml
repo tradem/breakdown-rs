@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: ox-alpha-free (opencode-go)
+
+# Hardcoded HTTP auth credentials: `.basic_auth("<literal>", …)` /
+# `.bearer_auth("<literal>")` embed a secret directly in source code
+# (CWE-798). Credentials must flow from configuration / the environment /
+# Vault at runtime, never from a string literal. This complements gitleaks
+# (text-based pattern scan) with structural AST-level detection: gitleaks can
+# miss short or non-standard tokens, while this rule catches any inline
+# literal regardless of its shape.
+#
+# Vendored from `coderabbitai/ast-grep-essentials` (rules/rust/security/
+# secrets-reqwest-hardcoded-auth-rust.yml), re-id'd and simplified: the
+# upstream rule only fires when the client was let-bound to
+# `reqwest::Client::new()` in the same block, missing the chained
+# `Client::builder()` style used throughout this codebase. We instead match
+# any `.basic_auth(<string-literal>, …)` / `.bearer_auth(<string-literal>)`
+# call; these methods exist only on reqwest builders, so receiver-agnostic
+# matching has no false-positive surface outside reqwest.
+#
+# Scan scope is restricted to production source files (crates/*/src, test
+# modules excluded) by the rust-security-ast-grep CI job and the pre-commit
+# hook.
+#
+# A genuinely intentional literal (there is no known case — even test-only
+# credentials should come from config) is permitted only with an explicit
+# suppression:
+#   // ast-grep-ignore: reqwest-no-hardcoded-auth
+# on the same line as the call, carrying a justification comment above it.
+id: reqwest-no-hardcoded-auth
+message: >-
+  Hardcoded auth credential: a string literal is passed to basic_auth /
+  bearer_auth (CWE-798). Secrets embedded in source leak via VCS history and
+  binaries — load credentials from configuration, the environment, or Vault
+  and pass them as runtime values. If a literal is genuinely unavoidable,
+  suppress with an explicit `// ast-grep-ignore: reqwest-no-hardcoded-auth`
+  comment and a justification above the call.
+severity: error
+language: Rust
+rule:
+  all:
+    - kind: call_expression
+    - has:
+        stopBy: neighbor
+        field: function
+        kind: field_expression
+        has:
+          stopBy: neighbor
+          field: field
+          kind: field_identifier
+          regex: '^(basic_auth|bearer_auth)$'
+    - has:
+        stopBy: neighbor
+        field: arguments
+        kind: arguments
+        has:
+          kind: string_literal

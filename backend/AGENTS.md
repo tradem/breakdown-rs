@@ -204,6 +204,26 @@ membership check via the shooting_day → episode → block → season chain). T
   declaration compiles but is never registered. The `backend/git-hooks/pre-commit`
   hook mirrors these guardrails on staged files (warning only if ast-grep is not
   installed; CI remains the authoritative gate).
+  The `rust-security-ast-grep` job (Layer 9, issue #262) enforces two Rust
+  security rules on all production `crates/*/src` files: no reqwest TLS bypass
+  (`danger_accept_invalid_certs/hostnames(true)` — CWE-295; ADR-024 mandates
+  rustls + pinned root CAs) via `backend/rules/reqwest-no-dangerous-tls.yml`, and
+  no hardcoded HTTP auth credentials (`.basic_auth`/`.bearer_auth` with an inline
+  string literal — CWE-798, complements the gitleaks text scan structurally) via
+  `backend/rules/reqwest-no-hardcoded-auth.yml`. Both are vendored from
+  [`coderabbitai/ast-grep-essentials`](https://github.com/coderabbitai/ast-grep-essentials)
+  (upstream ids `reqwest-accept-invalid-rust` and
+  `secrets-reqwest-hardcoded-auth-rust`, generalized to receiver-agnostic
+  matching and re-severity'd to `error`) with provenance documented in the rule
+  headers. Of the collection's 8 Rust security rules the remaining six are
+  deliberately **not** vendored and should not be re-proposed without cause:
+  the sqlx-builder pair (`empty-password-rust`, `hardcoded-password-rust`) does
+  not even parse under ast-grep 0.45.0 (reserved characters in utility ids) and
+  targets the `*ConnectOptions` builder API we do not use (`DATABASE_URL` via
+  `PgPoolOptions` only); the `postgres`/`tokio-postgres` password rules target
+  crates absent from the stack; and `ssl-verify-none-rust` targets `openssl`,
+  which we never link (rustls exclusively). Revisit individually if one of these
+  dependencies is ever introduced.
 
 ### Integration tests
 

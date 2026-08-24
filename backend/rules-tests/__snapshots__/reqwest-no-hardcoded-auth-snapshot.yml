@@ -1,0 +1,54 @@
+id: reqwest-no-hardcoded-auth
+snapshots:
+  ? |
+    // Canonical case: inline literal token.
+    fn leaky(builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        builder.bearer_auth("hardcoded-token")
+    }
+  : labels:
+    - source: builder.bearer_auth("hardcoded-token")
+      style: primary
+      start: 117
+      end: 155
+    - source: bearer_auth
+      style: secondary
+      start: 125
+      end: 136
+    - source: builder.bearer_auth
+      style: secondary
+      start: 117
+      end: 136
+    - source: '"hardcoded-token"'
+      style: secondary
+      start: 137
+      end: 154
+    - source: ("hardcoded-token")
+      style: secondary
+      start: 136
+      end: 155
+  ? |
+    // Inline literals in basic_auth (username AND/OR password).
+    fn leaky_basic(builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        builder.basic_auth("admin", Some("password123"))
+    }
+  : labels:
+    - source: builder.basic_auth("admin", Some("password123"))
+      style: primary
+      start: 143
+      end: 191
+    - source: basic_auth
+      style: secondary
+      start: 151
+      end: 161
+    - source: builder.basic_auth
+      style: secondary
+      start: 143
+      end: 161
+    - source: '"admin"'
+      style: secondary
+      start: 162
+      end: 169
+    - source: ("admin", Some("password123"))
+      style: secondary
+      start: 161
+      end: 191
