@@ -75,6 +75,9 @@ accept-language = "3"
 [dev-dependencies]
 # `test-util` enables deterministic Tokio clock control for cache-expiry tests.
 tokio = { workspace = true, features = ["test-util"] }
+# OpenAPI drift check (issue #29): render the utoipa-generated doc as YAML to
+# compare against the checked-in review artifact `openapi.yaml`. Tests only.
+serde_yaml = "0.9"
 rsa = "0.9"
 hyper = { version = "1", features = ["server", "http1"] }
 tower = "0.5"
