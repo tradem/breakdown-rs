@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-08-25
+goal: Gherkin .feature files under features-spec/ for business-critical
+  acceptance scenarios (Soll-Ist, continuity photo capture, costume assignment)
+  driven by flutter_gherkin on device.
