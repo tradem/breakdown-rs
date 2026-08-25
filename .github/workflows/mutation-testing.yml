@@ -10,11 +10,20 @@
 # ~15.7% viable rate, each shard has ~15 viable mutants.
 # At ~110s/viable + 6min baseline ≈ 34 min total, well under 60-min SLO.
 #
-# Timeout is 70 min (10-min buffer for runner variance).
+# Timeout is 120 min (well above the observed p95 of ~68 min for infra
+# shards; the previous 70-min timeout caused mass cancellations in run
+# 32800458579 — issue #273).
+#
+# `.patches/**` is excluded from mutation (mutants.toml) because vendored
+# kameo_es crates lack the `test-support` feature, causing baseline
+# failures (exit 4) when a shard lands only on those crates.
+#
 # Exit code 2 (surviving mutants) is expected and does not fail the job.
 #
 # The combine job aggregates missed.txt from all shards and opens a
-# single issue if any surviving mutants are found.
+# single issue if any surviving mutants are found. It runs even when
+# some shards fail or are cancelled (`if: always()`) so that partial
+# nightly runs still surface surviving mutants.
 
 name: Mutation Testing
 
@@ -37,7 +46,7 @@ jobs:
   mutate:
     name: Mutate (shard ${{ matrix.shard }}/32)
     runs-on: ubuntu-latest
-    timeout-minutes: 70
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -77,7 +86,7 @@ jobs:
       #
       # 32-way sharding (0-indexed) splits the 3096 mutants into 32 parallel jobs
       # of ~97 each. With the reduced test time, each shard should complete in
-      # ~30-40 min, well within the 70-minute timeout (60-min SLO + 10-min buffer).
+      # ~30-40 min, well within the 120-minute timeout (observed p95 ~68 min).
       #
       # `--copy-target=true` is kept because `--copy-target=false` in
       # cargo-mutants 27.x may build in a scratch dir without a shared
@@ -119,6 +128,9 @@ jobs:
     name: Combine mutant results
     runs-on: ubuntu-latest
     needs: mutate
+    # Run even when some shards fail or are cancelled so that partial
+    # nightly runs still surface surviving mutants (issue #273).
+    if: always()
     # The combine job does not run cargo-mutants; it aggregates artifacts.
     # Override working-directory to repo root so download-artifact paths
     # resolve correctly.
@@ -134,23 +146,30 @@ jobs:
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           path: mutants-fragments
-      - name: Validate all shard artifacts exist
+      - name: Validate shard artifacts (tolerate partial failures)
         run: |
           EXPECTED=32
           FOUND=0
+          MISSING=""
           for i in $(seq 0 $((EXPECTED - 1))); do
             DIR="mutants-fragments/mutants-out-weekly-shard-${i}"
             if [ -d "$DIR" ]; then
               FOUND=$((FOUND + 1))
             else
-              echo "ERROR: Missing artifact for shard ${i}: ${DIR}"
+              MISSING="${MISSING} ${i}"
             fi
           done
-          if [ "$FOUND" -ne "$EXPECTED" ]; then
-            echo "FATAL: Expected ${EXPECTED} shard artifacts, found ${FOUND}"
+          if [ "$FOUND" -eq 0 ]; then
+            echo "FATAL: No shard artifacts found — cannot combine"
             exit 1
           fi
-          echo "All ${EXPECTED} shard artifacts present"
+          if [ "$FOUND" -lt "$EXPECTED" ]; then
+            echo "WARNING: Expected ${EXPECTED} shard artifacts, found ${FOUND}"
+            echo "Missing shards:${MISSING}"
+            echo "Proceeding with ${FOUND} available artifacts"
+          else
+            echo "All ${EXPECTED} shard artifacts present"
+          fi
       - name: Combine missed mutants from all shards
         id: combine
         run: |
