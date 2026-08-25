@@ -235,6 +235,13 @@ jobs:
           if [ "${#TEST_FILES[@]}" -gt 0 ]; then
             ast-grep scan -r rules/uuid-v7-only.yml "${TEST_FILES[@]}"
           fi
+          # UUIDv7-only rule also applies to test_helpers.rs files
+          # (same scope rationale as test files).
+          mapfile -t HELPER_FILES < <(find crates -type f \( \
+            -name 'test_helpers.rs' -o -path '*/test_helpers/*.rs' \) -print)
+          if [ "${#HELPER_FILES[@]}" -gt 0 ]; then
+            ast-grep scan -r rules/uuid-v7-only.yml "${HELPER_FILES[@]}"
+          fi
           # S2 person identifiers (`sub`, `email`) are structurally banned
           # from problem-builder code (ADR-031 D4, issue #230 Tranche 2).
           # Scoped to the problem module — the only place problems are built.

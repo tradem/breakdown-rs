@@ -11,9 +11,9 @@
 # version"), so it lives here as an AST gate.
 #
 # Scan scope covers both production source files (crates/*/src) AND test
-# files (tests/ dirs, *_tests.rs, *_test.rs). UUIDv4 is forbidden
-# everywhere — even test fixtures should use now_v7() for consistency with
-# AGENTS.md §3. A legitimately non-v7 UUID (e.g. parsing an externally-
+# files (tests/ dirs, *_tests.rs, *_test.rs) AND test_helpers.rs files.
+# UUIDv4 is forbidden everywhere — even test fixtures and helpers should
+# use now_v7() for consistency with AGENTS.md §3. A legitimately non-v7 UUID (e.g. parsing an externally-
 # supplied v4 from a legacy migration import) is permitted only with an
 # explicit suppression:
 #   // ast-grep-ignore: uuid-v7-only
