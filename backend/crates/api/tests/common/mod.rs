@@ -394,6 +394,14 @@ pub struct FakeMembershipRepo {
     /// tests exercise the allow/deny/error branches of the AI import
     /// credential gate deterministically. `None` = default allow (`Ok(true)`).
     pub credential_role_override: Arc<Mutex<Option<Result<bool, DomainError>>>>,
+    /// Configurable outcome of `has_active_costume_role_in_season` — lets handler
+    /// tests exercise the allow/deny branches of handler-internal authz gates.
+    /// `None` = default allow (`Ok(true)`).
+    pub costume_role_override: Arc<Mutex<Option<Result<bool, DomainError>>>>,
+    /// Configurable outcome of `has_active_report_archive_role_in_season` — lets handler
+    /// tests exercise the allow/deny branches of report-archive authz gates.
+    /// `None` = default allow (`Ok(true)`).
+    pub report_archive_role_override: Arc<Mutex<Option<Result<bool, DomainError>>>>,
 }
 
 #[async_trait]
@@ -452,9 +460,13 @@ impl MembershipRepository for FakeMembershipRepo {
         season_id: SeasonId,
         user_id: UserId,
     ) -> Result<bool, DomainError> {
-        // For test purposes: authorise any user for any season.
-        let _ = (season_id, user_id);
-        Ok(true)
+        match self.costume_role_override.lock().await.as_ref() {
+            Some(result) => result.clone(),
+            None => {
+                let _ = (season_id, user_id);
+                Ok(true)
+            }
+        }
     }
 
     async fn has_active_report_archive_role_in_season(
@@ -462,9 +474,13 @@ impl MembershipRepository for FakeMembershipRepo {
         season_id: SeasonId,
         user_id: UserId,
     ) -> Result<bool, DomainError> {
-        // Default test fake admits archive roles (designer/supervisor).
-        let _ = (season_id, user_id);
-        Ok(true)
+        match self.report_archive_role_override.lock().await.as_ref() {
+            Some(result) => result.clone(),
+            None => {
+                let _ = (season_id, user_id);
+                Ok(true)
+            }
+        }
     }
 
     async fn has_active_credential_role(&self, _user_id: UserId) -> Result<bool, DomainError> {
@@ -522,11 +538,18 @@ impl SceneRepository for FakeSceneRepo {
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-pub struct FakeCharacterRepo;
+pub struct FakeCharacterRepo {
+    pub characters: Arc<Mutex<HashMap<Uuid, CharacterView>>>,
+}
 
 impl CharacterRepository for FakeCharacterRepo {
-    async fn find_by_id(&self, _id: Uuid) -> Result<CharacterView, DomainError> {
-        Err(DomainError::not_found("character"))
+    async fn find_by_id(&self, id: Uuid) -> Result<CharacterView, DomainError> {
+        self.characters
+            .lock()
+            .await
+            .get(&id)
+            .cloned()
+            .ok_or(DomainError::not_found("character"))
     }
     async fn list_by_season(
         &self,
@@ -552,11 +575,18 @@ impl CharacterRepository for FakeCharacterRepo {
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-pub struct FakeCostumeRepo;
+pub struct FakeCostumeRepo {
+    pub costumes: Arc<Mutex<HashMap<Uuid, CostumeView>>>,
+}
 
 impl CostumeRepository for FakeCostumeRepo {
-    async fn find_by_id(&self, _id: Uuid) -> Result<CostumeView, DomainError> {
-        Err(DomainError::not_found("costume"))
+    async fn find_by_id(&self, id: Uuid) -> Result<CostumeView, DomainError> {
+        self.costumes
+            .lock()
+            .await
+            .get(&id)
+            .cloned()
+            .ok_or(DomainError::not_found("costume"))
     }
     async fn list_by_season(
         &self,
@@ -632,12 +662,17 @@ impl SeasonRepository for FakeSeasonRepo {
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-pub struct FakeBlockRepo;
+pub struct FakeBlockRepo {
+    pub blocks: Arc<Mutex<HashMap<Uuid, BlockView>>>,
+}
 
 impl BlockRepository for FakeBlockRepo {
     async fn find_by_id(&self, id: Uuid) -> Result<BlockView, DomainError> {
-        // Return a stub BlockView so membership handlers can resolve series_id
-        // for EventMetadata without a real projection.
+        if let Some(block) = self.blocks.lock().await.get(&id).cloned() {
+            return Ok(block);
+        }
+        // Fallback: return a stub BlockView so membership handlers can resolve
+        // series_id for EventMetadata without a real projection.
         Ok(BlockView {
             id,
             season_id: SeasonId::from_uuid(Uuid::now_v7()),
@@ -669,6 +704,7 @@ impl BlockRepository for FakeBlockRepo {
 #[derive(Clone, Default)]
 #[allow(dead_code)]
 pub struct FakeEpisodeRepo {
+    pub episodes: Arc<Mutex<HashMap<Uuid, EpisodeView>>>,
     /// Block the stub episode reports as its parent. `None` (default) mints a
     /// fresh id per call; set it to pin the episode into a known block so a
     /// test can drive the cross-block IDOR gate in `apply_ai_import` either
@@ -678,7 +714,10 @@ pub struct FakeEpisodeRepo {
 
 impl EpisodeRepository for FakeEpisodeRepo {
     async fn find_by_id(&self, id: Uuid) -> Result<EpisodeView, DomainError> {
-        // Return a stub EpisodeView so handlers can resolve series_id
+        if let Some(ep) = self.episodes.lock().await.get(&id).cloned() {
+            return Ok(ep);
+        }
+        // Fallback: return a stub EpisodeView so handlers can resolve series_id
         // for EventMetadata without a real projection.
         let block_id = self
             .block_id_override
@@ -831,11 +870,18 @@ impl ShootingDayCommands for FakeShootingDayCommands {
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-pub struct FakeShootingDayRepo;
+pub struct FakeShootingDayRepo {
+    pub days: Arc<Mutex<HashMap<ShootingDayId, ShootingDayView>>>,
+}
 
 impl ShootingDayRepository for FakeShootingDayRepo {
-    async fn find_by_id(&self, _id: ShootingDayId) -> Result<ShootingDayView, DomainError> {
-        Err(DomainError::not_found("shooting-day"))
+    async fn find_by_id(&self, id: ShootingDayId) -> Result<ShootingDayView, DomainError> {
+        self.days
+            .lock()
+            .await
+            .get(&id)
+            .cloned()
+            .ok_or(DomainError::not_found("shooting-day"))
     }
     async fn list_by_episode(
         &self,

@@ -290,16 +290,16 @@ cargo test -p api --features test-support
 
 | Patch | Datei(en) | Survivor | Status |
 |---|---|---|---|
-| [P2.1](#p2.1) | `crates/api/src/handlers/mod.rs` | 7 | ☐ |
-| [P2.2](#p2.2) | `crates/api/src/handlers/mod.rs` | 9 | ☐ |
-| [P2.3](#p2.3) | `crates/api/src/handlers/mod.rs` | 16 | ☐ |
-| [P2.4](#p2.4) | `crates/api/src/handlers/mod.rs` | 9 | ☐ |
-| [P2.5](#p2.5) | `crates/api/src/handlers/mod.rs` | 13 | ☐ |
+| [P2.1](#p2.1) | `crates/api/src/handlers/mod.rs` | 7 | [x] |
+| [P2.2](#p2.2) | `crates/api/src/handlers/mod.rs` | 9 | [x] |
+| [P2.3](#p2.3) | `crates/api/src/handlers/mod.rs` | 16 | [x] |
+| [P2.4](#p2.4) | `crates/api/src/handlers/mod.rs` | 9 | [x] |
+| [P2.5](#p2.5) | `crates/api/src/handlers/mod.rs` | 13 | [x] |
 
 ### P2.1 — AUTHZ-GATE 403-Tests: Costume-Photo-Handler
 
 **Datei(en):** `crates/api/src/handlers/mod.rs`  
-**Status:** ☐ offen · **Survivor:** 7 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch2-authz-handlers`
+**Status:** [x] erledigt · **Survivor:** 7 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch2-authz-handlers`
 
 **Überlebende Mutanten:**
 
@@ -328,7 +328,7 @@ cargo test -p api --features test-support
 ### P2.2 — AUTHZ-GATE 403-Tests: Continuity-Photos & Reports
 
 **Datei(en):** `crates/api/src/handlers/mod.rs`  
-**Status:** ☐ offen · **Survivor:** 9 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch2-authz-handlers`
+**Status:** [x] erledigt · **Survivor:** 9 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch2-authz-handlers`
 
 **Überlebende Mutanten:**
 
@@ -358,7 +358,7 @@ cargo test -p api --features test-support
 ### P2.3 — Settings/GDrive/AI-Handler: Authz + Bedingungslogik
 
 **Datei(en):** `crates/api/src/handlers/mod.rs`  
-**Status:** ☐ offen · **Survivor:** 16 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch2-authz-handlers`
+**Status:** [x] erledigt · **Survivor:** 16 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch2-authz-handlers`
 
 **Überlebende Mutanten:**
 
@@ -395,7 +395,7 @@ cargo test -p api --features test-support
 ### P2.4 — `series_id_for_*` / `require_*` Audit-Helfer
 
 **Datei(en):** `crates/api/src/handlers/mod.rs`  
-**Status:** ☐ offen · **Survivor:** 9 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch2-authz-handlers`
+**Status:** [x] erledigt · **Survivor:** 9 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch2-authz-handlers`
 
 **Überlebende Mutanten:**
 
@@ -426,7 +426,7 @@ cargo test -p api --features test-support
 ### P2.5 — Upload-Validierung & Variant-Routing (handlers/mod.rs Rest)
 
 **Datei(en):** `crates/api/src/handlers/mod.rs`  
-**Status:** ☐ offen · **Survivor:** 13 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch2-authz-handlers`
+**Status:** [x] erledigt · **Survivor:** 13 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch2-authz-handlers`
 
 **Überlebende Mutanten:**
 
