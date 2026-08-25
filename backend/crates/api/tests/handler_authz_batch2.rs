@@ -598,8 +598,11 @@ async fn upload_costume_photo_rejects_payload_too_large() {
     let state = app_state(ports);
 
     // Set PHOTO_MAX_SIZE_MB to 1 so we can trigger the rejection easily.
+    // Save original value to restore after the test.
     // SAFETY: env vars are process-global; this is safe because tests run
-    // single-threaded per binary and we restore it afterwards.
+    // single-threaded per binary and we restore the original value afterwards.
+    // ast-grep-ignore: allow-unsafe
+    let original = unsafe { std::env::var_os("PHOTO_MAX_SIZE_MB") };
     // ast-grep-ignore: allow-unsafe
     unsafe {
         std::env::set_var("PHOTO_MAX_SIZE_MB", "1");
@@ -618,10 +621,14 @@ async fn upload_costume_photo_rejects_payload_too_large() {
     )
     .await;
 
+    // Restore the original environment variable value.
     // SAFETY: restoring env var after test.
     // ast-grep-ignore: allow-unsafe
     unsafe {
-        std::env::remove_var("PHOTO_MAX_SIZE_MB");
+        match original {
+            Some(val) => std::env::set_var("PHOTO_MAX_SIZE_MB", val),
+            None => std::env::remove_var("PHOTO_MAX_SIZE_MB"),
+        }
     }
 
     let problem = result
