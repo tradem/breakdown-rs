@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-08-25
+goal: Flutter test + coverage gate (coverde) and OpenAPI-client drift check
+  enabled in CI; completes the flutter-ci workflow.

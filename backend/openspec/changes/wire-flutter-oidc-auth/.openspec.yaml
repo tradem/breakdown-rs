@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-08-25
+goal: OIDC PKCE client, flutter_secure_storage token store,
+  currentMembershipProvider, and per-flavor cert pinning for the Flutter app.
