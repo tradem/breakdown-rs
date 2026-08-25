@@ -601,8 +601,7 @@ async fn upload_costume_photo_rejects_payload_too_large() {
     // Save original value to restore after the test.
     // SAFETY: env vars are process-global; this is safe because tests run
     // single-threaded per binary and we restore the original value afterwards.
-    // ast-grep-ignore: allow-unsafe
-    let original = unsafe { std::env::var_os("PHOTO_MAX_SIZE_MB") };
+    let original = std::env::var_os("PHOTO_MAX_SIZE_MB");
     // ast-grep-ignore: allow-unsafe
     unsafe {
         std::env::set_var("PHOTO_MAX_SIZE_MB", "1");
