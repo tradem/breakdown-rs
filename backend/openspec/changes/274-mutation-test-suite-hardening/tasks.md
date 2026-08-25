@@ -290,11 +290,11 @@ cargo test -p api --features test-support
 
 | Patch | Datei(en) | Survivor | Status |
 |---|---|---|---|
-| [P2.1](#p2.1) | `crates/api/src/handlers/mod.rs` | 7 | [x] |
-| [P2.2](#p2.2) | `crates/api/src/handlers/mod.rs` | 9 | [x] |
-| [P2.3](#p2.3) | `crates/api/src/handlers/mod.rs` | 16 | [x] |
-| [P2.4](#p2.4) | `crates/api/src/handlers/mod.rs` | 9 | [x] |
-| [P2.5](#p2.5) | `crates/api/src/handlers/mod.rs` | 13 | [x] |
+| [P2.1](#p21--authz-gate-403-tests-costume-photo-handler) | `crates/api/src/handlers/mod.rs` | 7 | [x] |
+| [P2.2](#p22--authz-gate-403-tests-continuity-photos--reports) | `crates/api/src/handlers/mod.rs` | 9 | [x] |
+| [P2.3](#p23--settingsgdriveai-handler-authz--bedingungslogik) | `crates/api/src/handlers/mod.rs` | 16 | [x] |
+| [P2.4](#p24--series_id_for_--require_-audit-helfer) | `crates/api/src/handlers/mod.rs` | 9 | [x] |
+| [P2.5](#p25--upload-validierung--variant-routing-handlersmodrs-rest) | `crates/api/src/handlers/mod.rs` | 13 | [x] |
 
 ### P2.1 — AUTHZ-GATE 403-Tests: Costume-Photo-Handler
 

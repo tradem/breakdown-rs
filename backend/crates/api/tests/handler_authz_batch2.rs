@@ -133,8 +133,8 @@ async fn seed_shooting_day_chain(ports: &FakePorts) -> (ShootingDayId, SeasonId)
 
 /// Seed the costume → character chain for photo handlers.
 async fn seed_costume_chain(ports: &FakePorts) -> (uuid::Uuid, SeasonId) {
-    let costume_id = uuid::Uuid::new_v4();
-    let char_id = uuid::Uuid::new_v4();
+    let costume_id = uuid::Uuid::now_v7();
+    let char_id = uuid::Uuid::now_v7();
     let sid = season_id();
 
     ports.character_repo.characters.lock().await.insert(
@@ -199,7 +199,7 @@ async fn upload_costume_photo_denies_non_member() {
 async fn get_costume_photo_bytes_denies_non_member() {
     let ports = FakePorts::default();
     let (costume_id, _sid) = seed_costume_chain(&ports).await;
-    let photo_id = uuid::Uuid::new_v4();
+    let photo_id = uuid::Uuid::now_v7();
     *ports.membership_repo.costume_role_override.lock().await = Some(Ok(false));
     let state = app_state(ports);
 
@@ -225,7 +225,7 @@ async fn get_costume_photo_bytes_denies_non_member() {
 async fn delete_costume_photo_denies_non_member() {
     let ports = FakePorts::default();
     let (costume_id, _sid) = seed_costume_chain(&ports).await;
-    let photo_id = uuid::Uuid::new_v4();
+    let photo_id = uuid::Uuid::now_v7();
     *ports.membership_repo.costume_role_override.lock().await = Some(Ok(false));
     let state = app_state(ports);
 
@@ -255,7 +255,7 @@ async fn link_continuity_photo_denies_non_member() {
     let result = link_continuity_photo::<FakePorts>(
         State(state),
         dummy_user(),
-        Path((sd_id, uuid::Uuid::new_v4(), scene_shoot_id())),
+        Path((sd_id, uuid::Uuid::now_v7(), scene_shoot_id())),
         Json(LinkContinuityPhotoRequest {
             photo_id: PhotoId::new(),
             version: AggregateVersion(1),
@@ -283,7 +283,7 @@ async fn unlink_continuity_photo_denies_non_member() {
         dummy_user(),
         Path((
             sd_id,
-            uuid::Uuid::new_v4(),
+            uuid::Uuid::now_v7(),
             scene_shoot_id(),
             PhotoId::new(),
         )),
@@ -464,7 +464,7 @@ async fn rotate_gdrive_credential_denies_non_member() {
     let result = api::handlers::rotate_gdrive_credential::<FakePorts>(
         State(state),
         dummy_user(),
-        Path(uuid::Uuid::new_v4()),
+        Path(uuid::Uuid::now_v7()),
         Json(api::handlers::GDriveCredentialUpdateRequest {
             bundle: api::handlers::GDriveCredentialRequest {
                 client_id: "id".into(),
@@ -518,7 +518,7 @@ async fn get_settings_denies_non_member() {
     let result = api::handlers::get_settings::<FakePorts>(
         State(state),
         dummy_user(),
-        Path(uuid::Uuid::new_v4()),
+        Path(uuid::Uuid::now_v7()),
     )
     .await;
 
@@ -539,7 +539,7 @@ async fn revoke_settings_denies_non_member() {
     let result = api::handlers::revoke_settings::<FakePorts>(
         State(state),
         dummy_user(),
-        Path(uuid::Uuid::new_v4()),
+        Path(uuid::Uuid::now_v7()),
         Json(VersionRequest {
             version: AggregateVersion(1),
         }),
