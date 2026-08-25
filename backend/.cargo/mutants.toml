@@ -31,10 +31,12 @@ exclude_globs = [
 # These patterns are documented here so they stay in sync between the workflow and the config.
 # The broad `mutate-core` job (continue-on-error) still covers the entire `breakdown_core` crate.
 
-# Enable the test-support feature to match CI: `cargo test --workspace --features infra/test-support`
-# Note: breakdown_core now has a dummy test-support feature (issue #267) to avoid
-# the shard-2 baseline bug where cargo-mutants fails with "does not contain this feature".
-features = ["infra/test-support"]
+# Enable the test-support feature to match CI: `cargo test --workspace --features test-support`
+# Using unqualified `test-support` (not `infra/test-support`) so cargo-mutants can apply
+# it to any package — cargo-mutants with --test-workspace false runs
+# `cargo test --package=<pkg> --features=<feat>`, and the package-qualified syntax
+# `infra/test-support` fails when <pkg> != infra (issue #267).
+features = ["test-support"]
 
 # == Regex-based survivor acceptance (known false-positives) ==
 #
