@@ -130,7 +130,17 @@ async fn insert_with_zero_version_succeeds() -> Result<()> {
         ..make_mapping(AiImportJobId::new(), "scene-1")
     };
 
-    repo.insert(mapping).await?;
+    repo.insert(mapping.clone()).await?;
+
+    let found = repo
+        .find(mapping.preview_id, &mapping.draft_ref)
+        .await?
+        .unwrap();
+    assert_eq!(
+        found.aggregate_version,
+        AggregateVersion(0),
+        "version 0 should be persisted"
+    );
 
     Ok(())
 }
@@ -145,7 +155,17 @@ async fn insert_with_high_version_succeeds() -> Result<()> {
         ..make_mapping(AiImportJobId::new(), "scene-1")
     };
 
-    repo.insert(mapping).await?;
+    repo.insert(mapping.clone()).await?;
+
+    let found = repo
+        .find(mapping.preview_id, &mapping.draft_ref)
+        .await?
+        .unwrap();
+    assert_eq!(
+        found.aggregate_version,
+        AggregateVersion(999_999),
+        "high version should be persisted"
+    );
 
     Ok(())
 }
@@ -227,8 +247,15 @@ async fn reserve_returns_existing_on_duplicate() -> Result<()> {
     };
     let returned2 = repo.reserve(mapping2).await?;
 
-    // Should return the first mapping (idempotent)
-    assert_eq!(returned2.aggregate_id, returned1.aggregate_id);
+    // Should return the first mapping (idempotent) -- both id and version preserved
+    assert_eq!(
+        returned2.aggregate_id, returned1.aggregate_id,
+        "id should be preserved"
+    );
+    assert_eq!(
+        returned2.aggregate_version, returned1.aggregate_version,
+        "version should be preserved"
+    );
 
     Ok(())
 }

@@ -39,64 +39,32 @@ async fn extract_rejects_empty_pdf() {
 }
 
 #[tokio::test]
-async fn extract_fails_when_pdftotext_not_installed() {
-    // This test verifies that the error message is correct when pdftotext
-    // is not available. If pdftotext IS installed, this test will succeed
-    // with a parse error, which is also fine.
+async fn extract_fails_for_invalid_content() {
     let extractor = PdfTextExtractor::new(1024, Duration::from_secs(30));
-    let fake_pdf = b"%PDF-1.4 fake content";
-
-    let result = extractor.extract(fake_pdf).await;
-    // Either pdftotext is not installed (spawn error) or it fails to parse
-    // (validation error). Both are acceptable outcomes.
-    assert!(result.is_err());
-}
-
-// ===========================================================================
-// extract — kills > → >= for output size check
-// ===========================================================================
-
-#[tokio::test]
-async fn extract_respects_max_output_bytes() {
-    let extractor = PdfTextExtractor::new(10, Duration::from_secs(30));
-    // A very large PDF (even if pdftotext can't parse it, the check happens
-    // after reading output)
-    let fake_pdf = b"%PDF-1.4 large content";
-
-    let result = extractor.extract(fake_pdf).await;
-    // This will fail either because:
-    // 1. pdftotext is not installed
-    // 2. pdftotext output exceeds 10 bytes
-    // Both are acceptable - we're testing that the bound is enforced
-    assert!(result.is_err());
-}
-
-// ===========================================================================
-// reap_child — kills () replacement (integration test behavior)
-// ===========================================================================
-
-#[tokio::test]
-async fn extract_handles_pdftotext_failure_gracefully() {
-    let extractor = PdfTextExtractor::new(1024, Duration::from_secs(30));
-    // Feed invalid PDF content that pdftotext will reject
-    let invalid_pdf = b"not a pdf file at all";
-
-    let result = extractor.extract(invalid_pdf).await;
-    // Should fail with validation error, not panic
+    // pdftotext will reject this, but the error must be a validation error
+    let result = extractor.extract(b"not a pdf").await;
     assert!(result.is_err());
     let err = result.unwrap_err();
-    // Error should be a validation error
+    // Must be validation (pdftotext failed or couldn't start)
     assert!(matches!(err, DomainError::Validation { .. }));
 }
 
 #[tokio::test]
+async fn extract_rejects_content_too_large_for_pdftotext() {
+    // Even if pdftotext is available, the output bound is very small
+    let extractor = PdfTextExtractor::new(10, Duration::from_secs(30));
+    let fake_pdf = b"%PDF-1.4 fake content that is longer than 10 bytes";
+    let result = extractor.extract(fake_pdf).await;
+    // Should fail: either pdftotext not installed or output exceeds bound
+    assert!(result.is_err());
+}
+
+#[tokio::test]
 async fn extract_timeout_is_respected() {
-    // Very short timeout
+    // Very short timeout — even if pdftotext starts, it should time out
     let extractor = PdfTextExtractor::new(1024, Duration::from_millis(1));
     let fake_pdf = b"%PDF-1.4";
-
     let result = extractor.extract(fake_pdf).await;
-    // Should fail (either timeout or pdftotext not installed)
     assert!(result.is_err());
 }
 
@@ -109,4 +77,20 @@ fn extractor_is_clone() {
     let extractor = PdfTextExtractor::new(1024, Duration::from_secs(30));
     let extractor2 = extractor.clone();
     assert_eq!(extractor.max_output_bytes, extractor2.max_output_bytes);
+    assert_eq!(extractor.timeout, extractor2.timeout);
+}
+
+// ===========================================================================
+// extract — verify specific error messages
+// ===========================================================================
+
+#[tokio::test]
+async fn extract_error_message_contains_context() {
+    let extractor = PdfTextExtractor::new(1024, Duration::from_secs(30));
+    let result = extractor.extract(b"invalid").await;
+    if let Err(err) = result {
+        let msg = err.to_string();
+        // Error should have some descriptive content
+        assert!(!msg.is_empty(), "error message should not be empty");
+    }
 }

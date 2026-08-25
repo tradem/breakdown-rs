@@ -14,6 +14,16 @@ use super::{AiPayloadGcConfig, is_not_found};
 // ===========================================================================
 
 #[test]
+fn is_not_found_returns_true_for_not_found() {
+    let err = DomainError::NotFound {
+        code: &breakdown_core::error_registry::AI_CONFIG_NOT_FOUND,
+        resource: "test",
+        id: uuid::Uuid::now_v7(),
+    };
+    assert!(is_not_found(&err), "NotFound should return true");
+}
+
+#[test]
 fn is_not_found_returns_false_for_validation() {
     let err = DomainError::validation("test");
     assert!(!is_not_found(&err), "Validation should return false");

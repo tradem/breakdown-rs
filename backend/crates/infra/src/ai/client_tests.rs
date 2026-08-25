@@ -7,7 +7,7 @@
 
 use std::time::Duration;
 
-use breakdown_core::ai::LlmProvider;
+use breakdown_core::ai::{CuratedLlmProvider, LlmProvider};
 use reqwest::StatusCode;
 
 use super::{
@@ -177,16 +177,23 @@ fn classify_http_200_is_unexpected_validation() {
 // classify_transport_error — kills || → && mutation
 // ===========================================================================
 
-#[test]
-fn classify_timeout_is_service_unavailable() {
-    let client = reqwest::Client::new();
-    let _builder = client
-        .get("http://localhost:1")
-        .timeout(Duration::from_millis(1));
-    // We can't easily trigger a real timeout, but we can test the classification logic
-    // by creating a mock error. For now, test the function exists and compiles.
-    // The real test is that || is not changed to &&.
-    let _ = classify_transport_error;
+#[tokio::test]
+async fn classify_timeout_is_service_unavailable() {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_millis(1))
+        .build()
+        .unwrap();
+    let err = client.get("http://192.0.2.1:1").send().await;
+    if let Err(e) = err {
+        let classified = classify_transport_error(e);
+        assert!(
+            matches!(
+                classified,
+                breakdown_core::error::DomainError::ServiceUnavailable { .. }
+            ),
+            "transport error should be ServiceUnavailable: {classified:?}"
+        );
+    }
 }
 
 // ===========================================================================
@@ -219,10 +226,13 @@ fn truncation_budget_returns_none_for_none() {
 
 #[test]
 fn endpoint_contains_v1_chat_completions() {
-    // We can't easily construct a client without network, but we can test
-    // that the endpoint function exists and the format is correct.
-    // The endpoint is derived from the base URL + "/v1/chat/completions"
-    let _ = OpenAiCompatibleChatClient::endpoint;
+    // endpoint() is a method requiring a full client instance.
+    // Verify the base URL pattern instead.
+    let base = crate::ai::CuratedProviderUrls::base_url(LlmProvider::OpenAI);
+    assert!(
+        base.contains("api.openai.com"),
+        "OpenAI base URL should contain api.openai.com: {base}"
+    );
 }
 
 // ===========================================================================

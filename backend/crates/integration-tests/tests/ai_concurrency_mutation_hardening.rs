@@ -90,6 +90,14 @@ async fn try_acquire_as_records_worker_id() -> Result<()> {
         .expect("should acquire");
     assert!(permit.id().as_u128() != 0);
 
+    // Verify the worker_id was persisted
+    let row: (String,) =
+        sqlx::query_as("SELECT worker_id FROM ai_import.concurrency_permit WHERE id = $1")
+            .bind(permit.id())
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(row.0, "worker-abc", "worker_id should be persisted");
+
     permit.release().await?;
     Ok(())
 }

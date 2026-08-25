@@ -308,9 +308,11 @@ fn merge_rotates_rows_across_same_numbered_scenes() {
             },
         ],
     };
-    let merged = merge_schedule_to_scenes(&schedule, &[scene(1), scene(2)]);
-    // Both rows go to scene 1 (the only one with matching number)
-    assert_eq!(merged.scenes[0].schedule_rows.len(), 2);
+    // Two scene(1) entries: rows should distribute across both via modulo
+    let merged = merge_schedule_to_scenes(&schedule, &[scene(1), scene(1), scene(2)]);
+    assert_eq!(merged.scenes[0].schedule_rows.len(), 1);
+    assert_eq!(merged.scenes[1].schedule_rows.len(), 1);
+    assert_eq!(merged.scenes[2].schedule_rows.len(), 0);
 }
 
 #[test]

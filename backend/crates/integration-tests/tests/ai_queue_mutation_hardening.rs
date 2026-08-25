@@ -3,9 +3,6 @@
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
 //! P3.7 — Postgres integration tests for PgAiImportQueue.
-//!
-//! These tests kill the 20 mutations in `queue.rs` that require a live
-//! Postgres instance. Tests use testcontainers (Tier 1–3).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -15,18 +12,16 @@ use std::time::Duration;
 
 use anyhow::Result;
 use breakdown_core::ai::{
-    AiImportEnqueueRequest, AiImportEnqueueResult, AiImportQueue, DocumentKind, LlmProvider,
+    AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJobId, AiImportQueue, DocumentKind,
 };
 use breakdown_core::ai::{JobStatus, Telemetry, TelemetryApplyState};
-use breakdown_core::shared::UserId;
 use infra::ai::queue::PgAiImportQueue;
 use uuid::Uuid;
 
-/// Helper to create a minimal enqueue request.
 fn make_enqueue_request(user_id: &str, kind: DocumentKind) -> AiImportEnqueueRequest {
     AiImportEnqueueRequest {
-        id: breakdown_core::ai::AiImportJobId::new(),
-        user_id: UserId::from_sub(user_id),
+        id: AiImportJobId::new(),
+        user_id: breakdown_core::shared::UserId::from_sub(user_id),
         document_kind: kind,
         source_format: breakdown_core::ai::SourceFormat::Csv,
         block_id: None,
@@ -35,10 +30,6 @@ fn make_enqueue_request(user_id: &str, kind: DocumentKind) -> AiImportEnqueueReq
         source_handle: format!("handle-{}", Uuid::now_v7()),
     }
 }
-
-// ===========================================================================
-// lease_window — kills None / Some(Default::default()) replacement
-// ===========================================================================
 
 #[tokio::test]
 async fn lease_window_returns_some() -> Result<()> {
@@ -52,10 +43,6 @@ async fn lease_window_returns_some() -> Result<()> {
     );
     Ok(())
 }
-
-// ===========================================================================
-// enqueue — basic functionality
-// ===========================================================================
 
 #[tokio::test]
 async fn enqueue_and_get_roundtrip() -> Result<()> {
@@ -80,10 +67,6 @@ async fn enqueue_and_get_roundtrip() -> Result<()> {
 
     Ok(())
 }
-
-// ===========================================================================
-// claim_next — kills Ok(None) replacement
-// ===========================================================================
 
 #[tokio::test]
 async fn claim_next_returns_pending_job() -> Result<()> {
@@ -114,26 +97,19 @@ async fn claim_next_returns_none_when_empty() -> Result<()> {
     Ok(())
 }
 
-// ===========================================================================
-// claim_next_kind — kills Ok(None) replacement
-// ===========================================================================
-
 #[tokio::test]
 async fn claim_next_kind_filters_by_document_kind() -> Result<()> {
     let (pool, _container) = crate::fixtures::spawn_postgres().await?;
     let queue = PgAiImportQueue::new(pool);
 
-    // Enqueue a Script job
     let request = make_enqueue_request("user-1", DocumentKind::Script);
     queue.enqueue(request).await?;
 
-    // Try to claim with wrong kind
     let claimed = queue
         .claim_next_kind("worker-1", DocumentKind::Schedule)
         .await?;
     assert!(claimed.is_none(), "should not claim job with wrong kind");
 
-    // Claim with correct kind
     let claimed = queue
         .claim_next_kind("worker-1", DocumentKind::Script)
         .await?;
@@ -141,10 +117,6 @@ async fn claim_next_kind_filters_by_document_kind() -> Result<()> {
 
     Ok(())
 }
-
-// ===========================================================================
-// claim_next_reconciling — kills Ok(None) replacement
-// ===========================================================================
 
 #[tokio::test]
 async fn claim_next_reconciling_returns_job_and_none_for_pending() -> Result<()> {
@@ -172,13 +144,11 @@ async fn claim_next_kind_reconciling_filters_by_kind() -> Result<()> {
     let request = make_enqueue_request("user-1", DocumentKind::Script);
     queue.enqueue(request).await?;
 
-    // Wrong kind
     let claimed = queue
         .claim_next_kind_reconciling("worker-1", DocumentKind::Schedule)
         .await?;
     assert!(claimed.is_none());
 
-    // Correct kind
     let claimed = queue
         .claim_next_kind_reconciling("worker-1", DocumentKind::Script)
         .await?;
@@ -187,14 +157,10 @@ async fn claim_next_kind_reconciling_filters_by_kind() -> Result<()> {
     Ok(())
 }
 
-// ===========================================================================
-// attach_permit — kills Ok(()) replacement
-// ===========================================================================
-
 #[tokio::test]
 async fn attach_permit_succeeds_for_owned_claim() -> Result<()> {
     let (pool, _container) = crate::fixtures::spawn_postgres().await?;
-    let queue = PgAiImportQueue::new(pool);
+    let queue = PgAiImportQueue::new(pool.clone());
 
     let request = make_enqueue_request("user-1", DocumentKind::Script);
     queue.enqueue(request).await?;
@@ -205,12 +171,16 @@ async fn attach_permit_succeeds_for_owned_claim() -> Result<()> {
     let result = queue.attach_permit(job.id, "worker-1", permit_id).await;
     assert!(result.is_ok(), "attach_permit should succeed for owner");
 
+    // Verify the permit link is persisted
+    let row: (Option<Uuid>,) =
+        sqlx::query_as("SELECT permit_id FROM ai_import.ai_import_job WHERE id = $1")
+            .bind(job.id.as_uuid())
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(row.0, Some(permit_id), "permit link should be persisted");
+
     Ok(())
 }
-
-// ===========================================================================
-// release_claim — kills Ok(()) replacement
-// ===========================================================================
 
 #[tokio::test]
 async fn release_claim_returns_job_to_pending() -> Result<()> {
@@ -232,10 +202,6 @@ async fn release_claim_returns_job_to_pending() -> Result<()> {
     Ok(())
 }
 
-// ===========================================================================
-// mark_running — kills Ok(()) replacement
-// ===========================================================================
-
 #[tokio::test]
 async fn mark_running_extends_lease() -> Result<()> {
     let (pool, _container) = crate::fixtures::spawn_postgres().await?;
@@ -251,10 +217,6 @@ async fn mark_running_extends_lease() -> Result<()> {
 
     Ok(())
 }
-
-// ===========================================================================
-// mark_succeeded — kills Ok(()) replacement
-// ===========================================================================
 
 #[tokio::test]
 async fn mark_succeeded_sets_succeeded_status() -> Result<()> {
@@ -276,10 +238,6 @@ async fn mark_succeeded_sets_succeeded_status() -> Result<()> {
 
     Ok(())
 }
-
-// ===========================================================================
-// mark_failed — kills Ok(()) replacement
-// ===========================================================================
 
 #[tokio::test]
 async fn mark_failed_sets_failed_status_and_increments_retries() -> Result<()> {
@@ -305,10 +263,6 @@ async fn mark_failed_sets_failed_status_and_increments_retries() -> Result<()> {
     Ok(())
 }
 
-// ===========================================================================
-// mark_payload_unavailable — kills Ok(()) replacement
-// ===========================================================================
-
 #[tokio::test]
 async fn mark_payload_unavailable_sets_terminal_status() -> Result<()> {
     let (pool, _container) = crate::fixtures::spawn_postgres().await?;
@@ -329,10 +283,6 @@ async fn mark_payload_unavailable_sets_terminal_status() -> Result<()> {
     Ok(())
 }
 
-// ===========================================================================
-// record_worker_telemetry — kills Ok(()) replacement
-// ===========================================================================
-
 #[tokio::test]
 async fn record_worker_telemetry_succeeds() -> Result<()> {
     let (pool, _container) = crate::fixtures::spawn_postgres().await?;
@@ -344,7 +294,7 @@ async fn record_worker_telemetry_succeeds() -> Result<()> {
     let job = queue.claim_next("worker-1").await?.expect("should claim");
 
     let telemetry = Telemetry {
-        provider: Some(LlmProvider::OpenAI),
+        provider: Some(breakdown_core::ai::LlmProvider::OpenAI),
         model: Some("gpt-4o".into()),
         doc_kind: Some(DocumentKind::Script),
         chunk_count: 10,
@@ -362,10 +312,6 @@ async fn record_worker_telemetry_succeeds() -> Result<()> {
     Ok(())
 }
 
-// ===========================================================================
-// record_telemetry — kills Ok(()) replacement
-// ===========================================================================
-
 #[tokio::test]
 async fn record_telemetry_succeeds_for_terminal_job() -> Result<()> {
     let (pool, _container) = crate::fixtures::spawn_postgres().await?;
@@ -378,7 +324,7 @@ async fn record_telemetry_succeeds_for_terminal_job() -> Result<()> {
     queue.mark_succeeded(job.id, "worker-1", "preview").await?;
 
     let telemetry = Telemetry {
-        provider: Some(LlmProvider::OpenAI),
+        provider: Some(breakdown_core::ai::LlmProvider::OpenAI),
         model: Some("gpt-4o".into()),
         doc_kind: Some(DocumentKind::Script),
         chunk_count: 10,
@@ -394,10 +340,6 @@ async fn record_telemetry_succeeds_for_terminal_job() -> Result<()> {
     Ok(())
 }
 
-// ===========================================================================
-// ensure_claim_owned — kills Ok(()) replacement
-// ===========================================================================
-
 #[tokio::test]
 async fn owner_fenced_operations_fail_for_wrong_worker() -> Result<()> {
     let (pool, _container) = crate::fixtures::spawn_postgres().await?;
@@ -406,27 +348,19 @@ async fn owner_fenced_operations_fail_for_wrong_worker() -> Result<()> {
     let request = make_enqueue_request("user-1", DocumentKind::Script);
     queue.enqueue(request).await?;
 
-    // Worker-1 claims the job
     let job = queue.claim_next("worker-1").await?.expect("should claim");
 
-    // Worker-2 tries to mark_running — should fail
     let result = queue.mark_running(job.id, "worker-2").await;
     assert!(result.is_err(), "wrong worker should fail");
 
-    // Worker-2 tries to mark_succeeded — should fail
     let result = queue.mark_succeeded(job.id, "worker-2", "preview").await;
     assert!(result.is_err(), "wrong worker should fail mark_succeeded");
 
-    // Worker-2 tries to mark_failed — should fail
     let result = queue.mark_failed(job.id, "worker-2", "error", true).await;
     assert!(result.is_err(), "wrong worker should fail mark_failed");
 
     Ok(())
 }
-
-// ===========================================================================
-// Concurrency: multiple claims respect lease
-// ===========================================================================
 
 #[tokio::test]
 async fn concurrent_claims_do_not_double_claim() -> Result<()> {
@@ -436,13 +370,10 @@ async fn concurrent_claims_do_not_double_claim() -> Result<()> {
     let request = make_enqueue_request("user-1", DocumentKind::Script);
     queue.enqueue(request).await?;
 
-    // First claim
     let job1 = queue.claim_next("worker-1").await?.expect("first claim");
-    // Second claim should return None (no more jobs)
     let job2 = queue.claim_next("worker-2").await?;
     assert!(job2.is_none(), "should not double-claim");
 
-    // Release and re-claim
     queue.release_claim(job1.id, "worker-1").await?;
     let job3 = queue
         .claim_next("worker-2")
@@ -453,17 +384,15 @@ async fn concurrent_claims_do_not_double_claim() -> Result<()> {
     Ok(())
 }
 
-// ===========================================================================
-// Dedup: same dedup_key returns Existing
-// ===========================================================================
-
 #[tokio::test]
 async fn duplicate_dedup_key_returns_existing() -> Result<()> {
     let (pool, _container) = crate::fixtures::spawn_postgres().await?;
     let queue = PgAiImportQueue::new(pool);
 
     let dedup_key = format!("dedup-unique-{}", Uuid::now_v7());
+    let first_id = AiImportJobId::new();
     let request1 = AiImportEnqueueRequest {
+        id: first_id,
         dedup_key: dedup_key.clone(),
         ..make_enqueue_request("user-1", DocumentKind::Script)
     };
@@ -476,10 +405,15 @@ async fn duplicate_dedup_key_returns_existing() -> Result<()> {
     assert!(matches!(result1, AiImportEnqueueResult::Enqueued(_)));
 
     let result2 = queue.enqueue(request2).await?;
-    assert!(
-        matches!(result2, AiImportEnqueueResult::Existing(_)),
-        "duplicate dedup_key should return Existing"
-    );
+    match result2 {
+        AiImportEnqueueResult::Existing(existing_id) => {
+            assert_eq!(
+                existing_id, first_id,
+                "Existing should return the original job ID"
+            );
+        }
+        other => panic!("expected Existing, got {other:?}"),
+    }
 
     Ok(())
 }

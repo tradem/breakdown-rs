@@ -22,10 +22,6 @@ fn make_request(provider: LlmProvider) -> LlmChatRequest {
     }
 }
 
-// ===========================================================================
-// chat_constrained — kills != → == and Ok(Default::default()) replacement
-// ===========================================================================
-
 #[test]
 fn chat_constrained_rejects_non_ollama_provider() {
     let client = OllamaChatClient::with_http(
@@ -34,7 +30,6 @@ fn chat_constrained_rejects_non_ollama_provider() {
         std::time::Duration::from_secs(30),
     );
 
-    // This should fail because the provider doesn't match
     let rt = tokio::runtime::Runtime::new().unwrap();
     let result = rt.block_on(client.chat_constrained(make_request(LlmProvider::OpenAI)));
     assert!(result.is_err(), "non-Ollama provider should be rejected");
@@ -54,23 +49,24 @@ fn chat_constrained_allows_ollama_provider() {
         std::time::Duration::from_secs(30),
     );
 
-    // This will fail with a connection error (no Ollama running),
-    // but it should NOT fail with "non-Ollama request" validation
+    // Should fail with transport error (no Ollama), NOT provider mismatch
     let rt = tokio::runtime::Runtime::new().unwrap();
     let result = rt.block_on(client.chat_constrained(make_request(LlmProvider::Ollama)));
 
-    // The error should be a transport/validation error, NOT a provider mismatch
-    if let Err(err) = result {
-        assert!(
-            !err.to_string().contains("non-Ollama"),
-            "should not reject Ollama provider: {err}"
-        );
+    match result {
+        Ok(_) => panic!("should fail with transport error when no Ollama server"),
+        Err(err) => {
+            let msg = err.to_string();
+            // Must NOT be a provider mismatch — the provider check passed
+            assert!(
+                !msg.contains("non-Ollama"),
+                "should not reject Ollama: {err}"
+            );
+            // Must be a real error, not a placeholder
+            assert!(!msg.is_empty(), "error should have a message");
+        }
     }
 }
-
-// ===========================================================================
-// request_once — kills return "xyzzy" / String::new() replacement
-// ===========================================================================
 
 #[test]
 fn request_once_returns_error_when_server_unavailable() {
@@ -80,17 +76,12 @@ fn request_once_returns_error_when_server_unavailable() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let result = rt.block_on(client.request_once(&make_request(LlmProvider::Ollama)));
 
-    // Should fail with transport error, not return "xyzzy" or empty string
     assert!(result.is_err(), "should fail when server unavailable");
     let err = result.unwrap_err();
     let msg = err.to_string();
     assert!(!msg.is_empty(), "error message should not be empty");
     assert_ne!(msg, "xyzzy", "should not return placeholder");
 }
-
-// ===========================================================================
-// new — constructor
-// ===========================================================================
 
 #[test]
 fn new_succeeds_with_valid_params() {
@@ -105,13 +96,7 @@ fn with_http_creates_client() {
         5,
         std::time::Duration::from_secs(30),
     );
-    // Client is created, max_parse_retries is clamped to min(value, 3)
-    // We verify via behavior: chat_constrained should work
 }
-
-// ===========================================================================
-// Ollama-specific: provider check in request_once
-// ===========================================================================
 
 #[test]
 fn ollama_provider_constant_is_ollama() {

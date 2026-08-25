@@ -2,124 +2,342 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
-//! Unit tests for workers.rs and worker_loop.rs — kills mutations in
-//! acquire_for_claim, release_permit_logging_errors, run_once_with_permit,
-//! start_heartbeat, fetch_api_key, script_worker_tick, schedule_worker_tick,
-//! and handle_job_result.
+//! Unit tests for workers.rs — kills mutations in acquire_for_claim,
+//! release_permit_logging_errors, claim_lost_error, start_heartbeat.
+
+use std::sync::Arc;
+use std::time::Duration;
 
 use breakdown_core::ai::{
-    AiImportBounds, AiImportJobId, DocumentKind, LlmProvider, ScriptContext, Telemetry,
+    AiImportBounds, AiImportEnqueueResult, AiImportJob, AiImportJobId, AiImportQueue, DocumentKind,
+    JobStatus, LlmChatRequest, LlmClient, LlmProvider, ScriptContext, SourceFormat, Telemetry,
     TelemetryApplyState,
 };
 use breakdown_core::error::DomainError;
+use breakdown_core::shared::UserId;
+use tokio::sync::Mutex;
+
+use crate::ai::pdf::PdfTextExtractor;
+use crate::ai::preview_store::{AiDocumentSource, AiPreviewStore};
+use crate::ai::workers::{ScheduleImportWorker, ScriptImportWorker, claim_lost_error};
 
 // ===========================================================================
-// DomainError variants
+// Mock queue for unit tests
+// ===========================================================================
+
+struct MockQueue {
+    jobs: Mutex<Vec<AiImportJob>>,
+    lease_window: Option<Duration>,
+}
+
+impl MockQueue {
+    fn new() -> Self {
+        Self {
+            jobs: Mutex::new(Vec::new()),
+            lease_window: None,
+        }
+    }
+
+    fn with_lease(mut self, lease: Duration) -> Self {
+        self.lease_window = Some(lease);
+        self
+    }
+
+    async fn enqueue_job(&self, kind: DocumentKind) -> AiImportJobId {
+        let id = AiImportJobId::new();
+        let job = AiImportJob {
+            id,
+            user_id: UserId::from_sub("test-user"),
+            document_kind: kind,
+            source_format: SourceFormat::Csv,
+            block_id: None,
+            dedup_key: format!("dedup-{}", uuid::Uuid::now_v7()),
+            document_digest: "digest".into(),
+            source_handle: "handle".into(),
+            status: JobStatus::Pending,
+            preview_handle: None,
+            last_error: None,
+            retries: 0,
+            max_retries: 5,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        };
+        self.jobs.lock().await.push(job);
+        id
+    }
+}
+
+#[async_trait::async_trait]
+impl AiImportQueue for MockQueue {
+    async fn enqueue(
+        &self,
+        request: breakdown_core::ai::AiImportEnqueueRequest,
+    ) -> Result<AiImportEnqueueResult, DomainError> {
+        let job = AiImportJob {
+            id: request.id,
+            user_id: request.user_id,
+            document_kind: request.document_kind,
+            source_format: request.source_format,
+            block_id: request.block_id,
+            dedup_key: request.dedup_key,
+            document_digest: request.document_digest,
+            source_handle: request.source_handle,
+            status: JobStatus::Pending,
+            preview_handle: None,
+            last_error: None,
+            retries: 0,
+            max_retries: 5,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        };
+        self.jobs.lock().await.push(job);
+        Ok(AiImportEnqueueResult::Enqueued(request.id))
+    }
+
+    async fn claim_next(&self, _: &str) -> Result<Option<AiImportJob>, DomainError> {
+        Ok(self.jobs.lock().await.pop())
+    }
+
+    async fn claim_next_kind(
+        &self,
+        _: &str,
+        kind: DocumentKind,
+    ) -> Result<Option<AiImportJob>, DomainError> {
+        let mut jobs = self.jobs.lock().await;
+        let pos = jobs.iter().position(|j| j.document_kind == kind);
+        Ok(pos.map(|p| jobs.remove(p)))
+    }
+
+    async fn get(&self, _: AiImportJobId) -> Result<Option<AiImportJob>, DomainError> {
+        Ok(None)
+    }
+
+    async fn mark_running(&self, _: AiImportJobId, _: &str) -> Result<(), DomainError> {
+        Ok(())
+    }
+
+    async fn mark_succeeded(&self, _: AiImportJobId, _: &str, _: &str) -> Result<(), DomainError> {
+        Ok(())
+    }
+
+    async fn mark_failed(
+        &self,
+        _: AiImportJobId,
+        _: &str,
+        _: &str,
+        _: bool,
+    ) -> Result<(), DomainError> {
+        Ok(())
+    }
+
+    async fn record_worker_telemetry(
+        &self,
+        _: AiImportJobId,
+        _: &str,
+        _: Telemetry,
+    ) -> Result<(), DomainError> {
+        Ok(())
+    }
+
+    async fn record_telemetry(&self, _: AiImportJobId, _: Telemetry) -> Result<(), DomainError> {
+        Ok(())
+    }
+
+    fn lease_window(&self) -> Option<Duration> {
+        self.lease_window
+    }
+}
+
+struct MockClient;
+
+#[async_trait::async_trait]
+impl LlmClient for MockClient {
+    async fn chat_constrained(&self, _: LlmChatRequest) -> Result<ScriptContext, DomainError> {
+        Ok(ScriptContext::default())
+    }
+}
+
+struct MockSource;
+
+#[async_trait::async_trait]
+impl AiDocumentSource for MockSource {
+    async fn load(&self, _: &str) -> Result<Vec<u8>, DomainError> {
+        Ok(b"INT. ROOM - DAY\nHello.".to_vec())
+    }
+}
+
+struct MockPreviewStore;
+
+#[async_trait::async_trait]
+impl AiPreviewStore for MockPreviewStore {
+    async fn put(&self, _: AiImportJobId, _: Vec<u8>) -> Result<String, DomainError> {
+        Ok("preview-handle".into())
+    }
+
+    async fn get(&self, _: &str) -> Result<Option<Vec<u8>>, DomainError> {
+        Ok(None)
+    }
+
+    async fn delete(&self, _: &str) -> Result<(), DomainError> {
+        Ok(())
+    }
+}
+
+// ===========================================================================
+// Tests
+// ===========================================================================
+
+#[tokio::test]
+async fn script_worker_returns_false_when_no_jobs() {
+    let queue = Arc::new(MockQueue::new());
+    let client = Arc::new(MockClient);
+    let previews = Arc::new(MockPreviewStore);
+
+    let worker = ScriptImportWorker {
+        queue,
+        client,
+        previews,
+        extractor: PdfTextExtractor::new(1024, Duration::from_secs(30)),
+        provider: LlmProvider::OpenAI,
+        model: "gpt-4o".into(),
+        prompt: "test".into(),
+        bounds: AiImportBounds::default(),
+    };
+
+    let result = worker.run_once("worker-1", &MockSource).await;
+    assert!(result.is_ok());
+    assert!(!result.unwrap(), "should return false when no jobs");
+}
+
+#[tokio::test]
+async fn schedule_worker_returns_false_when_no_jobs() {
+    let queue = Arc::new(MockQueue::new());
+    let client = Arc::new(MockClient);
+    let previews = Arc::new(MockPreviewStore);
+
+    let worker = ScheduleImportWorker {
+        queue,
+        client,
+        previews,
+        extractor: PdfTextExtractor::new(1024, Duration::from_secs(30)),
+        provider: LlmProvider::OpenAI,
+        model: "gpt-4o".into(),
+        prompt: "test".into(),
+        bounds: AiImportBounds::default(),
+    };
+
+    let result = worker.run_once("worker-1", &MockSource).await;
+    assert!(result.is_ok());
+    assert!(!result.unwrap(), "should return false when no jobs");
+}
+
+#[tokio::test]
+async fn script_worker_skips_wrong_kind() {
+    let queue = Arc::new(MockQueue::new());
+    queue.enqueue_job(DocumentKind::Schedule).await;
+    let client = Arc::new(MockClient);
+    let previews = Arc::new(MockPreviewStore);
+
+    let worker = ScriptImportWorker {
+        queue,
+        client,
+        previews,
+        extractor: PdfTextExtractor::new(1024, Duration::from_secs(30)),
+        provider: LlmProvider::OpenAI,
+        model: "gpt-4o".into(),
+        prompt: "test".into(),
+        bounds: AiImportBounds::default(),
+    };
+
+    let result = worker.run_once("worker-1", &MockSource).await;
+    assert!(result.is_ok());
+    assert!(!result.unwrap(), "should return false for wrong kind");
+}
+
+// ===========================================================================
+// claim_lost_error
 // ===========================================================================
 
 #[test]
-fn conflict_error_is_created() {
-    let err = DomainError::conflict("test");
+fn claim_lost_error_returns_conflict() {
+    let id = AiImportJobId::new();
+    let err = claim_lost_error(id, "worker-1");
     assert!(matches!(err, DomainError::Conflict { .. }));
 }
 
 #[test]
-fn validation_error_is_created() {
-    let err = DomainError::validation("test");
-    assert!(matches!(err, DomainError::Validation { .. }));
-}
-
-#[test]
-fn service_unavailable_error_is_created() {
-    let err = DomainError::service_unavailable("test");
-    assert!(matches!(err, DomainError::ServiceUnavailable { .. }));
+fn claim_lost_error_contains_details() {
+    let id = AiImportJobId::new();
+    let err = claim_lost_error(id, "my-worker");
+    let msg = err.to_string();
+    assert!(msg.contains("my-worker"));
+    assert!(msg.contains(&id.as_uuid().to_string()));
 }
 
 // ===========================================================================
-// Telemetry structure
+// start_heartbeat
+// ===========================================================================
+
+#[tokio::test]
+async fn start_heartbeat_returns_none_without_lease() {
+    let queue = Arc::new(MockQueue::new());
+    let client = Arc::new(MockClient);
+    let previews = Arc::new(MockPreviewStore);
+
+    let worker = ScriptImportWorker {
+        queue,
+        client,
+        previews,
+        extractor: PdfTextExtractor::new(1024, Duration::from_secs(30)),
+        provider: LlmProvider::OpenAI,
+        model: "gpt-4o".into(),
+        prompt: "test".into(),
+        bounds: AiImportBounds::default(),
+    };
+
+    let heartbeat = worker.start_heartbeat(AiImportJobId::new(), "worker-1");
+    assert!(
+        heartbeat.is_none(),
+        "should return None when no lease window"
+    );
+}
+
+#[tokio::test]
+async fn start_heartbeat_returns_some_with_lease() {
+    let queue = Arc::new(MockQueue::new().with_lease(Duration::from_secs(30)));
+    let client = Arc::new(MockClient);
+    let previews = Arc::new(MockPreviewStore);
+
+    let worker = ScriptImportWorker {
+        queue,
+        client,
+        previews,
+        extractor: PdfTextExtractor::new(1024, Duration::from_secs(30)),
+        provider: LlmProvider::OpenAI,
+        model: "gpt-4o".into(),
+        prompt: "test".into(),
+        bounds: AiImportBounds::default(),
+    };
+
+    let heartbeat = worker.start_heartbeat(AiImportJobId::new(), "worker-1");
+    assert!(
+        heartbeat.is_some(),
+        "should return Some when lease window set"
+    );
+    if let Some(h) = heartbeat {
+        h.stop();
+    }
+}
+
+// ===========================================================================
+// Telemetry and ScriptContext
 // ===========================================================================
 
 #[test]
 fn telemetry_default_is_not_applied() {
-    let telemetry = Telemetry::default();
-    assert_eq!(telemetry.apply_state, TelemetryApplyState::NotApplied);
+    let t = Telemetry::default();
+    assert_eq!(t.apply_state, TelemetryApplyState::NotApplied);
 }
-
-#[test]
-fn telemetry_with_values() {
-    let telemetry = Telemetry {
-        provider: Some(LlmProvider::OpenAI),
-        model: Some("gpt-4o".into()),
-        doc_kind: Some(DocumentKind::Script),
-        chunk_count: 10,
-        tokens_in: 1000,
-        tokens_out: 500,
-        latency_total: 1234,
-        apply_state: TelemetryApplyState::default(),
-    };
-    assert_eq!(telemetry.chunk_count, 10);
-    assert_eq!(telemetry.tokens_in, 1000);
-    assert_eq!(telemetry.tokens_out, 500);
-    assert_eq!(telemetry.latency_total, 1234);
-}
-
-#[test]
-fn telemetry_chunk_count_can_be_zero() {
-    let telemetry = Telemetry {
-        chunk_count: 0,
-        ..Telemetry::default()
-    };
-    assert_eq!(telemetry.chunk_count, 0);
-}
-
-// ===========================================================================
-// DocumentKind matching
-// ===========================================================================
-
-#[test]
-fn script_kind_matches_script() {
-    assert_eq!(DocumentKind::Script, DocumentKind::Script);
-}
-
-#[test]
-fn schedule_kind_matches_schedule() {
-    assert_eq!(DocumentKind::Schedule, DocumentKind::Schedule);
-}
-
-#[test]
-fn script_kind_does_not_match_schedule() {
-    assert_ne!(DocumentKind::Script, DocumentKind::Schedule);
-}
-
-// ===========================================================================
-// AiImportBounds for workers
-// ===========================================================================
-
-#[test]
-fn default_bounds_are_valid() {
-    let bounds = AiImportBounds::default();
-    assert!(bounds.max_concurrent_jobs_global > 0);
-    assert!(bounds.max_concurrent_jobs_per_user > 0);
-    assert!(bounds.max_concurrent_jobs_per_user <= bounds.max_concurrent_jobs_global);
-}
-
-// ===========================================================================
-// LlmProvider constants
-// ===========================================================================
-
-#[test]
-fn openai_provider_is_not_local() {
-    assert!(!LlmProvider::OpenAI.is_local());
-}
-
-#[test]
-fn ollama_provider_is_local() {
-    assert!(LlmProvider::Ollama.is_local());
-}
-
-// ===========================================================================
-// ScriptContext
-// ===========================================================================
 
 #[test]
 fn script_context_default_is_empty() {
@@ -128,20 +346,14 @@ fn script_context_default_is_empty() {
     assert!(ctx.uncertainties.is_empty());
 }
 
-// ===========================================================================
-// AiImportJobId
-// ===========================================================================
-
 #[test]
-fn job_id_is_unique() {
-    let id1 = AiImportJobId::new();
-    let id2 = AiImportJobId::new();
-    assert_ne!(id1, id2);
+fn conflict_error_is_constructible() {
+    let err = DomainError::conflict("test");
+    assert!(matches!(err, DomainError::Conflict { .. }));
 }
 
 #[test]
-fn job_id_from_uuid_roundtrips() {
-    let uuid = uuid::Uuid::now_v7();
-    let id = AiImportJobId::from_uuid(uuid);
-    assert_eq!(id.as_uuid(), uuid);
+fn validation_error_is_constructible() {
+    let err = DomainError::validation("test");
+    assert!(matches!(err, DomainError::Validation { .. }));
 }

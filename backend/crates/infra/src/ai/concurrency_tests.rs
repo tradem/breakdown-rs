@@ -119,33 +119,36 @@ async fn try_acquire_allows_same_user_until_per_user_limit() {
 // ===========================================================================
 
 #[tokio::test]
-async fn cleanup_removes_empty_user_semaphores() {
+async fn cleanup_removes_idle_user_semaphores() {
+    // After all permits for a user are dropped, the semaphore should be cleaned up.
+    // The retain predicate: Arc::strong_count > 1 OR available_permits < limit.
+    // When no permits are held and count == 1 (just the HashMap entry), the entry
+    // should be removed (strong_count == 1, available == limit → predicate false).
     let limiter = AiConcurrencyLimiter::new(bounds(4, 1)).unwrap();
 
-    // Acquire and release to create an entry
     {
         let _permit = limiter
             .try_acquire("user-1")
             .await
             .unwrap()
             .expect("acquire");
-        // Permit dropped here, semaphore should be cleaned up
+        // Permit held here
     }
+    // Permit dropped: strong_count drops to 1, available_permits == limit
+    // The retain predicate should be false → entry removed
 
-    // Next acquire should create a fresh semaphore (not reuse stale one)
     let permit = limiter.try_acquire("user-1").await.unwrap();
     assert!(permit.is_some(), "should succeed after cleanup");
 }
 
 #[tokio::test]
-async fn retain_keeps_semaphores_with_available_permits() {
+async fn retain_keeps_semaphore_when_permits_held() {
+    // While a permit is held, available_permits < limit → predicate true → retained.
     let limiter = AiConcurrencyLimiter::new(bounds(4, 2)).unwrap();
 
-    // Acquire one slot for user-1
     let _permit1 = limiter.try_acquire("user-1").await.unwrap().expect("first");
+    // available_permits == 1 < 2 (limit) → retain keeps the entry
 
-    // user-1's semaphore should still have 1 available permit
-    // so it should be retained even though strong_count > 1
     let permit2 = limiter.try_acquire("user-1").await.unwrap();
     assert!(
         permit2.is_some(),
@@ -156,7 +159,6 @@ async fn retain_keeps_semaphores_with_available_permits() {
 // ===========================================================================
 // AiConcurrencyPermit
 // ===========================================================================
-
 #[tokio::test]
 async fn permit_holds_both_global_and_user_capacity() {
     let limiter = AiConcurrencyLimiter::new(bounds(1, 1)).unwrap();
