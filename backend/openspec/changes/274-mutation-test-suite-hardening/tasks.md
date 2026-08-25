@@ -17,6 +17,9 @@
 > - Kein `unwrap`/`expect`/`panic!` in Produktionscodepfaden; keine timing-/sleep-basierten Tests.
 > - ⏱ Hängende Mutanten werden durch **Code-Härtung** (bounded loop) **plus** Test gelöst.
 > - P0-Tests dürfen nicht `#[ignore]`/Docker-gated sein (Acceptance Criteria).
+> - **Branch-Modell:** Pro Batch ein eigener Branch/PR gegen `main` — Basis jeweils `main`
+>   **nach** Merge des Planungs-PRs #277. Ein Patch ≙ ein Commit im jeweiligen Batch-Branch
+>   (Branch-Namen: Übersichtstabelle unten, Batch-Header und Patch-Statuszeilen).
 > - Pro abgeschlossenem Patch: Statuszeile hier auf ☑ setzen + Commit-Nachricht vermerken,
 >   damit Folgesessions den Stand sehen (`git log -- openspec/changes/274-mutation-test-suite-hardening/tasks.md`).
 >
@@ -29,9 +32,25 @@ cargo test -p <crate> --features test-support
 ```
 
 
+## Branches & Session-Split
+
+Jede neue Session: einen (weiteren) Patch aus einem Batch-Branch übernehmen, implementieren,
+Commit mit `P<id>`-Referenz im Conventional-Commit versehen und die Statuszeile hier aktualisieren.
+
+| Batch | Branch | Patches | Priorität |
+|---|---|---|---|
+| 1 — Security & Crypto | `feature/274-batch1-security-crypto` | P1.1–P1.5 | **P0** |
+| 2 — Authz-Handler 403 | `feature/274-batch2-authz-handlers` | P2.1–P2.5 | **P0** |
+| 3 — AI-Import | `feature/274-batch3-ai-import` | P3.1–P3.17 | P1 |
+| 4 — Audit & Reporting | `feature/274-batch4-audit-reporting` | P4.1–P4.5 | P1 |
+| 5 — Photo-Sagas & GC | `feature/274-batch5-photo-sagas-gc` | P5.1–P5.5 | P1 |
+| 6 — Queries & Diverses | `feature/274-batch6-queries-misc` | P6.1–P6.8 | P2 |
+
 ---
 
 ## Batch 1 — Security & Crypto (P0)
+
+**Batch-Branch:** `feature/274-batch1-security-crypto` · **Basis:** `main` (nach Merge von PR #277)
 
 *~35 Mutanten · blocking `mutate-security`-Job · zuerst bearbeiten.*
 
@@ -46,7 +65,7 @@ cargo test -p <crate> --features test-support
 ### P1.1 — Authorization-Bypass-Test für `requirement_for`
 
 **Datei(en):** `crates/api/src/auth/authorization.rs`  
-**Status:** ☐ offen · **Survivor:** 1 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 1 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch1-security-crypto`
 
 **Überlebende Mutanten:**
 
@@ -69,7 +88,7 @@ cargo test -p api --features test-support
 ### P1.2 — TLS-Pinning: `root_cert_from_env`, `is_temporary_error`, `PinnedRootTransport::fetch`
 
 **Datei(en):** `crates/infra/src/tls.rs`  
-**Status:** ☐ offen · **Survivor:** 12 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 12 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch1-security-crypto`
 
 **Überlebende Mutanten:**
 
@@ -104,7 +123,7 @@ cargo test -p infra --features test-support
 ### P1.3 — Vault: Debug-Redaction, `from_env`-Guards, Token-/Schlüsselauflösung (+ Timeout-Härtung)
 
 **Datei(en):** `crates/infra/src/vault.rs`  
-**Status:** ☐ offen · **Survivor:** 10 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 10 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch1-security-crypto`
 
 **Überlebende Mutanten:**
 
@@ -138,7 +157,7 @@ cargo test -p infra --features test-support
 ### P1.4 — Key-Material: `has_same_material`, `SecretValue::fmt`, Zeroize/Drop
 
 **Datei(en):** `crates/core/src/settings/ports.rs`  
-**Status:** ☐ offen · **Survivor:** 10 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 10 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch1-security-crypto`
 
 **Überlebende Mutanten:**
 
@@ -170,7 +189,7 @@ cargo test -p core --features test-support
 ### P1.5 — `TlsConfig::validate` / `postgres_violations` (API-Startup-Gate)
 
 **Datei(en):** `crates/api/src/tls_config.rs`  
-**Status:** ☐ offen · **Survivor:** 2 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 2 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch1-security-crypto`
 
 **Überlebende Mutanten:**
 
@@ -193,6 +212,8 @@ cargo test -p api --features test-support
 
 ## Batch 2 — Authz-Handler 403-Tests (P0)
 
+**Batch-Branch:** `feature/274-batch2-authz-handlers` · **Basis:** `main` (nach Merge von PR #277)
+
 *~54 Mutanten · jeder `// AUTHZ-GATE:`-grep bekommt einen Test-Partner.*
 
 | Patch | Datei(en) | Survivor | Status |
@@ -206,7 +227,7 @@ cargo test -p api --features test-support
 ### P2.1 — AUTHZ-GATE 403-Tests: Costume-Photo-Handler
 
 **Datei(en):** `crates/api/src/handlers/mod.rs`  
-**Status:** ☐ offen · **Survivor:** 7 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 7 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch2-authz-handlers`
 
 **Überlebende Mutanten:**
 
@@ -235,7 +256,7 @@ cargo test -p api --features test-support
 ### P2.2 — AUTHZ-GATE 403-Tests: Continuity-Photos & Reports
 
 **Datei(en):** `crates/api/src/handlers/mod.rs`  
-**Status:** ☐ offen · **Survivor:** 9 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 9 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch2-authz-handlers`
 
 **Überlebende Mutanten:**
 
@@ -265,7 +286,7 @@ cargo test -p api --features test-support
 ### P2.3 — Settings/GDrive/AI-Handler: Authz + Bedingungslogik
 
 **Datei(en):** `crates/api/src/handlers/mod.rs`  
-**Status:** ☐ offen · **Survivor:** 16 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 16 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch2-authz-handlers`
 
 **Überlebende Mutanten:**
 
@@ -302,7 +323,7 @@ cargo test -p api --features test-support
 ### P2.4 — `series_id_for_*` / `require_*` Audit-Helfer
 
 **Datei(en):** `crates/api/src/handlers/mod.rs`  
-**Status:** ☐ offen · **Survivor:** 9 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 9 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch2-authz-handlers`
 
 **Überlebende Mutanten:**
 
@@ -333,7 +354,7 @@ cargo test -p api --features test-support
 ### P2.5 — Upload-Validierung & Variant-Routing (handlers/mod.rs Rest)
 
 **Datei(en):** `crates/api/src/handlers/mod.rs`  
-**Status:** ☐ offen · **Survivor:** 13 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 13 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch2-authz-handlers`
 
 **Überlebende Mutanten:**
 
@@ -369,6 +390,8 @@ cargo test -p api --features test-support
 
 ## Batch 3 — AI-Import (P1)
 
+**Batch-Branch:** `feature/274-batch3-ai-import` · **Basis:** `main` (nach Merge von PR #277)
+
 *`crates/infra/src/ai/**` + `crates/core/src/ai/**`.*
 
 | Patch | Datei(en) | Survivor | Status |
@@ -394,7 +417,7 @@ cargo test -p api --features test-support
 ### P3.1 — `AiImportBounds::validate` / `bounded_u32/u64` (Boundary-Tests)
 
 **Datei(en):** `crates/core/src/ai/bounds.rs`  
-**Status:** ☐ offen · **Survivor:** 15 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 15 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch3-ai-import`
 
 **Überlebende Mutanten:**
 
@@ -430,7 +453,7 @@ cargo test -p core --features test-support
 ### P3.2 — AI-Aggregate: Event-Count-Assertions
 
 **Datei(en):** `crates/core/src/ai/aggregate.rs`  
-**Status:** ☐ offen · **Survivor:** 8 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 8 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch3-ai-import`
 
 **Überlebende Mutanten:**
 
@@ -459,7 +482,7 @@ cargo test -p core --features test-support
 ### P3.3 — `LlmClient`-Port-Defaults
 
 **Datei(en):** `crates/core/src/ai/ports.rs`  
-**Status:** ☐ offen · **Survivor:** 13 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 13 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch3-ai-import`
 
 **Überlebende Mutanten:**
 
@@ -492,7 +515,7 @@ cargo test -p core --features test-support
 ### P3.4 — AI-Views (core)
 
 **Datei(en):** `crates/core/src/ai/views.rs`  
-**Status:** ☐ offen · **Survivor:** 8 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 8 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch3-ai-import`
 
 **Überlebende Mutanten:**
 
@@ -519,7 +542,7 @@ cargo test -p core --features test-support
 ### P3.5 — AI-Preview (core)
 
 **Datei(en):** `crates/core/src/ai/preview.rs`  
-**Status:** ☐ offen · **Survivor:** 5 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 5 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch3-ai-import`
 
 **Überlebende Mutanten:**
 
@@ -543,7 +566,7 @@ cargo test -p core --features test-support
 ### P3.6 — Permit-Concurrency: `pg_concurrency.rs` (+ Timeout-Härtung `permit_renewal_interval`)
 
 **Datei(en):** `crates/infra/src/ai/pg_concurrency.rs`  
-**Status:** ☐ offen · **Survivor:** 20 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 20 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch3-ai-import`
 
 **Überlebende Mutanten:**
 
@@ -584,7 +607,7 @@ cargo test -p infra --features test-support
 ### P3.7 — Queue: `try_acquire`/Claim-Prädikate
 
 **Datei(en):** `crates/infra/src/ai/queue.rs`  
-**Status:** ☐ offen · **Survivor:** 20 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 20 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch3-ai-import`
 
 **Überlebende Mutanten:**
 
@@ -625,7 +648,7 @@ cargo test -p infra --features test-support
 ### P3.8 — In-Memory-Concurrency (`concurrency.rs`)
 
 **Datei(en):** `crates/infra/src/ai/concurrency.rs`  
-**Status:** ☐ offen · **Survivor:** 8 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 8 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch3-ai-import`
 
 **Überlebende Mutanten:**
 
@@ -652,7 +675,7 @@ cargo test -p infra --features test-support
 ### P3.9 — LLM-Client: `reject_ollama`, `hosted_origin_host`, `classify_transport_error`
 
 **Datei(en):** `crates/infra/src/ai/client.rs`  
-**Status:** ☐ offen · **Survivor:** 14 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 14 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch3-ai-import`
 
 **Überlebende Mutanten:**
 
@@ -686,7 +709,7 @@ cargo test -p infra --features test-support
 ### P3.10 — `CuratedLlmProvider::base_url` (alle 7 Provider-Arme)
 
 **Datei(en):** `crates/infra/src/ai/mod.rs`  
-**Status:** ☐ offen · **Survivor:** 9 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 9 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch3-ai-import`
 
 **Überlebende Mutanten:**
 
@@ -715,7 +738,7 @@ cargo test -p infra --features test-support
 ### P3.11 — Mapping (LLM-Response → Schedule)
 
 **Datei(en):** `crates/infra/src/ai/mapping.rs`  
-**Status:** ☐ offen · **Survivor:** 8 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 8 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch3-ai-import`
 
 **Überlebende Mutanten:**
 
@@ -742,7 +765,7 @@ cargo test -p infra --features test-support
 ### P3.12 — Worker/Merge-Loops
 
 **Datei(en):** `crates/infra/src/ai/workers.rs`, `crates/infra/src/ai/worker_loop.rs`  
-**Status:** ☐ offen · **Survivor:** 20 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 20 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch3-ai-import`
 
 **Überlebende Mutanten:**
 
@@ -782,7 +805,7 @@ cargo test -p infra --features test-support
 ### P3.13 — Ollama + Transport
 
 **Datei(en):** `crates/infra/src/ai/ollama.rs`, `crates/infra/src/ai/transport.rs`  
-**Status:** ☐ offen · **Survivor:** 8 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 8 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch3-ai-import`
 
 **Überlebende Mutanten:**
 
@@ -809,7 +832,7 @@ cargo test -p infra --features test-support
 ### P3.14 — Graceful Shutdown (`shutdown.rs`)
 
 **Datei(en):** `crates/infra/src/ai/shutdown.rs`  
-**Status:** ☐ offen · **Survivor:** 5 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 5 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch3-ai-import`
 
 **Überlebende Mutanten:**
 
@@ -834,7 +857,7 @@ cargo test -p infra --features test-support
 ### P3.15 — PDF-Extraktion + Merge-Worker
 
 **Datei(en):** `crates/infra/src/ai/pdf.rs`, `crates/infra/src/ai/merge_worker.rs`  
-**Status:** ☐ offen · **Survivor:** 6 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 6 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch3-ai-import`
 
 **Überlebende Mutanten:**
 
@@ -859,7 +882,7 @@ cargo test -p infra --features test-support
 ### P3.16 — Catalog / Provider-Registry / Payload-Storage / Prompts / Credentials
 
 **Datei(en):** `crates/infra/src/ai/catalog.rs`, `crates/infra/src/ai/provider_registry.rs`, `crates/infra/src/ai/payload_storage.rs`, `crates/infra/src/ai/prompts.rs`, `crates/infra/src/ai/credentials.rs`  
-**Status:** ☐ offen · **Survivor:** 10 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 10 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch3-ai-import`
 
 **Überlebende Mutanten:**
 
@@ -888,7 +911,7 @@ cargo test -p infra --features test-support
 ### P3.17 — Payload-Cleanup (`payload_cleanup.rs`: `is_not_found`, `flush`)
 
 **Datei(en):** `crates/infra/src/ai/payload_cleanup.rs`  
-**Status:** ☐ offen · **Survivor:** 10 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 10 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch3-ai-import`
 
 **Überlebende Mutanten:**
 
@@ -919,6 +942,8 @@ cargo test -p infra --features test-support
 
 ## Batch 4 — Audit & Reporting (P1)
 
+**Batch-Branch:** `feature/274-batch4-audit-reporting` · **Basis:** `main` (nach Merge von PR #277)
+
 *Projektoren, Backup, Trigger, Renderer.*
 
 | Patch | Datei(en) | Survivor | Status |
@@ -932,7 +957,7 @@ cargo test -p infra --features test-support
 ### P4.1 — Audit-Projector-Startup (`projectors/audit.rs` + `mod.rs` + `block.rs`)
 
 **Datei(en):** `crates/infra/src/projectors/audit.rs`, `crates/infra/src/projectors/mod.rs`, `crates/infra/src/projectors/block.rs`  
-**Status:** ☐ offen · **Survivor:** 40 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 40 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch4-audit-reporting`
 
 **Überlebende Mutanten:**
 
@@ -994,7 +1019,7 @@ cargo test -p infra --features test-support
 ### P4.2 — Backup-Cleanup (`reporting/backup.rs`)
 
 **Datei(en):** `crates/infra/src/reporting/backup.rs`  
-**Status:** ☐ offen · **Survivor:** 21 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 21 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch4-audit-reporting`
 
 **Überlebende Mutanten:**
 
@@ -1036,7 +1061,7 @@ cargo test -p infra --features test-support
 ### P4.3 — Report-Trigger (`reporting/triggers.rs`)
 
 **Datei(en):** `crates/infra/src/reporting/triggers.rs`  
-**Status:** ☐ offen · **Survivor:** 16 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 16 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch4-audit-reporting`
 
 **Überlebende Mutanten:**
 
@@ -1072,7 +1097,7 @@ cargo test -p infra --features test-support
 ### P4.4 — Reporting-Jobs + Typst-Renderer
 
 **Datei(en):** `crates/infra/src/reporting/jobs.rs`, `crates/infra/src/reporting/typst_renderer.rs`  
-**Status:** ☐ offen · **Survivor:** 19 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 19 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch4-audit-reporting`
 
 **Überlebende Mutanten:**
 
@@ -1110,7 +1135,7 @@ cargo test -p infra --features test-support
 ### P4.5 — Core Reporting: `sanitize_error_detail` + Archival
 
 **Datei(en):** `crates/core/src/reporting/storage.rs`, `crates/core/src/reporting/archival.rs`  
-**Status:** ☐ offen · **Survivor:** 6 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 6 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch4-audit-reporting`
 
 **Überlebende Mutanten:**
 
@@ -1138,6 +1163,8 @@ cargo test -p core --features test-support
 
 ## Batch 5 — Photo-Sagas & GC (P1)
 
+**Batch-Branch:** `feature/274-batch5-photo-sagas-gc` · **Basis:** `main` (nach Merge von PR #277)
+
 *Thumbnail / Deletion / Continuity / GC.*
 
 | Patch | Datei(en) | Survivor | Status |
@@ -1151,7 +1178,7 @@ cargo test -p core --features test-support
 ### P5.1 — Thumbnail-Saga
 
 **Datei(en):** `crates/infra/src/photo/sagas/thumbnail.rs`  
-**Status:** ☐ offen · **Survivor:** 15 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 15 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch5-photo-sagas-gc`
 
 **Überlebende Mutanten:**
 
@@ -1186,7 +1213,7 @@ cargo test -p infra --features test-support
 ### P5.2 — Deletion-Saga (Refcount)
 
 **Datei(en):** `crates/infra/src/photo/sagas/deletion.rs`  
-**Status:** ☐ offen · **Survivor:** 13 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 13 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch5-photo-sagas-gc`
 
 **Überlebende Mutanten:**
 
@@ -1219,7 +1246,7 @@ cargo test -p infra --features test-support
 ### P5.3 — Continuity-Deletion-Saga
 
 **Datei(en):** `crates/infra/src/photo/sagas/continuity_deletion.rs`  
-**Status:** ☐ offen · **Survivor:** 9 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 9 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch5-photo-sagas-gc`
 
 **Überlebende Mutanten:**
 
@@ -1248,7 +1275,7 @@ cargo test -p infra --features test-support
 ### P5.4 — Orphan-GC (`photo/gc.rs`)
 
 **Datei(en):** `crates/infra/src/photo/gc.rs`  
-**Status:** ☐ offen · **Survivor:** 13 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 13 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch5-photo-sagas-gc`
 
 **Überlebende Mutanten:**
 
@@ -1281,7 +1308,7 @@ cargo test -p infra --features test-support
 ### P5.5 — Photo-Repository / -Projector / Aggregate
 
 **Datei(en):** `crates/infra/src/photo/repository.rs`, `crates/infra/src/photo/projector.rs`, `crates/core/src/photo/aggregate.rs`  
-**Status:** ☐ offen · **Survivor:** 13 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 13 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch5-photo-sagas-gc`
 
 **Überlebende Mutanten:**
 
@@ -1318,6 +1345,8 @@ cargo test -p infra --features test-support
 
 ## Batch 6 — Queries & Diverses (P2)
 
+**Batch-Branch:** `feature/274-batch6-queries-misc` · **Basis:** `main` (nach Merge von PR #277)
+
 *Rest-Cluster: Queries, Shutdown, CLI-Bin, Problem-Surface.*
 
 | Patch | Datei(en) | Survivor | Status |
@@ -1334,7 +1363,7 @@ cargo test -p infra --features test-support
 ### P6.1 — Membership-Queries
 
 **Datei(en):** `crates/infra/src/queries/membership.rs`  
-**Status:** ☐ offen · **Survivor:** 10 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 10 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch6-queries-misc`
 
 **Überlebende Mutanten:**
 
@@ -1364,7 +1393,7 @@ cargo test -p infra --features test-support
 ### P6.2 — Costume/CostumeCategory-Queries
 
 **Datei(en):** `crates/infra/src/queries/costume.rs`, `crates/infra/src/queries/costume_category.rs`  
-**Status:** ☐ offen · **Survivor:** 14 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 14 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch6-queries-misc`
 
 **Überlebende Mutanten:**
 
@@ -1397,7 +1426,7 @@ cargo test -p infra --features test-support
 ### P6.3 — Restliche Queries (character/episode/season/block/shooting_day/reports)
 
 **Datei(en):** `crates/infra/src/queries/character.rs`, `crates/infra/src/queries/episode.rs`, `crates/infra/src/queries/season.rs`, `crates/infra/src/queries/block.rs`, `crates/infra/src/queries/shooting_day.rs`, `crates/infra/src/queries/reports.rs`  
-**Status:** ☐ offen · **Survivor:** 14 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 14 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch6-queries-misc`
 
 **Überlebende Mutanten:**
 
@@ -1430,7 +1459,7 @@ cargo test -p infra --features test-support
 ### P6.4 — `domain_to_stream_checked` (Command-Adapter)
 
 **Datei(en):** `crates/infra/src/event_store/command_adapters.rs`  
-**Status:** ☐ offen · **Survivor:** 5 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 5 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch6-queries-misc`
 
 **Überlebende Mutanten:**
 
@@ -1455,7 +1484,7 @@ cargo test -p infra --features test-support
 ### P6.5 — `SceneShootId`/`SceneShootStatus` + SceneShoot-Aggregate-Guards
 
 **Datei(en):** `crates/core/src/shared.rs`, `crates/core/src/scene_shoot/aggregate.rs`  
-**Status:** ☐ offen · **Survivor:** 8 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 8 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch6-queries-misc`
 
 **Überlebende Mutanten:**
 
@@ -1483,7 +1512,7 @@ cargo test -p core --features test-support
 ### P6.6 — API-Shutdown (`main.rs`, `state.rs`)
 
 **Datei(en):** `crates/api/src/main.rs`, `crates/api/src/state.rs`  
-**Status:** ☐ offen · **Survivor:** 9 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 9 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch6-queries-misc`
 
 **Überlebende Mutanten:**
 
@@ -1513,7 +1542,7 @@ cargo test -p api --features test-support
 ### P6.7 — Problem-Surface (`problems/mod.rs`, `problems/locale.rs`)
 
 **Datei(en):** `crates/api/src/problems/mod.rs`, `crates/api/src/problems/locale.rs`  
-**Status:** ☐ offen · **Survivor:** 3 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 3 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch6-queries-misc`
 
 **Überlebende Mutanten:**
 
@@ -1536,7 +1565,7 @@ cargo test -p api --features test-support
 ### P6.8 — `migrate_gdrive_credentials` (bin)
 
 **Datei(en):** `crates/api/src/bin/migrate_gdrive_credentials.rs`  
-**Status:** ☐ offen · **Survivor:** 12 · **Commit:** _noch offen_
+**Status:** ☐ offen · **Survivor:** 12 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch6-queries-misc`
 
 **Überlebende Mutanten:**
 
