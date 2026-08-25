@@ -13,6 +13,11 @@ license.workspace = true
 publish = false
 rust-version.workspace = true
 
+[features]
+# Dummy feature to satisfy cargo-mutants global `features = ["test-support"]`
+# in .cargo/mutants.toml (issue #267).
+test-support = []
+
 [dependencies]
 api = { path = "../api", version = "0.8.0" }
 breakdown_core = { path = "../core", version = "0.9.0" }

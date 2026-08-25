@@ -1,6 +1,20 @@
 # SPDX-License-Identifier: AGPL-3.0
-# Copyright (C) 2024 Breakdown RS Contributors
+# Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: laguna-s-2.1-free (opencode)
+# Co-authored-by: mimo-v2.5 (opencode-go)
+
+# == Mutation Testing Pipeline ==
+#
+# 32-way sharding (0-indexed) splits ~3096 mutants into 32 parallel jobs.
+# Each shard gets ~97 mutants. With --test-workspace false and
+# ~15.7% viable rate, each shard has ~15 viable mutants.
+# At ~110s/viable + 6min baseline ≈ 34 min total, well under 60-min SLO.
+#
+# Timeout is 70 min (10-min buffer for runner variance).
+# Exit code 2 (surviving mutants) is expected and does not fail the job.
+#
+# The combine job aggregates missed.txt from all shards and opens a
+# single issue if any surviving mutants are found.
 
 name: Mutation Testing
 
@@ -21,18 +35,18 @@ defaults:
 
 jobs:
   mutate:
-    name: Mutate (shard ${{ matrix.shard }}/8)
+    name: Mutate (shard ${{ matrix.shard }}/32)
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 70
     strategy:
       fail-fast: false
       matrix:
         # cargo-mutants --shard is 0-indexed (despite docs saying "1/4");
-        # --shard 8/8 errors with "shard k must be less than n", so we
-        # use 0-7 to cover all 3096 mutants across 8 equal shards.
-        # `shards` count (8) is hardcoded in the cargo-mutants command below
-        # because GitHub Actions matrix values must be arrays, not scalars.
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        # --shard 32/32 errors with "shard k must be less than n", so we
+        # use 0-31 to cover all 3096 mutants across 32 equal shards.
+        # With ~97 mutants/shard and ~15.7% viable rate, each shard gets
+        # ~15 viable mutants ≈ 28 min testing + 6 min baseline ≈ 34 min.
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
     permissions:
       contents: read
       issues: write
@@ -50,7 +64,7 @@ jobs:
       # any mutant (nightly runs Aug 2 & 9, 2026). Fixed in commit 577e0b4.
       - name: Install poppler-utils (pdftotext for AI script PDF tests)
         run: sudo apt-get update && sudo apt-get install -y poppler-utils
-      - run: cargo install cargo-mutants
+      - run: cargo install cargo-mutants --version 27.1.0
       # cargo-mutants exits non-zero (code 2) when surviving mutants are found;
       # this is expected for a nightly run whose purpose is to discover and
       # report them. `set +e` captures the exit code so that the counting +
@@ -61,9 +75,9 @@ jobs:
       # entire workspace), cutting per-mutant test time by ~50% (from ~40-50s
       # per mutant to ~15-25s). This is the single biggest speedup.
       #
-      # 8-way sharding (0-indexed) splits the 3096 mutants into 8 parallel jobs
-      # of 387 each. With the reduced test time, each shard should complete in
-      # ~3-4h, well within the 360-minute timeout.
+      # 32-way sharding (0-indexed) splits the 3096 mutants into 32 parallel jobs
+      # of ~97 each. With the reduced test time, each shard should complete in
+      # ~30-40 min, well within the 70-minute timeout (60-min SLO + 10-min buffer).
       #
       # `--copy-target=true` is kept because `--copy-target=false` in
       # cargo-mutants 27.x may build in a scratch dir without a shared
@@ -71,14 +85,14 @@ jobs:
       # (~120-300s each). With `--copy-target=true` the incremental build
       # reuses the copied deps (3-7s) and `Swatinem/rust-cache` provides the
       # cached deps layer.
-      - name: Run cargo mutants (shard ${{ matrix.shard }}/8)
+      - name: Run cargo mutants (shard ${{ matrix.shard }}/32)
         id: mutants
         run: |
           set +e
           cargo mutants \
             --copy-target=true \
             --test-workspace false \
-            --shard ${{ matrix.shard }}/8
+            --shard ${{ matrix.shard }}/32
           MUTANTS_EXIT=$?
           set -e
           # Count missed (surviving) mutants for downstream step
@@ -120,6 +134,23 @@ jobs:
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           path: mutants-fragments
+      - name: Validate all shard artifacts exist
+        run: |
+          EXPECTED=32
+          FOUND=0
+          for i in $(seq 0 $((EXPECTED - 1))); do
+            DIR="mutants-fragments/mutants-out-weekly-shard-${i}"
+            if [ -d "$DIR" ]; then
+              FOUND=$((FOUND + 1))
+            else
+              echo "ERROR: Missing artifact for shard ${i}: ${DIR}"
+            fi
+          done
+          if [ "$FOUND" -ne "$EXPECTED" ]; then
+            echo "FATAL: Expected ${EXPECTED} shard artifacts, found ${FOUND}"
+            exit 1
+          fi
+          echo "All ${EXPECTED} shard artifacts present"
       - name: Combine missed mutants from all shards
         id: combine
         run: |
