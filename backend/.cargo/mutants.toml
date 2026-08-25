@@ -17,6 +17,12 @@ exclude_globs = [
     # `test_support` is a test-helper crate with no domain logic to mutate;
     # covering it adds runtime with zero defect-finding value.
     "crates/test_support/**",
+    # Exclude vendored path-patched crates under `.patches/`. These crates
+    # (kameo_es, kameo_es_core, kameo_es_macros) do not declare the
+    # `test-support` feature, so the unqualified `features = ["test-support"]
+    # below causes the unmutated baseline to fail (exit 4) when a shard
+    # happens to land only on `.patches/` mutants (issue #273, shards 28-31).
+    ".patches/**",
 ]
 
 # == Security-critical allowlist (documentation) ==
