@@ -16,6 +16,8 @@
 ## 3. Drift check
 - [ ] 3.1 Enable the OpenAPI-client drift step (if not already enabled by
        `wire-openapi-dart-client`); idempotent if both land
+- [ ] 3.2 Add `backend/openapi.yaml` to the workflow `paths:` filters so
+       backend-only OpenAPI changes trigger the drift check
 
 ## 4. Documentation
 - [ ] 4.1 Workflow comment documenting the mutation-testing gap and the four

@@ -45,7 +45,7 @@ reconciliation) before this proposal was opened:
 | D1 | **Flutter + OpenAPI-generated Dart client** (ADR-007) | Already accepted; no change. |
 | D2 | **Resource-REST CQRS client, not a "command-bus" client** | The checked-in `backend/openapi.yaml` is resource-oriented; corrects the stylized `POST /commands/{aggregate}/{action}` sketch in ADR-007 (flag a small ADR amendment separately). |
 | D3 | **Riverpod + `riverpod_generator`** for state management / DI | Compile-safe test seams (`override`), best widget-test velocity, ecosystem traction; accepts it *is* a framework, bending the backend's "no DI framework" ethos. `fpdart` `Result` keeps the no-throw discipline. |
-| D4 | **Test pyramid: unit → widget → integration_test (+ optional golden)** | Mirrors backend pyramid shape; mutator tier is a known gap (see D5). |
+| D4 | **Test pyramid: unit → widget → integration_test (golden required for any non-trivial widget that renders domain state; omitted only for leaf presentational widgets)** | Mirrors backend pyramid shape; mutator tier is a known gap (see D5). |
 | D5 | **No mutation-testing gate for Flutter** | No maintained Dart/Flutter mutator exists (known gap). Compensate with: `coverde` line+branch threshold on changed code, golden tests, explicit Err-branch assertions on every `Result`, semantic-finder widget tests. Revisit if a maintained mutator emerges. |
 | D6 | **AUTHZ-GATE pattern ported to the client** | Every screen route gated by auth state; gated photo/binary calls run a client-side role check via a `currentMembershipProvider` before hitting the network, mirroring backend handler-internal authz. |
 | D7 | **SPDX headers + co-authored-by on `.dart`/`.feature`/`.yaml`** | Same licensing discipline as the backend. |

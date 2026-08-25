@@ -17,9 +17,11 @@ device via `flutter_gherkin`.
   because this is a designated critical scope.
 
 ### Requirement: Steps Run on Device, Not as Pure-Function Tests
-Every `.feature` step definition SHALL exercise the end-to-end device/HTTP
-path via `flutter_gherkin` on device. A step whose body only calls a pure
-function MUST be moved to the unit-test tier, not kept in `features-spec/`.
+A `.feature` scenario SHALL exercise the end-to-end device/HTTP path via
+`flutter_gherkin` on device. Step definitions SHALL run on the device, but
+setup and assertion steps MAY establish state or verify rendered UI without
+issuing HTTP. A step whose body only calls a pure function MUST be moved to
+the unit-test tier, not kept in `features-spec/`.
 
 #### Scenario: A step body only asserts on a mapper return value
 - **WHEN** a step definition calls a mapper and asserts on the return with

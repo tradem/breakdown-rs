@@ -8,7 +8,7 @@
 ADR-007 §"CQRS-Aware API Design" sketches a stylized
 `POST /api/v1/commands/{aggregate}/{action}` command-bus shape. The actual
 checked-in `backend/openapi.yaml` is **resource-oriented REST** with CQRS
-semantics (`POST /seasons`, `POST /costumes/{id}/assign`, …). The Flutter
+semantics (`POST /v1/seasons`, `POST /v1/costumes/{id}/assign`, …). The Flutter
 foundation (`flutter-openapi-client` spec) already documents the correction;
 this change amends the ADR itself so the architecture record matches reality
 and future agents don't build the wrong mental model.

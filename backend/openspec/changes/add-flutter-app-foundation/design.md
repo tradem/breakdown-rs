@@ -315,11 +315,22 @@ CI runs:
   ```
   The API serves Swagger UI at `http://localhost:3000/swagger-ui`.
 - **Flutter run (dev flavor):**
+
   ```bash
   cd frontend-flutter
+  # iOS simulator / desktop: localhost reaches the host directly.
   flutter run --flavor dev --dart-define=API_BASE=http://localhost:3000 \
     --dart-define=OIDC_ISS=http://localhost:3301
   ```
+
+  On the **Android emulator**, `localhost` resolves to the emulator itself,
+  not the host. Point `API_BASE` (and the IdP issuer) at the host via
+  `10.0.2.2` (`--dart-define=API_BASE=http://10.0.2.2:3000`). For **physical
+  devices**, use the developer machine's LAN address
+  (e.g. `--dart-define=API_BASE=http://192.168.x.x:3000`). The dev IdP runs on
+  plaintext HTTP (`http://10.0.2.2:3301`); issue #272 tracks an
+  Android-reachable HTTPS dev endpoint (with the pinned dev CA) or a
+  documented port-forwarded HTTP exception outside certificate pinning.
 - **Regenerating the Dart client:** (run from `frontend-flutter/`; the
   generator version comes from the committed
   `frontend-flutter/openapitools.json` — do not pass a different version on
@@ -387,9 +398,11 @@ CI runs:
 ## 10. Licensing & Headers
 
 - **License:** AGPL-3.0 (same as the backend).
-- **SPDX headers:** `// SPDX-License-Identifier: AGPL-3.0` +
-  `// Copyright (C) 2024-2026 Breakdown RS Contributors` on every `.dart`,
-  `.feature`, `.yaml` file. Run the backend's `./scripts/add-spdx-headers.sh`
+- **SPDX headers:** `// SPDX-License-Identifier: AGPL-3.0` (Dart) or
+  `# SPDX-License-Identifier: AGPL-3.0` (YAML / Gherkin) +
+  `Copyright (C) 2024-2026 Breakdown RS Contributors` on every `.dart`,
+  `.feature`, and `.yaml` file, using each type's comment syntax (`//` for
+  Dart, `#` for YAML and Gherkin). Run the backend's `./scripts/add-spdx-headers.sh`
   (extended to cover `frontend-flutter/`) to add headers.
 - **Co-authors:** Same convention as backend — one
   `// Co-authored-by: <model> (<provider|tool>)` line per contributor

@@ -4,13 +4,16 @@
 
 ## ADDED Requirements
 
-### Requirement: Canonical OpenSpec Root at Monorepo Root
-The canonical OpenSpec root for the `breakdown-rs` monorepo SHALL be
+### Requirement: Canonical OpenSpec Root at Monorepo Root (Target State)
+The canonical OpenSpec root for the `breakdown-rs` monorepo SHALL become
 `/openspec/` at the repository root (`breakdown-rs/openspec/`), not nested
-under `backend/`. All capabilities — backend, frontend-flutter, and any
-future frontend — live as siblings under `openspec/specs/<capability>/`.
-Backend capabilities keep their existing names; Flutter capabilities use the
-`flutter-*` prefix.
+under `backend/` — as the **target** state after the
+`migrate-openspec-to-monorepo-root` change lands. Until that migration,
+capabilities continue to live under `backend/openspec/` (one active root for
+contributors and validators). After migration, all capabilities — backend,
+frontend-flutter, and any future frontend — live as siblings under
+`openspec/specs/<capability>/`. Backend capabilities keep their existing
+names; Flutter capabilities use the `flutter-*` prefix.
 
 > Rationale: the monorepo already hosts two frontend trees
 (`frontend-web/`, future `frontend-flutter/`) plus the backend. A single

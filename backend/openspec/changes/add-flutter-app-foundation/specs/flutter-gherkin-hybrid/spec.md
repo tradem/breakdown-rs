@@ -31,8 +31,10 @@ Adding a `.feature` for a non-critical screen (e.g. a settings sub-page) is
 *not* forbidden, but reviewers challenge it: the default is a widget test.
 
 #### Scenario: A business-critical flow is added without a `.feature`
-- **WHEN** a PR adds or substantially changes the Soll-Ist report screen
-  and ships only widget tests.
+- **WHEN** a PR changes acceptance behavior in the Soll-Ist report screen — or
+  any other designated critical scope (authz, reconciliation, or report
+  semantics), not merely a presentation-only edit — and ships only widget
+  tests.
 - **THEN** review requires an accompanying `.feature` scenario under
   `features-spec/` because this is a designated critical scope.
 

@@ -17,9 +17,11 @@ service locator), which the AGENTS.md accepts as the cost of widget-test
 velocity.
 
 #### Scenario: A widget reads reactive state
-- **WHEN** a `ConsumerWidget` calls `ref.watch(fooControllerProvider)`.
+- **WHEN** a `ConsumerWidget` calls `ref.watch` on an asynchronous provider
+  (`Future`, `Stream`, or `AsyncNotifier`).
 - **THEN** it receives an `AsyncValue<T>` and rebuilds on state transition
   (loading / data / error), with no `setState` boileplate in the widget.
+  (A synchronous provider would expose `T` directly, not `AsyncValue<T>`.)
 
 #### Scenario: A repository is injected into a test
 - **WHEN** a widget test needs a fake repository.
@@ -43,14 +45,16 @@ presentation-ready state object.
 
 ### Requirement: Result/Either Discipline (no throw in data/domain)
 The `data/` and `domain/` layers SHALL model fallible operations with
-`fpdart`'s `Result`/`Either` (or an equivalent `Result` type), returning
-errors as values rather than throwing. Widgets and providers translate
-`Err` into `AsyncError`. This is the client-side analog of the backend's
-"no panics in production" hard rule (`unwrap`/`expect`/`panic` denied).
+`fpdart`'s `Either`/`TaskEither` types — `Right` for success, `Left` for
+failure (fpdart does not define `Result`/`Err`/`Ok`; use the `Either`
+vocabulary explicitly), returning errors as values rather than throwing.
+Widgets and providers translate `Left` into `AsyncError`. This is the
+client-side analog of the backend's "no panics in production" hard rule
+(`unwrap`/`expect`/`panic` denied).
 
 #### Scenario: A repository call fails with a problem error
-- **WHEN** a `POST /seasons` returns RFC 9457 `application/problem+json`.
-- **THEN** the repository returns `Err(ProblemError(code, ...))` (never
+- **WHEN** a `POST /v1/seasons` returns RFC 9457 `application/problem+json`.
+- **THEN** the repository returns `Left(ProblemError(code, ...))` (never
   throws); the calling provider surfaces it as `AsyncError` and the widget
   branches on the stable `code` (e.g. `seasons.conflict`), never on
   `detail` text.

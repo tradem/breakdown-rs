@@ -5,7 +5,7 @@
 ## 1. Amend the ADR
 - [ ] 1.1 Replace the `POST /api/v1/commands/{aggregate}/{action}` sketch in
        ADR-007 §"CQRS-Aware API Design" with the resource-REST reality
-       (`POST /seasons`, `POST /costumes/{id}/assign`, …)
+       (`POST /v1/seasons`, `POST /v1/costumes/{id}/assign`, …)
 - [ ] 1.2 Add a "Supersedes sketch — see `flutter-openapi-client` spec" note
 - [ ] 1.3 Mark the amended section per ADR-008 inline-amendment convention
        (date + author)

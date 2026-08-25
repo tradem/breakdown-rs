@@ -116,6 +116,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # Required for inline Gitleaks review comments (see the gitleaks step below).
       pull-requests: write
     steps:
       - name: Checkout repository

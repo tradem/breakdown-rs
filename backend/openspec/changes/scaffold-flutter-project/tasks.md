@@ -24,8 +24,9 @@
        (no disable-verification switch)
 - [ ] 3.3 Flavors `dev` and `prod` only; `dev` points at localhost backend +
        optional Logto, `prod` at the deployed edge
-- [ ] 3.4 Dev auth mode parity with backend (`DEV_AUTH_SUB`); impossible in
-       `prod` flavor
+- [ ] 3.4 Dev auth mode parity with backend: permissive mode only when
+       `OIDC_ISS` is absent **and** `DEV_AUTH_SUB` is set (never when OIDC is
+       partially configured); impossible in `prod` flavor
 
 ## 4. Repo hygiene
 - [ ] 4.1 Extend `scripts/add-spdx-headers.sh` to cover `frontend-flutter/`

@@ -19,8 +19,10 @@ full screen-flow scenarios against a real or mocked API.
 - **WHEN** a PR adds any non-trivial widget that renders domain state —
   `ConsumerWidget`, `StatefulWidget`, or otherwise (not a leaf presentational
   widget).
-- **THEN** CI requires an accompanying widget test and, where the layout is
-  non-trivial, a golden test reference file.
+- **THEN** CI requires an accompanying widget test and a golden test reference
+  file for the non-trivial widget that renders domain state (the same
+  predicate as the pyramid tier above; only leaf presentational widgets are
+  exempt).
 
 #### Scenario: A repository returns Err and the test only asserts Ok
 - **WHEN** a `Result`-returning repo/use-case has a test that exercises only
@@ -56,8 +58,9 @@ codified as a rule with no tool behind it.
 ### Requirement: CI Quality Gates
 CI SHALL run `dart format --set-exit-if-changed`, `flutter analyze` (with
 custom lint rules), `flutter test --coverage`, the OpenAPI-client drift
-check (see `flutter-openapi-client`), `gitleaks` on `.dart`/`.yaml`, and
-SHA-pinned GitHub Actions following the backend's hardening rules.
+check (see `flutter-openapi-client`), `gitleaks` on
+`.dart`/`.yaml`/`.arb`, and SHA-pinned GitHub Actions following the
+backend's hardening rules.
 
 #### Scenario: A PR introduces an unpinned third-party action
 - **WHEN** a workflow uses `@v4` instead of a 40-char SHA.

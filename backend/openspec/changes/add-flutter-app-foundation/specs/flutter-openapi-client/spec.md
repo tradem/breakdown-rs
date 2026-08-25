@@ -13,9 +13,10 @@ is rebuild-only.
 
 #### Scenario: Regenerating the client against an updated spec
 - **WHEN** `backend/openapi.yaml` changes.
-- **THEN** the Dart client is regenerated via `openapi-generator-cli` (or
-  `dart pub run build_runner build`) and the diff is reviewed as part of the
-  PR that changed the spec.
+- **THEN** the Dart client is regenerated via `openapi-generator-cli` (the
+  sole regeneration path — `dart pub run build_runner build` is not used, as
+  no OpenAPI `build_runner` builder is configured) and the diff is reviewed
+  as part of the PR that changed the spec.
 
 #### Scenario: A developer hand-edits a generated file
 - **WHEN** a hand-edit is detected in `lib/api/generated/` (drift check in CI).

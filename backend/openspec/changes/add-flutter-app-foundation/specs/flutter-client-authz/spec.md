@@ -10,7 +10,10 @@ handler-internal-authz-gated backend endpoint (photo upload, photo byte
 fetch, photo delete, continuity-photo handlers) SHALL run a client-side
 role/membership check via a `currentMembershipProvider` *before* any network
 call is made. This is the client-side analog of the backend's
-`// AUTHZ-GATE:` handler-internal authorization pattern.
+`// AUTHZ-GATE:` handler-internal authorization pattern. The login route,
+the OIDC callback route, and the recovery route are the sole exceptions:
+they SHALL remain publicly reachable before a session exists, so the user can
+establish one.
 
 #### Scenario: User lacks upload role
 - **WHEN** a user without an active costume/continuity role taps the
@@ -34,10 +37,10 @@ the HTTP client SHALL pin TLS roots matching the backend's pinned-CA stance
 equivalent is permitted in any client code path.
 
 #### Scenario: A debug build is configured to bypass TLS verification
-- **WHEN** a developer adds an "allow self-signed" convenience in a committed
-  code path (not behind a dev-only guard).
-- **THEN** review rejects it; dev trusts go into the dev flavor's pinned CA
-  set, never into an disable-verification switch.
+- **WHEN** a developer adds an "allow self-signed" convenience in any committed
+  code path or flavor.
+- **THEN** review rejects it; development trusts go into the dev flavor's
+  pinned CA set, never into a disable-verification switch.
 
 ### Requirement: No Hardcoded Secrets
 No secrets (OIDC client secrets, API keys, Garage credentials) SHALL be
