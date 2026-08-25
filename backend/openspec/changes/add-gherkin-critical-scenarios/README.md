@@ -1,0 +1,3 @@
+# add-gherkin-critical-scenarios
+
+Gherkin .feature files under features-spec/ for business-critical acceptance scenarios (Soll-Ist, continuity photo capture, costume assignment) driven by flutter_gherkin on device.

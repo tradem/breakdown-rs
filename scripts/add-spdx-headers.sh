@@ -14,8 +14,12 @@ if [ "$YEAR" != "2024" ]; then
     COPYRIGHT="Copyright (C) 2024-$YEAR Breakdown RS Contributors"
 fi
 
-# Find all .rs files recursively
-find "${1:-.}" -name "*.rs" -type f | while read -r file; do
+# Find supported source files recursively. Covers the Rust backend and the
+# frontend-flutter tree (Dart, Gherkin .feature, YAML).
+find "${1:-.}" -type f \
+    \( -name "*.rs" -o -name "*.typ" -o -name "*.sh" \
+       -o -name "*.dart" -o -name "*.feature" \
+       -o -name "*.yaml" -o -name "*.yml" \) | while read -r file; do
     # Check if header already exists
     if grep -q "SPDX-License-Identifier" "$file"; then
         echo "⏭️  Skipping (already has header): $file"
@@ -26,28 +30,26 @@ find "${1:-.}" -name "*.rs" -type f | while read -r file; do
     temp_file=$(mktemp)
 
     # Add header based on file type
-    if [[ "$file" == *.rs ]]; then
-        # Rust files: use // comments
-        echo "// SPDX-License-Identifier: $LICENSE" > "$temp_file"
-        echo "// $COPYRIGHT" >> "$temp_file"
-        echo "" >> "$temp_file"
-        cat "$file" >> "$temp_file"
-    elif [[ "$file" == *.typ ]]; then
-        # Typst files: use // comments
-        echo "// SPDX-License-Identifier: $LICENSE" > "$temp_file"
-        echo "// $COPYRIGHT" >> "$temp_file"
-        echo "" >> "$temp_file"
-        cat "$file" >> "$temp_file"
-    elif [[ "$file" == *.sh ]]; then
-        # Shell scripts: use # comments
-        echo "# SPDX-License-Identifier: $LICENSE" > "$temp_file"
-        echo "# $COPYRIGHT" >> "$temp_file"
-        echo "" >> "$temp_file"
-        cat "$file" >> "$temp_file"
-    else
-        echo "⚠️  Unsupported file type: $file"
-        continue
-    fi
+    case "$file" in
+        *.rs|*.typ|*.dart)
+            # Rust/Typst/Dart: use // comments
+            echo "// SPDX-License-Identifier: $LICENSE" > "$temp_file"
+            echo "// $COPYRIGHT" >> "$temp_file"
+            echo "" >> "$temp_file"
+            cat "$file" >> "$temp_file"
+            ;;
+        *.sh|*.feature|*.yaml|*.yml)
+            # Shell/Gherkin/YAML: use # comments
+            echo "# SPDX-License-Identifier: $LICENSE" > "$temp_file"
+            echo "# $COPYRIGHT" >> "$temp_file"
+            echo "" >> "$temp_file"
+            cat "$file" >> "$temp_file"
+            ;;
+        *)
+            echo "⚠️  Unsupported file type: $file"
+            continue
+            ;;
+    esac
 
     # Replace original file
     mv "$temp_file" "$file"

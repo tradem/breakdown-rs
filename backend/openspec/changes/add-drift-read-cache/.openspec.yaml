@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-08-25
+goal: Drift (type-safe SQLite) read-projection cache under data/cache/ with
+  repository pattern, TTL + on-write-invalidate, cold-start offline render.
