@@ -50,21 +50,26 @@
 
 ## 2. Ported pi-code skills (foundation deliverable — Session 2 apply)
 
-- [ ] 2.1 Create directory `frontend-flutter/.pi/skills/`
-- [ ] 2.2 Port lint/analysis guidance skill from `flutter/agent-plugins`
+- [x] 2.1 Create directory `frontend-flutter/.pi/skills/`
+- [x] 2.2 Port lint/analysis guidance skill from `flutter/agent-plugins`
        (SPDX header; map to `analysis_options.yaml` expectations + custom
-       lint rule names referenced in `design.md` §5/§6)
-- [ ] 2.3 Port testing recipes skill (widget test scaffolding, golden
+       lint rule names referenced in `design.md` §5/§6) —
+       `flutter-lint-analysis/SKILL.md`
+- [x] 2.3 Port testing recipes skill (widget test scaffolding, golden
        setup, `integration_test` harness, `flutter_gherkin` wiring) from
-       `dart-lang/skills` / `flutter/agent-plugins`
-- [ ] 2.4 Port codegen conventions skill (`build_runner`, `freezed`,
+       `dart-lang/skills` / `flutter/agent-plugins` —
+       `flutter-testing-recipes/SKILL.md`
+- [x] 2.4 Port codegen conventions skill (`build_runner`, `freezed`,
        `json_serializable`, `riverpod_generator`, `drift_dev`,
-       `openapi_generator`) from `dart-lang/skills`
-- [ ] 2.5 Port Material 3 / ThemeData design skill from
-       `flutter/agent-plugins`
-- [ ] 2.6 Each ported skill carries an SPDX header + co-authored-by, and a
+       `openapi_generator`) from `dart-lang/skills` —
+       `flutter-codegen-conventions/SKILL.md`
+- [x] 2.5 Port Material 3 / ThemeData design skill from
+       `flutter/agent-plugins` — `flutter-material3-theme/SKILL.md`
+- [x] 2.6 Each ported skill carries an SPDX header + co-authored-by, and a
        provenance note (upstream repo + path) at the top of its `SKILL.md`
-- [ ] 2.7 Commit on `feat/add-flutter-app-foundation`
+       (frontmatter `provenance:` field + a provenance blockquote under the
+       H1; SPDX + co-authored-by as HTML comments after frontmatter)
+- [x] 2.7 Commit on `feat/add-flutter-app-foundation`
 
 ## 3. CI workflow (foundation deliverable — Session 2 apply)
 
