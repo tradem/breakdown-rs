@@ -97,6 +97,11 @@ if [ -n "$STAGED_RS_FILES" ]; then
             echo "$PROD_FILES" | xargs -r ast-grep scan -r rules/reqwest-no-dangerous-tls.yml
             echo "$PROD_FILES" | xargs -r ast-grep scan -r rules/reqwest-no-hardcoded-auth.yml
         fi
+        # UUIDv7-only rule also applies to test files (AGENTS.md §3).
+        TEST_FILES=$(echo "$STAGED_RS_FILES" | grep -E '(/tests/.*\.rs$|_tests\.rs$|_test\.rs$)' || true)
+        if [ -n "$TEST_FILES" ]; then
+            echo "$TEST_FILES" | xargs -r ast-grep scan -r rules/uuid-v7-only.yml
+        fi
         # Problem-builder code → S2 person-identifier ban (ADR-031 D4).
         PROBLEM_FILES=$(echo "$STAGED_RS_FILES" | grep '^crates/api/src/problems/' || true)
         if [ -n "$PROBLEM_FILES" ]; then

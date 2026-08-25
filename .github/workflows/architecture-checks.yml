@@ -228,6 +228,13 @@ jobs:
             ast-grep scan -r rules/uuid-v7-only.yml "${FILES[@]}"
             ast-grep scan -r rules/allow-panic-lint-justification.yml "${FILES[@]}"
           fi
+          # UUIDv7-only rule also applies to test files (AGENTS.md §3 —
+          # "Strictly use UUIDv7 ... No UUIDv4" applies everywhere).
+          mapfile -t TEST_FILES < <(find crates -path '*/tests/*' -name '*.rs' \
+            -o -name '*_tests.rs' -o -name '*_test.rs')
+          if [ "${#TEST_FILES[@]}" -gt 0 ]; then
+            ast-grep scan -r rules/uuid-v7-only.yml "${TEST_FILES[@]}"
+          fi
           # S2 person identifiers (`sub`, `email`) are structurally banned
           # from problem-builder code (ADR-031 D4, issue #230 Tranche 2).
           # Scoped to the problem module — the only place problems are built.
