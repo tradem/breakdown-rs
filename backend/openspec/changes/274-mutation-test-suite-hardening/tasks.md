@@ -292,9 +292,9 @@ cargo test -p api --features test-support
 |---|---|---|---|
 | [P2.1](#p21--authz-gate-403-tests-costume-photo-handler) | `crates/api/src/handlers/mod.rs` | 7 | [x] |
 | [P2.2](#p22--authz-gate-403-tests-continuity-photos--reports) | `crates/api/src/handlers/mod.rs` | 9 | [x] |
-| [P2.3](#p23--settingsgdriveai-handler-authz--bedingungslogik) | `crates/api/src/handlers/mod.rs` | 16 | [x] |
-| [P2.4](#p24--series_id_for_--require_-audit-helfer) | `crates/api/src/handlers/mod.rs` | 9 | [x] |
-| [P2.5](#p25--upload-validierung--variant-routing-handlersmodrs-rest) | `crates/api/src/handlers/mod.rs` | 13 | [x] |
+| [P2.3](#p23--settingsgdriveai-handler-authz--bedingungslogik) | `crates/api/src/handlers/mod.rs` | 16 | ☐ parteilsweise |
+| [P2.4](#p24--series_id_for_--require_-audit-helfer) | `crates/api/src/handlers/mod.rs` | 9 | ☐ parteilsweise |
+| [P2.5](#p25--upload-validierung--variant-routing-handlersmodrs-rest) | `crates/api/src/handlers/mod.rs` | 13 | ☐ parteilsweise |
 
 ### P2.1 — AUTHZ-GATE 403-Tests: Costume-Photo-Handler
 
@@ -358,7 +358,11 @@ cargo test -p api --features test-support
 ### P2.3 — Settings/GDrive/AI-Handler: Authz + Bedingungslogik
 
 **Datei(en):** `crates/api/src/handlers/mod.rs`  
-**Status:** [x] erledigt · **Survivor:** 16 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch2-authz-handlers`
+**Status:** ☐ parteilsweise erledigt · **Survivor:** 16 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch2-authz-handlers`
+
+**Erledigt (5 Tests):** create_gdrive_credential, rotate_gdrive_credential, create_credential, get_settings, revoke_settings — je ein 403-Denial-Test.
+
+**Offen:** apply_ai_import (Job-Status-Bedingung, accept_as_is-Validierung, Telemetry-Felder) — 9 Mutanten.
 
 **Überlebende Mutanten:**
 
@@ -395,7 +399,11 @@ cargo test -p api --features test-support
 ### P2.4 — `series_id_for_*` / `require_*` Audit-Helfer
 
 **Datei(en):** `crates/api/src/handlers/mod.rs`  
-**Status:** [x] erledigt · **Survivor:** 9 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch2-authz-handlers`
+**Status:** ☐ parteilsweise erledigt · **Survivor:** 9 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch2-authz-handlers`
+
+**Erledigt (1 Test):** require_series — 400 bei fehlendem Query-Parameter.
+
+**Offen:** series_id_for_scene, series_id_for_shooting_day, series_id_for_character, series_id_for_costume_category, series_id_for_scene_shoot, series_id_for_costume — Return-Value-Propagations-Tests (8 Mutanten).
 
 **Überlebende Mutanten:**
 
@@ -426,7 +434,11 @@ cargo test -p api --features test-support
 ### P2.5 — Upload-Validierung & Variant-Routing (handlers/mod.rs Rest)
 
 **Datei(en):** `crates/api/src/handlers/mod.rs`  
-**Status:** [x] erledigt · **Survivor:** 13 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch2-authz-handlers`
+**Status:** ☐ parteilsweise erledigt · **Survivor:** 13 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch2-authz-handlers`
+
+**Erledigt (3 Tests):** Upload-Size-Grenze (PHOTO_MAX_SIZE_MB), Content-Type-Validierung (falscher Typ, HEIC).
+
+**Offen:** get_costume_photo_bytes Variant-Routing (thumb/medium Match-Arme), plan_scene_shoot Konflikt-Check — 10 Mutanten.
 
 **Überlebende Mutanten:**
 
