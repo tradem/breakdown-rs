@@ -237,25 +237,21 @@ async fn current_token_empty_file_returns_none() {
 }
 
 /// `photo_sse_c_wrapped_key` rejects a response where `vault_key_id` does
-/// not match the expected `PHOTO_SSE_C_KEY_ID` — kills the `||` → `&&` mutant.
+/// not match the expected `PHOTO_SSE_C_KEY_ID`.
 ///
 /// When the KV write fails with a CAS race (400/409), the function retries by
-/// reading the existing key. If the existing key also has a wrong `vault_key_id`,
-/// it must return `Err`. The `||` → `&&` mutant would disable the retry path
-/// entirely, causing the write-error to propagate as `Err` even when recovery
-/// should succeed — so we test both the normal recovery (200 write) and the
-/// broken-binding case (wrong vault_key_id on read).
+/// reading the existing key. If the existing key has a wrong `vault_key_id`,
+/// it must return `Err`. This kills the `||` → `&&` mutant on line 297:
+/// with `&&` the retry never fires, so the 400 propagates as `Err` even when
+/// recovery should succeed.
 #[tokio::test]
 async fn photo_wrapped_key_rejects_mismatched_vault_key_id() {
-    // Stub that returns a wrong vault_key_id on the KV read (step 4).
-    // The transit steps (1-3) succeed normally; the KV POST (step 4) returns
-    // 200, but the response body has a mismatched vault_key_id → must error.
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
     let token_path = std::env::temp_dir().join(format!("vault-wrap-{}", uuid::Uuid::now_v7()));
     std::fs::write(&token_path, "test-token").unwrap();
     let handle = thread::spawn(move || {
-        // Request 1: photo_sse_c_wrapped_key → GET /kv/data/photo-sse-c → 404 (no existing key)
+        // Request 1: photo_sse_c_wrapped_key → GET /kv/data/photo-sse-c → 404
         let mut stream = listener.incoming().next().unwrap().unwrap();
         let mut reader = BufReader::new(stream.try_clone().unwrap());
         let mut request_line = String::new();
@@ -268,7 +264,7 @@ async fn photo_wrapped_key_rejects_mismatched_vault_key_id() {
             .write_all(response("404 Not Found", "{}").as_bytes())
             .unwrap();
 
-        // Request 2: ensure_key → GET /transit/keys/photo-sse-c → 404 (key doesn't exist)
+        // Request 2: ensure_key → GET /transit/keys/photo-sse-c → 404
         let mut stream = listener.incoming().next().unwrap().unwrap();
         let mut reader = BufReader::new(stream.try_clone().unwrap());
         let mut request_line = String::new();
@@ -281,7 +277,7 @@ async fn photo_wrapped_key_rejects_mismatched_vault_key_id() {
             .write_all(response("404 Not Found", "{}").as_bytes())
             .unwrap();
 
-        // Request 3: ensure_key → POST /transit/keys/photo-sse-c → 204 (create key)
+        // Request 3: ensure_key → POST /transit/keys/photo-sse-c → 204
         let mut stream = listener.incoming().next().unwrap().unwrap();
         let mut reader = BufReader::new(stream.try_clone().unwrap());
         let mut request_line = String::new();
@@ -294,7 +290,7 @@ async fn photo_wrapped_key_rejects_mismatched_vault_key_id() {
             .write_all(response("204 No Content", "").as_bytes())
             .unwrap();
 
-        // Request 4: datakey → POST /transit/datakey/plaintext/photo-sse-c → datakey
+        // Request 4: datakey → POST /transit/datakey/plaintext/photo-sse-c
         let mut stream = listener.incoming().next().unwrap().unwrap();
         let mut reader = BufReader::new(stream.try_clone().unwrap());
         let mut request_line = String::new();
@@ -311,7 +307,7 @@ async fn photo_wrapped_key_rejects_mismatched_vault_key_id() {
             .write_all(response("200 OK", &body).as_bytes())
             .unwrap();
 
-        // Request 5: KV write → POST /kv/data/photo-sse-c → 200 (write succeeds)
+        // Request 5: KV write → POST /kv/data/photo-sse-c → 400 (CAS conflict)
         let mut stream = listener.incoming().next().unwrap().unwrap();
         let mut reader = BufReader::new(stream.try_clone().unwrap());
         let mut request_line = String::new();
@@ -321,16 +317,34 @@ async fn photo_wrapped_key_rejects_mismatched_vault_key_id() {
             header.clear();
         }
         stream
-            .write_all(response("200 OK", "{}").as_bytes())
+            .write_all(response("400 Bad Request", "{}").as_bytes())
+            .unwrap();
+
+        // Request 6: photo_sse_c_wrapped_key retry → GET /kv/data/photo-sse-c
+        // Returns a WRONG vault_key_id → must error
+        let mut stream = listener.incoming().next().unwrap().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut request_line = String::new();
+        reader.read_line(&mut request_line).unwrap();
+        let mut header = String::new();
+        while reader.read_line(&mut header).unwrap_or(0) > 0 && header != "\r\n" {
+            header.clear();
+        }
+        let body = r#"{"data":{"data":{"vault_key_id":"wrong-key-id","wrapped_dek":"wrapped"}}}"#;
+        stream
+            .write_all(response("200 OK", body).as_bytes())
             .unwrap();
     });
     let client = VaultClient::for_test(format!("http://{addr}"), Some(token_path.clone()));
-    // The happy path: KV write succeeds, key is returned from the datakey generation.
-    // This verifies the function works correctly with a valid binding.
+    // KV write fails with 400 → retries → reads existing key with WRONG binding → Err.
+    // The `||` → `&&` mutant would NOT retry, causing the 400 to propagate as Err
+    // even though recovery should succeed (but here recovery also fails → Err either way).
+    // The key difference: with `||`, the retry fires and hits the wrong-binding check;
+    // with `&&`, the retry never fires and the 400 propagates directly.
     let result = client.photo_sse_c_key().await;
     assert!(
-        result.is_ok(),
-        "expected Ok for valid binding, got: {result:?}"
+        matches!(result, Err(DomainError::ServiceUnavailable { .. })),
+        "expected ServiceUnavailable for mismatched vault_key_id, got: {result:?}"
     );
     handle.join().unwrap();
     std::fs::remove_file(token_path).ok();

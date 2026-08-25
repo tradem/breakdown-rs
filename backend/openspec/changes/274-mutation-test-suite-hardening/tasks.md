@@ -126,6 +126,8 @@ Commit mit `P<id>`-Referenz im Conventional-Commit versehen und die Statuszeile 
 
 ### P1.1 — Authorization-Bypass-Test für `requirement_for`
 
+<a id="p1.1"></a>
+
 **Datei(en):** `crates/api/src/auth/authorization.rs`  
 **Status:** ☑ erledigt · **Survivor:** 1 · **Commit:** TBD · **Testdatei:** `crates/api/tests/auth_authorization.rs::pdf_report_requires_both_conditions` · **PR/Branch:** `feature/274-batch1-security-crypto`
 
@@ -148,6 +150,8 @@ cargo test -p api --features test-support
 ```
 
 ### P1.2 — TLS-Pinning: `root_cert_from_env`, `is_temporary_error`, `PinnedRootTransport::fetch`
+
+<a id="p1.2"></a>
 
 **Datei(en):** `crates/infra/src/tls.rs`  
 **Status:** ☑ erledigt · **Survivor:** 12 · **Commit:** TBD · **PR/Branch:** `feature/274-batch1-security-crypto`
@@ -184,6 +188,8 @@ cargo test -p infra --features test-support
 
 ### P1.3 — Vault: Debug-Redaction, `from_env`-Guards, Token-/Schlüsselauflösung (+ Timeout-Härtung)
 
+<a id="p1.3"></a>
+
 **Datei(en):** `crates/infra/src/vault.rs`  
 **Status:** ☑ erledigt · **Survivor:** 10 · **Commit:** TBD · **PR/Branch:** `feature/274-batch1-security-crypto`
 
@@ -218,6 +224,8 @@ cargo test -p infra --features test-support
 
 ### P1.4 — Key-Material: `has_same_material`, `SecretValue::fmt`, Zeroize/Drop
 
+<a id="p1.4"></a>
+
 **Datei(en):** `crates/core/src/settings/ports.rs`  
 **Status:** ☑ erledigt · **Survivor:** 10 · **Commit:** TBD · **PR/Branch:** `feature/274-batch1-security-crypto`
 
@@ -249,6 +257,8 @@ cargo test -p core --features test-support
 ```
 
 ### P1.5 — `TlsConfig::validate` / `postgres_violations` (API-Startup-Gate)
+
+<a id="p1.5"></a>
 
 **Datei(en):** `crates/api/src/tls_config.rs`  
 **Status:** ☑ erledigt · **Survivor:** 2 · **Commit:** TBD · **PR/Branch:** `feature/274-batch1-security-crypto`

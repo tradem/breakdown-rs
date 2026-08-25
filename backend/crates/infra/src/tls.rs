@@ -97,7 +97,7 @@ impl HttpTransport for PinnedRootTransport {
             .headers(parts.headers)
             .version(parts.version);
 
-        if !body.is_empty() {
+        if should_send_body(is_head, &body) {
             req_builder = req_builder.body(reqwest::Body::from(body.to_vec()));
         }
 
@@ -109,15 +109,8 @@ impl HttpTransport for PinnedRootTransport {
                 .set_source(err)
         })?;
 
-        // The declared content length only matches the decoded body when no
-        // content-encoding was applied (and never for HEAD responses); mirror
-        // the reference transport's guard so `HttpBody`'s size check does not
-        // reject compressed or header-only responses.
-        let content_length = if is_head || parse_content_encoding(resp.headers())?.is_some() {
-            None
-        } else {
-            parse_content_length(resp.headers())?
-        };
+        let content_length = effective_content_length(is_head, resp.headers())
+            .map_err(|e| Error::new(ErrorKind::Unexpected, &e))?;
 
         let status = resp.status();
         let version = resp.version();
@@ -149,6 +142,34 @@ impl HttpTransport for PinnedRootTransport {
         *http_resp.headers_mut() = headers;
         Ok(http_resp)
     }
+}
+
+/// Determine the effective content length for an `HttpBody`.
+///
+/// Returns `None` (unknown/streaming) for HEAD responses or when a
+/// content-encoding was applied (the declared length does not match the
+/// decoded body). Extracted so the decision logic is unit-testable.
+pub fn effective_content_length(
+    is_head: bool,
+    headers: &http::HeaderMap,
+) -> Result<Option<u64>, String> {
+    if is_head
+        || parse_content_encoding(headers)
+            .map_err(|e| e.to_string())?
+            .is_some()
+    {
+        Ok(None)
+    } else {
+        parse_content_length(headers).map_err(|e| e.to_string())
+    }
+}
+
+/// Determine whether an outgoing request should carry its body.
+///
+/// Mirrors the reference `opendal-http-transport-reqwest` adapter: an
+/// empty buffer means no body (e.g. GET/HEAD).
+pub fn should_send_body(is_head: bool, body: &Buffer) -> bool {
+    !is_head && !body.is_empty()
 }
 
 /// Classify a reqwest failure as temporary (retryable), mirroring the

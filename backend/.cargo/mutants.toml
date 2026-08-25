@@ -87,10 +87,4 @@ exclude_re = [
     # unrelated mutants are not affected.
     "replace < with <= in LexicalSortKey::midpoint",
     "replace \\+= with \\*= in LexicalSortKey::midpoint",
-    # PinnedRootTransport::fetch: private struct, not testable from outside the crate.
-    # The status-code and content-length logic is exercised end-to-end by the
-    # integration-test S3/Garage round-trips, which are excluded from mutation.
-    "replace == with != in <impl HttpTransport for PinnedRootTransport>::fetch",
-    "delete ! in <impl HttpTransport for PinnedRootTransport>::fetch",
-    "replace || with && in <impl HttpTransport for PinnedRootTransport>::fetch",
 ]
