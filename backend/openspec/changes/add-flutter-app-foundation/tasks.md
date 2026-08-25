@@ -35,7 +35,8 @@
 - [x] 0.6 `openspec validate add-flutter-app-foundation` passes ✅
 - [x] 0.7 Commit the OpenSpec artifacts on `feat/add-flutter-app-foundation`
        (landed in commit `569d162` on the change branch)
-- [ ] 0.8 Open PR for review of the foundation artifacts
+- [x] 0.8 Open PR for review of the foundation artifacts
+       (https://github.com/tradem/breakdown-rs/pull/269)
 
 ## 1. `frontend-flutter/AGENTS.md` (foundation deliverable — Session 2 apply)
 
