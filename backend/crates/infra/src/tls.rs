@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: mimo-v2.5 (opencode-go)
 
 //! In-transit TLS helpers shared by the S3 adapters (ADR-024 / issue #156).
 //!
@@ -152,7 +153,7 @@ impl HttpTransport for PinnedRootTransport {
 
 /// Classify a reqwest failure as temporary (retryable), mirroring the
 /// reference `opendal-http-transport-reqwest` adapter.
-fn is_temporary_error(err: &reqwest::Error) -> bool {
+pub fn is_temporary_error(err: &reqwest::Error) -> bool {
     err.is_request() || err.is_body() || err.is_decode()
 }
 

@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: mimo-v2.5 (opencode-go)
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(unsafe_code)] // test-only env mutation (set_var/remove_var are unsafe in edition 2024)
@@ -244,5 +245,64 @@ fn report_backup_endpoints_are_checked() {
     assert!(
         v.iter().any(|v| v.contains("REPORT_BACKUP_ENDPOINT")),
         "got: {v:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// P1.5 — validate() returns Err when violations exist
+// ---------------------------------------------------------------------------
+
+/// `validate()` must return `Err` when there are violations — kills the
+/// `replace validate -> Result<(), String> with Ok(())` mutant.
+#[test]
+fn validate_returns_err_for_invalid_config() {
+    let mut c = valid();
+    c.database_url = Some("postgres://app:pass@db:5432/breakdown?sslmode=disable".into());
+    let result = c.validate();
+    assert!(result.is_err(), "expected Err for invalid config");
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("sslmode=verify-full"),
+        "error should mention sslmode, got: {err}"
+    );
+}
+
+/// `validate()` returns `Ok(())` for a fully valid config.
+#[test]
+fn validate_returns_ok_for_valid_config() {
+    assert!(valid().validate().is_ok());
+}
+
+/// `postgres_violations` rejects an empty `sslrootcert` — kills the
+/// `replace match guard !root.trim().is_empty() with true` mutant.
+#[test]
+fn postgres_violations_rejects_empty_sslrootcert() {
+    let c = TlsConfig {
+        database_url: Some(
+            "postgres://app:pass@db:5432/breakdown?sslmode=verify-full&sslrootcert=".into(),
+        ),
+        ..Default::default()
+    };
+    let v = c.violations();
+    assert!(
+        v.iter().any(|v| v.contains("sslrootcert")),
+        "expected sslrootcert violation for empty value, got: {v:?}"
+    );
+}
+
+/// `postgres_violations` rejects whitespace-only `sslrootcert`.
+#[test]
+fn postgres_violations_rejects_whitespace_sslrootcert() {
+    // Use literal spaces (not URL-encoded) since query_params doesn't decode.
+    let c = TlsConfig {
+        database_url: Some(
+            "postgres://app:pass@db:5432/breakdown?sslmode=verify-full&sslrootcert=  ".into(),
+        ),
+        ..Default::default()
+    };
+    let v = c.violations();
+    assert!(
+        v.iter().any(|v| v.contains("sslrootcert")),
+        "expected sslrootcert violation for whitespace value, got: {v:?}"
     );
 }

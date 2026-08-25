@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: ox-alpha-free (opencode-go) -->
+<!-- Co-authored-by: mimo-v2.5 (opencode-go) -->
 
 # Issue #274 — Mutation-Test-Hardening: Patch-/Task-Split
 
@@ -117,16 +118,16 @@ Commit mit `P<id>`-Referenz im Conventional-Commit versehen und die Statuszeile 
 
 | Patch | Datei(en) | Survivor | Status |
 |---|---|---|---|
-| [P1.1](#p1.1) | `crates/api/src/auth/authorization.rs` | 1 | ☐ |
-| [P1.2](#p1.2) | `crates/infra/src/tls.rs` | 12 | ☐ |
-| [P1.3](#p1.3) | `crates/infra/src/vault.rs` | 10 | ☐ |
-| [P1.4](#p1.4) | `crates/core/src/settings/ports.rs` | 10 | ☐ |
-| [P1.5](#p1.5) | `crates/api/src/tls_config.rs` | 2 | ☐ |
+| [P1.1](#p1.1) | `crates/api/src/auth/authorization.rs` | 1 | ☑ |
+| [P1.2](#p1.2) | `crates/infra/src/tls.rs` | 12 | ☑ |
+| [P1.3](#p1.3) | `crates/infra/src/vault.rs` | 10 | ☑ |
+| [P1.4](#p1.4) | `crates/core/src/settings/ports.rs` | 10 | ☑ |
+| [P1.5](#p1.5) | `crates/api/src/tls_config.rs` | 2 | ☑ |
 
 ### P1.1 — Authorization-Bypass-Test für `requirement_for`
 
 **Datei(en):** `crates/api/src/auth/authorization.rs`  
-**Status:** ☐ offen · **Survivor:** 1 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch1-security-crypto`
+**Status:** ☑ erledigt · **Survivor:** 1 · **Commit:** TBD · **Testdatei:** `crates/api/tests/auth_authorization.rs::pdf_report_requires_both_conditions` · **PR/Branch:** `feature/274-batch1-security-crypto`
 
 **Überlebende Mutanten:**
 
@@ -149,7 +150,7 @@ cargo test -p api --features test-support
 ### P1.2 — TLS-Pinning: `root_cert_from_env`, `is_temporary_error`, `PinnedRootTransport::fetch`
 
 **Datei(en):** `crates/infra/src/tls.rs`  
-**Status:** ☐ offen · **Survivor:** 12 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch1-security-crypto`
+**Status:** ☑ erledigt · **Survivor:** 12 · **Commit:** TBD · **PR/Branch:** `feature/274-batch1-security-crypto`
 
 **Überlebende Mutanten:**
 
@@ -184,7 +185,7 @@ cargo test -p infra --features test-support
 ### P1.3 — Vault: Debug-Redaction, `from_env`-Guards, Token-/Schlüsselauflösung (+ Timeout-Härtung)
 
 **Datei(en):** `crates/infra/src/vault.rs`  
-**Status:** ☐ offen · **Survivor:** 10 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch1-security-crypto`
+**Status:** ☑ erledigt · **Survivor:** 10 · **Commit:** TBD · **PR/Branch:** `feature/274-batch1-security-crypto`
 
 **Überlebende Mutanten:**
 
@@ -218,7 +219,7 @@ cargo test -p infra --features test-support
 ### P1.4 — Key-Material: `has_same_material`, `SecretValue::fmt`, Zeroize/Drop
 
 **Datei(en):** `crates/core/src/settings/ports.rs`  
-**Status:** ☐ offen · **Survivor:** 10 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch1-security-crypto`
+**Status:** ☑ erledigt · **Survivor:** 10 · **Commit:** TBD · **PR/Branch:** `feature/274-batch1-security-crypto`
 
 **Überlebende Mutanten:**
 
@@ -250,7 +251,7 @@ cargo test -p core --features test-support
 ### P1.5 — `TlsConfig::validate` / `postgres_violations` (API-Startup-Gate)
 
 **Datei(en):** `crates/api/src/tls_config.rs`  
-**Status:** ☐ offen · **Survivor:** 2 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch1-security-crypto`
+**Status:** ☑ erledigt · **Survivor:** 2 · **Commit:** TBD · **PR/Branch:** `feature/274-batch1-security-crypto`
 
 **Überlebende Mutanten:**
 

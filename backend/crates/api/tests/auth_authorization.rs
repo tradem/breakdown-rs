@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: mimo-v2.5 (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -208,6 +209,39 @@ fn allowlist_paths_map_to_authenticated_only() {
             "expected Authenticated for allowlist path: {path}"
         );
     }
+}
+
+/// PDF report paths require BOTH conditions: ends_with(".pdf") AND
+/// contains("/report/"). The mutant `replace && with ||` would allow
+/// paths that only satisfy one condition — this test kills it.
+#[test]
+fn pdf_report_requires_both_conditions() {
+    // Both conditions true → Authenticated
+    assert!(
+        matches!(
+            api::auth::authorization::requirement_for("/report/summary.pdf"),
+            Requirement::Authenticated
+        ),
+        "expected Authenticated for /report/summary.pdf"
+    );
+
+    // ends_with(".pdf") but NOT contains("/report/") → BlockMember
+    assert!(
+        matches!(
+            api::auth::authorization::requirement_for("/other/document.pdf"),
+            Requirement::BlockMember
+        ),
+        "expected BlockMember for /other/document.pdf (no /report/)"
+    );
+
+    // contains("/report/") but NOT ends_with(".pdf") → BlockMember
+    assert!(
+        matches!(
+            api::auth::authorization::requirement_for("/report/summary"),
+            Requirement::BlockMember
+        ),
+        "expected BlockMember for /report/summary (no .pdf extension)"
+    );
 }
 
 #[tokio::test]

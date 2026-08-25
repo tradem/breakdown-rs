@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
+// Co-authored-by: mimo-v2.5 (opencode-go)
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -261,4 +262,109 @@ fn event_type_names_are_stable() {
         version: AggregateVersion::INITIAL,
     };
     assert_eq!(kameo_es::EventType::event_type(&event), "CredentialBound");
+}
+
+// ---------------------------------------------------------------------------
+// P1.4 — Key-Material: Debug redaction, has_same_material, Zeroize/Drop
+// ---------------------------------------------------------------------------
+
+/// `SecretValue::Debug` must never leak the plaintext secret.
+#[test]
+fn secret_value_debug_redacts_plaintext() {
+    let secret = breakdown_core::settings::ports::SecretValue::new("super-secret".into());
+    let debug = format!("{:?}", secret);
+    assert!(
+        !debug.contains("super-secret"),
+        "Debug must not leak secret"
+    );
+    assert!(
+        debug.contains("<redacted>"),
+        "Debug should show redacted marker"
+    );
+}
+
+/// `has_same_material` returns `true` only when all four fields match.
+#[test]
+fn has_same_material_identical_bundles() {
+    let a = GDriveCredentialBundle::try_new(
+        "cid".into(),
+        "csecret".into(),
+        "rtoken".into(),
+        Some("folder1".into()),
+    )
+    .unwrap();
+    let b = GDriveCredentialBundle::try_new(
+        "cid".into(),
+        "csecret".into(),
+        "rtoken".into(),
+        Some("folder1".into()),
+    )
+    .unwrap();
+    assert!(a.has_same_material(&b));
+}
+
+/// `has_same_material` returns `false` when `client_id` differs.
+#[test]
+fn has_same_material_differs_on_client_id() {
+    let a = GDriveCredentialBundle::try_new("cid-a".into(), "secret".into(), "token".into(), None)
+        .unwrap();
+    let b = GDriveCredentialBundle::try_new("cid-b".into(), "secret".into(), "token".into(), None)
+        .unwrap();
+    assert!(!a.has_same_material(&b));
+}
+
+/// `has_same_material` returns `false` when `client_secret` differs.
+#[test]
+fn has_same_material_differs_on_client_secret() {
+    let a = GDriveCredentialBundle::try_new("cid".into(), "secret-a".into(), "token".into(), None)
+        .unwrap();
+    let b = GDriveCredentialBundle::try_new("cid".into(), "secret-b".into(), "token".into(), None)
+        .unwrap();
+    assert!(!a.has_same_material(&b));
+}
+
+/// `has_same_material` returns `false` when `refresh_token` differs.
+#[test]
+fn has_same_material_differs_on_refresh_token() {
+    let a = GDriveCredentialBundle::try_new("cid".into(), "secret".into(), "token-a".into(), None)
+        .unwrap();
+    let b = GDriveCredentialBundle::try_new("cid".into(), "secret".into(), "token-b".into(), None)
+        .unwrap();
+    assert!(!a.has_same_material(&b));
+}
+
+/// `has_same_material` returns `false` when `root_folder_id` differs.
+#[test]
+fn has_same_material_differs_on_root_folder_id() {
+    let a = GDriveCredentialBundle::try_new(
+        "cid".into(),
+        "secret".into(),
+        "token".into(),
+        Some("folder-a".into()),
+    )
+    .unwrap();
+    let b = GDriveCredentialBundle::try_new(
+        "cid".into(),
+        "secret".into(),
+        "token".into(),
+        Some("folder-b".into()),
+    )
+    .unwrap();
+    assert!(!a.has_same_material(&b));
+}
+
+/// `has_same_material` returns `false` when one bundle has `root_folder_id`
+/// and the other does not.
+#[test]
+fn has_same_material_differs_on_root_folder_presence() {
+    let a = GDriveCredentialBundle::try_new(
+        "cid".into(),
+        "secret".into(),
+        "token".into(),
+        Some("folder".into()),
+    )
+    .unwrap();
+    let b = GDriveCredentialBundle::try_new("cid".into(), "secret".into(), "token".into(), None)
+        .unwrap();
+    assert!(!a.has_same_material(&b));
 }
