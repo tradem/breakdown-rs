@@ -31,6 +31,66 @@ cargo clippy -p <crate> --all-targets -- -D warnings
 cargo test -p <crate> --features test-support
 ```
 
+---
+
+## Patch-Playbook (verbindlich für jede Session — auch für schwächere Modelle)
+
+> **Vor dem Start:** `AGENTS.md` gelesen? Branch ausgecheckt (siehe Tabelle oben)?
+> Dann erst diesen Abschnitt lesen, dann den eigenen Patch-Abschnitt.
+
+### Notations-Legende der Mutanten
+
+Ein Mutant ist eine **automatisch eingebaute Code-Änderung**. Wenn danach alle Tests
+weiter grün sind, „überlebt" er — das ist die Testlücke, die du schließen sollst.
+
+| Notation | Bedeutung | Beispiel-Gegenmaßnahme |
+|---|---|---|
+| `replace && with \|\|` (oder umgekehrt) | Logischer Operator gedreht | Test, der genau **einen** von zwei Bedingungen erfüllt und das gegenteilige Ergebnis erwartet |
+| `replace == with !=` (bzw. `<`→`<=`, `>`→`>=`, …) | Vergleich gedreht/erweitert | Boundary-Test **exakt am Grenzwert** plus je ein Fall darüber/darunter |
+| `delete !` | Negierung entfernt | Test für beide Zweige der Bedingung |
+| `replace match guard X with true/false` | Match-Guard erzwungen | Test je Guard-Ausgang (Leer-/Whitespace-/Normalfall) |
+| `delete match arm "…"` | Match-Zweig gelöscht | Aufruf mit genau diesem Wert; Ergebnis muss stabil bleiben |
+| `replace fn -> T with <WERT>` | Ganzer Funktionskörper ersetzt (z. B. `Ok(vec![])`) | Test, der das echte Ergebnis konkret assertet (Inhalt, Länge, Event-Anzahl, Statuscode) |
+| `replace <impl Trait>::method with ()` / `-> Ok(Default)` | Methode wird zum No-Op | Seiteneffekt beobachten (geschriebene Bytes, gesetzter Zustand) und im Test prüfen |
+
+### So führst du einen Patch aus (Schritt für Schritt)
+
+1. **Kontext:** Patch-Abschnitt unten suchen; Datei(en) öffnen und jede mutierte Stelle
+   mit ~20 Zeilen Kontext lesen. Bei Unklarheit: Funktion komplett lesen.
+2. **Erwartung notieren:** Für jeden Mutanten kurz bestimmen, welches *beobachtbare*
+   Verhalten sich ändert (Rückgabewert, Fehler, Event, HTTP-Status, geschriebene Bytes).
+3. **Tests schreiben:** Je Verhaltensänderung genau ein Testfall; bei vielen Eingabekombinationen
+   einen tabellierten Test (Slice von `(input, expected)`-Paaren). Erst nachdenken, dann tippen.
+4. **Mutanten-Check (mentaler Tötungstest):** Stelle dir vor, der Mutant sei eingebaut —
+   würde dein neuer Test rot? Wenn nein: Test schärfen, nicht den nächsten Mutanten ansehen.
+5. **Verifizieren:** Verify-Kommandos des Patch-Abschnitts ausführen (alle drei müssen grün sein).
+6. **Aufräumen:** `cargo fmt`, keine Warnungen (`clippy -D warnings`), kein toter Testcode.
+7. **Commit:** Conventional Commit mit Patch-ID, z. B. `test(tls): kill root_cert_from_env mutants (P1.2, issue #274)`.
+8. **Statuszeile** im Patch-Abschnitt auf ☑ setzen und Commit-Hash eintragen; dann committen/pushen.
+9. **Nur wenn nötig:** Ist ein Mutant *nachweislich* verhaltensgleich (semantisch äquivalent,
+   z. B. doppelt abgesicherter Zweig), trage ihn einzeln in `exclude_re` in `.cargo/mutants.toml`
+   ein — mit Begründungskommentar und Verweis auf den Patch. **Niemals** mehrere auf einmal,
+   niemals um „die Zahl zu drücken“.
+
+### Wohin gehört der Test?
+
+| Art der Logik | Testort | Läuft ohne Docker |
+|---|---|---|
+| Reine Funktionen, Aggregate, Guards, Parser | Inline-`#[cfg(test)] mod tests` in derselben Datei | ✅ |
+| HTTP-Handler (403/413/Content-Type) | Bestehende Handler-Testmuster in `crates/api/src/handlers/mod.rs` bzw. Tests daneben imitieren | ✅ |
+| Postgres-Projektoren/Queries/Queue (Tier 1–3) | `crates/integration-tests` (Muster `projector_tests` imitieren) | ❌ Docker nötig — nur für P1/P2-Patches, **nie für P0** |
+| Saga-Verhalten mit Storage | Unit-Test mit Fake-`PhotoStorage`/Port-Fake (Muster aus bestehenden Saga-Tests suchen: `grep -rn "impl PhotoStorage" crates/infra/src/photo`) | ✅ |
+
+### Definition of Done (je Patch)
+
+- [ ] Jeder gelistete Mutant ist entweder **getötet** (Test nennt im Namen die mutierte Funktion)
+      oder hat einen einzelnen, begründeten `exclude_re`-Eintrag.
+- [ ] Neue Tests laufen grün: `cargo test -p <crate> --features test-support`.
+- [ ] `cargo clippy -p <crate> --all-targets -- -D warnings` ist leer.
+- [ ] Kein `unwrap()`/`expect()`/`panic!()` im **Produktionscode** (in `#[cfg(test)]` erlaubt).
+- [ ] P0-Patch: Tests laufen **ohne** Docker und sind nicht `#[ignore]`.
+- [ ] Keine timing-/sleep-basierten Tests (Budgets analytisch asserten, AGENTS §4).
+- [ ] Statuszeile aktualisiert (☑ + Commit-Hash).
 
 ## Branches & Session-Split
 
@@ -528,8 +588,11 @@ cargo test -p core --features test-support
 - `crates/core/src/ai/views.rs:216:9: replace TelemetryApplyState::edit_distance -> Option<u32> with Some(0)`
 - `crates/core/src/ai/views.rs:216:9: replace TelemetryApplyState::edit_distance -> Option<u32> with Some(1)`
 
-**Strategie:** _beim Bearbeiten spezifizieren: Mutanten einzeln analysieren,
-je Verhaltensänderung einen Test, sonst `exclude_re` mit Begründung._
+**Strategie (Standardvorgehen, siehe Patch-Playbook):**
+
+1. Mutierte Stelle mit Kontext lesen; pro Mutanten das geänderte Verhalten bestimmen.
+2. Tabellierter Inline-Unit-Test über alle Zweige/Fälle (pro Verhaltensänderung ein Fall).
+3. Verify-Kommandos ausführen; nur semantisch äquivalente Mutanten einzeln via `exclude_re` mit Begründung.
 
 **Verify:**
 
@@ -552,8 +615,11 @@ cargo test -p core --features test-support
 - `crates/core/src/ai/preview.rs:302:41: replace % with / in merge_schedule_to_scenes`
 - `crates/core/src/ai/preview.rs:303:21: replace += with *= in merge_schedule_to_scenes`
 
-**Strategie:** _beim Bearbeiten spezifizieren: Mutanten einzeln analysieren,
-je Verhaltensänderung einen Test, sonst `exclude_re` mit Begründung._
+**Strategie (Standardvorgehen, siehe Patch-Playbook):**
+
+1. Mutierte Stelle mit Kontext lesen; pro Mutanten das geänderte Verhalten bestimmen.
+2. Tabellierter Inline-Unit-Test über alle Zweige/Fälle (pro Verhaltensänderung ein Fall).
+3. Verify-Kommandos ausführen; nur semantisch äquivalente Mutanten einzeln via `exclude_re` mit Begründung.
 
 **Verify:**
 
@@ -661,8 +727,11 @@ cargo test -p infra --features test-support
 - `crates/infra/src/ai/concurrency.rs:49:54: replace < with == in AiConcurrencyLimiter::try_acquire`
 - `crates/infra/src/ai/concurrency.rs:49:54: replace < with > in AiConcurrencyLimiter::try_acquire`
 
-**Strategie:** _beim Bearbeiten spezifizieren: Mutanten einzeln analysieren,
-je Verhaltensänderung einen Test, sonst `exclude_re` mit Begründung._
+**Strategie (Standardvorgehen, siehe Patch-Playbook):**
+
+1. Mutierte Stelle mit Kontext lesen; pro Mutanten das geänderte Verhalten bestimmen.
+2. Tabellierter Inline-Unit-Test über alle Zweige/Fälle (pro Verhaltensänderung ein Fall).
+3. Verify-Kommandos ausführen; nur semantisch äquivalente Mutanten einzeln via `exclude_re` mit Begründung.
 
 **Verify:**
 
@@ -751,8 +820,11 @@ cargo test -p infra --features test-support
 - `crates/infra/src/ai/mapping.rs:147:26: replace < with == in map_mapping`
 - `crates/infra/src/ai/mapping.rs:147:26: replace < with > in map_mapping`
 
-**Strategie:** _beim Bearbeiten spezifizieren: Mutanten einzeln analysieren,
-je Verhaltensänderung einen Test, sonst `exclude_re` mit Begründung._
+**Strategie (Standardvorgehen, siehe Patch-Playbook):**
+
+1. Mutierte Stelle mit Kontext lesen; pro Mutanten das geänderte Verhalten bestimmen.
+2. Tabellierter Inline-Unit-Test über alle Zweige/Fälle (pro Verhaltensänderung ein Fall).
+3. Verify-Kommandos ausführen; nur semantisch äquivalente Mutanten einzeln via `exclude_re` mit Begründung.
 
 **Verify:**
 
@@ -818,8 +890,11 @@ cargo test -p infra --features test-support
 - `crates/infra/src/ai/transport.rs:226:9: replace || with && in is_local_ipv4`
 - `crates/infra/src/ai/transport.rs:231:30: replace && with || in is_local_ipv4`
 
-**Strategie:** _beim Bearbeiten spezifizieren: Mutanten einzeln analysieren,
-je Verhaltensänderung einen Test, sonst `exclude_re` mit Begründung._
+**Strategie (Standardvorgehen, siehe Patch-Playbook):**
+
+1. Mutierte Stelle mit Kontext lesen; pro Mutanten das geänderte Verhalten bestimmen.
+2. Tabellierter Inline-Unit-Test über alle Zweige/Fälle (pro Verhaltensänderung ein Fall).
+3. Verify-Kommandos ausführen; nur semantisch äquivalente Mutanten einzeln via `exclude_re` mit Begründung.
 
 **Verify:**
 
@@ -868,8 +943,11 @@ cargo test -p infra --features test-support
 - `crates/infra/src/ai/merge_worker.rs:112:21: delete field latency_total from struct Telemetry expression in QueueMergeWorker<Q, P>::run_once`
 - `crates/infra/src/ai/merge_worker.rs:113:21: delete field apply_state from struct Telemetry expression in QueueMergeWorker<Q, P>::run_once`
 
-**Strategie:** _beim Bearbeiten spezifizieren: Mutanten einzeln analysieren,
-je Verhaltensänderung einen Test, sonst `exclude_re` mit Begründung._
+**Strategie (Standardvorgehen, siehe Patch-Playbook):**
+
+1. Mutierte Stelle mit Kontext lesen; pro Mutanten das geänderte Verhalten bestimmen.
+2. Tabellierter Inline-Unit-Test über alle Zweige/Fälle (pro Verhaltensänderung ein Fall).
+3. Verify-Kommandos ausführen; nur semantisch äquivalente Mutanten einzeln via `exclude_re` mit Begründung.
 
 **Verify:**
 
@@ -897,8 +975,11 @@ cargo test -p infra --features test-support
 - `crates/infra/src/ai/prompts.rs:22:21: delete ! in default_prompt`
 - `crates/infra/src/ai/credentials.rs:53:9: replace AiCredentialResolver<V>::destroy_key -> Result<(), DomainError> with Ok(())`
 
-**Strategie:** _beim Bearbeiten spezifizieren: Mutanten einzeln analysieren,
-je Verhaltensänderung einen Test, sonst `exclude_re` mit Begründung._
+**Strategie (Standardvorgehen, siehe Patch-Playbook):**
+
+1. Mutierte Stelle mit Kontext lesen; pro Mutanten das geänderte Verhalten bestimmen.
+2. Tabellierter Inline-Unit-Test über alle Zweige/Fälle (pro Verhaltensänderung ein Fall).
+3. Verify-Kommandos ausführen; nur semantisch äquivalente Mutanten einzeln via `exclude_re` mit Begründung.
 
 **Verify:**
 
@@ -1121,8 +1202,11 @@ cargo test -p infra --features test-support
 - `crates/infra/src/reporting/typst_renderer.rs:325:28: replace > with >= in <impl ReportRenderer for TypstReportRenderer>::render`
 - `crates/infra/src/reporting/typst_renderer.rs:354:5: replace load_system_fonts -> Result<Vec<Font>, String> with Ok(vec![])`
 
-**Strategie:** _beim Bearbeiten spezifizieren: Mutanten einzeln analysieren,
-je Verhaltensänderung einen Test, sonst `exclude_re` mit Begründung._
+**Strategie (Standardvorgehen, siehe Patch-Playbook):**
+
+1. Mutierte Stelle mit Kontext lesen; pro Mutanten das geänderte Verhalten bestimmen.
+2. Tabellierter Inline-Unit-Test über alle Zweige/Fälle (pro Verhaltensänderung ein Fall).
+3. Verify-Kommandos ausführen; nur semantisch äquivalente Mutanten einzeln via `exclude_re` mit Begründung.
 
 **Verify:**
 
@@ -1412,8 +1496,11 @@ cargo test -p infra --features test-support
 - `crates/infra/src/queries/costume_category.rs:49:9: replace <impl CostumeCategoryRepository for CostumeCategoryRepositoryImpl>::count_for_season -> Result<i64, DomainError> with Ok(0)`
 - `crates/infra/src/queries/costume_category.rs:49:9: replace <impl CostumeCategoryRepository for CostumeCategoryRepositoryImpl>::count_for_season -> Result<i64, DomainError> with Ok(1)`
 
-**Strategie:** _beim Bearbeiten spezifizieren: Mutanten einzeln analysieren,
-je Verhaltensänderung einen Test, sonst `exclude_re` mit Begründung._
+**Strategie (Standardvorgehen, siehe Patch-Playbook):**
+
+1. Mutierte Stelle mit Kontext lesen; pro Mutanten das geänderte Verhalten bestimmen.
+2. Tabellierter Inline-Unit-Test über alle Zweige/Fälle (pro Verhaltensänderung ein Fall).
+3. Verify-Kommandos ausführen; nur semantisch äquivalente Mutanten einzeln via `exclude_re` mit Begründung.
 
 **Verify:**
 
@@ -1445,8 +1532,11 @@ cargo test -p infra --features test-support
 - `crates/infra/src/queries/shooting_day.rs:71:9: replace <impl ShootingDayRepository for ShootingDayRepositoryImpl>::scenes_by_shooting_day -> Result<Vec<SceneView>, DomainError> with Ok(vec![])`
 - `crates/infra/src/queries/reports.rs:34:9: replace <impl SceneShootReportRepository for SceneShootReportRepositoryImpl>::dispo_report -> Result<Vec<DispoRow>, DomainError> with Ok(vec![])`
 
-**Strategie:** _beim Bearbeiten spezifizieren: Mutanten einzeln analysieren,
-je Verhaltensänderung einen Test, sonst `exclude_re` mit Begründung._
+**Strategie (Standardvorgehen, siehe Patch-Playbook):**
+
+1. Mutierte Stelle mit Kontext lesen; pro Mutanten das geänderte Verhalten bestimmen.
+2. Tabellierter Inline-Unit-Test über alle Zweige/Fälle (pro Verhaltensänderung ein Fall).
+3. Verify-Kommandos ausführen; nur semantisch äquivalente Mutanten einzeln via `exclude_re` mit Begründung.
 
 **Verify:**
 
