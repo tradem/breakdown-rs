@@ -9,6 +9,10 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+#[cfg(test)]
+#[path = "ports_tests.rs"]
+mod ports_tests;
+
 use crate::error::DomainError;
 use crate::shared::{AggregateVersion, BlockId, UserId};
 

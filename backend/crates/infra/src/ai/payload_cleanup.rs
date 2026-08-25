@@ -13,6 +13,10 @@ use uuid::Uuid;
 
 use super::preview_store::{AiDocumentStore, AiPreviewStore};
 
+#[cfg(test)]
+#[path = "payload_cleanup_tests.rs"]
+mod payload_cleanup_tests;
+
 fn is_not_found(err: &DomainError) -> bool {
     matches!(err, DomainError::NotFound { .. })
 }

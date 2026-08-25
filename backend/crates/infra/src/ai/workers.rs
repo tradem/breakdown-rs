@@ -18,6 +18,10 @@ use breakdown_core::error::DomainError;
 use breakdown_core::scene::commands::{CreateScene, UpdateSceneDetails};
 use breakdown_core::scene::ports::SceneCommands;
 use breakdown_core::shared::{EpisodeId, SeriesId, UserId};
+
+#[cfg(test)]
+#[path = "worker_mutation_tests.rs"]
+mod worker_mutation_tests;
 use serde_json::to_vec;
 use uuid::Uuid;
 

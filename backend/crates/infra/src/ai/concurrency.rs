@@ -9,6 +9,10 @@ use breakdown_core::ai::AiImportBounds;
 use breakdown_core::error::DomainError;
 use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
 
+#[cfg(test)]
+#[path = "concurrency_tests.rs"]
+mod concurrency_tests;
+
 /// Bounded in-flight concurrency guard. The permit must be held for the full
 /// job lifetime; dropping it releases both global and per-user capacity.
 pub struct AiConcurrencyLimiter {

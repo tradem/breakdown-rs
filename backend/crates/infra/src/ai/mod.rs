@@ -82,7 +82,11 @@ pub use workers::{
 use breakdown_core::ai::{AiImportBounds, CuratedLlmProvider, LlmProvider};
 
 #[cfg(test)]
+mod catalog_misc_tests;
+#[cfg(test)]
 mod payload_recovery_tests;
+#[cfg(test)]
+mod provider_url_tests;
 #[cfg(test)]
 mod tests;
 

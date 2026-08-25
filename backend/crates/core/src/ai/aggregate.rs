@@ -5,6 +5,10 @@
 use std::collections::HashMap;
 
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
+
+#[cfg(test)]
+#[path = "aggregate_tests.rs"]
+mod aggregate_tests;
 use uuid::Uuid;
 
 use crate::shared::{AggregateVersion, EventMetadata, UserId};
