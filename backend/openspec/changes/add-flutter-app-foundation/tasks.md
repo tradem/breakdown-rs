@@ -73,23 +73,29 @@
 
 ## 3. CI workflow (foundation deliverable — Session 2 apply)
 
-- [ ] 3.1 Add `.github/workflows/flutter-ci.yml` triggered on PRs touching
+- [x] 3.1 Add `.github/workflows/flutter-ci.yml` triggered on PRs touching
        `frontend-flutter/**`
-- [ ] 3.2 Steps: `dart format --set-exit-if-changed`, `flutter analyze`
+- [x] 3.2 Steps: `dart format --set-exit-if-changed`, `flutter analyze`
        (with the lint rule names the skills document; the actual
        `analysis_options.yaml` lands with the scaffold follow-up — until
        then this step runs against Flutter's defaults and is advisory-only,
        documented as such in the workflow)
-- [ ] 3.3 `gitleaks` scan over `frontend-flutter/**`
-       (`.dart`/`.yaml`/`.arb`/`.md`)
-- [ ] 3.4 SHA-pin every third-party action (40-char SHA + `# vX`
+- [x] 3.3 `gitleaks` scan over `frontend-flutter/**`
+       (`.dart`/`.yaml`/`.arb`/`.md`) — reuses the repo's proven
+       `gitleaks-action` SHA; documents the global `.md` allowlist as a
+       foundation limitation to tighten (scoped config) when the scaffold lands
+- [x] 3.4 SHA-pin every third-party action (40-char SHA + `# vX`
        comment); wire Dependabot bumps via `.github/dependabot.yml` (extend
-       the backend config if it does not already cover `frontend-flutter/`)
-- [ ] 3.5 The OpenAPI-client drift check, `flutter test --coverage`, and the
+       the backend config if it does not already cover `frontend-flutter/`) —
+       the existing `github-actions` entry on `directory: /` already covers
+       every workflow file in the repo (incl. this one), so no dependabot
+       extension was required; a `pub`-ecosystem entry is deferred until a
+       `pubspec.yaml` lands with `scaffold-flutter-project`
+- [x] 3.5 The OpenAPI-client drift check, `flutter test --coverage`, and the
        `coverde` gate are **deferred** to the `add-flutter-ci-tests` follow-up
        (they require a real Flutter project to exist) — document this
-       deferral as a comment in the workflow
-- [ ] 3.6 Commit on `feat/add-flutter-app-foundation`
+       deferral as a comment in the workflow (deferred-jobs block at EOF)
+- [x] 3.6 Commit on `feat/add-flutter-app-foundation`
 
 ## Out of scope (separate follow-up changes, not in this foundation)
 

@@ -1,0 +1,151 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: glm-5.2 (neuralwatt)
+#
+# Flutter CI — gates changes under frontend-flutter/**.
+# See openspec change `add-flutter-app-foundation` (Task 3) and
+# `frontend-flutter/AGENTS.md` §6 "CI quality gates" (decision D8).
+#
+# Foundation posture (until follow-up changes land):
+#  - `dart format` / `flutter analyze` run, but with no pubspec.yaml yet
+#    (the scaffold-flutter-project follow-up has not landed) they are
+#    advisory-only / skipped with a ::notice::. The analyze step is
+#    `continue-on-error: true` until analysis_options.yaml + the project
+#    custom_lint package ship with the scaffold — at that point the custom
+#    lint rules documented in `.pi/skills/flutter-lint-analysis/` become
+#    enforceable and the continue-on-error is removed.
+#  - `gitleaks` IS enforced now (secret hygiene gate).
+#  - The OpenAPI-client drift check, `flutter test --coverage`, and the
+#    `coverde` coverage gate are DEFERRED to the `add-flutter-ci-tests` and
+#    `wire-openapi-dart-client` follow-ups — they require a real Flutter
+#    project (pubspec + test/ + lib/api/generated/) to exist. See the
+#    deferred-jobs comment block below.
+#
+# CI hardening:
+#  - Every third-party action is SHA-pinned (40-char SHA + `# vX` comment),
+#    mirroring the backend's CI-hardening rules (AGENTS.md §4 / ADR-notes).
+#  - Dependabot (`.github/dependabot.yml`) bumps these SHAs: the existing
+#    `github-actions` entry on `directory: /` already covers every workflow
+#    file in the repo (including this one), so no dependabot extension is
+#    needed for frontend-flutter. A `pub`-ecosystem Dependabot entry is
+#    deferred until `scaffold-flutter-project` lands pubspec.yaml.
+
+name: Flutter CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend-flutter/**"
+      - ".github/workflows/flutter-ci.yml"
+      - ".gitleaks.toml"
+  pull_request:
+    paths:
+      - "frontend-flutter/**"
+      - ".github/workflows/flutter-ci.yml"
+      - ".gitleaks.toml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flutter-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  format-and-analyze:
+    name: Format & Analyze
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend-flutter
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          cache: true
+
+      # `dart format --set-exit-if-changed` — fails if any tracked Dart source
+      # is not formatted. Until the scaffold lands there are no .dart sources,
+      # so this no-ops with a notice. `lib/api/generated/**` is rebuild-only
+      # (see .pi/skills/flutter-codegen-conventions/) and is excluded.
+      - name: dart format (set-exit-if-changed)
+        run: |
+          set -euo pipefail
+          if [ ! -f pubspec.yaml ]; then
+            echo "::notice::frontend-flutter has no pubspec.yaml yet (scaffold-flutter-project follow-up not landed); dart format is advisory-only and skipped."
+            exit 0
+          fi
+          SRC="$(find lib test integration_test -name '*.dart' -not -path 'lib/api/generated/*' 2>/dev/null || true)"
+          if [ -z "${SRC}" ]; then
+            echo "::notice::No hand-written Dart sources to format yet."
+            exit 0
+          fi
+          # shellcheck disable=SC2086 # word-splitting is intentional here
+          dart format --set-exit-if-changed ${SRC}
+
+      # `flutter analyze` — ADVISORY-ONLY until analysis_options.yaml + the
+      # custom_lint package (no-throw-in-data/domain, discard_result,
+      # no_hardcoded_colors, AUTHZ-GATE) ship with scaffold-flutter-project.
+      # continue-on-error flips to enforcing once the custom lint surface lands.
+      - name: flutter analyze (advisory until scaffold)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          if [ ! -f pubspec.yaml ]; then
+            echo "::notice::frontend-flutter has no pubspec.yaml yet (scaffold-flutter-project follow-up not landed); flutter analyze is advisory-only and skipped."
+            exit 0
+          fi
+          flutter pub get
+          # `--no-fatal-infos` keeps info-level diagnostics non-fatal; custom
+          # rule names are documented in .pi/skills/flutter-lint-analysis/.
+          flutter analyze --no-fatal-infos
+
+  gitleaks:
+    name: Gitleaks (secrets)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          fetch-depth: 0
+      - name: Detect secrets with Gitleaks
+        # Scans changes introduced in the PR. frontend-flutter/** is NOT in
+        # the global .gitleaks.toml allowlist (only `frontend/.*` is), so its
+        # .dart / .yaml / .arb files are scanned. NB: the global config
+        # allowlists `.*\.md$`, so the ported-skill .md files rely on review
+        # + structural rules; tighten to a scoped config when the scaffold
+        # lands if .md scanning is required.
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+# ---------------------------------------------------------------------------
+# DEFERRED jobs (Task 3.5) — NOT wired yet; land with their follow-up changes.
+#
+#  - openapi-client-drift:
+#      Regenerate lib/api/generated/ from backend/openapi.yaml into a
+#      throwaway, diff against the committed tree, fail on difference.
+#      Lands with `wire-openapi-dart-client` (needs lib/api/generated/ to
+#      exist). Mirrors backend `UPDATE_OPENAPI=1 cargo test -p api --test
+#      openapi_drift`. See spec `flutter-openapi-client`.
+#
+#  - test-with-coverage:
+#      `flutter test --coverage` + a `coverde` line/branch threshold gate on
+#      changed code (decision D5 substitute for the absent Dart mutator).
+#      Lands with `add-flutter-ci-tests` (needs test/ to exist). See spec
+#      `flutter-test-pyramid` / `flutter-ci-coverage`.
+#
+#  - mutation-testing:
+#      Explicitly NOT a gate — no maintained Dart/Flutter mutator exists
+#      (documented gap, spec `flutter-test-pyramid`). Do not re-add without a
+#      maintained tool wired into CI.
+# ---------------------------------------------------------------------------
