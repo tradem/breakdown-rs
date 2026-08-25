@@ -20,18 +20,15 @@
 
 mod common;
 
-use std::collections::HashMap;
-
 use axum::body::Bytes;
 use axum::extract::State;
 
 use api::auth::CurrentUser;
 use api::handlers::{
-    delete_costume_photo, dispo_report, dispo_report_pdf, get_costume_photo_bytes,
-    link_continuity_photo, manual_archive_reports, planned_vs_actual_report_pdf,
-    shoot_day_report, shoot_day_report_pdf, soll_ist_report, unlink_continuity_photo,
-    upload_costume_photo, LinkContinuityPhotoRequest, ListParams, PhotoBytesQuery,
-    VersionRequest,
+    LinkContinuityPhotoRequest, ListParams, PhotoBytesQuery, VersionRequest, delete_costume_photo,
+    dispo_report, dispo_report_pdf, get_costume_photo_bytes, link_continuity_photo,
+    manual_archive_reports, planned_vs_actual_report_pdf, shoot_day_report, shoot_day_report_pdf,
+    soll_ist_report, unlink_continuity_photo, upload_costume_photo,
 };
 use api::problems::{Json, Path, Query};
 use api::state::AppState;
@@ -40,8 +37,7 @@ use breakdown_core::character::CharacterView;
 use breakdown_core::costume::CostumeView;
 use breakdown_core::episode::EpisodeView;
 use breakdown_core::shared::{
-    AggregateVersion, BlockId, EpisodeId, PhotoId, SeasonId, SceneShootId, SeriesId,
-    ShootingDayId, UserId,
+    AggregateVersion, BlockId, EpisodeId, PhotoId, SceneShootId, SeasonId, SeriesId, ShootingDayId,
 };
 use breakdown_core::shooting_day::ShootingDayView;
 use common::FakePorts;
@@ -92,12 +88,9 @@ async fn seed_shooting_day_chain(ports: &FakePorts) -> (ShootingDayId, SeasonId)
     let bl_id = block_id();
     let sid = season_id();
 
-    ports
-        .block_repo
-        .blocks
-        .lock()
-        .await
-        .insert(bl_id.0, BlockView {
+    ports.block_repo.blocks.lock().await.insert(
+        bl_id.0,
+        BlockView {
             id: bl_id.0,
             series_id: series_id(),
             season_id: sid,
@@ -106,13 +99,11 @@ async fn seed_shooting_day_chain(ports: &FakePorts) -> (ShootingDayId, SeasonId)
             end_date: None,
             version: AggregateVersion::INITIAL,
             updated_at: chrono::Utc::now(),
-        });
-    ports
-        .episode_repo
-        .episodes
-        .lock()
-        .await
-        .insert(ep_id.0, EpisodeView {
+        },
+    );
+    ports.episode_repo.episodes.lock().await.insert(
+        ep_id.0,
+        EpisodeView {
             id: ep_id.0,
             block_id: bl_id,
             series_id: series_id(),
@@ -120,13 +111,11 @@ async fn seed_shooting_day_chain(ports: &FakePorts) -> (ShootingDayId, SeasonId)
             name: Some("Episode 1".into()),
             version: AggregateVersion::INITIAL,
             updated_at: chrono::Utc::now(),
-        });
-    ports
-        .shooting_day_repo
-        .days
-        .lock()
-        .await
-        .insert(sd_id, ShootingDayView {
+        },
+    );
+    ports.shooting_day_repo.days.lock().await.insert(
+        sd_id,
+        ShootingDayView {
             id: sd_id,
             episode_id: ep_id,
             label: Some("Day 1".into()),
@@ -137,7 +126,8 @@ async fn seed_shooting_day_chain(ports: &FakePorts) -> (ShootingDayId, SeasonId)
             wrapped_at: None,
             version: AggregateVersion::INITIAL,
             updated_at: chrono::Utc::now(),
-        });
+        },
+    );
     (sd_id, sid)
 }
 
@@ -147,12 +137,9 @@ async fn seed_costume_chain(ports: &FakePorts) -> (uuid::Uuid, SeasonId) {
     let char_id = uuid::Uuid::new_v4();
     let sid = season_id();
 
-    ports
-        .character_repo
-        .characters
-        .lock()
-        .await
-        .insert(char_id, CharacterView {
+    ports.character_repo.characters.lock().await.insert(
+        char_id,
+        CharacterView {
             id: char_id,
             season_id: sid,
             name: "Test Character".into(),
@@ -161,13 +148,11 @@ async fn seed_costume_chain(ports: &FakePorts) -> (uuid::Uuid, SeasonId) {
             contact: breakdown_core::character::ContactInfo::default(),
             version: AggregateVersion::INITIAL,
             updated_at: chrono::Utc::now(),
-        });
-    ports
-        .costume_repo
-        .costumes
-        .lock()
-        .await
-        .insert(costume_id, CostumeView {
+        },
+    );
+    ports.costume_repo.costumes.lock().await.insert(
+        costume_id,
+        CostumeView {
             id: costume_id,
             character_id: Some(char_id),
             notes: String::new(),
@@ -175,7 +160,8 @@ async fn seed_costume_chain(ports: &FakePorts) -> (uuid::Uuid, SeasonId) {
             photos: vec![],
             version: AggregateVersion::INITIAL,
             updated_at: chrono::Utc::now(),
-        });
+        },
+    );
     (costume_id, sid)
 }
 
@@ -243,12 +229,9 @@ async fn delete_costume_photo_denies_non_member() {
     *ports.membership_repo.costume_role_override.lock().await = Some(Ok(false));
     let state = app_state(ports);
 
-    let result = delete_costume_photo::<FakePorts>(
-        State(state),
-        dummy_user(),
-        Path((costume_id, photo_id)),
-    )
-    .await;
+    let result =
+        delete_costume_photo::<FakePorts>(State(state), dummy_user(), Path((costume_id, photo_id)))
+            .await;
 
     let problem = result
         .expect_err("denied caller must get an error")
@@ -393,8 +376,7 @@ async fn shoot_day_report_pdf_denies_non_member() {
     *ports.membership_repo.costume_role_override.lock().await = Some(Ok(false));
     let state = app_state(ports);
 
-    let result =
-        shoot_day_report_pdf::<FakePorts>(State(state), dummy_user(), Path(sd_id)).await;
+    let result = shoot_day_report_pdf::<FakePorts>(State(state), dummy_user(), Path(sd_id)).await;
 
     let problem = result
         .expect_err("denied caller must get an error")
@@ -426,11 +408,14 @@ async fn planned_vs_actual_report_pdf_denies_non_member() {
 async fn manual_archive_reports_denies_non_member() {
     let ports = FakePorts::default();
     let (sd_id, _sid) = seed_shooting_day_chain(&ports).await;
-    *ports.membership_repo.report_archive_role_override.lock().await = Some(Ok(false));
+    *ports
+        .membership_repo
+        .report_archive_role_override
+        .lock()
+        .await = Some(Ok(false));
     let state = app_state(ports);
 
-    let result =
-        manual_archive_reports::<FakePorts>(State(state), dummy_user(), Path(sd_id)).await;
+    let result = manual_archive_reports::<FakePorts>(State(state), dummy_user(), Path(sd_id)).await;
 
     let problem = result
         .expect_err("denied caller must get an error")
@@ -605,10 +590,6 @@ async fn get_audit_history_requires_series_id() {
 // ---------------------------------------------------------------------------
 
 /// Helper: build a valid jpeg header (first 3 bytes: FF D8 FF).
-fn jpeg_header() -> Bytes {
-    Bytes::from_static(&[0xFF, 0xD8, 0xFF, 0xE0])
-}
-
 #[tokio::test]
 async fn upload_costume_photo_rejects_payload_too_large() {
     let ports = FakePorts::default();
