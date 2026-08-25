@@ -33,19 +33,20 @@
        backend `AGENTS.md` layout
 - [x] 0.5 `tasks.md` — this file, scoped to foundation deliverables only
 - [x] 0.6 `openspec validate add-flutter-app-foundation` passes ✅
-- [ ] 0.7 Commit the OpenSpec artifacts on `feat/add-flutter-app-foundation`
+- [x] 0.7 Commit the OpenSpec artifacts on `feat/add-flutter-app-foundation`
+       (landed in commit `569d162` on the change branch)
 - [ ] 0.8 Open PR for review of the foundation artifacts
 
 ## 1. `frontend-flutter/AGENTS.md` (foundation deliverable — Session 2 apply)
 
-- [ ] 1.1 Create directory `frontend-flutter/` at the monorepo root
-- [ ] 1.2 Copy `design.md` verbatim to `frontend-flutter/AGENTS.md`
+- [x] 1.1 Create directory `frontend-flutter/` at the monorepo root
+- [x] 1.2 Copy `design.md` verbatim to `frontend-flutter/AGENTS.md`
        (byte-identical; the OpenSpec artifact remains the source of truth,
        the on-disk file is the convenience copy consumed by coding agents
-       working inside `frontend-flutter/`)
-- [ ] 1.3 Apply SPDX header + co-authored-by convention to the file (the
-       header is already in `design.md`; verify it survives the copy)
-- [ ] 1.4 Commit on `feat/add-flutter-app-foundation`
+       working inside `frontend-flutter/`) — `diff -q` confirms identical
+- [x] 1.3 Apply SPDX header + co-authored-by convention to the file (the
+       header is already in `design.md`; verified it survives the copy)
+- [x] 1.4 Commit on `feat/add-flutter-app-foundation`
 
 ## 2. Ported pi-code skills (foundation deliverable — Session 2 apply)
 
