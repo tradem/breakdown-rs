@@ -12,15 +12,18 @@ stance (ADR-024). This change implements it so gated photo/continuity
 handlers can be called safely.
 
 ## What changes
-- OIDC PKCE client against Logto dev (`http://localhost:3301`) / prod IdP,
-  consuming the backend's ADR-010 / ADR-018 contract.
+- OIDC PKCE client against Logto dev / prod IdP, consuming the backend's
+  ADR-010 / ADR-018 contract. The dev endpoint must be Android-reachable —
+  resolve the HTTPS-with-dev-CA vs port-forwarded-HTTP-exception transport
+  during this change's design phase (see tracking issue).
 - `flutter_secure_storage` for access/refresh/id tokens (never plaintext).
 - `currentMembershipProvider` exposing membership/role state for
   AUTHZ-GATE checks.
 - Cert pinning: pinned-CA `HttpClient`/`dio` per flavor from
   `--dart-define`.
-- Dev auth mode parity with backend (`DEV_AUTH_SUB`): permissive locally;
-  impossible in `prod` flavor.
+- Dev auth mode parity with backend (`DEV_AUTH_SUB`): permissive **only**
+  when `OIDC_ISS` is absent AND `DEV_AUTH_SUB` is set (the exact backend
+  predicate); impossible in `prod` flavor.
 - `// AUTHZ-GATE:` comment convention + grep verification documented.
 
 ## Dependencies

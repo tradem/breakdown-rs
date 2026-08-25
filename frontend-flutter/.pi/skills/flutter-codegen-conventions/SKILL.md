@@ -47,10 +47,28 @@ Hand-edits fail CI:
 - `dart run build_runner build` is the single source for the `*.g.dart` /
   `*.freezed.dart` outputs.
 
+## Package layout of the generated client
+
+The dart generator emits a **standalone Dart package rooted at `-o`** — its
+own `pubspec.yaml` lands in `lib/api/generated/`, not sources merged into
+the app's `lib/`. The app consumes it as a path dependency:
+
+```yaml
+# frontend-flutter/pubspec.yaml
+dependencies:
+  breakdown_api:
+    path: lib/api/generated
+```
+
+(`dart pub run build_runner build` is NOT an OpenAPI generator; build_runner
+only drives drift_dev / riverpod_generator / freezed / json_serializable.)
+
 ## Regenerating the OpenAPI Dart client
 
 The checked-in `backend/openapi.yaml` is the **single source of truth** for
-the API surface (decision D1). Regenerate into `lib/api/generated/`:
+the API surface (decision D1). The generator version is pinned by the
+committed `frontend-flutter/openapitools.json` — do not override it on the
+CLI. Regenerate into `lib/api/generated/`:
 
 ```bash
 cd frontend-flutter

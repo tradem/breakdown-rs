@@ -99,7 +99,7 @@ Padding(padding: EdgeInsets.all(13));
 - `dev` flavor: seed from dev token set; optional dev banner. May trust a
   dev-pinned CA set (see `flutter-client-authz` spec) — but never a
   "disable-verification" switch.
-- `prod` flavor: prod token set; `REQUIRE_IN Transit-FLS`-grade posture
+- `prod` flavor: prod token set; `REQUIRE_IN_TRANSIT_TLS`-grade posture
   mirroring the backend.
 - Flavors are wired via `--dart-define` at build; no other flavors without a
   change proposal.

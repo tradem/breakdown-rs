@@ -43,14 +43,17 @@ tool) if and only if: (a) on-device LLM availability on the target Android
 fleet becomes reliable, AND (b) tooling can be constrained to emit code
 conforming to Riverpod + OpenAPI-client + Result discipline. Should a
 contributor introduce genui outputs into review despite this requirement,
-the reviewer challenges them; if the pattern recurs, a hard-ban spec
-(upgrading this requirement from SHOULD-NOT to MUST-NOT) is the prescribed
-remedy.
+the reviewer challenges them — the prohibition is already normative
+(`SHALL NOT`). If the pattern recurs, a hard-ban spec that adds mechanical
+enforcement of that existing prohibition is the prescribed remedy.
 
-> Encoding intent: the current analysis favors Szenario B (assistant authors
-> directly). If that path keeps producing quality screens with low review
-> friction, the natural endpoint is an explicit hard ban on generated-UI
-> workflows — hence "defer-ban" rather than "maybe-later".
+> Encoding intent: the requirement above is already normative (`SHALL NOT`):
+> genui output is not adopted today, full stop. What recurrence escalates is
+> the *enforcement posture* — repeated misuse moves the rule from
+> review-challenge to a hard, mechanically-checked ban. The current analysis
+> favors Szenario B (assistant authors directly); if that path keeps producing
+> quality screens with low review friction, the natural endpoint is that hard
+> ban — hence "defer-ban" rather than "maybe-later".
 
 #### Scenario: A PR ships genui-generated widget code
 - **WHEN** a PR introduces a widget that a contributor authored via

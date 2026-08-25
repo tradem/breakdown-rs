@@ -15,7 +15,7 @@ pattern every subsequent screen-by-screen implementation follows.
   `SeasonsController` returning `AsyncValue<List<SeasonDto>>`.
 - `SeasonsRepository` wrapping the generated client + Drift cache.
 - `SeasonsScreen` `ConsumerWidget` (no `StatefulWidget` / `setState`).
-- Optimistic create + bounded-retry refetch on `POST /seasons`.
+- Optimistic create + bounded-retry refetch on `POST /v1/seasons`.
 - Tests: unit (mapper, repository Ok/Err branches), widget + golden,
   integration_test smoke.
 - Documented as the reference pattern in `AGENTS.md` §9 (already in
@@ -23,8 +23,10 @@ pattern every subsequent screen-by-screen implementation follows.
 
 ## Dependencies
 - **Depends on:** `scaffold-flutter-project`, `wire-openapi-dart-client`,
-  `wire-flutter-oidc-auth`. Optional but recommended: `add-drift-read-cache`
-  (cache-backed).
+  `wire-flutter-oidc-auth`, and `add-drift-read-cache` — required, not
+  optional: `flutter-offline-scope` mandates Drift as the read-projection
+  cache and the single source for screen state, so a cache-less
+  implementation of this screen would violate that requirement.
 
 ## Non-goals
 - No other screens (this is the reference; subsequent screens open their

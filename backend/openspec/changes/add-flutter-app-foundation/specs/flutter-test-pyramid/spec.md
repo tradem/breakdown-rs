@@ -16,8 +16,9 @@ catch rendering/logic drift a plain assertion misses;
 full screen-flow scenarios against a real or mocked API.
 
 #### Scenario: A non-trivial widget is added without a golden
-- **WHEN** a PR adds a stateful widget that renders domain state (not a leaf
-  presentational widget).
+- **WHEN** a PR adds any non-trivial widget that renders domain state —
+  `ConsumerWidget`, `StatefulWidget`, or otherwise (not a leaf presentational
+  widget).
 - **THEN** CI requires an accompanying widget test and, where the layout is
   non-trivial, a golden test reference file.
 

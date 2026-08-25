@@ -25,7 +25,9 @@ is rebuild-only.
 The generated client SHALL treat HTTP routes as resource-oriented REST with
 CQRS semantics — write actions as `POST` to resource/collection routes,
 reads as `GET` to projection-backed resource routes — *not* as a stylized
-`POST /commands/{aggregate}/{action}` command bus.
+`POST /commands/{aggregate}/{action}` command bus. Route paths are written
+below with the API's actual `/v1` context path (ADR-021), matching
+`backend/openapi.yaml`.
 
 > Note: this corrects the sketch in ADR-007 §"CQRS-Aware API Design" against
 > the actual checked-in `openapi.yaml`. A separate ADR-007 amendment is
@@ -33,14 +35,14 @@ reads as `GET` to projection-backed resource routes — *not* as a stylized
 
 #### Scenario: Creating a season (write side)
 - **WHEN** the user confirms the Create Season form.
-- **THEN** the client issues `POST /seasons` carrying the command payload and
-  treats the response as command acknowledgement (immediate) distinct from
-  the eventual projection update.
+- **THEN** the client issues `POST /v1/seasons` carrying the command payload
+  and treats the response as command acknowledgement (immediate) distinct
+  from the eventual projection update.
 
 #### Scenario: Listing seasons (read side)
 - **WHEN** the SeasonsScreen loads.
-- **THEN** the client issues `GET /seasons` against the read projection and
-  reconciles eventual projector lag with optimistic state (see
+- **THEN** the client issues `GET` against the read projection under `/v1`
+  and reconciles eventual projector lag with optimistic state (see
   `flutter-state-management`).
 
 ### Requirement: OpenAPI Drift Check in CI

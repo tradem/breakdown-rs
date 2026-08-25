@@ -320,7 +320,10 @@ CI runs:
   flutter run --flavor dev --dart-define=API_BASE=http://localhost:3000 \
     --dart-define=OIDC_ISS=http://localhost:3301
   ```
-- **Regenerating the Dart client:**
+- **Regenerating the Dart client:** (run from `frontend-flutter/`; the
+  generator version comes from the committed
+  `frontend-flutter/openapitools.json` — do not pass a different version on
+  the CLI)
   ```bash
   npx @openapitools/openapi-generator-cli generate \
     -i ../backend/openapi.yaml \

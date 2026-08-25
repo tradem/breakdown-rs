@@ -19,7 +19,9 @@
 #    `coverde` coverage gate are DEFERRED to the `add-flutter-ci-tests` and
 #    `wire-openapi-dart-client` follow-ups — they require a real Flutter
 #    project (pubspec + test/ + lib/api/generated/) to exist. See the
-#    deferred-jobs comment block below.
+#    deferred-jobs comment block below. NOTE: enabling the drift job MUST
+#    also add `backend/openapi.yaml` to the `paths:` filters above, so a
+#    backend-only OpenAPI change triggers the check.
 #
 # CI hardening:
 #  - Every third-party action is SHA-pinned (40-char SHA + `# vX` comment),
@@ -61,7 +63,11 @@ jobs:
         working-directory: frontend-flutter
     steps:
       - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # No later step needs authenticated Git operations; do not leave
+          # the GITHUB_TOKEN on disk for plugin/analyzer code to read.
+          persist-credentials: false
 
       - name: Set up Flutter SDK
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
@@ -110,13 +116,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      checks: write
-      pull-requests: read
+      pull-requests: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Detect secrets with Gitleaks
         # Scans changes introduced in the PR. frontend-flutter/** is NOT in
         # the global .gitleaks.toml allowlist (only `frontend/.*` is), so its
@@ -124,6 +130,11 @@ jobs:
         # allowlists `.*\.md$`, so the ported-skill .md files rely on review
         # + structural rules; tighten to a scoped config when the scaffold
         # lands if .md scanning is required.
+        #
+        # Permissions match what gitleaks-action actually does:
+        # GITLEAKS_ENABLE_COMMENTS defaults to true and posts inline PR
+        # review comments -> pull-requests: write is required (read fails
+        # the call). checks: write is NOT used by the pinned action.
         uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
         env:
           GITHUB_TOKEN: ${{ github.token }}

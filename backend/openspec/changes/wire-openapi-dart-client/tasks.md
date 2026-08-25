@@ -5,10 +5,17 @@
 ## 1. Generator wiring
 - [ ] 1.1 `frontend-flutter/scripts/regen-client.sh` running
        `openapi-generator-cli generate -i ../backend/openapi.yaml -g dart -o
-       lib/api/generated --additional-properties=pubName=breakdown_api`
+       lib/api/generated --additional-properties=pubName=breakdown_api` —
+       the script MUST be independent of the caller's working directory
+       (resolve the repo/frontend-flutter root from the script location or
+       `cd` into `frontend-flutter` first), because relative paths otherwise
+       only work when invoked from `frontend-flutter/`
 - [ ] 1.2 `// GENERATED — do not edit` banner added via generator template
 - [ ] 1.3 Document regen procedure in `frontend-flutter/AGENTS.md` (§3 is
        already written; add the concrete script invocation)
+- [ ] 1.4 Pin reproducibility: generator version comes from the committed
+       `frontend-flutter/openapitools.json`; the same script runs locally
+       and in CI (the drift step invokes it), with locked package resolution
 
 ## 2. First generated client
 - [ ] 2.1 Run `regen-client.sh` against the current `backend/openapi.yaml`
@@ -26,7 +33,9 @@
        branching surfaces the stable `code` (never `detail` text)
 
 ## 4. CI drift check
-- [ ] 4.1 Enable the deferred drift step in `flutter-ci.yml`
+- [ ] 4.1 Enable the deferred drift step in `flutter-ci.yml` and add
+       `backend/openapi.yaml` to its `paths:` filters (otherwise a
+       backend-only OpenAPI change bypasses the check)
 - [ ] 4.2 Scenario: spec changed, client not regenerated → CI fails with
        regenerate instruction
 - [ ] 4.3 Scenario: hand-edit to `lib/api/generated/` → CI fails

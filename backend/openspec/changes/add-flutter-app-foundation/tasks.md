@@ -95,7 +95,9 @@
 - [x] 3.5 The OpenAPI-client drift check, `flutter test --coverage`, and the
        `coverde` gate are **deferred** to the `add-flutter-ci-tests` follow-up
        (they require a real Flutter project to exist) — document this
-       deferral as a comment in the workflow (deferred-jobs block at EOF)
+       deferral as a comment in the workflow (deferred-jobs block at EOF;
+       enabling the drift job MUST also add `backend/openapi.yaml` to the
+       workflow's `paths:` filters so backend-only spec changes trigger it)
 - [x] 3.6 Commit on `feat/add-flutter-app-foundation`
 
 ## Out of scope (separate follow-up changes, not in this foundation)

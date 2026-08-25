@@ -13,7 +13,12 @@
 - [ ] 2.2 Steps exercise the report screen end-to-end on device
 
 ## 3. Continuity photo capture `.feature`
-- [ ] 3.1 Scenario: AUTHZ-GATE denies unprivileged user (no network call)
+- [ ] 3.1 Scenario: unprivileged user's capture request is sent to the
+       backend and the server-side handler gate (SeasonPhotoAccessPolicy
+       inside the HTTP handler) rejects it — assert the denial response, not
+       just the absence of a local call; keep the client-side preflight (no
+       network call leaves the device) as a separate assertion so BOTH gates
+       are exercised
 - [ ] 3.2 Scenario: upload → projector-lag reconciliation → thumb appears
 - [ ] 3.3 Steps run via `flutter_gherkin` on device
 

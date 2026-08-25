@@ -41,9 +41,20 @@ equivalent is permitted in any client code path.
 
 ### Requirement: No Hardcoded Secrets
 No secrets (OIDC client secrets, API keys, Garage credentials) SHALL be
-committed to the Flutter tree. `gitleaks` scans `.dart`, `.yaml`, and
-`.arb` files. Environment-specific values are supplied via `--dart-define`
-from CI secrets at build time.
+committed to — or embedded in — the Flutter binary. `gitleaks` scans `.dart`,
+`.yaml`, and `.arb` files. `--dart-define` carries only non-secret
+configuration and public client identifiers (API base URL, OIDC issuer,
+public client id, pinned-CA PEM); because Flutter embeds `--dart-define`
+values in the compiled artifact where users can extract them, confidential
+credentials (Garage keys, confidential-client secrets) stay server-side and
+are never passed to the app.
+
+#### Scenario: A developer passes a server-side credential via --dart-define
+- **WHEN** a build embeds a Garage key or a confidential OIDC client secret
+  through `--dart-define`.
+- **THEN** review rejects it: `--dart-define` values are extractable from the
+  compiled artifact, so those credentials must stay server-side; only public
+  identifiers and non-secret configuration may be embedded.
 
 #### Scenario: A developer hardcodes a client secret
 - **WHEN** gitleaks finds a literal credential in a `.dart`/`.yaml` file.

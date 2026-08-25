@@ -14,10 +14,16 @@ screens) have a project to land into.
 ## What changes
 - `flutter create` Android-first app (min SDK / Kotlin / AGP pinned; macOS
   stubbed for later).
-- `pubspec.yaml` core deps: `flutter_riverpod`, `riverpod_generator`,
-  `fpdart`, `flutter_secure_storage`, `drift`, `dio` (or `http`),
-  `json_annotation`, `freezed`, `flutter_gherkin` (dev), `build_runner` /
-  `json_serializable` / `drift_dev` / `custom_lint` (dev).
+- `pubspec.yaml` with a strict runtime/dev dependency split:
+  - **dependencies** (runtime): `flutter_riverpod`, `riverpod_annotation`,
+    `fpdart`, `flutter_secure_storage`, `drift`, `dio` (or `http`),
+    `json_annotation`, `freezed_annotation`
+  - **dev_dependencies** (generators/builders, not shipped):
+    `riverpod_generator`, `freezed`, `build_runner`, `json_serializable`,
+    `drift_dev`, plus the custom-lint plugin package that implements the
+    foundation rules (`custom_lint` alone provides no rules — the plugin
+    package + entrypoint + rule IDs are selected during this change's design
+    phase; see tracking issue)
 - `analysis_options.yaml` with the custom lint rules referenced by the
   foundation skills (`discard-result` analog, no-throw-in-`data/domain`).
 - `lib/main.dart` composition root: `ProviderScope`, flavor wiring, pinned-CA

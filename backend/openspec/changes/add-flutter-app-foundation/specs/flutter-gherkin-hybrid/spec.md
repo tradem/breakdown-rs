@@ -7,8 +7,9 @@
 ### Requirement: Hybrid BDD — Gherkin for Business-Critical Acceptance Scenarios Only
 The Flutter app SHALL use Gherkin (`.feature` files under
 `frontend-flutter/features-spec/`) for business-critical acceptance
-scenarios only, driven via `flutter_gherkin` on device. All other behavior
-is covered by plain widget and integration tests.
+scenarios only, driven via `flutter_gherkin` on device. All other behavior is covered by the
+remaining pyramid tiers as appropriate — unit, widget, golden, or
+integration tests (`flutter-test-pyramid`).
 
 > Rationale: full Gherkin-as-TDD adds heavy ceremony per screen with
 > marginal value for UI mechanics; skipping it entirely loses a
