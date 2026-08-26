@@ -28,3 +28,19 @@
 ## 5. Migration discipline
 - [ ] 5.1 Drift migration test: DTO shape change → migration in same PR
 - [ ] 5.2 Document the cache-never-drops-a-field rule in `AGENTS.md` §8
+
+## Spec-hardening (issue #272) — design resolved
+The PR #269 review flagged open design questions for this change. They are
+resolved in `proposal.md` (Design Decisions D1–D4) and encoded as
+requirements in `specs/flutter-offline-scope/spec.md`. Implementation Tasks
+1–5 remain open; the design gap is closed.
+- [x] Repository/provider boundary defined (D1: `fetchAndCache` → upsert in
+      one txn → `readCached` → `Result`; controller → `AsyncValue`; widgets
+      read provider only)
+- [x] TTL semantics + fresh/stale/expired/successful-write/failed-refetch
+      scenarios defined (D2: 24h tunable, injected `Clock`, stale marker,
+      keep-on-failure)
+- [x] Collection-fetch reconciliation defined (D3: snapshot-replace,
+      delete-missing-ids, no tombstones)
+- [x] Combined stale-data + fetch-error state + test defined (D4: retain
+      `prevRows`, `seasonsView` selector, asserts 3.3 ∧ 4.1)

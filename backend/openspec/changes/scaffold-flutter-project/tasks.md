@@ -18,6 +18,22 @@
        no-throw-in-`data/domain`, no-hardcoded-secrets heuristics
 - [ ] 2.3 `flutter analyze` passes clean on the seeded project
 
+## Spec-hardening (issue #272) — design resolved
+The PR #269 review asked which custom-lint implementation to use (and the
+exact rule IDs / wiring). Resolved in `proposal.md` (Design Decisions
+D1–D4) and encoded as a requirement in `specs/flutter-scaffold/spec.md`.
+Implementation Tasks 2.1–2.3 remain open; the design gap is closed.
+- [x] Custom-lint implementation selected (D1: `custom_lint` +
+      `custom_lint_builder` plugin package; legacy `analysis_server_plugin`
+      rejected; `flutter analyze` runs the rules once registered)
+- [x] Entrypoint defined (D2: `BreakdownLints extends PluginBase`
+      `getLints()`)
+- [x] Exact rule IDs defined (D3: `discard_result`, `no_throw_in_data_domain`,
+      `no_insecure_tls`, `no_hardcoded_secrets`)
+- [x] `analysis_options.yaml` wiring + CI command defined (D4: `analyzer >
+      plugins > custom_lint` + `custom_lint: rules:`, enforced by
+      `flutter analyze`)
+
 ## 3. Composition root & flavors
 - [ ] 3.1 `lib/main.dart`: `ProviderScope`, flavor wiring
 - [ ] 3.2 Pinned-CA `HttpClient`/`dio` config sourced from `--dart-define`
