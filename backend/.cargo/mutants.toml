@@ -198,7 +198,7 @@ exclude_re = [
     # The JSON-from_request match guard and parsed_resource locale routing
     # need live HTTP / FTL bundle infrastructure. AxumBytes::from is killed by
     # an inline unit test.
-    "replace match guard error.is_syntax() || error.is_eof() with true",
+    'replace match guard error\.is_syntax\(\) \|\| error\.is_eof\(\) with true',
     "replace == with != in parsed_resource",
     # --- Batch 6 / P6.8: migrate_gdrive_credentials CLI bin ---
     # parse_options match arms and run() guards are only reachable through the
