@@ -1290,11 +1290,11 @@ cargo test -p core --features test-support
 
 | Patch | Datei(en) | Survivor | Status |
 |---|---|---|---|
-| [P5.1](#p5.1) | `crates/infra/src/photo/sagas/thumbnail.rs` | 15 | [x] |
-| [P5.2](#p5.2) | `crates/infra/src/photo/sagas/deletion.rs` | 13 | [x] |
-| [P5.3](#p5.3) | `crates/infra/src/photo/sagas/continuity_deletion.rs` | 9 | [x] |
-| [P5.4](#p5.4) | `crates/infra/src/photo/gc.rs` | 13 | [x] |
-| [P5.5](#p5.5) | `crates/infra/src/photo/repository.rs` … | 13 | [x] |
+| [P5.1](#p51) | `crates/infra/src/photo/sagas/thumbnail.rs` | 15 | [x] |
+| [P5.2](#p52) | `crates/infra/src/photo/sagas/deletion.rs` | 13 | [x] |
+| [P5.3](#p53) | `crates/infra/src/photo/sagas/continuity_deletion.rs` | 9 | [x] |
+| [P5.4](#p54) | `crates/infra/src/photo/gc.rs` | 13 | [x] |
+| [P5.5](#p55) | `crates/infra/src/photo/repository.rs` … | 13 | [x] |
 
 ### P5.1 — Thumbnail-Saga
 
