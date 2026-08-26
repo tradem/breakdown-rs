@@ -1290,16 +1290,16 @@ cargo test -p core --features test-support
 
 | Patch | Datei(en) | Survivor | Status |
 |---|---|---|---|
-| [P5.1](#p5.1) | `crates/infra/src/photo/sagas/thumbnail.rs` | 15 | ☐ |
-| [P5.2](#p5.2) | `crates/infra/src/photo/sagas/deletion.rs` | 13 | ☐ |
-| [P5.3](#p5.3) | `crates/infra/src/photo/sagas/continuity_deletion.rs` | 9 | ☐ |
-| [P5.4](#p5.4) | `crates/infra/src/photo/gc.rs` | 13 | ☐ |
-| [P5.5](#p5.5) | `crates/infra/src/photo/repository.rs` … | 13 | ☐ |
+| [P5.1](#p5.1) | `crates/infra/src/photo/sagas/thumbnail.rs` | 15 | [x] |
+| [P5.2](#p5.2) | `crates/infra/src/photo/sagas/deletion.rs` | 13 | [x] |
+| [P5.3](#p5.3) | `crates/infra/src/photo/sagas/continuity_deletion.rs` | 9 | [x] |
+| [P5.4](#p5.4) | `crates/infra/src/photo/gc.rs` | 13 | [x] |
+| [P5.5](#p5.5) | `crates/infra/src/photo/repository.rs` … | 13 | [x] |
 
 ### P5.1 — Thumbnail-Saga
 
 **Datei(en):** `crates/infra/src/photo/sagas/thumbnail.rs`  
-**Status:** ☐ offen · **Survivor:** 15 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch5-photo-sagas-gc`
+**Status:** [x] erledigt · **Survivor:** 15 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch5-photo-sagas-gc`
 
 **Überlebende Mutanten:**
 
@@ -1334,7 +1334,7 @@ cargo test -p infra --features test-support
 ### P5.2 — Deletion-Saga (Refcount)
 
 **Datei(en):** `crates/infra/src/photo/sagas/deletion.rs`  
-**Status:** ☐ offen · **Survivor:** 13 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch5-photo-sagas-gc`
+**Status:** [x] erledigt · **Survivor:** 13 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch5-photo-sagas-gc`
 
 **Überlebende Mutanten:**
 
@@ -1367,7 +1367,7 @@ cargo test -p infra --features test-support
 ### P5.3 — Continuity-Deletion-Saga
 
 **Datei(en):** `crates/infra/src/photo/sagas/continuity_deletion.rs`  
-**Status:** ☐ offen · **Survivor:** 9 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch5-photo-sagas-gc`
+**Status:** [x] erledigt · **Survivor:** 9 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch5-photo-sagas-gc`
 
 **Überlebende Mutanten:**
 
@@ -1396,7 +1396,7 @@ cargo test -p infra --features test-support
 ### P5.4 — Orphan-GC (`photo/gc.rs`)
 
 **Datei(en):** `crates/infra/src/photo/gc.rs`  
-**Status:** ☐ offen · **Survivor:** 13 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch5-photo-sagas-gc`
+**Status:** [x] erledigt · **Survivor:** 13 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch5-photo-sagas-gc`
 
 **Überlebende Mutanten:**
 
@@ -1429,23 +1429,23 @@ cargo test -p infra --features test-support
 ### P5.5 — Photo-Repository / -Projector / Aggregate
 
 **Datei(en):** `crates/infra/src/photo/repository.rs`, `crates/infra/src/photo/projector.rs`, `crates/core/src/photo/aggregate.rs`  
-**Status:** ☐ offen · **Survivor:** 13 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch5-photo-sagas-gc`
+**Status:** [x] erledigt · **Survivor:** 13 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch5-photo-sagas-gc`
 
 **Überlebende Mutanten:**
 
-- `crates/infra/src/photo/repository.rs:95:9: replace <impl PhotoRepository for PhotoRepositoryImpl>::list_known_ids -> Result<Vec<PhotoId>, DomainError> with Ok(vec![Default::default()])`
-- `crates/infra/src/photo/repository.rs:95:9: replace <impl PhotoRepository for PhotoRepositoryImpl>::list_known_ids -> Result<Vec<PhotoId>, DomainError> with Ok(vec![])`
-- `crates/infra/src/photo/repository.rs:109:9: replace <impl PhotoRepository for PhotoRepositoryImpl>::count_links -> Result<u64, DomainError> with Ok(0)`
-- `crates/infra/src/photo/repository.rs:109:9: replace <impl PhotoRepository for PhotoRepositoryImpl>::count_links -> Result<u64, DomainError> with Ok(1)`
-- `crates/infra/src/photo/repository.rs:126:9: delete match arm "original" in parse_variant`
-- `crates/infra/src/photo/repository.rs:127:9: delete match arm "thumb" in parse_variant`
-- `crates/infra/src/photo/repository.rs:128:9: delete match arm "medium" in parse_variant`
-- `crates/infra/src/photo/projector.rs:29:9: replace <impl EntityEventHandler<PhotoAggregate, Transaction<'a, Postgres>> for PhotoProjector>::handle -> Result<(), Self::Error> with Ok(())`
-- `crates/infra/src/photo/projector.rs:235:9: replace PhotoProjector::touch_photo -> Result<(), sqlx::Error> with Ok(())`
-- `crates/infra/src/photo/projector.rs:252:5: replace status_as_str -> &'static str with ""`
-- `crates/infra/src/photo/projector.rs:252:5: replace status_as_str -> &'static str with "xyzzy"`
-- `crates/core/src/photo/aggregate.rs:43:9: replace PhotoAggregate::check_not_deleted -> Result<(), PhotoError> with Ok(())`
-- `crates/core/src/photo/aggregate.rs:196:29: replace == with != in <impl Command<GenerateVariant> for PhotoAggregate>::handle`
+- `crates/infra/src/photo/repository.rs:95:9: replace <impl PhotoRepository for PhotoRepositoryImpl>::list_known_ids -> Result<Vec<PhotoId>, DomainError> with Ok(vec![Default::default()])` (live-PG query → exclude_re)
+- `crates/infra/src/photo/repository.rs:95:9: replace <impl PhotoRepository for PhotoRepositoryImpl>::list_known_ids -> Result<Vec<PhotoId>, DomainError> with Ok(vec![])` (live-PG query → exclude_re)
+- `crates/infra/src/photo/repository.rs:109:9: replace <impl PhotoRepository for PhotoRepositoryImpl>::count_links -> Result<u64, DomainError> with Ok(0)` (live-PG query → exclude_re)
+- `crates/infra/src/photo/repository.rs:109:9: replace <impl PhotoRepository for PhotoRepositoryImpl>::count_links -> Result<u64, DomainError> with Ok(1)` (live-PG query → exclude_re)
+- `crates/infra/src/photo/repository.rs:126:9: delete match arm "original" in parse_variant` (getötet: parse_variant unit test)
+- `crates/infra/src/photo/repository.rs:127:9: delete match arm "thumb" in parse_variant` (getötet: parse_variant unit test)
+- `crates/infra/src/photo/repository.rs:128:9: delete match arm "medium" in parse_variant` (getötet: parse_variant unit test)
+- `crates/infra/src/photo/projector.rs:29:9: replace <impl EntityEventHandler<PhotoAggregate, Transaction<'a, Postgres>> for PhotoProjector>::handle -> Result<(), Self::Error> with Ok(())` (live-PG projector → exclude_re)
+- `crates/infra/src/photo/projector.rs:235:9: replace PhotoProjector::touch_photo -> Result<(), sqlx::Error> with Ok(())` (live-PG projector → exclude_re)
+- `crates/infra/src/photo/projector.rs:252:5: replace status_as_str -> &'static str with ""` (getötet: status_as_str unit test)
+- `crates/infra/src/photo/projector.rs:252:5: replace status_as_str -> &'static str with "xyzzy"` (getötet: status_as_str unit test)
+- `crates/core/src/photo/aggregate.rs:43:9: replace PhotoAggregate::check_not_deleted -> Result<(), PhotoError> with Ok(())` (getötet: aggregate unit test)
+- `crates/core/src/photo/aggregate.rs:196:29: replace == with != in <impl Command<GenerateVariant> for PhotoAggregate>::handle` (getötet: aggregate unit test)
 
 **Strategie:**
 

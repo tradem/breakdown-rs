@@ -4,6 +4,7 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
+// Co-authored-by: longcat-2.0 (opencode-go)
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -328,5 +329,76 @@ fn apply_orientation(img: image::DynamicImage, orientation: u32) -> (image::Dyna
             )
         }
         _ => (img, false), // 1 = normal, 2/4/5/7 = mirror-only (skipped in v1)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Test code lifts the workspace clippy panics/unwrap lints via
+    // `#![cfg_attr(test, allow(...))]` in `crates/infra/src/lib.rs`.
+
+    use image::DynamicImage;
+
+    use super::*;
+
+    /// Encode a `DynamicImage` as a JPEG with quality 95 (mirrors production).
+    fn encode_jpeg(img: &DynamicImage) -> Vec<u8> {
+        let mut buf = Vec::new();
+        let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 95);
+        encoder.encode_image(img).expect("test fixture jpeg encode");
+        buf
+    }
+
+    /// Kill the 12 `process_image -> Ok((vec![], ...))` mutants: the real
+    /// function returns valid, non-empty JPEGs whose decoded dimensions
+    /// respect the 200×200 (thumb) and 800×800 (medium) bounds. The mutant
+    /// returns empty or 1-byte vecs that fail to decode.
+    #[test]
+    fn process_image_returns_valid_variant_jpegs_with_bounded_dimensions() {
+        // 1000×800 source → thumb must fit 200×200, medium must fit 800×800.
+        let src = DynamicImage::new_rgb8(1000, 800);
+        let bytes = encode_jpeg(&src);
+
+        let (re_encoded, rotated, thumb_bytes, medium_bytes) =
+            PhotoThumbnailSaga::process_image(&bytes).expect("process_image");
+
+        // Re-encoded original is a valid JPEG preserving dimensions.
+        assert!(!re_encoded.is_empty());
+        assert!(!rotated, "no EXIF orientation in a bare RGB buffer");
+        let re = image::load_from_memory(&re_encoded).expect("re_encoded decodes");
+        assert_eq!(re.width(), 1000);
+        assert_eq!(re.height(), 800);
+
+        // Thumbnail fits within 200×200.
+        assert!(!thumb_bytes.is_empty());
+        let thumb = image::load_from_memory(&thumb_bytes).expect("thumb decodes");
+        assert!(thumb.width() <= 200, "thumb width {}", thumb.width());
+        assert!(thumb.height() <= 200, "thumb height {}", thumb.height());
+
+        // Medium fits within 800×800.
+        assert!(!medium_bytes.is_empty());
+        let medium = image::load_from_memory(&medium_bytes).expect("medium decodes");
+        assert!(medium.width() <= 800, "medium width {}", medium.width());
+        assert!(medium.height() <= 800, "medium height {}", medium.height());
+    }
+
+    /// A 1×1 source image still yields decodable, non-empty variants — kills
+    /// the `Ok((vec![], ...))` mutants that return empty bodies even for tiny
+    /// inputs.
+    #[test]
+    fn process_image_handles_tiny_source() {
+        let src = DynamicImage::new_rgb8(1, 1);
+        let bytes = encode_jpeg(&src);
+
+        let (re_encoded, _rotated, thumb_bytes, medium_bytes) =
+            PhotoThumbnailSaga::process_image(&bytes).expect("process_image");
+
+        assert!(!re_encoded.is_empty());
+        assert!(!thumb_bytes.is_empty());
+        assert!(!medium_bytes.is_empty());
+        // All three must still decode as valid JPEGs.
+        image::load_from_memory(&re_encoded).expect("re_encoded decodes");
+        image::load_from_memory(&thumb_bytes).expect("thumb decodes");
+        image::load_from_memory(&medium_bytes).expect("medium decodes");
     }
 }

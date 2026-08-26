@@ -128,4 +128,45 @@ exclude_re = [
     "RestrictedWorld>::font -> Option<Font> with None",
     "replace > with (>=|<|==) in TypstReportRenderer>::render",
     "load_system_fonts -> Result<Vec<Font>, String> with Ok\\(vec!\\[\\]\\)",
+    # --- Batch 5 / P5.1: photo-thumbnail saga live-DB / SierraDB mutants (see tasks.md) ---
+    # handle / process_upload / process_upload_with_recovery dispatch storage +
+    # command operations that need live Garage + SierraDB. Covered end-to-end by
+    # the excluded integration-tests suite (photo_round_trip). The pure
+    # process_image variants are killed by inline unit tests in thumbnail.rs.
+    "PhotoThumbnailSaga>::handle",
+    "PhotoThumbnailSaga::process_upload",
+    # --- Batch 5 / P5.2: photo-deletion saga live-DB / SierraDB mutants (see tasks.md) ---
+    # handle / process_event / start_from mutate the in-memory refcount map AND
+    # dispatch DeletePhoto via CommandService (live SierraDB) + read the photo
+    # projection via PhotoRepositoryImpl (live Postgres). Whitebox unit tests
+    # cannot construct a CommandService or PgPool without containers, and the
+    # Docker-gated integration-tests crate is excluded from mutation. The
+    # refcount guard logic is covered end-to-end by photo_nm_deletion_round_trip.
+    "PhotoDeletionSaga>::handle",
+    "PhotoDeletionSaga>::start_from",
+    "PhotoDeletionSaga>::process_event",
+    "spawn_photo_deletion_saga",
+    # --- Batch 5 / P5.3: continuity-deletion saga live-DB / SierraDB mutants ---
+    # Same live-DB / SierraDB constraint as P5.2; covered end-to-end by the
+    # excluded integration-tests suite (continuity_photo_round_trip).
+    "ContinuityDeletionSaga>::handle",
+    "ContinuityDeletionSaga>::start_from",
+    "ContinuityDeletionSaga>::process_event",
+    "spawn_continuity_deletion_saga",
+    # --- Batch 5 / P5.4: photo-GC live-DB / Garage mutants ---
+    # run_gc_sweep / try_run_sweep read Garage (PhotoStorage::list/fetch_stored_at)
+    # and Postgres (PhotoRepository::list_known_ids, advisory lock, history INSERT).
+    # Covered end-to-end by photo_gc_sweep.rs (excluded integration-tests crate).
+    "run_gc_sweep",
+    "try_run_sweep",
+    "spawn_gc_scheduler",
+    # --- Batch 5 / P5.5: photo-repository / projector live-PG mutants ---
+    # find_by_id / list_known_ids / count_links run SQL against Postgres;
+    # handle / touch_photo run SQL within a Postgres transaction. Covered by the
+    # excluded integration-tests suite (photo_round_trip, photo_nm_deletion).
+    "PhotoRepositoryImpl>::find_by_id",
+    "PhotoRepositoryImpl>::list_known_ids",
+    "PhotoRepositoryImpl>::count_links",
+    "PhotoProjector>::handle",
+    "PhotoProjector::touch_photo",
 ]
