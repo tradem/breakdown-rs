@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: hy3 (opencode-go)
 
 //! OIDC authentication for the API layer (Decision D1, D2, D5).
 //!
@@ -175,20 +176,18 @@ impl AuthState {
     /// Build the production auth state from the environment, or fall back to
     /// dev mode when `OIDC_ISS` is absent and `DEV_AUTH_SUB` is set.
     ///
-    /// Fails only if neither real OIDC config nor a dev subject is available.
-    /// Production never sets `DEV_AUTH_SUB`, so dev mode can never be entered
-    /// there.
+    /// Dev mode is gated explicitly on `OIDC_ISS` *absence* (per AGENTS.md):
+    /// the production path always sets `OIDC_ISS`, so it can never reach dev
+    /// mode. A partial/misconfigured OIDC config — e.g. `OIDC_ISS` set but
+    /// `OIDC_JWKS_URL` typo'd, with a stray `DEV_AUTH_SUB` present — therefore
+    /// fails loudly here (`OidcConfig::from_env` requires all three vars) and
+    /// does NOT silently boot into unverified-token dev auth.
     pub fn from_env_or_dev() -> Result<Self, String> {
-        match OidcConfig::from_env() {
-            Ok(cfg) => {
-                let jwks: Arc<dyn JwksProvider> = Arc::new(CachingJwksProvider::new(
-                    cfg.jwks_url.clone(),
-                    reqwest::Client::new(),
-                    std::time::Duration::from_secs(3600),
-                ));
-                Ok(AuthState::new(cfg, jwks))
-            }
-            Err(_) => match std::env::var("DEV_AUTH_SUB") {
+        // Dev mode only when OIDC_ISS is absent. When OIDC_ISS is present we
+        // take the production path unconditionally and never fall back to dev.
+        let oidc_iss_present = std::env::var("OIDC_ISS").is_ok();
+        if !oidc_iss_present {
+            return match std::env::var("DEV_AUTH_SUB") {
                 Ok(sub) => {
                     let email = std::env::var("DEV_AUTH_EMAIL").unwrap_or_default();
                     let user = if email.is_empty() {
@@ -199,11 +198,21 @@ impl AuthState {
                     Ok(AuthState::dev(user))
                 }
                 Err(_) => Err(
-                    "OIDC_ISS/OIDC_AUDIENCE/OIDC_JWKS_URL not set and DEV_AUTH_SUB not set"
+                    "OIDC_ISS not set and DEV_AUTH_SUB not set — auth cannot be configured"
                         .to_string(),
                 ),
-            },
+            };
         }
+
+        // OIDC_ISS present → production path. The `?` makes a missing
+        // OIDC_AUDIENCE / OIDC_JWKS_URL fail the boot hard (no dev fallback).
+        let cfg = OidcConfig::from_env()?;
+        let jwks: Arc<dyn JwksProvider> = Arc::new(CachingJwksProvider::new(
+            cfg.jwks_url.clone(),
+            reqwest::Client::new(),
+            std::time::Duration::from_secs(3600),
+        ));
+        Ok(AuthState::new(cfg, jwks))
     }
 }
 
@@ -320,3 +329,6 @@ pub fn bearer_token(header: Option<&axum::http::HeaderValue>) -> Option<String> 
     }
     Some(token.to_string())
 }
+
+#[cfg(test)]
+mod mod_test;
