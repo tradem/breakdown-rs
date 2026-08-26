@@ -29,19 +29,26 @@ with test/coverage deferred "until a project exists." This change enables
 - No golden-image regeneration pipeline (separate follow-up).
 
 ## Design Decisions (resolved during spec-hardening, issue #272)
+
 The PR #269 review asked for the exact coverage gate. Resolved here; encoded
 as requirements in `specs/flutter-ci-coverage/spec.md`.
 
 ### D1. Coverage gate thresholds (initial, tunable)
-- `coverde` line+branch gate on **changed** `lib/**/*.dart` files:
-  - `--min-line-coverage 80`
-  - `--min-branch-coverage 70`
-- Initial values chosen as a reasonable substitute for the absent mutation
-  gate (foundation D5): high enough to matter, low enough not to block
-  landing. Tunable at implementation; the values live in `flutter-ci.yml` and
-  are documented in a workflow comment.
+
+- Design targets: line coverage >= 80% and branch coverage >= 70% on
+  **changed** `lib/**/*.dart` files (initial values, tunable). These are the
+  substitute for the absent mutation gate (foundation D5): high enough to
+  matter, low enough not to block landing; documented in a `flutter-ci.yml`
+  workflow comment.
+- `coverde check` enforces a **single pooled** minimum (positional `min`,
+  `--input`, `--file-coverage-log-level`); it has no separate line/branch or
+  changed-only flags. The CI gate therefore runs `coverde check 80` over
+  `coverage/lcov.info` (pooled line+branch). If strict per-axis enforcement is
+  required at implementation, add a thin `lcov`/`genhtml` post-step (out of
+  scope for this change).
 
 ### D2. File-scope rules for the gate
+
 - **Changed** `lib/**/*.dart` (non-test): counted.
 - **New** `lib/**/*.dart`: counted (treated as changed).
 - **Deleted**: automatically excluded (no longer measured).
@@ -55,19 +62,27 @@ as requirements in `specs/flutter-ci-coverage/spec.md`.
   *required* gate (not shipped; exercised by the suite); coverage still
   collected.
 
-### D3. CI command (flag names confirmed against the installed `coverde`
+### D3. CI command (flags confirmed against the installed `coverde`
 version at implementation)
+
+The `flutter-ci.yml` step collects coverage **with branch data**, then enforces
+the gate with `coverde`:
+
+```sh
+flutter test --coverage --branch-coverage
+coverde check 80 --input coverage/lcov.info
 ```
-flutter test --coverage
-coverde check \
-  --input coverage/lcov.info \
-  --min-line-coverage 80 \
-  --min-branch-coverage 70 \
-  --changed-only --base main \
-  --exclude 'lib/api/generated/**' \
-  --exclude '**/*.g.dart' \
-  --exclude '**/*.freezed.dart'
-```
+
+`coverde check` accepts a single positional minimum (0–100) plus `--input` /
+`--file-coverage-log-level`; it does **not** support `--min-line-coverage`,
+`--min-branch-coverage`, `--changed-only`, `--base`, or `--exclude` (those
+belong to other coverage tools). The `80` is a **pooled** line+branch minimum
+computed from the `lcov.info` records. The `flutter test --coverage
+--branch-coverage` flag is required so `coverage/lcov.info` contains `BRDA`
+branch records before the gate runs; without it the branch target from D1 cannot
+be met. The per-axis targets (line ≥ 80% / branch ≥ 70%) are the design intent
+from D1; strict per-axis splitting is a documented follow-up (thin `lcov`/
+`genhtml` post-step) and out of scope for this change.
 - A coverage artifact is uploaded on failure for inspection.
 - The workflow comment documents the mutation-testing gap (D5) and the four
   compensating practices (coverage / golden / Err-branch / semantic finders).

@@ -1,7 +1,3 @@
-<!-- SPDX-License-Identifier: AGPL-3.0 -->
-<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
-<!-- Co-authored-by: hy3 (opencode-go) -->
-
 ---
 name: flutter-coderabbitai-review
 description: Systematically read, evaluate, and respond to CodeRabbitAI review comments on GitHub PRs that touch the Flutter frontend (frontend-flutter/). Use when a PR has CodeRabbitAI feedback that needs to be addressed, adapted to Dart/Flutter verification steps.
@@ -58,6 +54,8 @@ per-comment replies.
 ## Prerequisites
 
 - `gh` CLI installed and authenticated
+- `jq` installed (used by the `--jq` comment streams in Step 1 and the Step 4
+  coverage aggregation)
 - PR number or branch name
 
 ## Workflow
@@ -70,7 +68,7 @@ can see existing replies and know which threads are already resolved):
 ```bash
 gh api repos/{owner}/{repo}/pulls/{pr}/comments --paginate --jq '
   .[] | select(.in_reply_to_id == null and .user.login == "coderabbitai[bot]")
-  | {id: .id, path: .path, line: .line, body: .body[0:800]}'
+  | {id: .id, path: .path, line: .line, body: .body}'
 ```
 
 - Only comments with `in_reply_to_id == null` and author
@@ -102,11 +100,13 @@ For each "Fixed" comment:
 
 ```bash
 cd frontend-flutter
+# If a codegen input changed (annotation / openapi.yaml / drift schema),
+# regenerate generated sources FIRST so the analysis/test below see them:
+dart run build_runner build --delete-conflicting-outputs
+# Then verify with the Dart/Flutter toolchain:
 dart format --set-exit-if-changed .
 flutter analyze
 flutter test
-# only if a codegen input changed (annotation / openapi.yaml / drift schema):
-dart run build_runner build --delete-conflicting-outputs
 ```
 
 - Respect the **rebuild-only** rule (AGENTS.md §2/§3/§9): never hand-edit
@@ -140,7 +140,8 @@ comment stream first, so parent/child relationships are evaluated against the
 whole collection, never per-object:
 
 ```bash
-gh api repos/{owner}/{repo}/pulls/{pr}/comments --paginate --jq '.[]' \
+set -o pipefail
+coverage="$(gh api repos/{owner}/{repo}/pulls/{pr}/comments --paginate --jq '.[]' \
   | jq -s -r --arg me "$(gh api user --jq .login)" '
       . as $all
       | $all[]
@@ -150,7 +151,9 @@ gh api repos/{owner}/{repo}/pulls/{pr}/comments --paginate --jq '.[]' \
       | if ($replies | length) != 1 then
           "UNREPLIED_OR_DUPLICATE \($primary.id): \($primary.path) (status-replies=\($replies|length))"
         else empty
-        end'
+        end')"
+printf '%s\n' "$coverage"
+test -z "$coverage"   # fail-closed: any output ⇒ return to Step 4, do NOT proceed
 ```
 
 The output must be empty. `UNREPLIED_OR_DUPLICATE` means the thread has zero
@@ -208,7 +211,7 @@ request re-review.
 
 ### Fixed
 
-```
+```text
 Fixed: [Brief description of what was changed].
 
 [Optional: Reference to commit or file changes]
@@ -216,7 +219,7 @@ Fixed: [Brief description of what was changed].
 
 ### Deferred
 
-```
+```text
 Deferred: [Reason for deferring].
 
 Tracked in issue #[number]. [Brief explanation of why it's a separate concern].
@@ -224,7 +227,7 @@ Tracked in issue #[number]. [Brief explanation of why it's a separate concern].
 
 ### Not Applicable
 
-```
+```text
 Not applicable: [Reason why this doesn't apply].
 
 [Explanation of current behavior or why the suggestion isn't relevant]

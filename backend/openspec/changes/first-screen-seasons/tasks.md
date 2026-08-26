@@ -34,8 +34,8 @@
 - [ ] 5.3 integration_test smoke against a mocked API
 - [ ] 5.4 Unit + widget: POST network/5xx failure → no overlay, Drift
        untouched, `AsyncError` keyed on `code` (Design Decision D3)
-- [ ] 5.5 Unit + widget: `409` conflict → no overlay, optimistic reverted,
-       error keyed on `code` (spec scenario)
+- [ ] 5.5 Unit + widget: `409` conflict (command-side, before 2xx) → no overlay
+       created (nothing to revert), `AsyncError` keyed on `code` (spec scenario)
 - [ ] 5.6 Unit + widget: bounded-retry exhaustion → overlay retained
        `stale`, non-fatal warning + pull-to-refresh, Drift untouched
        (Design Decision D3)
@@ -45,13 +45,16 @@
        (already in `design.md`; verify)
 
 ## Spec-hardening (issue #272) — design resolved
+
 The PR #269 review asked where the optimistic row lives and for the
 failure-path tests. Resolved in `proposal.md` (Design Decisions D1–D3) and
 encoded as requirements in `specs/flutter-first-screen/spec.md`.
 Implementation Tasks 1–6 remain open; the design gap is closed.
 - [x] Optimistic-create flow defined (D1: insert only after `POST` 2xx with
-      server `id`)
+      server `id`; endpoint returns the created `SeasonDto`)
 - [x] Optimistic row location defined (D2: controller-state overlay, NOT
-      Drift; Drift holds only projected rows; reconcile by `id`)
-- [x] Failure-path tests defined (D3: POST failure rollback, `409` rollback,
-      bounded-retry exhaustion retains stale overlay) — see Tasks 5.4–5.6
+      Drift; Drift holds only projected rows; reconcile by `id`; explicit
+      `OverlayEntry` status model `acknowledged|reconciling|stale`)
+- [x] Failure-path tests defined (D3: POST failure → no overlay; `409` → no
+      overlay created, nothing to revert; bounded-retry exhaustion retains stale
+      overlay) — see Tasks 5.4–5.6

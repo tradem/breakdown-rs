@@ -30,6 +30,7 @@ pattern around it, and the TTL + on-write-invalidate policy.
 - No event-store schema mirror (cache mirrors projection DTOs only).
 
 ## Design Decisions (resolved during spec-hardening, issue #272)
+
 The PR #269 review flagged open design questions on these stubs. They are
 resolved here so implementation (Tasks) can proceed without re-litigating
 them. Values marked *(tunable)* may be tuned at implementation; the
@@ -37,18 +38,24 @@ structural invariants are fixed and are encoded as requirements in
 `specs/flutter-offline-scope/spec.md`.
 
 ### D1. Repository / provider boundary (single read source)
+
 - The `Repository` (e.g. `SeasonsRepository`) owns the network + Drift write
   path and returns `Result<T, ProblemError>` (never `throw`).
 - `fetchAndCache()`: calls the generated client `GET`; on `Ok` upserts-by-id
   into the Drift table inside **one transaction** and returns `Ok(unit)`; on
   `Err` returns `Err` **without mutating the cache** (no partial writes).
 - `readCached()`: a pure Drift read (no network) returning the cached rows.
-- The `@riverpod` controller calls `fetchAndCache()` then `readCached()`,
-  mapping `Ok -> AsyncData(rows)`, `Err -> AsyncError` while preserving the
-  previously emitted `AsyncData` (see D4). Widgets `ref.watch` the provider
-  only and never import the API client or call `readCached` directly.
+- The `@riverpod` controller **first** calls `readCached()` and emits the
+  cached rows (seeding `prevRows` from this initial read), **then** triggers
+  `fetchAndCache()`. On `Ok` it re-reads and emits `AsyncData(rows)`; on `Err`
+  it emits `AsyncError` while preserving the previously emitted cached
+  `AsyncData`/`prevRows` (see D4). This guarantees cached rows render on
+  offline cold start even before the first fetch completes. Widgets
+  `ref.watch` the provider only and never import the API client or call
+  `readCached` directly.
 
 ### D2. TTL semantics (value: 24h *(tunable)*)
+
 - Per-table TTL constant `kCacheTtl = const Duration(hours: 24)` *(tunable,
   per-table; fast-moving projections like scene_shoots may use a shorter
   value at implementation)*.
@@ -70,6 +77,7 @@ structural invariants are fixed and are encoded as requirements in
     **no deletion** of cached rows on fetch failure.
 
 ### D3. Collection-fetch reconciliation (snapshot-replace)
+
 - For top-level `list()` projections: **full-snapshot replace**. On a
   successful fetch, upsert all returned rows by id **and** delete any cached
   rows whose id is absent from the returned id set, all in one transaction.
@@ -81,11 +89,14 @@ structural invariants are fixed and are encoded as requirements in
   change; this change pins snapshot-replace for `list()`.
 
 ### D4. Combined stale-data + fetch-error state
+
 - The controller emits `AsyncError` on a fetch failure **but retains the
   last non-error list** in a private `prevRows` field. A `seasonsView`
   selector returns `{ rows: state.hasError ? prevRows : state.value,
-  isStale: true, error: state.error }`, so the screen renders cached rows
-  with a stale/error banner AND the error is surfaced (toast + retry).
+  isStale: state.hasError || cachedRowsExpired, error: state.error }`, where
+  `cachedRowsExpired` is the TTL result from D2 (not a hardcoded `true`).
+  Fresh successful rows are therefore never marked stale, while a failed
+  refetch or expired cache still surfaces the stale banner.
 - This satisfies both Task 3.3 (fetch error not silently discarded) and Task
   4.1 (cold-start/offline renders cached rows) simultaneously. A dedicated
   test (Task 4.3 / 2.3) asserts: cached rows exist + fetch errors ->

@@ -46,27 +46,36 @@ screens) have a project to land into.
 - No macOS build configuration.
 
 ## Design Decisions (resolved during spec-hardening, issue #272)
+
 The PR #269 review asked which custom-lint implementation to use and for the
 exact rule IDs / wiring. Resolved here; encoded as a requirement in
 `specs/flutter-scaffold/spec.md`.
 
 ### D1. Custom-lint implementation: `custom_lint` + `custom_lint_builder`
+
 - We author a local lint **plugin package** `breakdown_lints` (dev-only)
   that depends on `custom_lint_builder` and exports a `PluginBase` subclass
   registering the rules. This is the maintained, recommended path.
 - The legacy low-level `analysis_server_plugin` internal API is **not**
   chosen (harder to maintain, not recommended).
-- Correction to the review note: `flutter analyze` **does** run custom_lint
-  rules once the plugin is registered in `analysis_options.yaml` under
-  `analyzer > plugins` and `custom_lint` is a dev dependency. No separate CI
-  command is needed; the existing `flutter analyze` step enforces them.
+- **CI MUST run `flutter pub run custom_lint`** (or `dart run custom_lint`).
+  `flutter analyze` / `dart analyze` do **not** execute custom_lint rules — the
+  plugin only contributes diagnostics when the custom_lint runner is invoked.
+  The `analysis_options.yaml` registration makes the rules *available*; the
+  dedicated command enforces them. A clean `flutter analyze` therefore cannot
+  prove the rules are active (see the spec's negative activation tests).
 
 ### D2. Entrypoint
+
 - `lib/breakdown_lints.dart`:
   ```dart
+  import 'package:custom_lint_builder/custom_lint_builder.dart';
+
+  PluginBase createPlugin() => const BreakdownLints();
+
   class BreakdownLints extends PluginBase {
     @override
-    List<LintRule> getLints() => [
+    List<LintRule> getLintRules(CustomLintConfigs configs) => const [
       DiscardResultLint(),
       NoThrowInDataDomainLint(),
       NoInsecureTlsLint(),
@@ -78,10 +87,13 @@ exact rule IDs / wiring. Resolved here; encoded as a requirement in
   `dev_dependency` of the app and resolved at analyze time.
 
 ### D3. Exact rule IDs and what they flag
+
 - `discard_result` — analog of the backend `discard-result` lint: an
   un-awaited `Future` statement, a discarded `Result`/`Either` return value,
   or a swallowed future returned from a non-async function. Suppressible only
-  with `// lint-ignore: discard_result` plus a reason comment (foundation §5).
+  with `// ignore: discard_result` (custom_lint's supported syntax) plus a
+  reason comment on the line; a mandatory reason comment is enforced as a
+  separate review convention (foundation §5).
 - `no_throw_in_data_domain` — a `throw` whose enclosing file matches
   `lib/data/**` or `lib/domain/**` (these layers return `Result`/`Either`).
   Hard error.
@@ -91,8 +103,13 @@ exact rule IDs / wiring. Resolved here; encoded as a requirement in
 - `no_hardcoded_secrets` — heuristic match of string literals / field
   assignments against secret patterns (`apiKey`, `clientSecret`, `token`,
   `password`). Advisory; `gitleaks` remains authoritative.
+- The four IDs above are the canonical enforcement contract. Any legacy names
+  in CI docs (`no-throw-in-data/domain`, `no_hardcoded_colors`, `AUTHZ-GATE`)
+  are superseded by this list and SHALL be migrated to it when the scaffold
+  lands.
 
 ### D4. analysis_options.yaml wiring
+
 ```yaml
 analyzer:
   plugins:
@@ -104,4 +121,6 @@ custom_lint:
     - no_insecure_tls
     - no_hardcoded_secrets
 ```
-- CI command: `flutter analyze` (custom_lint runs as part of analysis).
+- CI command: `flutter pub run custom_lint` (required to actually execute the
+  rules). `flutter analyze` remains in CI for the built-in analyzer; custom_lint
+  diagnostics only appear via the dedicated runner.

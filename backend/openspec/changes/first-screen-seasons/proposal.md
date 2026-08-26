@@ -39,16 +39,19 @@ failure-path tests. Resolved here; encoded as requirements in
 `specs/flutter-first-screen/spec.md`.
 
 ### D1. Optimistic insert timing (after command acknowledgement)
+
 - The optimistic insert is performed **only after `POST /v1/seasons` returns
   2xx** with the server-created `SeasonDto` (carrying the server-assigned
   `id` and server timestamps). We do NOT insert a locally-fabricated row
-  before the command acks.
+  before the command acks. The endpoint returns the created `SeasonDto`, so the
+  overlay has a real `id` to key reconciliation on.
 - "Optimistic" here means: the UI reflects the server-acknowledged entity
   immediately, in parallel with — and ahead of — the slower projection
   refetch, so the user sees their new season without waiting for projector
   lag.
 
 ### D2. Where the optimistic row lives — controller-state overlay (NOT Drift)
+
 - Decision: the optimistic row lives in **controller state** as an
   in-memory overlay, **not** in Drift. Rationale: the cache invariant
   (foundation `flutter-offline-scope`) states Drift must not contain
@@ -74,14 +77,23 @@ failure-path tests. Resolved here; encoded as requirements in
   spinner), and bounded-retry exhaustion marks the overlay `stale` but keeps
   it so the user still sees "your season was created; projection is catching
   up."
+- **Overlay state model**: the overlay entry is `OverlayEntry { SeasonDto dto;
+  OverlayStatus status; String? warning; }` with `OverlayStatus ∈ {
+  acknowledged, reconciling, stale }`. `acknowledged` shows immediately after
+  the 2xx; `reconciling` while the bounded-retry refetch is in flight;
+  `stale` when the refetch exhausts its retries (overlay retained with a
+  non-fatal `warning` + pull-to-refresh). A successful reconciliation drops the
+  entry as the projected Drift row takes over — it is never marked `stale` on
+  success.
 
 ### D3. Failure-path tests (added to Tasks 5.x and encoded as scenarios)
 - **POST network failure / 5xx** → repository returns
   `Err(ProblemError)`; controller does NOT insert any overlay; Drift is
   untouched; widget surfaces `AsyncError` keyed on `code`; no phantom row.
-- **409 conflict** (already specified) →
-  `Err(ProblemError(code: "seasons.conflict"))`; no overlay insert;
-  optimistic state reverted; error keyed on `code`.
+- **409 conflict** (command-side, returned before any 2xx) →
+  `Err(ProblemError(code: "seasons.conflict"))`; because the overlay is only
+  added *after* a 2xx, no overlay was ever created, so there is nothing to
+  revert; error keyed on `code`.
 - **Bounded-retry exhaustion** → POST succeeded (entity acked, overlay
   shown), but the projection refetch retries N times and times out; provider
   retains the overlay with `reconciling = false, stale = true`, emits a

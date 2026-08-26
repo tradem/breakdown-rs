@@ -37,11 +37,13 @@ handlers can be called safely.
   `flutter-offline-scope`).
 
 ## Design Decisions (resolved during spec-hardening, issue #272)
+
 The PR #269 review flagged four auth/transport open questions. Resolved here;
 encoded as requirements in `specs/flutter-client-authz/spec.md`.
 
 ### D1. Android-reachable dev IdP transport (HTTPS + dev CA, documented
 exception)
+
 - **Primary**: the dev IdP (Logto) is served over **HTTPS** using the
   **dev-pinned CA set** — the same dev CA that signs the backend API cert on
   `:3000`. The Flutter **dev** flavor pins that dev CA for both API and IdP
@@ -51,19 +53,34 @@ exception)
 - **Documented exception**: if a contributor must use an HTTP port-forward
   (e.g. `http://localhost:3301`) that cannot be HTTPS-pinned in their
   environment, this is a **dev-flavor-only** exception gated by an explicit
-  `--dart-define=DEV_IDP_INSECURE=1`. It is HARD-disabled in `prod` (the
-  flavor config omits the flag and the code asserts `kReleaseMode ||
-  !devInsecure`), and the pinning layer is bypassed **only for the IdP host**
-  under that flag. This is the lone documented exception to pinning; it is
-  never available in prod builds.
+  `--dart-define=DEV_IDP_INSECURE=1`. **Enforcement is an explicit
+  flavor/compile guard, not an assert**: the flag is read only inside a
+  `if (!kReleaseMode)` block, so release/prod builds never consult it; in
+  addition, `lib/main.dart` throws at startup if `DEV_IDP_INSECURE=1` is set
+  while `kReleaseMode` is true (a belt-and-suspenders guard that is unreachable
+  in normal builds but guarantees the flag cannot relax pinning in a release
+  artifact). The pinning layer is bypassed **only for the IdP host** under
+  that flag. This is the lone documented exception to pinning; it is impossible
+  in prod builds.
 
 ### D2. `currentMembershipProvider` scope + role mapping
-- `currentMembershipProvider` becomes a **family** keyed by `seasonId` (and
-  possibly `seriesId`): `currentMembershipProvider(SeasonId id)`. It reads
-  the backend membership/role read-model for the active season (a
-  `GET /v1/seasons/{id}/membership` projection DTO, or folded into a whoami
-  projection) — the client never reconstructs roles from other projections
-  (CQRS-boundary rule).
+
+- `currentMembershipProvider` becomes a **family** keyed by `seasonId`:
+  `currentMembershipProvider(SeasonId id)`. It reads **one** endpoint,
+  `GET /v1/seasons/{seasonId}/membership`, which returns a `SeasonMembershipDto`
+  (contract below) — the client never reconstructs roles from other projections
+  (CQRS-boundary rule). The earlier `seriesId` / whoami alternatives are
+  dropped; this is the single wire contract.
+- **`SeasonMembershipDto` contract** (single source of truth for the gate):
+  - `seasonId: String` — the keyed id.
+  - `hasActiveCostumeRoleInSeason: bool` — backend-computed result of
+    `has_active_costume_role_in_season(season_id, sub)`.
+  - `capabilities: List<Capability>` — enum (`uploadContinuityPhotos`,
+    `assignCostumes`, …) derived server-side from the boolean roles.
+  - Error shape: a non-2xx on this endpoint surfaces as `AsyncError` (loading/
+    error path per D3); a forbidden/missing season returns the backend's
+    `application/problem+json` with a stable `code`, mapped to the localized
+    narrative (never from `detail`).
 - The DTO exposes backend-computed booleans. The "active continuity role" is
   mapped from `has_active_costume_role_in_season(season_id, sub)` (the
   backend's authorization predicate) surfaced as a field on the membership
@@ -76,6 +93,7 @@ exception)
   enforcement.
 
 ### D3. Loading/error behavior (deny only on resolved-denial)
+
 - `currentMembershipProvider` is `AsyncValue<Membership>`.
   - **Loading** (`valueOrNull == null` and not error): the gated action is
     **disabled with a spinner**, NOT denied. No 403 shown.
@@ -89,6 +107,7 @@ exception)
   *resolved* state, distinct from loading/error.
 
 ### D4. Exclusive, fail-closed TLS pinning
+
 - Pinning is **exclusive**: the `SecurityContext` is constructed with **no
   default trust roots**; only the per-flavor pinned CA PEM(s) from
   `--dart-define` are added. Platform/OS trust store is **excluded in both

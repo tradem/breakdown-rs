@@ -13,6 +13,9 @@
        in widgets)
 - [ ] 2.3 Unit tests: cache upsert + read round-trips; Err branch on fetch
        failure
+- [ ] 2.4 Snapshot-replace reconciliation test: a `list()` fetch returning N
+       rows SHALL delete cached rows whose id is absent from the set, in the
+       same transaction (asserts D3 delete-missing-ids)
 
 ## 3. Invalidation
 - [ ] 3.1 TTL invalidation per table
@@ -24,12 +27,16 @@
 - [ ] 4.1 Cold-start offline render of last cached rows with stale indicator
 - [ ] 4.2 Write actions disabled with localized "online required" message
 - [ ] 4.3 Widget test for the stale-indicator + disabled-FAB path
+- [ ] 4.4 Combined stale+error test: fetch errors with cached rows present ->
+       provider emits error AND `retainedStaleRows` non-empty -> widget shows
+       rows + stale banner + retry (jointly satisfies Task 3.3 ∧ Task 4.1)
 
 ## 5. Migration discipline
 - [ ] 5.1 Drift migration test: DTO shape change → migration in same PR
 - [ ] 5.2 Document the cache-never-drops-a-field rule in `AGENTS.md` §8
 
 ## Spec-hardening (issue #272) — design resolved
+
 The PR #269 review flagged open design questions for this change. They are
 resolved in `proposal.md` (Design Decisions D1–D4) and encoded as
 requirements in `specs/flutter-offline-scope/spec.md`. Implementation Tasks
@@ -41,6 +48,7 @@ requirements in `specs/flutter-offline-scope/spec.md`. Implementation Tasks
       scenarios defined (D2: 24h tunable, injected `Clock`, stale marker,
       keep-on-failure)
 - [x] Collection-fetch reconciliation defined (D3: snapshot-replace,
-      delete-missing-ids, no tombstones)
+      delete-missing-ids, no tombstones) — asserted by Task 2.4
 - [x] Combined stale-data + fetch-error state + test defined (D4: retain
-      `prevRows`, `seasonsView` selector, asserts 3.3 ∧ 4.1)
+      `prevRows`, `seasonsView` selector with derived `isStale`, asserts 3.3 ∧
+      4.1) — asserted by Task 4.4

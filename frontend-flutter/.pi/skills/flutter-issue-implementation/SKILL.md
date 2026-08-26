@@ -111,7 +111,7 @@ Write the plan to an OpenSpec proposal. Until the
 `migrate-openspec-to-monorepo-root` follow-up lands, Flutter change
 artifacts live beside the backend's:
 
-```
+```text
 backend/openspec/changes/{issue}-{description}/proposal.md
 ```
 
@@ -154,12 +154,27 @@ backend/openspec/changes/{issue}-{description}/proposal.md
 4. Run checks frequently during implementation:
 
 ```bash
-cd frontend-flutter
-dart format --set-exit-if-changed .
-flutter analyze
-flutter test
-# only if a codegen input changed (annotation / openapi.yaml / drift schema):
-dart run build_runner build --delete-conflicting-outputs
+# Only run the Dart/Flutter toolchain when this is a code change
+# (pubspec.yaml present). OpenSpec-only / markdown changes have no Flutter
+# package to build, so guard the checks behind it.
+if [ -f frontend-flutter/pubspec.yaml ]; then
+  cd frontend-flutter
+  dart format --set-exit-if-changed .
+  flutter analyze
+  flutter test
+  # Regenerate drift/freezed/riverpod codegen when an annotation or drift
+  # schema changed (distinct from the OpenAPI client below):
+  dart run build_runner build --delete-conflicting-outputs
+  cd ..
+fi
+
+# Regenerate the OpenAPI client ONLY when backend/openapi.yaml changed.
+# Use openapi-generator-cli (NOT build_runner) per AGENTS.md §3:
+if [ -f backend/openapi.yaml ] && command -v npx >/dev/null 2>&1; then
+  (cd frontend-flutter && npx @openapitools/openapi-generator-cli generate \
+    -i ../backend/openapi.yaml -g dart -o lib/api/generated \
+    --additional-properties=pubName=breakdown_api)
+fi
 ```
 
 ### Step 6: Track Affected Packages / Generated Artifacts
