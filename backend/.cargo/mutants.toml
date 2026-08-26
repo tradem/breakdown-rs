@@ -182,10 +182,8 @@ exclude_re = [
     "BlockRepositoryImpl",
     "ShootingDayRepositoryImpl",
     "SceneShootReportRepositoryImpl",
-    # --- Batch 6 / P6.4: domain_to_stream_checked live-DB guard ---
-    # The pure function is killed by an inline unit test; this catches any
-    # remaining call-site mutants that reach into live SierraDB state.
-    "domain_to_stream_checked",
+    # --- Batch 6 / P6.4: domain_to_stream_checked is fully killed by an
+    # inline unit test in command_adapters.rs; no exclude needed.
     # --- Batch 6 / P6.6: API shutdown / state live-runtime mutants ---
     # wait_for_shutdown / shutdown_ai_import coordinate live task shutdown;
     # AppState Debug redaction and main() are not unit-testable without

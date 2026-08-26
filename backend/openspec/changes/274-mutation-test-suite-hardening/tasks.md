@@ -1472,14 +1472,14 @@ cargo test -p infra --features test-support
 
 | Patch | Datei(en) | Survivor | Status |
 |---|---|---|---|
-| [P6.1](#p6.1) | `crates/infra/src/queries/membership.rs` | 10 | [x] |
-| [P6.2](#p6.2) | `crates/infra/src/queries/costume.rs` … | 14 | [x] |
-| [P6.3](#p6.3) | `crates/infra/src/queries/character.rs` … | 14 | [x] |
-| [P6.4](#p6.4) | `crates/infra/src/event_store/command_adapters.rs` | 5 | [x] |
-| [P6.5](#p6.5) | `crates/core/src/shared.rs` … | 8 | [x] |
-| [P6.6](#p6.6) | `crates/api/src/main.rs` … | 9 | [x] |
-| [P6.7](#p6.7) | `crates/api/src/problems/mod.rs` … | 3 | [x] |
-| [P6.8](#p6.8) | `crates/api/src/bin/migrate_gdrive_credentials.rs` | 12 | [x] |
+| [P6.1](#p61) | `crates/infra/src/queries/membership.rs` | 10 | [x] |
+| [P6.2](#p62) | `crates/infra/src/queries/costume.rs` … | 14 | [x] |
+| [P6.3](#p63) | `crates/infra/src/queries/character.rs` … | 14 | [x] |
+| [P6.4](#p64) | `crates/infra/src/event_store/command_adapters.rs` | 5 | [x] |
+| [P6.5](#p65) | `crates/core/src/shared.rs` … | 8 | [x] |
+| [P6.6](#p66) | `crates/api/src/main.rs` … | 9 | [x] |
+| [P6.7](#p67) | `crates/api/src/problems/mod.rs` … | 3 | [x] |
+| [P6.8](#p68) | `crates/api/src/bin/migrate_gdrive_credentials.rs` | 12 | [x] |
 
 ### P6.1 — Membership-Queries
 
