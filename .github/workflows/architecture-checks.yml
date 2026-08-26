@@ -385,8 +385,8 @@ jobs:
           set -euo pipefail
           REPORT="${{ github.workspace }}/gitleaks-report.sarif"
           ARGS=(
-            detect
-            --source=.
+            git
+            .
             --config=.gitleaks.toml
             --report-format=sarif
             --report-path="${REPORT}"
