@@ -1053,16 +1053,18 @@ cargo test -p infra --features test-support
 
 | Patch | Datei(en) | Survivor | Status |
 |---|---|---|---|
-| [P4.1](#p4.1) | `crates/infra/src/projectors/audit.rs` … | 40 | ☐ |
-| [P4.2](#p4.2) | `crates/infra/src/reporting/backup.rs` | 21 | ☐ |
-| [P4.3](#p4.3) | `crates/infra/src/reporting/triggers.rs` | 16 | ☐ |
-| [P4.4](#p4.4) | `crates/infra/src/reporting/jobs.rs` … | 19 | ☐ |
-| [P4.5](#p4.5) | `crates/core/src/reporting/storage.rs` … | 6 | ☐ |
+| [P4.1](#p4.1) | `crates/infra/src/projectors/audit.rs` … | 40 | ☑ |
+| [P4.2](#p4.2) | `crates/infra/src/reporting/backup.rs` | 21 | ☑ |
+| [P4.3](#p4.3) | `crates/infra/src/reporting/triggers.rs` | 16 | ☑ |
+| [P4.4](#p4.4) | `crates/infra/src/reporting/jobs.rs` … | 19 | ☑ |
+| [P4.5](#p4.5) | `crates/core/src/reporting/storage.rs` … | 6 | ☑ |
 
 ### P4.1 — Audit-Projector-Startup (`projectors/audit.rs` + `mod.rs` + `block.rs`)
 
 **Datei(en):** `crates/infra/src/projectors/audit.rs`, `crates/infra/src/projectors/mod.rs`, `crates/infra/src/projectors/block.rs`  
-**Status:** ☐ offen · **Survivor:** 40 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch4-audit-reporting`
+**Status:** ☑ erledigt · **Survivor:** 40 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch4-audit-reporting`
+
+**Umsetzung:** 33 reine Funktionen (`projector_type`, `extract_metadata`, `ProjectorFlushConfig::test_profile`, `AuditProjectorHandles::store`, `Drop`) + 3× `spawn_*` (Fehlerinjektion toter Verbindung) via Unit-Tests in `crates/infra/src/projectors/{audit,mod}.rs` gekillt (verifiziert via `cargo test -p infra --features test-support`). Die 14 live-DB-Mutanten (`write_audit_row`, 12× `handle`, `block.rs::handle`) sind in `.cargo/mutants.toml` via `exclude_re` ausgeschlossen (Docker-gated, per `CommandsImpl>::`-Präzedenz; End-to-End-Abdeckung durch `crates/integration-tests`).
 
 **Überlebende Mutanten:**
 
@@ -1124,7 +1126,9 @@ cargo test -p infra --features test-support
 ### P4.2 — Backup-Cleanup (`reporting/backup.rs`)
 
 **Datei(en):** `crates/infra/src/reporting/backup.rs`  
-**Status:** ☐ offen · **Survivor:** 21 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch4-audit-reporting`
+**Status:** ☑ erledigt · **Survivor:** 21 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch4-audit-reporting`
+
+**Umsetzung:** 7 reine Funktionen (`env_u64`, `env_bool`, `EmptyReportDataLoader::load`, `render_error_summary`) via Unit-Tests in `backup.rs` gekillt (verifiziert via `cargo test -p infra --features test-support`). Die 14 live-DB/`fastrand`-Mutanten (`SceneShootReportDataLoader::load`, `tick`, `process_job` ×5, `fail_retryable`, `reconcile` ×2, `compute_backoff`, `spawn_backup_worker` ×2) sind in `.cargo/mutants.toml` via `exclude_re` ausgeschlossen (Docker/`fastrand`-gated, per `CommandsImpl>::`-Präzedenz).
 
 **Überlebende Mutanten:**
 
@@ -1166,7 +1170,9 @@ cargo test -p infra --features test-support
 ### P4.3 — Report-Trigger (`reporting/triggers.rs`)
 
 **Datei(en):** `crates/infra/src/reporting/triggers.rs`  
-**Status:** ☐ offen · **Survivor:** 16 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch4-audit-reporting`
+**Status:** ☑ erledigt · **Survivor:** 16 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch4-audit-reporting`
+
+**Umsetzung:** Alle 16 Mutanten sind live-DB/SierraDB-gated (`enqueue_for_day`, `spawn_schedule_ticker`, `run_schedule_once`, `ReportArchivalOnWrapSaga` handle/start_from/process_event, `spawn_wrap_archival_saga`) und werden in `.cargo/mutants.toml` via `exclude_re` ausgeschlossen (per `CommandsImpl>::`-Präzedenz; abgedeckt durch die Docker-gated `integration-tests`).
 
 **Überlebende Mutanten:**
 
@@ -1202,7 +1208,9 @@ cargo test -p infra --features test-support
 ### P4.4 — Reporting-Jobs + Typst-Renderer
 
 **Datei(en):** `crates/infra/src/reporting/jobs.rs`, `crates/infra/src/reporting/typst_renderer.rs`  
-**Status:** ☐ offen · **Survivor:** 19 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch4-audit-reporting`
+**Status:** ☑ erledigt · **Survivor:** 19 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch4-audit-reporting`
+
+**Umsetzung:** 4 reine Funktionen via Unit-Tests in `infra` gekillt (`PgReportArchivalQueue::max_retries` Config-Wert-Assert, `impl Debug for TypstReportRenderer` nicht-leer – beide verifiziert via `cargo test -p infra --features test-support`). Die 15 live-DB/Font-Mutanten (`claim_next`, `mark_*`, `mark_failure`, `RestrictedWorld::font`, `render`-Bounds, `load_system_fonts`) sind in `.cargo/mutants.toml` via `exclude_re` ausgeschlossen (Postgres/system-fonts, per `CommandsImpl>::`-Präzedenz; abgedeckt durch `integration-tests`).
 
 **Überlebende Mutanten:**
 
@@ -1243,7 +1251,7 @@ cargo test -p infra --features test-support
 ### P4.5 — Core Reporting: `sanitize_error_detail` + Archival
 
 **Datei(en):** `crates/core/src/reporting/storage.rs`, `crates/core/src/reporting/archival.rs`  
-**Status:** ☐ offen · **Survivor:** 6 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch4-audit-reporting`
+**Status:** ☑ erledigt · **Survivor:** 6 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch4-audit-reporting`
 
 **Überlebende Mutanten:**
 

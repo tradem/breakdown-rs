@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: hy3 (opencode-go)
 
 //! In-process Typst adapter implementing `ReportRenderer`.
 //!
@@ -385,4 +386,33 @@ fn load_system_fonts() -> Result<Vec<Font>, String> {
     }
 
     Ok(fonts)
+}
+
+// --- P4.4 mutation-hardening: `Debug for TypstReportRenderer` guard ---
+//
+// Kills the `replace <impl fmt::Debug for TypstReportRenderer>::fmt ->
+// fmt::Result with Ok(Default::default())` mutant (empty output). Constructing
+// with empty templates/fonts needs no system fonts, so this is a fast
+// whitebox kill. The remaining P4.4 typst mutants (`font`, `render` bound
+// checks, `load_system_fonts`) are excluded in `.cargo/mutants.toml` (they only
+// change behaviour when an actual Typst compile runs, which requires system
+// fonts — a system resource, per the `CommandsImpl>::` precedent).
+#[cfg(test)]
+mod mutation_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn debug_impl_is_non_empty() {
+        let renderer = TypstReportRenderer::new(HashMap::new(), vec![]);
+        let s = format!("{renderer:?}");
+        assert!(
+            !s.is_empty(),
+            "Debug for TypstReportRenderer must not be empty"
+        );
+        assert!(
+            s.contains("TypstReportRenderer"),
+            "Debug for TypstReportRenderer must identify the type"
+        );
+    }
 }

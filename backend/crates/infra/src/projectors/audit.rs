@@ -3,6 +3,7 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: qwen3.6-35b (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: hy3 (opencode-go)
 //! Generic audit / journal projector.
 //!
 //! Generalized to all 11 aggregate categories (`season`, `block`, `episode`,
@@ -838,4 +839,98 @@ fn audit_category_coverage_is_exhaustive() {
         12,
         "AuditCategory count is not 12 — did someone add or remove a variant?"
     );
+}
+
+// --- P4.1 mutation-hardening: pure-function guards ---
+//
+// These kill the surviving mutants on `AuditCategory::projector_type` (`""` /
+// `"xyzzy"` substitutions) and `extract_metadata` (all tuple-value substitutions
+// at audit.rs:188). They are pure (no DB), so they run in `cargo test`.
+#[cfg(test)]
+mod mutation_tests {
+    use super::*;
+    use breakdown_core::season::events::SeasonEvent;
+    use breakdown_core::shared::{AggregateVersion, EventMetadata, Provenance, SeriesId, UserId};
+    use kameo_es::{Event, Metadata, StreamId};
+
+    fn make_event(meta: Option<EventMetadata>) -> Event<SeasonEvent, EventMetadata> {
+        Event {
+            id: uuid::Uuid::now_v7(),
+            partition_key: uuid::Uuid::now_v7(),
+            partition_id: 0,
+            transaction_id: uuid::Uuid::now_v7(),
+            partition_sequence: 0,
+            stream_version: 0,
+            stream_id: StreamId::new(format!("season-{}", uuid::Uuid::now_v7())),
+            name: "SeasonCreated".to_string(),
+            data: SeasonEvent::SeasonCreated {
+                id: uuid::Uuid::now_v7(),
+                series_id: SeriesId(uuid::Uuid::now_v7()),
+                number: 1,
+                title: None,
+                version: AggregateVersion(0),
+            },
+            metadata: Metadata {
+                causation_command: None,
+                causation_event: None,
+                data: meta,
+            },
+            timestamp: chrono::Utc::now(),
+        }
+    }
+
+    #[test]
+    fn projector_type_returns_canonical_names() {
+        use AuditCategory::*;
+        let cases = [
+            (Season, "Season"),
+            (Block, "Block"),
+            (Episode, "Episode"),
+            (Scene, "Scene"),
+            (SceneShoot, "SceneShoot"),
+            (ShootingDay, "ShootingDay"),
+            (Character, "Character"),
+            (Costume, "Costume"),
+            (CostumeCategory, "CostumeCategory"),
+            (Photo, "Photo"),
+            (Membership, "Membership"),
+            (Settings, "Settings"),
+        ];
+        for (cat, expected) in cases {
+            let s = cat.projector_type();
+            assert!(
+                !s.is_empty(),
+                "projector_type must not be empty for {cat:?}"
+            );
+            assert_ne!(
+                s, "xyzzy",
+                "projector_type must not be a placeholder for {cat:?}"
+            );
+            assert_eq!(s, expected, "projector_type mismatch for {cat:?}");
+        }
+    }
+
+    #[test]
+    fn extract_metadata_reads_present_metadata() {
+        let series = SeriesId(uuid::Uuid::now_v7());
+        let meta = EventMetadata {
+            actor: Some(UserId("user-123".into())),
+            provenance: Provenance::Saga("SeasonSeeding".into()),
+            series_id: Some(series),
+        };
+        let event = make_event(Some(meta));
+        let (actor, provenance, series_id) = extract_metadata(&event);
+        assert_eq!(actor, Some("user-123".to_string()));
+        assert_eq!(provenance, "SeasonSeeding");
+        assert_eq!(series_id, Some(series.0.to_string()));
+    }
+
+    #[test]
+    fn extract_metadata_defaults_without_metadata() {
+        let event = make_event(None);
+        let (actor, provenance, series_id) = extract_metadata(&event);
+        assert_eq!(actor, None);
+        assert_eq!(provenance, "Human");
+        assert_eq!(series_id, None);
+    }
 }

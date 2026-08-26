@@ -3,6 +3,7 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: qwen3.6-35b (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: hy3 (opencode-go)
 
 //! Projection actors – one `PostgresProcessor` per aggregate.
 //!
@@ -1223,4 +1224,161 @@ pub async fn spawn_scene_shoot_projector(
         actor_ref.clone()
     )?;
     Ok(actor_ref)
+}
+
+// --- P4.1 mutation-hardening: spawn/flush/handle guards ---
+//
+// Kill the surviving mutants on `ProjectorFlushConfig::test_profile`
+// (`Default::default()` substitution), `AuditProjectorHandles::store` (no-op),
+// and `Drop for AuditProjectorHandles` (no abort). The projector-subscription
+// and `handle` mutants require a live SierraDB + Postgres and live in the
+// integration-tests crate.
+#[cfg(test)]
+mod mutation_tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
+
+    #[test]
+    fn test_profile_is_aggressive_and_non_default() {
+        let cfg = ProjectorFlushConfig::test_profile();
+        // The mutant `test_profile -> Default::default()` returns all-None,
+        // so CI would run with production flush defaults (pool starvation).
+        assert_eq!(cfg.workers, Some(2), "test_profile must pin 2 workers");
+        assert_eq!(
+            cfg.flush_live_interval_time,
+            Some(Duration::from_millis(500)),
+            "test_profile must tighten the live flush interval"
+        );
+        assert_eq!(
+            cfg.flush_live_interval_events,
+            Some(5),
+            "test_profile must tighten the live flush event count"
+        );
+        assert_eq!(
+            cfg.flush_replay_interval_events,
+            Some(50),
+            "test_profile must tighten the replay flush event count"
+        );
+        assert_ne!(
+            cfg.workers,
+            ProjectorFlushConfig::default().workers,
+            "test_profile must differ from production default"
+        );
+    }
+
+    #[tokio::test]
+    async fn audit_projector_handles_store_records_handle() {
+        let mut handles = AuditProjectorHandles::new();
+        assert!(handles.handles[3].is_none());
+        let handle = tokio::spawn(async {});
+        handles.store(3, handle);
+        assert!(
+            handles.handles[3].is_some(),
+            "store must record the JoinHandle at the given index"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn audit_projector_handles_drop_aborts_stored_handles() {
+        // Park an infinite (never-notified) task; aborting it while parked on a
+        // real await cancels the future and runs the guard's Drop.
+        let never = std::sync::Arc::new(tokio::sync::Notify::new());
+        struct AbortFlag(Arc<AtomicBool>);
+        impl Drop for AbortFlag {
+            fn drop(&mut self) {
+                self.0.store(true, SeqCst);
+            }
+        }
+        let flag = Arc::new(AtomicBool::new(false));
+        let flag_clone = flag.clone();
+        let mut handles = AuditProjectorHandles::new();
+        let handle = tokio::spawn({
+            let never = never.clone();
+            let _guard = AbortFlag(flag_clone);
+            async move {
+                never.notified().await;
+            }
+        });
+        handles.store(0, handle);
+        drop(handles);
+        // Cooperative cancellation: the aborted task drops its guard when the
+        // runtime cancels it. Bounded cooperative yields, not a wall-clock sleep.
+        for _ in 0..256 {
+            tokio::task::yield_now().await;
+        }
+        assert!(
+            flag.load(SeqCst),
+            "Drop must abort stored projector handles"
+        );
+    }
+
+    // --- spawn_* error-propagation guards ---
+    //
+    // These kill the `spawn_single_audit_projector -> Ok(())`,
+    // `spawn_audit_projectors_for_types -> Ok(())` and
+    // `spawn_all_audit_projectors -> Ok(Default::default())` mutants. The
+    // projectors need a live SierraDB + Postgres to actually subscribe, so we
+    // inject a connection that can never succeed and assert the spawn returns
+    // `Err`. A mutant that swallows the error (returns `Ok`) would make these
+    // assertions fail. (The live-DB `handle` / `write_audit_row` / block-handle
+    // mutants are excluded in `.cargo/mutants.toml` per the `CommandsImpl>::`
+    // precedent: they cannot be killed by fast whitebox unit tests in `infra`.)
+    fn dead_pool() -> sqlx::PgPool {
+        // connect_lazy never touches the network, so we get a pool that fails
+        // on first use without hanging.
+        sqlx::PgPool::connect_lazy("postgres://breakdown_app:breakdown_app@127.0.0.1:1/breakdown")
+            .expect("connect_lazy must succeed for an unreachable target")
+    }
+
+    fn dead_redis() -> Arc<RedisClient> {
+        Arc::new(RedisClient::open("redis://127.0.0.1:1/").expect("redis url must parse"))
+    }
+
+    #[tokio::test]
+    async fn spawn_single_audit_projector_propagates_connection_error() {
+        let result = spawn_single_audit_projector(
+            AuditCategory::Season,
+            &mut AuditProjectorHandles::new(),
+            dead_pool(),
+            dead_redis(),
+            ProjectorFlushConfig::test_profile(),
+        )
+        .await;
+        assert!(
+            result.is_err(),
+            "spawn_single_audit_projector must propagate connection errors"
+        );
+    }
+
+    #[tokio::test]
+    async fn spawn_audit_projectors_for_types_propagates_connection_error() {
+        let categories = [AuditCategory::Season, AuditCategory::Block];
+        let result = spawn_audit_projectors_for_types(
+            &categories,
+            &mut AuditProjectorHandles::new(),
+            dead_pool(),
+            dead_redis(),
+            ProjectorFlushConfig::test_profile(),
+        )
+        .await;
+        assert!(
+            result.is_err(),
+            "spawn_audit_projectors_for_types must propagate connection errors"
+        );
+    }
+
+    #[tokio::test]
+    async fn spawn_all_audit_projectors_propagates_connection_error() {
+        let result = spawn_all_audit_projectors(
+            dead_pool(),
+            dead_redis(),
+            ProjectorFlushConfig::test_profile(),
+        )
+        .await;
+        assert!(
+            result.is_err(),
+            "spawn_all_audit_projectors must propagate connection errors"
+        );
+    }
 }

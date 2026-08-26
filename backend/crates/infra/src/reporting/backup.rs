@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: grok-4.5 (opencode-go)
+// Co-authored-by: hy3 (opencode-go)
 
 //! Idempotent staging-then-external report backup worker.
 //!
@@ -528,5 +529,81 @@ pub mod test_support {
                 filename: "test.pdf".into(),
             })
         }
+    }
+}
+
+// --- P4.2 mutation-hardening: pure-function guards ---
+//
+// Kill the surviving mutants on `env_u64` / `env_bool` (constant substitution),
+// `EmptyReportDataLoader::load` (constant substitution) and `render_error_summary`
+// (constant substitution). The DB/storage-backed mutants on `tick`,
+// `process_job`, `fail_retryable`, `reconcile`, `spawn_backup_worker`,
+// `SceneShootReportDataLoader::load` and `compute_backoff` (jitter) are excluded
+// in `.cargo/mutants.toml` per the `CommandsImpl>::` precedent.
+#[cfg(test)]
+mod mutation_tests {
+    use super::*;
+    use breakdown_core::reporting::ReportRenderError;
+    use uuid::Uuid;
+
+    #[test]
+    fn env_u64_returns_configured_default_when_unset() {
+        // The mutants replace the body with `0` / `1`. An unset key with a
+        // default of 7 (distinct from both) makes both mutants fail.
+        assert_eq!(
+            env_u64("REPORT_BACKUP_POLL_SECS_P4_2_UNSET_A", 7),
+            7,
+            "env_u64 must fall back to the provided default when unset"
+        );
+    }
+
+    #[test]
+    fn env_bool_false_default_when_unset() {
+        assert!(
+            !env_bool("REPORT_BACKUP_RETAIN_STAGING_P4_2_UNSET_A", false),
+            "env_bool must fall back to `false` default when unset"
+        );
+    }
+
+    #[test]
+    fn env_bool_true_default_when_unset() {
+        assert!(
+            env_bool("REPORT_BACKUP_RETAIN_STAGING_P4_2_UNSET_B", true),
+            "env_bool must fall back to `true` default when unset"
+        );
+    }
+
+    #[tokio::test]
+    async fn empty_report_data_loader_returns_empty_rows() {
+        let loader = EmptyReportDataLoader;
+        let result = loader
+            .load(ReportKind::Dispo, ShootingDayId(Uuid::now_v7()))
+            .await;
+        assert_eq!(
+            result,
+            Ok(serde_json::json!({ "rows": [] })),
+            "EmptyReportDataLoader must return the empty-rows payload"
+        );
+    }
+
+    #[test]
+    fn render_error_summary_returns_truncated_message() {
+        let err = ReportRenderError::LocaleUnsupported {
+            locale: "de-DE".into(),
+        };
+        let summary = render_error_summary(&err);
+        assert!(
+            !summary.is_empty(),
+            "render_error_summary must not be empty"
+        );
+        assert_ne!(
+            summary, "xyzzy",
+            "render_error_summary must not return a placeholder"
+        );
+        assert_eq!(
+            summary,
+            err.to_string(),
+            "render_error_summary must echo the (truncated) error message"
+        );
     }
 }

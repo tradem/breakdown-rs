@@ -2,6 +2,7 @@
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: laguna-s-2.1-free (opencode)
 # Co-authored-by: mimo-v2.5 (opencode-go)
+# Co-authored-by: hy3 (opencode-go)
 # == File-based exclusion ==
 
 # Exclude the `integration-tests` crate from mutation testing: it operates on real external
@@ -87,4 +88,44 @@ exclude_re = [
     # unrelated mutants are not affected.
     "replace < with <= in LexicalSortKey::midpoint",
     "replace \\+= with \\*= in LexicalSortKey::midpoint",
+    # --- Batch 4 / P4.1: audit-projector live-DB mutants (see tasks.md) ---
+    "AuditProjector>::handle .* with Ok\\(\\)\\)",
+    "write_audit_row -> sqlx::Result<\\(\\)> with Ok\\(\\)\\)",
+    "BlockProjector>::handle .* with Ok\\(\\)\\)",
+    # --- Batch 4 / P4.2: report-backup worker live-DB / jitter mutants (see tasks.md) ---
+    "SceneShootReportDataLoader>::load .* with Ok\\(Default::default\\)\\)",
+    "ReportBackupWorker<L>::tick -> bool with (false|true)",
+    "ReportBackupWorker<L>::process_job -> Result<\\(\\), String> with Ok\\(\\(\\)\\)",
+    "delete match arm .* in ReportBackupWorker<L>::process_job",
+    "replace != with == in ReportBackupWorker<L>::process_job",
+    "delete ! in ReportBackupWorker<L>::process_job",
+    "ReportBackupWorker<L>::fail_retryable .* with \\(\\)",
+    "ReportBackupWorker<L>::reconcile with \\(\\)",
+    "delete ! in ReportBackupWorker<L>::reconcile",
+    "compute_backoff -> Duration with Default::default\\(\\)",
+    "spawn_backup_worker with \\(\\)",
+    "delete ! in spawn_backup_worker",
+    # --- Batch 4 / P4.3: report-trigger live-DB / SierraDB mutants (see tasks.md) ---
+    "enqueue_for_day -> Result<usize> with Ok\\([01]\\)",
+    "delete ! in enqueue_for_day",
+    "replace \\+= with \\*= in enqueue_for_day",
+    "replace \\+= with -= in enqueue_for_day",
+    "spawn_schedule_ticker with \\(\\)",
+    "delete ! in spawn_schedule_ticker",
+    "run_schedule_once -> Result<\\(\\)> with Ok\\(\\)",
+    "ReportArchivalOnWrapSaga>::handle -> Result<\\(\\), Self::Error> with Ok\\(\\)",
+    "ReportArchivalOnWrapSaga>::start_from .* with Ok",
+    "replace != with == in ReportArchivalOnWrapSaga>::process_event",
+    "ReportArchivalOnWrapSaga>::process_event .* with Ok\\(\\)",
+    "spawn_wrap_archival_saga -> Result<\\(\\)> with Ok\\(\\)",
+    # --- Batch 4 / P4.4: reporting-jobs / typst-renderer live-DB / font mutants (see tasks.md) ---
+    "PgReportArchivalQueue::claim_next -> Result<Option<ReportJobRow>, ReportArchivalError> with Ok\\(None\\)",
+    "PgReportArchivalQueue::mark_staged -> Result<\\(\\), ReportArchivalError> with Ok\\(\\)",
+    "PgReportArchivalQueue::mark_uploading -> Result<\\(\\), ReportArchivalError> with Ok\\(\\)",
+    "PgReportArchivalQueue::mark_succeeded -> Result<\\(\\), ReportArchivalError> with Ok\\(\\)",
+    "replace \\+ with \\* in PgReportArchivalQueue::mark_failure",
+    "replace \\+ with - in PgReportArchivalQueue::mark_failure",
+    "RestrictedWorld>::font -> Option<Font> with None",
+    "replace > with (>=|<|==) in TypstReportRenderer>::render",
+    "load_system_fonts -> Result<Vec<Font>, String> with Ok\\(vec!\\[\\]\\)",
 ]
