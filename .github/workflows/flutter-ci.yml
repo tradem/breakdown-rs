@@ -116,29 +116,75 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      # Required for inline Gitleaks review comments (see the gitleaks step below).
-      pull-requests: write
+      # Enables SARIF upload to GitHub code scanning so secret findings
+      # surface inline on the PR (Security tab + annotations), replacing the
+      # gitleaks-action inline-comment feature we drop below (issue #271).
+      security-events: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Detect secrets with Gitleaks
-        # Scans changes introduced in the PR. frontend-flutter/** is NOT in
-        # the global .gitleaks.toml allowlist (only `frontend/.*` is), so its
-        # .dart / .yaml / .arb files are scanned. NB: the global config
-        # allowlists `.*\.md$`, so the ported-skill .md files rely on review
-        # + structural rules; tighten to a scoped config when the scaffold
-        # lands if .md scanning is required.
+      - name: Install Gitleaks (SHA-pinned)
+        # Pinned binary + checksum (mirrors the repo's ast-grep install
+        # discipline, AGENTS.md §4 CI hardening). gitleaks v8.30.1 is the
+        # current release; bump via Dependabot alongside the action pins.
+        run: |
+          set -euo pipefail
+          GITLEAKS_VERSION=8.30.1
+          GITLEAKS_SHA256=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+          curl -fsSL -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  /tmp/gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          sudo mv /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+      - name: Detect secrets with Gitleaks (full PR range)
+        # gitleaks-action's ScanPullRequest mode only reads the first page
+        # (~30 commits) of a PR's commit list (GitHub's default page size),
+        # so secrets in later commits of a large PR escape detection
+        # (issue #271). We run the gitleaks CLI directly and pass an explicit
+        # commit range so the FULL PR is scanned regardless of size. On a PR
+        # we scan `main..HEAD` (the PR's commits); on push / schedule /
+        # workflow_dispatch we scan the entire git history.
         #
-        # Permissions match what gitleaks-action actually does:
-        # GITLEAKS_ENABLE_COMMENTS defaults to true and posts inline PR
-        # review comments -> pull-requests: write is required (read fails
-        # the call). checks: write is NOT used by the pinned action.
-        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+        # frontend-flutter/** is NOT in the global .gitleaks.toml allowlist
+        # (only `frontend/.*` is), so its .dart / .yaml / .arb files are
+        # scanned. NB: the global config allowlists `.*\.md$`, so the
+        # ported-skill .md files rely on review + structural rules; tighten
+        # to a scoped config when the scaffold lands if .md scanning is
+        # required.
+        run: |
+          set -euo pipefail
+          REPORT="${{ github.workspace }}/gitleaks-report.sarif"
+          ARGS=(
+            detect
+            --source=.
+            --config=.gitleaks.toml
+            --report-format=sarif
+            --report-path="${REPORT}"
+            --exit-code=1
+            --log-level=info
+          )
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch origin --no-tags main:main
+            ARGS+=(--log-opts=main..HEAD)
+          fi
+          gitleaks "${ARGS[@]}"
+      - name: Upload Gitleaks SARIF to code scanning
+        # Surface findings inline on the PR (Security tab). Restricted to
+        # same-repo PRs and pushes to main where code-scanning upload is
+        # permitted; fork PRs still get the hard job failure above.
+        if: >-
+          always() &&
+          (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
+          (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        uses: github/codeql-action/upload-sarif@6d786de4d6f3531a740e445b53a42b622bbbace8 # v3
+        with:
+          sarif_file: ${{ github.workspace }}/gitleaks-report.sarif
+          category: gitleaks
+        continue-on-error: true
 
 # ---------------------------------------------------------------------------
 # DEFERRED jobs (Task 3.5) — NOT wired yet; land with their follow-up changes.
