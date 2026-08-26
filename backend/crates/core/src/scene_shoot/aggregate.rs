@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: longcat-2.0 (opencode-go)
 
 //! The `SceneShoot` event-sourced aggregate.
 
@@ -493,5 +494,65 @@ impl Command<UnlinkContinuityPhoto> for SceneShootAggregate {
             photo_id: cmd.photo_id,
             version: new_version,
         }])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Test code lifts the workspace clippy panics/unwrap lints via
+    // `#![cfg_attr(test, allow(...))]` in `crates/core/src/lib.rs`.
+
+    use super::*;
+
+    fn make_shoot(status: SceneShootStatus, version: AggregateVersion) -> SceneShootAggregate {
+        SceneShootAggregate {
+            id: SceneShootId::new(),
+            scene_id: Uuid::now_v7(),
+            shooting_day_id: ShootingDayId::default(),
+            planned_order: LexicalSortKey::from_static("0"),
+            actual_order: None,
+            status,
+            start_dt: None,
+            end_dt: None,
+            notes: Vec::new(),
+            continuity_photos: Vec::new(),
+            version,
+        }
+    }
+
+    /// Kills `replace is_terminal -> bool with false`: a Shot/Skipped shoot
+    /// must be terminal; the false-mutant would report all as non-terminal.
+    #[test]
+    fn is_terminal_true_for_shot_and_skipped() {
+        assert!(make_shoot(SceneShootStatus::Shot, AggregateVersion::INITIAL).is_terminal());
+        assert!(make_shoot(SceneShootStatus::Skipped, AggregateVersion::INITIAL).is_terminal());
+        assert!(!make_shoot(SceneShootStatus::Planned, AggregateVersion::INITIAL).is_terminal());
+    }
+
+    /// Kills `replace check_not_terminal -> Result ... with Ok(())`: a terminal
+    /// shoot must be rejected with TerminalState, not silently accepted.
+    #[test]
+    fn check_not_terminal_rejects_terminal_status() {
+        let err = make_shoot(SceneShootStatus::Shot, AggregateVersion::INITIAL)
+            .check_not_terminal()
+            .expect_err("Shot must be rejected");
+        assert!(matches!(err, SceneShootError::TerminalState { .. }));
+        make_shoot(SceneShootStatus::Planned, AggregateVersion::INITIAL)
+            .check_not_terminal()
+            .expect("Planned must be accepted");
+    }
+
+    /// Kills `replace check_version -> Result ... with Ok(())`: a mismatched
+    /// version must be rejected with VersionMismatch.
+    #[test]
+    fn check_version_rejects_mismatch() {
+        let shoot = make_shoot(SceneShootStatus::Planned, AggregateVersion::INITIAL);
+        shoot
+            .check_version(AggregateVersion::INITIAL)
+            .expect("matching version must pass");
+        let err = shoot
+            .check_version(AggregateVersion(5))
+            .expect_err("mismatched version must fail");
+        assert!(matches!(err, SceneShootError::VersionMismatch { .. }));
     }
 }

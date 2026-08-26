@@ -4,6 +4,7 @@
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: longcat-2.0 (opencode-go)
 
 //! `kameo_es` write adapters implementing the `core` command ports.
 //!
@@ -1567,5 +1568,44 @@ impl AiConfigCommands for AiConfigCommandsImpl {
             })
             .await;
         map_version_only(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Test code lifts the workspace clippy panics/unwrap lints via
+    // `#![cfg_attr(test, allow(...))]` in `crates/infra/src/lib.rs`.
+
+    use breakdown_core::shared::AggregateVersion;
+
+    use super::domain_to_stream_checked;
+
+    /// Kills the five `domain_to_stream_checked` mutants: `==`→`!=`,
+    /// `Ok(0)`/`Ok(1)`, `-`→`+`/`/`. The function must reject version 0 with
+    /// a `VersionConflict` and return `version - 1` for any version > 0.
+    #[test]
+    fn domain_to_stream_checked_rejects_zero_and_decrements() {
+        // Version 0 → Err (kills the ==→!= mutant, which would return Ok).
+        let err =
+            domain_to_stream_checked(AggregateVersion(0)).expect_err("version 0 must be rejected");
+        assert_eq!(
+            err,
+            breakdown_core::error::DomainError::VersionConflict {
+                expected: AggregateVersion(0),
+                current: AggregateVersion(0),
+            }
+        );
+
+        // INITIAL (1) → Ok(0). Kills Ok(1) and the -→+ mutant (which gives 2).
+        assert_eq!(
+            domain_to_stream_checked(AggregateVersion::INITIAL).expect("INITIAL ok"),
+            0
+        );
+
+        // Arbitrary version → Ok(version - 1). Kills Ok(0), Ok(1), -→+, -→/.
+        assert_eq!(
+            domain_to_stream_checked(AggregateVersion(42)).expect("42 ok"),
+            41
+        );
     }
 }

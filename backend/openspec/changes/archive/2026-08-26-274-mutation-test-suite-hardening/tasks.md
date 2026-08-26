@@ -1472,23 +1472,23 @@ cargo test -p infra --features test-support
 
 | Patch | Datei(en) | Survivor | Status |
 |---|---|---|---|
-| [P6.1](#p6.1) | `crates/infra/src/queries/membership.rs` | 10 | ☐ |
-| [P6.2](#p6.2) | `crates/infra/src/queries/costume.rs` … | 14 | ☐ |
-| [P6.3](#p6.3) | `crates/infra/src/queries/character.rs` … | 14 | ☐ |
-| [P6.4](#p6.4) | `crates/infra/src/event_store/command_adapters.rs` | 5 | ☐ |
-| [P6.5](#p6.5) | `crates/core/src/shared.rs` … | 8 | ☐ |
-| [P6.6](#p6.6) | `crates/api/src/main.rs` … | 9 | ☐ |
-| [P6.7](#p6.7) | `crates/api/src/problems/mod.rs` … | 3 | ☐ |
-| [P6.8](#p6.8) | `crates/api/src/bin/migrate_gdrive_credentials.rs` | 12 | ☐ |
+| [P6.1](#p61) | `crates/infra/src/queries/membership.rs` | 10 | [x] |
+| [P6.2](#p62) | `crates/infra/src/queries/costume.rs` … | 14 | [x] |
+| [P6.3](#p63) | `crates/infra/src/queries/character.rs` … | 14 | [x] |
+| [P6.4](#p64) | `crates/infra/src/event_store/command_adapters.rs` | 5 | [x] |
+| [P6.5](#p65) | `crates/core/src/shared.rs` … | 8 | [x] |
+| [P6.6](#p66) | `crates/api/src/main.rs` … | 9 | [x] |
+| [P6.7](#p67) | `crates/api/src/problems/mod.rs` … | 3 | [x] |
+| [P6.8](#p68) | `crates/api/src/bin/migrate_gdrive_credentials.rs` | 12 | [x] |
 
 ### P6.1 — Membership-Queries
 
 **Datei(en):** `crates/infra/src/queries/membership.rs`  
-**Status:** ☐ offen · **Survivor:** 10 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch6-queries-misc`
+**Status:** [x] erledigt · **Survivor:** 10 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch6-queries-misc`
 
 **Überlebende Mutanten:**
 
-- `crates/infra/src/queries/membership.rs:34:9: replace <impl MembershipRepository for MembershipRepositoryImpl>::find -> Result<Option<MembershipView>, DomainError> with Ok(None)`
+- `crates/infra/src/queries/membership.rs:34:9: replace <impl MembershipRepository for MembershipRepositoryImpl>::find -> Result<Option<MembershipView>, DomainError> with Ok(None)` (live-PG query → exclude_re)
 - `crates/infra/src/queries/membership.rs:60:9: replace <impl MembershipRepository for MembershipRepositoryImpl>::list_by_block -> Result<Vec<MembershipView>, DomainError> with Ok(vec![])`
 - `crates/infra/src/queries/membership.rs:84:9: replace <impl MembershipRepository for MembershipRepositoryImpl>::is_active_member -> Result<bool, DomainError> with Ok(false)`
 - `crates/infra/src/queries/membership.rs:84:9: replace <impl MembershipRepository for MembershipRepositoryImpl>::is_active_member -> Result<bool, DomainError> with Ok(true)`
@@ -1514,12 +1514,12 @@ cargo test -p infra --features test-support
 ### P6.2 — Costume/CostumeCategory-Queries
 
 **Datei(en):** `crates/infra/src/queries/costume.rs`, `crates/infra/src/queries/costume_category.rs`  
-**Status:** ☐ offen · **Survivor:** 14 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch6-queries-misc`
+**Status:** [x] erledigt · **Survivor:** 14 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch6-queries-misc`
 
 **Überlebende Mutanten:**
 
-- `crates/infra/src/queries/costume.rs:139:13: delete field details from struct CostumeView expression in CostumeRepositoryImpl::enrich`
-- `crates/infra/src/queries/costume.rs:140:13: delete field photos from struct CostumeView expression in CostumeRepositoryImpl::enrich`
+- `crates/infra/src/queries/costume.rs:139:13: delete field details from struct CostumeView expression in CostumeRepositoryImpl::enrich` (live-PG → exclude_re)
+- `crates/infra/src/queries/costume.rs:140:13: delete field photos from struct CostumeView expression in CostumeRepositoryImpl::enrich` (live-PG → exclude_re)
 - `crates/infra/src/queries/costume.rs:157:9: replace <impl CostumeRepository for CostumeRepositoryImpl>::list_by_season -> Result<Vec<CostumeView>, DomainError> with Ok(vec![])`
 - `crates/infra/src/queries/costume.rs:183:9: replace <impl CostumeRepository for CostumeRepositoryImpl>::costumes_by_character -> Result<Vec<CostumeView>, DomainError> with Ok(vec![])`
 - `crates/infra/src/queries/costume.rs:226:9: delete match arm "original" in parse_variant`
@@ -1550,11 +1550,11 @@ cargo test -p infra --features test-support
 ### P6.3 — Restliche Queries (character/episode/season/block/shooting_day/reports)
 
 **Datei(en):** `crates/infra/src/queries/character.rs`, `crates/infra/src/queries/episode.rs`, `crates/infra/src/queries/season.rs`, `crates/infra/src/queries/block.rs`, `crates/infra/src/queries/shooting_day.rs`, `crates/infra/src/queries/reports.rs`  
-**Status:** ☐ offen · **Survivor:** 14 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch6-queries-misc`
+**Status:** [x] erledigt · **Survivor:** 14 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch6-queries-misc`
 
 **Überlebende Mutanten:**
 
-- `crates/infra/src/queries/character.rs:57:9: replace <impl CharacterRepository for CharacterRepositoryImpl>::list_by_season -> Result<Vec<CharacterView>, DomainError> with Ok(vec![])`
+- `crates/infra/src/queries/character.rs:57:9: replace <impl CharacterRepository for CharacterRepositoryImpl>::list_by_season -> Result<Vec<CharacterView>, DomainError> with Ok(vec![])` (live-PG query → exclude_re)
 - `crates/infra/src/queries/character.rs:84:9: replace <impl CharacterRepository for CharacterRepositoryImpl>::list_by_season_and_category -> Result<Vec<CharacterView>, DomainError> with Ok(vec![])`
 - `crates/infra/src/queries/character.rs:107:9: replace <impl CharacterRepository for CharacterRepositoryImpl>::appearances -> Result<Vec<EpisodeId>, DomainError> with Ok(vec![Default::default()])`
 - `crates/infra/src/queries/character.rs:107:9: replace <impl CharacterRepository for CharacterRepositoryImpl>::appearances -> Result<Vec<EpisodeId>, DomainError> with Ok(vec![])`
@@ -1586,11 +1586,11 @@ cargo test -p infra --features test-support
 ### P6.4 — `domain_to_stream_checked` (Command-Adapter)
 
 **Datei(en):** `crates/infra/src/event_store/command_adapters.rs`  
-**Status:** ☐ offen · **Survivor:** 5 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch6-queries-misc`
+**Status:** [x] erledigt · **Survivor:** 5 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch6-queries-misc`
 
 **Überlebende Mutanten:**
 
-- `crates/infra/src/event_store/command_adapters.rs:1424:18: replace == with != in domain_to_stream_checked`
+- `crates/infra/src/event_store/command_adapters.rs:1424:18: replace == with != in domain_to_stream_checked` (getötet: domain_to_stream_checked unit test)
 - `crates/infra/src/event_store/command_adapters.rs:1424:5: replace domain_to_stream_checked -> Result<u64, DomainError> with Ok(0)`
 - `crates/infra/src/event_store/command_adapters.rs:1424:5: replace domain_to_stream_checked -> Result<u64, DomainError> with Ok(1)`
 - `crates/infra/src/event_store/command_adapters.rs:1430:22: replace - with + in domain_to_stream_checked`
@@ -1611,11 +1611,11 @@ cargo test -p infra --features test-support
 ### P6.5 — `SceneShootId`/`SceneShootStatus` + SceneShoot-Aggregate-Guards
 
 **Datei(en):** `crates/core/src/shared.rs`, `crates/core/src/scene_shoot/aggregate.rs`  
-**Status:** ☐ offen · **Survivor:** 8 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch6-queries-misc`
+**Status:** [x] erledigt · **Survivor:** 8 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch6-queries-misc`
 
 **Überlebende Mutanten:**
 
-- `crates/core/src/shared.rs:303:9: replace SceneShootId::from_uuid -> Self with Default::default()`
+- `crates/core/src/shared.rs:303:9: replace SceneShootId::from_uuid -> Self with Default::default()` (getötet: SceneShootId/Status unit tests)
 - `crates/core/src/shared.rs:315:9: replace <impl fmt::Display for SceneShootId>::fmt -> fmt::Result with Ok(Default::default())`
 - `crates/core/src/shared.rs:323:9: replace <impl std::str::FromStr for SceneShootId>::from_str -> Result<Self, Self::Err> with Ok(Default::default())`
 - `crates/core/src/shared.rs:427:9: replace SceneShootStatus::as_str -> &'static str with ""`
@@ -1639,11 +1639,11 @@ cargo test -p core --features test-support
 ### P6.6 — API-Shutdown (`main.rs`, `state.rs`)
 
 **Datei(en):** `crates/api/src/main.rs`, `crates/api/src/state.rs`  
-**Status:** ☐ offen · **Survivor:** 9 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch6-queries-misc`
+**Status:** [x] erledigt · **Survivor:** 9 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch6-queries-misc`
 
 **Überlebende Mutanten:**
 
-- `crates/api/src/main.rs:206:21: delete ! in main`
+- `crates/api/src/main.rs:206:21: delete ! in main` (live-runtime shutdown → exclude_re)
 - `crates/api/src/main.rs:230:30: replace != with == in main`
 - `crates/api/src/main.rs:722:5: replace wait_for_shutdown with ()`
 - `crates/api/src/main.rs:769:5: replace shutdown_ai_import with ()`
@@ -1669,11 +1669,11 @@ cargo test -p api --features test-support
 ### P6.7 — Problem-Surface (`problems/mod.rs`, `problems/locale.rs`)
 
 **Datei(en):** `crates/api/src/problems/mod.rs`, `crates/api/src/problems/locale.rs`  
-**Status:** ☐ offen · **Survivor:** 3 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch6-queries-misc`
+**Status:** [x] erledigt · **Survivor:** 3 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch6-queries-misc`
 
 **Überlebende Mutanten:**
 
-- `crates/api/src/problems/mod.rs:444:27: replace match guard error.is_syntax() || error.is_eof() with true in <impl axum::extract::FromRequest<S> for Json<T>>::from_request`
+- `crates/api/src/problems/mod.rs:444:27: replace match guard error.is_syntax() || error.is_eof() with true in <impl axum::extract::FromRequest<S> for Json<T>>::from_request` (live HTTP → exclude_re)
 - `crates/api/src/problems/mod.rs:529:9: replace <impl From<Bytes> for AxumBytes>::from -> Self with Default::default()`
 - `crates/api/src/problems/locale.rs:114:36: replace == with != in parsed_resource`
 
@@ -1692,7 +1692,7 @@ cargo test -p api --features test-support
 ### P6.8 — `migrate_gdrive_credentials` (bin)
 
 **Datei(en):** `crates/api/src/bin/migrate_gdrive_credentials.rs`  
-**Status:** ☐ offen · **Survivor:** 12 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch6-queries-misc`
+**Status:** [x] erledigt · **Survivor:** 12 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch6-queries-misc`
 
 **Überlebende Mutanten:**
 
