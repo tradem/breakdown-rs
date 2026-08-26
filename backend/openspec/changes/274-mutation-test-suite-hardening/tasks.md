@@ -1059,12 +1059,13 @@ cargo test -p infra --features test-support
 | [P4.4](#p4.4) | `crates/infra/src/reporting/jobs.rs` … | 19 | ☑ |
 | [P4.5](#p4.5) | `crates/core/src/reporting/storage.rs` … | 6 | ☑ |
 
+<a id="p4.1"></a>
 ### P4.1 — Audit-Projector-Startup (`projectors/audit.rs` + `mod.rs` + `block.rs`)
 
 **Datei(en):** `crates/infra/src/projectors/audit.rs`, `crates/infra/src/projectors/mod.rs`, `crates/infra/src/projectors/block.rs`  
 **Status:** ☑ erledigt · **Survivor:** 40 · **Commit:** _noch offen_ · **PR/Branch:** `feature/274-batch4-audit-reporting`
 
-**Umsetzung:** 33 reine Funktionen (`projector_type`, `extract_metadata`, `ProjectorFlushConfig::test_profile`, `AuditProjectorHandles::store`, `Drop`) + 3× `spawn_*` (Fehlerinjektion toter Verbindung) via Unit-Tests in `crates/infra/src/projectors/{audit,mod}.rs` gekillt (verifiziert via `cargo test -p infra --features test-support`). Die 14 live-DB-Mutanten (`write_audit_row`, 12× `handle`, `block.rs::handle`) sind in `.cargo/mutants.toml` via `exclude_re` ausgeschlossen (Docker-gated, per `CommandsImpl>::`-Präzedenz; End-to-End-Abdeckung durch `crates/integration-tests`).
+**Umsetzung:** 23 reine Funktionen (`projector_type`, `extract_metadata`, `ProjectorFlushConfig::test_profile`, `AuditProjectorHandles::store`, `Drop`) + 3× `spawn_*` (Fehlerinjektion toter Verbindung) via Unit-Tests in `crates/infra/src/projectors/{audit,mod}.rs` gekillt (26 gesamt, verifiziert via `cargo test -p infra --features test-support`). Die 14 live-DB-Mutanten (`write_audit_row`, 12× `handle`, `block.rs::handle`) sind in `.cargo/mutants.toml` via `exclude_re` ausgeschlossen (Docker-gated, per `CommandsImpl>::`-Präzedenz; End-to-End-Abdeckung durch `crates/integration-tests`).
 
 **Überlebende Mutanten:**
 
@@ -1123,6 +1124,7 @@ cargo clippy -p infra --all-targets -- -D warnings
 cargo test -p infra --features test-support
 ```
 
+<a id="p4.2"></a>
 ### P4.2 — Backup-Cleanup (`reporting/backup.rs`)
 
 **Datei(en):** `crates/infra/src/reporting/backup.rs`  
@@ -1167,6 +1169,7 @@ cargo clippy -p infra --all-targets -- -D warnings
 cargo test -p infra --features test-support
 ```
 
+<a id="p4.3"></a>
 ### P4.3 — Report-Trigger (`reporting/triggers.rs`)
 
 **Datei(en):** `crates/infra/src/reporting/triggers.rs`  
@@ -1205,6 +1208,7 @@ cargo clippy -p infra --all-targets -- -D warnings
 cargo test -p infra --features test-support
 ```
 
+<a id="p4.4"></a>
 ### P4.4 — Reporting-Jobs + Typst-Renderer
 
 **Datei(en):** `crates/infra/src/reporting/jobs.rs`, `crates/infra/src/reporting/typst_renderer.rs`  
@@ -1248,6 +1252,7 @@ cargo clippy -p infra --all-targets -- -D warnings
 cargo test -p infra --features test-support
 ```
 
+<a id="p4.5"></a>
 ### P4.5 — Core Reporting: `sanitize_error_detail` + Archival
 
 **Datei(en):** `crates/core/src/reporting/storage.rs`, `crates/core/src/reporting/archival.rs`  

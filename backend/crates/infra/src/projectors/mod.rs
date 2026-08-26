@@ -1295,8 +1295,13 @@ mod mutation_tests {
         let mut handles = AuditProjectorHandles::new();
         let handle = tokio::spawn({
             let never = never.clone();
-            let _guard = AbortFlag(flag_clone);
+            let guard = AbortFlag(flag_clone);
             async move {
+                // Keep the guard alive inside the future so it is only dropped
+                // when `Drop` aborts this handle (cancelling the task). If `Drop`
+                // failed to abort, the task would hang on `never` and the flag
+                // would stay `false`, failing the assertion below.
+                let _guard = guard;
                 never.notified().await;
             }
         });
