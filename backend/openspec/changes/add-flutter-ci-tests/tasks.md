@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
-<!-- Co-authored-by: glm-5.2 (neuralwatt) -->
+<!-- Co-authored-by: hy3 (opencode-go) -->
 
 ## 1. Test execution
 - [ ] 1.1 `flutter test --coverage` step in `flutter-ci.yml`
