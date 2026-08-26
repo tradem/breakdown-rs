@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: longcat-2.0 (opencode-go)
 
 //! Globally shared Value Objects and Domain Primitives.
 
@@ -607,5 +608,44 @@ impl LexicalSortKey {
 impl std::fmt::Display for LexicalSortKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Test code lifts the workspace clippy panics/unwrap lints via
+    // `#![cfg_attr(test, allow(...))]` in `crates/core/src/lib.rs`.
+
+    use std::str::FromStr;
+
+    use super::*;
+
+    /// Kills `replace SceneShootId::from_uuid -> Self with Default::default()`:
+    /// wrapping a specific UUID must round-trip, not yield a fresh UUIDv7.
+    #[test]
+    fn scene_shoot_id_from_uuid_wraps_specific_uuid() {
+        let id = uuid::Uuid::now_v7();
+        assert_eq!(SceneShootId::from_uuid(id).0, id);
+    }
+
+    /// Kills `replace Display for SceneShootId` and `FromStr` replacements:
+    /// UUID must round-trip through its string form.
+    #[test]
+    fn scene_shoot_id_display_and_fromstr_roundtrip() {
+        let id = SceneShootId::new();
+        let s = id.to_string();
+        let parsed = SceneShootId::from_str(&s).expect("round-trip parses");
+        assert_eq!(parsed.0, id.0);
+    }
+
+    /// Kills `replace SceneShootStatus::as_str -> &'static str with ""` / `"xyzzy"`:
+    /// each variant must map to its exact, non-empty projection string.
+    #[test]
+    fn scene_shoot_status_as_str_matches_projection_strings() {
+        assert_eq!(SceneShootStatus::Planned.as_str(), "Planned");
+        assert_eq!(SceneShootStatus::Scheduled.as_str(), "Scheduled");
+        assert_eq!(SceneShootStatus::InProgress.as_str(), "InProgress");
+        assert_eq!(SceneShootStatus::Shot.as_str(), "Shot");
+        assert_eq!(SceneShootStatus::Skipped.as_str(), "Skipped");
     }
 }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: longcat-2.0 (opencode-go)
 
 //! `sqlx`-backed implementation of the `CostumeRepository` port.
 
@@ -238,5 +239,57 @@ fn parse_status(s: &str) -> Result<VariantStatus, DomainError> {
         _ => Err(DomainError::internal(format!(
             "Unknown variant status: {s}"
         ))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Test code lifts the workspace clippy panics/unwrap lints via
+    // `#![cfg_attr(test, allow(...))]` in `crates/infra/src/lib.rs`.
+
+    use breakdown_core::shared::{PhotoVariant, VariantStatus};
+
+    use super::*;
+
+    /// Kills the `delete match arm "…" in parse_variant` mutants: each known
+    /// variant string must map to its `PhotoVariant`, and an unknown string
+    /// must error rather than silently falling through.
+    #[test]
+    fn parse_variant_maps_all_three_variants() {
+        assert_eq!(
+            parse_variant("original").expect("original"),
+            PhotoVariant::Original
+        );
+        assert_eq!(parse_variant("thumb").expect("thumb"), PhotoVariant::Thumb);
+        assert_eq!(
+            parse_variant("medium").expect("medium"),
+            PhotoVariant::Medium
+        );
+    }
+
+    #[test]
+    fn parse_variant_rejects_unknown_string() {
+        assert!(parse_variant("originals").is_err());
+        assert!(parse_variant("").is_err());
+    }
+
+    /// Kills the `delete match arm "…" in parse_status` mutants.
+    #[test]
+    fn parse_status_maps_all_three_statuses() {
+        assert_eq!(
+            parse_status("pending").expect("pending"),
+            VariantStatus::Pending
+        );
+        assert_eq!(parse_status("ready").expect("ready"), VariantStatus::Ready);
+        assert_eq!(
+            parse_status("failed").expect("failed"),
+            VariantStatus::Failed
+        );
+    }
+
+    #[test]
+    fn parse_status_rejects_unknown_string() {
+        assert!(parse_status("readyy").is_err());
+        assert!(parse_status("").is_err());
     }
 }

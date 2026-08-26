@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: kimi-k3 (neuralwatt)
+// Co-authored-by: longcat-2.0 (opencode-go)
 
 //! RFC 9457 problem-detail error surface (ADR-031).
 //!
@@ -766,5 +767,16 @@ mod tests {
             ApiError::Internal.into_response().status(),
             StatusCode::INTERNAL_SERVER_ERROR
         );
+    }
+
+    /// Kills `replace <impl From<Bytes> for AxumBytes>::from -> Self with
+    /// Default::default()`: unwrapping the wrapper must preserve the bytes,
+    /// not silently yield empty bytes.
+    #[test]
+    fn bytes_from_preserves_inner_payload() {
+        let payload = AxumBytes::from_static(b"payload");
+        let wrapper = Bytes(payload.clone());
+        let extracted: AxumBytes = wrapper.into();
+        assert_eq!(extracted, payload);
     }
 }
