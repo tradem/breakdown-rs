@@ -12,6 +12,14 @@ commits (ADR-020 D5).
 
 ## [Unreleased]
 
+### Fixed — Dev-auth fallback gated on OIDC_ISS absence (issue #270)
+
+- `AuthState::from_env_or_dev()` no longer falls back to unverified-token dev
+  mode on a partial/misconfigured OIDC config. Dev mode is now entered only
+  when `OIDC_ISS` is absent **and** `DEV_AUTH_SUB` is present; when `OIDC_ISS`
+  is set, a missing `OIDC_AUDIENCE`/`OIDC_JWKS_URL` fails the boot loudly
+  instead of silently disabling token verification. PATCH bump (ADR-020 D2).
+
 ### Added — OpenAPI review artifact & drift check (issue #29)
 
 - **Test-only:** `crates/api/tests/openapi_drift.rs` renders `api_doc()` as
