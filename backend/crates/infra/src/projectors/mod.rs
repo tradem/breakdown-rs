@@ -1307,11 +1307,24 @@ mod mutation_tests {
         });
         handles.store(0, handle);
         drop(handles);
-        // Cooperative cancellation: the aborted task drops its guard when the
-        // runtime cancels it. Bounded cooperative yields, not a wall-clock sleep.
-        for _ in 0..256 {
-            tokio::task::yield_now().await;
-        }
+        // Event-driven wait: dropping `handles` aborts the stored handle, which
+        // cancels the parked task on its next poll and runs the guard's Drop,
+        // flipping `flag`. Yield to let the runtime poll the aborted task and
+        // return as soon as the flag flips, rather than spinning a fixed number
+        // of yields (which could be outpaced by a heavily loaded CI runner and
+        // flake). The timeout is a liveness guard so a regression — e.g. a
+        // mutant that drops the abort — fails fast instead of hanging CI; it is
+        // not a timing-based assertion.
+        let cancelled = tokio::time::timeout(Duration::from_secs(5), async {
+            while !flag.load(SeqCst) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await;
+        assert!(
+            cancelled.is_ok(),
+            "Drop must abort stored projector handles"
+        );
         assert!(
             flag.load(SeqCst),
             "Drop must abort stored projector handles"
