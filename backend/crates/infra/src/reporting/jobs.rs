@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: grok-4.5 (opencode-go)
+// Co-authored-by: hy3 (opencode-go)
 
 //! Durable report-archival job repository (`report_ops.report_job`).
 //!
@@ -628,4 +629,32 @@ fn truncate_error(s: &str) -> String {
         out.push('…');
     }
     out
+}
+
+// --- P4.4 mutation-hardening: `max_retries` config-value guard ---
+//
+// Kills the `PgReportArchivalQueue::max_retries -> i32` constant-substitution
+// mutants (`-1` / `0` / `1`). The other P4.4 mutants on `claim_next`, the
+// `mark_*` methods and `mark_failure` are excluded in `.cargo/mutants.toml`
+// (Postgres-backed, per the `CommandsImpl>::` precedent).
+#[cfg(test)]
+mod mutation_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn max_retries_returns_configured_default() {
+        // The mutants replace the body with `-1` / `0` / `1`. A queue built from
+        // a (deliberately unreachable) pool still reports its configured
+        // max_retries (default 5, or the env override). Asserting `> 1` kills
+        // all three constant-substitution mutants without touching the DB.
+        let pool = sqlx::PgPool::connect_lazy(
+            "postgres://breakdown_app:breakdown_app@127.0.0.1:1/breakdown",
+        )
+        .expect("connect_lazy must succeed for an unreachable target");
+        let queue = PgReportArchivalQueue::new(pool);
+        assert!(
+            queue.max_retries() > 1,
+            "max_retries must be greater than 1 (default {DEFAULT_MAX_RETRIES})"
+        );
+    }
 }
