@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: qwen3.6-35b (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: longcat-2.0 (opencode-go)
 
 use breakdown_core::photo::aggregate::PhotoAggregate;
 use breakdown_core::photo::binding::PhotoBinding;
@@ -253,5 +254,25 @@ fn status_as_str(status: VariantStatus) -> &'static str {
         VariantStatus::Pending => "pending",
         VariantStatus::Ready => "ready",
         VariantStatus::Failed => "failed",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Test code lifts the workspace clippy panics/unwrap lints via
+    // `#![cfg_attr(test, allow(...))]` in `crates/infra/src/lib.rs`.
+
+    use breakdown_core::shared::VariantStatus;
+
+    use super::status_as_str;
+
+    /// Kills the `replace status_as_str -> &'static str with ""` and `with
+    /// "xyzzy"` mutants: each status must map to its exact projection
+    /// string, never an empty or arbitrary value.
+    #[test]
+    fn status_as_str_matches_projection_strings() {
+        assert_eq!(status_as_str(VariantStatus::Pending), "pending");
+        assert_eq!(status_as_str(VariantStatus::Ready), "ready");
+        assert_eq!(status_as_str(VariantStatus::Failed), "failed");
     }
 }
