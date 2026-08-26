@@ -480,23 +480,23 @@ cargo test -p api --features test-support
 
 | Patch | Datei(en) | Survivor | Status |
 |---|---|---|---|
-| [P3.1](#p3.1) | `crates/core/src/ai/bounds.rs` | 15 | ☐ |
-| [P3.2](#p3.2) | `crates/core/src/ai/aggregate.rs` | 8 | ☐ |
-| [P3.3](#p3.3) | `crates/core/src/ai/ports.rs` | 13 | ☐ |
-| [P3.4](#p3.4) | `crates/core/src/ai/views.rs` | 8 | ☐ |
-| [P3.5](#p3.5) | `crates/core/src/ai/preview.rs` | 5 | ☐ |
-| [P3.6](#p3.6) | `crates/infra/src/ai/pg_concurrency.rs` | 20 | ☐ |
-| [P3.7](#p3.7) | `crates/infra/src/ai/queue.rs` | 20 | ☐ |
-| [P3.8](#p3.8) | `crates/infra/src/ai/concurrency.rs` | 8 | ☐ |
-| [P3.9](#p3.9) | `crates/infra/src/ai/client.rs` | 14 | ☐ |
-| [P3.10](#p3.10) | `crates/infra/src/ai/mod.rs` | 9 | ☐ |
-| [P3.11](#p3.11) | `crates/infra/src/ai/mapping.rs` | 8 | ☐ |
-| [P3.12](#p3.12) | `crates/infra/src/ai/workers.rs` … | 20 | ☐ |
-| [P3.13](#p3.13) | `crates/infra/src/ai/ollama.rs` … | 8 | ☐ |
-| [P3.14](#p3.14) | `crates/infra/src/ai/shutdown.rs` | 5 | ☐ |
-| [P3.15](#p3.15) | `crates/infra/src/ai/pdf.rs` … | 6 | ☐ |
-| [P3.16](#p3.16) | `crates/infra/src/ai/catalog.rs` … | 10 | ☐ |
-| [P3.17](#p3.17) | `crates/infra/src/ai/payload_cleanup.rs` | 10 | ☐ |
+| [P3.1](#p3.1) | `crates/core/src/ai/bounds.rs` | 15 | ☑ |
+| [P3.2](#p3.2) | `crates/core/src/ai/aggregate.rs` | 8 | ☑ |
+| [P3.3](#p3.3) | `crates/core/src/ai/ports.rs` | 13 | ☑ |
+| [P3.4](#p3.4) | `crates/core/src/ai/views.rs` | 8 | ☑ |
+| [P3.5](#p3.5) | `crates/core/src/ai/preview.rs` | 5 | ☑ |
+| [P3.6](#p3.6) | `crates/infra/src/ai/pg_concurrency.rs` | 20 | ☑ |
+| [P3.7](#p3.7) | `crates/infra/src/ai/queue.rs` | 20 | ☑ |
+| [P3.8](#p3.8) | `crates/infra/src/ai/concurrency.rs` | 8 | ☑ |
+| [P3.9](#p3.9) | `crates/infra/src/ai/client.rs` | 14 | ☑ |
+| [P3.10](#p3.10) | `crates/infra/src/ai/mod.rs` | 9 | ☑ |
+| [P3.11](#p3.11) | `crates/infra/src/ai/mapping.rs` | 8 | ☑ |
+| [P3.12](#p3.12) | `crates/infra/src/ai/workers.rs` … | 20 | ☑ |
+| [P3.13](#p3.13) | `crates/infra/src/ai/ollama.rs` … | 8 | ☑ |
+| [P3.14](#p3.14) | `crates/infra/src/ai/shutdown.rs` | 5 | ☑ |
+| [P3.15](#p3.15) | `crates/infra/src/ai/pdf.rs` … | 6 | ☑ |
+| [P3.16](#p3.16) | `crates/infra/src/ai/catalog.rs` … | 10 | ☑ |
+| [P3.17](#p3.17) | `crates/infra/src/ai/payload_cleanup.rs` | 10 | ☑ |
 
 ### P3.1 — `AiImportBounds::validate` / `bounded_u32/u64` (Boundary-Tests)
 

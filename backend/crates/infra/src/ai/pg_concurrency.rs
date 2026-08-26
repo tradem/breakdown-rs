@@ -587,4 +587,41 @@ mod tests {
     fn default_lease_is_within_bounds() {
         assert!(MIN_PERMIT_LEASE <= DEFAULT_PERMIT_LEASE);
     }
+
+    // --- P3.6: kill < → <= mutation in permit_renewal_interval -----------------
+
+    #[test]
+    fn renewal_interval_is_strictly_less_than_lease() {
+        // For any reasonable lease, interval must be < lease, not <=.
+        // The < → <= mutation would make interval == lease for RENEWALS_PER_LEASE == 1.
+        for secs in [60, 300, 900, 3600] {
+            let lease = Duration::from_secs(secs);
+            let interval = permit_renewal_interval(lease);
+            assert!(
+                interval < lease,
+                "interval {interval:?} must be strictly less than lease {lease:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn renewal_interval_at_minimum_lease_is_one_second() {
+        // MIN_PERMIT_LEASE / RENEWALS_PER_LEASE might be < 1s, so it floors to 1s
+        let interval = permit_renewal_interval(MIN_PERMIT_LEASE);
+        assert!(interval >= Duration::from_secs(1));
+        assert!(interval < MIN_PERMIT_LEASE);
+    }
+
+    #[test]
+    fn renewal_interval_computed_correctly_for_standard_lease() {
+        // The default 900s lease / 3 renewals = 300s
+        let interval = permit_renewal_interval(Duration::from_secs(900));
+        assert_eq!(interval, Duration::from_secs(300));
+    }
+
+    #[test]
+    fn renewal_interval_for_large_lease() {
+        let interval = permit_renewal_interval(Duration::from_secs(3600));
+        assert_eq!(interval, Duration::from_secs(1200));
+    }
 }

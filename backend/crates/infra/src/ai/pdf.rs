@@ -9,6 +9,10 @@ use breakdown_core::error::DomainError;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 
+#[cfg(test)]
+#[path = "pdf_tests.rs"]
+mod pdf_tests;
+
 /// Bounded `pdftotext` subprocess adapter. PDF bytes are sent through stdin so
 /// no temporary document is persisted by this adapter.
 #[derive(Clone, Debug)]

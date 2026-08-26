@@ -8,6 +8,10 @@ use std::time::Duration;
 
 use tokio::sync::Notify;
 
+#[cfg(test)]
+#[path = "shutdown_tests.rs"]
+mod shutdown_tests;
+
 /// Graceful-shutdown budget for draining in-flight AI import jobs. A stuck
 /// worker must not block shutdown forever (the orchestrator would SIGKILL).
 pub const DRAIN_TIMEOUT: Duration = Duration::from_secs(15);

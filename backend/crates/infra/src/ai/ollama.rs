@@ -13,6 +13,10 @@ use super::client::{classify_http_status, classify_transport_error};
 use super::transport::ollama_redirect_policy;
 use super::{CuratedLlmProvider, CuratedProviderUrls};
 
+#[cfg(test)]
+#[path = "ollama_tests.rs"]
+mod ollama_tests;
+
 /// Ollama adapter. Ollama's broad JSON mode is used when strict schema mode is
 /// unavailable; malformed responses are retried only a bounded number of times.
 pub struct OllamaChatClient {

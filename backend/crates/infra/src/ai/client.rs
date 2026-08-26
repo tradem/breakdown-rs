@@ -19,6 +19,10 @@ use serde_json::json;
 use super::CuratedProviderUrls;
 use super::transport::build_hosted_client;
 
+#[cfg(test)]
+#[path = "client_tests.rs"]
+mod client_tests;
+
 /// OpenAI-compatible `/chat/completions` adapter. The provider URL is chosen
 /// exclusively from the curated provider registry; callers cannot supply one.
 pub struct OpenAiCompatibleChatClient {
