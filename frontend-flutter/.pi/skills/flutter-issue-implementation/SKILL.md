@@ -107,16 +107,14 @@ placement, Riverpod provider shape, optimistic-update strategy):
 }
 ```
 
-Write the plan to an OpenSpec proposal. Until the
-`migrate-openspec-to-monorepo-root` follow-up lands, Flutter change
-artifacts live beside the backend's:
+Write the plan to an OpenSpec proposal. Flutter change artifacts live at the
+monorepo OpenSpec root:
 
 ```text
-backend/openspec/changes/{issue}-{description}/proposal.md
+openspec/changes/{issue}-{description}/proposal.md
 ```
 
-(Once the monorepo `/openspec/` root exists, write there instead — see
-`frontend-flutter/AGENTS.md` §Cross-references, Decision Q3 → c.)
+(See `frontend-flutter/AGENTS.md` §Cross-references, Decision Q3 → c.)
 
 ### Step 5: Implement
 
@@ -242,7 +240,7 @@ git add lib/features/.../file.dart
 git add lib/features/.../file_test.dart
 git add pubspec.yaml
 git add lib/api/generated/            # only if regenerated this change
-git add ../backend/openspec/changes/{issue}-*/proposal.md
+git add ../openspec/changes/{issue}-*/proposal.md
 git add ../frontend-flutter/.pi/skills/{skill}/SKILL.md
 
 # Inspect what will be committed

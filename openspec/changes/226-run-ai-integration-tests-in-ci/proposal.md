@@ -73,7 +73,7 @@ resource contention.
     --test ai_import_permit_reconciliation --test ai_import_queue_lease
     --test ai_payload_gc_cleanup_state -- --nocapture`.
   - Header comment updated to document the split and its rationale.
-- `backend/openspec/changes/226-run-ai-integration-tests-in-ci/proposal.md`
+- `openspec/changes/226-run-ai-integration-tests-in-ci/proposal.md`
   (this file).
 
 No crate code changes, no version bumps.
