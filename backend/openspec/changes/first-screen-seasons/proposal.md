@@ -82,10 +82,13 @@ failure-path tests. Resolved here; encoded as requirements in
   AsyncValue<List<SeasonDto>> projected; List<OverlayEntry> overlays; }`. The
   optimistic overlay is a separate `overlays` list — `AsyncValue` holds only
   the projected rows, never `OverlayEntry` metadata. `OverlayEntry { String id;
-  OverlayStatus status; String? warning; }` carries the server-assigned `id`
-  (from `IdVersionResponse`) plus status/warning; the full `SeasonDto` lives in
-  `projected` once the refetch returns. `OverlayStatus ∈ { acknowledged,
-  reconciling, stale }`: `acknowledged` shows immediately after the 2xx;
+  String? name; OverlayStatus status; String? warning; }` carries the
+  server-assigned `id` (from `IdVersionResponse`) plus the submitted display
+  fields (e.g. `name` from the CreateSeason form) so the row renders immediately;
+  status/warning track reconciliation. The full `SeasonDto` lives in `projected`
+  once the refetch returns and replaces this overlay on reconciliation.
+  `OverlayStatus ∈ { acknowledged, reconciling, stale }`: `acknowledged` shows
+  immediately after the 2xx;
   `reconciling` while the bounded-retry refetch is in flight; `stale` when the
   refetch exhausts its retries (overlay retained with a non-fatal `warning` +
   pull-to-refresh). A successful reconciliation drops the entry as the projected

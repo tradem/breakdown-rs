@@ -72,8 +72,8 @@ structural invariants are fixed and are encoded as requirements in
   - **Stale / Expired** (cache present but `isExpired`): serve cached rows
     with a `stale = true` marker; trigger a foreground-priority refetch; UI
     shows a "cached, refreshing" banner.
-  - **Successful write**: upsert sets `updatedAt = clock.now()` -> row
-    fresh.
+  - **Successful write**: upsert sets `cachedAt = clock.now()` (preserving
+    the server `updatedAt`) -> row fresh.
   - **Failed refetch**: keep cached rows (stale marker on), surface
     `AsyncError` carrying the `ProblemError` + the retained rows (see D4);
     **no deletion** of cached rows on fetch failure.

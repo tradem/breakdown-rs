@@ -171,11 +171,17 @@ fi
 # Regenerate the OpenAPI client ONLY when backend/openapi.yaml actually
 # changed vs the base branch (NOT merely because the file exists). Use
 # openapi-generator-cli (NOT build_runner) per AGENTS.md §3.
-# First determine whether the schema changed; only then require `npx`:
+# First resolve the base revision, then determine whether the schema
+# changed; only then require `npx`. Do NOT fall back to HEAD: if the base
+# cannot be resolved, committed changes relative to the intended base would
+# appear unchanged and regeneration would be silently skipped.
 if [ -f backend/openapi.yaml ]; then
   base="${BASE_BRANCH:-origin/main}"
-  if ! git diff --quiet "$(git merge-base HEAD "$base" 2>/dev/null || echo HEAD)" \
-        -- backend/openapi.yaml 2>/dev/null; then
+  if ! merge_base="$(git merge-base HEAD "$base" 2>/dev/null)"; then
+    echo "ERROR: cannot resolve merge-base between HEAD and '$base'; cannot determine whether backend/openapi.yaml changed. Set BASE_BRANCH explicitly or fetch the upstream ref." >&2
+    exit 1
+  fi
+  if ! git diff --quiet "$merge_base" -- backend/openapi.yaml 2>/dev/null; then
     if ! command -v npx >/dev/null 2>&1; then
       echo "ERROR: backend/openapi.yaml changed but npx is unavailable; cannot regenerate the OpenAPI client. Install Node.js/npm or regenerate manually." >&2
       exit 1

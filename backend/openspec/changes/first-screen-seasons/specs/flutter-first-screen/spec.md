@@ -8,7 +8,8 @@
 
 `SeasonsScreen` SHALL be a `ConsumerWidget` (no `StatefulWidget` /
 `setState`) backed by a `@riverpod` `SeasonsController` returning
-`AsyncValue<List<SeasonDto>>`, with optimistic create and bounded-retry
+`SeasonsScreenState` (whose `projected` field is the
+`AsyncValue<List<SeasonDto>>`), with optimistic create and bounded-retry
 refetch on `POST /v1/seasons`. It is the reference pattern for all subsequent
 screens.
 
@@ -17,13 +18,12 @@ screens.
 - **WHEN** the user submits the Create Season form.
 - **THEN** the controller dispatches `POST /v1/seasons`, which returns
   `IdVersionResponse { id, version }`; only after that 2xx does it add an
-  optimistic overlay entry keyed by the returned `id` to the controller's
-  `overlays` list (part of `SeasonsScreenState`, separate from the
-  `AsyncValue<List<SeasonDto>>` `projected` rows) and reconcile via a
-  bounded-retry refetch of the seasons projection. The full `SeasonDto` arrives
-  with the refetch; the overlay is controller state, not a Drift write; the
-  screen's authoritative rows still come from Drift (merged with the overlay by
-  `id`).
+  optimistic overlay entry keyed by the returned `id` to
+  `SeasonsScreenState.overlays` and reconcile via a bounded-retry refetch of the
+  seasons projection. The full `SeasonDto` arrives with the refetch; the overlay
+  is controller state, not a Drift write; the screen reads `SeasonsScreenState`
+  (merging `projected` rows with `overlays` by `id`); authoritative rows come
+  from Drift.
 
 #### Scenario: A 409 conflict is returned
 
@@ -47,9 +47,12 @@ must not contain unprojected state). The screen reads `projected` and merges
 `overlays` by `id`; reconciliation drops the overlay entry when the refetch
 returns the same `id`.
 
-`OverlayEntry { String id; OverlayStatus status; String? warning; }` carries
-only the acked `id` + status/warning; the full `SeasonDto` lives in `projected`
-after the refetch. `OverlayStatus ∈ { acknowledged, reconciling, stale }`.
+`OverlayEntry { String id; String? name; OverlayStatus status; String?
+warning; }` carries the acked `id` plus the submitted display fields
+(e.g. `name` from the CreateSeason form) so the row can render immediately;
+`status`/`warning` track reconciliation. The full `SeasonDto` arrives via the
+refetch and lives in `projected`; on reconciliation the projected row replaces
+this overlay entry. `OverlayStatus ∈ { acknowledged, reconciling, stale }`.
 - `acknowledged`: POST 2xx returned; overlay shown immediately.
 - `reconciling`: bounded-retry refetch in flight; overlay still shown.
 - `stale`: refetch exhausted its retries; overlay retained with a non-fatal

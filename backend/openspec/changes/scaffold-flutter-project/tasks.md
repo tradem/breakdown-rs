@@ -57,3 +57,8 @@ Implementation Tasks 2.1–2.4 remain open; the design gap is closed.
        `analysis_server_plugin` migration path (follow-up decision; see issue
        #289). Keep `custom_lint` per `AGENTS.md` §5/§9 until that decision
        lands.
+- [ ] 4.4 Update `frontend-flutter/AGENTS.md` §5/§9 CI guidance to reflect that
+       custom_lint rules run via the dedicated runner `flutter pub run custom_lint
+       --no-fatal-warnings`, not via `flutter analyze` (which only runs the
+       built-in analyzer). Record this guidance update as part of the scaffold
+       landing.
