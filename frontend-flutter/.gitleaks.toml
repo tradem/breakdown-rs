@@ -1,0 +1,77 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: hy3 (opencode-go)
+#
+# Scoped Gitleaks configuration for frontend-flutter (issue #278).
+#
+# Why this exists:
+#   The repo-global `.gitleaks.toml` allowlists `.*\.md$`, which suppresses
+#   secret scanning for ALL Markdown — including the ported skill files under
+#   `frontend-flutter/.pi/skills/**` and `frontend-flutter/AGENTS.md`. The
+#   Flutter CI job must scan those Markdown files for secrets.
+#
+# What this config does:
+#   - Inherits the default gitleaks rules (`useDefault = true`).
+#   - Mirrors the global `.gitleaks.toml` `[allowlist]` EXCEPT the
+#     `.*\.md$` path entry, so `frontend-flutter/**/*.md` (and the other
+#     frontend-flutter source files: .dart/.yaml/.arb/.feature) are scanned.
+#   - Keeps the global example-token regex/keyword suppressions so
+#     skill-file template placeholders (e.g. `<OIDC_ISS>`, example keys,
+#     JWTs, UUIDs) do not raise false positives.
+#
+# Why self-contained (not `[extend]` with a `path`):
+#   gitleaks resolves `extend.path` relative to the current working
+#   directory, which differs between local runs and CI. A self-contained
+#   config is version-independent and robust. KEEP THIS ALLOWLIST IN SYNC
+#   WITH `.gitleaks.toml` (minus the `.*\.md$` entry) whenever that file
+#   changes.
+
+[extend]
+# Inherit the default gitleaks rules (150+ secret patterns).
+useDefault = true
+
+[allowlist]
+paths = [
+    # Test files often contain fake secrets
+    ".*_test\\.rs$",
+    ".*/tests/.*",
+    ".*/testdata/.*",
+    ".*/fixtures/.*",
+    # Documentation and examples (Markdown intentionally NOT excluded here)
+    ".*\\.txt$",
+    "docs/.*",
+    # Build artifacts
+    "target/.*",
+    # Cargo configuration (internal paths, no secrets)
+    "backend/\\.cargo/.*",
+    # AST indexing artifacts (binary)
+    "\\.ast-bro/.*",
+    # Vendored patches (upstream test code)
+    "\\.patches/.*",
+    # Configuration examples (not actual secrets)
+    ".*\\.example\\..*",
+    ".*\\.sample\\..*",
+    # Dev-only Docker Compose files (placeholders only)
+    "docker-compose.*\\.yml",
+    # Frontend (separate repo or handled separately)
+    "frontend/.*",
+]
+
+# Regex patterns to allowlist (false positives)
+regexes = [
+    # UUIDs (not secrets, just identifiers)
+    '''(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}''',
+    # Example/test API keys (obviously fake)
+    '''(?i)(test|fake|dummy|example)[-_]?(key|token|secret|password)['"]?\s*[:=]\s*['"]?[a-z0-9+/=]{8,}''',
+    # JWTs in tests/examples (they're examples)
+    '''(?i)eyJ(exI|hbGc)[a-zA-Z0-9_-]*\\.[a-zA-Z0-9_-]*\\.[a-zA-Z0-9_-]*''',
+]
+
+# Keywords to allowlist
+keywords = [
+    "fake",
+    "dummy",
+    "example",
+    "test",
+    "mock",
+]

@@ -83,8 +83,9 @@
        documented as such in the workflow)
 - [x] 3.3 `gitleaks` scan over `frontend-flutter/**`
        (`.dart`/`.yaml`/`.arb`/`.md`) — reuses the repo's proven
-       `gitleaks-action` SHA; documents the global `.md` allowlist as a
-       foundation limitation to tighten (scoped config) when the scaffold lands
+       `gitleaks-action` SHA; the global `.md` allowlist limitation is
+       resolved by issue #278 (scoped `frontend-flutter/.gitleaks.toml` + a
+       frontend-flutter-only gitleaks CI step that scans `*.md`)
 - [x] 3.4 SHA-pin every third-party action (40-char SHA + `# vX`
        comment); wire Dependabot bumps via `.github/dependabot.yml` (extend
        the backend config if it does not already cover `frontend-flutter/`) —
