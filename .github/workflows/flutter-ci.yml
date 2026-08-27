@@ -11,8 +11,9 @@
 #    (the scaffold-flutter-project follow-up has not landed) they are
 #    advisory-only / skipped with a ::notice::. The analyze step is
 #    `continue-on-error: true` until analysis_options.yaml + the project
-#    custom_lint package ship with the scaffold — at that point the custom
-#    lint rules documented in `.pi/skills/flutter-lint-analysis/` become
+#    analysis_server_plugin package ship with the scaffold — at that point the
+#    analyzer-plugin rules documented in `.pi/skills/flutter-lint-analysis/`
+#    become
 #    enforceable and the continue-on-error is removed.
 #  - `gitleaks` IS enforced now (secret hygiene gate).
 #  - The OpenAPI-client drift check, `flutter test --coverage`, and the
@@ -95,7 +96,7 @@ jobs:
           dart format --set-exit-if-changed ${SRC}
 
       # `flutter analyze` — ADVISORY-ONLY until analysis_options.yaml + the
-      # custom_lint package (no-throw-in-data/domain, discard_result,
+      # analysis_server_plugin package (no-throw-in-data/domain, discard_result,
       # no_hardcoded_colors, AUTHZ-GATE) ship with scaffold-flutter-project.
       # continue-on-error flips to enforcing once the custom lint surface lands.
       - name: flutter analyze (advisory until scaffold)

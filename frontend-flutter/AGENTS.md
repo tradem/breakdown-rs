@@ -88,7 +88,7 @@ a server-owned concern (API shape, error surface, auth), the backend wins.
   frontend-flutter/
   ├── AGENTS.md                 # copy of this design.md
   ├── pubspec.yaml
-  ├── analysis_options.yaml     # custom lint rules (see §5)
+  ├── analysis_options.yaml     # `breakdown_lints` analyzer-plugin rules (analysis_server_plugin, see §5)
   ├── lib/
   │   ├── main.dart             # composition root: ProviderScope, flavor wiring
   │   ├── app.dart              # MaterialApp.router root
@@ -169,8 +169,9 @@ These mirror the backend hard rules, translated to Dart/Flutter.
 - **No `throw` in `data/` or `domain/` (analog of "no panics in prod"):**
   Fallible operations return `fpdart`'s `Result`/`Either` (or an equivalent
   `Result` type); errors are values. Widgets/providers translate `Err` into
-  `AsyncError`. The analyzer's `discard-result`-equivalent custom lint
-  forbids `let _ = <fallible call>` (an un-awaited `Future`, a discarded
+  `AsyncError`. The analyzer's `discard-result`-equivalent analyzer-plugin
+  rule (`breakdown_lints`, built on `analysis_server_plugin`) forbids
+  `let _ = <fallible call>` (an un-awaited `Future`, a discarded
   `Result`, a swallowed `Future` returned from a function). Either propagate
   (`?`-style via `match`), handle explicitly, or suppress with a
   justification comment (`// lint-ignore: discard-result` + reason above).
@@ -294,8 +295,10 @@ analytically against the test budget instead; use fake clocks / controllable
 
 CI runs:
 - `dart format --set-exit-if-changed`
-- `flutter analyze` with custom lint rules (`analysis_options.yaml`, extended
-  with the `discard-result`-equivalent, no-throw-in-data/domain)
+- `flutter analyze` with the `breakdown_lints` analyzer-plugin rules (the
+  `analysis_server_plugin` package registered in `analysis_options.yaml`, with
+  the `discard-result`-equivalent, `no_throw_in_data_domain`, `no_insecure_tls`,
+  and `no_hardcoded_secrets` rule IDs; no separate lint runner)
 - `flutter test --coverage` + `coverde` threshold gate on changed code
 - OpenAPI-client drift check (§3)
 - `gitleaks` on `.dart` / `.yaml` / `.arb`
@@ -407,8 +410,9 @@ applicable to the project's conventions, and live at
 port carries an SPDX header and is regenerated if upstream changes
 materially. Portable subset:
 
-- **Lint/analysis guidance** → maps to `analysis_options.yaml` + a
-  custom_lint package; the skill wraps "apply these lints, explain the fix."
+- **Lint/analysis guidance** → maps to `analysis_options.yaml` + the
+  `breakdown_lints` `analysis_server_plugin` package; the skill wraps "apply
+  these lints, explain the fix."
 - **Testing recipes** → widget test scaffolding, golden setup,
   integration_test harness — portable as skills.
 - **Codegen conventions** → freezed / json_serializable / riverpod_generator

@@ -7,19 +7,24 @@
        SDK, Kotlin, AGP; no macOS target yet)
 - [ ] 1.2 Seed `pubspec.yaml` with core deps (Riverpod stack, fpdart,
        secure storage, drift, dio, freezed/json_annotation, dev: build_runner
-       / json_serializable / drift_dev / custom_lint / flutter_gherkin)
+       / json_serializable / drift_dev / analysis_server_plugin /
+       flutter_gherkin)
 - [ ] 1.3 `.gitignore` for Flutter build artifacts
 - [ ] 1.4 SPDX headers on all seeded `.dart`/`.yaml` files
 
 ## 2. Static-analysis config
-- [ ] 2.1 `analysis_options.yaml` enabling custom lints referenced by the
-       foundation skills
-- [ ] 2.2 `custom_lint` package skeleton with all four rules:
+- [ ] 2.1 `analysis_options.yaml` registering the `analysis_server_plugin`
+       package under `analyzer > plugins` and mapping the four rule IDs to
+       severities under `analyzer > errors`, per the foundation skills
+- [ ] 2.2 `analysis_server_plugin` package skeleton (`breakdown_lints`,
+       `lib/main.dart` + top-level `plugin`) with all four rules:
        `discard_result`, `no_throw_in_data_domain`, `no_insecure_tls`, and
-       `no_hardcoded_secrets` (each with a negative test fixture)
+       `no_hardcoded_secrets` (each an `AnalysisRule` with a negative test
+       fixture)
 - [ ] 2.3 `flutter analyze` passes clean on the seeded project
-- [ ] 2.4 `flutter pub run custom_lint` passes on the seeded project, including
-       the negative activation fixtures that assert each rule ID
+- [ ] 2.4 `flutter analyze` reports the four `breakdown_lints` rules (no
+       separate runner) on the seeded project, including the negative
+       activation fixtures that assert each rule ID
 
 ## Spec-hardening (issue #272) — design resolved
 
@@ -27,17 +32,17 @@ The PR #269 review asked which custom-lint implementation to use (and the
 exact rule IDs / wiring). Resolved in `proposal.md` (Design Decisions
 D1–D4) and encoded as a requirement in `specs/flutter-scaffold/spec.md`.
 Implementation Tasks 2.1–2.4 remain open; the design gap is closed.
-- [x] Custom-lint implementation selected (D1: `custom_lint` +
-      `custom_lint_builder` plugin package; legacy `analysis_server_plugin`
-      rejected; enforced via `flutter pub run custom_lint`, not `flutter
-      analyze`)
-- [x] Entrypoint defined (D2: top-level `createPlugin()` +
-      `getLintRules(CustomLintConfigs configs)`)
+- [x] Analyzer-plugin implementation selected (D1: `analysis_server_plugin`
+      plugin package `breakdown_lints`; `custom_lint` superseded per issue
+      #289 — archived/inactive upstream; enforced via `flutter analyze`,
+      not a separate runner)
+- [x] Entrypoint defined (D2: top-level `plugin` variable +
+      `Plugin.register(PluginRegistry registry)`)
 - [x] Exact rule IDs defined (D3: `discard_result`, `no_throw_in_data_domain`,
       `no_insecure_tls`, `no_hardcoded_secrets`; suppression via `// ignore:`)
 - [x] `analysis_options.yaml` wiring + CI command defined (D4: `analyzer >
-      plugins > custom_lint` + `custom_lint: rules:`, enforced by
-      `flutter pub run custom_lint`; negative activation tests added)
+      plugins > analysis_server_plugin` + `analyzer > errors` severities,
+      enforced by `flutter analyze`; negative activation tests added)
 
 ## 3. Composition root & flavors
 - [ ] 3.1 `lib/main.dart`: `ProviderScope`, flavor wiring
@@ -53,12 +58,15 @@ Implementation Tasks 2.1–2.4 remain open; the design gap is closed.
 - [ ] 4.1 Extend `scripts/add-spdx-headers.sh` to cover `frontend-flutter/`
 - [ ] 4.2 First `dart format` + `flutter analyze` pass in CI (advisory until
        `add-flutter-ci-tests` lands coverage gate)
-- [ ] 4.3 Track `custom_lint` maintenance status and evaluate an
-       `analysis_server_plugin` migration path (follow-up decision; see issue
-       #289). Keep `custom_lint` per `AGENTS.md` §5/§9 until that decision
-       lands.
-- [ ] 4.4 Update `frontend-flutter/AGENTS.md` §5/§9 CI guidance to reflect that
-       custom_lint rules run via the dedicated runner `flutter pub run custom_lint
-       --no-fatal-warnings`, not via `flutter analyze` (which only runs the
-       built-in analyzer). Record this guidance update as part of the scaffold
+- [x] 4.3 Decide lint-plugin path (issue #289): `custom_lint` is archived and
+       explicitly "no longer under active development" upstream; the official
+       `analysis_server_plugin` (dart-lang/sdk) is the recommended path. DECISION:
+       **migrate to `analysis_server_plugin`**. Updated proposal D1–D4, spec.md,
+       AGENTS.md §5/§9, `flutter-ci.yml`, and the `flutter-lint-analysis` skill
+       accordingly. The four rule IDs and exit policy are unchanged.
+- [ ] 4.4 (carried over, still pending until scaffold lands) Ensure
+       `frontend-flutter/AGENTS.md` §5/§9 CI guidance reflects that the
+       `breakdown_lints` rules run via `flutter analyze` (analysis server loads
+       the `analysis_server_plugin` package) with no separate runner — see the
+       D1/D4 updates above. Record this guidance update as part of the scaffold
        landing.

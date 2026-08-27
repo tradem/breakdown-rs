@@ -51,51 +51,85 @@ The PR #269 review asked which custom-lint implementation to use and for the
 exact rule IDs / wiring. Resolved here; encoded as a requirement in
 `specs/flutter-scaffold/spec.md`.
 
-### D1. Custom-lint implementation: `custom_lint` + `custom_lint_builder`
+### D1. Analyzer-plugin implementation: `analysis_server_plugin` (migrated from `custom_lint`)
 
-- We author a local lint **plugin package** `breakdown_lints` (dev-only)
-  that depends on `custom_lint_builder` and exports a `PluginBase` subclass
-  registering the rules. This is the maintained, recommended path.
-- The legacy low-level `analysis_server_plugin` internal API is **not**
-  chosen (harder to maintain, not recommended).
-- **CI MUST run `flutter pub run custom_lint`** (or `dart run custom_lint`).
-  `flutter analyze` / `dart analyze` do **not** execute custom_lint rules — the
-  plugin only contributes diagnostics when the custom_lint runner is invoked.
-  The `analysis_options.yaml` registration makes the rules *available*; the
-  dedicated command enforces them. A clean `flutter analyze` therefore cannot
-  prove the rules are active (see the spec's negative activation tests).
+> **Migration decision (issue #289):** `custom_lint` (Invertase) is now
+> **archived and explicitly declared "no longer under active development"**
+> (repo `invertase/dart_custom_lint` → `archived: true`, last commit
+> `docs: add notice`, 2026-03-24). Its README warning and the maintainer's
+> comment (issue #379) both name the official
+> [`analysis_server_plugin`](https://pub.dev/packages/analysis_server_plugin)
+> (part of `dart-lang/sdk`, latest 0.3.20, actively maintained) as the
+> **recommended** path for custom lints. We therefore **migrate** the
+> `breakdown_lints` plugin from `custom_lint` to `analysis_server_plugin`.
+> The four rule IDs and the hard-error / advisory exit policy (D3) are
+> unchanged by this migration.
+
+- We author a local analyzer **plugin package** `breakdown_lints` (dev-only)
+  that depends on `analysis_server_plugin` and exports a `Plugin` subclass
+  (registered via a top-level `plugin` variable in `lib/main.dart`) that
+  registers `AnalysisRule` instances. This is now the official, maintained,
+  recommended path.
+- The previously-chosen `custom_lint` + `custom_lint_builder` stack is
+  **superseded** by this decision; the earlier rationale ("legacy
+  `analysis_server_plugin` is harder to maintain, not recommended") is
+  reversed by the upstream deprecation. `custom_lint` 0.8.1 remains on
+  pub.dev but is archived and will not track future Dart SDK / analyzer
+  releases, so it is no longer a viable long-term dependency.
+- **CI enforces the rules via `flutter analyze` / `dart analyze`** — the
+  analysis server loads the `analysis_server_plugin` package declared in
+  `analysis_options.yaml`, so the four custom rules run as part of the
+  normal analyzer pass with **no separate runner command**.
+  - This is a strict improvement over the prior `custom_lint` design: a
+    clean `flutter analyze` now *does* prove the rules are active (the
+    dedicated-runner gap called out in the original D1 is closed).
+  - `// ignore: <rule_id>` and `// ignore_for_file:` are handled natively
+    by the analyzer's `LintCode`/`ErrorReporter` machinery, so the
+    suppression syntax from D3 is unchanged.
 
 ### D2. Entrypoint
 
-- `lib/breakdown_lints.dart`:
+- `lib/main.dart` (the plugin package entrypoint, per
+  `analysis_server_plugin`'s `writing_a_plugin` doc):
   ```dart
-  import 'package:custom_lint_builder/custom_lint_builder.dart';
+  import 'package:analysis_server_plugin/plugin.dart';
+  import 'package:analysis_server_plugin/registry.dart';
 
-  PluginBase createPlugin() => const BreakdownLints();
+  final plugin = BreakdownLints();
 
-  class BreakdownLints extends PluginBase {
+  class BreakdownLints extends Plugin {
     @override
-    List<LintRule> getLintRules(CustomLintConfigs configs) => const [
-      DiscardResultLint(),
-      NoThrowInDataDomainLint(),
-      NoInsecureTlsLint(),
-      NoHardcodedSecretsLint(),
-    ];
+    String get name => 'breakdown_lints';
+
+    @override
+    void register(PluginRegistry registry) {
+      registry.registerRule(DiscardResultRule());
+      registry.registerRule(NoThrowInDataDomainRule());
+      registry.registerRule(NoInsecureTlsRule());
+      registry.registerRule(NoHardcodedSecretsRule());
+    }
   }
   ```
-- `custom_lint_builder` generates the plugin registration and is a
-  `dev_dependency` of the `breakdown_lints` package. The app's `pubspec.yaml`
-  declares **both** `custom_lint` (the runner that executes the plugin) and
-  `breakdown_lints` (this plugin package) as `dev_dependencies`.
+  - Each `*Rule` extends `AnalysisRule` and registers a `SimpleAstVisitor`
+    via `RuleVisitorRegistry` in `registerNodeProcessors` (see
+    `analysis_server_plugin`'s `writing_rules` doc). `LintCode` instances are
+    declared as `static const` so `// ignore:` suppression works.
+- `analysis_server_plugin` is a `dev_dependency` of the `breakdown_lints`
+  package. The app's `pubspec.yaml` declares `breakdown_lints` (this analyzer
+  plugin package) as a `dev_dependency`; the plugin is loaded by the
+  analysis server, so **no separate runner binary** is needed (contrast the
+  prior `custom_lint` + `custom_lint_builder` design which required
+  `flutter pub run custom_lint`).
 
 ### D3. Exact rule IDs and what they flag
 
 - `discard_result` — analog of the backend `discard-result` lint: an
   un-awaited `Future` statement, a discarded `Result`/`Either` return value,
   or a swallowed future returned from a non-async function. Suppressible only
-  with `// ignore: discard_result` (custom_lint's supported syntax) plus a
-  reason comment on the line; a mandatory reason comment is enforced as a
-  separate review convention (foundation §5).
+  with `// ignore: discard_result` (the analyzer's native ignore syntax,
+  unchanged under `analysis_server_plugin`) plus a reason comment on the
+  line; a mandatory reason comment is enforced as a separate review
+  convention (foundation §5).
 - `no_throw_in_data_domain` — a `throw` whose enclosing file matches
   `lib/data/**` or `lib/domain/**` (these layers return `Result`/`Either`).
   Hard error.
@@ -119,23 +153,28 @@ exact rule IDs / wiring. Resolved here; encoded as a requirement in
 ```yaml
 analyzer:
   plugins:
-    - custom_lint
-custom_lint:
-  rules:
-    - discard_result
-    - no_throw_in_data_domain
-    - no_insecure_tls
-    - no_hardcoded_secrets
+    - analysis_server_plugin
+  errors:
+    discard_result: error
+    no_throw_in_data_domain: error
+    no_insecure_tls: error
+    no_hardcoded_secrets: warning
 ```
-- CI command: `flutter pub run custom_lint --no-fatal-warnings` (the
-  `--no-fatal-warnings` flag ensures advisory rules like `no_hardcoded_secrets`
-  remain warnings/non-fatal while hard-error rules still fail the build). This
-  flag is required to actually execute the rules. `flutter analyze` remains in
-  CI for the built-in analyzer; custom_lint diagnostics only appear via the
-  dedicated runner.
+- The `analysis_server_plugin` package is registered under `analyzer >
+  plugins` so the analysis server loads `breakdown_lints`. The four rule IDs
+  are mapped to severities under `analyzer > errors`: the three hard-error
+  rules are `error` (fatal in CI) and `no_hardcoded_secrets` is `warning`
+  (advisory, non-fatal), mirroring the exit policy in D3. (Severity mapping
+  via `analyzer > errors` is the `analysis_server_plugin` equivalent of the
+  prior `--no-fatal-warnings` runner flag.)
+- **CI command:** `flutter analyze` (or `dart analyze`) — the single command
+  now runs BOTH the built-in analyzer AND the four `breakdown_lints` rules,
+  because the plugin is loaded by the analysis server. No dedicated runner is
+  required. A clean `flutter analyze` therefore proves the rules are active
+  (the prior `custom_lint` design could not prove this; see D1).
 - **Advisory validation**: a fixture containing ONLY a `no_hardcoded_secrets`
   violation exits successfully (warning, non-fatal). A fixture containing each
   hard-error rule (`no_throw_in_data_domain`, `no_insecure_tls`, `discard_result`
   without the mandatory `// ignore: discard_result` + reason) exits
-  unsuccessfully. This proves the exit policy is enforced per-rule, not via a
-  global fatal setting.
+  unsuccessfully. This proves the exit policy is enforced per-rule via the
+  `analyzer > errors` severity map, not via a global fatal setting.
