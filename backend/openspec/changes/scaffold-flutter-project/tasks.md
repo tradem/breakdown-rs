@@ -53,3 +53,7 @@ Implementation Tasks 2.1–2.4 remain open; the design gap is closed.
 - [ ] 4.1 Extend `scripts/add-spdx-headers.sh` to cover `frontend-flutter/`
 - [ ] 4.2 First `dart format` + `flutter analyze` pass in CI (advisory until
        `add-flutter-ci-tests` lands coverage gate)
+- [ ] 4.3 Track `custom_lint` maintenance status and evaluate an
+       `analysis_server_plugin` migration path (follow-up decision; see issue
+       #289). Keep `custom_lint` per `AGENTS.md` §5/§9 until that decision
+       lands.

@@ -127,6 +127,15 @@ custom_lint:
     - no_insecure_tls
     - no_hardcoded_secrets
 ```
-- CI command: `flutter pub run custom_lint` (required to actually execute the
-  rules). `flutter analyze` remains in CI for the built-in analyzer; custom_lint
-  diagnostics only appear via the dedicated runner.
+- CI command: `flutter pub run custom_lint --no-fatal-warnings` (the
+  `--no-fatal-warnings` flag ensures advisory rules like `no_hardcoded_secrets`
+  remain warnings/non-fatal while hard-error rules still fail the build). This
+  flag is required to actually execute the rules. `flutter analyze` remains in
+  CI for the built-in analyzer; custom_lint diagnostics only appear via the
+  dedicated runner.
+- **Advisory validation**: a fixture containing ONLY a `no_hardcoded_secrets`
+  violation exits successfully (warning, non-fatal). A fixture containing each
+  hard-error rule (`no_throw_in_data_domain`, `no_insecure_tls`, `discard_result`
+  without the mandatory `// ignore: discard_result` + reason) exits
+  unsuccessfully. This proves the exit policy is enforced per-rule, not via a
+  global fatal setting.

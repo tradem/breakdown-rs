@@ -170,11 +170,16 @@ fi
 
 # Regenerate the OpenAPI client ONLY when backend/openapi.yaml actually
 # changed vs the base branch (NOT merely because the file exists). Use
-# openapi-generator-cli (NOT build_runner) per AGENTS.md §3:
-if [ -f backend/openapi.yaml ] && command -v npx >/dev/null 2>&1; then
+# openapi-generator-cli (NOT build_runner) per AGENTS.md §3.
+# First determine whether the schema changed; only then require `npx`:
+if [ -f backend/openapi.yaml ]; then
   base="${BASE_BRANCH:-origin/main}"
   if ! git diff --quiet "$(git merge-base HEAD "$base" 2>/dev/null || echo HEAD)" \
         -- backend/openapi.yaml 2>/dev/null; then
+    if ! command -v npx >/dev/null 2>&1; then
+      echo "ERROR: backend/openapi.yaml changed but npx is unavailable; cannot regenerate the OpenAPI client. Install Node.js/npm or regenerate manually." >&2
+      exit 1
+    fi
     (cd frontend-flutter && npx @openapitools/openapi-generator-cli generate \
       -i ../backend/openapi.yaml -g dart -o lib/api/generated \
       --additional-properties=pubName=breakdown_api)
@@ -194,7 +199,7 @@ nothing changed (the table then states `none` explicitly):
 
 | Package / Artifact | Action | Reason |
 |---|---|---|
-| `frontend-flutter` (`pubspec.yaml`) | bump 1.2.0 → 1.3.0 | New costume feature / dep addition |
+| `frontend-flutter` (`pubspec.yaml`) | bump 1.2.0 → 1.3.0 | New custom feature / dep addition |
 | `breakdown_api` (`lib/api/generated/`) | regenerated via `openapi-generator-cli` | `backend/openapi.yaml` changed |
 | `*.g.dart` / `*.freezed.dart` | regenerated | `@freezed` / `@riverpod` / drift edits |
 | (none) | — | Pure logic change in `lib/core/` |
@@ -277,7 +282,7 @@ Example PR body sections:
 
 | Package / Artifact | Action | Reason |
 |---|---|---|
-| `frontend-flutter` (`pubspec.yaml`) | bump 1.2.0 → 1.3.0 | New costume feature |
+| `frontend-flutter` (`pubspec.yaml`) | bump 1.2.0 → 1.3.0 | New custom feature |
 | `breakdown_api` | regenerated | `backend/openapi.yaml` changed |
 
 ## Validation
@@ -321,7 +326,7 @@ even when nothing changed:
 
 | Package / Artifact | Action | Reason |
 |---|---|---|
-| `frontend-flutter` (`pubspec.yaml`) | bump 1.2.0 → 1.3.0 | New costume feature |
+| `frontend-flutter` (`pubspec.yaml`) | bump 1.2.0 → 1.3.0 | New custom feature |
 | (none) | — | Pure logic change in `lib/core/` |
 ```
 

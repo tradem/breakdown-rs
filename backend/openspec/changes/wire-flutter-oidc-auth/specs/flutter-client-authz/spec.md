@@ -15,11 +15,12 @@ rejected at review.
 - **WHEN** a user whose `currentMembershipProvider(seasonId)` has resolved to
   a membership with `canUploadContinuityPhotos == false` taps the capture
   action.
-- **THEN** the action short-circuits client-side via
-  `ref.read(currentMembershipProvider(seasonId)).valueOrNull`, shows a
-  localized 403 narrative, and never issues the
-  `POST .../continuity-photos` request. This is a *resolved-denial* state,
-  distinct from loading/error (see the loading/error requirement).
+- **THEN** the action short-circuits client-side via an explicit
+  resolved-data check on `currentMembershipProvider(seasonId)` (matching only the
+  `AsyncData` branch, never loading or error), shows a localized 403 narrative,
+  and never issues the `POST .../continuity-photos` request. This is a
+  *resolved-denial* state, distinct from loading/error (see the loading/error
+  requirement).
 
 ### Requirement: Cert Pinning Matches Backend Pinned-CA Stance
 The HTTP client SHALL pin TLS roots per flavor (ADR-024), sourced from

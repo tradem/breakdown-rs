@@ -39,19 +39,20 @@ activation tests (below) provide that proof.
 
 #### Scenario: A throw appears in lib/data
 - **WHEN** a `lib/data/**` file contains a `throw` expression.
-- **THEN** `flutter pub run custom_lint` reports `no_throw_in_data_domain` as
-  an error.
+- **THEN** `flutter pub run custom_lint --no-fatal-warnings` reports
+  `no_throw_in_data_domain` as a hard error (non-zero exit).
 
 #### Scenario: An insecure TLS bypass is committed
 - **WHEN** a file sets `badCertificateCallback = (...) => true` or disables
   client verification.
-- **THEN** `flutter pub run custom_lint` reports `no_insecure_tls` as a hard
-  error.
+- **THEN** `flutter pub run custom_lint --no-fatal-warnings` reports
+  `no_insecure_tls` as a hard error (non-zero exit).
 
 #### Scenario: A discarded future in a widget build
 - **WHEN** a build method awaits nothing and leaves a `Future` as a statement.
-- **THEN** `flutter pub run custom_lint` reports `discard_result` unless
-  suppressed with a `// ignore: discard_result` reason comment.
+- **THEN** `flutter pub run custom_lint --no-fatal-warnings` reports
+  `discard_result` unless suppressed with a `// ignore: discard_result` reason
+  comment.
 
 #### Scenario: Clean code passes analysis
 - **WHEN** the seeded project contains no rule violations.
@@ -65,6 +66,18 @@ activation tests (below) provide that proof.
   `// expect_lint: no_throw_in_data_domain` above a `throw` in `lib/data`,
   `// expect_lint: no_insecure_tls` above a trust-all `SecurityContext`,
   `// expect_lint: no_hardcoded_secrets` above a secret-literal assignment).
-- **THEN** running `flutter pub run custom_lint` on the fixture fails unless
-  every expected rule ID is emitted, proving each rule is registered and
-  active; the clean fixture remains a separate passing case.
+- **THEN** running `flutter pub run custom_lint --no-fatal-warnings` on the
+  fixture fails unless every expected rule ID is emitted, proving each rule is
+  registered and active; the clean fixture remains a separate passing case.
+
+#### Scenario: Advisory rule is non-fatal
+- **WHEN** a fixture contains ONLY a `no_hardcoded_secrets` violation (no
+  hard-error rule).
+- **THEN** `flutter pub run custom_lint --no-fatal-warnings` exits successfully
+  (zero exit, warning emitted) — proving the advisory rule is non-fatal.
+
+#### Scenario: Hard-error rule fails the build
+- **WHEN** a fixture contains any hard-error rule (`no_throw_in_data_domain`,
+  `no_insecure_tls`, or `discard_result` without the mandatory ignore + reason).
+- **THEN** `flutter pub run custom_lint --no-fatal-warnings` exits unsuccessfully
+  (non-zero exit) — proving hard-error rules fail the build.

@@ -96,18 +96,19 @@ exception)
 ### D3. Loading/error behavior (deny only on resolved-denial)
 
 - `currentMembershipProvider` is `AsyncValue<Membership>`.
-  - **Loading** (`valueOrNull == null` and not error): the gated action is
-    **disabled with a spinner**, NOT denied. No 403 shown.
-  - **Error**: the gated action is **disabled with a retry affordance**; the
-    error is shown but the user is NOT told "forbidden" (that would be a
-    false denial). A retry triggers
+  - **Loading** (`AsyncLoading`): the gated action is **disabled with a spinner**,
+    NOT denied. No 403 shown.
+  - **Error** (`AsyncError`): the gated action is **disabled with a retry
+    affordance**; the error is shown but the user is NOT told "forbidden"
+    (that would be a false denial). A retry triggers
     `ref.refresh(currentMembershipProvider(seasonId))`.
-  - **Resolved denial** (explicit resolved-state check: `state.hasValue &&
-    state.value.hasActiveCostumeRoleInSeason == false`, or a capability `false`):
-    show the localized 403 narrative keyed on the capability, never issue the
-    request. This is distinct from an **HTTP 403** problem+json, which is a
-    *transport error* handled by the Error path above (D2), not a resolved
-    denial.
+  - **Resolved denial** (explicit resolved-state check:
+    `state is AsyncData && state.value.hasActiveCostumeRoleInSeason == false`,
+    or a capability `false`): show the localized 403 narrative keyed on the
+    capability, never issue the request. This is distinct from an **HTTP 403**
+    problem+json, which is a *transport error* handled by the Error path above
+    (D2), not a resolved denial. A loading or error state is never treated as a
+    denial (see the loading/error requirement).
 - This refines the existing "User lacks upload role" scenario: denial is a
   *resolved* state, distinct from loading/error.
 
