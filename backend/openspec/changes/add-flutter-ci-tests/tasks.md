@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
-<!-- Co-authored-by: glm-5.2 (neuralwatt) -->
+<!-- Co-authored-by: hy3 (opencode-go) -->
 
 ## 1. Test execution
 - [ ] 1.1 `flutter test --coverage` step in `flutter-ci.yml`
@@ -22,3 +22,18 @@
 ## 4. Documentation
 - [ ] 4.1 Workflow comment documenting the mutation-testing gap and the four
        compensating practices (coverage / golden / Err-branch / semantic finders)
+
+## Spec-hardening (issue #272) — design resolved
+
+The PR #269 review asked for the exact coverage gate. Resolved in
+`proposal.md` (Design Decisions D1–D3) and encoded as requirements in
+`specs/flutter-ci-coverage/spec.md`. Implementation Tasks 1–4 remain open;
+the design gap is closed.
+- [x] Exact coverage gate specified (D1: design targets line >= 80%, branch >=
+      70%, both tunable; changed `lib/**/*.dart` only)
+- [x] File-scope rules specified (D2: changed/new counted, deleted excluded,
+      generated excluded, non-executable = 100%, test files excluded from
+      required gate)
+- [x] CI command specified (D3: `flutter test --coverage --branch-coverage` +
+      `coverde check 80` pooled gate; unsupported line/branch/changed-only flags
+      dropped; per-axis targets documented; artifact on failure)

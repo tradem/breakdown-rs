@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
-<!-- Co-authored-by: glm-5.2 (neuralwatt) -->
+<!-- Co-authored-by: hy3 (opencode-go) -->
 
 # Proposal: Wire Flutter OIDC Auth & Client AUTHZ-GATE
 
@@ -35,3 +35,100 @@ handlers can be called safely.
 - No backend auth changes.
 - No full offline token refresh with queueing (online-first; see
   `flutter-offline-scope`).
+
+## Design Decisions (resolved during spec-hardening, issue #272)
+
+The PR #269 review flagged four auth/transport open questions. Resolved here;
+encoded as requirements in `specs/flutter-client-authz/spec.md`.
+
+### D1. Android-reachable dev IdP transport (HTTPS + dev CA, documented
+exception)
+
+- **Primary**: the dev IdP (Logto) is served over **HTTPS** using the
+  **dev-pinned CA set** — the same dev CA that signs the backend API cert on
+  `:3000`. The Flutter **dev** flavor pins that dev CA for both API and IdP
+  hosts. On the Android emulator the IdP is reachable at
+  `https://10.0.2.2:3301` (emulator loopback). This keeps pinning consistent
+  and avoids any unpinned transport.
+- **Documented exception**: if a contributor must use an HTTP port-forward
+  (e.g. `http://localhost:3301`) that cannot be HTTPS-pinned in their
+  environment, this is a **dev-flavor-only** exception gated by an explicit
+  `--dart-define=DEV_IDP_INSECURE=1`. **Enforcement is an explicit
+  flavor/compile guard, not an assert**: the flag is read only inside a
+  `if (appFlavor == 'dev')` guard (not merely `!kReleaseMode`), so **every**
+  non-dev flavor — staging, prod, and release — rejects the flag; in addition,
+  `lib/main.dart` throws at startup if `DEV_IDP_INSECURE=1` is set under any
+  non-dev flavor (a belt-and-suspenders guard that guarantees the flag cannot
+  in normal builds but guarantees the flag cannot relax pinning in a release
+  artifact). The pinning layer is bypassed **only for the IdP host** under
+  that flag. This is the lone documented exception to pinning; it is impossible
+  in prod builds.
+
+### D2. `currentMembershipProvider` scope + role mapping
+
+- `currentMembershipProvider` becomes a **family** keyed by `seasonId`:
+  `currentMembershipProvider(SeasonId id)`. It reads **one** endpoint,
+  `GET /v1/seasons/{seasonId}/membership`, which returns a `SeasonMembershipDto`
+  (contract below) — the client never reconstructs roles from other projections
+  (CQRS-boundary rule). The earlier `seriesId` / whoami alternatives are
+  dropped; this is the single wire contract.
+- **`SeasonMembershipDto` contract** (single source of truth for the gate):
+  - `seasonId: String` — the keyed id.
+  - `hasActiveCostumeRoleInSeason: bool` — backend-computed result of
+    `has_active_costume_role_in_season(season_id, sub)`.
+  - `capabilities: List<Capability>` — enum (`uploadContinuityPhotos`,
+    `assignCostumes`, …) derived server-side from the boolean roles.
+  - Error shape: a non-2xx on this endpoint surfaces as `AsyncError` (loading/
+    error path per D3); a forbidden/missing season returns the backend's
+    `application/problem+json` with a stable `code`, mapped to the localized
+    narrative (never from `detail`).
+- The DTO exposes backend-computed booleans. The "active continuity role" is
+  mapped from `has_active_costume_role_in_season(season_id, sub)` (the
+  backend's authorization predicate) surfaced as a field on the membership
+  DTO (e.g. `canUploadContinuityPhotos`, `canAssignCostumes`). The client
+  derives a local capability enum from these booleans; it does NOT
+  re-implement the predicate.
+- **Server remains authoritative**: the client check is a gate (UX +
+  defense-in-depth), never authorization. The backend re-checks on every
+  gated handler (AUTHZ-GATE). A client "allow" never substitutes for server
+  enforcement.
+
+### D3. Loading/error behavior (deny only on resolved-denial)
+
+- `currentMembershipProvider` is `AsyncValue<Membership>`.
+  - **Loading** (`AsyncLoading`): the gated action is **disabled with a spinner**,
+    NOT denied. No 403 shown.
+  - **Error** (`AsyncError`): the gated action is **disabled with a retry
+    affordance**; the error is shown but the user is NOT told "forbidden"
+    (that would be a false denial). A retry triggers
+    `ref.refresh(currentMembershipProvider(seasonId))`.
+  - **Resolved denial** (explicit resolved-state check:
+    `state is AsyncData && state.value.hasActiveCostumeRoleInSeason == false`,
+    or a capability `false`): show the localized 403 narrative keyed on the
+    capability, never issue the request. This is distinct from an **HTTP 403**
+    problem+json, which is a *transport error* handled by the Error path above
+    (D2), not a resolved denial. A loading or error state is never treated as a
+    denial (see the loading/error requirement).
+- This refines the existing "User lacks upload role" scenario: denial is a
+  *resolved* state, distinct from loading/error.
+
+### D4. Exclusive, fail-closed TLS pinning
+
+- Pinning is **exclusive**: the `SecurityContext` is constructed with **no
+  default trust roots**; only the per-flavor **expected CA identity** (the
+  exact CA certificate / pinned SPKI or certificate hash) from `--dart-define`
+  is added — a PEM that merely *parses* is not accepted unless it is the
+  expected CA. Platform/OS trust store is **excluded in both flavors** (not
+  just prod) — dev adds the dev CA, prod adds the prod CA, neither falls back
+  to system roots.
+- **Fail-closed at startup**: if the required `--dart-define` CA list is
+  missing/empty, fails to parse as valid PEM, or is not the expected CA
+  identity, the `HttpClient`/`dio` construction fails at the composition root
+  (`lib/main.dart`). `main()` first calls `WidgetsFlutterBinding.ensureInitialized()`
+  and then `runApp(...)` with a fatal "TLS configuration invalid" widget (not a
+  raw throw before `runApp`), so the fatal screen renders through Flutter; no
+  network calls are ever made with an unpinned context.
+- "Adding CAs to the default trust store" is explicitly NOT pinning and is
+  rejected; we use a clean `SecurityContext()` with only pinned certs. The
+  dev IdP insecure fallback (D1) is the only place verification is relaxed,
+  and only for the IdP host under the dev flag.
