@@ -12,7 +12,7 @@ foundation `flutter-test-pyramid` spec).
 
 #### Scenario: Changed code falls below threshold
 - **WHEN** a PR's changed `.dart` files cover below the configured threshold.
-- **THEN** CI fails on the coverage gate with a per-file breakdown.
+- **THEN** CI fails `coverde check 80 --input coverage/lcov.info` (the coverage gate) with a per-file breakdown.
 
 ### Requirement: Coverage Gate Numeric Thresholds
 
@@ -29,7 +29,7 @@ substitute for the mutation-testing gate that does not exist for Dart/Flutter
 
 - **WHEN** a changed `lib/.../use_case.dart` covers below 80% line / 70%
   branch.
-- **THEN** CI fails the coverage gate with a per-file breakdown.
+- **THEN** CI fails `coverde check 80 --input coverage/lcov.info` with a per-file breakdown.
 
 ### Requirement: Coverage Gate File-Scope Rules
 

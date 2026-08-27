@@ -47,8 +47,8 @@ structural invariants are fixed and are encoded as requirements in
 - `readCached()`: a pure Drift read (no network) returning the cached rows.
 - The `@riverpod` controller **first** calls `readCached()` and emits the
   cached rows (seeding `prevRows` from this initial read), **then** triggers
-  `fetchAndCache()`. On `Ok` it re-reads and emits `AsyncData(rows)`; on `Err`
-  it emits `AsyncError` while preserving the previously emitted cached
+  `fetchAndCache()`. On **each** successful read (initial cache read and every refetch) it re-reads and updates `prevRows = rows` before emitting `AsyncData(rows)`; on `Err`
+  it emits `AsyncError` while preserving the **latest** emitted cached
   `AsyncData`/`prevRows` (see D4). This guarantees cached rows render on
   offline cold start even before the first fetch completes. Widgets
   `ref.watch` the provider only and never import the API client or call
@@ -62,8 +62,10 @@ structural invariants are fixed and are encoded as requirements in
 - **Clock**: an injected `Clock` (default `Clock()` = `DateTime.now()`),
   never a direct `DateTime.now()` call, so reconciliation tests use fake
   clocks (foundation deterministic-tests rule).
-- Row model adds `updatedAt` (set on upsert);
-  `isExpired = clock.now().difference(updatedAt) > ttl`.
+- Row model stores the server `updatedAt` (from `SeasonView.updated_at`,
+  **preserved unchanged** by the client) AND a client-only `cachedAt` (set on
+  upsert = cache write time). TTL is computed from `cachedAt`, never from the
+  server `updatedAt`: `isExpired = clock.now().difference(cachedAt) > ttl`.
 - Behaviors:
   - **Fresh** (`!isExpired`, non-empty): serve directly; still trigger a
     low-priority background refetch to absorb projector lag.
@@ -94,7 +96,8 @@ structural invariants are fixed and are encoded as requirements in
   last non-error list** in a private `prevRows` field. A `seasonsView`
   selector returns `{ rows: state.hasError ? prevRows : state.value,
   isStale: state.hasError || cachedRowsExpired, error: state.error }`, where
-  `cachedRowsExpired` is the TTL result from D2 (not a hardcoded `true`).
+  `cachedRowsExpired` is the TTL result from D2 (derived from `cachedAt`, not
+  a hardcoded `true`).
   Fresh successful rows are therefore never marked stale, while a failed
   refetch or expired cache still surfaces the stale banner.
 - This satisfies both Task 3.3 (fetch error not silently discarded) and Task

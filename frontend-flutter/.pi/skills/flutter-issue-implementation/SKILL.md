@@ -168,12 +168,17 @@ if [ -f frontend-flutter/pubspec.yaml ]; then
   cd ..
 fi
 
-# Regenerate the OpenAPI client ONLY when backend/openapi.yaml changed.
-# Use openapi-generator-cli (NOT build_runner) per AGENTS.md §3:
+# Regenerate the OpenAPI client ONLY when backend/openapi.yaml actually
+# changed vs the base branch (NOT merely because the file exists). Use
+# openapi-generator-cli (NOT build_runner) per AGENTS.md §3:
 if [ -f backend/openapi.yaml ] && command -v npx >/dev/null 2>&1; then
-  (cd frontend-flutter && npx @openapitools/openapi-generator-cli generate \
-    -i ../backend/openapi.yaml -g dart -o lib/api/generated \
-    --additional-properties=pubName=breakdown_api)
+  base="${BASE_BRANCH:-origin/main}"
+  if ! git diff --quiet "$(git merge-base HEAD "$base" 2>/dev/null || echo HEAD)" \
+        -- backend/openapi.yaml 2>/dev/null; then
+    (cd frontend-flutter && npx @openapitools/openapi-generator-cli generate \
+      -i ../backend/openapi.yaml -g dart -o lib/api/generated \
+      --additional-properties=pubName=breakdown_api)
+  fi
 fi
 ```
 
@@ -190,7 +195,7 @@ nothing changed (the table then states `none` explicitly):
 | Package / Artifact | Action | Reason |
 |---|---|---|
 | `frontend-flutter` (`pubspec.yaml`) | bump 1.2.0 → 1.3.0 | New costume feature / dep addition |
-| `breakdown_api` (`lib/api/generated/`) | regenerated | `backend/openapi.yaml` changed |
+| `breakdown_api` (`lib/api/generated/`) | regenerated via `openapi-generator-cli` | `backend/openapi.yaml` changed |
 | `*.g.dart` / `*.freezed.dart` | regenerated | `@freezed` / `@riverpod` / drift edits |
 | (none) | — | Pure logic change in `lib/core/` |
 
@@ -285,7 +290,8 @@ Example PR body sections:
 ### Step 10: Link Issues
 
 ```bash
-# Close issue when PR merges
+# Close the issue only AFTER the PR merges (post-merge step: via the merge
+# hook/CI, or manually once merged) — do not close it as part of local impl.
 gh issue close {issue} --comment "Closed by PR #{pr}"
 
 # Mark follow-up issues

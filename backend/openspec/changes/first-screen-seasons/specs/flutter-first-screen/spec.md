@@ -15,12 +15,15 @@ screens.
 #### Scenario: Creating a season optimistically (after acknowledgement)
 
 - **WHEN** the user submits the Create Season form.
-- **THEN** the controller dispatches `POST /v1/seasons`, which returns the
-  created `SeasonDto` carrying the server-assigned `id`; only after that 2xx
-  does it add an optimistic overlay entry (built from the returned DTO) to the
-  `AsyncValue` list and reconcile via a bounded-retry refetch of the seasons
-  projection. The overlay is controller state, not a Drift write; the screen's
-  authoritative rows still come from Drift (merged with the overlay by `id`).
+- **THEN** the controller dispatches `POST /v1/seasons`, which returns
+  `IdVersionResponse { id, version }`; only after that 2xx does it add an
+  optimistic overlay entry keyed by the returned `id` to the controller's
+  `overlays` list (part of `SeasonsScreenState`, separate from the
+  `AsyncValue<List<SeasonDto>>` `projected` rows) and reconcile via a
+  bounded-retry refetch of the seasons projection. The full `SeasonDto` arrives
+  with the refetch; the overlay is controller state, not a Drift write; the
+  screen's authoritative rows still come from Drift (merged with the overlay by
+  `id`).
 
 #### Scenario: A 409 conflict is returned
 
@@ -35,16 +38,18 @@ screens.
 
 ### Requirement: Optimistic Row Lives in Controller State, Never in Drift
 
-The optimistic create SHALL add the server-acknowledged `SeasonDto` as an
-in-memory overlay in the controller's `AsyncValue<List<SeasonDto>>`, keyed by
-the real server `id`. It SHALL NOT be written to Drift until the projection
-refetch confirms it (Drift must not contain unprojected state). The screen
-reads projected Drift rows merged with the overlay; reconciliation drops the
-overlay entry when the refetch returns the same `id`.
+The optimistic create SHALL add an overlay entry to the controller's
+`SeasonsScreenState.overlays` (a `List<OverlayEntry>`), keyed by the server
+`id` from `IdVersionResponse`; the projected rows live separately in
+`SeasonsScreenState.projected` (`AsyncValue<List<SeasonDto>>`). The overlay
+SHALL NOT be written to Drift until the projection refetch confirms it (Drift
+must not contain unprojected state). The screen reads `projected` and merges
+`overlays` by `id`; reconciliation drops the overlay entry when the refetch
+returns the same `id`.
 
-The overlay SHALL carry an explicit status-bearing model rather than a bare
-`SeasonDto`: `OverlayEntry { SeasonDto dto; OverlayStatus status; String?
-warning; }` where `OverlayStatus ∈ { acknowledged, reconciling, stale }`.
+`OverlayEntry { String id; OverlayStatus status; String? warning; }` carries
+only the acked `id` + status/warning; the full `SeasonDto` lives in `projected`
+after the refetch. `OverlayStatus ∈ { acknowledged, reconciling, stale }`.
 - `acknowledged`: POST 2xx returned; overlay shown immediately.
 - `reconciling`: bounded-retry refetch in flight; overlay still shown.
 - `stale`: refetch exhausted its retries; overlay retained with a non-fatal

@@ -83,8 +83,10 @@ exact rule IDs / wiring. Resolved here; encoded as a requirement in
     ];
   }
   ```
-- `custom_lint_builder` generates the plugin registration; the package is a
-  `dev_dependency` of the app and resolved at analyze time.
+- `custom_lint_builder` generates the plugin registration and is a
+  `dev_dependency` of the `breakdown_lints` package. The app's `pubspec.yaml`
+  declares **both** `custom_lint` (the runner that executes the plugin) and
+  `breakdown_lints` (this plugin package) as `dev_dependencies`.
 
 ### D3. Exact rule IDs and what they flag
 
@@ -102,7 +104,11 @@ exact rule IDs / wiring. Resolved here; encoded as a requirement in
   verification-disabled `HttpClient`. Hard error (fail-closed).
 - `no_hardcoded_secrets` — heuristic match of string literals / field
   assignments against secret patterns (`apiKey`, `clientSecret`, `token`,
-  `password`). Advisory; `gitleaks` remains authoritative.
+  `password`). **Advisory (warning, non-fatal in CI)**; `gitleaks` (a separate
+  CI step) remains authoritative for secret detection. The other three rules
+  (`no_throw_in_data_domain`, `no_insecure_tls`, and `discard_result` used
+  without the mandatory `// ignore: discard_result` + reason) are **hard errors
+  (fatal in CI)**, matching the documented exit policy.
 - The four IDs above are the canonical enforcement contract. Any legacy names
   in CI docs (`no-throw-in-data/domain`, `no_hardcoded_colors`, `AUTHZ-GATE`)
   are superseded by this list and SHALL be migrated to it when the scaffold

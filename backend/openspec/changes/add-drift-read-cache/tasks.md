@@ -30,6 +30,9 @@
 - [ ] 4.4 Combined stale+error test: fetch errors with cached rows present ->
        provider emits error AND `retainedStaleRows` non-empty -> widget shows
        rows + stale banner + retry (jointly satisfies Task 3.3 ∧ Task 4.1)
+- [ ] 4.5 `prevRows` refresh test: a successful refetch updates `prevRows`, then
+       a following failed refetch preserves the latest successful snapshot
+       (not the obsolete initial cache read) with a stale marker
 
 ## 5. Migration discipline
 - [ ] 5.1 Drift migration test: DTO shape change → migration in same PR
@@ -52,3 +55,7 @@ requirements in `specs/flutter-offline-scope/spec.md`. Implementation Tasks
 - [x] Combined stale-data + fetch-error state + test defined (D4: retain
       `prevRows`, `seasonsView` selector with derived `isStale`, asserts 3.3 ∧
       4.1) — asserted by Task 4.4
+- [x] `prevRows` refreshed on every successful read (D1: latest snapshot kept
+      on later failure) — asserted by Task 4.5
+- [x] Cache-write time separated from server `updatedAt` (D2: client-only
+      `cachedAt` drives TTL; server `updatedAt` preserved)

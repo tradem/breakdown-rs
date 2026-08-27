@@ -140,7 +140,7 @@ comment stream first, so parent/child relationships are evaluated against the
 whole collection, never per-object:
 
 ```bash
-set -o pipefail
+set -euo pipefail
 coverage="$(gh api repos/{owner}/{repo}/pulls/{pr}/comments --paginate --jq '.[]' \
   | jq -s -r --arg me "$(gh api user --jq .login)" '
       . as $all

@@ -55,9 +55,10 @@ exception)
   environment, this is a **dev-flavor-only** exception gated by an explicit
   `--dart-define=DEV_IDP_INSECURE=1`. **Enforcement is an explicit
   flavor/compile guard, not an assert**: the flag is read only inside a
-  `if (!kReleaseMode)` block, so release/prod builds never consult it; in
-  addition, `lib/main.dart` throws at startup if `DEV_IDP_INSECURE=1` is set
-  while `kReleaseMode` is true (a belt-and-suspenders guard that is unreachable
+  `if (appFlavor == 'dev')` guard (not merely `!kReleaseMode`), so **every**
+  non-dev flavor — staging, prod, and release — rejects the flag; in addition,
+  `lib/main.dart` throws at startup if `DEV_IDP_INSECURE=1` is set under any
+  non-dev flavor (a belt-and-suspenders guard that guarantees the flag cannot
   in normal builds but guarantees the flag cannot relax pinning in a release
   artifact). The pinning layer is bypassed **only for the IdP host** under
   that flag. This is the lone documented exception to pinning; it is impossible
@@ -101,24 +102,31 @@ exception)
     error is shown but the user is NOT told "forbidden" (that would be a
     false denial). A retry triggers
     `ref.refresh(currentMembershipProvider(seasonId))`.
-  - **Resolved denial** (value present, capability `false`): show localized
-    403 narrative, never issue the request.
+  - **Resolved denial** (explicit resolved-state check: `state.hasValue &&
+    state.value.hasActiveCostumeRoleInSeason == false`, or a capability `false`):
+    show the localized 403 narrative keyed on the capability, never issue the
+    request. This is distinct from an **HTTP 403** problem+json, which is a
+    *transport error* handled by the Error path above (D2), not a resolved
+    denial.
 - This refines the existing "User lacks upload role" scenario: denial is a
   *resolved* state, distinct from loading/error.
 
 ### D4. Exclusive, fail-closed TLS pinning
 
 - Pinning is **exclusive**: the `SecurityContext` is constructed with **no
-  default trust roots**; only the per-flavor pinned CA PEM(s) from
-  `--dart-define` are added. Platform/OS trust store is **excluded in both
-  flavors** (not just prod) — dev adds the dev CA, prod adds the prod CA,
-  neither falls back to system roots.
+  default trust roots**; only the per-flavor **expected CA identity** (the
+  exact CA certificate / pinned SPKI or certificate hash) from `--dart-define`
+  is added — a PEM that merely *parses* is not accepted unless it is the
+  expected CA. Platform/OS trust store is **excluded in both flavors** (not
+  just prod) — dev adds the dev CA, prod adds the prod CA, neither falls back
+  to system roots.
 - **Fail-closed at startup**: if the required `--dart-define` CA list is
-  missing/empty or fails to parse as valid PEM, the `HttpClient`/`dio`
-  construction throws at the composition root (`lib/main.dart`) -> the app
-  aborts startup and shows a fatal "TLS configuration invalid" screen (no
-  network calls are ever made with an unpinned context). This is caught in
-  `main()` before `runApp`.
+  missing/empty, fails to parse as valid PEM, or is not the expected CA
+  identity, the `HttpClient`/`dio` construction fails at the composition root
+  (`lib/main.dart`). `main()` first calls `WidgetsFlutterBinding.ensureInitialized()`
+  and then `runApp(...)` with a fatal "TLS configuration invalid" widget (not a
+  raw throw before `runApp`), so the fatal screen renders through Flutter; no
+  network calls are ever made with an unpinned context.
 - "Adding CAs to the default trust store" is explicitly NOT pinning and is
   rejected; we use a clean `SecurityContext()` with only pinned certs. The
   dev IdP insecure fallback (D1) is the only place verification is relaxed,

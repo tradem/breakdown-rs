@@ -33,7 +33,10 @@ successful fetch it SHALL upsert-by-id inside a single transaction, and the
 exclusively. No widget reads the API client or the cache directly. The
 controller SHALL first emit the cached rows (seeding `prevRows`) and only
 then trigger the network fetch, so a failing first fetch still renders cached
-rows on offline cold start.
+rows on offline cold start. The controller SHALL also refresh `prevRows` from
+the latest successful read on every subsequent refetch, so a later fetch
+error preserves the most recent good snapshot rather than the obsolete
+initial one.
 
 #### Scenario: Fetch fails after a partial network response
 - **WHEN** the generated client returns `Err(ProblemError)` for a seasons
@@ -44,14 +47,16 @@ rows on offline cold start.
 
 ### Requirement: TTL Expiry Marks Rows Stale Without Deleting Them
 
-The cache SHALL mark rows stale when `clock.now() - updatedAt > ttl` (default
+The cache SHALL mark rows stale when `clock.now() - cachedAt > ttl` (default
 24h, tunable per table) and SHALL serve them with a `stale` indicator while
-triggering a refetch. A failed refetch SHALL keep the stale rows and surface
-the error.
+triggering a refetch. `cachedAt` is the client-only cache-write time (distinct
+from the server `updatedAt` carried in the DTO, which is preserved unchanged);
+TTL is computed from `cachedAt` only. A failed refetch SHALL keep the stale
+rows and surface the error.
 
 #### Scenario: A cached row is older than the TTL
 
-- **WHEN** the injected clock reports `now - updatedAt > ttl` for a cached
+- **WHEN** the injected clock reports `now - cachedAt > ttl` for a cached
   season row.
 - **THEN** the screen renders that row with a stale indicator and triggers a
   foreground refetch; a failed refetch keeps the row and shows an error
@@ -61,7 +66,10 @@ the error.
 
 For a top-level `list()` projection, a successful fetch SHALL upsert all
 returned rows by id and DELETE any cached rows whose id is absent from the
-returned set, in one transaction. No tombstones are used.
+returned set, in one transaction. No tombstones are used. This
+delete-missing-ids step runs ONLY on a complete, successful snapshot response;
+a partial, paginated, or errored fetch MUST NOT delete any cached rows (an
+unreturned id is safe to keep because the snapshot was not authoritative).
 
 #### Scenario: A season is deleted server-side
 

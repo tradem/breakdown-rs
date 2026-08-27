@@ -62,8 +62,7 @@ as requirements in `specs/flutter-ci-coverage/spec.md`.
   *required* gate (not shipped; exercised by the suite); coverage still
   collected.
 
-### D3. CI command (flags confirmed against the installed `coverde`
-version at implementation)
+### D3. CI command (flags confirmed against the installed `coverde` version at implementation)
 
 The `flutter-ci.yml` step collects coverage **with branch data**, then enforces
 the gate with `coverde`:
