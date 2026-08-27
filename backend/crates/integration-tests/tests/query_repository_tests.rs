@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
+// Co-authored-by: glm-5.3-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -340,7 +341,7 @@ async fn costumes_by_season_returns_data() -> Result<()> {
 #[tokio::test]
 async fn costumes_with_details_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
-    let _costume_repo = CostumeRepositoryImpl::new(pool.clone());
+    let costume_repo = CostumeRepositoryImpl::new(pool.clone());
     let costume_cmd = CostumeCommandsImpl::new(cmd_svc);
 
     let costume_id = Uuid::now_v7();
@@ -374,6 +375,36 @@ async fn costumes_with_details_returns_data() -> Result<()> {
 
     await_proj_version(&pool, "projection_costume", costume_id, ver2.0 as u64).await;
     await_proj_version(&pool, "projection_costume_detail", costume_id, 0).await;
+
+    // Issue #295: `enrich` must populate `details` on the view — a deleted
+    // field would fall back to an empty vec.
+    let view = costume_repo.find_by_id(costume_id).await?;
+    assert_eq!(view.details.len(), 1, "enrich must load costume details");
+    assert_eq!(view.details[0].id, detail_id);
+    assert_eq!(view.details[0].text, "Sleeve");
+
+    // Seed one photo row directly (the photo projector is not running in
+    // this test) and verify `enrich` populates `photos` with its metadata.
+    let photo_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO projection_photo (photo_id, content_type, size_bytes) VALUES ($1, $2, $3)",
+    )
+    .bind(photo_id)
+    .bind("image/jpeg")
+    .bind(1234_i64)
+    .execute(&pool)
+    .await?;
+    sqlx::query("INSERT INTO projection_costume_photo (costume_id, photo_id) VALUES ($1, $2)")
+        .bind(costume_id)
+        .bind(photo_id)
+        .execute(&pool)
+        .await?;
+
+    let view = costume_repo.find_by_id(costume_id).await?;
+    assert_eq!(view.photos.len(), 1, "enrich must load costume photos");
+    assert_eq!(view.photos[0].id, photo_id);
+    assert_eq!(view.photos[0].content_type, "image/jpeg");
+    assert_eq!(view.photos[0].size_bytes, 1234);
 
     Ok(())
 }
