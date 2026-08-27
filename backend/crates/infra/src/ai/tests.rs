@@ -3,6 +3,7 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: longcat-2.0-free (opencode)
+// Co-authored-by: glm-5.3-flash (opencode-go)
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -220,6 +221,210 @@ async fn merge_worker_empty_input_is_non_retryable() {
     );
 }
 
+/// Issue #295: the merge worker's success path must record telemetry with
+/// the schedule document kind and an explicit `NotApplied` apply state —
+/// not the `Default` of deleted struct fields.
+#[tokio::test]
+async fn merge_worker_success_records_telemetry() {
+    use super::QueueMergeWorker;
+    use breakdown_core::ai::MergeInput;
+    use breakdown_core::scene::views::SceneView;
+    use breakdown_core::shared::{AggregateVersion, EpisodeId};
+    use chrono::TimeZone;
+
+    /// Wraps the in-memory store and guarantees a ≥ 2 ms delay inside the
+    /// worker's measured latency window (tokio timers never fire early, so
+    /// the lower bound is deterministic — not a wall-clock-jitter gate).
+    struct SlowPutStore {
+        inner: Arc<MemoryAiPreviewStore>,
+    }
+
+    #[async_trait]
+    impl AiPreviewStore for SlowPutStore {
+        async fn put(&self, id: AiImportJobId, payload: Vec<u8>) -> Result<String, DomainError> {
+            tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+            self.inner.put(id, payload).await
+        }
+
+        async fn get(&self, handle: &str) -> Result<Option<Vec<u8>>, DomainError> {
+            self.inner.get(handle).await
+        }
+
+        async fn delete(&self, handle: &str) -> Result<(), DomainError> {
+            self.inner.delete(handle).await
+        }
+    }
+
+    /// Capture queue: claims one fixed Schedule job and records telemetry.
+    struct MergeCaptureQueue {
+        job: AiImportJob,
+        claimed: AtomicUsize,
+        telemetry: Arc<Mutex<Vec<Telemetry>>>,
+        succeeded: Arc<Mutex<Vec<AiImportJobId>>>,
+    }
+
+    #[async_trait]
+    impl AiImportQueue for MergeCaptureQueue {
+        async fn enqueue(
+            &self,
+            _request: AiImportEnqueueRequest,
+        ) -> Result<AiImportEnqueueResult, DomainError> {
+            unimplemented!("not used by this test")
+        }
+        async fn claim_next(&self, _worker_id: &str) -> Result<Option<AiImportJob>, DomainError> {
+            unimplemented!("not used by this test")
+        }
+        async fn claim_next_kind(
+            &self,
+            _worker_id: &str,
+            _kind: DocumentKind,
+        ) -> Result<Option<AiImportJob>, DomainError> {
+            if self.claimed.fetch_add(1, Ordering::SeqCst) == 0 {
+                Ok(Some(self.job.clone()))
+            } else {
+                Ok(None)
+            }
+        }
+        async fn get(&self, _id: AiImportJobId) -> Result<Option<AiImportJob>, DomainError> {
+            unimplemented!("not used by this test")
+        }
+        async fn mark_running(
+            &self,
+            _id: AiImportJobId,
+            _worker_id: &str,
+        ) -> Result<(), DomainError> {
+            Ok(())
+        }
+        async fn mark_succeeded(
+            &self,
+            id: AiImportJobId,
+            _worker_id: &str,
+            _preview_handle: &str,
+        ) -> Result<(), DomainError> {
+            self.succeeded.lock().unwrap().push(id);
+            Ok(())
+        }
+        async fn mark_failed(
+            &self,
+            _id: AiImportJobId,
+            _worker_id: &str,
+            _error_summary: &str,
+            _retryable: bool,
+        ) -> Result<(), DomainError> {
+            unimplemented!("the success path must not fail")
+        }
+        async fn record_worker_telemetry(
+            &self,
+            _id: AiImportJobId,
+            _worker_id: &str,
+            telemetry: Telemetry,
+        ) -> Result<(), DomainError> {
+            self.telemetry.lock().unwrap().push(telemetry);
+            Ok(())
+        }
+        async fn record_telemetry(
+            &self,
+            _id: AiImportJobId,
+            telemetry: Telemetry,
+        ) -> Result<(), DomainError> {
+            self.telemetry.lock().unwrap().push(telemetry);
+            Ok(())
+        }
+    }
+
+    fn scene(number: u32) -> SceneView {
+        SceneView {
+            id: Uuid::now_v7(),
+            episode_id: EpisodeId::new(),
+            scene_number: Some(number),
+            location: None,
+            mood: None,
+            is_schedule_set: false,
+            summary: None,
+            script_day: None,
+            shooting_day_ids: Vec::new(),
+            assigned_characters: Vec::new(),
+            version: AggregateVersion::INITIAL,
+            updated_at: Utc.timestamp_opt(0, 0).single().unwrap(),
+        }
+    }
+
+    let inner = Arc::new(MemoryAiPreviewStore::default());
+    let input = MergeInput {
+        schedule: ShootingSchedule {
+            block_id: None,
+            rows: vec![ShootingScheduleRow {
+                row_ref: "row-1".to_owned(),
+                scene_number: Some(1),
+                ..Default::default()
+            }],
+        },
+        scenes: vec![scene(1)],
+    };
+    inner
+        .put_raw_for_test(
+            "merge-success-preview".to_owned(),
+            serde_json::to_vec(&input).unwrap(),
+        )
+        .await;
+
+    let job = AiImportJob {
+        id: AiImportJobId::new(),
+        user_id: UserId::from_sub("merge-telemetry-user"),
+        document_kind: DocumentKind::Schedule,
+        source_format: SourceFormat::Csv,
+        block_id: None,
+        dedup_key: "merge-telemetry".to_owned(),
+        document_digest: "digest".to_owned(),
+        source_handle: "source".to_owned(),
+        status: JobStatus::Running,
+        preview_handle: Some("merge-success-preview".to_owned()),
+        last_error: None,
+        retries: 0,
+        max_retries: 3,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
+    let queue = Arc::new(MergeCaptureQueue {
+        job: job.clone(),
+        claimed: AtomicUsize::new(0),
+        telemetry: Arc::new(Mutex::new(Vec::new())),
+        succeeded: Arc::new(Mutex::new(Vec::new())),
+    });
+
+    let worker = QueueMergeWorker {
+        queue: queue.clone(),
+        previews: Arc::new(SlowPutStore { inner }),
+    };
+
+    let result = worker.run_once("test-worker").await.unwrap();
+    assert!(result, "the success path must report progress");
+    assert_eq!(*queue.succeeded.lock().unwrap(), vec![job.id]);
+
+    let telemetry = queue.telemetry.lock().unwrap();
+    assert_eq!(telemetry.len(), 1, "merge must record telemetry once");
+    assert_eq!(
+        telemetry[0].doc_kind,
+        Some(DocumentKind::Schedule),
+        "merge telemetry must carry the schedule document kind"
+    );
+    assert_eq!(
+        telemetry[0].apply_state,
+        TelemetryApplyState::NotApplied,
+        "a preview-only merge is explicitly NotApplied"
+    );
+    // A merge is a pure transform: no provider/model is recorded.
+    assert_eq!(telemetry[0].provider, None);
+    assert_eq!(telemetry[0].model, None);
+    // The SlowPutStore sleeps ≥ 2 ms inside the measured window, so a
+    // recorded latency is guaranteed ≥ 2 — a deleted field would be 0.
+    assert!(
+        telemetry[0].latency_total >= 2,
+        "latency_total must be recorded, got {}",
+        telemetry[0].latency_total
+    );
+}
+
 #[test]
 fn telemetry_serialization_is_content_free() {
     let telemetry = Telemetry {
@@ -340,6 +545,12 @@ impl LlmClient for FakeLlmClient {
         &self,
         _request: LlmChatRequest,
     ) -> Result<ScriptContext, DomainError> {
+        // Issue #295: guarantee the latency window measured by the worker is
+        // strictly > 0 ms so telemetry assertions can deterministically
+        // distinguish a recorded `latency_total` from the `Default` (0).
+        // tokio timers never fire early, so the lower bound is guaranteed —
+        // this is not a wall-clock-jitter gate (AGENTS.md §4).
+        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
         Ok(ScriptContext {
             title: Some("fixture".to_owned()),
             scenes: vec![DraftScene {
@@ -415,6 +626,8 @@ impl LlmClient for RecordingScheduleClient {
         &self,
         request: LlmChatRequest,
     ) -> Result<ShootingSchedule, DomainError> {
+        // Issue #295: guaranteed > 0 ms latency window (see FakeLlmClient).
+        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
         self.seen.lock().unwrap().push(request.source_text);
         Ok(ShootingSchedule {
             block_id: None,
@@ -535,10 +748,27 @@ async fn schedule_worker_routes_plain_text_through_the_llm() {
     let payload = previews.get(&handle).await.unwrap().unwrap();
     let preview: ShootingSchedule = serde_json::from_slice(&payload).unwrap();
     assert_eq!(preview.rows.len(), 1);
+    let telemetry = &queue.state.lock().unwrap().telemetry[0];
     assert_eq!(
-        queue.state.lock().unwrap().telemetry[0].provider,
+        telemetry.provider,
         Some(LlmProvider::Neuralwatt),
         "an LLM extraction records the provider"
+    );
+    // Issue #295: model/kind/latency/apply-state must be recorded, not the
+    // `Default` of a deleted struct field.
+    assert_eq!(telemetry.model.as_deref(), Some("deepseek-v4-flash"));
+    assert_eq!(telemetry.doc_kind, Some(DocumentKind::Schedule));
+    // RecordingScheduleClient sleeps ≥ 2 ms inside the measured window, so a
+    // recorded latency is guaranteed ≥ 2 — a deleted field would be 0.
+    assert!(
+        telemetry.latency_total >= 2,
+        "latency_total must be recorded, got {}",
+        telemetry.latency_total
+    );
+    assert_eq!(
+        telemetry.apply_state,
+        TelemetryApplyState::NotApplied,
+        "a preview-only schedule run is explicitly NotApplied"
     );
 }
 
@@ -591,6 +821,21 @@ async fn script_worker_assembles_preview_and_telemetry() {
     assert_eq!(state.succeeded, vec![job.id]);
     assert_eq!(state.telemetry.len(), 1);
     assert_eq!(state.telemetry[0].chunk_count, 2);
+    // Issue #295: the worker must record its provider/model/kind — not the
+    // `Default` of a deleted struct field.
+    assert_eq!(state.telemetry[0].provider, Some(LlmProvider::Neuralwatt));
+    assert_eq!(
+        state.telemetry[0].model.as_deref(),
+        Some("deepseek-v4-flash")
+    );
+    assert_eq!(state.telemetry[0].doc_kind, Some(DocumentKind::Script));
+    // The FakeLlmClient sleeps ≥ 2 ms per chunk inside the measured window,
+    // so a recorded latency is guaranteed ≥ 2 — a deleted field would be 0.
+    assert!(
+        state.telemetry[0].latency_total >= 2,
+        "latency_total must be recorded, got {}",
+        state.telemetry[0].latency_total
+    );
     // Issue #171: a job that only reached preview is explicitly NotApplied
     // (edit_distance NULL), never a misleading zero.
     assert_eq!(

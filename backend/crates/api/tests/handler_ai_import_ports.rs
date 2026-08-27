@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: longcat-2.0-free (opencode)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: glm-5.3-flash (opencode-go)
 
 //! Handler tests proving the AI import dependencies are reachable through the
 //! generic `Ports` seam (issue #176).
@@ -32,7 +33,7 @@ use api::state::AppState;
 use breakdown_core::ai::{
     AiConfigView, AiImportJob, AiImportJobId, AiImportMappingRepository, AiImportQueue,
     ApplyMapping, ApplyMappingDecision, DocumentKind, DraftScene, JobStatus, LlmProvider,
-    ScriptContext, SourceFormat,
+    ScriptContext, SourceFormat, TelemetryApplyState,
 };
 use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, UserId};
 use chrono::Utc;
@@ -422,6 +423,21 @@ async fn apply_ai_import_drives_the_script_worker_through_the_ports_seam() {
     let telemetry = queue.telemetry.lock().await;
     assert_eq!(telemetry.len(), 1, "apply must record telemetry once");
     assert_eq!(telemetry[0].0, job_id);
+    // Issue #295: the apply handler must record the job's document kind and
+    // the exact applied outcome (not a defaulted field).
+    assert_eq!(
+        telemetry[0].1.doc_kind,
+        Some(DocumentKind::Script),
+        "apply telemetry must carry the job's document kind"
+    );
+    assert_eq!(
+        telemetry[0].1.apply_state,
+        TelemetryApplyState::Applied {
+            accept_as_is: true,
+            edit_distance: 0,
+        },
+        "apply telemetry must carry the exact Applied outcome"
+    );
 }
 
 #[tokio::test]
