@@ -29,7 +29,8 @@ No disable-verification switch is permitted in any code path.
 ### Requirement: Analysis Server Plugin Enforced Via `flutter analyze`
 The scaffold SHALL ship a `breakdown_lints` analyzer-plugin package built with
 `analysis_server_plugin`, registered in `analysis_options.yaml` under
-`analyzer > plugins > analysis_server_plugin`, exposing the rules
+`analyzer > plugins > breakdown_lints` (the project plugin package, not the
+`analysis_server_plugin` framework dependency), exposing the rules
 `discard_result`, `no_throw_in_data_domain`, `no_insecure_tls`, and
 `no_hardcoded_secrets` (severities set under `analyzer > errors`). CI SHALL
 enforce them with `flutter analyze` / `dart analyze` — the analysis server
@@ -61,12 +62,18 @@ negative activation tests (below) provide that proof.
   activation tests below assert per-rule behavior rather than mere loading.
 
 #### Scenario: Negative activation test asserts each rule ID
-- **WHEN** a fixture file intentionally triggers each rule (e.g. a discarded
+- **WHEN** a fixture file intentionally triggers all four rules (a discarded
   `Future` in `lib/features`, a `throw` in `lib/data`, a trust-all
   `SecurityContext`, and a secret-literal assignment).
-- **THEN** running `flutter analyze` on the fixture fails unless every expected
-  hard-error rule ID is emitted, proving each rule is registered and active;
-  the clean fixture remains a separate passing case.
+- **THEN** running `flutter analyze` on the fixture reports **all four** rule
+  IDs (`discard_result`, `no_throw_in_data_domain`, `no_insecure_tls`, and
+  `no_hardcoded_secrets`) in its diagnostics — proving each rule is registered
+  and active, not merely that the plugin is loaded. The build MUST fail
+  (non-zero exit) because the three hard-error rules are present; the advisory
+  `no_hardcoded_secrets` diagnostic MUST be present in the output (as a
+  warning) even though it alone does not fail the build. The clean fixture
+  (no violations) remains a separate passing case that proves zero false
+  positives.
 
 #### Scenario: Advisory rule is non-fatal
 - **WHEN** a fixture contains ONLY a `no_hardcoded_secrets` violation (no

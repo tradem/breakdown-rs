@@ -153,20 +153,24 @@ exact rule IDs / wiring. Resolved here; encoded as a requirement in
 ```yaml
 analyzer:
   plugins:
-    - analysis_server_plugin
+    - breakdown_lints
   errors:
     discard_result: error
     no_throw_in_data_domain: error
     no_insecure_tls: error
     no_hardcoded_secrets: warning
 ```
-- The `analysis_server_plugin` package is registered under `analyzer >
-  plugins` so the analysis server loads `breakdown_lints`. The four rule IDs
+- The `breakdown_lints` plugin package (which depends on the
+  `analysis_server_plugin` framework) is registered under `analyzer >
+  plugins`, so the analysis server loads it. The four rule IDs
   are mapped to severities under `analyzer > errors`: the three hard-error
   rules are `error` (fatal in CI) and `no_hardcoded_secrets` is `warning`
   (advisory, non-fatal), mirroring the exit policy in D3. (Severity mapping
   via `analyzer > errors` is the `analysis_server_plugin` equivalent of the
-  prior `--no-fatal-warnings` runner flag.)
+  prior `--no-fatal-warnings` runner flag. Note: the registered plugin key is
+  the project package `breakdown_lints`, not the `analysis_server_plugin`
+  framework dependency — the latter is only a `dev_dependency` of
+  `breakdown_lints`.)
 - **CI command:** `flutter analyze` (or `dart analyze`) — the single command
   now runs BOTH the built-in analyzer AND the four `breakdown_lints` rules,
   because the plugin is loaded by the analysis server. No dedicated runner is

@@ -13,9 +13,10 @@
 - [ ] 1.4 SPDX headers on all seeded `.dart`/`.yaml` files
 
 ## 2. Static-analysis config
-- [ ] 2.1 `analysis_options.yaml` registering the `analysis_server_plugin`
-       package under `analyzer > plugins` and mapping the four rule IDs to
-       severities under `analyzer > errors`, per the foundation skills
+- [ ] 2.1 `analysis_options.yaml` registering the `breakdown_lints`
+       analyzer-plugin package (built on `analysis_server_plugin`) under
+       `analyzer > plugins` and mapping the four rule IDs to severities under
+       `analyzer > errors`, per the foundation skills
 - [ ] 2.2 `analysis_server_plugin` package skeleton (`breakdown_lints`,
        `lib/main.dart` + top-level `plugin`) with all four rules:
        `discard_result`, `no_throw_in_data_domain`, `no_insecure_tls`, and
@@ -41,8 +42,10 @@ Implementation Tasks 2.1–2.4 remain open; the design gap is closed.
 - [x] Exact rule IDs defined (D3: `discard_result`, `no_throw_in_data_domain`,
       `no_insecure_tls`, `no_hardcoded_secrets`; suppression via `// ignore:`)
 - [x] `analysis_options.yaml` wiring + CI command defined (D4: `analyzer >
-      plugins > analysis_server_plugin` + `analyzer > errors` severities,
-      enforced by `flutter analyze`; negative activation tests added)
+      plugins > breakdown_lints` — the project plugin package, not the
+      `analysis_server_plugin` framework dep — + `analyzer > errors`
+      severities, enforced by `flutter analyze`; negative activation tests
+      assert all four rule IDs)
 
 ## 3. Composition root & flavors
 - [ ] 3.1 `lib/main.dart`: `ProviderScope`, flavor wiring

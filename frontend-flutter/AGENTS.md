@@ -296,8 +296,9 @@ analytically against the test budget instead; use fake clocks / controllable
 CI runs:
 - `dart format --set-exit-if-changed`
 - `flutter analyze` with the `breakdown_lints` analyzer-plugin rules (the
-  `analysis_server_plugin` package registered in `analysis_options.yaml`, with
-  the `discard-result`-equivalent, `no_throw_in_data_domain`, `no_insecure_tls`,
+  `breakdown_lints` analyzer-plugin package — built on `analysis_server_plugin`
+  — registered in `analysis_options.yaml` under `analyzer > plugins`, with the
+  `discard-result`-equivalent, `no_throw_in_data_domain`, `no_insecure_tls`,
   and `no_hardcoded_secrets` rule IDs; no separate lint runner)
 - `flutter test --coverage` + `coverde` threshold gate on changed code
 - OpenAPI-client drift check (§3)
@@ -411,8 +412,8 @@ port carries an SPDX header and is regenerated if upstream changes
 materially. Portable subset:
 
 - **Lint/analysis guidance** → maps to `analysis_options.yaml` + the
-  `breakdown_lints` `analysis_server_plugin` package; the skill wraps "apply
-  these lints, explain the fix."
+  `breakdown_lints` analyzer-plugin package (built on `analysis_server_plugin`);
+  the skill wraps "apply these lints, explain the fix."
 - **Testing recipes** → widget test scaffolding, golden setup,
   integration_test harness — portable as skills.
 - **Codegen conventions** → freezed / json_serializable / riverpod_generator

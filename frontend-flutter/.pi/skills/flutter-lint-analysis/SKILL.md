@@ -2,7 +2,10 @@
 name: flutter-lint-analysis
 description: Apply and explain the breakdown-rs Flutter analyzer/lint rules. Use when writing or reviewing Dart in frontend-flutter/ to keep data/domain throw-free, surfaces Result discipline, and enforce theme/token + generated-file boundaries.
 license: AGPL-3.0
-compatibility: Requires the Flutter/Dart SDK and (once scaffolded) the project analysis_server_plugin package. Until the `scaffold-flutter-project` follow-up lands, apply these rules manually / advisory-only.
+compatibility: Requires the Flutter/Dart SDK and (once scaffolded) the project
+  `breakdown_lints` analyzer-plugin package (built on `analysis_server_plugin`).
+  Until the `scaffold-flutter-project` follow-up lands, apply these rules
+  manually / advisory-only.
 metadata:
   author: breakdown-rs
   version: "1.0"
@@ -10,7 +13,8 @@ metadata:
     Portable subset described in upstream `flutter/agent-plugins` (lint/analysis
     guidance), adapted to breakdown-rs conventions. This SKILL.md is the
     authoritative breakdown-rs version; it maps to the `analysis_options.yaml`
-    + a project `analysis_server_plugin` package referenced in design.md §5/§6. Upstream
+    + a project `breakdown_lints` analyzer-plugin package (built on
+    `analysis_server_plugin`) referenced in design.md §5/§6. Upstream
     tracks the portable-subset structure only — every rule below is the
     client-side twin of a backend hard rule, not a verbatim upstream copy.
 ---
@@ -30,7 +34,7 @@ metadata:
 ## When to Use
 
 - Scaffolding or editing `analysis_options.yaml` and the project
-  `analysis_server_plugin` package (the `breakdown_lints` analyzer plugin,
+  `breakdown_lints` analyzer-plugin package (built on `analysis_server_plugin`,
   lands with the
   `scaffold-flutter-project` follow-up).
 - Reviewing a PR under `frontend-flutter/**` for analyzer/lint compliance.
@@ -39,8 +43,8 @@ metadata:
 ## Canonical analyzer baseline
 
 `analysis_options.yaml` (created by the scaffold follow-up) extends the
-`flutter_lints` / `lints` package and adds project `analysis_server_plugin`
-  rules (the `breakdown_lints` analyzer plugin). The
+`flutter_lints` / `lints` package and adds the `breakdown_lints`
+  analyzer-plugin rules (built on `analysis_server_plugin`). The
 rules below are the required set; the names are stable so `grep` and reviews
 refer to them by id.
 
@@ -111,7 +115,8 @@ Every call to a handler-internal-authz-gated backend endpoint (photo upload,
 photo byte fetch, photo delete, continuity-photo handlers) MUST be preceded by
 a `// AUTHZ-GATE:` comment and a `currentMembershipProvider` check.
 `grep AUTHZ-GATE` verification applies. (This one is review-enforced until the
-analysis_server_plugin rule is implemented; see the `flutter-client-authz` spec.)
+`breakdown_lints` analyzer-plugin rule is implemented; see the
+  `flutter-client-authz` spec.)
 
 ### 6. Standard `flutter_lints` strengthenings
 
@@ -142,7 +147,8 @@ analysis_server_plugin rule is implemented; see the `flutter-client-authz` spec.
 
 ## CI posture (until scaffold lands)
 
-Until `analysis_options.yaml` + the `analysis_server_plugin` package land with the
+Until `analysis_options.yaml` + the `breakdown_lints` analyzer-plugin package
+  (built on `analysis_server_plugin`) land with the
 `scaffold-flutter-project` follow-up, CI runs `flutter analyze` **against
 Flutter's defaults and is advisory-only** — documented as such in
 `.github/workflows/flutter-ci.yml`. The custom rules above become enforceable

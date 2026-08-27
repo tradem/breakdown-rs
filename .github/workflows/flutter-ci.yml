@@ -96,8 +96,9 @@ jobs:
           dart format --set-exit-if-changed ${SRC}
 
       # `flutter analyze` — ADVISORY-ONLY until analysis_options.yaml + the
-      # analysis_server_plugin package (no-throw-in-data/domain, discard_result,
-      # no_hardcoded_colors, AUTHZ-GATE) ship with scaffold-flutter-project.
+      # `breakdown_lints` analyzer-plugin package (no_throw_in_data_domain,
+      # discard_result, no_insecure_tls, no_hardcoded_secrets) ship with
+      # scaffold-flutter-project.
       # continue-on-error flips to enforcing once the custom lint surface lands.
       - name: flutter analyze (advisory until scaffold)
         continue-on-error: true
