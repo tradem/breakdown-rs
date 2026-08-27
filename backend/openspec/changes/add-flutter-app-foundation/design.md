@@ -420,8 +420,9 @@ applicable to the project's conventions, and live at
 port carries an SPDX header and is regenerated if upstream changes
 materially. Portable subset:
 
-- **Lint/analysis guidance** → maps to `analysis_options.yaml` + a
-  custom_lint package; the skill wraps "apply these lints, explain the fix."
+- **Lint/analysis guidance** → maps to `analysis_options.yaml` + the
+  `breakdown_lints` `analysis_server_plugin` package; the skill wraps "apply
+  these lints, explain the fix."
 - **Testing recipes** → widget test scaffolding, golden setup,
   integration_test harness — portable as skills.
 - **Codegen conventions** → freezed / json_serializable / riverpod_generator
