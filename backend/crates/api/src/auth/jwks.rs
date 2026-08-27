@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: hy3 (opencode-go)
 
 //! OIDC JWKS discovery behind an injectable `JwksProvider` (Decision D1).
 //!
@@ -190,3 +191,6 @@ struct Jwk {
 pub fn static_provider(keys: HashMap<String, DecodingKey>) -> Arc<dyn JwksProvider> {
     Arc::new(StaticJwksProvider::new(keys))
 }
+
+#[cfg(test)]
+mod jwks_test;
