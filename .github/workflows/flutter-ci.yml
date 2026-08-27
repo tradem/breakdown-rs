@@ -11,8 +11,9 @@
 #    (the scaffold-flutter-project follow-up has not landed) they are
 #    advisory-only / skipped with a ::notice::. The analyze step is
 #    `continue-on-error: true` until analysis_options.yaml + the project
-#    custom_lint package ship with the scaffold — at that point the custom
-#    lint rules documented in `.pi/skills/flutter-lint-analysis/` become
+#    analysis_server_plugin package ship with the scaffold — at that point the
+#    analyzer-plugin rules documented in `.pi/skills/flutter-lint-analysis/`
+#    become
 #    enforceable and the continue-on-error is removed.
 #  - `gitleaks` IS enforced now (secret hygiene gate).
 #  - The OpenAPI-client drift check, `flutter test --coverage`, and the
@@ -95,8 +96,9 @@ jobs:
           dart format --set-exit-if-changed ${SRC}
 
       # `flutter analyze` — ADVISORY-ONLY until analysis_options.yaml + the
-      # custom_lint package (no-throw-in-data/domain, discard_result,
-      # no_hardcoded_colors, AUTHZ-GATE) ship with scaffold-flutter-project.
+      # `breakdown_lints` analyzer-plugin package (no_throw_in_data_domain,
+      # discard_result, no_insecure_tls, no_hardcoded_secrets) ship with
+      # scaffold-flutter-project.
       # continue-on-error flips to enforcing once the custom lint surface lands.
       - name: flutter analyze (advisory until scaffold)
         continue-on-error: true
@@ -150,11 +152,13 @@ jobs:
         # workflow_dispatch we scan the entire git history.
         #
         # frontend-flutter/** is NOT in the global .gitleaks.toml allowlist
-        # (only `frontend/.*` is), so its .dart / .yaml / .arb files are
-        # scanned. NB: the global config allowlists `.*\.md$`, so the
-        # ported-skill .md files rely on review + structural rules; tighten
-        # to a scoped config when the scaffold lands if .md scanning is
-        # required.
+        # (only `frontend/.*` is), so its .dart / .yaml / .arb / .feature
+        # files are scanned here. The global config allowlists `.*\.md$`, so
+        # Markdown (AGENTS.md + ported skill files) is intentionally NOT
+        # scanned by this step — that gap is closed by the scoped
+        # `frontend-flutter/.gitleaks.toml` step below (issue #278), which
+        # drops the Markdown allowlist and restricts the scan to the
+        # frontend-flutter tree.
         run: |
           set -euo pipefail
           REPORT="${{ github.workspace }}/gitleaks-report.sarif"
@@ -184,6 +188,49 @@ jobs:
         with:
           sarif_file: ${{ github.workspace }}/gitleaks-report.sarif
           category: gitleaks
+        continue-on-error: true
+
+      - name: Detect secrets in frontend-flutter Markdown (scoped config)
+        # Issue #278: the repo-global .gitleaks.toml allowlists `.*\.md$`, so
+        # ported skill .md files and AGENTS.md under frontend-flutter are NOT
+        # scanned by the step above. This step uses the scoped config
+        # (frontend-flutter/.gitleaks.toml) that drops the Markdown allowlist
+        # and restricts the scan to the frontend-flutter tree via the
+        # `-- frontend-flutter` git pathspec, so backend docs / skill prose
+        # (which rely on the global allowlist) are not reintroduced as false
+        # positives. Backend secret coverage remains via the
+        # architecture-checks gitleaks job (PR) and the nightly audit job.
+        run: |
+          set -euo pipefail
+          REPORT="${{ github.workspace }}/gitleaks-frontend-flutter.sarif"
+          ARGS=(
+            git
+            .
+            --config=frontend-flutter/.gitleaks.toml
+            --report-format=sarif
+            --report-path="${REPORT}"
+            --exit-code=1
+            --log-level=info
+          )
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch origin --no-tags main:main
+            ARGS+=(--log-opts="main..HEAD -- frontend-flutter")
+          else
+            ARGS+=(--log-opts="-- frontend-flutter")
+          fi
+          gitleaks "${ARGS[@]}"
+      - name: Upload frontend-flutter Gitleaks SARIF to code scanning
+        # Surface findings inline on the PR (Security tab). Restricted to
+        # same-repo PRs and pushes to main where code-scanning upload is
+        # permitted; fork PRs still get the hard job failure above.
+        if: >-
+          always() &&
+          (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
+          (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        uses: github/codeql-action/upload-sarif@6d786de4d6f3531a740e445b53a42b622bbbace8 # v3
+        with:
+          sarif_file: ${{ github.workspace }}/gitleaks-frontend-flutter.sarif
+          category: gitleaks-frontend-flutter
         continue-on-error: true
 
 # ---------------------------------------------------------------------------
