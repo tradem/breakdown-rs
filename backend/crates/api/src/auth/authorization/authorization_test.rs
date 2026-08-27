@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: hy3 (opencode-go)
 
 use std::sync::Arc;
 
 use super::{AuthorizationState, Requirement, authorize_middleware};
+use crate::auth::test_env::{remove_env, set_env, with_clean_env};
 use async_trait::async_trait;
 use axum::Router;
 use axum::body::Body as AxumBody;
@@ -31,70 +33,47 @@ impl AuthorizationPolicy for AllowAll {
 // them from two parallel tests would race. Cover both accessors here.
 #[test]
 fn authz_env_variants() {
-    unsafe {
-        std::env::remove_var("OIDC_ISS");
-        std::env::remove_var("DEV_AUTH_SUB");
-        std::env::remove_var("AUTHZ_ENFORCE");
-    }
+    // Env vars are process-global; serialize through the shared lock so this
+    // test never interleaves with the env-dependent tests in `mod_test`
+    // (issue #285).
+    with_clean_env(|| {
+        // enforce_from_env defaults on; "false"/"0" disable; "true" enables.
+        assert!(AuthorizationState::enforce_from_env());
+        set_env("AUTHZ_ENFORCE", "false");
+        assert!(!AuthorizationState::enforce_from_env());
+        set_env("AUTHZ_ENFORCE", "0");
+        assert!(!AuthorizationState::enforce_from_env());
+        set_env("AUTHZ_ENFORCE", "true");
+        assert!(AuthorizationState::enforce_from_env());
+        remove_env("AUTHZ_ENFORCE");
 
-    // enforce_from_env defaults on; "false"/"0" disable; "true" enables.
-    assert!(AuthorizationState::enforce_from_env());
-    unsafe {
-        std::env::set_var("AUTHZ_ENFORCE", "false");
-    }
-    assert!(!AuthorizationState::enforce_from_env());
-    unsafe {
-        std::env::set_var("AUTHZ_ENFORCE", "0");
-    }
-    assert!(!AuthorizationState::enforce_from_env());
-    unsafe {
-        std::env::set_var("AUTHZ_ENFORCE", "true");
-    }
-    assert!(AuthorizationState::enforce_from_env());
-    unsafe {
-        std::env::remove_var("AUTHZ_ENFORCE");
-    }
+        // Neither configured -> dev/prod is undecided; builder still returns a
+        // usable (dev) state, defaulting enforcement off.
+        set_env("DEV_AUTH_SUB", "dev-user");
+        let st = AuthorizationState::from_env_or_dev(Arc::new(AllowAll));
+        assert!(!st.enforce());
+        // Dev + AUTHZ_ENFORCE=false must stay off (catches &&/|| flip).
+        set_env("AUTHZ_ENFORCE", "false");
+        let st = AuthorizationState::from_env_or_dev(Arc::new(AllowAll));
+        assert!(!st.enforce());
+        remove_env("AUTHZ_ENFORCE");
+        // Dev + AUTHZ_ENFORCE=true -> on.
+        set_env("AUTHZ_ENFORCE", "true");
+        let st = AuthorizationState::from_env_or_dev(Arc::new(AllowAll));
+        assert!(st.enforce());
+        remove_env("AUTHZ_ENFORCE");
+        remove_env("DEV_AUTH_SUB");
 
-    // Neither configured -> dev/prod is undecided; builder still returns a
-    // usable (dev) state, defaulting enforcement off.
-    unsafe {
-        std::env::set_var("DEV_AUTH_SUB", "dev-user");
-    }
-    let st = AuthorizationState::from_env_or_dev(Arc::new(AllowAll));
-    assert!(!st.enforce());
-    // Dev + AUTHZ_ENFORCE=false must stay off (catches &&/|| flip).
-    unsafe {
-        std::env::set_var("AUTHZ_ENFORCE", "false");
-    }
-    let st = AuthorizationState::from_env_or_dev(Arc::new(AllowAll));
-    assert!(!st.enforce());
-    unsafe {
-        std::env::remove_var("AUTHZ_ENFORCE");
-    }
-    // Dev + AUTHZ_ENFORCE=true -> on.
-    unsafe {
-        std::env::set_var("AUTHZ_ENFORCE", "true");
-    }
-    let st = AuthorizationState::from_env_or_dev(Arc::new(AllowAll));
-    assert!(st.enforce());
-    unsafe {
-        std::env::remove_var("AUTHZ_ENFORCE");
-        std::env::remove_var("DEV_AUTH_SUB");
-    }
-
-    // Production path: default on.
-    unsafe {
-        std::env::set_var("OIDC_ISS", "https://iss");
-        std::env::set_var("OIDC_AUDIENCE", "aud");
-        std::env::set_var("OIDC_JWKS_URL", "https://iss/.well-known/jwks");
-    }
-    let st = AuthorizationState::from_env_or_dev(Arc::new(AllowAll));
-    assert!(st.enforce());
-    unsafe {
-        std::env::remove_var("OIDC_ISS");
-        std::env::remove_var("OIDC_AUDIENCE");
-        std::env::remove_var("OIDC_JWKS_URL");
-    }
+        // Production path: default on.
+        set_env("OIDC_ISS", "https://iss");
+        set_env("OIDC_AUDIENCE", "aud");
+        set_env("OIDC_JWKS_URL", "https://iss/.well-known/jwks");
+        let st = AuthorizationState::from_env_or_dev(Arc::new(AllowAll));
+        assert!(st.enforce());
+        remove_env("OIDC_ISS");
+        remove_env("OIDC_AUDIENCE");
+        remove_env("OIDC_JWKS_URL");
+    });
 }
 
 /// Policy that always panics — used to verify the fail-closed guarantee.
@@ -293,7 +272,9 @@ impl MembershipRepository for MockSeasonMembershipRepo {
         _user_id: UserId,
     ) -> Result<bool, DomainError> {
         if !self.ok.load(Ordering::Relaxed) {
-            return Err(DomainError::validation(self.err.clone().unwrap_or_else(|| "mock error".into())));
+            return Err(DomainError::validation(
+                self.err.clone().unwrap_or_else(|| "mock error".into()),
+            ));
         }
         Ok(self.result.load(Ordering::Relaxed))
     }

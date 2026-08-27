@@ -8,6 +8,7 @@ use std::sync::Arc;
 use axum::http::HeaderValue;
 
 use super::*;
+use crate::auth::test_env::*;
 
 #[test]
 fn is_dev_reflects_override() {
@@ -39,49 +40,6 @@ fn bearer_token_parses_prefixed_header() {
         None
     );
     assert_eq!(bearer_token(None), None);
-}
-
-use std::sync::Mutex;
-
-/// Serializes env-var manipulation across the env-dependent tests in this
-/// module: env vars are process-global and cargo runs tests in parallel.
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-/// `std::env::set_var` is `unsafe` since Rust 1.82 (a concurrent reader can
-/// race with leak sanitizers). Localized here; callers serialize via
-/// [`ENV_LOCK`].
-#[allow(unsafe_code)]
-fn set_env(key: &str, value: &str) {
-    // SAFETY: test-only write. No reader observes a torn value because
-    // `ENV_LOCK` serializes all env manipulation in this module, and no leak
-    // sanitizer runs under `cargo test`.
-    unsafe { std::env::set_var(key, value) };
-}
-
-/// `std::env::remove_var` is `unsafe` (see [`set_env`]).
-#[allow(unsafe_code)]
-fn remove_env(key: &str) {
-    // SAFETY: same rationale as `set_env` — test-only, serialized by ENV_LOCK.
-    unsafe { std::env::remove_var(key) };
-}
-
-/// Clear every auth-relevant env var, then run `f` while holding the env lock
-/// so the env-dependent tests never interleave.
-fn with_clean_env<F, R>(f: F) -> R
-where
-    F: FnOnce() -> R,
-{
-    let _guard = ENV_LOCK.lock().unwrap();
-    for var in [
-        "OIDC_ISS",
-        "OIDC_AUDIENCE",
-        "OIDC_JWKS_URL",
-        "DEV_AUTH_SUB",
-        "DEV_AUTH_EMAIL",
-    ] {
-        remove_env(var);
-    }
-    f()
 }
 
 #[test]
