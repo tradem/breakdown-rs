@@ -82,8 +82,9 @@
        then this step runs against Flutter's defaults and is advisory-only,
        documented as such in the workflow)
 - [x] 3.3 `gitleaks` scan over `frontend-flutter/**`
-       (`.dart`/`.yaml`/`.arb`/`.md`) — reuses the repo's proven
-       `gitleaks-action` SHA; the global `.md` allowlist limitation is
+       (`.dart`/`.yaml`/`.arb`/`.md`) — downloads and SHA-256-verifies the
+       pinned Gitleaks CLI binary (not a `gitleaks-action` SHA); the global
+       `.md` allowlist limitation is
        resolved by issue #278 (scoped `frontend-flutter/.gitleaks.toml` + a
        frontend-flutter-only gitleaks CI step that scans `*.md`)
 - [x] 3.4 SHA-pin every third-party action (40-char SHA + `# vX`

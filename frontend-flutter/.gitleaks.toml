@@ -13,24 +13,32 @@
 # What this config does:
 #   - Inherits the default gitleaks rules (`useDefault = true`).
 #   - Mirrors the global `.gitleaks.toml` `[allowlist]` EXCEPT the
-#     `.*\.md$` path entry, so `frontend-flutter/**/*.md` (and the other
-#     frontend-flutter source files: .dart/.yaml/.arb/.feature) are scanned.
-#   - Keeps the global example-token regex/keyword suppressions so
-#     skill-file template placeholders (e.g. `<OIDC_ISS>`, example keys,
-#     JWTs, UUIDs) do not raise false positives.
+#     `.*\.md$` and `docs/.*` path entries, so `frontend-flutter/**/*.md`
+#     (including `frontend-flutter/docs/**`) and the other frontend-flutter
+#     source files (.dart/.yaml/.arb/.feature) are scanned.
+#   - Keeps the global example-token regex suppressions and sets
+#     `regexTarget = "line"` (global allowlists have no `keywords` field in
+#     gitleaks 8.30.1) so assignment-shaped template placeholders
+#     (e.g. `<OIDC_ISS>`, `example_key = "..."`, JWTs, UUIDs) do not raise
+#     false positives.
 #
 # Why self-contained (not `[extend]` with a `path`):
 #   gitleaks resolves `extend.path` relative to the current working
 #   directory, which differs between local runs and CI. A self-contained
 #   config is version-independent and robust. KEEP THIS ALLOWLIST IN SYNC
-#   WITH `.gitleaks.toml` (minus the `.*\.md$` entry) whenever that file
-#   changes.
+#   WITH `.gitleaks.toml` (minus the `.*\.md$` and `docs/.*` entries,
+#   plus the scoped `regexTarget = "line"`) whenever that file changes.
 
 [extend]
 # Inherit the default gitleaks rules (150+ secret patterns).
 useDefault = true
 
 [allowlist]
+# Match allowlist regexes against the WHOLE line so assignment-shaped
+# template placeholders (e.g. `example_key = "..."`) are suppressed — the
+# default `regexTarget = "secret"` would test only the extracted token and
+# miss the keyword prefix. (gitleaks 8.30.1; see PR #292 review.)
+regexTarget = "line"
 paths = [
     # Test files often contain fake secrets
     ".*_test\\.rs$",
@@ -39,7 +47,9 @@ paths = [
     ".*/fixtures/.*",
     # Documentation and examples (Markdown intentionally NOT excluded here)
     ".*\\.txt$",
-    "docs/.*",
+    # NOTE: `docs/.*` is intentionally OMITTED from the scoped config so
+    # `frontend-flutter/docs/**` stays scanned (the scoped config's purpose
+    # is to scan all frontend-flutter Markdown, not just .dart/.yaml/.arb).
     # Build artifacts
     "target/.*",
     # Cargo configuration (internal paths, no secrets)
@@ -65,13 +75,4 @@ regexes = [
     '''(?i)(test|fake|dummy|example)[-_]?(key|token|secret|password)['"]?\s*[:=]\s*['"]?[a-z0-9+/=]{8,}''',
     # JWTs in tests/examples (they're examples)
     '''(?i)eyJ(exI|hbGc)[a-zA-Z0-9_-]*\\.[a-zA-Z0-9_-]*\\.[a-zA-Z0-9_-]*''',
-]
-
-# Keywords to allowlist
-keywords = [
-    "fake",
-    "dummy",
-    "example",
-    "test",
-    "mock",
 ]
