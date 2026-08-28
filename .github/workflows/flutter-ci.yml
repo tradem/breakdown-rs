@@ -279,12 +279,13 @@ jobs:
           cache: true
 
       - name: Install OpenAPI generator
-        # The generator version is pinned in openapitools.json (7.25.0); pin the
-        # npm launcher to the same version so CI regeneration is reproducible
-        # and matches local runs of scripts/regen-client.sh.
+        # Install the npm launcher (uncommitted latest). The pinned generator
+        # JAR version (7.25.0) comes from frontend-flutter/openapitools.json,
+        # which the launcher reads — so generation stays reproducible without
+        # pinning the npm package version (npm and JAR versions differ).
         run: |
           set -euo pipefail
-          npm install -g @openapitools/openapi-generator-cli@7.25.0
+          npm install -g @openapitools/openapi-generator-cli
 
       - name: Regenerate client into throwaway
         run: |
