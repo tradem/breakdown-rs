@@ -435,10 +435,10 @@ this foundation change.
   are the machine-checkable encoding of the rules above; this document is
   the prose explanation a coding agent reads first.
 - **OpenSpec canonical root** (Decision Q3 → c) is the monorepo-root
-  `/openspec/` once the `migrate-openspec-to-monorepo-root` follow-up lands;
-  until then, this change's artifacts live at
-  `backend/openspec/changes/add-flutter-app-foundation/` and validate
-  against the `backend/` nearest root.
+  `/openspec/`; the `migrate-openspec-to-monorepo-root` follow-up has landed,
+  so this change's artifacts now live at
+  `/openspec/changes/add-flutter-app-foundation/` and validate against the
+  monorepo root.
 
 *When in doubt about the backend contract, read `backend/AGENTS.md` and the
 referenced ADRs before generating client code.*
