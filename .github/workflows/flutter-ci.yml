@@ -18,9 +18,11 @@
 #    lib/api/generated/ into a throwaway, diffs against the committed tree,
 #    fails on difference). `backend/openapi.yaml` is in the `paths:` filters
 #    so a backend-only OpenAPI change triggers it.
-#  - `flutter test --coverage` and the `coverde` coverage gate are DEFERRED to
-#    the `add-flutter-ci-tests` follow-up (needs test/ to exist). See the
-#    deferred-jobs comment block below.
+#  - The coverage gate IS enforced now (`flutter test --coverage` +
+#    `coverde` threshold; see job above).
+#  - The `coverde` coverage gate and the `flutter test --coverage` step are
+#    DEFERRED to the `add-flutter-ci-tests` follow-up (needs broader test/
+#    coverage to raise the threshold meaningfully).
 #
 # CI hardening:
 #  - Every third-party action is SHA-pinned (40-char SHA + `# vX` comment),
@@ -301,6 +303,52 @@ jobs:
           diff -ruN lib/api/generated /tmp/regenerated-client || true
           exit 1
 
+  # Coverage gate (decision D5 substitute for the absent Dart mutator —
+  # AGENTS.md §6). Runs the full flutter test suite with coverage, then
+  # enforces a global line-coverage threshold via coverde. The threshold is
+  # intentionally modest for the foundation; it rises as the data/ and
+  # feature/ test tiers fill in. coverde is activated per-job (no repo-level
+  # dev-dependency) so the version is pinned here.
+  coverage:
+    name: Coverage (coverde)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend-flutter
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install coverde
+        # coverde is the coverage-threshold tool (AGENTS.md §6). Activated
+        # per-job and pinned; bump the version alongside the SHA-pinned
+        # actions.
+        run: |
+          set -euo pipefail
+          dart pub global activate coverde 0.4.0
+          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
+
+      - name: Run full suite with coverage
+        run: |
+          set -euo pipefail
+          flutter pub get
+          flutter test --coverage
+
+      - name: Enforce coverage threshold
+        run: |
+          set -euo pipefail
+          # 60% global line coverage — modest for the foundation; rises as
+          # the data/ and feature/ test tiers fill in.
+          coverde check 60 --file-coverage-log-level overview
+
 # ---------------------------------------------------------------------------
 # DEFERRED jobs — NOT wired yet; land with their follow-up changes.
 #
@@ -312,10 +360,12 @@ jobs:
 #      openapi_drift`. See spec `flutter-openapi-client`.
 #
 #  - test-with-coverage:
-#      `flutter test --coverage` + a `coverde` line/branch threshold gate on
-#      changed code (decision D5 substitute for the absent Dart mutator).
-#      Lands with `add-flutter-ci-tests` (needs test/ to exist). See spec
-#      `flutter-test-pyramid` / `flutter-ci-coverage`.
+#      ✅ WIRED (see job above). `flutter test --coverage` + a `coverde`
+#      line-coverage threshold gate (60% for the foundation; rises as the
+#      data/ and feature/ test tiers fill in). Lands with
+#      `wire-openapi-dart-client` (task 4) +
+#      `add-flutter-ci-tests`. See spec `flutter-test-pyramid` /
+#      `flutter-ci-coverage`.
 #
 #  - mutation-testing:
 #      Explicitly NOT a gate — no maintained Dart/Flutter mutator exists
