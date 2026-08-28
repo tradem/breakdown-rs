@@ -13,9 +13,15 @@
 # packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
+# The following activates the breakdown_lints analyzer plugin (built on
+# `analysis_server_plugin`). `analysis_server_plugin` packages use the new
+# top-level `plugins:` section — NOT the legacy `analyzer > plugins:` section
+# (which triggers `analysis_options_deprecated_plugins`).
+# The plugin only loads in IDE/LSP mode, not in the batch CLI (issue #299).
+plugins:
+  breakdown_lints: {}
+
 analyzer:
-  plugins:
-    - breakdown_lints
   errors:
     # Severity mappings for the four breakdown_rs custom rules.
     # These apply in IDE / analysis-server mode (where the
