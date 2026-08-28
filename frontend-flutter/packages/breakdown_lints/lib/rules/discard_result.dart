@@ -25,18 +25,21 @@ class DiscardResultRule extends AnalysisRule {
   );
 
   DiscardResultRule()
-      : super(
-          name: 'discard_result',
-          description:
-              'Flags an un-awaited Future or a discarded Result/Either in '
-              'statement position.',
-        );
+    : super(
+        name: 'discard_result',
+        description:
+            'Flags an un-awaited Future or a discarded Result/Either in '
+            'statement position.',
+      );
 
   @override
   LintCode get diagnosticCode => code;
 
   @override
-  void registerNodeProcessors(RuleVisitorRegistry registry, RuleContext context) {
+  void registerNodeProcessors(
+    RuleVisitorRegistry registry,
+    RuleContext context,
+  ) {
     registry.addExpressionStatement(this, _Visitor(this, context));
   }
 }
@@ -67,6 +70,19 @@ class _Visitor extends SimpleAstVisitor<void> {
     if (element == null) return false;
     final uri = element.library?.uri.toString() ?? '';
     if (!uri.contains('fpdart')) return false;
-    return element.name == 'Result' || element.name == 'Either';
+    if (element.name == 'Result' || element.name == 'Either') return true;
+    // Concrete Left/Right subtypes inherit from Either — traverse the
+    // interface hierarchy to catch `Left(...)` / `Right(...)` expressions whose
+    // static type is the concrete subtype rather than Either itself.
+    if (type is InterfaceType) {
+      for (final supertype in type.allSupertypes) {
+        final supEl = supertype.element;
+        final supUri = supEl.library.uri.toString();
+        if (supUri.contains('fpdart') && supEl.name == 'Either') {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 }

@@ -19,11 +19,15 @@ class AppConfig {
 
   /// Reads configuration from the environment, defaulting the API base to the
   /// appropriate flavor endpoint when `API_BASE` is not supplied.
+  ///
+  /// The dev default uses `10.0.2.2` (Android emulator → host loopback) rather
+  /// than `localhost` (which targets the device itself). Physical devices and
+  /// other targets should supply an explicit `API_BASE` override.
   factory AppConfig.fromEnvironment(Flavor flavor) {
     const apiBaseRaw = String.fromEnvironment('API_BASE');
     final apiBase = apiBaseRaw.isEmpty
         ? (flavor == Flavor.dev
-              ? 'http://localhost:3000'
+              ? 'http://10.0.2.2:3000'
               : 'https://api.breakdown.rs')
         : apiBaseRaw;
     const oidcIss = String.fromEnvironment('OIDC_ISS');

@@ -21,16 +21,19 @@ class NoHardcodedSecretsRule extends AnalysisRule {
   );
 
   NoHardcodedSecretsRule()
-      : super(
-          name: 'no_hardcoded_secrets',
-          description: 'Heuristic detection of hardcoded secrets.',
-        );
+    : super(
+        name: 'no_hardcoded_secrets',
+        description: 'Heuristic detection of hardcoded secrets.',
+      );
 
   @override
   LintCode get diagnosticCode => code;
 
   @override
-  void registerNodeProcessors(RuleVisitorRegistry registry, RuleContext context) {
+  void registerNodeProcessors(
+    RuleVisitorRegistry registry,
+    RuleContext context,
+  ) {
     registry.addSimpleStringLiteral(this, _Visitor(this, context));
   }
 }

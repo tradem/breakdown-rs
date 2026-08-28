@@ -16,27 +16,30 @@ class NoInsecureTlsRule extends AnalysisRule {
   static const LintCode code = LintCode(
     'no_insecure_tls',
     'Insecure TLS configuration is forbidden.',
-    correctionMessage:
-        'Pin CA certificates per-flavor; never disable certificate verification.',
+    correctionMessage: 'Pin CA certificates per-flavor; never disable certificate verification.',
     uniqueName: 'LintCode.no_insecure_tls',
   );
 
   NoInsecureTlsRule()
-      : super(
-          name: 'no_insecure_tls',
-          description: 'Forbids disabling TLS certificate verification.',
-        );
+    : super(
+        name: 'no_insecure_tls',
+        description: 'Forbids disabling TLS certificate verification.',
+      );
 
   @override
   LintCode get diagnosticCode => code;
 
   @override
-  void registerNodeProcessors(RuleVisitorRegistry registry, RuleContext context) {
+  void registerNodeProcessors(
+    RuleVisitorRegistry registry,
+    RuleContext context,
+  ) {
     registry
       ..addAssignmentExpression(this, _Visitor(this))
       ..addInstanceCreationExpression(this, _Visitor(this))
       ..addPropertyAccess(this, _Visitor(this))
-      ..addPrefixedIdentifier(this, _Visitor(this));
+      ..addPrefixedIdentifier(this, _Visitor(this))
+      ..addMethodInvocation(this, _Visitor(this));
   }
 }
 
@@ -81,6 +84,26 @@ class _Visitor extends SimpleAstVisitor<void> {
   void visitPrefixedIdentifier(PrefixedIdentifier node) {
     if (node.identifier.name == 'dangerouslyAllowInsecureCerts') {
       rule.reportAtNode(node);
+    }
+  }
+
+  @override
+  void visitMethodInvocation(MethodInvocation node) {
+    // Catch `SecureSocket.connect(host, port, onBadCertificate: (_) => true)` —
+    // a literal-true callback bypasses certificate validation.
+    final methodName = node.methodName.name;
+    if (methodName != 'connect') return;
+    final targetType = node.target?.staticType;
+    final className = targetType?.element?.name;
+    if (className != 'SecureSocket' && className != 'RawSecureSocket') {
+      return;
+    }
+    for (final arg in node.argumentList.arguments) {
+      if (arg is NamedArgument &&
+          arg.name.lexeme == 'onBadCertificate' &&
+          _returnsLiteralTrue(arg.argumentExpression)) {
+        rule.reportAtNode(arg);
+      }
     }
   }
 

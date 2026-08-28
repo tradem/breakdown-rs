@@ -16,6 +16,7 @@
        `scripts/add-spdx-headers.sh`)
 
 ## 2. Static-analysis config
+
 > **Status:** The `breakdown_lints` analyzer-plugin package exists under
 > `frontend-flutter/packages/breakdown_lints/` with all four rules
 > (`discard_result`, `no_throw_in_data_domain`, `no_insecure_tls`,
@@ -81,6 +82,7 @@ Implementation Tasks 2.1–2.4 remain open; the design gap is closed.
        when `OIDC_ISS` absent **and** `DEV_AUTH_SUB` set; unreachable in `prod`
 
 ## 4. Repo hygiene
+
 - [x] 4.1 `scripts/add-spdx-headers.sh` already covers `frontend-flutter/`
        (`.dart`/`.yaml`/`.feature`/`.sh`); re-run idempotent over the tree
 - [x] 4.2 `dart format --set-exit-if-changed` + `flutter analyze` green on the
@@ -92,6 +94,7 @@ Implementation Tasks 2.1–2.4 remain open; the design gap is closed.
        AGENTS.md §5/§9, `flutter-ci.yml`, and the `flutter-lint-analysis` skill
        accordingly. The four rule IDs and exit policy are unchanged.
 - [x] 4.4 `frontend-flutter/AGENTS.md` §5/§9 already reflects that the
-       `breakdown_lints` rules run via `flutter analyze` (loaded by the
-       analysis server, no separate runner) — conveyed by the #289
+       `breakdown_lints` rules load in IDE / analysis-server mode (the batch
+       `flutter analyze` CLI in this toolchain does not load
+       `analysis_server_plugin`, see task 2 Status note) — conveyed by the #289
        `analysis_server_plugin` migration

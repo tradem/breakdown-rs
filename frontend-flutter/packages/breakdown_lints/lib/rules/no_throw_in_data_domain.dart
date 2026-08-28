@@ -15,21 +15,25 @@ class NoThrowInDataDomainRule extends AnalysisRule {
   static const LintCode code = LintCode(
     'no_throw_in_data_domain',
     'throw is forbidden in lib/data/** and lib/domain/**.',
-    correctionMessage: 'Return a Result/Either from fpdart instead of throwing.',
+    correctionMessage:
+        'Return a Result/Either from fpdart instead of throwing.',
     uniqueName: 'LintCode.no_throw_in_data_domain',
   );
 
   NoThrowInDataDomainRule()
-      : super(
-          name: 'no_throw_in_data_domain',
-          description: 'Forbids throw in the data and domain layers.',
-        );
+    : super(
+        name: 'no_throw_in_data_domain',
+        description: 'Forbids throw in the data and domain layers.',
+      );
 
   @override
   LintCode get diagnosticCode => code;
 
   @override
-  void registerNodeProcessors(RuleVisitorRegistry registry, RuleContext context) {
+  void registerNodeProcessors(
+    RuleVisitorRegistry registry,
+    RuleContext context,
+  ) {
     registry.addThrowExpression(this, _Visitor(this, context));
   }
 }
@@ -42,7 +46,9 @@ class _Visitor extends SimpleAstVisitor<void> {
 
   @override
   void visitThrowExpression(ThrowExpression node) {
-    final path = context.definingUnit.file.path;
+    // Normalize backslashes to forward slashes so Windows paths
+    // (e.g. `lib\data\foo.dart`) match the hard-coded `/lib/` fragments.
+    final path = context.definingUnit.file.path.replaceAll('\\', '/');
     if (_isDataOrDomain(path)) {
       rule.reportAtNode(node);
     }
