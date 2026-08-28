@@ -6,8 +6,8 @@ import 'package:breakdown_api/breakdown_api.dart';
 import 'package:dio/dio.dart';
 import 'package:fpdart/fpdart.dart';
 
-import '../../core/problem_error.dart';
-import '../../core/result.dart';
+import '../core/problem_error.dart';
+import '../core/result.dart';
 
 /// Base class for aggregate-boundary repositories in `data/`.
 ///

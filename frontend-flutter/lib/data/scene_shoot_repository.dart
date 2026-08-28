@@ -4,7 +4,7 @@
 
 import 'package:breakdown_api/breakdown_api.dart';
 
-import '../../core/result.dart';
+import '../core/result.dart';
 import 'base_repository.dart';
 
 /// Repository for the `SceneShoot` aggregate boundary — Soll/Ist reports

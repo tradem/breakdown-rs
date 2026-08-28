@@ -279,12 +279,12 @@ jobs:
           cache: true
 
       - name: Install OpenAPI generator
-        # The generator version is pinned in openapitools.json; the npm
-        # launcher resolves it. Pinned npm package + generator version keep
-        # the generated tree reproducible (AGENTS.md §3).
+        # The generator version is pinned in openapitools.json (7.25.0); pin the
+        # npm launcher to the same version so CI regeneration is reproducible
+        # and matches local runs of scripts/regen-client.sh.
         run: |
           set -euo pipefail
-          npm install -g @openapitools/openapi-generator-cli
+          npm install -g @openapitools/openapi-generator-cli@7.25.0
 
       - name: Regenerate client into throwaway
         run: |

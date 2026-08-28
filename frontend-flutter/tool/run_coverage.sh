@@ -6,8 +6,8 @@ set -euo pipefail
 flutter test --coverage 2>&1 | tail -20
 echo "--- lcov summary ---"
 if command -v coverde >/dev/null 2>&1; then
-  coverde check 2>&1 | tail -10 || true
+  coverde check 2>&1 | tail -10
 else
   echo "coverde not installed; showing raw lcov line coverage"
-  dart pub global list 2>/dev/null | grep coverde || true
+  dart pub global list 2>/dev/null | grep coverde
 fi

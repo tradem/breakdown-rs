@@ -5,7 +5,7 @@
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:built_value/json_object.dart';
 
-import '../../core/result.dart';
+import '../core/result.dart';
 import 'base_repository.dart';
 
 class CostumeRepository extends BaseRepository {

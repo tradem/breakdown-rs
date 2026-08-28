@@ -4,7 +4,7 @@
 
 import 'package:breakdown_api/breakdown_api.dart';
 
-import '../../core/result.dart';
+import '../core/result.dart';
 import 'base_repository.dart';
 
 /// Read/write repository for the `Scene` aggregate boundary (scoped to an

@@ -338,11 +338,14 @@ CI runs:
   standalone-package cruft (tests/docs/CI files) but keeps `pubspec.yaml`,
   `lib/`, and `build.yaml`. The CI OpenAPI drift check invokes this same script,
   so the committed tree MUST be byte-identical to its output.
+
   ```bash
   bash scripts/regen-client.sh
   ```
+
   The raw generator invocation it wraps (for reference only — prefer the
   script):
+
   ```bash
   npx @openapitools/openapi-generator-cli generate \
     -i ../backend/openapi.yaml \
@@ -363,8 +366,7 @@ CI runs:
   injects `dependency_overrides: source_gen: 3.0.0` into the generated
   `pubspec.yaml` so `build_runner` succeeds. Revisit this override if the
   generator is ever upgraded past 7.25.0.
-  `backend/openapi.yaml` from this client change (non-goal of
-  `wire-openapi-dart-client`).
+
 - **Flavors:** `dev` (localhost backend, optional Logto, dev-pinned CA set)
   and `prod` (deployed edge, Logto/Zitadel cloud, pinned prod CA,
   `REQUIRE_IN_TRANSIT_TLS`-grade posture). No other flavors without a

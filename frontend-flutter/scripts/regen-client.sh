@@ -57,7 +57,7 @@ echo "  gen  : openapi-generator-cli ${GENERATOR_VERSION} (from openapitools.jso
 # Clean the previous output so removed operations/models disappear from the tree.
 rm -rf "${OUT}"
 
-npx --yes @openapitools/openapi-generator-cli generate \
+npx --yes "@openapitools/openapi-generator-cli@${GENERATOR_VERSION}" generate \
   -i "${SPEC}" \
   -g dart-dio \
   -o "${OUT}" \
