@@ -65,10 +65,7 @@ void main() {
     // which — in a default (system-trust-store) client — would be accepted.
     // The pinned context must refuse it.
     final dio = _pinnedClient('ca_pinned.pem');
-    await expectLater(
-      dio.get(baseUrl),
-      throwsA(isA<DioException>()),
-    );
+    await expectLater(dio.get(baseUrl), throwsA(isA<DioException>()));
   });
 
   test('accepts a certificate chained to the pinned CA', () async {
