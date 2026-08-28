@@ -39,7 +39,8 @@ Concretely:
 
 1. **`frontend-flutter/tool/breakdown_lints_runner/`** — new package with a
    `bin/run_lints.dart` script that uses `AnalysisContextCollection` to analyze
-   all `lib/**/*.dart` files and applies the four rules.
+   all non-generated `lib/**/*.dart` files (excluding `lib/api/generated/`)
+   and applies the four rules.
 2. **`frontend-flutter/analysis_options.yaml`** — re-adds the
    `analyzer > errors` severity block (previously omitted because the codes
    were unrecognized in batch mode). Adds `unrecognized_error_code: ignore` to

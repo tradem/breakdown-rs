@@ -156,8 +156,12 @@ To enforce the custom rules in CI, a **custom lint runner**
 `analyzer` package directly. CI runs both:
 
 1. `flutter analyze` — enforces standard analyzer/lint rules
-2. `dart run tool/breakdown_lints_runner/bin/run_lints.dart` — enforces the
-   four custom rules
+2. Custom lint runner — enforces the four custom rules:
+   ```bash
+   cd tool/breakdown_lints_runner
+   dart pub get
+   dart run bin/run_lints.dart ../..
+   ```
 
 The `analysis_options.yaml > analyzer > errors` block configures severities
 for IDE/LSP mode. The `unrecognized_error_code: ignore` entry suppresses

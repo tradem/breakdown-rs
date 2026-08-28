@@ -173,8 +173,7 @@ These mirror the backend hard rules, translated to Dart/Flutter.
   (`breakdown_lints`) forbids `let _ = <fallible call>` (an un-awaited
   `Future`, a discarded fpdart `Result`/`Either`, a swallowed `Future`
   returned from a function). Enforced in IDE/LSP via `analysis_server_plugin`
-  and in CI via the custom lint runner (issue #299).
-  `Result`, a swallowed `Future` returned from a function). Either propagate
+  and in CI via the custom lint runner (issue #299). Either propagate
   (`?`-style via `match`), handle explicitly, or suppress with a
   justification comment (`// lint-ignore: discard-result` + reason above).
   This is the client-side twin of the backend `error-hygiene` job.

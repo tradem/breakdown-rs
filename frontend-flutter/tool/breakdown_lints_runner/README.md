@@ -22,7 +22,14 @@ without the plugin system. See issue #299.
 ## Usage
 
 ```bash
-dart run bin/run_lints.dart [project_root]
+cd tool/breakdown_lints_runner
+dart pub get
+dart run bin/run_lints.dart ../..
 ```
+
+The argument is the Flutter project root (defaults to `../../` relative to
+the tool package, i.e. the `frontend-flutter/` directory). The runner
+analyzes all non-generated `lib/**/*.dart` files (excluding
+`lib/api/generated/`).
 
 Exits 0 if no violations found, non-zero otherwise.

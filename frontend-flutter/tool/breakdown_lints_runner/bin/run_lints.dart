@@ -20,11 +20,21 @@ import 'package:analyzer/file_system/physical_file_system.dart';
 /// so they can be enforced in CI without the plugin system.
 ///
 /// Usage:
-///   dart run tool/breakdown_lints_runner/bin/run_lints.dart
+///   cd tool/breakdown_lints_runner
+///   dart pub get
+///   dart run bin/run_lints.dart ../..
 ///
 /// Exits non-zero if any rule violations are found.
 Future<void> main(List<String> args) async {
-  final projectRoot = args.isNotEmpty ? args[0] : Directory.current.path;
+  final pathContext = PhysicalResourceProvider.INSTANCE.pathContext;
+  final projectRoot = args.isNotEmpty
+      ? pathContext.normalize(pathContext.absolute(args[0]))
+      : // Default: the Flutter project root (parent of this tool package).
+        pathContext.normalize(
+          pathContext.absolute(
+            pathContext.join(Directory.current.path, '..', '..'),
+          ),
+        );
 
   final collection = AnalysisContextCollection(
     includedPaths: ['$projectRoot/lib'],
