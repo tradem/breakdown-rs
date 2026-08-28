@@ -18,30 +18,45 @@ class CostumeRepository extends BaseRepository {
       run(() => api.getHandlersApi().getCostume(id: id));
 
   Future<Result<int>> addDetail(String id, AddCostumeDetailRequest request) =>
-      run(() => api.getHandlersApi()
-          .addCostumeDetail(id: id, addCostumeDetailRequest: request));
+      run(
+        () => api.getHandlersApi().addCostumeDetail(
+          id: id,
+          addCostumeDetailRequest: request,
+        ),
+      );
 
   Future<Result<int>> updateNotes(
     String id,
     UpdateCostumeNotesRequest request,
-  ) =>
-      run<int>(() => api.getHandlersApi()
-          .updateCostumeNotes(id: id, updateCostumeNotesRequest: request));
+  ) => run<int>(
+    () => api.getHandlersApi().updateCostumeNotes(
+      id: id,
+      updateCostumeNotesRequest: request,
+    ),
+  );
 
   Future<Result<int>> updateMeasurements(
     String id,
     UpdateMeasurementsRequest request,
-  ) =>
-      run(() => api.getHandlersApi()
-          .updateMeasurements(id: id, updateMeasurementsRequest: request));
+  ) => run(
+    () => api.getHandlersApi().updateMeasurements(
+      id: id,
+      updateMeasurementsRequest: request,
+    ),
+  );
 
-  Future<Result<int>> assign(String id, AssignCostumeRequest request) =>
-      run(() => api.getHandlersApi().assignCostume(id: id, assignCostumeRequest: request));
+  Future<Result<int>> assign(String id, AssignCostumeRequest request) => run(
+    () => api.getHandlersApi().assignCostume(
+      id: id,
+      assignCostumeRequest: request,
+    ),
+  );
 
-  Future<Result<int>> unassign(
-    String id,
-    UpdateCostumeNotesRequest request,
-  ) =>
-      run(() => api.getHandlersApi()
-          .unassignCostume(id: id, updateCostumeNotesRequest: request));
+  Future<Result<int>> unassign(String id, UpdateCostumeNotesRequest request) =>
+      run(
+        () => api.getHandlersApi().unassignCostume(
+          id: id,
+          updateCostumeNotesRequest: request,
+        ),
+      );
 }

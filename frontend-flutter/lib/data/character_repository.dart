@@ -13,7 +13,11 @@ class CharacterRepository extends BaseRepository {
   const CharacterRepository(super.api);
 
   Future<Result<IdVersionResponse>> create(CreateCharacterRequest request) =>
-      run(() => api.getHandlersApi().createCharacter(createCharacterRequest: request));
+      run(
+        () => api.getHandlersApi().createCharacter(
+          createCharacterRequest: request,
+        ),
+      );
 
   Future<Result<CharacterView>> get(String id) =>
       run(() => api.getHandlersApi().getCharacter(id: id));

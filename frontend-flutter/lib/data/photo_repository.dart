@@ -12,8 +12,12 @@ import 'base_repository.dart';
 class PhotoRepository extends BaseRepository {
   const PhotoRepository(super.api);
 
-  Future<Result<PhotoView>> upload(String costumeId, String body) =>
-      run(() => api.getHandlersApi().uploadCostumePhoto(costumeId: costumeId, body: body));
+  Future<Result<PhotoView>> upload(String costumeId, String body) => run(
+    () => api.getHandlersApi().uploadCostumePhoto(
+      costumeId: costumeId,
+      body: body,
+    ),
+  );
 
   /// Fetches the raw bytes of a photo variant. The bytes live in the response
   /// body; the generated wrapper returns `Response<void>` because the OpenAPI
@@ -22,11 +26,18 @@ class PhotoRepository extends BaseRepository {
     String costumeId,
     String photoId,
     String variant,
-  ) =>
-      run(() => api.getHandlersApi()
-          .getCostumePhotoBytes(costumeId: costumeId, photoId: photoId, variant: variant));
+  ) => run(
+    () => api.getHandlersApi().getCostumePhotoBytes(
+      costumeId: costumeId,
+      photoId: photoId,
+      variant: variant,
+    ),
+  );
 
-  Future<Result<void>> delete(String costumeId, String photoId) =>
-      run(() => api.getHandlersApi()
-          .deleteCostumePhoto(costumeId: costumeId, photoId: photoId));
+  Future<Result<void>> delete(String costumeId, String photoId) => run(
+    () => api.getHandlersApi().deleteCostumePhoto(
+      costumeId: costumeId,
+      photoId: photoId,
+    ),
+  );
 }

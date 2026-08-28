@@ -18,15 +18,17 @@ class SeasonRepository extends BaseRepository {
   const SeasonRepository(super.api);
 
   /// Creates a new season.
-  Future<Result<IdVersionResponse>> create(CreateSeasonRequest request) =>
-      run(() => api.getHandlersApi().createSeason(createSeasonRequest: request));
+  Future<Result<IdVersionResponse>> create(CreateSeasonRequest request) => run(
+    () => api.getHandlersApi().createSeason(createSeasonRequest: request),
+  );
 
   /// Fetches a single season by id.
   Future<Result<SeasonView>> get(String id) =>
       run(() => api.getHandlersApi().getSeason(id: id));
 
   /// Renames an existing season.
-  Future<Result<int>> rename(String id, RenameSeasonRequest request) =>
-      run(() => api.getHandlersApi()
-          .renameSeason(id: id, renameSeasonRequest: request));
+  Future<Result<int>> rename(String id, RenameSeasonRequest request) => run(
+    () =>
+        api.getHandlersApi().renameSeason(id: id, renameSeasonRequest: request),
+  );
 }

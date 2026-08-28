@@ -20,16 +20,19 @@ import 'base_repository.dart';
 class SceneShootRepository extends BaseRepository {
   const SceneShootRepository(super.api);
 
-  Future<Result<int>> schedule(
-    String id,
-    ScheduleSceneRequest request,
-  ) =>
-      run(() => api.getHandlersApi()
-          .scheduleSceneOnShootingDay(id: id, scheduleSceneRequest: request));
+  Future<Result<int>> schedule(String id, ScheduleSceneRequest request) => run(
+    () => api.getHandlersApi().scheduleSceneOnShootingDay(
+      id: id,
+      scheduleSceneRequest: request,
+    ),
+  );
 
-  Future<Result<int>> unschedule(String id, String shootingDayId) =>
-      run(() => api.getHandlersApi()
-          .unscheduleSceneFromShootingDay(id: id, shootingDayId: shootingDayId));
+  Future<Result<int>> unschedule(String id, String shootingDayId) => run(
+    () => api.getHandlersApi().unscheduleSceneFromShootingDay(
+      id: id,
+      shootingDayId: shootingDayId,
+    ),
+  );
 
   Future<Result<void>> dispoReportPdf() =>
       run(() => api.getHandlersApi().dispoReportPdf());

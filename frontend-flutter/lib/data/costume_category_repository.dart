@@ -15,22 +15,25 @@ class CostumeCategoryRepository extends BaseRepository {
   Future<Result<IdVersionResponse>> create(
     String seasonId,
     CreateCostumeCategoryRequest request,
-  ) =>
-      run(() => api.getHandlersApi().createCostumeCategory(
-            seasonId: seasonId,
-            createCostumeCategoryRequest: request,
-          ));
+  ) => run(
+    () => api.getHandlersApi().createCostumeCategory(
+      seasonId: seasonId,
+      createCostumeCategoryRequest: request,
+    ),
+  );
 
-  Future<Result<int>> update(
-    String id,
-    UpdateCostumeCategoryRequest request,
-  ) =>
-      run(() => api.getHandlersApi().updateCostumeCategory(
-            id: id,
-            updateCostumeCategoryRequest: request,
-          ));
+  Future<Result<int>> update(String id, UpdateCostumeCategoryRequest request) =>
+      run(
+        () => api.getHandlersApi().updateCostumeCategory(
+          id: id,
+          updateCostumeCategoryRequest: request,
+        ),
+      );
 
-  Future<Result<int>> archive(String id, VersionRequest version) =>
-      run(() => api.getHandlersApi()
-          .archiveCostumeCategory(id: id, versionRequest: version));
+  Future<Result<int>> archive(String id, VersionRequest version) => run(
+    () => api.getHandlersApi().archiveCostumeCategory(
+      id: id,
+      versionRequest: version,
+    ),
+  );
 }

@@ -21,29 +21,47 @@ class SceneRepository extends BaseRepository {
   Future<Result<int>> updateDetails(
     String id,
     UpdateSceneDetailsRequest request,
-  ) =>
-      run(() => api.getHandlersApi()
-          .updateSceneDetails(id: id, updateSceneDetailsRequest: request));
+  ) => run(
+    () => api.getHandlersApi().updateSceneDetails(
+      id: id,
+      updateSceneDetailsRequest: request,
+    ),
+  );
 
   Future<Result<int>> assignCharacter(
     String id,
     AssignCharacterRequest request,
-  ) =>
-      run(() => api.getHandlersApi()
-          .assignSceneCharacter(id: id, assignCharacterRequest: request));
+  ) => run(
+    () => api.getHandlersApi().assignSceneCharacter(
+      id: id,
+      assignCharacterRequest: request,
+    ),
+  );
 
-  Future<Result<int>> removeCharacter(String id, String characterId) =>
-      run(() => api.getHandlersApi()
-          .removeSceneCharacter(id: id, characterId: characterId));
+  Future<Result<int>> removeCharacter(String id, String characterId) => run(
+    () => api.getHandlersApi().removeSceneCharacter(
+      id: id,
+      characterId: characterId,
+    ),
+  );
 
   Future<Result<int>> scheduleOnShootingDay(
     String id,
     ScheduleSceneRequest request,
-  ) =>
-      run(() => api.getHandlersApi()
-          .scheduleSceneOnShootingDay(id: id, scheduleSceneRequest: request));
+  ) => run(
+    () => api.getHandlersApi().scheduleSceneOnShootingDay(
+      id: id,
+      scheduleSceneRequest: request,
+    ),
+  );
 
-  Future<Result<int>> unscheduleFromShootingDay(String id, String shootingDayId) =>
-      run(() => api.getHandlersApi()
-          .unscheduleSceneFromShootingDay(id: id, shootingDayId: shootingDayId));
+  Future<Result<int>> unscheduleFromShootingDay(
+    String id,
+    String shootingDayId,
+  ) => run(
+    () => api.getHandlersApi().unscheduleSceneFromShootingDay(
+      id: id,
+      shootingDayId: shootingDayId,
+    ),
+  );
 }

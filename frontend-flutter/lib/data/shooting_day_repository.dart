@@ -14,17 +14,28 @@ class ShootingDayRepository extends BaseRepository {
   Future<Result<IdVersionResponse>> create(
     String episodeId,
     CreateShootingDayRequest request,
-  ) =>
-      run(() => api.getHandlersApi()
-          .createShootingDay(episodeId: episodeId, createShootingDayRequest: request));
+  ) => run(
+    () => api.getHandlersApi().createShootingDay(
+      episodeId: episodeId,
+      createShootingDayRequest: request,
+    ),
+  );
 
   Future<Result<ShootingDayView>> get(String id) =>
       run(() => api.getHandlersApi().getShootingDay(id: id));
 
   Future<Result<int>> update(String id, UpdateShootingDayRequest request) =>
-      run(() => api.getHandlersApi()
-          .updateShootingDay(id: id, updateShootingDayRequest: request));
+      run(
+        () => api.getHandlersApi().updateShootingDay(
+          id: id,
+          updateShootingDayRequest: request,
+        ),
+      );
 
-  Future<Result<int>> archive(String id, VersionRequest version) =>
-      run(() => api.getHandlersApi().archiveShootingDay(id: id, versionRequest: version));
+  Future<Result<int>> archive(String id, VersionRequest version) => run(
+    () => api.getHandlersApi().archiveShootingDay(
+      id: id,
+      versionRequest: version,
+    ),
+  );
 }

@@ -48,7 +48,8 @@ class ProblemError {
   }
 
   @override
-  String toString() => 'ProblemError($code${status != null ? ' [$status]' : ''})';
+  String toString() =>
+      'ProblemError($code${status != null ? ' [$status]' : ''})';
 }
 
 /// Maps a [DioException] to a [ProblemError].

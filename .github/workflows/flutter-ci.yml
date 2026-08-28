@@ -291,16 +291,18 @@ jobs:
           set -euo pipefail
           # Move the freshly regenerated tree aside, restore the committed
           # tree, then diff. Any difference means the committed client is out
-          # of sync with backend/openapi.yaml (or was hand-edited).
+          # of sync with backend/openapi.yaml (or was hand-edited). Exclude
+          # .dart_tool (build artifact, gitignored) so the build_runner output
+          # created during regen does not itself look like drift.
           mv lib/api/generated /tmp/regenerated-client
           git checkout -- lib/api/generated
-          if diff -rq /tmp/regenerated-client lib/api/generated; then
+          if diff -rq --exclude=.dart_tool /tmp/regenerated-client lib/api/generated; then
             echo "::notice::OpenAPI client is in sync with backend/openapi.yaml."
             exit 0
           fi
           echo "::error::OpenAPI client drift detected. lib/api/generated/ is out of sync with backend/openapi.yaml. Regenerate with 'bash scripts/regen-client.sh' and commit the diff. (Hand-edits to lib/api/generated/ are forbidden — see frontend-flutter/AGENTS.md §3.)"
           # Show a concise diff for the PR annotation.
-          diff -ruN lib/api/generated /tmp/regenerated-client || true
+          diff -ruN --exclude=.dart_tool lib/api/generated /tmp/regenerated-client || true
           exit 1
 
   # Coverage gate (decision D5 substitute for the absent Dart mutator —
