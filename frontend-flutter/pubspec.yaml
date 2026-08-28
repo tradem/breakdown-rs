@@ -82,6 +82,15 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
+  # Per-flavor pinned CA bundles for Dio TLS pinning (AGENTS.md §5 / ADR-024 /
+  # issue #301). The client trusts ONLY the CA in the active flavor's bundle
+  # (`buildApiClient` in lib/src/network/api_client.dart), never the system
+  # trust store. Replace the prod placeholder with the real edge CA before
+  # shipping.
+  assets:
+    - assets/certs/dev/ca.pem
+    - assets/certs/prod/ca.pem
+
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg
