@@ -78,10 +78,14 @@ jobs:
           channel: stable
           cache: true
 
-      # `dart format --set-exit-if-changed` — fails if any tracked Dart source
-      # is not formatted. Until the scaffold lands there are no .dart sources,
-      # so this no-ops with a notice. `lib/api/generated/**` is rebuild-only
-      # (see .pi/skills/flutter-codegen-conventions/) and is excluded.
+      # `dart format --set-exit-if-changed` — fails if any tracked Dart
+      # source is not formatted. Until the scaffold lands there are no .dart
+      # sources, so this no-ops with a notice. `lib/api/generated/**` is
+      # rebuild-only (see .pi/skills/flutter-codegen-conventions/) and is
+      # excluded.
+      # NOTE: `dart format` reads analysis_options.yaml (which includes
+      # package:flutter_lints/flutter.yaml), so packages must be resolved
+      # first — run `flutter pub get` before formatting.
       - name: dart format (set-exit-if-changed)
         run: |
           set -euo pipefail
@@ -89,6 +93,7 @@ jobs:
             echo "::notice::frontend-flutter has no pubspec.yaml yet (scaffold-flutter-project follow-up not landed); dart format is advisory-only and skipped."
             exit 0
           fi
+          flutter pub get
           SRC="$(find lib test integration_test -name '*.dart' -not -path 'lib/api/generated/*' 2>/dev/null || true)"
           if [ -z "${SRC}" ]; then
             echo "::notice::No hand-written Dart sources to format yet."
