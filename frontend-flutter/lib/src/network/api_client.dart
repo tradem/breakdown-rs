@@ -36,6 +36,16 @@ SecurityContext pinnedSecurityContext(List<int> caPemBytes) {
 /// the framework's pinned-CA configuration; the client above never opts out of
 /// verification.
 Future<Dio> buildApiClient(AppConfig config) async {
+  // Prod requires HTTPS: a clear-text http:// base URL would bypass the
+  // pinned-CA TLS context entirely, defeating the TLS pinning. Enforce
+  // this at the composition root so a misconfigured --dart-define
+  // API_BASE is caught early (AGENTS.md §5 — REQUIRE_IN_TRANSIT_TLS).
+  assert(
+    config.flavor != Flavor.prod || config.apiBase.startsWith('https://'),
+    'prod flavor requires an https:// base URL; '
+    'clear-text http:// bypasses the pinned CA TLS context',
+  );
+
   final caPem = await rootBundle.loadString(
     'assets/certs/${config.flavor.name}/ca.pem',
   );
