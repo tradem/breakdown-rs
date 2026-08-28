@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: hy3 (opencode-go)
+
+name: breakdown_lints_runner
+description: >
+  Custom lint runner for breakdown_rs. Re-implements the four breakdown_lints
+  rules using the `analyzer` package directly, so they can be enforced in CI
+  without the `analysis_server_plugin` plugin system (which only loads in
+  IDE/LSP mode). See issue #299.
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.13.1
+
+dependencies:
+  analyzer: ^13.3.0
+  path: ^1.9.0

@@ -7,14 +7,12 @@
 # `frontend-flutter/AGENTS.md` §6 "CI quality gates" (decision D8).
 #
 # Foundation posture (until follow-up changes land):
-#  - `dart format` / `flutter analyze` run, but with no pubspec.yaml yet
-#    (the scaffold-flutter-project follow-up has not landed) they are
-#    advisory-only / skipped with a ::notice::. The analyze step is
-#    `continue-on-error: true` until analysis_options.yaml + the project
-#    analysis_server_plugin package ship with the scaffold — at that point the
-#    analyzer-plugin rules documented in `.pi/skills/flutter-lint-analysis/`
-#    become
-#    enforceable and the continue-on-error is removed.
+#  - `dart format` / `flutter analyze` run. `flutter analyze` enforces the
+#    standard analyzer/lint rules. The `breakdown_lints` custom rules
+#    (no_throw_in_data_domain, discard_result, no_insecure_tls,
+#    no_hardcoded_secrets) are enforced via a custom lint runner
+#    (`tool/breakdown_lints_runner`), because the `analysis_server_plugin`
+#    package only loads in IDE/LSP mode, not in the batch CLI (issue #299).
 #  - `gitleaks` IS enforced now (secret hygiene gate).
 #  - The OpenAPI-client drift check, `flutter test --coverage`, and the
 #    `coverde` coverage gate are DEFERRED to the `add-flutter-ci-tests` and
@@ -95,23 +93,36 @@ jobs:
           # shellcheck disable=SC2086 # word-splitting is intentional here
           dart format --set-exit-if-changed ${SRC}
 
-      # `flutter analyze` — ADVISORY-ONLY until analysis_options.yaml + the
-      # `breakdown_lints` analyzer-plugin package (no_throw_in_data_domain,
-      # discard_result, no_insecure_tls, no_hardcoded_secrets) ship with
-      # scaffold-flutter-project.
-      # continue-on-error flips to enforcing once the custom lint surface lands.
-      - name: flutter analyze (advisory until scaffold)
-        continue-on-error: true
+      # `flutter analyze` — enforces the standard analyzer/lint rules.
+      # The `breakdown_lints` custom rules are NOT enforced here because the
+      # `analysis_server_plugin` package only loads in IDE/LSP mode. They are
+      # enforced via the custom lint runner step below (issue #299).
+      - name: flutter analyze
         run: |
           set -euo pipefail
           if [ ! -f pubspec.yaml ]; then
-            echo "::notice::frontend-flutter has no pubspec.yaml yet (scaffold-flutter-project follow-up not landed); flutter analyze is advisory-only and skipped."
+            echo "::notice::frontend-flutter has no pubspec.yaml yet (scaffold-flutter-project follow-up not landed); flutter analyze is skipped."
             exit 0
           fi
           flutter pub get
-          # `--no-fatal-infos` keeps info-level diagnostics non-fatal; custom
-          # rule names are documented in .pi/skills/flutter-lint-analysis/.
+          # `--no-fatal-infos` keeps info-level diagnostics non-fatal.
           flutter analyze --no-fatal-infos
+
+      # Custom lint runner — enforces the four `breakdown_lints` rules
+      # (no_throw_in_data_domain, discard_result, no_insecure_tls,
+      # no_hardcoded_secrets) using the `analyzer` package directly, because
+      # the `analysis_server_plugin` package only loads in IDE/LSP mode and
+      # the batch CLI does not load plugins (issue #299).
+      - name: breakdown_lints (custom runner)
+        run: |
+          set -euo pipefail
+          if [ ! -f pubspec.yaml ]; then
+            echo "::notice::frontend-flutter has no pubspec.yaml yet (scaffold-flutter-project follow-up not landed); breakdown_lints is skipped."
+            exit 0
+          fi
+          cd tool/breakdown_lints_runner
+          dart pub get
+          dart run bin/run_lints.dart ../..
 
   gitleaks:
     name: Gitleaks (secrets)

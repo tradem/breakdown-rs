@@ -13,17 +13,29 @@
 # packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
+# The following activates the breakdown_lints analyzer plugin (built on
+# `analysis_server_plugin`). `analysis_server_plugin` packages use the new
+# top-level `plugins:` section — NOT the legacy `analyzer > plugins:` section
+# (which triggers `analysis_options_deprecated_plugins`).
+# The plugin only loads in IDE/LSP mode, not in the batch CLI (issue #299).
+plugins:
+  breakdown_lints: {}
+
 analyzer:
-  plugins:
-    - breakdown_lints
-  # NOTE: the four breakdown_lints severity mappings (discard_result /
-  # no_throw_in_data_domain / no_insecure_tls -> error, no_hardcoded_secrets ->
-  # warning) are intentionally NOT listed under `analyzer > errors` yet.
-  # The `dart analyze` / `flutter analyze` batch CLI in this toolchain does
-  # not load `analysis_server_plugin` plugins, so the codes are unrecognized
-  # there (would produce `unrecognized_error_code` warnings and fail CI).
-  # The plugin loads in IDE / analysis-server mode, where these mappings
-  # apply. Re-add the `errors:` block once CI runs the analysis server.
+  errors:
+    # Severity mappings for the four breakdown_rs custom rules.
+    # These apply in IDE / analysis-server mode (where the
+    # `analysis_server_plugin` package is loaded). The batch CLI does not
+    # load plugins, so these codes are unrecognized there; the custom lint
+    # runner (`tool/breakdown_lints_runner`) enforces them in CI instead
+    # (issue #299).
+    discard_result: error
+    no_throw_in_data_domain: error
+    no_insecure_tls: error
+    no_hardcoded_secrets: warning
+    # Suppress warnings about the custom codes being unrecognized by the
+    # batch CLI (which doesn't load plugins).
+    unrecognized_error_code: ignore
   exclude:
     - build/**
     - android/**
