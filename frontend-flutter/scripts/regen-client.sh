@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
-# Co-authored-by: glm-5.2 (neuralwatt)
+# Co-authored-by: hy3 (opencode-go)
 
 # Regenerate the typed, Dio-based Dart API client (`breakdown_api`) from
 # `backend/openapi.yaml` into `lib/api/generated/`.

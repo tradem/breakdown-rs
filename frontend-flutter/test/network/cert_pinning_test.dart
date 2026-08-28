@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: glm-5.2 (neuralwatt)
+// Co-authored-by: hy3 (opencode-go)
 
 // Regression test for per-flavor CA pinning (issue #301 / AGENTS.md §5 /
 // ADR-024). It spins up a local HTTPS server whose leaf certificate is signed
