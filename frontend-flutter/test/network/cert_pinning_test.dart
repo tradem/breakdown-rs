@@ -5,8 +5,9 @@
 // Regression test for per-flavor CA pinning (issue #301 / AGENTS.md §5 /
 // ADR-024). It spins up a local HTTPS server whose leaf certificate is signed
 // by `ca_unpinned`, then asserts that a client pinned ONLY to `ca_pinned`
-// rejects the connection (a system-trusted-but-unpinned certificate is refused),
-// while a client pinned to `ca_unpinned` (the actual signer) is accepted.
+// rejects the connection (a certificate signed by a different, unpinned CA is
+// refused), while a client pinned to `ca_unpinned` (the actual signer) is
+// accepted.
 //
 // Runs on the host Dart VM under `flutter test` (uses `dart:io`).
 
@@ -60,10 +61,10 @@ void main() {
 
   tearDownAll(() => server.close());
 
-  test('rejects a system-trusted but unpinned certificate', () async {
-    // Client trusts ONLY ca_pinned; the server cert is signed by ca_unpinned,
-    // which — in a default (system-trust-store) client — would be accepted.
-    // The pinned context must refuse it.
+  test('rejects a certificate signed by an unpinned CA', () async {
+    // Client trusts ONLY ca_pinned; the server cert is signed by ca_unpinned
+    // (a different CA). The pinned context must refuse it because the signer
+    // is not the pinned CA.
     final dio = _pinnedClient('ca_pinned.pem');
     await expectLater(dio.get(baseUrl), throwsA(isA<DioException>()));
   });
