@@ -1,0 +1,3 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- INTERNET permission is declared in src/main/AndroidManifest.xml. -->
+</manifest>
