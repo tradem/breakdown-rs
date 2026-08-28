@@ -169,9 +169,11 @@ These mirror the backend hard rules, translated to Dart/Flutter.
 - **No `throw` in `data/` or `domain/` (analog of "no panics in prod"):**
   Fallible operations return `fpdart`'s `Result`/`Either` (or an equivalent
   `Result` type); errors are values. Widgets/providers translate `Err` into
-  `AsyncError`. The analyzer's `discard-result`-equivalent analyzer-plugin
-  rule (`breakdown_lints`, built on `analysis_server_plugin`) forbids
-  `let _ = <fallible call>` (an un-awaited `Future`, a discarded
+  `AsyncError`. The analyzer's `discard-result`-equivalent rule
+  (`breakdown_lints`) forbids `let _ = <fallible call>` (an un-awaited
+  `Future`, a discarded fpdart `Result`/`Either`, a swallowed `Future`
+  returned from a function). Enforced in IDE/LSP via `analysis_server_plugin`
+  and in CI via the custom lint runner (issue #299).
   `Result`, a swallowed `Future` returned from a function). Either propagate
   (`?`-style via `match`), handle explicitly, or suppress with a
   justification comment (`// lint-ignore: discard-result` + reason above).
@@ -295,11 +297,12 @@ analytically against the test budget instead; use fake clocks / controllable
 
 CI runs:
 - `dart format --set-exit-if-changed`
-- `flutter analyze` with the `breakdown_lints` analyzer-plugin rules (the
-  `breakdown_lints` analyzer-plugin package — built on `analysis_server_plugin`
-  — registered in `analysis_options.yaml` under `analyzer > plugins`, with the
-  `discard-result`-equivalent, `no_throw_in_data_domain`, `no_insecure_tls`,
-  and `no_hardcoded_secrets` rule IDs; no separate lint runner)
+- `flutter analyze` (standard analyzer/lint rules)
+- `breakdown_lints` custom lint runner (`tool/breakdown_lints_runner`) — enforces
+  the four custom rules (`discard_result`, `no_throw_in_data_domain`,
+  `no_insecure_tls`, `no_hardcoded_secrets`) using the `analyzer` package
+  directly, because the `analysis_server_plugin` package only loads in
+  IDE/LSP mode and the batch CLI does not load plugins (issue #299)
 - `flutter test --coverage` + `coverde` threshold gate on changed code
 - OpenAPI-client drift check (§3)
 - `gitleaks` on `.dart` / `.yaml` / `.arb`
@@ -412,8 +415,10 @@ port carries an SPDX header and is regenerated if upstream changes
 materially. Portable subset:
 
 - **Lint/analysis guidance** → maps to `analysis_options.yaml` + the
-  `breakdown_lints` analyzer-plugin package (built on `analysis_server_plugin`);
-  the skill wraps "apply these lints, explain the fix."
+  `breakdown_lints` analyzer-plugin package (built on `analysis_server_plugin`)
+  for IDE/LSP enforcement, plus the `breakdown_lints_runner` custom lint runner
+  for CI enforcement (issue #299); the skill wraps "apply these lints, explain
+  the fix."
 - **Testing recipes** → widget test scaffolding, golden setup,
   integration_test harness — portable as skills.
 - **Codegen conventions** → freezed / json_serializable / riverpod_generator

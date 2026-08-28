@@ -2,13 +2,13 @@
 name: flutter-lint-analysis
 description: Apply and explain the breakdown-rs Flutter analyzer/lint rules. Use when writing or reviewing Dart in frontend-flutter/ to keep data/domain throw-free, surfaces Result discipline, and enforce theme/token + generated-file boundaries.
 license: AGPL-3.0
-compatibility: Requires the Flutter/Dart SDK and (once scaffolded) the project
-  `breakdown_lints` analyzer-plugin package (built on `analysis_server_plugin`).
-  Until the `scaffold-flutter-project` follow-up lands, apply these rules
-  manually / advisory-only.
+compatibility: Requires the Flutter/Dart SDK and the project
+  `breakdown_lints` analyzer-plugin package (built on `analysis_server_plugin`)
+  for IDE/LSP enforcement, plus the `breakdown_lints_runner` custom lint runner
+  for CI enforcement (issue #299).
 metadata:
   author: breakdown-rs
-  version: "1.0"
+  version: "1.1"
   provenance: |
     Portable subset described in upstream `flutter/agent-plugins` (lint/analysis
     guidance), adapted to breakdown-rs conventions. This SKILL.md is the
@@ -145,12 +145,20 @@ a `// AUTHZ-GATE:` comment and a `currentMembershipProvider` check.
    ```
 5. Re-run `flutter analyze`; ensure zero new diagnostics before commit.
 
-## CI posture (until scaffold lands)
+## CI posture
 
-Until `analysis_options.yaml` + the `breakdown_lints` analyzer-plugin package
-  (built on `analysis_server_plugin`) land with the
-`scaffold-flutter-project` follow-up, CI runs `flutter analyze` **against
-Flutter's defaults and is advisory-only** — documented as such in
-`.github/workflows/flutter-ci.yml`. The custom rules above become enforceable
-the moment the scaffold lands; author against them now so the cutover is a
-no-op.
+The `breakdown_lints` analyzer-plugin package uses `analysis_server_plugin`,
+which only loads inside the analysis server (IDE/LSP mode). The batch
+`dart analyze` / `flutter analyze` CLI does **not** load plugins (issue #299).
+
+To enforce the custom rules in CI, a **custom lint runner**
+(`tool/breakdown_lints_runner`) re-implements the same four rules using the
+`analyzer` package directly. CI runs both:
+
+1. `flutter analyze` — enforces standard analyzer/lint rules
+2. `dart run tool/breakdown_lints_runner/bin/run_lints.dart` — enforces the
+   four custom rules
+
+The `analysis_options.yaml > analyzer > errors` block configures severities
+for IDE/LSP mode. The `unrecognized_error_code: ignore` entry suppresses
+warnings about the custom codes in the batch CLI.
