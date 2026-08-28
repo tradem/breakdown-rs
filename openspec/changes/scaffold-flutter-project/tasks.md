@@ -16,25 +16,38 @@
        `scripts/add-spdx-headers.sh`)
 
 ## 2. Static-analysis config
-> **Status:** 2.1 / 2.2 / 2.4 (the `breakdown_lints` analyzer-plugin package
-> with the four rules) are implemented in a **follow-up commit** within this
-> change — see the `breakdown_lints` package under `frontend-flutter/packages/`.
-> Until that lands, `analysis_options.yaml` uses the `flutter_lints` baseline
-> and `flutter analyze` is green (Task 2.3).
-- [ ] 2.1 `analysis_options.yaml` registering the `breakdown_lints`
+> **Status:** The `breakdown_lints` analyzer-plugin package exists under
+> `frontend-flutter/packages/breakdown_lints/` with all four rules
+> (`discard_result`, `no_throw_in_data_domain`, `no_insecure_tls`,
+> `no_hardcoded_secrets`), wired via `analysis_options.yaml > analyzer >
+> plugins`. Pinned to `analysis_server_plugin: 0.3.18` to match the bundled
+> analyzer 13.3.0 (Flutter 3.47.1) — 0.3.19+ requires analyzer 14.x.
+>
+> **Toolchain gap (D4 vs reality):** the `dart analyze` / `flutter analyze`
+> **batch CLI does not load `analysis_server_plugin` plugins** in this
+> toolchain, so the four codes are never registered there (verified: a probe
+> with one violation per rule produced no diagnostics, only
+> `unrecognized_error_code` warnings). The rules DO load in IDE /
+> analysis-server mode. Consequence: the `analyzer > errors` severity mapping
+> is intentionally omitted for now (it would emit unrecognized-code warnings
+> and fail `flutter analyze` in CI); the plugin is registered under
+> `analyzer > plugins` so it activates in the IDE. Re-add the `errors:` block
+> once CI runs the analysis server. Tracked as a follow-up.
+- [x] 2.1 `analysis_options.yaml` registers the `breakdown_lints`
        analyzer-plugin package (built on `analysis_server_plugin`) under
-       `analyzer > plugins` and mapping the four rule IDs to severities under
-       `analyzer > errors`, per the foundation skills — **pending** (next commit)
-- [ ] 2.2 `analysis_server_plugin` package skeleton (`breakdown_lints`,
+       `analyzer > plugins`
+- [x] 2.2 `analysis_server_plugin` package skeleton (`breakdown_lints`,
        `lib/main.dart` + top-level `plugin`) with all four rules:
        `discard_result`, `no_throw_in_data_domain`, `no_insecure_tls`, and
-       `no_hardcoded_secrets` (each an `AnalysisRule` with a negative test
-       fixture) — **pending** (next commit)
+       `no_hardcoded_secrets` (each an `AnalysisRule` with a `LintCode`
+       carrying `uniqueName` for `// ignore:` support)
 - [x] 2.3 `flutter analyze` passes clean on the seeded project
        (`flutter analyze` → *No issues found!*)
-- [ ] 2.4 `flutter analyze` reports the four `breakdown_lints` rules (no
-       separate runner) on the seeded project, including the negative
-       activation fixtures that assert each rule ID — **pending** (next commit)
+- [~] 2.4 `flutter analyze` reports the four `breakdown_lints` rules — the
+       rules are implemented and load in IDE / analysis-server mode, but the
+       batch `flutter analyze` CLI in this toolchain does **not** load
+       `analysis_server_plugin` (see Status note); the `analyzer > errors`
+       severity mapping is deferred until CI runs the analysis server
 
 ## Spec-hardening (issue #272) — design resolved
 

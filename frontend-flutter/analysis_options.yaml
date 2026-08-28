@@ -14,6 +14,16 @@
 include: package:flutter_lints/flutter.yaml
 
 analyzer:
+  plugins:
+    - breakdown_lints
+  # NOTE: the four breakdown_lints severity mappings (discard_result /
+  # no_throw_in_data_domain / no_insecure_tls -> error, no_hardcoded_secrets ->
+  # warning) are intentionally NOT listed under `analyzer > errors` yet.
+  # The `dart analyze` / `flutter analyze` batch CLI in this toolchain does
+  # not load `analysis_server_plugin` plugins, so the codes are unrecognized
+  # there (would produce `unrecognized_error_code` warnings and fail CI).
+  # The plugin loads in IDE / analysis-server mode, where these mappings
+  # apply. Re-add the `errors:` block once CI runs the analysis server.
   exclude:
     - build/**
     - android/**
