@@ -52,12 +52,16 @@ GENERATOR_VERSION="$(grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' openapi
 echo "Regenerating Dart client"
 echo "  spec : ${SPEC}"
 echo "  out  : ${OUT}"
-echo "  gen  : openapi-generator-cli ${GENERATOR_VERSION} (from openapitools.json)"
+echo "  gen  : openapi-generator-cli (JAR ${GENERATOR_VERSION} from openapitools.json)"
 
 # Clean the previous output so removed operations/models disappear from the tree.
 rm -rf "${OUT}"
 
-npx --yes "@openapitools/openapi-generator-cli@${GENERATOR_VERSION}" generate \
+# Use the unpinned npm launcher (latest). It reads the generator JAR version
+# from openapitools.json (generator-cli.version) and downloads that JAR.
+# NOTE: do NOT pin the npm package version here — npm and JAR versions
+# follow different schemes, and pinning the wrong npm version breaks npx.
+npx --yes @openapitools/openapi-generator-cli generate \
   -i "${SPEC}" \
   -g dart-dio \
   -o "${OUT}" \
