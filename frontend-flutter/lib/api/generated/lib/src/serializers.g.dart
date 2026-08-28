@@ -1,0 +1,136 @@
+// GENERATED CODE - DO NOT MODIFY BY HAND
+
+part of 'serializers.dart';
+
+// **************************************************************************
+// BuiltValueGenerator
+// **************************************************************************
+
+Serializers _$serializers = (Serializers().toBuilder()
+      ..add($GDriveCredentialRequest.serializer)
+      ..add(AddCostumeDetailRequest.serializer)
+      ..add(AiConfigView.serializer)
+      ..add(AiImportJob.serializer)
+      ..add(AiImportJobResponse.serializer)
+      ..add(AiProviderInfo.serializer)
+      ..add(ApplyAiImportRequest.serializer)
+      ..add(ApplyAiImportResponse.serializer)
+      ..add(ApplyMapping.serializer)
+      ..add(ApplyMappingDecision.serializer)
+      ..add(ApplyMappingDecisionOneOf.serializer)
+      ..add(ApplyMappingDecisionOneOfUpdate.serializer)
+      ..add(AssignCharacterRequest.serializer)
+      ..add(AssignCostumeRequest.serializer)
+      ..add(AuditEntry.serializer)
+      ..add(BlockView.serializer)
+      ..add(CharacterCategory.serializer)
+      ..add(CharacterMeasurements.serializer)
+      ..add(CharacterView.serializer)
+      ..add(ContactInfo.serializer)
+      ..add(CostumeCategoryView.serializer)
+      ..add(CostumeDetail.serializer)
+      ..add(CostumeDetailView.serializer)
+      ..add(CostumePhotoView.serializer)
+      ..add(CostumeView.serializer)
+      ..add(CreateAiConfigRequest.serializer)
+      ..add(CreateBlockRequest.serializer)
+      ..add(CreateCharacterRequest.serializer)
+      ..add(CreateCostumeCategoryRequest.serializer)
+      ..add(CreateCredentialRequest.serializer)
+      ..add(CreateEpisodeRequest.serializer)
+      ..add(CreateSceneRequest.serializer)
+      ..add(CreateSeasonRequest.serializer)
+      ..add(CreateShootingDayRequest.serializer)
+      ..add(CredentialBindingState.serializer)
+      ..add(DocumentKind.serializer)
+      ..add(EpisodeView.serializer)
+      ..add(GDriveCredentialUpdateRequest.serializer)
+      ..add(GrantRoleRequest.serializer)
+      ..add(IdVersionResponse.serializer)
+      ..add(InviteMemberRequest.serializer)
+      ..add(JobStatus.serializer)
+      ..add(LlmProvider.serializer)
+      ..add(ManualArchiveJobResult.serializer)
+      ..add(ManualArchiveResponse.serializer)
+      ..add(MembershipStateKind.serializer)
+      ..add(MembershipView.serializer)
+      ..add(ModelInfo.serializer)
+      ..add(PhotoBinding.serializer)
+      ..add(PhotoBindingOneOf.serializer)
+      ..add(PhotoBindingOneOf1.serializer)
+      ..add(PhotoBindingOneOf1Continuity.serializer)
+      ..add(PhotoBindingOneOfCostume.serializer)
+      ..add(PhotoBytesQuery.serializer)
+      ..add(PhotoVariant.serializer)
+      ..add(PhotoVariantView.serializer)
+      ..add(PhotoView.serializer)
+      ..add(ProblemDetails.serializer)
+      ..add(RenameEpisodeRequest.serializer)
+      ..add(RenameSeasonRequest.serializer)
+      ..add(RevokeAiConfigRequest.serializer)
+      ..add(Role.serializer)
+      ..add(SceneDetails.serializer)
+      ..add(SceneView.serializer)
+      ..add(ScheduleSceneRequest.serializer)
+      ..add(SeasonView.serializer)
+      ..add(SettingsView.serializer)
+      ..add(ShootingDaySource.serializer)
+      ..add(ShootingDaySourceOneOf.serializer)
+      ..add(ShootingDaySourceOneOfAiExtracted.serializer)
+      ..add(ShootingDayView.serializer)
+      ..add(SourceFormat.serializer)
+      ..add(UpdateAiConfigRequest.serializer)
+      ..add(UpdateBlockTimeSpanRequest.serializer)
+      ..add(UpdateContactInfoRequest.serializer)
+      ..add(UpdateCostumeCategoryRequest.serializer)
+      ..add(UpdateCostumeNotesRequest.serializer)
+      ..add(UpdateMeasurementsRequest.serializer)
+      ..add(UpdateSceneDetailsRequest.serializer)
+      ..add(UpdateShootingDayRequest.serializer)
+      ..add(VariantStatus.serializer)
+      ..add(VersionRequest.serializer)
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(ApplyMapping)]),
+          () => ListBuilder<ApplyMapping>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(CostumeDetailView)]),
+          () => ListBuilder<CostumeDetailView>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(CostumePhotoView)]),
+          () => ListBuilder<CostumePhotoView>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(DocumentKind)]),
+          () => ListBuilder<DocumentKind>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(ManualArchiveJobResult)]),
+          () => ListBuilder<ManualArchiveJobResult>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(PhotoVariantView)]),
+          () => ListBuilder<PhotoVariantView>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(PhotoVariantView)]),
+          () => ListBuilder<PhotoVariantView>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(BuiltMap, const [
+            const FullType(String),
+            const FullType.nullable(JsonObject)
+          ]),
+          () => MapBuilder<String, JsonObject?>()))
+    .build();
+
+// ignore_for_file: deprecated_member_use_from_same_package,type=lint

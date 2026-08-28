@@ -326,16 +326,45 @@ CI runs:
   flutter run --flavor dev --dart-define=API_BASE=http://localhost:3000 \
     --dart-define=OIDC_ISS=http://localhost:3301
   ```
-- **Regenerating the Dart client:** (run from `frontend-flutter/`; the
-  generator version comes from the committed
-  `frontend-flutter/openapitools.json` — do not pass a different version on
-  the CLI)
+- **Regenerating the Dart client:** The single source of truth is
+  `scripts/regen-client.sh` — run it from anywhere (it resolves the
+  frontend-flutter root from its own location). It pins the generator version
+  from the committed `frontend-flutter/openapitools.json`, strips generation
+  timestamps, injects a `// GENERATED — do not edit` banner, pins `build_runner`,
+  and overrides `source_gen` to a Dart-3.13-compatible version (see note below)
+  before running `build_runner` to emit the built_value `.g.dart` files. The
+  generated tree is consumed as a **real path dependency** named `breakdown_api`
+  (import via `package:breakdown_api/breakdown_api.dart`); the script drops the
+  standalone-package cruft (tests/docs/CI files) but keeps `pubspec.yaml`,
+  `lib/`, and `build.yaml`. The CI OpenAPI drift check invokes this same script,
+  so the committed tree MUST be byte-identical to its output.
+  ```bash
+  bash scripts/regen-client.sh
+  ```
+  The raw generator invocation it wraps (for reference only — prefer the
+  script):
   ```bash
   npx @openapitools/openapi-generator-cli generate \
     -i ../backend/openapi.yaml \
-    -g dart -o lib/api/generated \
-    --additional-properties=pubName=breakdown_api
+    -g dart-dio -o lib/api/generated \
+    --skip-validate-spec \
+    --additional-properties=pubName=breakdown_api,hideGenerationTimestamp=true
   ```
+  `--skip-validate-spec` is required because four backend PDF report routes
+  (`/v1/shooting-days/{id}/report/*.pdf`) declare the `{id}` path parameter
+  without defining it; the generator still derives it from the path template.
+  This is a backend spec defect tracked separately — do **not** edit
+  `backend/openapi.yaml` from this client change (non-goal of
+  `wire-openapi-dart-client`).
+
+  **Generator/SDK note:** openapi-generator 7.25.0 is the latest release; its
+  generated `source_gen` constraint resolves to 3.1.0, which is incompatible
+  with the Dart 3.13.x analyzer API (`getInvocation` undefined). The script
+  injects `dependency_overrides: source_gen: 3.0.0` into the generated
+  `pubspec.yaml` so `build_runner` succeeds. Revisit this override if the
+  generator is ever upgraded past 7.25.0.
+  `backend/openapi.yaml` from this client change (non-goal of
+  `wire-openapi-dart-client`).
 - **Flavors:** `dev` (localhost backend, optional Logto, dev-pinned CA set)
   and `prod` (deployed edge, Logto/Zitadel cloud, pinned prod CA,
   `REQUIRE_IN_TRANSIT_TLS`-grade posture). No other flavors without a
