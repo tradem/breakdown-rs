@@ -21,3 +21,5 @@ dev_dependencies:
 
 dependency_overrides:
   source_gen: 3.0.0
+  built_value: 8.11.2
+  built_value_generator: 8.11.1

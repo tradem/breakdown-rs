@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: longcat-2.0 (opencode-go)
+// Co-authored-by: hy3 (opencode-go)
+
+import 'dart:typed_data';
 
 import 'package:breakdown_api/breakdown_api.dart';
 
@@ -19,10 +22,12 @@ class PhotoRepository extends BaseRepository {
     ),
   );
 
-  /// Fetches the raw bytes of a photo variant. The bytes live in the response
-  /// body; the generated wrapper returns `Response<void>` because the OpenAPI
-  /// schema models the variant as an opaque stream.
-  Future<Result<void>> getBytes(
+  /// Fetches the raw bytes of a photo variant.
+  ///
+  /// The backend returns the variant as a binary `image/*` body; the generated
+  /// client surfaces it as `Uint8List` (it is never JSON-deserialized), so the
+  /// [Result] carries the undecoded bytes for rendering, caching, or saving.
+  Future<Result<Uint8List>> getBytes(
     String costumeId,
     String photoId,
     String variant,

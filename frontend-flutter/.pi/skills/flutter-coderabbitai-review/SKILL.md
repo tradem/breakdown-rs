@@ -110,7 +110,7 @@ flutter test
 ```
 
 - Respect the **rebuild-only** rule (AGENTS.md §2/§3/§9): never hand-edit
-  `lib/api/generated/`, `*.g.dart`, or `*.freezed.dart`. Regenerate instead.
+  `vendor/breakdown_api/`, `*.g.dart`, or `*.freezed.dart`. Regenerate instead.
 - If the comment concerns a generated file, fix the source annotation/spec
   and regenerate — do **not** patch the generated output.
 
@@ -172,7 +172,7 @@ git add lib/features/{feature}/{file}.dart
 git add lib/features/{feature}/{file}_test.dart
 git add features-spec/{scope}.feature
 git add pubspec.yaml
-git add lib/api/generated/          # only if regenerated this review
+git add vendor/breakdown_api/          # only if regenerated this review
 git add ../frontend-flutter/.pi/skills/{skill}/SKILL.md
 
 # Inspect what will be committed
@@ -260,6 +260,6 @@ Not applicable: [Reason why this doesn't apply].
 - **Stage only intended files** — do not use `git add -A`
 - **Verify fixes pass** `flutter analyze` + `flutter test` (+ `build_runner`
   if codegen inputs changed) before committing
-- **Never hand-edit generated files** (`lib/api/generated/`, `*.g.dart`,
+- **Never hand-edit generated files** (`vendor/breakdown_api/`, `*.g.dart`,
   `*.freezed.dart`) — regenerate instead
 - **Use conventional commit messages**

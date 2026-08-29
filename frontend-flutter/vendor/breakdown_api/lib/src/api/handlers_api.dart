@@ -10,6 +10,7 @@ import 'package:built_value/json_object.dart';
 import 'package:built_value/serializer.dart';
 import 'package:dio/dio.dart';
 
+import 'dart:typed_data';
 import 'package:breakdown_api/src/api_util.dart';
 import 'package:breakdown_api/src/model/add_costume_detail_request.dart';
 import 'package:breakdown_api/src/model/ai_config_view.dart';
@@ -2462,9 +2463,9 @@ class HandlersApi {
   /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
   /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
   ///
-  /// Returns a [Future]
+  /// Returns a [Future] containing a [Response] with a [Uint8List] as data
   /// Throws [DioException] if API call or serialization fails
-  Future<Response<void>> getCostumePhotoBytes({
+  Future<Response<Uint8List>> getCostumePhotoBytes({
     required String costumeId,
     required String photoId,
     required String variant,
@@ -2487,6 +2488,7 @@ class HandlersApi {
                 .toString());
     final _options = Options(
       method: r'GET',
+      responseType: ResponseType.bytes,
       headers: <String, dynamic>{
         ...?headers,
       },
@@ -2511,7 +2513,31 @@ class HandlersApi {
       onReceiveProgress: onReceiveProgress,
     );
 
-    return _response;
+    Uint8List? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null ? null : rawResponse as Uint8List;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<Uint8List>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
   }
 
   /// getEpisode

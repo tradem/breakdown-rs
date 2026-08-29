@@ -1,6 +1,6 @@
 ---
 name: flutter-codegen-conventions
-description: Drive the breakdown-rs Flutter codegen stack — build_runner, freezed, json_serializable, riverpod_generator, drift_dev, openapi_generator. Use when regenerating or reviewing generated files; enforces the rebuild-only rule for lib/api/generated, .g.dart, .freezed.dart.
+description: Drive the breakdown-rs Flutter codegen stack — build_runner, freezed, json_serializable, riverpod_generator, drift_dev, openapi_generator. Use when regenerating or reviewing generated files; enforces the rebuild-only rule for vendor/breakdown_api, .g.dart, .freezed.dart.
 license: AGPL-3.0
 compatibility: Requires Dart/Flutter SDK, `build_runner`, and (for the API client) `npx @openapitools/openapi-generator-cli`. The runtime deps + analysis_options land with the `scaffold-flutter-project` and `wire-openapi-dart-client` follow-ups.
 metadata:
@@ -35,7 +35,7 @@ generated artifacts" rule. The directories/files below are rebuild-only:
 
 | Generator | Output | Trigger |
 |-----------|--------|---------|
-| `openapi_generator` | `lib/api/generated/**` (pkg `breakdown_api`) | changes to `backend/openapi.yaml` |
+| `openapi_generator` | `vendor/breakdown_api/**` (pkg `breakdown_api`) | changes to `backend/openapi.yaml` |
 | `drift_dev` | `*.g.dart` (Drift tables/queries) | schema/DAO edits |
 | `riverpod_generator` | `*.g.dart` (providers) | `@riverpod` annotation edits |
 | `freezed` | `*.freezed.dart` | `@freezed` model edits |
@@ -50,14 +50,14 @@ Hand-edits fail CI:
 ## Package layout of the generated client
 
 The dart generator emits a **standalone Dart package rooted at `-o`** — its
-own `pubspec.yaml` lands in `lib/api/generated/`, not sources merged into
+own `pubspec.yaml` lands in `vendor/breakdown_api/`, not sources merged into
 the app's `lib/`. The app consumes it as a path dependency:
 
 ```yaml
 # frontend-flutter/pubspec.yaml
 dependencies:
   breakdown_api:
-    path: lib/api/generated
+    path: vendor/breakdown_api
 ```
 
 (`dart pub run build_runner build` is NOT an OpenAPI generator; build_runner
@@ -68,20 +68,20 @@ only drives drift_dev / riverpod_generator / freezed / json_serializable.)
 The checked-in `backend/openapi.yaml` is the **single source of truth** for
 the API surface (decision D1). The generator version is pinned by the
 committed `frontend-flutter/openapitools.json` — do not override it on the
-CLI. Regenerate into `lib/api/generated/`:
+CLI. Regenerate into `vendor/breakdown_api/`:
 
 ```bash
 cd frontend-flutter
 npx @openapitools/openapi-generator-cli generate \
   -i ../backend/openapi.yaml \
   -g dart \
-  -o lib/api/generated \
+  -o vendor/breakdown_api \
   --additional-properties=pubName=breakdown_api
 ```
 
 - A PR that changes `backend/openapi.yaml` MUST regenerate the client and
   commit the diff in the same PR. CI's drift check fails otherwise.
-- A PR that hand-edits anything under `lib/api/generated/` fails the same
+- A PR that hand-edits anything under `vendor/breakdown_api/` fails the same
   check — regenerate instead.
 - Never consume a hand-typed API response type. Every API call's downstream is
   a generated DTO; mappers to domain entities live in `lib/data/` and are
@@ -129,7 +129,7 @@ dart run build_runner watch --delete-conflicting-outputs
 - A projection DTO shape change requires a **Drift migration in the same PR**
   so the cache never silently drops a field.
 
-### openapi_generator (`lib/api/generated/**`)
+### openapi_generator (`vendor/breakdown_api/**`)
 - Package name `breakdown_api`. Resource-REST CQRS semantics — write = `POST`
   to resource/collection routes, read = `GET` to projection-backed routes
   (decision D2). NOT a `POST /commands/{aggregate}/{action}` command bus
@@ -149,7 +149,7 @@ dart run build_runner watch --delete-conflicting-outputs
 
 ## Review checklist
 
-- [ ] No hand-edits under `lib/api/generated/` or any `*.g.dart` / `*.freezed.dart`?
+- [ ] No hand-edits under `vendor/breakdown_api/` or any `*.g.dart` / `*.freezed.dart`?
 - [ ] `backend/openapi.yaml` change accompanied by a regenerated client diff?
 - [ ] `build_runner` run with `--delete-conflicting-outputs`?
 - [ ] Drift table mirrors a read-projection DTO (not the event store)?

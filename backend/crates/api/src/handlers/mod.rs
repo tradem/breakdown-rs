@@ -10,6 +10,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: hy3 (opencode-go)
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -2074,6 +2075,37 @@ pub async fn upload_costume_photo<P: Ports>(
     Ok((StatusCode::CREATED, Json(view)))
 }
 
+/// OpenAPI documentation type for the costume-photo byte response.
+//
+/// The handler returns `Vec<u8>`; utoipa would otherwise document that as
+/// `array of integer`, which the OpenAPI generator turns into a
+/// `BuiltList<int>` that the Dart client tries to JSON-deserialize — and the
+/// response body is raw JPEG/PNG/WebP bytes, not JSON. Modeling the response
+/// as `type: string, format: binary` makes the generator return the raw
+/// bytes as `List<int>` without deserialization, which is what callers need.
+/// utoipa 5 has no built-in `Vec<u8>` -> binary mapping, so the schema is
+/// built by hand here.
+#[allow(dead_code)]
+struct CostumePhotoBytes;
+
+impl utoipa::PartialSchema for CostumePhotoBytes {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::Schema> {
+        utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(
+            utoipa::openapi::schema::ObjectBuilder::new()
+                .schema_type(utoipa::openapi::schema::SchemaType::Type(
+                    utoipa::openapi::schema::Type::String,
+                ))
+                .format(Some(utoipa::openapi::SchemaFormat::KnownFormat(
+                    utoipa::openapi::KnownFormat::Binary,
+                )))
+                .description(Some("Raw costume photo variant bytes (JPEG/PNG/WebP)."))
+                .build(),
+        ))
+    }
+}
+
+impl utoipa::ToSchema for CostumePhotoBytes {}
+
 /// Download photo bytes (proxy download with per-request authorization).
 ///
 /// Authorization is checked on every request via season-scoped membership.
@@ -2087,7 +2119,7 @@ pub async fn upload_costume_photo<P: Ports>(
         ("variant" = String, Query, description = "Variant: original, thumb, or medium"),
     ),
     responses(
-        (status = 200, description = "Photo bytes", content_type = "image/jpeg"),
+        (status = 200, description = "Photo bytes", body = inline(CostumePhotoBytes), content_type = "image/jpeg"),
         (status = 403, body = ProblemDetails, description = "Not authorized"),
         (status = 404, body = ProblemDetails, description = "Photo or costume not found"),
     ),

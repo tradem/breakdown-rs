@@ -2965,7 +2965,11 @@ paths:
       responses:
         '200':
           content:
-            image/jpeg: {}
+            image/jpeg:
+              schema:
+                description: Raw costume photo variant bytes (JPEG/PNG/WebP).
+                format: binary
+                type: string
           description: Photo bytes
         '403':
           content:

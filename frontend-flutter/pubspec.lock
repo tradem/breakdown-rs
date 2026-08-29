@@ -68,7 +68,7 @@ packages:
   breakdown_api:
     dependency: "direct main"
     description:
-      path: "lib/api/generated"
+      path: "vendor/breakdown_api"
       relative: true
     source: path
     version: "1.0.0"
