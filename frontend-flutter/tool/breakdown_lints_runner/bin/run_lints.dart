@@ -78,9 +78,7 @@ Future<void> main(List<String> args) async {
     );
   }
 
-  stderr.writeln(
-    '\n${allErrors.length} breakdown_lints violation(s) found.',
-  );
+  stderr.writeln('\n${allErrors.length} breakdown_lints violation(s) found.');
   exit(1);
 }
 

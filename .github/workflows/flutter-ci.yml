@@ -14,13 +14,15 @@
 #    (`tool/breakdown_lints_runner`), because the `analysis_server_plugin`
 #    package only loads in IDE/LSP mode, not in the batch CLI (issue #299).
 #  - `gitleaks` IS enforced now (secret hygiene gate).
-#  - The OpenAPI-client drift check, `flutter test --coverage`, and the
-#    `coverde` coverage gate are DEFERRED to the `add-flutter-ci-tests` and
-#    `wire-openapi-dart-client` follow-ups — they require a real Flutter
-#    project (pubspec + test/ + lib/api/generated/) to exist. See the
-#    deferred-jobs comment block below. NOTE: enabling the drift job MUST
-#    also add `backend/openapi.yaml` to the `paths:` filters above, so a
-#    backend-only OpenAPI change triggers the check.
+#  - The OpenAPI-client drift check IS enforced now (regenerates
+#    lib/api/generated/ into a throwaway, diffs against the committed tree,
+#    fails on difference). `backend/openapi.yaml` is in the `paths:` filters
+#    so a backend-only OpenAPI change triggers it.
+#  - The coverage gate IS enforced now (`flutter test --coverage` +
+#    `coverde` threshold; see job above).
+#  - The `coverde` coverage gate and the `flutter test --coverage` step are
+#    DEFERRED to the `add-flutter-ci-tests` follow-up (needs broader test/
+#    coverage to raise the threshold meaningfully).
 #
 # CI hardening:
 #  - Every third-party action is SHA-pinned (40-char SHA + `# vX` comment),
@@ -38,11 +40,13 @@ on:
     branches: [main]
     paths:
       - "frontend-flutter/**"
+      - "backend/openapi.yaml"
       - ".github/workflows/flutter-ci.yml"
       - ".gitleaks.toml"
   pull_request:
     paths:
       - "frontend-flutter/**"
+      - "backend/openapi.yaml"
       - ".github/workflows/flutter-ci.yml"
       - ".gitleaks.toml"
 
@@ -74,10 +78,14 @@ jobs:
           channel: stable
           cache: true
 
-      # `dart format --set-exit-if-changed` — fails if any tracked Dart source
-      # is not formatted. Until the scaffold lands there are no .dart sources,
-      # so this no-ops with a notice. `lib/api/generated/**` is rebuild-only
-      # (see .pi/skills/flutter-codegen-conventions/) and is excluded.
+      # `dart format --set-exit-if-changed` — fails if any tracked Dart
+      # source is not formatted. Until the scaffold lands there are no .dart
+      # sources, so this no-ops with a notice. `lib/api/generated/**` is
+      # rebuild-only (see .pi/skills/flutter-codegen-conventions/) and is
+      # excluded.
+      # NOTE: `dart format` reads analysis_options.yaml (which includes
+      # package:flutter_lints/flutter.yaml), so packages must be resolved
+      # first — run `flutter pub get` before formatting.
       - name: dart format (set-exit-if-changed)
         run: |
           set -euo pipefail
@@ -85,6 +93,7 @@ jobs:
             echo "::notice::frontend-flutter has no pubspec.yaml yet (scaffold-flutter-project follow-up not landed); dart format is advisory-only and skipped."
             exit 0
           fi
+          flutter pub get
           SRC="$(find lib test integration_test -name '*.dart' -not -path 'lib/api/generated/*' 2>/dev/null || true)"
           if [ -z "${SRC}" ]; then
             echo "::notice::No hand-written Dart sources to format yet."
@@ -244,21 +253,127 @@ jobs:
           category: gitleaks-frontend-flutter
         continue-on-error: true
 
+  # OpenAPI-client drift check (issue #301 follow-up / wire-openapi-dart-client
+  # task 4). Regenerates lib/api/generated/ from backend/openapi.yaml into a
+  # throwaway dir, diffs against the committed tree, fails on any difference.
+  # This catches both: (a) a backend OpenAPI change without a client regen, and
+  # (b) a hand-edit to lib/api/generated/ (which is rebuild-only). Mirrors the
+  # backend's UPDATE_OPENAPI=1 openapi_drift discipline
+  # (frontend-flutter/AGENTS.md §3, decision D1/D8).
+  openapi-client-drift:
+    name: OpenAPI client drift
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend-flutter
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install OpenAPI generator
+        # Install the npm launcher (uncommitted latest). The pinned generator
+        # JAR version (7.25.0) comes from frontend-flutter/openapitools.json,
+        # which the launcher reads — so generation stays reproducible without
+        # pinning the npm package version (npm and JAR versions differ).
+        run: |
+          set -euo pipefail
+          npm install -g @openapitools/openapi-generator-cli
+
+      - name: Regenerate client into throwaway
+        run: |
+          set -euo pipefail
+          bash scripts/regen-client.sh
+
+      - name: Diff regenerated tree against committed
+        run: |
+          set -euo pipefail
+          # Move the freshly regenerated tree aside, restore the committed
+          # tree, then diff. Any difference means the committed client is out
+          # of sync with backend/openapi.yaml (or was hand-edited). Exclude
+          # .dart_tool (build artifact, gitignored) so the build_runner output
+          # created during regen does not itself look like drift.
+          mv lib/api/generated /tmp/regenerated-client
+          git checkout -- lib/api/generated
+          if diff -rq --exclude=.dart_tool /tmp/regenerated-client lib/api/generated; then
+            echo "::notice::OpenAPI client is in sync with backend/openapi.yaml."
+            exit 0
+          fi
+          echo "::error::OpenAPI client drift detected. lib/api/generated/ is out of sync with backend/openapi.yaml. Regenerate with 'bash scripts/regen-client.sh' and commit the diff. (Hand-edits to lib/api/generated/ are forbidden — see frontend-flutter/AGENTS.md §3.)"
+          # Show a concise diff for the PR annotation.
+          diff -ruN --exclude=.dart_tool lib/api/generated /tmp/regenerated-client || true
+          exit 1
+
+  # Coverage gate (decision D5 substitute for the absent Dart mutator —
+  # AGENTS.md §6). Runs the full flutter test suite with coverage, then
+  # enforces a global line-coverage threshold via coverde. The threshold is
+  # intentionally modest for the foundation; it rises as the data/ and
+  # feature/ test tiers fill in. coverde is activated per-job (no repo-level
+  # dev-dependency) so the version is pinned here.
+  coverage:
+    name: Coverage (coverde)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend-flutter
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install coverde
+        # coverde is the coverage-threshold tool (AGENTS.md §6). Activated
+        # per-job and pinned; bump the version alongside the SHA-pinned
+        # actions.
+        run: |
+          set -euo pipefail
+          dart pub global activate coverde 0.4.0
+          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
+
+      - name: Run full suite with coverage
+        run: |
+          set -euo pipefail
+          flutter pub get
+          flutter test --coverage
+
+      - name: Enforce coverage threshold
+        run: |
+          set -euo pipefail
+          # 60% global line coverage — modest for the foundation; rises as
+          # the data/ and feature/ test tiers fill in.
+          coverde check 60 --file-coverage-log-level overview
+
 # ---------------------------------------------------------------------------
-# DEFERRED jobs (Task 3.5) — NOT wired yet; land with their follow-up changes.
+# DEFERRED jobs — NOT wired yet; land with their follow-up changes.
 #
 #  - openapi-client-drift:
-#      Regenerate lib/api/generated/ from backend/openapi.yaml into a
-#      throwaway, diff against the committed tree, fail on difference.
-#      Lands with `wire-openapi-dart-client` (needs lib/api/generated/ to
-#      exist). Mirrors backend `UPDATE_OPENAPI=1 cargo test -p api --test
+#      ✅ WIRED (see job above). Regenerates lib/api/generated/ from
+#      backend/openapi.yaml into a throwaway, diffs against the committed
+#      tree, fails on difference. Lands with `wire-openapi-dart-client`
+#      (task 4). Mirrors backend `UPDATE_OPENAPI=1 cargo test -p api --test
 #      openapi_drift`. See spec `flutter-openapi-client`.
 #
 #  - test-with-coverage:
-#      `flutter test --coverage` + a `coverde` line/branch threshold gate on
-#      changed code (decision D5 substitute for the absent Dart mutator).
-#      Lands with `add-flutter-ci-tests` (needs test/ to exist). See spec
-#      `flutter-test-pyramid` / `flutter-ci-coverage`.
+#      ✅ WIRED (see job above). `flutter test --coverage` + a `coverde`
+#      line-coverage threshold gate (60% for the foundation; rises as the
+#      data/ and feature/ test tiers fill in). Lands with
+#      `wire-openapi-dart-client` (task 4) +
+#      `add-flutter-ci-tests`. See spec `flutter-test-pyramid` /
+#      `flutter-ci-coverage`.
 #
 #  - mutation-testing:
 #      Explicitly NOT a gate — no maintained Dart/Flutter mutator exists
