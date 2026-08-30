@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: hy3 (opencode-go)
+# Co-authored-by: qwen3.8-flash (opencode-go)
+
 
 name: frontend_flutter
 description: "A new Flutter project."
@@ -49,8 +51,16 @@ dependencies:
   # from its own pubspec. built_value/built_collection are direct deps because
   # hand-written repositories (lib/data/) reference built_value types (e.g.
   # JsonObject) directly.
+  #
+  # The package lives in `vendor/breakdown_api/`, deliberately OUTSIDE the
+  # Flutter root's own `lib/` tree: nesting a second Dart package under the
+  # root's `packageUri: lib/` makes the kernel compiler (CFE) derive a different
+  # language version for the package's generated `.g.dart` parts than for its
+  # library, which fails to compile ("The language version override has to be
+  # the same in the library and its part(s)"). The package name and import path
+  # (`package:breakdown_api/...`) are unaffected.
   breakdown_api:
-    path: lib/api/generated
+    path: vendor/breakdown_api
   built_value: ^8.9.0
   built_collection: ^5.1.1
 

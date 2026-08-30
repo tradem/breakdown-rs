@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: qwen3.8-flash (opencode-go)
+
 
 import 'dart:io';
 
@@ -45,7 +47,7 @@ Future<void> main(List<String> args) async {
   for (final context in collection.contexts) {
     for (final filePath in context.contextRoot.analyzedFiles()) {
       if (!filePath.endsWith('.dart')) continue;
-      if (filePath.contains('/lib/api/generated/')) continue;
+      if (filePath.contains('/vendor/breakdown_api/')) continue;
 
       final session = context.currentSession;
       final result = await session.getResolvedUnit(filePath);

@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: glm-5.2 (neuralwatt)
+# Co-authored-by: qwen3.8-flash (opencode-go)
+
 #
 # Flutter CI — gates changes under frontend-flutter/**.
 # See openspec change `add-flutter-app-foundation` (Task 3) and
@@ -15,7 +17,7 @@
 #    package only loads in IDE/LSP mode, not in the batch CLI (issue #299).
 #  - `gitleaks` IS enforced now (secret hygiene gate).
 #  - The OpenAPI-client drift check IS enforced now (regenerates
-#    lib/api/generated/ into a throwaway, diffs against the committed tree,
+#    (vendor/breakdown_api/) into a throwaway, diffs against the committed tree,
 #    fails on difference). `backend/openapi.yaml` is in the `paths:` filters
 #    so a backend-only OpenAPI change triggers it.
 #  - The coverage gate IS enforced now (`flutter test --coverage` +
@@ -80,9 +82,10 @@ jobs:
 
       # `dart format --set-exit-if-changed` — fails if any tracked Dart
       # source is not formatted. Until the scaffold lands there are no .dart
-      # sources, so this no-ops with a notice. `lib/api/generated/**` is
-      # rebuild-only (see .pi/skills/flutter-codegen-conventions/) and is
-      # excluded.
+      # sources, so this no-ops with a notice. The rebuild-only generated client
+      # lives in `vendor/breakdown_api/**` (see .pi/skills/flutter-codegen-conventions/)
+      # and is outside the `lib test integration_test` scan roots, so it is not
+      # formatted here; `scripts/regen-client.sh` formats it.
       # NOTE: `dart format` reads analysis_options.yaml (which includes
       # package:flutter_lints/flutter.yaml), so packages must be resolved
       # first — run `flutter pub get` before formatting.
@@ -94,7 +97,7 @@ jobs:
             exit 0
           fi
           flutter pub get
-          SRC="$(find lib test integration_test -name '*.dart' -not -path 'lib/api/generated/*' 2>/dev/null || true)"
+          SRC="$(find lib test integration_test -name '*.dart' 2>/dev/null || true)"
           if [ -z "${SRC}" ]; then
             echo "::notice::No hand-written Dart sources to format yet."
             exit 0
@@ -254,10 +257,10 @@ jobs:
         continue-on-error: true
 
   # OpenAPI-client drift check (issue #301 follow-up / wire-openapi-dart-client
-  # task 4). Regenerates lib/api/generated/ from backend/openapi.yaml into a
+  # task 4). Regenerates vendor/breakdown_api/ from backend/openapi.yaml into a
   # throwaway dir, diffs against the committed tree, fails on any difference.
   # This catches both: (a) a backend OpenAPI change without a client regen, and
-  # (b) a hand-edit to lib/api/generated/ (which is rebuild-only). Mirrors the
+  # (b) a hand-edit to vendor/breakdown_api/ (which is rebuild-only). Mirrors the
   # backend's UPDATE_OPENAPI=1 openapi_drift discipline
   # (frontend-flutter/AGENTS.md §3, decision D1/D8).
   openapi-client-drift:
@@ -300,15 +303,15 @@ jobs:
           # of sync with backend/openapi.yaml (or was hand-edited). Exclude
           # .dart_tool (build artifact, gitignored) so the build_runner output
           # created during regen does not itself look like drift.
-          mv lib/api/generated /tmp/regenerated-client
-          git checkout -- lib/api/generated
-          if diff -rq --exclude=.dart_tool /tmp/regenerated-client lib/api/generated; then
+          mv vendor/breakdown_api /tmp/regenerated-client
+          git checkout -- vendor/breakdown_api
+          if diff -rq --exclude=.dart_tool /tmp/regenerated-client vendor/breakdown_api; then
             echo "::notice::OpenAPI client is in sync with backend/openapi.yaml."
             exit 0
           fi
-          echo "::error::OpenAPI client drift detected. lib/api/generated/ is out of sync with backend/openapi.yaml. Regenerate with 'bash scripts/regen-client.sh' and commit the diff. (Hand-edits to lib/api/generated/ are forbidden — see frontend-flutter/AGENTS.md §3.)"
+          echo "::error::OpenAPI client drift detected. vendor/breakdown_api/ is out of sync with backend/openapi.yaml. Regenerate with 'bash scripts/regen-client.sh' and commit the diff. (Hand-edits to vendor/breakdown_api/ are forbidden — see frontend-flutter/AGENTS.md §3.)"
           # Show a concise diff for the PR annotation.
-          diff -ruN --exclude=.dart_tool lib/api/generated /tmp/regenerated-client || true
+          diff -ruN --exclude=.dart_tool vendor/breakdown_api /tmp/regenerated-client || true
           exit 1
 
   # Coverage gate (decision D5 substitute for the absent Dart mutator —
@@ -361,7 +364,7 @@ jobs:
 # DEFERRED jobs — NOT wired yet; land with their follow-up changes.
 #
 #  - openapi-client-drift:
-#      ✅ WIRED (see job above). Regenerates lib/api/generated/ from
+#      ✅ WIRED (see job above). Regenerates vendor/breakdown_api/ from
 #      backend/openapi.yaml into a throwaway, diffs against the committed
 #      tree, fails on difference. Lands with `wire-openapi-dart-client`
 #      (task 4). Mirrors backend `UPDATE_OPENAPI=1 cargo test -p api --test

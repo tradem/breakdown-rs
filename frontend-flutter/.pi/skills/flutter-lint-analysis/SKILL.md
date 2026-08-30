@@ -104,7 +104,7 @@ constants in widgets are rejected. Use the theme extension / token classes.
 
 ### 4. `no_hand_edits_in_generated`
 
-`lib/api/generated/**` (package `breakdown_api`), `*.g.dart`, `*.freezed.dart`
+`vendor/breakdown_api/**` (package `breakdown_api`), `*.g.dart`, `*.freezed.dart`
 are rebuild-only. Hand-edits fail the OpenAPI-drift / build_runner check in CI
 (see `flutter-openapi-client` spec + `flutter-codegen-conventions` skill).
 A hand-edit at the top of a generated file is the highest-severity finding.
@@ -139,7 +139,7 @@ a `// AUTHZ-GATE:` comment and a `currentMembershipProvider` check.
    ```bash
    cd frontend-flutter
    npx @openapitools/openapi-generator-cli generate \
-     -i ../backend/openapi.yaml -g dart -o lib/api/generated \
+     -i ../backend/openapi.yaml -g dart -o vendor/breakdown_api \
      --additional-properties=pubName=breakdown_api
    dart run build_runner build --delete-conflicting-outputs
    ```

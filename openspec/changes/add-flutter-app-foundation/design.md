@@ -1,6 +1,8 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: glm-5.2 (neuralwatt) -->
+<!-- Co-authored-by: qwen3.8-flash (opencode-go) -->
+
 
 # Agent Guidelines for the Flutter App (`frontend-flutter/`)
 
@@ -94,7 +96,7 @@ a server-owned concern (API shape, error surface, auth), the backend wins.
   │   ├── app.dart              # MaterialApp.router root
   │   ├── core/                 # Result/Either, ProblemError, value objects
   │   ├── auth/                 # OIDC client, secure token store, currentMembershipProvider
-  │   ├── api/                  # ← generated/ (breakdown_api) — rebuild-only
+  │   ├── (no api/)           # generated client lives in top-level vendor/breakdown_api/
   │   ├── data/                 # repositories: wrap API client + Drift cache
   │   ├── domain/               # use-cases, projector-lag reconciliation
   │   ├── features/             # one folder per aggregate boundary
@@ -109,7 +111,7 @@ a server-owned concern (API shape, error surface, auth), the backend wins.
   ├── features-spec/            # Gherkin .feature files (see §6)
   └── .pi/skills/               # ported pi-code skills (see §9)
   ```
-- **Generated vs hand-written (hard rule):** `lib/api/generated/` is
+- **Generated vs hand-written (hard rule):** `vendor/breakdown_api/` is
   rebuild-only. Hand-edits are forbidden; the folder is regenerated from
   `backend/openapi.yaml` (see §3). The same rule applies to Drift's
   `.g.dart` files, Riverpod's `.g.dart`, and freezed/json_serializable
@@ -129,14 +131,14 @@ shoots; the photo bounded context's `binding` discriminator
 
 - **Code-first, drift-checked (Decision D1, D8):** The checked-in
   `backend/openapi.yaml` is the single source of truth for the API surface.
-  The typed Dart client is generated into `lib/api/generated/` (package
+  The typed Dart client is generated into `vendor/breakdown_api/` (package
   `breakdown_api`) via `openapi-generator-cli` (or `dart pub run
   build_runner build`). This mirrors the backend's ADR-006 code-first +
   `UPDATE_OPENAPI=1 openapi_drift` discipline.
 - **Drift check in CI:** A PR that changes `backend/openapi.yaml` must
   regenerate the Dart client and commit the diff. CI regenerates into a
   throwaway, diffs against the committed tree, and fails on difference with
-  a regenerate instruction. A PR that hand-edits `lib/api/generated/`
+  a regenerate instruction. A PR that hand-edits `vendor/breakdown_api/`
   fails the same check.
 - **Never manually type API responses.** Always consume the generated types.
   The downstream of every API call is a generated DTO; mappers to domain
@@ -338,9 +340,14 @@ CI runs:
   ```bash
   npx @openapitools/openapi-generator-cli generate \
     -i ../backend/openapi.yaml \
-    -g dart -o lib/api/generated \
-    --additional-properties=pubName=breakdown_api
+    -g dart -o vendor/breakdown_api \
+    --additional-properties=pubName=breakdown_api \
+    --reserved-words-mappings update=decisionUpdate
   ```
+  (`--reserved-words-mappings update=decisionUpdate` avoids the built_value
+  `Builder.update` collision on the `Update` enum-variant property; the wire
+  name stays `Update`. `scripts/regen-client.sh` is the single source of truth
+  and applies further generator workarounds.)
 - **Flavors:** `dev` (localhost backend, optional Logto, dev-pinned CA set)
   and `prod` (deployed edge, Logto/Zitadel cloud, pinned prod CA,
   `REQUIRE_IN_TRANSIT_TLS`-grade posture). No other flavors without a
@@ -381,7 +388,7 @@ CI runs:
   spacing. No hardcoded colors/styles inline in widgets.
 - **Codegen conventions:** `build_runner`, `freezed`, `json_serializable`,
   `riverpod_generator`, `drift_dev`, `openapi_generator`. Generated files
-  (`.g.dart`, `.freezed.dart`, `lib/api/generated/`) are read-only —
+  (`.g.dart`, `.freezed.dart`, `vendor/breakdown_api/`) are read-only —
   regenerate, don't edit.
 - **`flutter/genui` (Decision Q4 → defer-ban):** Not adopted as a
   prescribed drafting workflow. The conventions here are opinionated enough

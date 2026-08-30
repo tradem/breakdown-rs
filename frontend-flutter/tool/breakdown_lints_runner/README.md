@@ -30,6 +30,6 @@ dart run bin/run_lints.dart ../..
 The argument is the Flutter project root (defaults to `../../` relative to
 the tool package, i.e. the `frontend-flutter/` directory). The runner
 analyzes all non-generated `lib/**/*.dart` files (excluding
-`lib/api/generated/`).
+`vendor/breakdown_api/`).
 
 Exits 0 if no violations found, non-zero otherwise.

@@ -148,7 +148,7 @@ openspec/changes/{issue}-{description}/proposal.md
 ```
 
 3. Respect the **rebuild-only** rule (AGENTS.md §2 / §3 / §9): never hand-edit
-   `lib/api/generated/`, `*.g.dart`, or `*.freezed.dart`. Regenerate instead.
+   `vendor/breakdown_api/`, `*.g.dart`, or `*.freezed.dart`. Regenerate instead.
 4. Run checks frequently during implementation:
 
 ```bash
@@ -185,7 +185,7 @@ if [ -f backend/openapi.yaml ]; then
       exit 1
     fi
     (cd frontend-flutter && npx @openapitools/openapi-generator-cli generate \
-      -i ../backend/openapi.yaml -g dart -o lib/api/generated \
+      -i ../backend/openapi.yaml -g dart -o vendor/breakdown_api \
       --additional-properties=pubName=breakdown_api)
   fi
 fi
@@ -204,7 +204,7 @@ nothing changed (the table then states `none` explicitly):
 | Package / Artifact | Action | Reason |
 |---|---|---|
 | `frontend-flutter` (`pubspec.yaml`) | bump 1.2.0 → 1.3.0 | New custom feature / dep addition |
-| `breakdown_api` (`lib/api/generated/`) | regenerated via `openapi-generator-cli` | `backend/openapi.yaml` changed |
+| `breakdown_api` (`vendor/breakdown_api/`) | regenerated via `openapi-generator-cli` | `backend/openapi.yaml` changed |
 | `*.g.dart` / `*.freezed.dart` | regenerated | `@freezed` / `@riverpod` / drift edits |
 | (none) | — | Pure logic change in `lib/core/` |
 
@@ -239,7 +239,7 @@ git add lib/core/.../file.dart
 git add lib/features/.../file.dart
 git add lib/features/.../file_test.dart
 git add pubspec.yaml
-git add lib/api/generated/            # only if regenerated this change
+git add vendor/breakdown_api/            # only if regenerated this change
 git add ../openspec/changes/{issue}-*/proposal.md
 git add ../frontend-flutter/.pi/skills/{skill}/SKILL.md
 
