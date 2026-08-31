@@ -23,5 +23,4 @@ bool isRowExpired(
   DateTime cachedAt,
   Duration ttl, {
   Clock clock = Clock.system,
-}) =>
-    clock.now().difference(cachedAt) > ttl;
+}) => clock.now().difference(cachedAt) > ttl;

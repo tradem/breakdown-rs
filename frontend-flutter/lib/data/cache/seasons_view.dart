@@ -14,11 +14,7 @@ import '../../core/problem_error.dart';
 /// failure so the UI can render a retry affordance instead of silently
 /// discarding it (Task 3.3).
 class SeasonsView {
-  const SeasonsView({
-    required this.rows,
-    required this.isStale,
-    this.error,
-  });
+  const SeasonsView({required this.rows, required this.isStale, this.error});
 
   final List<SeasonView> rows;
 

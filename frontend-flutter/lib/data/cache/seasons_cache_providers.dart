@@ -42,9 +42,9 @@ CacheDatabase cacheDatabase(Ref ref) => CacheDatabase();
 /// Season repository: owns network + Drift cache writes (D1).
 @riverpod
 SeasonRepository seasonRepository(Ref ref) => SeasonRepository(
-      ref.watch(apiClientProvider),
-      SeasonCacheDao(ref.watch(cacheDatabaseProvider)),
-    );
+  ref.watch(apiClientProvider),
+  SeasonCacheDao(ref.watch(cacheDatabaseProvider)),
+);
 
 /// The injected list-fetch seam (Design Decision D3).
 ///
@@ -66,9 +66,7 @@ Future<Result<List<SeasonView>>> seasonsListFetch(Ref ref) {
 /// successful read (D1/D4). Lets the `seasonsView` selector serve cached rows
 /// even when the async controller is in `AsyncError`.
 final seasonsPrevRowsProvider =
-    NotifierProvider<_SeasonsPrevRows, List<SeasonView>>(
-  _SeasonsPrevRows.new,
-);
+    NotifierProvider<_SeasonsPrevRows, List<SeasonView>>(_SeasonsPrevRows.new);
 
 class _SeasonsPrevRows extends Notifier<List<SeasonView>> {
   @override
@@ -98,8 +96,9 @@ class SeasonsViewController extends _$SeasonsViewController {
     // derived selector serves these rows while the network fetch is pending
     // or has failed.
     () async {
-      final cached =
-          (await repo.readCached()).getOrElse((_) => const <SeasonView>[]);
+      final cached = (await repo.readCached()).getOrElse(
+        (_) => const <SeasonView>[],
+      );
       ref.read(seasonsPrevRowsProvider.notifier).set(cached);
     }();
 
@@ -109,13 +108,13 @@ class SeasonsViewController extends _$SeasonsViewController {
     final fetch = ref.watch(seasonsListFetchProvider);
     return switch (fetch) {
       AsyncData(:final value) => value.match(
-          // D4: surface AsyncError; retained rows stay in seasonsPrevRowsProvider.
-          (err) => AsyncValue<SeasonsView>.error(err, StackTrace.current),
-          // After a successful snapshot the cache rows are fresh (D2).
-          (rows) => AsyncValue<SeasonsView>.data(
-            SeasonsView(rows: rows, isStale: false),
-          ),
+        // D4: surface AsyncError; retained rows stay in seasonsPrevRowsProvider.
+        (err) => AsyncValue<SeasonsView>.error(err, StackTrace.current),
+        // After a successful snapshot the cache rows are fresh (D2).
+        (rows) => AsyncValue<SeasonsView>.data(
+          SeasonsView(rows: rows, isStale: false),
         ),
+      ),
       AsyncError(:final error, :final stackTrace) =>
         AsyncValue<SeasonsView>.error(error, stackTrace),
       AsyncLoading() => const AsyncValue<SeasonsView>.loading(),
@@ -162,15 +161,12 @@ final seasonsView = Provider<SeasonsView>((ref) {
   return switch (async) {
     AsyncData(:final value) => value,
     AsyncError(:final error) => SeasonsView(
-        rows: prev,
-        isStale: true,
-        error: error is ProblemError
-            ? error
-            : const ProblemError(code: 'unknown'),
-      ),
-    AsyncLoading() => SeasonsView(
-        rows: prev,
-        isStale: prev.isNotEmpty,
-      ),
+      rows: prev,
+      isStale: true,
+      error: error is ProblemError
+          ? error
+          : const ProblemError(code: 'unknown'),
+    ),
+    AsyncLoading() => SeasonsView(rows: prev, isStale: prev.isNotEmpty),
   };
 });

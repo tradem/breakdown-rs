@@ -28,20 +28,25 @@ void main() {
       );
     });
 
-    test('TTL is tunable per table (fast-moving projection uses a shorter one)',
-        () {
-      final cachedAt = now.subtract(const Duration(minutes: 31));
-      // Expired against a 30-minute per-table TTL...
-      expect(
-        isRowExpired(cachedAt, const Duration(minutes: 30),
-            clock: Clock.fixed(now)),
-        isTrue,
-      );
-      // ...but still fresh against the default 24h TTL.
-      expect(
-        isRowExpired(cachedAt, kCacheTtl, clock: Clock.fixed(now)),
-        isFalse,
-      );
-    });
+    test(
+      'TTL is tunable per table (fast-moving projection uses a shorter one)',
+      () {
+        final cachedAt = now.subtract(const Duration(minutes: 31));
+        // Expired against a 30-minute per-table TTL...
+        expect(
+          isRowExpired(
+            cachedAt,
+            const Duration(minutes: 30),
+            clock: Clock.fixed(now),
+          ),
+          isTrue,
+        );
+        // ...but still fresh against the default 24h TTL.
+        expect(
+          isRowExpired(cachedAt, kCacheTtl, clock: Clock.fixed(now)),
+          isFalse,
+        );
+      },
+    );
   });
 }

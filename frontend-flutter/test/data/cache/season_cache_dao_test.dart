@@ -16,16 +16,15 @@ SeasonView _season(
   int number = 1,
   String? title,
   DateTime? updatedAt,
-}) =>
-    SeasonView(
-      (b) => b
-        ..id = id
-        ..number = number
-        ..seriesId = 'series-1'
-        ..title = title
-        ..updatedAt = updatedAt ?? DateTime.utc(2026, 1, 1)
-        ..version = 1,
-    );
+}) => SeasonView(
+  (b) => b
+    ..id = id
+    ..number = number
+    ..seriesId = 'series-1'
+    ..title = title
+    ..updatedAt = updatedAt ?? DateTime.utc(2026, 1, 1)
+    ..version = 1,
+);
 
 void main() {
   group('SeasonCacheDao', () {
@@ -54,8 +53,14 @@ void main() {
     });
 
     test('upsert overwrites the same id (idempotent by id)', () async {
-      await dao.upsert(_season('s1', title: 'Spring'), DateTime.utc(2026, 2, 1));
-      await dao.upsert(_season('s1', title: 'Spring II'), DateTime.utc(2026, 2, 2));
+      await dao.upsert(
+        _season('s1', title: 'Spring'),
+        DateTime.utc(2026, 2, 1),
+      );
+      await dao.upsert(
+        _season('s1', title: 'Spring II'),
+        DateTime.utc(2026, 2, 2),
+      );
 
       final rows = await dao.readAll();
       expect(rows, hasLength(1));
@@ -67,23 +72,34 @@ void main() {
     });
 
     // Task 2.4 / D3 — snapshot-replace deletes missing ids in one transaction.
-    test('applySnapshot deletes cached rows absent from the returned set', () async {
-      await dao.applySnapshot(
-        [_season('a'), _season('b'), _season('c')],
-        DateTime.utc(2026, 2, 1),
-      );
-      expect((await dao.readAll()).map((r) => r.id).toList(), ['a', 'b', 'c']);
+    test(
+      'applySnapshot deletes cached rows absent from the returned set',
+      () async {
+        await dao.applySnapshot([
+          _season('a'),
+          _season('b'),
+          _season('c'),
+        ], DateTime.utc(2026, 2, 1));
+        expect((await dao.readAll()).map((r) => r.id).toList(), [
+          'a',
+          'b',
+          'c',
+        ]);
 
-      // Server now reports only a and b → c must be deleted, not orphaned.
-      await dao.applySnapshot(
-        [_season('a'), _season('b')],
-        DateTime.utc(2026, 2, 2),
-      );
-      expect((await dao.readAll()).map((r) => r.id).toList(), ['a', 'b']);
-    });
+        // Server now reports only a and b → c must be deleted, not orphaned.
+        await dao.applySnapshot([
+          _season('a'),
+          _season('b'),
+        ], DateTime.utc(2026, 2, 2));
+        expect((await dao.readAll()).map((r) => r.id).toList(), ['a', 'b']);
+      },
+    );
 
     test('applySnapshot with an empty list clears the table', () async {
-      await dao.applySnapshot([_season('a'), _season('b')], DateTime.utc(2026, 2, 1));
+      await dao.applySnapshot([
+        _season('a'),
+        _season('b'),
+      ], DateTime.utc(2026, 2, 1));
       await dao.applySnapshot([], DateTime.utc(2026, 2, 2));
       expect(await dao.readAll(), isEmpty);
     });
@@ -92,12 +108,16 @@ void main() {
     test('isAnyExpired reflects cachedAt under the injectable clock', () async {
       await dao.upsert(_season('s1'), DateTime.utc(2026, 1, 1));
       final nowFresh = DateTime.utc(2026, 1, 1, 1); // 1h later
-      expect(await dao.isAnyExpired(kCacheTtl, clock: Clock.fixed(nowFresh)),
-          isFalse);
+      expect(
+        await dao.isAnyExpired(kCacheTtl, clock: Clock.fixed(nowFresh)),
+        isFalse,
+      );
 
       final nowStale = DateTime.utc(2026, 1, 3); // 2 days later
-      expect(await dao.isAnyExpired(kCacheTtl, clock: Clock.fixed(nowStale)),
-          isTrue);
+      expect(
+        await dao.isAnyExpired(kCacheTtl, clock: Clock.fixed(nowStale)),
+        isTrue,
+      );
     });
   });
 }

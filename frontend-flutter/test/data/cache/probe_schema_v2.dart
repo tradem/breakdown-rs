@@ -26,18 +26,18 @@ class ProbeDatabaseV2 extends _$ProbeDatabaseV2 {
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
-        onUpgrade: (m, from, to) async {
-          // Additive migration only — the cache never drops a field.
-          if (from < 2) {
-            await m.addColumn(probeRowsV2, probeRowsV2.archived);
-            // Drift's `addColumn` emits `ALTER TABLE ... ADD COLUMN archived`
-            // WITHOUT a DEFAULT, so pre-existing rows are NULL. Backfill them
-            // (this mirrors a real additive-column migration, and is why the
-            // column is non-nullable with a client-side default).
-            await m.database
-                .update(probeRowsV2)
-                .write(const ProbeRowsV2Companion(archived: Value(false)));
-          }
-        },
-      );
+    onUpgrade: (m, from, to) async {
+      // Additive migration only — the cache never drops a field.
+      if (from < 2) {
+        await m.addColumn(probeRowsV2, probeRowsV2.archived);
+        // Drift's `addColumn` emits `ALTER TABLE ... ADD COLUMN archived`
+        // WITHOUT a DEFAULT, so pre-existing rows are NULL. Backfill them
+        // (this mirrors a real additive-column migration, and is why the
+        // column is non-nullable with a client-side default).
+        await m.database
+            .update(probeRowsV2)
+            .write(const ProbeRowsV2Companion(archived: Value(false)));
+      }
+    },
+  );
 }

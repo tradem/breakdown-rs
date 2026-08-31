@@ -97,14 +97,14 @@ class _Banner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        color: color.withValues(alpha: 0.15),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Row(
-          children: [
-            Expanded(child: Text(text)),
-            // ignore: use_null_aware_elements
-            if (action != null) action!,
-          ],
-        ),
-      );
+    color: color.withValues(alpha: 0.15),
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    child: Row(
+      children: [
+        Expanded(child: Text(text)),
+        // ignore: use_null_aware_elements
+        if (action != null) action!,
+      ],
+    ),
+  );
 }

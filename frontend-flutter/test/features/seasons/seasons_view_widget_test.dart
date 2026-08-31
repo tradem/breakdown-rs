@@ -18,22 +18,26 @@ import 'package:frontend_flutter/data/season_repository.dart';
 import 'package:frontend_flutter/features/seasons/seasons_view_widget.dart';
 
 SeasonView _season(String id, {String? title}) => SeasonView(
-      (b) => b
-        ..id = id
-        ..number = 1
-        ..seriesId = 'series-1'
-        ..title = title
-        ..updatedAt = DateTime.utc(2026, 1, 1)
-        ..version = 1,
-    );
+  (b) => b
+    ..id = id
+    ..number = 1
+    ..seriesId = 'series-1'
+    ..title = title
+    ..updatedAt = DateTime.utc(2026, 1, 1)
+    ..version = 1,
+);
 
 void main() {
   // Task 4.3 — stale indicator + disabled write FAB on offline error.
-  testWidgets('renders stale banner and disables FAB when offline', (tester) async {
+  testWidgets('renders stale banner and disables FAB when offline', (
+    tester,
+  ) async {
     final db = CacheDatabase(NativeDatabase.memory());
     final repo = SeasonRepository(BreakdownApi(), SeasonCacheDao(db));
     // Seed a previously-cached row (last seen before going offline).
-    await repo.fetchAndCacheList(() async => Right([_season('s1', title: 'Spring')]));
+    await repo.fetchAndCacheList(
+      () async => Right([_season('s1', title: 'Spring')]),
+    );
 
     final holder = ValueNotifier<Result<List<SeasonView>>>(
       const Left(ProblemError(code: 'transport.offline')),

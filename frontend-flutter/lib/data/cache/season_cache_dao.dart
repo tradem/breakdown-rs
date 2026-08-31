@@ -34,10 +34,9 @@ class SeasonCacheDao {
       );
 
   /// Upserts one [SeasonView] by id, stamped with [cachedAt] (D2).
-  Future<void> upsert(SeasonView view, DateTime cachedAt) =>
-      _db.into(_db.seasonCacheRows).insertOnConflictUpdate(
-            _companion(view, cachedAt),
-          );
+  Future<void> upsert(SeasonView view, DateTime cachedAt) => _db
+      .into(_db.seasonCacheRows)
+      .insertOnConflictUpdate(_companion(view, cachedAt));
 
   /// Snapshot-replace (Design Decision D3): upserts every [views] row by id and
   /// deletes any cached row whose id is absent from [views], all in ONE
@@ -48,17 +47,17 @@ class SeasonCacheDao {
     return _db.transaction(() async {
       final ids = views.map((v) => v.id).toSet();
       for (final view in views) {
-        await _db.into(_db.seasonCacheRows).insertOnConflictUpdate(
-              _companion(view, cachedAt),
-            );
+        await _db
+            .into(_db.seasonCacheRows)
+            .insertOnConflictUpdate(_companion(view, cachedAt));
       }
       // delete-missing-ids: every cached row not present in this snapshot.
       if (ids.isEmpty) {
         await _db.delete(_db.seasonCacheRows).go();
       } else {
-        await (_db.delete(_db.seasonCacheRows)
-              ..where((t) => t.id.isNotIn(ids)))
-            .go();
+        await (_db.delete(
+          _db.seasonCacheRows,
+        )..where((t) => t.id.isNotIn(ids))).go();
       }
     });
   }
@@ -71,9 +70,9 @@ class SeasonCacheDao {
 
   /// Pure Drift read of a single cached season by id, or `null`.
   Future<SeasonView?> readById(String id) async {
-    final row = await (_db.select(_db.seasonCacheRows)
-          ..where((t) => t.id.equals(id)))
-        .getSingleOrNull();
+    final row = await (_db.select(
+      _db.seasonCacheRows,
+    )..where((t) => t.id.equals(id))).getSingleOrNull();
     return row == null ? null : _toSeasonView(row);
   }
 
@@ -90,15 +89,15 @@ class SeasonCacheDao {
   Future<void> clear() => _db.delete(_db.seasonCacheRows).go();
 
   SeasonView _toSeasonView(SeasonCacheRow row) => SeasonView(
-        (b) => b
-          ..id = row.id
-          ..number = row.number
-          ..seriesId = row.seriesId
-          ..title = row.title
-          // Drift preserves the instant but decodes DateTime in local time,
-          // so normalize to UTC to keep the DTO representation identical to
-          // the server's (the `updated_at` wire value is UTC).
-          ..updatedAt = row.updatedAt.toUtc()
-          ..version = row.version,
-      );
+    (b) => b
+      ..id = row.id
+      ..number = row.number
+      ..seriesId = row.seriesId
+      ..title = row.title
+      // Drift preserves the instant but decodes DateTime in local time,
+      // so normalize to UTC to keep the DTO representation identical to
+      // the server's (the `updated_at` wire value is UTC).
+      ..updatedAt = row.updatedAt.toUtc()
+      ..version = row.version,
+  );
 }

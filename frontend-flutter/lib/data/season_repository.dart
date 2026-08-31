@@ -34,8 +34,8 @@ class SeasonRepository extends BaseRepository {
 
   /// Creates a new season.
   Future<Result<IdVersionResponse>> create(CreateSeasonRequest request) => run(
-        () => api.getHandlersApi().createSeason(createSeasonRequest: request),
-      );
+    () => api.getHandlersApi().createSeason(createSeasonRequest: request),
+  );
 
   /// Fetches a single season by id.
   Future<Result<SeasonView>> get(String id) =>
@@ -43,17 +43,18 @@ class SeasonRepository extends BaseRepository {
 
   /// Renames an existing season.
   Future<Result<int>> rename(String id, RenameSeasonRequest request) => run(
-        () => api.getHandlersApi().renameSeason(
-              id: id,
-              renameSeasonRequest: request,
-            ),
-      );
+    () =>
+        api.getHandlersApi().renameSeason(id: id, renameSeasonRequest: request),
+  );
 
   // --- Cache-backed read path (Design Decision D1) -------------------------
 
   /// Single-entity fetch + cache: GET season, upsert on success, no mutation
   /// on failure (D1).
-  Future<Result<SeasonView>> getAndCache(String id, {Clock clock = Clock.system}) async {
+  Future<Result<SeasonView>> getAndCache(
+    String id, {
+    Clock clock = Clock.system,
+  }) async {
     final fetched = await run(() => api.getHandlersApi().getSeason(id: id));
     return _applyOne(fetched, clock);
   }
@@ -64,17 +65,17 @@ class SeasonRepository extends BaseRepository {
   Future<Result<SeasonView>> getAndCacheFrom(
     Result<SeasonView> fetched, {
     Clock clock = Clock.system,
-  }) =>
-      _applyOne(fetched, clock);
+  }) => _applyOne(fetched, clock);
 
-  Future<Result<SeasonView>> _applyOne(Result<SeasonView> fetched, Clock clock) =>
-      fetched.match(
-        (err) async => Left<ProblemError, SeasonView>(err),
-        (view) async {
-          await cache.upsert(view, clock.now());
-          return Right(view);
-        },
-      );
+  Future<Result<SeasonView>> _applyOne(
+    Result<SeasonView> fetched,
+    Clock clock,
+  ) => fetched.match((err) async => Left<ProblemError, SeasonView>(err), (
+    view,
+  ) async {
+    await cache.upsert(view, clock.now());
+    return Right(view);
+  });
 
   /// Collection fetch + snapshot-replace reconciliation (Design Decision D3).
   ///
@@ -113,6 +114,5 @@ class SeasonRepository extends BaseRepository {
   Future<bool> isCacheStale({
     Clock clock = Clock.system,
     Duration ttl = kCacheTtl,
-  }) =>
-      cache.isAnyExpired(ttl, clock: clock);
+  }) => cache.isAnyExpired(ttl, clock: clock);
 }

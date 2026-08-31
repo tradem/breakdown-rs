@@ -20,7 +20,7 @@ class CacheDatabase extends _$CacheDatabase {
   /// Opens an in-memory database by default (used by tests). Production code
   /// passes a file-backed [QueryExecutor] via [CacheDatabase.connect].
   CacheDatabase([QueryExecutor? executor])
-      : super(executor ?? NativeDatabase.memory());
+    : super(executor ?? NativeDatabase.memory());
 
   /// Opens the cache against an explicit [QueryExecutor] (file-backed in the
   /// app, in-memory in tests via [NativeDatabase.memory]).
@@ -31,14 +31,14 @@ class CacheDatabase extends _$CacheDatabase {
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
-        onUpgrade: (m, from, to) async {
-          // Additive migrations for DTO-shape changes land here, in the same PR
-          // as the projection DTO change (AGENTS.md §8 / Task 5.1). Each added
-          // column uses `m.addColumn(...)` so the cache never silently drops a
-          // field. No destructive (drop/rename) migrations are permitted; the
-          // backend is authoritative for existence (D3: snapshot-replace).
-          // (No migrations yet — schemaVersion is 1.)
-          assert(from <= to, 'cache schema downgrade is unsupported');
-        },
-      );
+    onUpgrade: (m, from, to) async {
+      // Additive migrations for DTO-shape changes land here, in the same PR
+      // as the projection DTO change (AGENTS.md §8 / Task 5.1). Each added
+      // column uses `m.addColumn(...)` so the cache never silently drops a
+      // field. No destructive (drop/rename) migrations are permitted; the
+      // backend is authoritative for existence (D3: snapshot-replace).
+      // (No migrations yet — schemaVersion is 1.)
+      assert(from <= to, 'cache schema downgrade is unsupported');
+    },
+  );
 }
