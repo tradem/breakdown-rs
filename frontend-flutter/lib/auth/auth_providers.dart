@@ -158,7 +158,10 @@ class AuthSessionController extends _$AuthSessionController {
   Future<void> signOut() async {
     final config = ref.watch(appConfigProvider);
     if (config.devAuthMode) return;
-    await ref.read(tokenStoreProvider).clear();
+    final cleared = await ref.read(tokenStoreProvider).clear();
+    // A failed wipe is a real sign-out failure (tokens remain on disk) —
+    // surface it rather than silently reporting success.
+    cleared.fold((e) => throw e, (_) => null);
     state = const AsyncData(null);
   }
 }

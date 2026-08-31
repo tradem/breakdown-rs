@@ -67,7 +67,7 @@ class SecureTokenStore implements TokenStore {
 
   static const _kAccess = 'breakdown.oidc.access_token';
   static const _kRefresh = 'breakdown.oidc.refresh_token';
-  static const _kIdToken = 'breakdown.oidc.id_token';
+  static const _kIdJwt = 'breakdown.oidc.id_token';
   static const _kExpiresAt = 'breakdown.oidc.expires_at';
 
   final FlutterSecureStorage _storage;
@@ -77,7 +77,7 @@ class SecureTokenStore implements TokenStore {
     try {
       await _storage.write(key: _kAccess, value: tokens.accessToken);
       await _storage.write(key: _kRefresh, value: tokens.refreshToken);
-      await _storage.write(key: _kIdToken, value: tokens.idToken);
+      await _storage.write(key: _kIdJwt, value: tokens.idToken);
       final at = tokens.expiresAt;
       await _storage.write(key: _kExpiresAt, value: at?.toIso8601String());
       return const Right(null);
@@ -94,13 +94,17 @@ class SecureTokenStore implements TokenStore {
       final access = await _storage.read(key: _kAccess);
       if (access == null) return const Right(null);
       final refresh = await _storage.read(key: _kRefresh);
-      final idToken = await _storage.read(key: _kIdToken);
+      final idToken = await _storage.read(key: _kIdJwt);
       final expiresRaw = await _storage.read(key: _kExpiresAt);
       if (refresh == null || idToken == null) {
         // A partially-persisted session is corrupt: treat as signed out and
-        // clear the remainder rather than returning unusable tokens.
-        await clear();
-        return const Right(null);
+        // clear the remainder rather than returning unusable tokens. A failed
+        // cleanup is surfaced — secure storage itself is broken.
+        final cleanup = await clear();
+        return cleanup.fold<Result<AuthTokens?>>(
+          (e) => Left(e),
+          (_) => const Right(null),
+        );
       }
       return Right(
         AuthTokens(
@@ -122,7 +126,7 @@ class SecureTokenStore implements TokenStore {
     try {
       await _storage.delete(key: _kAccess);
       await _storage.delete(key: _kRefresh);
-      await _storage.delete(key: _kIdToken);
+      await _storage.delete(key: _kIdJwt);
       await _storage.delete(key: _kExpiresAt);
       return const Right(null);
     } catch (e) {
