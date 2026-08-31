@@ -2,6 +2,8 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: hy3 (opencode-go)
 
+import 'dart:async' show unawaited;
+
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fpdart/fpdart.dart';
@@ -94,13 +96,15 @@ class SeasonsViewController extends _$SeasonsViewController {
     // D1: read the cache FIRST (offline cold start) and seed the retained
     // snapshot store used by `seasonsView`. This runs once per build; the
     // derived selector serves these rows while the network fetch is pending
-    // or has failed.
-    () async {
+    // or has failed. Fire-and-forget is intentional: `build()` is sync and
+    // must return the placeholder immediately, so the cache read is scheduled
+    // via `unawaited` rather than awaited (discard_result rule, AGENTS.md §5).
+    unawaited(() async {
       final cached = (await repo.readCached()).getOrElse(
         (_) => const <SeasonView>[],
       );
       ref.read(seasonsPrevRowsProvider.notifier).set(cached);
-    }();
+    }());
 
     // Map the injected fetch `Result` into our projection's AsyncValue. The
     // fetch provider resolves to a `Result` (never throws), so there is no
