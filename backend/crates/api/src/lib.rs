@@ -35,6 +35,7 @@ use utoipa::OpenApi;
     paths(
         handlers::create_season,
         handlers::get_season,
+        handlers::get_season_membership,
         handlers::rename_season,
         handlers::create_block,
         handlers::get_block,
@@ -159,6 +160,7 @@ use utoipa::OpenApi;
         breakdown_core::settings::views::SettingsView,
         breakdown_core::settings::views::CredentialBindingState,
         handlers::ScheduleSceneRequest,
+        handlers::SeasonMembershipDto,
         breakdown_core::membership::views::MembershipView,
         breakdown_core::membership::Role,
         breakdown_core::membership::views::MembershipStateKind,

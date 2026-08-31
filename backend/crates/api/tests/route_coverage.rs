@@ -83,7 +83,7 @@ fn api_routes_are_behind_auth_middleware() {
     //  patterns, not method-verb pairs.)
     assert_eq!(
         api.len(),
-        59,
+        60,
         "number of API route path patterns has changed — \
          see doc comment above for update instructions"
     );
@@ -115,6 +115,7 @@ fn api_routes_have_deliberate_authorization_requirement() {
         // Seasons — season context, not block-scoped
         ("/seasons", Requirement::Authenticated),
         ("/seasons/{id}", Requirement::Authenticated),
+        ("/seasons/{id}/membership", Requirement::Authenticated),
         ("/seasons/{id}/name", Requirement::Authenticated),
         (
             "/seasons/{season_id}/costume-categories",
