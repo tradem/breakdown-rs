@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (opencode-go)
 
+import 'package:breakdown_api/breakdown_api.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,7 +11,7 @@ import 'package:fpdart/fpdart.dart';
 import 'package:frontend_flutter/app_config.dart';
 import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/auth/membership/membership_providers.dart';
-import 'package:frontend_flutter/auth/membership/season_membership.dart';
+import 'package:frontend_flutter/auth/membership/capability.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
 
 const _devConfig = AppConfig(
@@ -39,9 +40,10 @@ SeasonMembershipDto _dto({
   bool hasRole = true,
   Set<Capability> caps = const {Capability.uploadContinuityPhotos},
 }) => SeasonMembershipDto(
-  seasonId: 'season-1',
-  hasActiveCostumeRoleInSeason: hasRole,
-  capabilities: caps,
+  (b) => b
+    ..seasonId = 'season-1'
+    ..hasActiveCostumeRoleInSeason = hasRole
+    ..capabilities.replace(caps.map((c) => c.wireName)),
 );
 
 void main() {

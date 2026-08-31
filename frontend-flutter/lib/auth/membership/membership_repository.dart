@@ -1,46 +1,44 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: hy3 (opencode-go)
 
+import 'package:breakdown_api/breakdown_api.dart';
 import 'package:dio/dio.dart';
 import 'package:fpdart/fpdart.dart';
 
 import '../../core/problem_error.dart';
 import '../../core/result.dart';
-import 'season_membership.dart';
 
 /// Reads the season-scoped membership projection that backs the
 /// client-side AUTHZ-GATE (D2 — one endpoint, no cross-projection
-/// reconstruction; CQRS-boundary rule).
+/// reconstruction; CQRS-boundary rule, AGENTS.md §1).
 ///
-/// Contract status: `GET /v1/seasons/{seasonId}/membership` is not in
-/// `backend/openapi.yaml` yet (follow-up backend change). Until the generated
-/// client gains the endpoint, this repository performs the call directly on
-/// the pinned Dio and parses [SeasonMembershipDto] — the wire contract is
-/// frozen by D2, so switching to generated types later is a drop-in
-/// replacement inside this class.
+/// Consumes the generated `breakdown_api` client (AGENTS.md §3 — never
+/// hand-type responses). The mirror DTO that predated the backend route was
+/// deleted once `GET /v1/seasons/{seasonId}/membership` landed in
+/// `backend/openapi.yaml` (issue #311) and the client was regenerated.
 class MembershipRepository {
-  const MembershipRepository(this._dio);
+  const MembershipRepository(this._api);
 
-  final Dio _dio;
+  final BreakdownApi _api;
 
   /// Fetches the membership DTO for [seasonId].
   ///
   /// Never throws (no-throw rule, AGENTS.md §5): every failure — transport
-  /// error, non-2xx with an RFC 9457 problem document, malformed body — is a
-  /// `Left(ProblemError)` carrying the backend's stable `code` (the UI
-  /// localizes from `code`, never from `detail`).
+  /// error, non-2xx with an RFC 9457 problem document, or a body the generated
+  /// serializer cannot decode — is a `Left(ProblemError)` carrying the
+  /// backend's stable `code` (the UI localizes from `code`, never from
+  /// `detail`).
   Future<Result<SeasonMembershipDto>> fetch(String seasonId) async {
     try {
-      final response = await _dio.get<Map<String, dynamic>>(
-        '/v1/seasons/$seasonId/membership',
-        options: Options(responseType: ResponseType.json),
+      final response = await _api.getHandlersApi().getSeasonMembership(
+        id: seasonId,
       );
-      final body = response.data;
-      if (body == null) {
+      final dto = response.data;
+      if (dto == null) {
         return const Left(ProblemError(code: 'membership.dto_invalid'));
       }
-      return SeasonMembershipDto.parse(body);
+      return Right(dto);
     } on DioException catch (e) {
       // A forbidden/missing season arrives as problem+json with a stable
       // code (e.g. `season.not_found`); transport failures surface under the

@@ -9,6 +9,8 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:breakdown_api/breakdown_api.dart';
+import 'package:frontend_flutter/auth/membership/capability.dart';
 import 'package:frontend_flutter/auth/membership/membership_repository.dart';
 
 class _MembershipServer {
@@ -44,7 +46,9 @@ void main() {
   tearDownAll(() => api.close());
 
   MembershipRepository repo() => MembershipRepository(
-    Dio(BaseOptions(baseUrl: 'http://127.0.0.1:${api.server.port}')),
+    BreakdownApi(
+      dio: Dio(BaseOptions(baseUrl: 'http://127.0.0.1:${api.server.port}')),
+    ),
   );
 
   const memberBody = {
@@ -72,7 +76,7 @@ void main() {
     );
 
     test(
-      'unknown capability strings reject the DTO (strict D2 contract)',
+      'unknown capability strings are tolerated (additive contract)',
       () async {
         api
           ..status = 200
@@ -82,13 +86,13 @@ void main() {
             'capabilities': ['upload_continuity_photos', 'future_capability'],
           };
         final result = await repo().fetch('s');
-        // Strict per the frozen D2 contract: an unknown capability means the
-        // wire shape drifted from the contract — error loudly instead of
-        // silently mis-gating.
-        expect(
-          result.fold((e) => e.code, (_) => throw 'expected Left'),
-          'membership.dto_invalid',
-        );
+        final dto = result.fold((e) => throw e, (d) => d);
+        // The known gate is enabled by the known cap; the unknown cap is
+        // inert (the server remains authoritative). The wire DTO still stores
+        // the unknown entry — server-additive extension tolerance.
+        expect(dto.canUploadContinuityPhotos, isTrue);
+        expect(dto.canAssignCostumes, isFalse);
+        expect(dto.capabilities, contains('future_capability'));
       },
     );
 
@@ -114,15 +118,18 @@ void main() {
     );
 
     test(
-      'malformed DTO body maps to membership.dto_invalid (Err branch)',
+      'malformed DTO body maps to a transport problem (Err branch)',
       () async {
         api
           ..status = 200
           ..body = {'unexpected': 'shape'};
         final result = await repo().fetch('season-1');
+        // The generated client cannot deserialize the body into a
+        // SeasonMembershipDto; the failure surfaces as a transport-level Err
+        // (never swallowed, AGENTS.md §5) rather than a mis-gated DTO.
         expect(
           result.fold((e) => e.code, (_) => throw 'expected Left'),
-          'membership.dto_invalid',
+          startsWith('transport.'),
         );
       },
     );
@@ -131,7 +138,7 @@ void main() {
       'connection failure maps to a transport problem (Err branch)',
       () async {
         final dead = MembershipRepository(
-          Dio(BaseOptions(baseUrl: 'http://127.0.0.1:9')),
+          BreakdownApi(dio: Dio(BaseOptions(baseUrl: 'http://127.0.0.1:9'))),
         );
         final result = await dead.fetch('season-1');
         expect(
