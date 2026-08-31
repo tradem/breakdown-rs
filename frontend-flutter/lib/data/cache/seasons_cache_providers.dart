@@ -58,9 +58,11 @@ SeasonRepository seasonRepository(Ref ref) => SeasonRepository(
 @riverpod
 Future<Result<List<SeasonView>>> seasonsListFetch(Ref ref) {
   final repo = ref.watch(seasonRepositoryProvider);
+  final clock = ref.watch(clockProvider);
   return repo.fetchAndCacheList(
     () async =>
         const Left(ProblemError(code: 'transport.seasons_list_unavailable')),
+    clock: clock,
   );
 }
 
@@ -166,7 +168,7 @@ final seasonsView = Provider<SeasonsView>((ref) {
     AsyncData(:final value) => value,
     AsyncError(:final error) => SeasonsView(
       rows: prev,
-      isStale: true,
+      isStale: prev.isNotEmpty,
       error: error is ProblemError
           ? error
           : const ProblemError(code: 'unknown'),

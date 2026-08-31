@@ -73,7 +73,14 @@ class SeasonRepository extends BaseRepository {
   ) => fetched.match((err) async => Left<ProblemError, SeasonView>(err), (
     view,
   ) async {
-    await cache.upsert(view, clock.now());
+    try {
+      await cache.upsert(view, clock.now());
+    } on Object {
+      // A cache write failure is a transport-level fault, not a server
+      // problem; surface it as a Result so callers can handle it
+      // (AGENTS.md §5: no throw in data/, return Result).
+      return const Left(ProblemError(code: 'cache.write_failed'));
+    }
     return Right(view);
   });
 
@@ -92,7 +99,14 @@ class SeasonRepository extends BaseRepository {
     return result.match(
       (err) async => Left<ProblemError, List<SeasonView>>(err),
       (views) async {
-        await cache.applySnapshot(views, clock.now());
+        try {
+          await cache.applySnapshot(views, clock.now());
+        } on Object {
+          // A cache write failure is a transport-level fault, not a server
+          // problem; surface it as a Result so callers can handle it
+          // (AGENTS.md §5: no throw in data/, return Result).
+          return const Left(ProblemError(code: 'cache.write_failed'));
+        }
         return Right(views);
       },
     );

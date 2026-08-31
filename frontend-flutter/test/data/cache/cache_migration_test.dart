@@ -27,6 +27,7 @@ void main() {
     // 1. App installed at v1: create the schema (table `probe_rows` WITHOUT
     // `archived`) and persist a row.
     final v1 = ProbeDatabaseV1(NativeDatabase(file));
+    addTearDown(() => v1.close());
     await v1
         .into(v1.probeRowsV1)
         .insert(ProbeRowsV1Companion.insert(id: 's1', name: 'Spring'));
@@ -35,6 +36,7 @@ void main() {
     // 2. App upgraded to v2: reopening the same file triggers the additive
     // migration; the existing row is preserved and the new column round-trips.
     final v2 = ProbeDatabaseV2(NativeDatabase(file));
+    addTearDown(() => v2.close());
     final rows = await v2.select(v2.probeRowsV2).get();
 
     expect(rows, hasLength(1));

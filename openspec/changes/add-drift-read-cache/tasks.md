@@ -8,6 +8,7 @@
 - [x] 1.2 `drift_dev` codegen wired into `build_runner`
 
 ## 2. Repository cache pattern
+
 - [x] 2.1 Fresh fetch → upsert-by-id into Drift → `AsyncValue` emit
 - [x] 2.2 Cache is the single source for screen state (no direct API reads
        in widgets)
@@ -18,12 +19,14 @@
        same transaction (asserts D3 delete-missing-ids)
 
 ## 3. Invalidation
+
 - [x] 3.1 TTL invalidation per table
 - [x] 3.2 On-write-invalidate: successful command mutating a projection
        triggers a refetch of the affected read
 - [x] 3.3 No silent discarded fetch errors (surface as `AsyncError`)
 
 ## 4. Offline behavior
+
 - [x] 4.1 Cold-start offline render of last cached rows with stale indicator
 - [x] 4.2 Write actions disabled with localized "online required" message
 - [x] 4.3 Widget test for the stale-indicator + disabled-FAB path
@@ -35,6 +38,7 @@
        (not the obsolete initial cache read) with a stale marker
 
 ## 5. Migration discipline
+
 - [x] 5.1 Drift migration test: DTO shape change → migration in same PR
        (`test/data/cache/cache_migration_test.dart`, using file-backed DB +
        two schema versions per AGENTS.md §8)
