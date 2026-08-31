@@ -631,6 +631,9 @@ dead-letter jobs). `MemoryAiPreviewStore` is test-only.
 For auth-related work, you can boot a self-hosted Logto IdP using the IdP overlay. **This is dev-only**; production IdP runtime is governed by ADR-010 (Logto Cloud first, Zitadel migration later) and is not provided by this dev overlay.
 
 ```bash
+# Generate the dev CA + leaf certs (IdP + API) — creates dev-certs/
+./scripts/generate-dev-certs.sh
+
 # Boot the full stack with IdP
 docker compose -f docker-compose.dev.yml -f docker-compose.idp.yml up -d
 
@@ -639,18 +642,22 @@ docker compose -f docker-compose.dev.yml -f docker-compose.idp.yml up -d
 ```
 
 This starts:
-- **Logto OIDC** on `http://localhost:3301` — issuer URL for OIDC flows
-- **Logto Admin UI** on `http://localhost:3302` — admin console and Admin API
+- **Logto OIDC** on `https://localhost:3301` — issuer URL for OIDC flows (HTTPS, cert signed by the dev CA)
+- **Logto Admin UI** on `https://localhost:3302` — admin console and Admin API (HTTPS)
 - **logto-db** — dedicated Postgres for Logto state (isolated from breakdown read-model)
 
 After seeding, the `.env.idp` file contains:
-- `OIDC_ISS` — Issuer URL (e.g., `http://localhost:3301`)
+- `OIDC_ISS` — Issuer URL (e.g., `https://localhost:3301`)
 - `OIDC_AUDIENCE` — Resource indicator for your API (e.g., `https://api.breakdown.local`)
-- `OIDC_JWKS_URL` — JWKS endpoint for key discovery (e.g., `http://localhost:3301/.well-known/jwks`)
+- `OIDC_JWKS_URL` — JWKS endpoint for key discovery (e.g., `https://localhost:3301/.well-known/jwks`)
+
+**Dev IdP TLS (D1 primary):** The IdP serves HTTPS on `:3301` with a leaf cert signed by the dev CA (`dev-certs/ca.pem`). The same CA signs the API cert (`dev-certs/api.pem`), so the Flutter client pins one CA set for both hosts. The leaf certs include `10.0.2.2` as a SAN for Android emulator reachability — the emulator connects to the IdP at `https://10.0.2.2:3301`.
+
+> **First-time setup:** Run `./scripts/generate-dev-certs.sh` before booting the IdP overlay — `docker-compose.idp.yml` mounts `dev-certs/idp.{pem,key}` into the Logto container. The generated certs are git-ignored (see `.gitignore`).
 
 **Dev ≠ Prod IdP:** The backend validates standard OIDC JWTs and is IdP-agnostic. Dev uses self-hosted Logto for convenience; production may use Logto Cloud or Zitadel per ADR-010. No code changes are needed to switch IdPs — only the environment variables change.
 
-**Frontend note:** Local frontend dev should configure the OIDC client to point to `http://localhost:3301` for the issuer.
+**Frontend note:** Local frontend dev should configure the OIDC client to point to `https://localhost:3301` for the issuer. The dev CA (`dev-certs/ca.pem`) replaces the placeholder in `frontend-flutter/assets/certs/dev/ca.pem` — copy it there so the Flutter client trusts the dev IdP + API.
 
 ## 7. Licensing & Headers
 - **License:** AGPL-3.0 (see `LICENSE`)

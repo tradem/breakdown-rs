@@ -1333,6 +1333,30 @@ components:
       description: Opaque identifier for a `Season` aggregate.
       format: uuid
       type: string
+    SeasonMembershipDto:
+      description: |-
+        Season membership DTO — the single source of truth for the client-side
+        AUTHZ-GATE (D2 of the `wire-flutter-oidc-auth` change).
+
+        `has_active_costume_role_in_season` is the backend-computed predicate the
+        client must NOT re-implement (CQRS-boundary rule). `capabilities` is derived
+        server-side from the caller's active costume-dept role; the client consumes
+        it with strict parsing (unknown entries reject the DTO).
+      properties:
+        capabilities:
+          items:
+            type: string
+          type: array
+        has_active_costume_role_in_season:
+          type: boolean
+        season_id:
+          format: uuid
+          type: string
+      required:
+      - season_id
+      - has_active_costume_role_in_season
+      - capabilities
+      type: object
     SeasonView:
       description: |-
         Complete season read model.
@@ -3612,6 +3636,38 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: ''
+      tags:
+      - handlers
+  /v1/seasons/{id}/membership:
+    get:
+      operationId: get_season_membership
+      parameters:
+      - description: Season id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeasonMembershipDto'
+          description: Membership of the authenticated caller in the season
+        '401':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Authentication required
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Season not found
       tags:
       - handlers
   /v1/seasons/{id}/name:

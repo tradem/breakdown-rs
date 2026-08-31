@@ -79,6 +79,7 @@ export 'package:breakdown_api/src/model/role.dart';
 export 'package:breakdown_api/src/model/scene_details.dart';
 export 'package:breakdown_api/src/model/scene_view.dart';
 export 'package:breakdown_api/src/model/schedule_scene_request.dart';
+export 'package:breakdown_api/src/model/season_membership_dto.dart';
 export 'package:breakdown_api/src/model/season_view.dart';
 export 'package:breakdown_api/src/model/settings_view.dart';
 export 'package:breakdown_api/src/model/shooting_day_source.dart';

@@ -72,6 +72,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(SceneDetails.serializer)
       ..add(SceneView.serializer)
       ..add(ScheduleSceneRequest.serializer)
+      ..add(SeasonMembershipDto.serializer)
       ..add(SeasonView.serializer)
       ..add(SettingsView.serializer)
       ..add(ShootingDaySource.serializer)
@@ -111,6 +112,9 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(PhotoVariantView)]),
           () => ListBuilder<PhotoVariantView>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(String)]),
           () => ListBuilder<String>())

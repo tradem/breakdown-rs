@@ -545,6 +545,77 @@ pub async fn get_season<P: Ports>(
     Ok((StatusCode::OK, Json(view)))
 }
 
+/// Season membership DTO — the single source of truth for the client-side
+/// AUTHZ-GATE (D2 of the `wire-flutter-oidc-auth` change).
+///
+/// `has_active_costume_role_in_season` is the backend-computed predicate the
+/// client must NOT re-implement (CQRS-boundary rule). `capabilities` is derived
+/// server-side from the caller's active costume-dept role; the client consumes
+/// it with strict parsing (unknown entries reject the DTO).
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct SeasonMembershipDto {
+    pub season_id: Uuid,
+    pub has_active_costume_role_in_season: bool,
+    #[schema(value_type = Vec<String>)]
+    pub capabilities: Vec<String>,
+}
+
+/// Derive the caller's season-scoped capabilities from their active costume-dept
+/// role.
+///
+/// v1 maps a single boolean (`has_active_costume_role_in_season`) to the full
+/// capability set: a costumer with any active costume-dept role in the season
+/// can both upload continuity photos and assign costumes. Future role-distinct
+/// policies can split this without changing the DTO surface.
+fn derive_capabilities(has_active_costume_role_in_season: bool) -> Vec<String> {
+    if has_active_costume_role_in_season {
+        vec![
+            "upload_continuity_photos".to_string(),
+            "assign_costumes".to_string(),
+        ]
+    } else {
+        Vec::new()
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/seasons/{id}/membership",
+    params(("id" = Uuid, Path, description = "Season id")),
+    responses(
+        (status = 200, body = SeasonMembershipDto, description = "Membership of the authenticated caller in the season"),
+        (status = 401, body = ProblemDetails, description = "Authentication required"),
+        (status = 404, body = ProblemDetails, description = "Season not found"),
+    ),
+)]
+pub async fn get_season_membership<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<SeasonMembershipDto> {
+    // Verify the season exists — returns `season.not-found` (404) on miss. The
+    // API edge is the only legitimate consumer of this read-model query
+    // (CQRS-boundary rule).
+    let season = state.ports.season_repo().find_by_id(id).await?;
+
+    // Backend-computed membership predicate — the single source of truth for
+    // the client-side AUTHZ-GATE.
+    let has_role = state
+        .ports
+        .membership_repo()
+        .has_active_costume_role_in_season(SeasonId::from_uuid(season.id), current_user.sub.clone())
+        .await?;
+
+    Ok((
+        StatusCode::OK,
+        Json(SeasonMembershipDto {
+            season_id: id,
+            has_active_costume_role_in_season: has_role,
+            capabilities: derive_capabilities(has_role),
+        }),
+    ))
+}
+
 #[utoipa::path(
     patch,
     path = "/seasons/{id}/name",
@@ -4480,6 +4551,10 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         )
         .route("/seasons", routing::post(create_season::<ProductionPorts>))
         .route("/seasons/{id}", routing::get(get_season::<ProductionPorts>))
+        .route(
+            "/seasons/{id}/membership",
+            routing::get(get_season_membership::<ProductionPorts>),
+        )
         .route(
             "/seasons/{id}/name",
             routing::patch(rename_season::<ProductionPorts>),

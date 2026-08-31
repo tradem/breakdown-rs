@@ -81,6 +81,7 @@ import 'package:breakdown_api/src/model/role.dart';
 import 'package:breakdown_api/src/model/scene_details.dart';
 import 'package:breakdown_api/src/model/scene_view.dart';
 import 'package:breakdown_api/src/model/schedule_scene_request.dart';
+import 'package:breakdown_api/src/model/season_membership_dto.dart';
 import 'package:breakdown_api/src/model/season_view.dart';
 import 'package:breakdown_api/src/model/settings_view.dart';
 import 'package:breakdown_api/src/model/shooting_day_source.dart';
@@ -168,6 +169,7 @@ part 'serializers.g.dart';
   SceneDetails,
   SceneView,
   ScheduleSceneRequest,
+  SeasonMembershipDto,
   SeasonView,
   SettingsView,
   ShootingDaySource,

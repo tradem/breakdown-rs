@@ -626,22 +626,43 @@ impl CostumeCategoryRepository for FakeCostumeCategoryRepo {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 #[allow(dead_code)]
-pub struct FakeSeasonRepo;
+pub struct FakeSeasonRepo {
+    /// When `false`, `find_by_id` returns a not-found error (the
+    /// `season.not-found` problem). Lets handler tests cover the 404 path
+    /// without a real projection. Defaults to `true` (season exists).
+    pub season_exists: bool,
+}
+
+impl Default for FakeSeasonRepo {
+    fn default() -> Self {
+        Self {
+            season_exists: true,
+        }
+    }
+}
 
 impl SeasonRepository for FakeSeasonRepo {
     async fn find_by_id(&self, id: Uuid) -> Result<SeasonView, DomainError> {
-        // Return a stub SeasonView so handlers can resolve series_id
-        // for EventMetadata without a real projection.
-        Ok(SeasonView {
-            id,
-            series_id: SeriesId::from_uuid(Uuid::now_v7()),
-            number: 1,
-            title: None,
-            version: AggregateVersion::INITIAL,
-            updated_at: chrono::Utc::now(),
-        })
+        if self.season_exists {
+            // Return a stub SeasonView so handlers can resolve series_id
+            // for EventMetadata without a real projection.
+            Ok(SeasonView {
+                id,
+                series_id: SeriesId::from_uuid(Uuid::now_v7()),
+                number: 1,
+                title: None,
+                version: AggregateVersion::INITIAL,
+                updated_at: chrono::Utc::now(),
+            })
+        } else {
+            Err(DomainError::NotFound {
+                code: &breakdown_core::error_registry::SEASON_NOT_FOUND,
+                resource: "season",
+                id,
+            })
+        }
     }
     async fn list_by_series(
         &self,
