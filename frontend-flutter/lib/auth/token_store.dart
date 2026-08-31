@@ -82,6 +82,19 @@ class SecureTokenStore implements TokenStore {
       await _storage.write(key: _kExpiresAt, value: at?.toIso8601String());
       return const Right(null);
     } catch (e) {
+      // A failed save must never leave a MIXED session (e.g. new access token
+      // with the previous user's refresh/ID token — the UI would identify one
+      // user while API calls authenticate as another). Wipe every session
+      // field before propagating the error; read() then reports signed-out.
+      try {
+        await _storage.delete(key: _kAccess);
+        await _storage.delete(key: _kRefresh);
+        await _storage.delete(key: _kIdJwt);
+        await _storage.delete(key: _kExpiresAt);
+      } catch (_) {
+        // The wipe itself failing cannot be reported more loudly than the
+        // original error; the caller already gets a failed save.
+      }
       return Left(
         ProblemError(code: 'auth.token_store_write_failed', detail: '$e'),
       );

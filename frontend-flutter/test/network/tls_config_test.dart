@@ -32,8 +32,8 @@ void main() {
     });
 
     test('an empty PEM fails closed', () async {
-      expect(
-        () => loadPinnedSecurityContext(config, inlinePem: '   '),
+      await expectLater(
+        loadPinnedSecurityContext(config, inlinePem: '   '),
         throwsA(
           isA<TlsConfigError>().having(
             (e) => e.message,
@@ -45,8 +45,8 @@ void main() {
     });
 
     test('a non-PEM body fails closed', () async {
-      expect(
-        () => loadPinnedSecurityContext(config, inlinePem: 'not a cert'),
+      await expectLater(
+        loadPinnedSecurityContext(config, inlinePem: 'not a cert'),
         throwsA(
           isA<TlsConfigError>().having(
             (e) => e.message,
@@ -61,8 +61,8 @@ void main() {
       final garbage =
           '-----BEGIN CERTIFICATE-----\nZm9vYmFy\n'
           '-----END CERTIFICATE-----';
-      expect(
-        () => loadPinnedSecurityContext(config, inlinePem: garbage),
+      await expectLater(
+        loadPinnedSecurityContext(config, inlinePem: garbage),
         throwsA(isA<TlsConfigError>()),
       );
     });

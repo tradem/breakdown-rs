@@ -77,9 +77,24 @@ Future<Result<OidcClient>> oidcClient(Ref ref) async {
 /// at the composition root once the native Custom-Tabs wiring lands; tests
 /// inject fakes.
 @Riverpod(keepAlive: true)
-AuthorizationUi authorizationUi(Ref ref) => throw UnimplementedError(
-  'authorizationUiProvider must be overridden (platform browser wiring)',
-);
+AuthorizationUi authorizationUi(Ref ref) =>
+    const NotConfiguredAuthorizationUi();
+
+/// Fail-closed stand-in for the not-yet-wired platform browser/deep-link leg:
+/// sign-in surfaces a clear error instead of crashing with
+/// `UnimplementedError`. Never relaxes anything — no authorization request is
+/// started, and the API/IdP transports are unaffected.
+class NotConfiguredAuthorizationUi implements AuthorizationUi {
+  const NotConfiguredAuthorizationUi();
+
+  @override
+  Future<Result<Uri>> launch(Uri authorizationUrl) async => const Left(
+    ProblemError(
+      code: 'oidc.authorization_ui_not_configured',
+      detail: 'platform browser wiring is not installed in this build',
+    ),
+  );
+}
 
 /// One authenticated session. [tokens] is `null` in dev-auth mode (the
 /// backend skips verification for `DEV_AUTH_SUB`, so there are no real

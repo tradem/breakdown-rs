@@ -87,12 +87,19 @@ class SeasonMembershipDto {
       return const Left(ProblemError(code: 'membership.dto_invalid'));
     }
     final rawCaps = json['capabilities'];
+    if (rawCaps is! List) {
+      return const Left(ProblemError(code: 'membership.dto_invalid'));
+    }
     final caps = <Capability>{};
-    if (rawCaps is List) {
-      for (final raw in rawCaps) {
-        final c = raw is String ? Capability.tryParse(raw) : null;
-        if (c != null) caps.add(c);
+    for (final raw in rawCaps) {
+      // Strict per the frozen D2 contract: an entry that is not a string, or
+      // a string this client does not know, means the wire shape has drifted
+      // from the contract — error loudly instead of silently mis-gating.
+      final c = raw is String ? Capability.tryParse(raw) : null;
+      if (c == null) {
+        return const Left(ProblemError(code: 'membership.dto_invalid'));
       }
+      caps.add(c);
     }
     return Right(
       SeasonMembershipDto(

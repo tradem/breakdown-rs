@@ -18,15 +18,23 @@ import 'package:frontend_flutter/core/result.dart';
 /// The authorization-UI double: returns a canned redirect URI and records the
 /// launched URL so tests can assert the PKCE/audience request parameters.
 class _FakeAuthorizationUi implements AuthorizationUi {
-  _FakeAuthorizationUi(this.redirect);
+  _FakeAuthorizationUi(this.redirect, {this.stateOverride});
 
   Uri? launchedUrl;
   Result<Uri> redirect;
 
+  /// When set, replaces the state echoed back (to simulate CSRF/tampering).
+  String? stateOverride;
+
   @override
   Future<Result<Uri>> launch(Uri authorizationUrl) async {
     launchedUrl = authorizationUrl;
-    return redirect;
+    return redirect.fold((e) => Left(e), (uri) {
+      final state = stateOverride ?? authorizationUrl.queryParameters['state'];
+      final params = Map.of(uri.queryParameters);
+      if (state != null) params['state'] = state;
+      return Right(uri.replace(queryParameters: params));
+    });
   }
 }
 
@@ -196,6 +204,22 @@ void main() {
       },
     );
 
+    test(
+      'redirect with mismatched state is rejected (login-CSRF guard)',
+      () async {
+        final ui = _FakeAuthorizationUi(
+          Right(Uri.parse('breakdown://oauth-redirect?code=abc')),
+          stateOverride: 'attacker-state',
+        );
+        final client = await _clientFor(idp, ui);
+        final result = await client.authorize();
+        expect(
+          result.fold((e) => e.code, (_) => throw 'expected Left'),
+          'oidc.state_mismatch',
+        );
+      },
+    );
+
     test('a failed launch (transport) surfaces as Err', () async {
       final ui = _FakeAuthorizationUi(
         const Left(ProblemError(code: 'oidc.browser_unavailable')),
@@ -240,10 +264,11 @@ void main() {
         idp,
         _FakeAuthorizationUi(Right(Uri.parse('breakdown://x'))),
       );
-      final result = await client.refresh('rt-old');
+      final result = await client.refresh('rt-old', currentIdToken: 'id-old');
       final tokens = result.fold((e) => throw e, (t) => t);
       expect(tokens.accessToken, 'at-new');
       expect(tokens.refreshToken, 'rt-new');
+      expect(tokens.idToken, 'id-new'); // server-supplied id_token wins
       final form = idp.capturedForms.last;
       expect(form['grant_type'], 'refresh_token');
       expect(form['refresh_token'], 'rt-old');
@@ -253,20 +278,20 @@ void main() {
       'a refresh grant response without refresh_token keeps the old one',
       () async {
         final noRotate = await _TokenEndpointServer.start(
-          tokenResponse: const {
-            'access_token': 'at-2',
-            'id_token': 'id-2',
-            'expires_in': 60,
-          },
+          tokenResponse: const {'access_token': 'at-2', 'expires_in': 60},
         );
         try {
           final client = await _clientFor(
             noRotate,
             _FakeAuthorizationUi(Right(Uri.parse('breakdown://x'))),
           );
-          final result = await client.refresh('rt-presented');
+          final result = await client.refresh(
+            'rt-presented',
+            currentIdToken: 'id-old',
+          );
           final tokens = result.fold((e) => throw e, (t) => t);
           expect(tokens.refreshToken, 'rt-presented');
+          expect(tokens.idToken, 'id-old');
         } finally {
           await noRotate.close();
         }

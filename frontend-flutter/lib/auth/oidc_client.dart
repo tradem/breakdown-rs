@@ -2,6 +2,9 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (opencode-go)
 
+import 'dart:convert';
+import 'dart:math';
+
 import 'package:dio/dio.dart';
 import 'package:fpdart/fpdart.dart';
 
@@ -69,8 +72,13 @@ class OidcClient {
   final AuthorizationUi authorizationUi;
 
   /// Runs the full authorization-code + PKCE flow and returns the tokens.
+  ///
+  /// A cryptographically random `state` is bound to the request and verified
+  /// on the redirect (login-CSRF protection — the client must not accept an
+  /// authorization response it did not initiate).
   Future<Result<AuthTokens>> authorize() async {
     final pkce = Pkce.generate();
+    final state = _generateState();
     final params = {
       'response_type': 'code',
       'client_id': config.clientId,
@@ -78,6 +86,7 @@ class OidcClient {
       'scope': config.scopes.join(' '),
       'code_challenge': pkce.challenge,
       'code_challenge_method': Pkce.challengeMethod,
+      'state': state,
       if (config.audience != null) 'audience': config.audience!,
     };
     final endpoint = Uri.tryParse(discovery.authorizationEndpoint);
@@ -91,7 +100,10 @@ class OidcClient {
     if (redirect.isLeft()) {
       return Left(redirect.getLeft().toNullable()!);
     }
-    final codeResult = _extractCode(redirect.getRight().toNullable()!);
+    final codeResult = _extractCode(
+      redirect.getRight().toNullable()!,
+      expectedState: state,
+    );
     if (codeResult.isLeft()) {
       return Left(codeResult.getLeft().toNullable()!);
     }
@@ -106,21 +118,45 @@ class OidcClient {
   }
 
   /// Refresh grant (Task 1.3). Returns the rotated token set.
-  Future<Result<AuthTokens>> refresh(String refreshToken) => _tokenRequest({
+  ///
+  /// [currentIdToken] is the ID token of the session being refreshed: an OIDC
+  /// refresh response MAY omit `id_token` (the old one stays valid), in which
+  /// case the presented token is retained instead of failing the grant.
+  Future<Result<AuthTokens>> refresh(
+    String refreshToken, {
+    required String currentIdToken,
+  }) => _tokenRequest({
     'grant_type': 'refresh_token',
     'refresh_token': refreshToken,
     'client_id': config.clientId,
-  });
+  }, fallbackIdToken: currentIdToken);
+
+  /// 128 bits of CSPRNG entropy, base64url-encoded — login-CSRF protection.
+  static String _generateState() {
+    final bytes = List<int>.generate(16, (_) => Random.secure().nextInt(256));
+    return base64Url.encode(bytes).replaceAll('=', '');
+  }
 
   /// Extracts the `code` from the redirect; an IdP error response
-  /// (`?error=...`) is mapped to a stable problem code.
-  Result<String> _extractCode(Uri redirect) {
+  /// (`?error=...`) is mapped to a stable problem code. The redirect's `state`
+  /// must equal the one sent with the request — any other value means the
+  /// response was not initiated by this client and is rejected.
+  Result<String> _extractCode(Uri redirect, {required String expectedState}) {
     final error = redirect.queryParameters['error'];
     if (error != null) {
       return Left(
         ProblemError(
           code: 'oidc.authorization_denied',
           detail: redirect.queryParameters['error_description'] ?? error,
+        ),
+      );
+    }
+    final state = redirect.queryParameters['state'];
+    if (state != expectedState) {
+      return const Left(
+        ProblemError(
+          code: 'oidc.state_mismatch',
+          detail: 'authorization redirect state does not match the request',
         ),
       );
     }
@@ -138,7 +174,14 @@ class OidcClient {
 
   /// Shared token-endpoint call (authorization-code and refresh grants).
   /// Never throws — every failure is a [ProblemError] value.
-  Future<Result<AuthTokens>> _tokenRequest(Map<String, String> form) async {
+  ///
+  /// Grant-aware `id_token` handling: required for authorization_code, MAY be
+  /// absent from a refresh response (RFC 6749 §6 / OIDC Core §12) — in that
+  /// case [fallbackIdToken] (the session's current ID token) is retained.
+  Future<Result<AuthTokens>> _tokenRequest(
+    Map<String, String> form, {
+    String? fallbackIdToken,
+  }) async {
     try {
       final response = await dio.post<Map<String, dynamic>>(
         discovery.tokenEndpoint,
@@ -153,8 +196,8 @@ class OidcClient {
         return const Left(ProblemError(code: 'oidc.token_response_empty'));
       }
       final accessToken = body['access_token'];
-      final idToken = body['id_token'];
-      if (accessToken is! String || idToken is! String) {
+      final idToken = body['id_token'] ?? fallbackIdToken;
+      if (accessToken is! String || idToken is! String || idToken.isEmpty) {
         return const Left(ProblemError(code: 'oidc.token_response_invalid'));
       }
       final refreshToken = body['refresh_token'];

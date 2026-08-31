@@ -72,7 +72,7 @@ void main() {
     );
 
     test(
-      'unknown capability strings are ignored (additive extension)',
+      'unknown capability strings reject the DTO (strict D2 contract)',
       () async {
         api
           ..status = 200
@@ -81,8 +81,14 @@ void main() {
             'has_active_costume_role_in_season': true,
             'capabilities': ['upload_continuity_photos', 'future_capability'],
           };
-        final dto = (await repo().fetch('s')).fold((e) => throw e, (d) => d);
-        expect(dto.capabilities, hasLength(1));
+        final result = await repo().fetch('s');
+        // Strict per the frozen D2 contract: an unknown capability means the
+        // wire shape drifted from the contract — error loudly instead of
+        // silently mis-gating.
+        expect(
+          result.fold((e) => e.code, (_) => throw 'expected Left'),
+          'membership.dto_invalid',
+        );
       },
     );
 
