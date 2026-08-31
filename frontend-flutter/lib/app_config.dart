@@ -2,6 +2,8 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: hy3 (opencode-go)
 
+import 'package:flutter/foundation.dart' show kReleaseMode;
+
 /// Runtime configuration for the Breakdown Flutter client.
 ///
 /// Values are sourced from `--dart-define` build flags (never hardcoded,
@@ -15,6 +17,10 @@ class AppConfig {
     required this.apiBase,
     required this.oidcIss,
     required this.devAuthSub,
+    required this.oidcAudience,
+    required this.oidcClientId,
+    required this.oidcRedirectUri,
+    required this.devIdpInsecure,
   });
 
   /// Reads configuration from the environment, defaulting the API base to the
@@ -32,12 +38,23 @@ class AppConfig {
         : apiBaseRaw;
     const oidcIss = String.fromEnvironment('OIDC_ISS');
     const devAuthSub = String.fromEnvironment('DEV_AUTH_SUB');
+    const oidcAudience = String.fromEnvironment('OIDC_AUDIENCE');
+    const oidcClientId = String.fromEnvironment('OIDC_CLIENT_ID');
+    const oidcRedirectUri = String.fromEnvironment('OIDC_REDIRECT_URI');
+    // D1 exception flag — read ONLY where a dev-flavor guard allows it; the
+    // composition root aborts startup when it is set under any non-dev flavor
+    // or a release build (see bootstrap()).
+    const devIdpInsecure = String.fromEnvironment('DEV_IDP_INSECURE');
 
     return AppConfig(
       flavor: flavor,
       apiBase: apiBase,
       oidcIss: oidcIss,
       devAuthSub: devAuthSub,
+      oidcAudience: oidcAudience,
+      oidcClientId: oidcClientId,
+      oidcRedirectUri: oidcRedirectUri,
+      devIdpInsecure: devIdpInsecure,
     );
   }
 
@@ -46,10 +63,35 @@ class AppConfig {
   final String oidcIss;
   final String devAuthSub;
 
+  /// Requested token audience — mirrors the backend's `OIDC_AUDIENCE` (ADR-018);
+  /// the backend independently validates the token's `aud` claim.
+  final String oidcAudience;
+
+  /// Public PKCE client id (no client secret on a public native client).
+  final String oidcClientId;
+
+  /// Deep-link redirect URI the IdP redirects back to after authorization.
+  final String oidcRedirectUri;
+
+  /// Raw `DEV_IDP_INSECURE` dart-define. NEVER consult this directly outside
+  /// a dev-flavor, non-release guard; see [devIdpHttpAllowed] and the
+  /// startup checks in `bootstrap()` (D1 — dev-flavor-only documented
+  /// exception, impossible in prod/release).
+  final String devIdpInsecure;
+
   bool get isDev => flavor == Flavor.dev;
 
   /// Dev-auth mode parity (scaffold Task 3.4): the dummy/permissive user is
   /// treated as authenticated only when `OIDC_ISS` is absent AND `DEV_AUTH_SUB`
-  /// is set. This is intentionally impossible to satisfy in the `prod` flavor.
+  /// is set — the exact backend predicate (ADR-018 D6). This is intentionally
+  /// impossible to satisfy in the `prod` flavor.
   bool get devAuthMode => isDev && oidcIss.isEmpty && devAuthSub.isNotEmpty;
+
+  /// Whether the documented dev IdP HTTP port-forward exception (D1) is active:
+  /// dev flavor only, non-release only, and only when the flag is explicitly
+  /// set. Every non-dev flavor and every release build rejects the flag at
+  /// startup (bootstrap()), so this can never relax pinning in a prod
+  /// artifact. Even when true, only the IdP host's transport is relaxed — the
+  /// API host remains pinned.
+  bool get devIdpHttpAllowed => isDev && !kReleaseMode && devIdpInsecure == '1';
 }
