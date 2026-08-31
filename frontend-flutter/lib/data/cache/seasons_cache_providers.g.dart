@@ -288,7 +288,7 @@ final class SeasonsListFetchProvider
   }
 }
 
-String _$seasonsListFetchHash() => r'09c8b5679bc181cab28706a293ceec2caa49bc5e';
+String _$seasonsListFetchHash() => r'265d74d5e3ba241e00c48bf8e423b43f9c9ba0cf';
 
 /// Read-projection controller (Design Decisions D1–D4).
 ///
@@ -354,7 +354,7 @@ final class SeasonsViewControllerProvider
 }
 
 String _$seasonsViewControllerHash() =>
-    r'a312bd22870f6b371d9e66fc79e51ef91404864e';
+    r'06f5b053055a4796e9e99031b4a4d78a6f28d4d7';
 
 /// Read-projection controller (Design Decisions D1–D4).
 ///
