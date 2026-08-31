@@ -49,7 +49,7 @@
 The PR #269 review flagged open design questions for this change. They are
 resolved in `proposal.md` (Design Decisions D1–D4) and encoded as
 requirements in `specs/flutter-offline-scope/spec.md`. Implementation Tasks
-1–5 remain open; the design gap is closed.
+1–5 are complete (see the `[x]` entries above); the design gap is closed.
 - [x] Repository/provider boundary defined (D1: `fetchAndCache` → upsert in
       one txn → `readCached` → `Result`; controller → `AsyncValue`; widgets
       read provider only)
