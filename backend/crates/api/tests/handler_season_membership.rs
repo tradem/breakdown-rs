@@ -28,9 +28,11 @@ use common::*;
 
 #[tokio::test]
 async fn get_season_membership_returns_404_for_missing_season() {
-    let mut ports = FakePorts::default();
-    ports.season_repo = FakeSeasonRepo {
-        season_exists: false,
+    let ports = FakePorts {
+        season_repo: FakeSeasonRepo {
+            season_exists: false,
+        },
+        ..Default::default()
     };
     let id = Uuid::now_v7();
     let result = get_season_membership::<FakePorts>(
