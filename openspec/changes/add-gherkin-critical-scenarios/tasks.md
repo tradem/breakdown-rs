@@ -10,7 +10,8 @@
 ## 2. Soll-Ist report `.feature`
 - [x] 2.1 Scenarios: planned vs actual, moved/missing/skipped/reshot flags,
        `final` from `wrapped_at`
-- [x] 2.2 Steps exercise the report screen end-to-end on device
+- [x] 2.2 Steps defined to exercise the report screen end-to-end on device
+       (scaffolded; gated @pending until the screen lands)
 
 ## 3. Continuity photo capture `.feature`
 - [x] 3.1 Scenario: unprivileged user's capture request is sent to the
@@ -20,7 +21,8 @@
        network call leaves the device) as a separate assertion so BOTH gates
        are exercised
 - [x] 3.2 Scenario: upload → projector-lag reconciliation → thumb appears
-- [x] 3.3 Steps run via `flutter_gherkin` on device
+- [x] 3.3 Steps defined to run via `flutter_gherkin` on device (scaffolded;
+       gated @pending until the screen lands)
 
 ## 4. Costume assignment `.feature`
 - [x] 4.1 Scenario: command → optimistic update → projection refresh
@@ -29,4 +31,6 @@
 ## 5. Discipline
 - [x] 5.1 Review challenge rule documented: a `.feature` step whose body
        only calls a pure function belongs in the unit-test tier
-- [x] 5.2 CI gate (or review checklist) enforcing the on-device requirement
+- [x] 5.2 CI gate (or review checklist) enforcing the on-device requirement:
+       structural gate (`dart analyze` + `check_gherkin.sh`) plus the
+       review-only pure-function rule (5.1)

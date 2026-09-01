@@ -48,7 +48,15 @@ The `@critical` acceptance scenarios are currently tagged `@pending` because
 their screens are not yet landed; the runner's `tagExpression` is
 `not @pending`, so the default on-device pass runs only `smoke.feature`. When a
 screen ships, **remove `@pending` from its Scenario(s)** to promote them into
-the on-device pass.
+the on-device pass. A critical scope may be fully promoted (no `@pending` left
+— it then runs on device); the static checker allows both the pending and the
+promoted states.
+
+The API endpoint is **configurable**, not bound to the Android-emulator host
+alias: `tool/run_gherkin.sh` reads `API_BASE` (and `DEV_AUTH_SUB`) from the
+environment, defaulting to `http://10.0.2.2:3000` (emulator loopback) and the
+dev dummy principal. A physical device or other target supplies a
+network-reachable `API_BASE`.
 
 ## Task 5.1 — Review challenge rule
 
@@ -86,9 +94,13 @@ Two complementary gates enforce the on-device requirement:
    - `dart analyze integration_test/gherkin` — the runner, its configuration
      and every step definition must compile (cheap, non-flaky).
    - `bash tool/check_gherkin.sh` — enforces the discipline: the three
-     designated critical `.feature` files exist; every `@critical` scenario is
-     also `@pending` (i.e. not promoted into the on-device pass before its
-     screen lands); and the runner config excludes `@pending`.
+     designated critical `.feature` files exist and are tagged
+     `@critical` (as real Gherkin tags, not prose); each has at least one
+     `Scenario`; and the runner config excludes `@pending`
+     (`tagExpression: 'not @pending'`). A critical scope may be either still
+     `@pending` (screen not landed) or **fully promoted** (no `@pending` left
+     — it then runs on device). Both are valid; the checker no longer fails a
+     promoted critical feature.
 
 2. **On-device gate** (`tool/run_gherkin.sh`, run against a device/emulator):
    the authoritative execution of the acceptance scenarios. It is the
@@ -96,6 +108,10 @@ Two complementary gates enforce the on-device requirement:
    follow-up change that lands each critical screen (at which point its
    `@pending` tag is removed and the scenario enters the on-device pass).
 
-A PR that ships a critical screen without removing `@pending` from its
-scenario, or that adds a `.feature` step whose body is a pure-function check,
-fails the static gate or the review checklist.
+The **pure-function-step rule (Task 5.1)** is a **review-only** gate: reliably
+auto-detecting “a step body that only calls a pure function” is not feasible,
+so `check_gherkin.sh` asserts the structural contract above and the reviewer
+applies the 5.1 challenge checklist to every `.feature`/step change. A PR that
+ships a critical screen without removing `@pending` from its scenario, or that
+adds a `.feature` step whose body is a pure-function check, fails the static
+gate or the review checklist.

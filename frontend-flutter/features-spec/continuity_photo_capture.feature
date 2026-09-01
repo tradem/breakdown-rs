@@ -7,23 +7,32 @@ Feature: Continuity photo capture (AUTHZ-GATE to thumb)
   Designated business-critical acceptance scope (AGENTS.md §6, spec
   flutter-gherkin-hybrid). End-to-end on device via flutter_gherkin.
 
-  Exercises BOTH authorization gates for capture (AGENTS.md §5, D6):
-    1. the client-side AUTHZ-GATE preflight (currentMembershipProvider) that
-       must refuse the request before any network call leaves the device, and
-    2. the server-side handler gate (SeasonPhotoAccessPolicy) that rejects the
-       request even if it were issued.
+  Exercises BOTH authorization gates (AGENTS.md §5, D6) as SEPARATE scenarios
+  so each is proven independently:
+    - the client-side AUTHZ-GATE preflight (currentMembershipProvider,
+      capability `upload_continuity_photos`) refuses BEFORE any network call
+      leaves the device (Scenario: client preflight); and
+    - the server-side handler gate (SeasonPhotoAccessPolicy) rejects a request
+      that does reach it (Scenario: server gate).
   Then the happy path: upload -> projector-lag reconciliation -> thumbnail.
 
   The continuity photo screen is not yet landed, so these scenarios are the
   acceptance contract and are tagged @pending until the screen ships.
 
   @pending
-  Scenario: Unprivileged capture is refused client-side before any network call
+  Scenario: Client-side AUTHZ-GATE refuses capture before any network call
     Given the app is launched in dev-auth mode
     And I am authenticated as a "viewer" user
     When I request to capture a continuity photo
     Then no network request leaves the device
-    And the backend rejects the capture with a denial
+    And the client refuses the capture with a denial
+
+  @pending
+  Scenario: Server-side handler rejects an unauthorized capture
+    Given the app is launched in dev-auth mode
+    And I am authenticated as a "costume_dept" user
+    When I request to capture a continuity photo for scene shoot "ssh-1"
+    Then the backend rejects the capture with a denial
 
   @pending
   Scenario: Upload reconciles through projector lag to a thumbnail

@@ -10,9 +10,14 @@
 #
 # Requires a device/emulator to be connected (the runner builds and installs
 # the instrumented app and drives it). The DEV_AUTH_SUB / API_BASE values are
-# supplied by the runner config (integration_test/gherkin/configuration.dart),
-# not hardcoded here.
+# taken from the environment so the suite is not bound to the Android-emulator
+# host alias: a physical device or other target supplies a network-reachable
+# API endpoint. Defaults match the emulator (10.0.2.2) and the dev dummy
+# principal.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+API_BASE="${API_BASE:-http://10.0.2.2:3000}"
+DEV_AUTH_SUB="${DEV_AUTH_SUB:-dev-e2e}"
+export API_BASE DEV_AUTH_SUB
 flutter pub get
 dart integration_test/gherkin/gherkin_runner.dart

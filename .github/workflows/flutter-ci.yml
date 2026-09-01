@@ -375,8 +375,6 @@ jobs:
           # the data/ and feature/ test tiers fill in.
           coverde check 60 --file-coverage-log-level overview
 
-          coverde check 60 --file-coverage-log-level overview
-
   # Gherkin critical-scenario harness + discipline gate (change
   # `add-gherkin-critical-scenarios`, spec flutter-gherkin-hybrid). Enforces
   # the on-device acceptance discipline for the three designated critical

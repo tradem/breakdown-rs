@@ -2,6 +2,8 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: hy3 (opencode-go)
 
+import 'dart:io';
+
 import 'package:flutter_gherkin/flutter_gherkin.dart';
 import 'package:gherkin/gherkin.dart';
 
@@ -45,7 +47,15 @@ Future<FlutterTestConfiguration> buildGherkinConfig() async {
     ..restartAppBetweenScenarios = true
     ..logFlutterProcessOutput = true
     ..verboseFlutterProcessLogs = false
-    ..dartDefineArgs = ['DEV_AUTH_SUB=dev-e2e', 'API_BASE=http://10.0.2.2:3000']
+    // Both values are configurable from the run environment so the suite is
+    // not bound to the Android-emulator host alias. `tool/run_gherkin.sh`
+    // exports API_BASE / DEV_AUTH_SUB (defaulting to the emulator URL and the
+    // dev dummy principal); a physical device or other target supplies a
+    // network-reachable API endpoint via the same variables.
+    ..dartDefineArgs = [
+      'DEV_AUTH_SUB=${Platform.environment['DEV_AUTH_SUB'] ?? 'dev-e2e'}',
+      'API_BASE=${Platform.environment['API_BASE'] ?? 'http://10.0.2.2:3000'}',
+    ]
     // Build the per-scenario world as an AppWorld so step definitions can
     // carry auth-role / network-recorder context without any pure-function
     // logic. The runner still wires the FlutterDriver onto it.

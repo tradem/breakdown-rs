@@ -23,10 +23,18 @@ class AppWorld extends FlutterWorld {
   /// `no network request leaves the device` step (AUTHZ-GATE preflight).
   int requestsLeftDevice = 0;
 
+  /// IDs from the most recent assign action, so assertion steps can build the
+  /// per-assignment widget keys (`overlay-assign-<costume>-<character>` and
+  /// `assigned-<costume>-<character>`).
+  String? lastCostumeId;
+  String? lastCharacterId;
+
   @override
   void dispose() {
     currentRole = null;
     requestsLeftDevice = 0;
+    lastCostumeId = null;
+    lastCharacterId = null;
     super.dispose();
   }
 }

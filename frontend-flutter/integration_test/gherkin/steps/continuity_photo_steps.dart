@@ -22,6 +22,30 @@ Iterable<StepDefinitionGeneric> continuityPhotoSteps() => [
     final locator = find.byValueKey('photo-capture-fab');
     await FlutterDriverUtils.tap(context.world.driver!, locator);
   }),
+  when1<String, FlutterWorld>(
+    'I request to capture a continuity photo for scene shoot {string}',
+    (String sceneShootId, context) async {
+      // TODO(screen): trigger the capture affordance for the given scene
+      // shoot. For the server-gate scenario the client AUTHZ-GATE preflight
+      // (capability `upload_continuity_photos`) must PASS so the request
+      // actually reaches the handler, where SeasonPhotoAccessPolicy rejects
+      // it. The screen should expose `Key('photo-capture-fab-$sceneShootId')`.
+      final locator = find.byValueKey('photo-capture-fab-$sceneShootId');
+      await FlutterDriverUtils.tap(context.world.driver!, locator);
+    },
+  ),
+  then<FlutterWorld>('the client refuses the capture with a denial', (
+    context,
+  ) async {
+    // Client-side AUTHZ-GATE denial surface — distinct from the backend
+    // denial in the server-gate scenario: the app refuses locally before
+    // any network call. Shown via a client-denial widget.
+    final locator = find.byValueKey('photo-capture-client-denied');
+    await context.world.driver!.waitFor(
+      locator,
+      timeout: const Duration(seconds: 10),
+    );
+  }),
   then<FlutterWorld>('no network request leaves the device', (context) async {
     // AUTHZ-GATE preflight: the client refuses the request before any
     // HTTP is issued. Verified by a Dio interceptor that records every

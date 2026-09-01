@@ -6,6 +6,8 @@ import 'package:flutter_driver/flutter_driver.dart';
 import 'package:flutter_gherkin/flutter_gherkin.dart';
 import 'package:gherkin/gherkin.dart';
 
+import '../world/app_world.dart';
+
 /// Step definitions for the costume assignment critical scenario
 /// (`features-spec/costume_assignment.feature`). Covers the CQRS-on-client
 /// contract (AGENTS.md §4): optimistic overlay after a 2xx command
@@ -17,6 +19,11 @@ Iterable<StepDefinitionGeneric> costumeAssignmentSteps() => [
     'I assign costume {string} to character {string}',
     (String costumeId, String characterId, context) async {
       // TODO(screen): submit the assign command (POST) for the costume.
+      // Store the IDs so the assertion steps below can target the
+      // per-assignment widget keys.
+      final world = context.world as AppWorld;
+      world.lastCostumeId = costumeId;
+      world.lastCharacterId = characterId;
       final locator = find.byValueKey('assign-costume-$costumeId-$characterId');
       await FlutterDriverUtils.tap(context.world.driver!, locator);
     },
@@ -28,7 +35,10 @@ Iterable<StepDefinitionGeneric> costumeAssignmentSteps() => [
     // (status processing) before the projection refreshes.
     // TODO(screen): assert the optimistic overlay row is present
     // (key `overlay-assign-<costume>-<character>`).
-    final locator = find.byValueKey('overlay-assign');
+    final world = context.world as AppWorld;
+    final locator = find.byValueKey(
+      'overlay-assign-${world.lastCostumeId}-${world.lastCharacterId}',
+    );
     await context.world.driver!.waitFor(
       locator,
       timeout: const Duration(seconds: 10),
@@ -41,7 +51,10 @@ Iterable<StepDefinitionGeneric> costumeAssignmentSteps() => [
     // projected one (AGENTS.md §4).
     // TODO(screen): assert the authoritative projected row replaced the
     // overlay (key `assigned-<costume>-<character>`).
-    final locator = find.byValueKey('assigned');
+    final world = context.world as AppWorld;
+    final locator = find.byValueKey(
+      'assigned-${world.lastCostumeId}-${world.lastCharacterId}',
+    );
     await context.world.driver!.waitFor(
       locator,
       timeout: const Duration(seconds: 30),

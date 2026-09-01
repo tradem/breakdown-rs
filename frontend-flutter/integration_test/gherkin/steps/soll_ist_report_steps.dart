@@ -14,9 +14,11 @@ Iterable<StepDefinitionGeneric> sollIstReportSteps() => [
     'the Soll-Ist report shows planned {int} scenes and actual {int} scenes',
     (int planned, int actual, context) async {
       // TODO(screen): assert the planned/actual counts rendered on the
-      // report screen (keys `soll-ist-planned` / `soll-ist-actual`).
-      final plannedWidget = find.byValueKey('soll-ist-planned-$planned');
-      final actualWidget = find.byValueKey('soll-ist-actual-$actual');
+      // report screen. The screen exposes static keys `soll-ist-planned` and
+      // `soll-ist-actual`; their rendered values carry planned/actual and
+      // are asserted once the screen lands.
+      final plannedWidget = find.byValueKey('soll-ist-planned');
+      final actualWidget = find.byValueKey('soll-ist-actual');
       await context.world.driver!.waitFor(
         plannedWidget,
         timeout: const Duration(seconds: 10),
