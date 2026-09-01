@@ -57,6 +57,7 @@ and their consequences.
 | [029](ADR-029-gdpr-right-to-erasure-append-only-log.md) | GDPR Art. 17 (Right to Erasure) in an Append-Only Event-Sourced System | Proposed | 2026-08-01 | Tobias Rademacher (@tradem); glm-5.2 (neuralwatt) |
 | [030](ADR-030-ai-import-bounded-context.md) | AI Import Bounded Context | Accepted | 2026-08-02 | Tobias Rademacher (@tradem); gpt-5.6-luna (opencode-go) |
 | [031](ADR-031-http-error-surface.md) | HTTP Error Surface — RFC 9457 Problem Details, Stable Codes, Server-Side i18n | Accepted | 2026-08-12 | Tobias Rademacher (@tradem); kimi-k3 (neuralwatt) |
+| [032](ADR-032-flutter-client-tls-pinning-rotation.md) | Flutter Client TLS Certificate Pinning & Production Rotation Policy | Proposed | 2026-09-01 | Tobias Rademacher (@tradem); hy3 (opencode-go) |
 
 ## Creating a New ADR
 
