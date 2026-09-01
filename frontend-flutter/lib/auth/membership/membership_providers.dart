@@ -2,13 +2,14 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (opencode-go)
 
+import 'package:breakdown_api/breakdown_api.dart';
 import 'package:fpdart/fpdart.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../core/result.dart';
 import '../auth_providers.dart';
+import 'capability.dart';
 import 'membership_repository.dart';
-import 'season_membership.dart';
 
 part 'membership_providers.g.dart';
 
@@ -17,9 +18,10 @@ part 'membership_providers.g.dart';
 /// true (dev flavor, no `OIDC_ISS`, `DEV_AUTH_SUB` set) — structurally
 /// unreachable in prod.
 SeasonMembershipDto devAuthMembership(String seasonId) => SeasonMembershipDto(
-  seasonId: seasonId,
-  hasActiveCostumeRoleInSeason: true,
-  capabilities: Capability.values.toSet(),
+  (b) => b
+    ..seasonId = seasonId
+    ..hasActiveCostumeRoleInSeason = true
+    ..capabilities.replace(Capability.values.map((c) => c.wireName)),
 );
 
 /// Fetches the season-scoped membership projection (D2 — single endpoint,
@@ -37,7 +39,7 @@ Future<Result<SeasonMembershipDto>> membershipFetch(
   if (config.devAuthMode) {
     return Right(devAuthMembership(seasonId));
   }
-  final repo = MembershipRepository(ref.watch(dioProvider));
+  final repo = MembershipRepository(BreakdownApi(dio: ref.watch(dioProvider)));
   return repo.fetch(seasonId);
 }
 
