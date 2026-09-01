@@ -44,7 +44,8 @@ for f in "${critical_files[@]}"; do
   # Anchor the tag to a tag line so prose/comments cannot satisfy it.
   grep -Eq '^[[:space:]]*@critical([[:space:]]|$)' "$path" || \
     fail "$path" "$f is not tagged @critical (as a Gherkin tag)"
-  grep -q 'Scenario:' "$path" || fail "$path" "$f has no Scenario"
+  grep -Eq '^[[:space:]]*Scenario([[:space:]]+Outline)?:[[:space:]]+[^[:space:]]' "$path" || \
+    fail "$path" "$f has no Scenario"
   echo "  ok: $f (@critical + scenario present; @pending allowed or promoted)"
 done
 

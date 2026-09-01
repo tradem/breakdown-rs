@@ -13,20 +13,32 @@ Iterable<StepDefinitionGeneric> sollIstReportSteps() => [
   then2<int, int, FlutterWorld>(
     'the Soll-Ist report shows planned {int} scenes and actual {int} scenes',
     (int planned, int actual, context) async {
-      // TODO(screen): assert the planned/actual counts rendered on the
-      // report screen. The screen exposes static keys `soll-ist-planned` and
-      // `soll-ist-actual`; their rendered values carry planned/actual and
-      // are asserted once the screen lands.
-      final plannedWidget = find.byValueKey('soll-ist-planned');
-      final actualWidget = find.byValueKey('soll-ist-actual');
-      await context.world.driver!.waitFor(
-        plannedWidget,
+      // Assert the rendered planned/actual counts, not merely that the
+      // keyed widgets exist: read the actual text and compare with the
+      // scenario's expected values (the screen exposes static keys
+      // `soll-ist-planned` / `soll-ist-actual`).
+      final plannedText = await context.world.driver!.getText(
+        find.byValueKey('soll-ist-planned'),
         timeout: const Duration(seconds: 10),
       );
-      await context.world.driver!.waitFor(
-        actualWidget,
+      final actualText = await context.world.driver!.getText(
+        find.byValueKey('soll-ist-actual'),
         timeout: const Duration(seconds: 10),
       );
+      final plannedValue = int.tryParse(plannedText.trim());
+      final actualValue = int.tryParse(actualText.trim());
+      if (plannedValue != planned) {
+        throw Exception(
+          'Soll-Ist planned count mismatch: expected $planned, '
+          'got $plannedValue (rendered: "$plannedText")',
+        );
+      }
+      if (actualValue != actual) {
+        throw Exception(
+          'Soll-Ist actual count mismatch: expected $actual, '
+          'got $actualValue (rendered: "$actualText")',
+        );
+      }
     },
   ),
   then1<String, FlutterWorld>('the Soll-Ist report lists a {string} scene', (

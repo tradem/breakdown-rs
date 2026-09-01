@@ -13,11 +13,13 @@ import 'package:frontend_flutter/app_config.dart';
 /// (AGENTS.md §6 — Gherkin steps run on device, not as headless pure-function
 /// tests). The runner (`gherkin_runner.dart`) launches this target, builds it
 /// in dev-auth mode (see `configuration.dart` `dartDefineArgs`), and drives it.
-void main() {
+Future<void> main() async {
   // Enables automation. Required before runApp.
   enableFlutterDriverExtension();
 
   // dev flavor → the runner's DEV_AUTH_SUB dart-define treats the dummy user
   // as authenticated; the real app composition root is used unchanged.
-  bootstrap(Flavor.dev);
+  // Await bootstrap so startup failures surface through the entrypoint
+  // (Future<void>) instead of being dropped.
+  await bootstrap(Flavor.dev);
 }
