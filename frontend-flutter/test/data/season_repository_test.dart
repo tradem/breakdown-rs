@@ -99,4 +99,54 @@ void main() {
       },
     );
   });
+
+  group('SeasonRepository.list (first-screen-seasons Task 2.2)', () {
+    late CacheDatabase db;
+    late SeasonRepository repo;
+
+    setUp(() {
+      db = CacheDatabase(NativeDatabase.memory());
+      repo = SeasonRepository(BreakdownApi(), SeasonCacheDao(db));
+    });
+
+    tearDown(() => db.close());
+
+    // Ok branch: pure Drift read of the projected rows (the screen's
+    // authoritative read surface).
+    test('returns cached rows on Ok', () async {
+      await repo.fetchAndCacheList(
+        () async => Right([_season('a'), _season('b')]),
+      );
+
+      final res = await repo.list();
+      expect(res, isA<Right>());
+      expect((res as Right).value.map((v) => v.id), ['a', 'b']);
+    });
+
+    // Err branch: a cache read failure is a Result, never a throw
+    // (AGENTS.md §5: no throw in data/).
+    test(
+      'returns Err(code: cache.read_failed) when the cache is unavailable',
+      () async {
+        final failingRepo = SeasonRepository(
+          BreakdownApi(),
+          _ThrowingCacheDao(db),
+        );
+
+        final res = await failingRepo.list();
+        expect(res, isA<Left>());
+        expect((res as Left).value.code, 'cache.read_failed');
+      },
+    );
+  });
+}
+
+/// DAO fake whose reads fail at the executor level, exercising the
+/// repository's `Left(ProblemError)` translation.
+class _ThrowingCacheDao extends SeasonCacheDao {
+  _ThrowingCacheDao(super.db);
+
+  @override
+  Future<List<SeasonView>> readAll() async =>
+      throw StateError('simulated executor failure');
 }

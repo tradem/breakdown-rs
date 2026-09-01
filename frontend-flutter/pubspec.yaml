@@ -72,6 +72,11 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
 
+  # On-device E2E smoke tests (AGENTS.md §6 Tier 4): run via
+  # `dart run integration_test run-tests` (manifest mode) against a device/emulator.
+  integration_test:
+    sdk: flutter
+
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
   # activated in the `analysis_options.yaml` file located at the root of your
@@ -99,6 +104,11 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  # The integration_test v2 tooling (`dart run integration_test run-tests`,
+  # Tier-4 E2E smoke tests, AGENTS.md §6) is enabled by the
+  # `integration_test` dev_dependency below — no `flutter: config:` flag is
+  # needed or supported.
 
   # Per-flavor pinned CA bundles for Dio TLS pinning (AGENTS.md §5 / ADR-024 /
   # issue #301). The client trusts ONLY the CA in the active flavor's bundle

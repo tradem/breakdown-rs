@@ -105,6 +105,10 @@ class SeasonsViewController extends _$SeasonsViewController {
       final cached = (await repo.readCached()).getOrElse(
         (_) => const <SeasonView>[],
       );
+      // The container may be disposed while the cache read is in flight
+      // (e.g. a screen torn down right after cold start) — touching `ref`
+      // then would throw out of a fire-and-forget body.
+      if (!ref.mounted) return;
       ref.read(seasonsPrevRowsProvider.notifier).set(cached);
     }());
 
