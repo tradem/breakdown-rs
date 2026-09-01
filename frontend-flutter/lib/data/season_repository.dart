@@ -124,6 +124,16 @@ class SeasonRepository extends BaseRepository {
     }
   }
 
+  /// Returns the seasons read projection from the Drift cache — the
+  /// authoritative row source the screen renders (first-screen-seasons
+  /// Task 2.2; the spec's `SeasonDto` is the generated `SeasonView`).
+  ///
+  /// Network freshness is owned by the `seasonsListFetchProvider` seam +
+  /// the cache controller ([fetchAndCacheList] writes on success only);
+  /// this method is the pure read surface (D1 there: the screen never
+  /// touches the API client or the DAO directly).
+  Future<Result<List<SeasonView>>> list() => readCached();
+
   /// Returns `true` when any cached row is older than [ttl] per [clock] (D2).
   Future<bool> isCacheStale({
     Clock clock = Clock.system,

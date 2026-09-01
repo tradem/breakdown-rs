@@ -355,7 +355,7 @@ final class AuthorizationUiProvider
   }
 }
 
-String _$authorizationUiHash() => r'67225fe3ef5f1111dc2c67f3e55451413dabdb7b';
+String _$authorizationUiHash() => r'acfcaf4e4cd55f317b1593ab7b6adb85163a5d6b';
 
 /// The current auth session.
 ///
@@ -410,7 +410,7 @@ final class AuthSessionControllerProvider
 }
 
 String _$authSessionControllerHash() =>
-    r'46994322b32f688af40099a3893532d070cd00c5';
+    r'66d7dc7175ba8681a1a8398b7c201ad7f628f035';
 
 /// The current auth session.
 ///

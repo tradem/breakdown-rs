@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app_config.dart';
 import 'auth/auth_providers.dart';
+import 'features/seasons/seasons_screen.dart';
 import 'src/network/api_client.dart';
 
 /// Root widget. Riverpod is the sole composition mechanism (AGENTS.md §1, D3);
@@ -25,10 +26,7 @@ class App extends StatelessWidget {
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
       ),
-      home: Scaffold(
-        appBar: AppBar(title: const Text('Breakdown')),
-        body: const Center(child: Text('Breakdown')),
-      ),
+      home: const SeasonsScreen(),
     );
   }
 }

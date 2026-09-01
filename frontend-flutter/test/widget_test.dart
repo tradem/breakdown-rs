@@ -8,8 +8,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend_flutter/app.dart';
 
 void main() {
-  testWidgets('App renders the Breakdown shell', (tester) async {
+  testWidgets('App renders the SeasonsScreen reference shell', (tester) async {
     await tester.pumpWidget(const ProviderScope(child: App()));
-    expect(find.text('Breakdown'), findsWidgets);
+    // Home is the first screen (first-screen-seasons); without composition
+    // overrides it renders the empty projection shell, not a crash.
+    expect(find.text('Seasons'), findsOneWidget);
   });
 }

@@ -354,7 +354,7 @@ final class SeasonsViewControllerProvider
 }
 
 String _$seasonsViewControllerHash() =>
-    r'06f5b053055a4796e9e99031b4a4d78a6f28d4d7';
+    r'de8cbc7a49fd4a1d561aa2933cd1212c65a6b404';
 
 /// Read-projection controller (Design Decisions D1–D4).
 ///

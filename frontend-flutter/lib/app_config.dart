@@ -21,6 +21,7 @@ class AppConfig {
     required this.oidcClientId,
     required this.oidcRedirectUri,
     required this.devIdpInsecure,
+    this.defaultSeriesId = '',
   });
 
   /// Reads configuration from the environment, defaulting the API base to the
@@ -45,6 +46,9 @@ class AppConfig {
     // composition root aborts startup when it is set under any non-dev flavor
     // or a release build (see bootstrap()).
     const devIdpInsecure = String.fromEnvironment('DEV_IDP_INSECURE');
+    // Optional pre-fill for season-creating forms. Env-sourced, never
+    // hardcoded (AGENTS.md §5); the field stays editable when absent.
+    const defaultSeriesId = String.fromEnvironment('DEFAULT_SERIES_ID');
 
     return AppConfig(
       flavor: flavor,
@@ -55,6 +59,7 @@ class AppConfig {
       oidcClientId: oidcClientId,
       oidcRedirectUri: oidcRedirectUri,
       devIdpInsecure: devIdpInsecure,
+      defaultSeriesId: defaultSeriesId,
     );
   }
 
@@ -78,6 +83,11 @@ class AppConfig {
   /// startup checks in `bootstrap()` (D1 — dev-flavor-only documented
   /// exception, impossible in prod/release).
   final String devIdpInsecure;
+
+  /// `DEFAULT_SERIES_ID` dart-define (may be empty). Used only as a form
+  /// pre-fill; the authoritative `series_id` of a season always comes from
+  /// the server's projection, never from this value.
+  final String defaultSeriesId;
 
   bool get isDev => flavor == Flavor.dev;
 

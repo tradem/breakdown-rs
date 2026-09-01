@@ -383,6 +383,16 @@ CI runs:
 
 ## 9. Design System & Code Generation
 
+- **Reference screen pattern:** `lib/features/seasons/` (`SeasonsScreen` +
+  `SeasonsController` + `SeasonsRepository`-owned Drift cache) is the
+  concrete reference implementation of every convention in this document:
+  `ConsumerWidget` screen, `@riverpod` controller returning
+  `SeasonsScreenState` (`projected` `AsyncValue` + ephemeral
+  `SeasonOverlay` list), Result-typed repository, `AUTHZ-GATE`-commented
+  command dispatch, optimistic-after-2xx + bounded-retry reconciliation,
+  and the four-tier test set (unit merge/Err-branch, widget + golden,
+  integration_test smoke). Subsequent screens open their own changes
+  following this pattern (`first-screen-seasons`).
 - **Material 3 + theme tokens:** Reusable components live under
   `lib/design/`; theme tokens are the single source for colors, type, and
   spacing. No hardcoded colors/styles inline in widgets.
