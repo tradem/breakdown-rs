@@ -309,7 +309,7 @@ packages:
     source: sdk
     version: "0.0.0"
   flutter_driver:
-    dependency: transitive
+    dependency: "direct dev"
     description: flutter
     source: sdk
     version: "0.0.0"
@@ -433,7 +433,7 @@ packages:
     source: sdk
     version: "0.0.0"
   gherkin:
-    dependency: transitive
+    dependency: "direct dev"
     description:
       name: gherkin
       sha256: "7c835be5c28dc50f753caa30b4d8e2204d0617dc56fc019dca0fc70279d779b7"

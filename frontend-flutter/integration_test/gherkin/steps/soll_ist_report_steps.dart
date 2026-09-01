@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: hy3 (opencode-go)
+
+import 'package:flutter_driver/flutter_driver.dart';
+import 'package:flutter_gherkin/flutter_gherkin.dart';
+import 'package:gherkin/gherkin.dart';
+
+/// Step definitions for the Soll-Ist report critical scenario
+/// (`features-spec/soll_ist_report.feature`). Every step drives the on-device
+/// UI through `world.driver` — none assert on a pure function.
+Iterable<StepDefinitionGeneric> sollIstReportSteps() => [
+  then2<int, int, FlutterWorld>(
+    'the Soll-Ist report shows planned {int} scenes and actual {int} scenes',
+    (int planned, int actual, context) async {
+      // TODO(screen): assert the planned/actual counts rendered on the
+      // report screen (keys `soll-ist-planned` / `soll-ist-actual`).
+      final plannedWidget = find.byValueKey('soll-ist-planned-$planned');
+      final actualWidget = find.byValueKey('soll-ist-actual-$actual');
+      await context.world.driver!.waitFor(
+        plannedWidget,
+        timeout: const Duration(seconds: 10),
+      );
+      await context.world.driver!.waitFor(
+        actualWidget,
+        timeout: const Duration(seconds: 10),
+      );
+    },
+  ),
+  then1<String, FlutterWorld>('the Soll-Ist report lists a {string} scene', (
+    String flag,
+    context,
+  ) async {
+    // TODO(screen): assert a row tagged with the moved/missing/skipped/
+    // reshot flag is present (key `soll-ist-flag-$flag`).
+    final locator = find.byValueKey('soll-ist-flag-$flag');
+    await context.world.driver!.waitFor(
+      locator,
+      timeout: const Duration(seconds: 10),
+    );
+  }),
+  then<FlutterWorld>('the Soll-Ist report is marked final', (context) async {
+    // TODO(screen): assert the `final` badge derived from `wrapped_at`
+    // is present (key `soll-ist-final`).
+    final locator = find.byValueKey('soll-ist-final');
+    await context.world.driver!.waitFor(
+      locator,
+      timeout: const Duration(seconds: 10),
+    );
+  }),
+];
