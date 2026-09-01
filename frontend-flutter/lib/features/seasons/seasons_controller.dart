@@ -258,21 +258,25 @@ class SeasonsController extends _$SeasonsController {
   /// records the acknowledgement generation it started at ([_ackGeneration]);
   /// on completion, if a later acknowledgement arrived and overlays remain, a
   /// dedicated follow-up pass runs so every overlay gets a post-ack fetch.
-  Future<void> reconcile() {
-    final inFlight = _reconcileInFlight;
-    if (inFlight != null) return inFlight;
+  Future<void> reconcile() =>
+      _reconcileInFlight ??= _runReconcileWithFollowUp();
+
+  /// Runs one bounded retry pass and, if a later acknowledgement arrived
+  /// while it was in flight, chains a dedicated follow-up pass (see
+  /// [reconcile]). The follow-up is returned from the `.then` callback so the
+  /// single-flight future the caller awaits includes it; the guard is cleared
+  /// in an arrow `whenComplete` to keep the result handled (breakdown_lints
+  /// `discard_result`).
+  Future<void> _runReconcileWithFollowUp() {
     final generationAtStart = _ackGeneration;
-    final pass = _runReconcile();
-    _reconcileInFlight = pass.then((_) {
-      _reconcileInFlight = null;
-      // A late acknowledgement landed during this pass: run a dedicated
-      // follow-up so it is never marked stale without a post-ack fetch.
-      if (_ackGeneration != generationAtStart &&
+    return _runReconcile().whenComplete(() => _reconcileInFlight = null).then((
+      _,
+    ) {
+      if (generationAtStart != _ackGeneration &&
           ref.read(seasonOverlaysProvider).isNotEmpty) {
         return reconcile();
       }
     });
-    return _reconcileInFlight!;
   }
 
   Future<void> _runReconcile() async {
