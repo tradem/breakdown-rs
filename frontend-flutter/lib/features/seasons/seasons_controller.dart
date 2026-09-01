@@ -124,6 +124,13 @@ class SeasonsController extends _$SeasonsController {
   /// bounded reconciliation pass instead of storming the projection.
   Future<void>? _reconcileInFlight;
 
+  /// Acknowledgement generation counter: bumped on every optimistic overlay
+  /// insert. A reconciliation pass captures the value it started at and, on
+  /// completion, runs a dedicated follow-up if a later acknowledgement
+  /// arrived mid-pass (so that overlay still gets a post-ack projection
+  /// fetch). See [reconcile].
+  int _ackGeneration = 0;
+
   @override
   SeasonsScreenState build() {
     final async = ref.watch(seasonsViewControllerProvider);
@@ -213,6 +220,10 @@ class SeasonsController extends _$SeasonsController {
                 status: OverlayStatus.acknowledged,
               ),
             );
+        // A late acknowledgement during an in-flight reconcile must trigger
+        // a dedicated follow-up pass (see [reconcile]); bump the generation
+        // before kicking off reconciliation.
+        _ackGeneration++;
         // Fire-and-forget is intentional: the UI must not block on
         // projector lag (Riverpod async state surfaces progress instead).
         unawaited(reconcile());
@@ -239,8 +250,30 @@ class SeasonsController extends _$SeasonsController {
   /// Also used by pull-to-refresh (task 4.3): a stale overlay gets a fresh
   /// bounded pass. Single-flight: concurrent callers join the in-flight
   /// pass.
-  Future<void> reconcile() => _reconcileInFlight ??= _runReconcile()
-      .whenComplete(() => _reconcileInFlight = null);
+  ///
+  /// A second `create` can acknowledge while a pass is in flight; that call
+  /// joins the existing pass via single-flight, so its overlay would share
+  /// the in-flight pass's attempt budget and could be marked `stale` without
+  /// a fetch that started after its acknowledgement. To avoid that, each pass
+  /// records the acknowledgement generation it started at ([_ackGeneration]);
+  /// on completion, if a later acknowledgement arrived and overlays remain, a
+  /// dedicated follow-up pass runs so every overlay gets a post-ack fetch.
+  Future<void> reconcile() {
+    final inFlight = _reconcileInFlight;
+    if (inFlight != null) return inFlight;
+    final generationAtStart = _ackGeneration;
+    final pass = _runReconcile();
+    _reconcileInFlight = pass.then((_) {
+      _reconcileInFlight = null;
+      // A late acknowledgement landed during this pass: run a dedicated
+      // follow-up so it is never marked stale without a post-ack fetch.
+      if (_ackGeneration != generationAtStart &&
+          ref.read(seasonOverlaysProvider).isNotEmpty) {
+        return reconcile();
+      }
+    });
+    return _reconcileInFlight!;
+  }
 
   Future<void> _runReconcile() async {
     final overlays = ref.read(seasonOverlaysProvider.notifier);

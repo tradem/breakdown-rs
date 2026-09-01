@@ -105,10 +105,10 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
-  # Enable the integration_test v2 tooling (`dart run integration_test
-  # run-tests`) used by the Tier-4 E2E smoke tests (AGENTS.md §6).
-  config:
-    enable_integration_test: true
+  # The integration_test v2 tooling (`dart run integration_test run-tests`,
+  # Tier-4 E2E smoke tests, AGENTS.md §6) is enabled by the
+  # `integration_test` dev_dependency below — no `flutter: config:` flag is
+  # needed or supported.
 
   # Per-flavor pinned CA bundles for Dio TLS pinning (AGENTS.md §5 / ADR-024 /
   # issue #301). The client trusts ONLY the CA in the active flavor's bundle

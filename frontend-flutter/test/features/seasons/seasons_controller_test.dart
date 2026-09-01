@@ -91,6 +91,25 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('SeasonsController.create (D1: ack-gated optimistic insert)', () {
+    test('create transmits the form-mapped request payload (seriesId/number/title)', () async {
+      final ctx = _buildFixture();
+
+      final res = await ctx.controller.create(
+        seriesId: 'series-7',
+        number: 4,
+        title: 'Mapped',
+      );
+
+      expect(res.isRight(), isTrue);
+      // The captured request lets a wrong field mapping fail loudly instead
+      // of passing every test (CodeRabbit review).
+      final req = ctx.repo.lastCreateRequest;
+      expect(req, isNotNull);
+      expect(req!.seriesId, 'series-7');
+      expect(req.number, 4);
+      expect(req.title, 'Mapped');
+    });
+
     test(
       'Right after 2xx inserts a controller-state overlay, never Drift',
       () async {
@@ -225,6 +244,29 @@ void main() {
   });
 
   group('bounded-retry reconciliation (D2/D3)', () {
+    test('a late-acknowledged overlay triggers a dedicated follow-up reconcile pass', () async {
+      final ctx =
+          _buildFixture(); // holder Left → projection never carries overlays
+      await ctx.controller.create(seriesId: 'series-1', number: 2, title: 'A');
+      final pass = ctx.controller.reconcile(); // pass1 in flight
+      // Second create acknowledges while pass1 is in flight; it joins the
+      // single-flight pass via [reconcile].
+      await ctx.controller.create(seriesId: 'series-1', number: 3, title: 'B');
+      await drain(pass, ctx.scheduler);
+
+      // B was acknowledged after pass1 started; the fix runs a dedicated
+      // follow-up pass for it, so two full bounded passes run in total
+      // (not one shared attempt budget).
+      expect(ctx.scheduler.ticks, 2 * (kMaxReconcileAttempts - 1));
+      // Both overlays are retained stale (projection never catches up),
+      // but each got its own post-ack fetch.
+      expect(ctx.state.overlays, hasLength(2));
+      expect(
+        ctx.state.overlays.map((o) => o.status),
+        everyElement(OverlayStatus.stale),
+      );
+    });
+
     test(
       'retry exhaustion retains the overlay marked stale + warning',
       () async {

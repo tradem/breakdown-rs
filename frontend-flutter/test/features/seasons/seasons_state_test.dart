@@ -100,6 +100,29 @@ void main() {
       expect(stale.warning, 'still catching up');
     });
 
+    test(
+      'copyWith(clearWarning:) drops the warning and keeps the new status',
+      () {
+        const base = SeasonOverlay(
+          id: 'x',
+          name: 'New',
+          number: 2,
+          status: OverlayStatus.stale,
+          warning: 'still catching up',
+        );
+        final cleared = base.copyWith(
+          status: OverlayStatus.reconciling,
+          clearWarning: () {},
+        );
+        // clearWarning takes precedence over the carried warning.
+        expect(cleared.warning, isNull);
+        expect(cleared.status, OverlayStatus.reconciling);
+        expect(cleared.id, 'x');
+        expect(cleared.name, 'New');
+        expect(cleared.number, 2);
+      },
+    );
+
     test('value equality by all fields', () {
       const a = SeasonOverlay(id: 'x', status: OverlayStatus.reconciling);
       const b = SeasonOverlay(id: 'x', status: OverlayStatus.reconciling);

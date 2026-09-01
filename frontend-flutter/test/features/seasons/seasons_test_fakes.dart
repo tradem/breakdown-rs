@@ -63,15 +63,21 @@ class FakeSeasonRepository extends SeasonRepository {
   /// How many create commands reached the "network".
   int createCalls = 0;
 
+  /// The last request that reached the "network" (payload assertions).
+  CreateSeasonRequest? lastCreateRequest;
+
   @override
   Future<Result<IdVersionResponse>> create(CreateSeasonRequest request) {
     createCalls++;
+    // Capture the submitted payload so the form-to-DTO mapping is assertable
+    // (CodeRabbit review: a wrong field mapping would otherwise pass silently).
+    lastCreateRequest = request;
     final result =
         createResult ??
         Right<ProblemError, IdVersionResponse>(
           IdVersionResponse(
             (b) => b
-              ..id = 'n1'
+              ..id = 'n$createCalls'
               ..version = 1,
           ),
         );

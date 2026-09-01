@@ -9,7 +9,7 @@
        Ok → optimistic insert, Err → propagated to widget
 
 ## 2. Repository
-- [x] 2.1 `SeasonsRepository` wrapping the generated client + Drift cache
+- [x] 2.1 `SeasonRepository` wrapping the generated client + Drift cache
 - [x] 2.2 `list()` → `Result<List<SeasonDto>, ProblemError>`
 - [x] 2.3 `create(cmd)` → `Result<SeasonDto, ProblemError>` (problem+json
        → `ProblemError(code)`)
@@ -49,7 +49,7 @@
 The PR #269 review asked where the optimistic row lives and for the
 failure-path tests. Resolved in `proposal.md` (Design Decisions D1–D3) and
 encoded as requirements in `specs/flutter-first-screen/spec.md`.
-Implementation Tasks 1–6 remain open; the design gap is closed.
+Implementation Tasks 1–6 are complete; the design gap is closed.
 - [x] Optimistic-create flow defined (D1: insert only after `POST` 2xx with
       server `id`; endpoint returns the created `SeasonDto`)
 - [x] Optimistic row location defined (D2: controller-state overlay, NOT

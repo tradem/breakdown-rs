@@ -415,7 +415,7 @@ CI runs:
 ## 9. Design System & Code Generation
 
 - **Reference screen pattern:** `lib/features/seasons/` (`SeasonsScreen` +
-  `SeasonsController` + `SeasonsRepository`-owned Drift cache) is the
+  `SeasonsController` + `SeasonRepository`-owned Drift cache) is the
   concrete reference implementation of every convention in this document:
   `ConsumerWidget` screen, `@riverpod` controller returning
   `SeasonsScreenState` (`projected` `AsyncValue` + ephemeral
