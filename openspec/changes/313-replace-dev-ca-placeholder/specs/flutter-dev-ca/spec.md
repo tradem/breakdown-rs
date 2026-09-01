@@ -16,6 +16,7 @@ frontend copy is regenerated from `backend/dev-certs/ca.pem`, never
 hand-authored.
 
 #### Scenario: Dev client trusts the HTTPS dev IdP
+
 - **WHEN** the dev flavor loads `assets/certs/dev/ca.pem` as its exclusive
   pinned CA (no system roots) and connects to `https://localhost:3301`
   (desktop) or `https://10.0.2.2:3301` (Android emulator loopback).
@@ -23,7 +24,17 @@ hand-authored.
   cert, whose SAN includes `localhost` and `10.0.2.2`; the pinned client
   trusts the dev IdP without the `DEV_IDP_INSECURE` exception.
 
+#### Scenario: Dev client trusts the HTTPS dev API
+
+- **WHEN** the dev flavor loads `assets/certs/dev/ca.pem` as its exclusive
+  pinned CA (no system roots) and connects to `https://localhost:3000`
+  (desktop) or `https://10.0.2.2:3000` (Android emulator loopback).
+- **THEN** the TLS handshake succeeds because the dev CA signs the API leaf
+  cert (`api.pem`), whose SAN includes `localhost` and `10.0.2.2`; the pinned
+  client trusts the dev API without relaxing verification.
+
 #### Scenario: Dev CA is not the prod placeholder
+
 - **WHEN** the committed `assets/certs/dev/ca.pem` is compared with
   `assets/certs/prod/ca.pem`.
 - **THEN** the two files are byte-distinct, so the dev trust anchor is never

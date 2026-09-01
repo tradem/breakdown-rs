@@ -6,10 +6,14 @@
 - [x] 1.1 Run `backend/scripts/generate-dev-certs.sh` so `backend/dev-certs/ca.pem`
        (the real dev CA that signs the IdP `:3301` and API `:3000` leaf certs)
        exists
-- [x] 1.2 Verify the dev CA signs the IdP leaf (`openssl verify -CAfile
-       backend/dev-certs/ca.pem backend/dev-certs/idp.pem` → OK) and the leaf
-       carries SAN `localhost` + `10.0.2.2` (trusts `https://localhost:3301`
-       and `https://10.0.2.2:3301`)
+- [x] 1.2 Verify the dev CA signs BOTH dev leaves — the IdP leaf
+       (`openssl verify -CAfile backend/dev-certs/ca.pem
+       backend/dev-certs/idp.pem` → OK) AND the API leaf
+       (`openssl verify -CAfile backend/dev-certs/ca.pem
+       backend/dev-certs/api.pem` → OK) — and both leaves carry SAN
+       `localhost` + `10.0.2.2` (trusts `https://localhost:3301` /
+       `https://10.0.2.2:3301` for IdP and `https://localhost:3000` /
+       `https://10.0.2.2:3000` for the API)
 
 ## 2. Replace the Flutter dev placeholder
 - [x] 2.1 Copy `backend/dev-certs/ca.pem` → `frontend-flutter/assets/certs/dev/ca.pem`

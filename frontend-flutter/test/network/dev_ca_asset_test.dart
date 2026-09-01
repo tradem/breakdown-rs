@@ -39,6 +39,21 @@ void main() {
     devIdpInsecure: '',
   );
 
+  // Mirror of `config` for the prod flavor, used to exercise the prod
+  // asset-loading branch. `loadPinnedSecurityContext` itself does not enforce
+  // the prod-only https assert (that lives in `buildApiClient`), so an https
+  // base URL is sufficient here.
+  const prodConfig = AppConfig(
+    flavor: Flavor.prod,
+    apiBase: 'https://api.breakdown.rs',
+    oidcIss: 'https://idp.example',
+    devAuthSub: '',
+    oidcAudience: 'aud',
+    oidcClientId: 'c',
+    oidcRedirectUri: 'breakdown://redirect',
+    devIdpInsecure: '',
+  );
+
   group('pinned CA assets (issue #313 — dev CA alignment)', () {
     test('dev asset is a real, parseable pinned CA', () async {
       final pem = await File(_devCaPath).readAsString();
@@ -59,5 +74,27 @@ void main() {
       final prod = await File(_prodCaPath).readAsBytes();
       expect(dev, isNot(equals(prod)));
     });
+
+    // The three tests above inject the PEM via the `inlinePem` seam and never
+    // touch `rootBundle`. The next two exercise the REAL production path
+    // (`rootBundle.loadString('assets/certs/<flavor>/ca.pem')`), proving the
+    // assets are actually bundled/registered for both flavors — a broken
+    // flavor selection or a missing asset registration would fail these even
+    // though the inlinePem tests pass.
+    test(
+      'dev asset loads from the bundled rootBundle (no inlinePem)',
+      () async {
+        final ctx = await loadPinnedSecurityContext(config);
+        expect(ctx, isA<SecurityContext>());
+      },
+    );
+
+    test(
+      'prod asset loads from the bundled rootBundle (no inlinePem)',
+      () async {
+        final ctx = await loadPinnedSecurityContext(prodConfig);
+        expect(ctx, isA<SecurityContext>());
+      },
+    );
   });
 }
