@@ -74,13 +74,17 @@ class _CreateSeasonFormState extends ConsumerState<_CreateSeasonForm> {
     // Command dispatch; failures surface through the screen's
     // `commandError` banner keyed on the stable problem code (D3), so on
     // both Ok and Err the sheet simply closes.
-    await ref
+    final result = await ref
         .read(seasonsControllerProvider.notifier)
         .create(
           seriesId: _seriesIdController.text.trim(),
           number: number,
           title: _titleController.text.trim(),
         );
+    // Explicitly consumed: Err is already surfaced by the screen's
+    // code-keyed banner (state), Ok is already visible as the optimistic
+    // overlay row — neither branch needs a local reaction here.
+    result.match<void>((_) {}, (_) {});
     if (!mounted) return;
     Navigator.of(context).pop();
   }

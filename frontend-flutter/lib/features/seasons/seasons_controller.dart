@@ -239,13 +239,8 @@ class SeasonsController extends _$SeasonsController {
   /// Also used by pull-to-refresh (task 4.3): a stale overlay gets a fresh
   /// bounded pass. Single-flight: concurrent callers join the in-flight
   /// pass.
-  Future<void> reconcile() {
-    final inFlight = _reconcileInFlight;
-    if (inFlight != null) return inFlight;
-    final pass = _runReconcile().whenComplete(() => _reconcileInFlight = null);
-    _reconcileInFlight = pass;
-    return pass;
-  }
+  Future<void> reconcile() => _reconcileInFlight ??= _runReconcile()
+      .whenComplete(() => _reconcileInFlight = null);
 
   Future<void> _runReconcile() async {
     final overlays = ref.read(seasonOverlaysProvider.notifier);
