@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-09-01
+goal: Replace the Flutter dev CA placeholder with the real dev CA generated
+  by backend/scripts/generate-dev-certs.sh so the dev flavor trusts the
+  HTTPS dev IdP (Logto :3301) and API (:3000).
