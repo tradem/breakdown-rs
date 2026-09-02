@@ -7,8 +7,10 @@
 - [x] 1.2 Coverage artifact upload for inspection on failure
 
 ## 2. Coverage gate
-- [x] 2.1 `coverde` installed in CI; threshold configured (line + branch)
-       on changed `.dart` files only
+- [x] 2.1 `coverde` installed in CI; pooled `coverde check 80` gate over the
+       filtered lcov (all non-generated `lib/**/*.dart`, changed + existing) —
+       not a changed-files-only gate (`coverde` has no `--changed-only`;
+       documented follow-up per proposal D3)
 - [x] 2.2 Threshold value documented in workflow comments + a note that it
        is the mutation-testing-gap substitute (per `flutter-test-pyramid`
        spec D5)
