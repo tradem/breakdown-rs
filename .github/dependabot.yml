@@ -22,3 +22,39 @@ updates:
       - dependencies
     commit-message:
       prefix: "chore(ci)"
+  # Flutter app — Dart/pub dependencies for frontend-flutter/.
+  # Reviewer runbook (mandatory for every pub PR): Dependabot edits
+  # pubspec.yaml constraints only and never the lockfile. After a pub PR
+  # lands (or before merge), run on a machine with the Flutter SDK:
+  #   cd frontend-flutter && flutter pub upgrade   # or: --major-versions
+  # and commit the resulting pubspec.lock diff (regenerated android/ glue is
+  # included; once the macOS target lands, macos/ glue too). A PR that only
+  # edits pubspec.yaml without a refreshed lockfile fails flutter-ci.yml at
+  # the first resolve step.
+  - package-ecosystem: pub
+    directory: /frontend-flutter
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      flutter-pub-deps:
+        patterns:
+          - "*"
+  # Android-first — Gradle/AGP + Kotlin plugin bumps for the Android target.
+  # Caution: Flutter pins an AGP-compatibility floor per Flutter version;
+  # validate major AGP bumps against the currently pinned Flutter SDK before
+  # merging. macOS is a later target; no cocoapods block until native pods
+  # are introduced.
+  - package-ecosystem: gradle
+    directory: /frontend-flutter/android
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "chore(deps-android)"
