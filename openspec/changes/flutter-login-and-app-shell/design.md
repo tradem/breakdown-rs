@@ -192,6 +192,17 @@ closes on Escape on macOS.
   identities/backends — extends the `flutter-offline-scope` snapshot
   semantics), (5) keep the login session (tokens are IdP-scoped, not
   backend-scoped).
+- **Ordering / race fence (important):** invalidation only *schedules*
+  re-evaluation, so invalidating before clearing lets an in-flight or
+  newly scheduled fetch write rows from the old base after `clear()`
+  returns. The save path therefore runs through one shared coordinator
+  — used by both the base change and sign-out — that (a) bumps a
+  generation counter / opens a cancellation barrier so in-flight reads
+  are abandoned and their results are discarded, (b) awaits the Drift
+  clear, and only then (c) invalidates the read providers so the next
+  read refetches against the new reality. A late write from a
+  pre-clear generation MUST NOT be persisted (the write path carries the
+  generation and is dropped on mismatch).
 - UI-thread discipline: saving rebuilds clients synchronously
   (cheap object construction); the cache reset runs on Drift's async
   path with a `LinearProgressIndicator` if >100ms (widget-tested).

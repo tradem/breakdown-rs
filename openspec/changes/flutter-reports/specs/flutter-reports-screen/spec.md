@@ -59,13 +59,25 @@ progress affordance while running; the document SHALL preview in-app
 (FOSS viewer) and be shareable/saveable via the platform sheet to a
 user-visible file name. PDF bytes SHALL never persist into Drift.
 
-- **Enforceable memory bound:** the buffer is capped at
-  `PDF_MAX_BYTES` (default 25 MB) counted while streaming. A response
-  that exceeds the cap is aborted mid-stream, the card returns to idle
-  with the localized `pdf.too_large` copy, and no full document is
-  ever resident in memory — the cap is asserted by a unit test that
-  streams an oversized body and expects the abort plus zero file
-  writes.
+- **One bounded streaming model (verified against the generated
+  client):** the generated PDF methods are
+  `Future<Response<void>> dispoReportPdf({cancelToken, headers, extra,
+  validateStatus, onSendProgress, onReceiveProgress})` — they accept no
+  `Options` parameter, so `ResponseType.stream` cannot be passed per
+  call, and the current repository discards the body entirely
+  (`Result<void>`). The contract is therefore: a **path-keyed
+  interceptor** on the pinned-CA Dio sets `responseType =
+  ResponseType.stream` for `/v1/shooting-days/*/report/*.pdf`; the
+  repository consumes `response.data` as a dio `ResponseBody` stream and
+  writes each chunk straight to the cache/temp file while counting
+  bytes; the call carries an explicit `CancelToken` so the transfer is
+  cancellable at any point. `PDF_MAX_BYTES` (default 25 MB) is enforced
+  **during** streaming — the moment the counter exceeds the cap the
+  token is cancelled, the partial temp file is deleted, and the card
+  returns to idle with the localized `pdf.too_large` copy. No full
+  document is ever resident in memory and no unbounded buffering occurs
+  — asserted by a unit test that streams an oversized body and expects
+  the abort plus zero file writes.
 - A role-gated user denial SHALL be pre-empted client-side with
   `// AUTHZ-GATE:`-annotated capability checks and the localized 403
   narrative before any network call. The pre-check is **local and

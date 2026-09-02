@@ -71,12 +71,16 @@ refetches the costume view with bounded backoff until it reaches a
 terminal condition, and stops on the last unsubscription — no polling
 while the screen is not visible.
 
-- **Terminal condition (whole pass, not per-variant):** `CostumeView`
-  carries `variants` as an array (three variants per photo), so the
-  watch ends only when **every** variant of **every** photo of the
-  watched costume is terminal (`Ready` or `Failed`) — it does not stop
-  at the first `Ready|Failed` it sees. A photo with one `Ready` and one
-  `Pending` variant therefore keeps the pass running.
+- **Terminal condition (whole pass, not per-variant):** the variant
+  status lives at `CostumeView.photos[].variants[].status` — `variants`
+  belongs to each `CostumePhotoView` inside `CostumeView.photos`, NOT to
+  `CostumeView` itself (there is no top-level `CostumeView.variants`
+  field). The watch therefore ends only when **every** variant of
+  **every** photo of the watched costume is terminal (`Ready` or
+  `Failed`) — it does not stop at the first `Ready|Failed` it sees. A
+  photo with one `Ready` and one `Pending` variant keeps the pass
+  running; the controller reads the nested path, never a top-level
+  field that does not exist.
 - **Bounded total budget:** the pass is bounded as a whole — at most
   `PHOTO_WATCH_MAX_ATTEMPTS` refetches **or** `PHOTO_WATCH_MAX_ELAPSED`
   of wall time, whichever is reached first (the elapsed bound is

@@ -70,6 +70,14 @@ application ID with no product flavors, so an unscoped `api_base_override`
 would let a production release inherit a dev `http` base — bypassing both
 the compile-time endpoint and TLS pinning. In `prod` a stored override is
 ignored AND cleared on boot; the compile-time HTTPS base is always used.
+**Cleartext overrides never carry credentials:** in the `dev` flavor an
+absolute `http` URI is accepted only for emulator/loopback hosts
+(`10.0.2.2`, `127.0.0.1`, `localhost`), and for every cleartext request
+the auth interceptor withholds the bearer token — the session credential
+is attached only over HTTPS to the pinned-CA transport. Any other `http`
+override is rejected by validation with localized copy (CWE-319: no
+session credential is ever transmitted in the clear to an arbitrary
+host).
 
 #### Scenario: Cold start with override
 - **WHEN** the app boots in the `dev` flavor with a stored override.

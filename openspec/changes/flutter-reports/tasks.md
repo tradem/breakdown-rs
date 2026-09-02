@@ -24,11 +24,14 @@ to implement against (no hand-built URLs, no retyped DTOs).
 - [ ] 1.1 Extend `data/scene_shoot_repository.dart` — per-day PDF
        methods (B1 surface) + Soll-Ist report fetch; remove the
        no-parameter wrappers once the signature lands
-- [ ] 1.2 `data/report_cache.dart` — bounded in-memory PDF buffer
-       (capped at `PDF_MAX_BYTES`; oversized responses abort
-       mid-stream) + temp-file hand-off for share (cache/temporary
-       directory only, never the persistent documents directory);
-       never Drift
+- [ ] 1.2 `data/report_cache.dart` — **stream-to-temp-file, not an
+       in-memory buffer**: path-keyed interceptor sets
+       `ResponseType.stream` for the PDF routes (the generated methods
+       take no `Options`), the repository writes each chunk to the
+       cache/temporary file (never the persistent documents directory,
+       never Drift) while counting bytes, and cancels via
+       `CancelToken` the moment `PDF_MAX_BYTES` is exceeded (partial
+       file deleted); `Result<File>` on success
 - [ ] 1.3 Unit tests: report DTO strict-parse mappers (unknown
        status/flag → `Err` with `report.unknown_status` /
        `report.unknown_shape`), transport/error-code normalization
@@ -53,8 +56,9 @@ to implement against (no hand-built URLs, no retyped DTOs).
        with zero report requests
 - [ ] 2.4 Widget tests + goldens ({light,dark} × {android,macOS}):
        idle/fetching/error/ready card states, flag chips, finality,
-       denial narrative, strict-reject error state, and the
-       membership-`AsyncLoading` local-denial case
+       denial narrative, strict-reject error state, and ALL locally
+       denied membership states — `AsyncLoading`, `AsyncError`, and
+       unknown capability string — each asserting zero report requests
 
 ## 3. Gherkin (designated critical scenario)
 - [ ] 3.1 `features-spec/soll_ist_report.feature` — after day

@@ -76,8 +76,12 @@
 - [ ] 6.2 `data/settings/api_base_override_store.dart` — secure-storage
        read/write/clear, `Result`-typed, unit-tested Ok/Err
 - [ ] 6.3 Rebuildable `apiDioProvider` (pinned `SecurityContext` reused)
-       + `runtimeApiBaseProvider` (Notifier); save path: persist → rebuild
-       → invalidate read providers → clear Drift cache, progress surfaced
+       + `runtimeApiBaseProvider` (Notifier); save path goes through the
+       shared reset coordinator: persist → rebuild Dio → fence
+       in-flight reads (generation/cancellation barrier) → await Drift
+       clear → invalidate read providers, progress surfaced. The same
+       coordinator is used by sign-out (section 4), and a unit test
+       asserts a late pre-clear write is discarded, not persisted
 - [ ] 6.4 `features/app_info/settings_dialog.dart` — current base +
        flavor display; dev-only URI editor with inline validation +
        reset; prod variant with explanatory read-only copy
