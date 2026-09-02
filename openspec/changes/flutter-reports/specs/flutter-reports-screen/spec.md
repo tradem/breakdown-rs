@@ -11,7 +11,7 @@ The reports feature SHALL be implemented only against routes the
 generated Dart client carries: the on-screen Soll-Ist report from the
 JSON report routes, and the PDF reports from the three PDF routes
 WITH the day id expressible through the client. Until the backend
-defines the PDF `{id}` parameter (tracked defect) and exports the
+defines the PDF `{id}` parameter (backend issue #334) and exports the
 JSON report routes, the client SHALL NOT ship hand-built URLs,
 retyped report DTOs, or substitute data sources for this surface.
 

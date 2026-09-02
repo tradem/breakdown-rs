@@ -80,11 +80,11 @@ job → review the preview → apply mapped drafts into an episode.
   (tolerant of absent fields, rejecting unknown row shapes with an
   explicit error state) instead of retyping DTOs client-side
   (never-retype hard rule). The apply request's `draft_ref`s are taken
-  verbatim from the rows the user acted on. Backend asked (tracked) to
-  type the preview schema; switching later is a mapper-only change.
+  verbatim from the rows the user acted on. Backend asked to type
+  the preview schema (GitHub issue #337); switching later is a mapper-only change.
 - **D2 — Config discovery is via a locally remembered id.** The API
-  offers no config-list route; `GET /ai-import/config/{id}` requires
-  the id. The client persists the id from the create response in
+  offers no config-list route (GitHub issue #337); `GET
+  `/ai-import/config/{id}` requires the id. The client persists the id from the create response in
   `flutter_secure_storage` and treats "no remembered id or 404" as the
   first-run state ("not configured yet"). Documented as an API gap —
   no workaround projections are invented.

@@ -103,7 +103,8 @@ later AUTHZ-GATE.
   `EpisodeView.block_id` in the repository layer — read-projection
   filtering, allowed by the CQRS boundary rules (no aggregate
   reconstruction, no cross-projection command backfill). Flagged for a
-  future backend `block_id` filter; switching later is repository-internal.
+  future backend `block_id` filter (GitHub issue #335); switching
+later is repository-internal.
 - **D4 — Costume-category order keys are computed from the read model.**
   `CreateCostumeCategoryRequest` requires `order_key`. The client derives
   the next lexicographic key over existing keys from the SAME season

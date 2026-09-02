@@ -100,6 +100,7 @@
 - [ ] 8.2 `openspec` coverage audit: every scenario in
        `flutter-hierarchy-navigation` and
        `flutter-costume-categories-screen` has a passing test
-- [ ] 8.3 Document the episodes `block_id` filter gap in the backend
-       tracker (design.md D3) — no `backend/openapi.yaml` edit in this
-       change
+- [ ] 8.3 Backend issue #335 tracks the episodes `block_id` filter
+       gap (design.md D3 — client-side grouping in the meantime); a
+       follow-up swaps the repository to the server filter once the
+       contract lands — no `backend/openapi.yaml` edit in this change

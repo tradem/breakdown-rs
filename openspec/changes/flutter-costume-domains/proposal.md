@@ -26,7 +26,7 @@ for the generated Dart client — does NOT contain them. Per the
 never-retrotype-DTOs hard rule, the Soll/Ist scene-shoot UI and the
 continuity-photo capture UI are **excluded from this change** and await
 a backend OpenAPI re-export + their own change
-(`flutter-scene-shoots-screen`). The continuity-photo and Soll-Ist
+(`flutter-shoot-day-execution`, unblock gate: GitHub issue #333). The continuity-photo and Soll-Ist
 Gherkin critical scenarios move with them; this change carries the
 costume-assignment critical scope (see Non-goals).
 
@@ -112,7 +112,7 @@ costume-assignment critical scope (see Non-goals).
   `UpdateCostumeNotesRequest` (`notes` required) while the handler
   consumes `VersionRequest` only. Backend owns the contract: the client
   sends `notes` echoed unchanged from the acted-on `CostumeView` plus
-  `version`. Tracked as a backend spec defect — no client-side
+  `version`. Tracked as backend spec defect #336 — no client-side
   reinterpretation.
 - **D3 — Client AUTHZ-GATE for photo handlers mirrors the server's
   season-scoped photo policy.** Upload/bytes/delete are handler-gated

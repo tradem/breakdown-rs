@@ -10,7 +10,8 @@
   template segment for `/v1/shooting-days/{id}/report/*.pdf` without
   defining it, so the generated methods accept no day id
   (`data/scene_shoot_repository.dart` documents this faithfully).
-  Fix: define `{id}` (uuid) in the three PDF routes; regen.
+  Fix: define `{id}` (uuid) in the three PDF routes (GitHub issue
+  #334); regen.
 - **B2 — Missing JSON report routes:** the router serves
   `/v1/shooting-days/{id}/report/{dispo|shoot-day|soll-ist}` but the
   checked-in spec does not export them. Fix: OpenAPI re-export

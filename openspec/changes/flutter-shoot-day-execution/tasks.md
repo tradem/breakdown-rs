@@ -6,8 +6,9 @@
 
 ## 0. Unblock gate (blocking everything below)
 - [ ] 0.1 Backend re-export lands the scene-shoot / continuity-photo /
-       wrap routes in `backend/openapi.yaml` (tracked backend issue,
-       Phase 2 change task 0.1)
+       wrap routes in `backend/openapi.yaml` (GitHub issue #333,
+       filed via the Phase 2 change's blocker task
+       0.1)
 - [ ] 0.2 `bash scripts/regen-client.sh`; commit the regenerated
        `vendor/breakdown_api/` tree; confirm the new DTOs
 - [ ] 0.3 Verify the intended routes in the generated client match

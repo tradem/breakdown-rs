@@ -49,9 +49,10 @@ From the checked-in `backend/openapi.yaml` and
   `ApplyAiImportResponse {applied_count, created_days,
   planned_scene_shoots}`; 403.
 
-There is **no** config-list route, **no** job-list route (jobs are
-reached by id), and **no** cancel route — D2/D3 in the proposal
-document these honestly.
+There is **no** config-list route and **no** job-list route (jobs are
+reached by id) — both tracked in GitHub issue #337 — and **no**
+cancel route (a deliberate design gap, not an issue); D2/D3 in the
+proposal document these honestly.
 
 ## 2. Feature structure
 

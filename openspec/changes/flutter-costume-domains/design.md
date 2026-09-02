@@ -20,7 +20,8 @@ From the checked-in `backend/openapi.yaml` and
   `series_id` is derived server-side from the character (correct side
   of the CQRS boundary).
 - `POST /v1/costumes/{id}/unassign` — body schema in the spec is
-  `UpdateCostumeNotesRequest` (quirk, D2), handler consumes
+  `UpdateCostumeNotesRequest` (quirk, D2 — backend issue #336),
+  handler consumes
   `VersionRequest`.
 - `POST /v1/costumes/{id}/details` (`AddCostumeDetailRequest:
   {detail: {subject?, text, category_id?}, version}`);

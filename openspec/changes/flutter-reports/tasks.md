@@ -6,11 +6,11 @@
 
 ## 0. Unblock gate
 - [ ] 0.1 Backend: define the `{id}` path parameter on the three PDF
-       routes in `backend/openapi.yaml` (tracked defect, referenced
-       in `data/scene_shoot_repository.dart`)
+       routes in `backend/openapi.yaml` (GitHub issue #334, also
+       referenced in `data/scene_shoot_repository.dart`)
 - [ ] 0.2 Backend: OpenAPI re-export including the JSON report routes
-       (`dispo`, `shoot-day`, `soll-ist`) — same tracked item as the
-       Phase 2b blocker
+       (`dispo`, `shoot-day`, `soll-ist`) — GitHub issue #333 (same
+       re-export as the Phase 2b unblock gate)
 - [ ] 0.3 `bash scripts/regen-client.sh`; commit the regenerated
        client; verify per-day PDF methods and report DTOs exist
 

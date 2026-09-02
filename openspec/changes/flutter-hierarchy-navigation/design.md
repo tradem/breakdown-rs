@@ -14,7 +14,8 @@ concerns):
   (`CreateBlockRequest`, required `series_id` + `season_id` + `number`)
   → 201 `IdVersionResponse`.
 - `GET /v1/episodes?season_id=…` → `List<EpisodeView>` — **no
-  `block_id` filter exists** (D3); `EpisodeView.block_id` carries the
+  `block_id` filter exists** (D3, backend issue #335);
+  `EpisodeView.block_id` carries the
   grouping key. `POST /v1/episodes` requires `series_id` + `block_id` +
   `number`.
 - `GET /v1/scenes?episode_id=…` → `List<SceneView>`; `POST /v1/scenes`

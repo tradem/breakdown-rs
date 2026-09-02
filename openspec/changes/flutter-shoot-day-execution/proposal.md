@@ -13,7 +13,8 @@
 > never-retrotype-DTOs hard rule, no client implementation may begin
 > until the backend re-exports the spec and `scripts/regen-client.sh`
 > runs. This change is created now to spec the UX and test tiers so
-> implementation can start the moment the contract lands.
+> implementation can start the moment the contract lands
+> (unblock gate: GitHub issue #333).
 
 ## Why
 This is the costume department's on-set daily reality: on a shooting
@@ -49,7 +50,8 @@ OpenAPI contract.
 - **Depends on:** `flutter-costume-domains` (shooting-day screens,
   capture pipeline, membership gates), `flutter-login-and-app-shell`.
 - **Blocked on:** backend issue for the missing OpenAPI routes
-  (tracked by Phase 2 change task 0.1) + client regen
+  (tracked by Phase 2 change task 0.1 — GitHub issue #333) +
+  client regen
   (`scripts/regen-client.sh`); unlocking requires no other client
   change.
 

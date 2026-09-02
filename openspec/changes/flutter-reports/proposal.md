@@ -19,14 +19,16 @@ blockers, not worked around):**
    generated Dart client methods (`dispoReportPdf`,
    `shootDayReportPdf`, `plannedVsActualReportPdf`) take **no path
    parameter and cannot address a specific day** — already faithfully
-   wrapped in `data/scene_shoot_repository.dart` and tracked as a
-   backend spec defect (AGENTS.md §7 note). No client workaround (no
-   hand-built URLs bypassing the client) is permissible.
+   wrapped in `data/scene_shoot_repository.dart` and tracked as
+   backend defect GitHub issue #334 (also noted in AGENTS.md §7).
+   No client workaround (no hand-built URLs bypassing the client)
+   is permissible.
 2. **Missing JSON report routes:** the backend router serves the
    source JSON reports (`/v1/shooting-days/{id}/report/dispo`,
    `shoot-day`, `soll-ist`) but the checked-in `backend/openapi.yaml`
    does not contain them — the on-screen Soll-Ist report data has no
-   contract surface yet (same family of gap as the Phase 2b change).
+   contract surface yet (same family of gap as the Phase 2b change;
+   GitHub issue #333).
 
 This change is created now to spec the UX, dependency-light, with
 every task gated on the two backend fixes (a single OpenAPI re-export
@@ -55,9 +57,9 @@ plus the PDF parameter definitions).
 - **Depends on:** `flutter-costume-domains` (day context),
   `flutter-shoot-day-execution` (wrapped days / Ist data; Part 2b
   blocked as documented).
-- **Blocked on (both tracked backend items):** the PDF `{id}` path
-  parameter definitions in `backend/openapi.yaml`, and the export of
-  the JSON report routes; then `scripts/regen-client.sh`.
+- **Blocked on:** GitHub issues #333 (JSON report route export) and
+  #334 (the PDF `{id}` path parameter definitions); each fix is
+  followed by `scripts/regen-client.sh`.
 - **New packages:** PDF in-app viewing via a FOSS renderer
   (e.g. `pdfrx`) + share via `share_plus` — both FOSS/store-compliant;
   selection and pinning are finalized in design.md when unblocked.

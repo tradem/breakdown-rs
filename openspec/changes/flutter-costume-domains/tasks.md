@@ -8,10 +8,11 @@
 - [ ] 0.1 File/triage the backend issue: scene-shoot + continuity-photo
        + wrap + JSON-report routes are served by the backend router but
        absent from the checked-in `backend/openapi.yaml` (never edit the
-       spec from the client change; never retype the DTOs client-side)
-- [ ] 0.2 Confirm the follow-up change slug for the unblocked surface
-       (`flutter-shoot-day-execution`) in this change's proposal so the
-       roadmap stays traceable
+       spec from the client change; never retype the DTOs client-side) —
+       filed as GitHub issue #333
+- [ ] 0.2 Follow-up change slug `flutter-shoot-day-execution` is
+       registered in this change's proposal (roadmap traceable); each
+       unblock gate task is annotated with its issue number
 
 ## 1. Data layer
 - [ ] 1.1 Drift migration: `costumes`, `characters`, `shooting_days`
