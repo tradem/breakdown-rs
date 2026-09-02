@@ -6,18 +6,35 @@
 
 ## 1. Data layer
 - [ ] 1.1 `data/ai_config_repository.dart` — providers/models lists,
-       credential submission, config create/get/update/revoke
-       (Result-typed; version echo on update/revoke)
+       credential submission (`POST /v1/settings/credentials` →
+       `IdVersionResponse`) + `vault_key_id` hand-off read
+       (`GET /v1/settings/{id}` → `SettingsView`), config
+       create/get/update/revoke (Result-typed; version echo on
+       update/revoke), and the rollback path (`DELETE
+       /v1/settings/{id}` + `VersionRequest`, bounded retry, orphaned-
+       credential surfacing) — all `/v1`-prefixed routes only
 - [ ] 1.2 `data/ai_import_repository.dart` — raw-body `uploadSchedule`
        / `uploadScript` (declared content-type; 200-duplicate vs 202
-       branching), `getJob`, `getPreview`, `apply`
+       branching), `getJob`, `getPreview`, `apply`. The ambiguous-
+       timeout path reconciles by re-reading the config/settings
+       before any credential cleanup (never delete a credential that
+       a committed config may reference). NOTE: server-side apply
+       idempotency is tracked in backend issue #338 — until it lands,
+       the client MUST NOT auto-retry an apply whose outcome is
+       unknown; it surfaces the reconcile state instead
 - [ ] 1.3 Secure-storage `ai_config_id` + recent-`job_ids` hand-off
-       store (bounded N)
+       store (bounded N) — **keyed by the authenticated `sub`** and
+       cleared by the Phase 1a sign-out reset; unit test asserts the
+       user A → B switch exposes no state of A
 - [ ] 1.4 Drift `ai_import_jobs` table + migration; repository
        cache-write discipline (success only, snapshot rules)
 - [ ] 1.5 Unit tests: every route Ok/Err (incl. 200/202/413/415/404/
-       403); secret-in-payload-only assertion (store interception);
-       hand-off store round-trip
+       403); secret-in-payload-only assertion covering ALL sinks on
+       both success and failure — persistent store writes
+       (interception), cache/Drift writes, and logger/telemetry
+       output (capturing sink) — plus the hand-off store round-trip.
+       gitleaks is a repo-wide CI control, NOT runtime evidence: it is
+       not cited as the proof for these assertions
 
 ## 2. Configuration feature
 - [ ] 2.1 `features/ai_import/ai_config/` — first-run → provider →
@@ -48,10 +65,14 @@
        404-empty state
 - [ ] 4.2 `apply_controller.dart` — mapping request builder (Create /
        Update-from-picked-DTO / skip; verbatim `draft_ref`s), episode
-       context, `accept_as_is` + `edit_distance` from real selection
-       state; outcome summary card + deep navigation
+       context **persisted with the job** (not read from the
+       navigation stack; explicit episode picker when the persisted
+       context is missing), `accept_as_is` + `edit_distance` from real
+       selection state; outcome summary card + deep navigation
 - [ ] 4.3 Unit tests: adapter (recognized/unrecognized/empty);
-       mapping builder; apply round-trip against a fake
+       mapping builder; apply round-trip against a fake; episode
+       context for fresh-job AND remembered-job entry (incl. the
+       missing-context → picker-required path)
 - [ ] 4.4 Widget tests + goldens: preview cards, degraded rows,
        apply summary, 409/403 branches
 

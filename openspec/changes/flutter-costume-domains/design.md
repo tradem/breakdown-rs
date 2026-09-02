@@ -84,10 +84,15 @@ command methods; their current call shapes are preserved where correct.
   costume row and refresh with it (no route to list them separately).
 - Costume `assign` (200 `AggregateVersion` ack): optimistic state edit
   — the overlay discipline applies to the *costume row* (set
-  `character_id` to the picked id with `reconciling` status; drop on
-  projection carry). `unassign` mirrors it. `add_detail` /
-  `update_notes`: same row-level optimistic edit, keyed on the
-  returned new aggregate version.
+  `character_id` to the picked id with `reconciling` status). The
+  overlay is cleared by a **version fence**, not by any refetch: it is
+  dropped only when the refetched row's `version >= acknowledged
+  version` (`AggregateVersion` returned by the ack). A stale
+  projection (older `version`) MUST NOT restore the pre-command
+  `character_id`, notes, or details — the overlay stays visible and
+  the next bounded refetch repeats. `unassign` mirrors it.
+  `add_detail` / `update_notes`: same row-level optimistic edit and
+  the same version fence, keyed on the returned new aggregate version.
 - Character PATCH commands (`contact`, `measurements`): full-form
   editors writing whole `ContactInfo`/`CharacterMeasurements` objects
   (both are replacements server-side — "God-Command" semantics); the
@@ -113,10 +118,15 @@ command methods; their current call shapes are preserved where correct.
    only at the point of capture (store compliance).
 2. **Prepare:** on a background `compute` isolate via the `image`
    package: decode, downscale the longest side to the configured cap,
-   re-encode to the picked content type. Cap and re-encode guarantee
-   the ≤ size budget (413 becomes a defensive branch only). The UI
-   thread stays free; progress shows a `LinearProgressIndicator`
-   (prepare + upload).
+   re-encode to the picked content type. Downscaling is **not** a size
+   guarantee (a PNG re-encode can still exceed the budget), so the
+   prepared bytes are measured and, if oversized, iteratively
+   re-encoded at a reduced cap/quality until they fit
+   `PHOTO_MAX_SIZE_MB` or fall below a floor — after which the client
+   fails locally with a `photo_too_large` result (no upload attempt,
+   localized copy) instead of provoking a 413. 413 from the server
+   therefore stays a defensive branch only. The UI thread stays free;
+   progress shows a `LinearProgressIndicator` (prepare + upload).
 3. **Upload:** `POST` raw bytes with the correct `Content-Type`
    header (image/jpeg|png|webp) — NOT multipart; 201 `PhotoView` ack
    → optimistic gallery entry → bounded reconciliation via costume

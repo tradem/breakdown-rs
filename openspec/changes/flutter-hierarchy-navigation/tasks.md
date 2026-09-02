@@ -53,7 +53,12 @@
 - [ ] 4.3 `features/scenes/` — `ScenesController(episodeId)`, create
        gated likewise
 - [ ] 4.4 `features/costume_categories/` — controller + next-order-key
-       pure function (append rule `!`..`~`, overflow grows length)
+       pure function (append rule over `!`..`~`; overflow successor is
+       the lexically greater `~!`, never `!!`) — unit tests assert the
+       exact derived values (`!` for empty, normal successor, `~` →
+       `~!`) AND that every derived key compares greater than its
+       predecessor; derivation reads the complete season projection,
+       independent of the archived-visible toggle
 - [ ] 4.5 Unit tests per controller: create happy path (overlay only
        after 2xx), conflict/validation (no overlay, keyed-on-`code`
        copy), exhaustion (stale overlay), 404 narrative branch

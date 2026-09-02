@@ -7,11 +7,17 @@
 ## 1. Blocker restated (binding)
 
 The route family is server-implemented and router-mounted
-(`backend/crates/api/src/handlers/mod.rs::routes()`:
-`/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots` … plus
-notes, continuity-photos, and `/shooting-days/{id}/wrap`) but absent
-from the checked-in `backend/openapi.yaml`, which the client drift-
-checks against. Consequence (unchanged from the Phase 2 finding): the
+(`backend/crates/api/src/handlers/mod.rs::routes()` declares the
+paths **unversioned** — `/shooting-days/{day_id}/scenes/{scene_id}/
+scene-shoots` … plus notes, continuity-photos, and
+`/shooting-days/{id}/wrap` — while `app_router` mounts them under the
+`/v1` prefix, so the externally reachable paths are
+`/v1/shooting-days/…`). Throughout this document every route is
+written with the **`/v1` prefix** as it is externally reachable, and
+Task 0.3 verifies the generated client against those `/v1` paths, not
+against the unversioned router strings. They are absent from the
+checked-in `backend/openapi.yaml`, which the client drift-checks
+against. Consequence (unchanged from the Phase 2 finding): the
 generated Dart client cannot express these calls, and by the
 never-retype rule nothing below may be implemented until the contract
 catches up. All tasks in `tasks.md` are gated on Task 0.
@@ -46,8 +52,12 @@ binding to the `SceneShoot` (day + scene context) with an optional
 costume link picked from the season's costume read DTOs. List renders
 the shoot's continuity photos; unlink is confirm-first. AUTHZ-GATE:
 the `upload_continuity_photos` capability check (or the season photo
-policy mirror) before every upload/unlink call, `// AUTHZ-GATE:`
-annotated, 403 narrative pre-network.
+policy mirror) before **every continuity call — upload, LIST, and
+unlink** — each `// AUTHZ-GATE:` annotated, with the local-denial
+branch rendering the 403 narrative pre-network. The list call is
+gated by the same capability as upload/unlink (a member who may not
+manage continuity photos must not enumerate them); the local-denial
+test asserts zero list requests.
 
 ### 2.3 Gherkin (designated critical scenarios, on device)
 

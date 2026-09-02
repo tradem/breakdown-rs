@@ -11,7 +11,13 @@ The application root (`App`) SHALL branch on
 `authSessionControllerProvider`: `AsyncLoading` renders a splash with a
 `CircularProgressIndicator`; `AsyncData(null)` renders `LoginScreen`;
 `AsyncData(session)` renders the seasons screen; `AsyncError` renders
-`LoginScreen` with the error surfaced. No main-app screen SHALL be
+`LoginScreen` with the error surfaced. A restore failure SHALL be
+normalized to a `ProblemError` with a stable `code` **before** it reaches
+`LoginScreen`: `AsyncError` is not constrained to `ProblemError`, and the
+login error contract renders localized copy keyed on `code` only, so any
+non-`ProblemError` (or code-less) failure is mapped to a stable generic
+restore code with neutral copy. No raw exception text and no server
+`detail` is ever rendered on the login screen. No main-app screen SHALL be
 reachable without a resolved authenticated session.
 
 #### Scenario: Session restore is in flight
@@ -28,6 +34,23 @@ reachable without a resolved authenticated session.
 - **WHEN** an authenticated user signs out.
 - **THEN** tokens are cleared, the Drift read cache is emptied, and the
   root recomposes to `LoginScreen`.
+
+#### Scenario: Restore failure is normalized
+- **WHEN** session restore fails with a non-`ProblemError` (e.g. a
+  storage exception).
+- **THEN** the root still shows `LoginScreen` with generic, localized
+  copy keyed on the stable restore code — never the raw exception
+  text or a backend `detail`.
+
+#### Scenario: Sign-out fails closed
+- **WHEN** any cleanup step of sign-out returns `Err` (token deletion,
+  provider invalidation, or Drift cache clearing).
+- **THEN** the root leaves the authenticated gate anyway (main-app
+  content is not reachable and no stale projection is rendered), the
+  partial failure is surfaced as a retryable error with the retry
+  affordance, and cleanup is re-attempted in the documented order
+  (tokens → invalidate providers → clear cache). Sign-out is never
+  reported as success while a step is unresolved.
 
 ### Requirement: LoginScreen Presentation and Sign-In Dispatch
 `LoginScreen` SHALL be a `ConsumerWidget` with sign-in dispatch delegated

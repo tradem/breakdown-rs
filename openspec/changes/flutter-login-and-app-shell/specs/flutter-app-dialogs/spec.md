@@ -64,8 +64,20 @@ and its absence SHALL be explained in plain language.
 A persisted backend-URI override SHALL be applied in `bootstrap()` after
 `AppConfig.fromEnvironment` and before any `Dio`/repository is
 constructed, so no request ever targets the compile-time base when an
-override is stored.
+override is stored. **The override is flavor-guarded:** it is applied
+ONLY when `config.flavor == Flavor.dev`. Android ships a single
+application ID with no product flavors, so an unscoped `api_base_override`
+would let a production release inherit a dev `http` base — bypassing both
+the compile-time endpoint and TLS pinning. In `prod` a stored override is
+ignored AND cleared on boot; the compile-time HTTPS base is always used.
 
 #### Scenario: Cold start with override
-- **WHEN** the app boots with a stored override.
+- **WHEN** the app boots in the `dev` flavor with a stored override.
 - **THEN** the first network call targets the overridden base.
+
+#### Scenario: Production cold start ignores a stored override
+- **WHEN** a `prod` build boots with a stored override (e.g. left over
+  from a dev install over the same application ID).
+- **THEN** the compile-time HTTPS base is used, the stored override is
+  cleared, and no request is ever made to the overridden (possibly
+  cleartext) address.

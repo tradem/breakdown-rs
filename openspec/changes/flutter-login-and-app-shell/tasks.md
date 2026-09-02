@@ -37,10 +37,18 @@
        `Result<Uri>`; `authorizationUiProvider` default becomes
        `PlatformAuthorizationUi`
 - [ ] 3.3 Android manifest + macOS `Info.plist` custom-scheme
-       registration for `OIDC_REDIRECT_URI`
+       registration for `OIDC_REDIRECT_URI`, with the Android scheme
+       injected at build time (Gradle `manifestPlaceholder` derived
+       from the same source as the `--dart-define`) so the native
+       registration cannot drift from the configured URI; a mismatch
+       fails the build, and a device/emulator test confirms the
+       redirect is delivered to `app_links`
 - [ ] 3.4 Add `url_launcher` + `app_links` to `pubspec.yaml`
-- [ ] 3.5 Unit tests: fake `AuthorizationUi` (redirect, error, timeout)
-       driving `signIn()` Ok/Err branches (incl. `state` mismatch)
+- [ ] 3.5 Unit tests: fake `AuthorizationUi` driving `signIn()` Ok/Err
+       branches — the platform fake covers exactly the three platform
+       failure modes (browser-launch, timeout, redirect-capture), and
+       the `state` mismatch is asserted at the `oidc_client` level
+       (`oidc.state_mismatch`), not in the platform contract
 - [ ] 3.6 Widget tests + goldens: LoginScreen happy/error/in-flight/
        dev-auth (light + dark); semantic finders paired with goldens
 - [ ] 3.7 Integration test (emulator, dev-auth): boot → gate → continue →

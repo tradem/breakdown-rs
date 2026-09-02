@@ -67,11 +67,27 @@ content-type/`415` server rejections render copy keyed on `code`.
 
 ### Requirement: Variant Watch Terminates at Terminal State
 The photos repository SHALL expose a `watch(costumeId)` stream that
-refetches the costume view with bounded backoff until every watched
-photo's variant `status` is terminal (`Ready` or `Failed`) and stops on
-the last unsubscription — no polling while the screen is not visible.
-`Failed` variants SHALL show a non-destructive explanation with the
-"capture again" affordance (there is no variant retry command).
+refetches the costume view with bounded backoff until it reaches a
+terminal condition, and stops on the last unsubscription — no polling
+while the screen is not visible.
+
+- **Terminal condition (whole pass, not per-variant):** `CostumeView`
+  carries `variants` as an array (three variants per photo), so the
+  watch ends only when **every** variant of **every** photo of the
+  watched costume is terminal (`Ready` or `Failed`) — it does not stop
+  at the first `Ready|Failed` it sees. A photo with one `Ready` and one
+  `Pending` variant therefore keeps the pass running.
+- **Bounded total budget:** the pass is bounded as a whole — at most
+  `PHOTO_WATCH_MAX_ATTEMPTS` refetches **or** `PHOTO_WATCH_MAX_ELAPSED`
+  of wall time, whichever is reached first (the elapsed bound is
+  evaluated against a fake clock in tests, never a real
+  `Future.delayed`). On expiry the stream emits the current view with a
+  `watch_expired` state: polling stops, still-`Pending` variants render
+  a neutral "still processing" affordance with manual refresh, and no
+  further network call is made until the user re-subscribes or
+  refreshes.
+- `Failed` variants SHALL show a non-destructive explanation with the
+  "capture again" affordance (there is no variant retry command).
 
 #### Scenario: Thumbnail becomes Ready
 - **WHEN** an upload's variants transition Pending → Ready during the

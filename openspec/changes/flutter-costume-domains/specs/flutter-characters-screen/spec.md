@@ -17,7 +17,7 @@ future backends SHALL strictly reject the DTO (no guessed meaning).
 
 #### Scenario: Creating a character
 - **WHEN** the user submits name + category in the season context.
-- **THEN** the POST dispatches after the session gate; the optimstic
+- **THEN** the POST dispatches after the session gate; the optimistic
       overlay reconciles like the seasons reference; validation errors
       show keyed on `code`.
 
@@ -59,6 +59,9 @@ id list.
 
 #### Scenario: Unassigning a character
 - **WHEN** the user removes an assigned character (confirm-first).
-- **THEN** the DELETE issues with ids from the read DTO; the row edit
-      is optimistic and reconciles; a failed command rolls back the
-      local edit and surfaces the error keyed on `code`.
+- **THEN** the DELETE issues with ids from the read DTO; on 2xx the
+      assigned list optimistically drops the id and reconciles via the
+      scene projection refetch; a failed command (non-2xx) leaves the
+      projected id in place — no local edit is made before the ack,
+      so there is nothing to roll back — and surfaces the error keyed
+      on `code`.

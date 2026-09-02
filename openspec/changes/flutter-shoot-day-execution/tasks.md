@@ -16,10 +16,12 @@
 
 ## 1. Data layer
 - [ ] 1.1 Extend `data/scene_shoot_repository.dart` with the
-       generated execution calls (plan/replan/get, start,
+       generated execution calls against the **`/v1`-prefixed**
+       externally reachable paths (plan/replan/get, start,
        actual-order, finish, skip, notes add/update/remove,
        continuity upload/list/unlink, wrap) — Result-typed, version
-       echoes, `// AUTHZ-GATE:` on continuity calls
+       echoes, `// AUTHZ-GATE:` on ALL continuity calls (upload,
+       list, unlink) with the local-denial zero-call tests
 - [ ] 1.2 Drift table(s) for the day-board projection + migration
 - [ ] 1.3 Unit tests: every command Ok/Err; optimistic-edit
        reducers; Ist-state renderer purity (flags/finality from read
@@ -39,7 +41,9 @@
 
 ## 3. Gherkin (designated critical scenarios)
 - [ ] 3.1 `features-spec/continuity_photo_capture.feature` — gate →
-       capture → upload → variant Ready → thumb appears
+       capture → upload → variant Ready → thumb appears; plus the
+       watch-expired case (variant still `Processing` at the deadline
+       → polling stops + recovery affordance)
 - [ ] 3.2 `features-spec/soll_ist_execution.feature` — plan → start
        → actual-order → finish; skip; wrap finality
 - [ ] 3.3 Wire into the flutter_gherkin CI manifest

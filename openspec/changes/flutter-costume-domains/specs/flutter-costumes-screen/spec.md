@@ -35,13 +35,25 @@ to the checked-in body schema (notes echoed unchanged — documented
 quirk) with the same version echo. Both commands SHALL apply the
 optimistic-after-2xx discipline on the costume row's `character_id` and
 surface 409 as "changed elsewhere — refresh" copy keyed on `code`
-without auto-retry.
+without auto-retry. The optimistic overlay SHALL be cleared only when
+the refetched projection row satisfies `version >= acknowledgedVersion`
+(version fence) — a stale projection carrying an older `version` SHALL
+keep the overlay visible rather than restore the pre-command
+`character_id`, notes, or details.
 
 #### Scenario: Assign happy path
 - **WHEN** the user picks a character for the costume.
 - **THEN** on 2xx the row optimistically carries the assignment and a
   bounded reconciliation swaps it for the projection; the UI never
   blocks on projector lag.
+
+#### Scenario: Overlay survives a stale projection
+- **WHEN** a reconciliation refetch returns a costume row whose
+  `version` is lower than the version acknowledged by the command.
+- **THEN** the overlay is retained (still `reconciling`) and the stale
+  `character_id` is NOT rendered as authoritative; the next refetch
+  attempt repeats until the fence passes or the bounded budget
+  expires (stale indicator + pull-to-refresh).
 
 #### Scenario: Optimistic-lock conflict on assign
 - **WHEN** the costume changed since the row was read (409).

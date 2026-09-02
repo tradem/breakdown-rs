@@ -35,10 +35,15 @@ concerns):
   `assign_costumes`).
 - Create handlers are `CurrentUser`-gated (auth-only), mirroring
   `create_season`.
-- Every create/patch takes ids and `series_id` from caller-supplied
-  payload; the client sources them from the read DTO the user navigated
-  from (CQRS-boundary rule: no second projection lookup to "fill in"
-  command context).
+- Every create/patch takes its ids from the read DTO the user
+  navigated from (CQRS-boundary rule: no second projection lookup to
+  "fill in" command context). `series_id` is carried **only** by the
+  requests that declare it — `CreateSceneRequest` (`episode_id` +
+  `details`) and the episode/season creates; it is NOT a universal
+  field: `CreateCostumeCategoryRequest` is scoped by `season_id`, and
+  `UpdateCostumeCategoryRequest` carries `version` plus the optional
+  changed fields. The client builds each payload from that request's
+  own declared shape.
 
 ## 2. Screen architecture (per the seasons reference)
 
@@ -53,8 +58,9 @@ features/<aggregate>/
 ```
 
 - **Controllers:** `blocksControllerProvider(seasonId)`,
-  `episodesControllerProvider(blockId)` (with the season id for the
-  fetch scope, see D3), `scenesControllerProvider(episodeId)`,
+  `episodesControllerProvider(blockId, seasonId)` — two arguments, the
+  `seasonId` being the fetch scope required by D3 for
+  `GET /v1/episodes?season_id=…` — `scenesControllerProvider(episodeId)`,
   `costumeCategoriesControllerProvider(seasonId)`. State mirrors
   `SeasonsScreenState`: `projected` (`AsyncValue`), `cachedRows`,
   `isStale`, `overlays`, `commandError`.
@@ -91,10 +97,10 @@ change; seasons goldens must be byte-stable (proof of parity).
 
 - Season row tap → `Navigator.push(BlocksScreen(season))`; block row →
   `EpisodesScreen(block)`; episode row → `ScenesScreen(episode)`;
-  category action opens from the season screen's toolbar (a
-  `costume_categories` entry point on the blocks screen toolbar — the
-  categories are season-scoped siblings of blocks, not children of
-  blocks).
+  category action opens from the season screen's toolbar (the single,
+  documented entry point — categories are season-scoped siblings of
+  blocks, not children of blocks, so no action is placed on the blocks
+  toolbar).
 - Up/back: Android system back and macOS mouse-back both pop via the
   default `Navigator`; `AppBar` back implies the parent.
 - **Android (compact):** `ListView` cards, 48 dp targets,
@@ -140,8 +146,12 @@ change; seasons goldens must be byte-stable (proof of parity).
 - **Next-order-key derivation** (pure function, unit-tested): append
   after the last current key — successor of the last key's final byte
   over the fixed printable-ASCII alphabet `!`..`~` (byte 33..=126);
-  overflow of the last position grows the key length (`~` → `!!`);
-  empty list → `!`. Documented honesty note: the server-side
+  overflow of the last position grows the key length with a
+  **lexically greater** successor (`~` → `~!`, never `~` → `!!`,
+  which sorts *before* `~` and would break append-after-last);
+  empty list → `!`. Every derived key therefore sorts strictly after
+  its predecessor, which the unit tests assert by value and by
+  comparison. Documented honesty note: the server-side
   `LexicalSortKey::midpoint` semantic is not replicated — insertion is
   append-only, which is order-preserving by construction; full
   reordering is a non-goal.

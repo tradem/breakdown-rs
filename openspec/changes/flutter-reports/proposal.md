@@ -80,7 +80,10 @@ plus the PDF parameter definitions).
   `wrapped_at`) come from the report read DTO; the client renders
   chips/rows, never recomputing.
 - **D3 — Streaming, bounded memory.** PDF bytes stream through the
-  pinned-CA client with a bounded buffer; documents landing in the
-  platform share/save flow go to the app's temporary/documents
-  directory, never to Drift (blob-store rule from Phase 2's photo
-  work).
+  pinned-CA client with a bounded buffer; documents handed to the
+  platform share/save flow are written to a **cache/temporary
+  directory** (not the persistent documents directory, which is
+  reserved for an explicit user save), and are removed on every
+  non-save exit — preview closed, share cancelled or failed, or app
+  termination before an explicit save. Nothing is ever written to
+  Drift (blob-store rule from Phase 2's photo work).

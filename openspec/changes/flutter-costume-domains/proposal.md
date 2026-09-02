@@ -48,7 +48,7 @@ costume-assignment critical scope (see Non-goals).
   "characters" section — assigned characters resolved from
   `SceneView.assigned_characters` ids via the characters projection
   (read-DTO join, no aggregate reconstruction), assign/unassign
-  (`POost /v1/scenes/{id}/characters`, DELETE
+  (`POST /v1/scenes/{id}/characters`, DELETE
   `/v1/scenes/{id}/characters/{character_id}`) with the scene version
   echo from the acted-on `SceneView`.
 - **Photos feature** (`features/photos/`): camera capture via

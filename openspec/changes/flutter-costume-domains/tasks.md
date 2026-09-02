@@ -20,22 +20,36 @@
        `details`/`photos`; migration test)
 - [ ] 1.2 Extend `data/costume_repository.dart` — `listBySeason` /
        `get` (cache-backed, snapshot rules), `assign`, `unassign`
-       (quirk-conforming body, D2), `addDetail`, `updateNotes`;
-       overlay reducer helpers for the costume row
+       (body per the checked-in schema — currently the `notes` echo
+       documented in D2, switched to the corrected schema once
+       backend issue #336 is resolved: until #336 lands, the exact
+       body is `UpdateCostumeNotesRequest` = `notes` echoed unchanged
+       from the acted-on `CostumeView` + `version`), `addDetail`,
+       `updateNotes`; overlay reducer helpers for the costume row
+       including the version-fence clear condition
+       (`projection.version >= acknowledgedVersion`)
 - [ ] 1.3 Extend `data/character_repository.dart` — `listBySeason`,
        `create`, `updateContact`, `updateMeasurements` (full
        replacements, version echo)
 - [ ] 1.4 Extend `data/photo_repository.dart` — raw-bytes `upload`
        (content-type header), `getBytes`, `delete`, and
-       `watch(costumeId)` (bounded-backoff costume refetch, terminal
-       `Ready|Failed` stop, subscriber-count lifecycle)
+       `watch(costumeId)` (bounded-backoff costume refetch;
+       **terminal condition = every variant of every photo is
+       `Ready|Failed`** — not the first terminal variant; **bounded as
+       a whole pass** by `PHOTO_WATCH_MAX_ATTEMPTS` refetches or
+       `PHOTO_WATCH_MAX_ELAPSED` elapsed, emitting `watch_expired` on
+       expiry and stopping; subscriber-count lifecycle)
 - [ ] 1.5 Extend `data/shooting_day_repository.dart` — `listByEpisode`,
        `create` (append `order_key`, `Manual`), `update`
        (single-intent reorder/reschedule/rename incl. `date: null`),
        `archive`
 - [ ] 1.6 Unit tests: every method Ok AND Err; cache untouched on
        failure; watch state machine with fake scheduler (bounded
-       attempts, terminal stop, unsubscribe stop — no wall-clock)
+       attempts/elapsed, terminal stop incl. the mixed case one
+       variant `Ready` + one `Pending`, expiry → `watch_expired` with
+       no further calls, unsubscribe stop — no wall-clock);
+       assign/unassign overlay unit tests asserting the version fence
+       (stale projection retains the overlay)
 
 ## 2. AUTHZ-GATE seam
 - [ ] 2.1 `lib/auth/membership_gate.dart` — shared capability gate
@@ -47,8 +61,12 @@
 
 ## 3. Photos pipeline
 - [ ] 3.1 `features/photos/prepare.dart` — pure resize/encode core
-       (longest-side cap, content-type mapping) + `compute` isolate
-       wrapper; unit tests with tiny fixtures (overflow/format-reject)
+       (longest-side cap, content-type mapping) + post-encode size
+       measurement with iterative reduction and a local
+       `photo_too_large` result when the budget cannot be met (so 413
+       stays defensive only) + `compute` isolate wrapper; unit tests
+       with tiny fixtures (overflow/format-reject, oversized-after-
+       re-encode → `photo_too_large`, reduction loop converges)
 - [ ] 3.2 `image_picker` integration — capture intent only at point of
        use; pre-permission rationale dialog (remembered flag);
        denial + revoked + unavailable copy branches

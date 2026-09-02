@@ -66,20 +66,42 @@ generic error listing the stable `code`.
    the platform-default browser on macOS).
 2. `app_links` subscription captures the first redirect matching
    `config.oidcRedirectUri` scheme after `launch` was invoked.
-3. The result is returned as `Result<Uri>`; timeout or a redirect for a
-   stale `state` returns `Err` (the `state` check itself stays in
-   `oidc_client.dart`).
+3. The result is returned as `Result<Uri>`. The platform contract has
+   exactly three failure modes — **browser-launch failure**, **timeout**,
+   and **redirect-capture failure** — each mapped to its own `Err`.
+   Stale-`state` is NOT a platform concern: the platform leg returns
+   whatever redirect URI it captured and performs no `state`
+   comparison; `OidcClient.authorize()` passes that URI to
+   `_extractCode`, which owns the `state` check and maps a mismatch to
+   `oidc.state_mismatch`. (The `Err` for a redirect that does not match
+   the configured scheme is a capture failure, i.e. the listener never
+   fires — not a semantic judgment about `state`.)
 
 Composition: `authorizationUiProvider` default implementation changes
 from `NotConfiguredAuthorizationUi` to `PlatformAuthorizationUi`
 (constructed with the resolved redirect URI). Tests override the
 provider with fakes — no behavior change to `oidc_client.dart`.
 
+- **`OIDC_REDIRECT_URI` is a build-time *native* configuration
+  contract, not only a Dart `--dart-define`.** `AppConfig.fromEnvironment`
+  reads the URI from Dart, but the redirect is delivered by the OS:
+  **Android** needs a matching deep-link `<intent-filter>` in
+  `AndroidManifest.xml`, fed by a Gradle `manifestPlaceholder` (or an
+  equivalent build-config injection) so the scheme cannot drift from
+  `--dart-define`; **macOS** needs the matching `CFBundleURLTypes`/
+  `CFBundleURLSchemes` entry in `Info.plist`. A build whose native
+  registration does not match the configured URI fails to deliver the
+  redirect to `app_links` (sign-in hangs until timeout), so the flavor
+  docs state the URI per flavor and Task 3.3 verifies that the native
+  registration matches the configured value — on Android the
+  placeholder is derived from the same source as `OIDC_REDIRECT_URI`, a
+  mismatch fails the build rather than the sign-in.
 - **Android:** custom scheme registered in the manifest (dev: the
-  scheme from `OIDC_REDIRECT_URI`); store-compliant — Custom Tabs
-  launches only on explicit user action (the sign-in button).
-- **macOS:** `CFBundleURLTypes` registration; macOS support is secondary
-  and covered by widget tests; the deep-link mechanism is identical.
+  scheme from `OIDC_REDIRECT_URI`, see above); store-compliant — Custom
+  Tabs launches only on explicit user action (the sign-in button).
+- **macOS:** `CFBundleURLTypes` registration (see above); macOS support
+  is secondary and covered by widget tests; the deep-link mechanism is
+  identical.
 - **Battery/store compliance:** no background subscription is held; the
   `app_links` listener only exists while a sign-in is in flight and is
   cancelled on completion.
@@ -159,7 +181,13 @@ closes on Escape on macOS.
   through a rebuildable `apiDioProvider` (the pinned `SecurityContext`
   from bootstrap is reused; a mismatched backend fails TLS, surfaced via
   `ProblemError(code: 'transport.*')`, never bypassed), (3) invalidate
-  all repository/fetch providers, (4) **clear the Drift cache database**
+  all repository/fetch providers — `ref.invalidate` (not
+  `ref.refresh`): invalidate destroys the provider state immediately
+  and schedules re-evaluation for the next read/frame, which is exactly
+  the wanted semantic here; `ref.refresh` would force a synchronous
+  recompute inside the save path (it is `invalidate` + immediate
+  `read`) and is deliberately NOT used, (4) **clear the Drift cache
+  database**
   (a new base is a different reality; stale rows must not cross
   identities/backends — extends the `flutter-offline-scope` snapshot
   semantics), (5) keep the login session (tokens are IdP-scoped, not

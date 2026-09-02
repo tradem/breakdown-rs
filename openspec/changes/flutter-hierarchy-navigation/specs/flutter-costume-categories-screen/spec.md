@@ -38,13 +38,23 @@ pattern.
 - **WHEN** the user creates a category in an empty list, then a second
   one.
 - **THEN** the first POST carries order key `!` and the next carries the
-  appended successor of the last displayed key; the list order after
+  appended successor of the greatest key in the **complete season
+  projection** (archived rows included — the archived-visible toggle
+  affects rendering only, never derivation); the list order after
   reconciliation matches server `order_key ASC`.
 
 #### Scenario: Order-key derivation edge
-- **WHEN** the last existing key ends in `~` (last alphabet position).
-- **THEN** the derived key grows in length (append-position rule); the
-  pure derivation function is unit-tested for both edge cases.
+- **WHEN** the greatest existing key ends in `~` (last alphabet
+  position).
+- **THEN** the derived key is `~!` (length grows, and the value sorts
+  strictly after `~`); the pure derivation function is unit-tested for
+  the empty list (`!`), the normal successor, and this overflow.
+
+#### Scenario: Derivation ignores the archived-visible toggle
+- **WHEN** the season contains an archived category whose key is the
+  greatest one, but archived rows are hidden at render time.
+- **THEN** the derived key still follows that archived key (no key is
+  reissued, no new category is ordered before an existing one).
 
 ### Requirement: Rename With Version Echo and Archive
 Renaming SHALL PATCH `UpdateCostumeCategoryRequest` echoing the `version`

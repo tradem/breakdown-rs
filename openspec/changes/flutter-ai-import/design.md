@@ -21,7 +21,7 @@ From the checked-in `backend/openapi.yaml` and
 - **Config:** `POST /v1/ai-import/config`
   (`CreateAiConfigRequest {provider, assistant_model, prompts:
   {script|schedule → text}, vault_key_id, image_model?}`) → 201
-  `IdVersionResponse`; `GET /ai-import/config/{id}` → `AiConfigView`
+  `IdVersionResponse`; `GET /v1/ai-import/config/{id}` → `AiConfigView`
   (public view: opaque `vault_key_id`, NO secret material; owner
   check server-side); `PATCH …` (`UpdateAiConfigRequest`, version
   echo) → `AggregateVersion`; `POST …/revoke`
@@ -84,12 +84,37 @@ are pushed after a 202/200 upload response carrying the returned
    (`/providers/{key}/models`, 422 → "provider unavailable" copy).
 3. Credential field: masked input for the LLM API key →
    `POST /v1/settings/credentials` (`provider` = the selected
-   provider key, `secret` = key) → `vault_key_id`. The secret lives
-   only in the request payload (D6).
-4. `POST /ai-import/config` (create) or `PATCH` (edit, version echo);
-   remember the id on create. 403 → localized "administrator role
-   required" narrative (D4 — session-only pre-gate, no capability
-   surface exists for credential roles).
+   provider key, `secret` = key). The secret lives only in the
+   request payload (D6) and is never persisted client-side.
+4. **Credential hand-off (exact, contract-checked):**
+   `POST /v1/settings/credentials` returns an `IdVersionResponse`
+   (the **Settings aggregate id + version**) — *not* the
+   `vault_key_id`. The opaque `vault_key_id` required by
+   `CreateAiConfigRequest` is therefore obtained in a second step via
+   `GET /v1/settings/{id}` → `SettingsView {vault_key_id,
+   binding_state, vault_version, version}`.
+5. `POST /v1/ai-import/config` (create, carrying that `vault_key_id`)
+   or `PATCH` (edit, version echo); remember the id on create. 403 →
+   localized "administrator role required" narrative (D4 —
+   session-only pre-gate, no capability surface exists for credential
+   roles).
+6. **Rollback on config failure.** If step 5 fails, the Settings
+   aggregate created in step 3 must be destroyed:
+   `DELETE /v1/settings/{id}` with `VersionRequest {version}` (the
+   version from step 3/4). Vault destruction in the handler is
+   best-effort, so a failed DELETE is retried (bounded) and, if it
+   remains failed, surfaced as a localized "orphaned credential"
+   notice with a retry affordance — never silently dropped.
+7. **Ambiguous timeout reconciliation.** When step 5 times out (no
+   response, outcome unknown) the client MUST NOT blindly delete the
+   credential: it first reconciles by reading
+   `GET /v1/ai-import/config/{remembered id}` (or
+   `GET /v1/settings/{id}`). A committed config → keep the credential
+   and continue to the config screen; a definitive 404 → run the
+   step-6 cleanup. Only an unresolved ambiguity after the bounded
+   reconciliation attempts surfaces a "configuration state unknown —
+   verify" state with both actions offered; the credential is never
+   destroyed while it may be referenced by a committed config.
 
 ### 2.2 Submission flow
 
@@ -116,9 +141,19 @@ are pushed after a 202/200 upload response carrying the returned
   shapes render as cards; unrecognized shapes render a degraded
   "unrecognized preview row" card and are excluded from one-tap
   accept-all; no silent coercion into fabricated typed rows.
-- Apply screen: episode context from the navigation stack
-  (`episode_id` required; `series_id` from the `EpisodeView` acted on);
-  per-row decision Create / Update (picker over the episode's
+- Apply screen — **episode context is data, not navigation state.**
+  `ApplyAiImportRequest.episode_id` is required, and the documented
+  entry point (seasons toolbar, §2.1) plus the remembered-job path
+  both allow reaching a preview with no `EpisodeView` on the stack.
+  Therefore the episode context (`episode_id` + `series_id`) is
+  **persisted with the job record** when the job is enqueued and with
+  every remembered job id, and the apply request is built from that
+  persisted context. If a job is opened whose context is missing (e.g.
+  a job id from an older build), the UI requires an explicit episode
+  selection (picker over the season's episodes, ids from the read
+  DTOs) before apply is enabled — apply is never dispatched with a
+  guessed or empty `episode_id`.
+  Per-row decision: Create / Update (picker over the episode's
   existing aggregates, ids + versions from the picked read DTOs) /
   skip. `accept_as_is` ("create all drafts as-is") and
   `edit_distance` (reported by the selection state; never invented).
@@ -132,6 +167,18 @@ are pushed after a 202/200 upload response carrying the returned
   and offline reads; the "job list" surface is the remembered job ids
   (secure-storage id list, bounded to the N most recent) since no
   list route exists (same honest gap as D2).
+- **AI-import state is scoped to the authenticated user.** All of it —
+  `ai_import_jobs` rows, the remembered configuration id, and the
+  remembered job-id list — is keyed by the authenticated subject
+  (`sub`), and is cleared on sign-out and on account switch (the
+  Phase 1a sign-out path already empties the Drift cache and
+  invalidates session providers; this change adds the secure-storage
+  id lists to that same reset). Offline reads after switching from
+  user A to user B MUST expose no state belonging to A; a unit test
+  covers exactly that A → B switch. (The pre-existing keying of the
+  *other* Drift tables is out of scope here — they are cleared
+  wholesale on sign-out by Phase 1a, so no cross-user read is
+  reachable.)
 - Preview is NEVER cached (regenerable, potentially large); config is
   fetched by remembered id; no secrets cached anywhere.
 

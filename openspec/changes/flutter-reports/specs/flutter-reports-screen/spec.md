@@ -31,6 +31,16 @@ keyed on `code`, theme-token styling, {light,dark} ×
 finality SHALL occur; unknown status/flag values from a future
 backend SHALL strict-reject the DTO with a stable code.
 
+- **Error-code contract (stable, testable):** the strict parser emits
+  `report.unknown_status` (an unrecognized flag/status string) and
+  `report.unknown_shape` (a structurally unexpected DTO). Transport
+  failures and HTTP errors carry no backend problem `code`, so they
+  are normalized to `transport.*` (`transport.tls` for a pinning/TLS
+  failure, `transport.network` for connectivity/DNS,
+  `transport.timeout`) and, for a code-less HTTP error, to
+  `http.<status>`. Localization and tests key on exactly these codes;
+  no path renders raw exception text or a server `detail`.
+
 #### Scenario: Wrapped day report
 - **WHEN** the user opens the report of a wrapped day.
 - **THEN** the finality banner renders and every row carries the
@@ -44,13 +54,26 @@ backend SHALL strict-reject the DTO with a stable code.
 
 ### Requirement: PDF Fetch, Preview, Share
 Fetching a PDF SHALL occur only on explicit user action, through the
-pinned-CA generated client, streamed with bounded in-memory buffering
-and a visible indeterminate/linear progress affordance while running;
-the document SHALL preview in-app (FOSS viewer) and be shareable/
-saveable via the platform sheet to a user-visible file name. PDF
-bytes SHALL never persist into Drift. A role-gated user denial SHALL
-be pre-empted client-side with `// AUTHZ-GATE:`-annotated capability
-checks and the localized 403 narrative before any network call.
+pinned-CA generated client, streamed and a visible indeterminate/linear
+progress affordance while running; the document SHALL preview in-app
+(FOSS viewer) and be shareable/saveable via the platform sheet to a
+user-visible file name. PDF bytes SHALL never persist into Drift.
+
+- **Enforceable memory bound:** the buffer is capped at
+  `PDF_MAX_BYTES` (default 25 MB) counted while streaming. A response
+  that exceeds the cap is aborted mid-stream, the card returns to idle
+  with the localized `pdf.too_large` copy, and no full document is
+  ever resident in memory — the cap is asserted by a unit test that
+  streams an oversized body and expects the abort plus zero file
+  writes.
+- A role-gated user denial SHALL be pre-empted client-side with
+  `// AUTHZ-GATE:`-annotated capability checks and the localized 403
+  narrative before any network call. The pre-check is **local and
+  non-fetching**: `currentMembershipProvider` may be `AsyncLoading`,
+  `AsyncError`, or carry an unknown capability string, and in all three
+  cases the PDF action is disabled/refused locally — the action never
+  triggers a membership fetch, and a denied action issues zero report
+  requests.
 
 #### Scenario: Fetch and share
 - **WHEN** the user taps a PDF card and confirms share.

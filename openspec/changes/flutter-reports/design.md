@@ -22,7 +22,7 @@ Both fixes are backend-owned; the client change delivers
 
 ## 2. Intended UX (spec'd now, built when unblocked)
 
-```
+```text
 Day context (Phase 2 shooting-days screen) ── "Reports" action
 └── ReportsScreen (day)
     ├── Soll-Ist on-screen report (B2)

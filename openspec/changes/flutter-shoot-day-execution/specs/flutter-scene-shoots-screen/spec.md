@@ -67,3 +67,12 @@ localized 403 narrative issued before any network call.
 - **THEN** the thumbnail renders in the shoot's continuity strip
   within the bounded watch; a `Failed` variant shows the non-destructive
   explanation and capture-again affordance.
+
+#### Scenario: Watch expires while a variant is still Processing
+- **WHEN** the bounded watch budget is exhausted and a variant is
+  still `Processing`.
+- **THEN** polling stops (no further requests for that pass), the row
+  renders a neutral "still processing" state with the recovery
+  affordances (refresh / capture again), and the state is
+  distinguishable from `Ready` and `Failed` in both the widget and
+  Gherkin coverage.
