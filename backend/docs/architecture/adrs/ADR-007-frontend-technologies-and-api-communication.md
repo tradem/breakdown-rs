@@ -61,13 +61,23 @@ We will use **SvelteKit (TypeScript)** for web/desktop and **Flutter (Dart)** fo
 ### CQRS-Aware API Design
 
 #### Write Side (Commands)
-- **Endpoint Pattern**: `POST /api/v1/commands/{aggregate}/{action}`
+The API is **resource-oriented REST with CQRS semantics**, not a stylized
+command bus. Write actions are `POST` to resource/collection routes; the
+response is an **immediate command acknowledgement** (the projection update
+arrives later via projector lag, which the client reconciles optimistically —
+see `frontend-flutter/AGENTS.md` §4).
+- **Endpoint Pattern**: `POST /v1/{resource}` or `POST /v1/{parent}/{id}/{subresource}`
 - **Content Type**: `application/json` for Commands, `multipart/form-data` for file uploads
-- **Response**: `202 Accepted` (async processing via Event Store)
-- **Examples**:
-  - `POST /api/v1/commands/scene/create`
-  - `POST /api/v1/commands/costume/assign`
-  - `POST /api/v1/commands/photo/add` (multipart)
+- **Response**: `201 Created` (or `200 OK`) with the command acknowledgement; the resulting read-model row is eventually consistent
+- **Examples** (under the `/v1` context path per ADR-021):
+  - `POST /v1/seasons` (create a season)
+  - `POST /v1/costumes/{id}/assign` (assign a costume)
+  - `POST /v1/photos` (multipart, upload a costume photo)
+
+> **Amended 2026-09-02 (supersedes the original `POST /api/v1/commands/{aggregate}/{action}` sketch):**
+> The implementation uses resource-REST, not a command bus. The authoritative
+> contract is `backend/openapi.yaml`; the client-side view is the
+> `flutter-openapi-client` OpenSpec spec. (Inline amendment per ADR-008.)
 
 #### Read Side (Queries)
 - **Endpoint Pattern**: `GET /api/v1/{aggregate}/{id}` or `GET /api/v1/{aggregate}/list`
@@ -132,11 +142,11 @@ We will use **SvelteKit (TypeScript)** for web/desktop and **Flutter (Dart)** fo
 
 ## API Design Examples
 
-### Command: Create Scene (Write Side)
+### Command: Create Season (Write Side)
 
 **Request:**
 ```http
-POST /api/v1/commands/scene/create
+POST /v1/seasons
 Content-Type: application/json
 
 {
@@ -148,16 +158,16 @@ Content-Type: application/json
 
 **Response:**
 ```http
-HTTP/1.1 202 Accepted
+HTTP/1.1 201 Created
 Content-Type: application/json
 
 {
-  "command_id": "01H8X7Y7Z7Q7W7E7R7T7Y7U7I8",
-  "status": "accepted",
-  "links": {
-    "self": "/api/v1/commands/status/01H8X7Y7Z7Q7W7E7R7T7Y7U7I8",
-    "aggregate": "/api/v1/scenes/01H8X7Y7Z7Q7W7E7R7T7Y7U7I9"
-  }
+  "id": "01H8X7Y7Z7Q7W7E7R7T7Y7U7I9",
+  "name": "Act 1, Scene 3",
+  "description": "Romeo meets Juliet at the ball",
+  "production_id": "01H8X7Y7Z7Q7W7E7R7T7Y7U7I7",
+  "status": "draft",
+  "updated_at": "2026-06-17T10:30:00Z"
 }
 ```
 
@@ -191,7 +201,7 @@ Content-Type: application/json
 
 **Request:**
 ```http
-POST /api/v1/commands/photo/add
+POST /v1/photos
 Content-Type: multipart/form-data
 Boundary: ----WebKitFormBoundary7MA4YWxkTrZu0gW
 
@@ -213,7 +223,7 @@ Content-Type: image/jpeg
 
 **Response:**
 ```http
-HTTP/1.1 202 Accepted
+HTTP/1.1 201 Created
 Content-Type: application/json
 
 {
@@ -269,7 +279,7 @@ export interface SceneDto {
 
 export class ScenesApi {
   async createScene(cmd: CreateSceneCommand): Promise<CommandResponseDto> {
-    const response = await fetch('/api/v1/commands/scene/create', {
+    const response = await fetch('/v1/seasons', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(cmd),
@@ -317,7 +327,7 @@ class CreateSceneCommand {
 class ScenesApi {
   Future<CommandResponseDto> createScene(CreateSceneCommand cmd) async {
     final response = await http.post(
-      Uri.parse('/api/v1/commands/scene/create'),
+      Uri.parse('/v1/seasons'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode(cmd.toJson()),
     );
@@ -648,14 +658,13 @@ dev_dependencies:
 
 ### Best Practices
 
-1. **CQRS Endpoint Naming**:
-   - Commands: `POST /api/v1/commands/{aggregate}/{action}`
-   - Queries: `GET /api/v1/{aggregate}` or `GET /api/v1/{parent}/{id}/{aggregate}`
+1. **CQRS Endpoint Naming** (resource-oriented REST, not a command bus):
+   - Commands (write): `POST /v1/{resource}` or `POST /v1/{parent}/{id}/{subresource}` (e.g. `POST /v1/seasons`, `POST /v1/costumes/{id}/assign`)
+   - Queries (read): `GET /v1/{aggregate}` or `GET /v1/{parent}/{id}/{aggregate}` (e.g. `GET /v1/productions/{id}/scenes`)
 
 2. **File Uploads**:
    - Use `multipart/form-data` for photos
-   - Return immediately with `202 Accepted`
-   - Process in background (Event Store → Projection)
+   - Return `201 Created` immediately with the command acknowledgement; variant processing (thumbnail, bytes) continues asynchronously and the client reconciles via projector lag
 
 3. **Error Handling**:
    - Commands: Return `400 Bad Request` for validation errors
