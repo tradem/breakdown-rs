@@ -164,4 +164,132 @@ void main() {
       );
     });
   });
+
+  group('SeasonsScreenState.copyWith (D2 ephemeral overlay state)', () {
+    final base = SeasonsScreenState(
+      projected: AsyncData<List<SeasonView>>([season('a')]),
+      cachedRows: [season('a')],
+      overlays: const [
+        SeasonOverlay(id: 'x', status: OverlayStatus.acknowledged),
+      ],
+    );
+
+    test(
+      'preserves commandError (not a copyWith param) and isStale default',
+      () {
+        final withErr = SeasonsScreenState(
+          projected: AsyncData<List<SeasonView>>([season('a')]),
+          cachedRows: [season('a')],
+          commandError: const ProblemError(code: 'season.conflict'),
+        ).copyWith(cachedRows: [season('b')]);
+        expect(withErr.isStale, isFalse);
+        expect(withErr.commandError?.code, 'season.conflict');
+      },
+    );
+
+    test('replaces projected / cachedRows / overlays / isStale', () {
+      final next = base.copyWith(
+        projected: const AsyncLoading<List<SeasonView>>(),
+        cachedRows: [season('b')],
+        isStale: true,
+        overlays: const [SeasonOverlay(id: 'y', status: OverlayStatus.stale)],
+      );
+      expect(next.projected, isA<AsyncLoading>());
+      expect(next.cachedRows, hasLength(1));
+      expect(next.cachedRows.single.id, 'b');
+      expect(next.isStale, isTrue);
+      expect(next.overlays, hasLength(1));
+      expect(next.overlays.single.id, 'y');
+      // commandError is carried unchanged (copyWith has no such param).
+      expect(next.commandError, isNull);
+    });
+  });
+
+  group('SeasonsScreenState equality / hashCode / toString', () {
+    SeasonsScreenState make([List<SeasonView> rows = const []]) =>
+        SeasonsScreenState(
+          projected: AsyncData<List<SeasonView>>(rows),
+          cachedRows: rows,
+        );
+
+    test('equal when every field matches (== true branch)', () {
+      // Compare a state to its own copyWith(): copyWith preserves the exact
+      // projected/cachedRows instances, so every == check in
+      // SeasonsScreenState.== resolves true (Dart List equality is
+      // identity-based, so two distinct list literals would NOT be ==).
+      final a = SeasonsScreenState(
+        projected: AsyncData<List<SeasonView>>([season('a')]),
+        cachedRows: [season('a')],
+      );
+      final b = a.copyWith();
+      expect(a, b);
+      expect(a.hashCode, b.hashCode);
+    });
+
+    test('not equal when cachedRows differ', () {
+      expect(make([season('a')]), isNot(make([season('b')])));
+    });
+
+    test('not equal when overlays differ', () {
+      final a = SeasonsScreenState(
+        projected: AsyncData<List<SeasonView>>([season('a')]),
+        cachedRows: [season('a')],
+        overlays: const [
+          SeasonOverlay(id: 'x', status: OverlayStatus.acknowledged),
+        ],
+      );
+      expect(a, isNot(a.copyWith(overlays: const [])));
+    });
+
+    test('not equal when isStale differs', () {
+      final a = SeasonsScreenState(
+        projected: AsyncData<List<SeasonView>>([season('a')]),
+        cachedRows: [season('a')],
+        isStale: true,
+      );
+      expect(a, isNot(a.copyWith(isStale: false)));
+    });
+
+    test('toString renders row and overlay counts', () {
+      final s = SeasonsScreenState(
+        projected: AsyncData<List<SeasonView>>([season('a')]),
+        cachedRows: [season('a')],
+        overlays: const [
+          SeasonOverlay(id: 'x', status: OverlayStatus.acknowledged),
+        ],
+      );
+      expect(s.toString(), contains('overlays: 1'));
+    });
+  });
+
+  group('SeasonOverlay equality / hashCode / toString', () {
+    test('equal instances share a stable hashCode', () {
+      const a = SeasonOverlay(
+        id: 'x',
+        name: 'N',
+        number: 1,
+        status: OverlayStatus.acknowledged,
+      );
+      const b = SeasonOverlay(
+        id: 'x',
+        name: 'N',
+        number: 1,
+        status: OverlayStatus.acknowledged,
+      );
+      expect(a, b);
+      expect(a.hashCode, b.hashCode);
+    });
+
+    test('distinct ids are not equal', () {
+      const a = SeasonOverlay(id: 'x', status: OverlayStatus.acknowledged);
+      const b = SeasonOverlay(id: 'y', status: OverlayStatus.acknowledged);
+      expect(a, isNot(b));
+    });
+
+    test('toString renders id and status', () {
+      const a = SeasonOverlay(id: 'x', status: OverlayStatus.stale);
+      expect(a.toString(), contains('x'));
+      expect(a.toString(), contains('stale'));
+    });
+  });
 }

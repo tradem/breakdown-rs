@@ -20,11 +20,17 @@
 #    (vendor/breakdown_api/) into a throwaway, diffs against the committed tree,
 #    fails on difference). `backend/openapi.yaml` is in the `paths:` filters
 #    so a backend-only OpenAPI change triggers it.
-#  - The coverage gate IS enforced now (`flutter test --coverage` +
-#    `coverde` threshold; see job above).
-#  - The `coverde` coverage gate and the `flutter test --coverage` step are
-#    DEFERRED to the `add-flutter-ci-tests` follow-up (needs broader test/
-#    coverage to raise the threshold meaningfully).
+#  - The coverage gate IS enforced now (`flutter test --coverage
+#    --branch-coverage` + `coverde check 80` over the filtered lcov; see the
+#    `coverage` job). Design intent: line >= 80% / branch >= 70% on CHANGED
+#    `lib/**/*.dart` (proposal D1/D2). `coverde check` only accepts a single
+#    pooled minimum and has no `--changed-only` / `--base` / `--min-branch`
+#    flags, so the enforced gate is a pooled 80% over the non-generated,
+#    non-test `lib/` files (proposal D3). This gate is the enforced SUBSTITUTE
+#    for the mutation-testing gate that does not exist for Dart/Flutter
+#    (foundation `flutter-test-pyramid` spec D5); the four compensating
+#    practices are coverage / golden tests / explicit Err-branch assertions /
+#    semantic-finder widget tests (see the `coverage` job comment).
 #
 # CI hardening:
 #  - Every third-party action is SHA-pinned (40-char SHA + `# vX` comment),
@@ -314,12 +320,37 @@ jobs:
           diff -ruN --exclude=.dart_tool vendor/breakdown_api /tmp/regenerated-client || true
           exit 1
 
-  # Coverage gate (decision D5 substitute for the absent Dart mutator —
-  # AGENTS.md §6). Runs the full flutter test suite with coverage, then
-  # enforces a global line-coverage threshold via coverde. The threshold is
-  # intentionally modest for the foundation; it rises as the data/ and
-  # feature/ test tiers fill in. coverde is activated per-job (no repo-level
-  # dev-dependency) so the version is pinned here.
+  # Coverage gate — the enforced SUBSTITUTE for the mutation-testing gate that
+  # does not exist for Dart/Flutter (foundation `flutter-test-pyramid` spec
+  # decision D5). Runs the full flutter test suite WITH branch coverage, then
+  # enforces a pooled line+branch threshold via coverde.
+  #
+  # Design intent (proposal D1/D2, spec `flutter-ci-coverage`):
+  #   * line coverage >= 80% and branch coverage >= 70% on CHANGED
+  #     `lib/**/*.dart` files (initial values, tunable).
+  #   * Counted: changed/new non-test `lib/**/*.dart`.
+  #   * Excluded: generated (`*.g.dart`, `*.freezed.dart`,
+  #     `vendor/breakdown_api/**` — rebuild-only, never gated); test files
+  #     (`test/**`, `integration_test/**` — not shipped, but still exercised
+  #     and their coverage is still *collected*); deleted files (auto-excluded).
+  #   * Non-executable files report 100% and do not drag the gate.
+  #
+  # Tool reality (proposal D3): `coverde check` accepts a SINGLE pooled
+  # minimum (0-100) plus `--input` / `--file-coverage-log-level`. It has NO
+  # `--min-line-coverage`, `--min-branch-coverage`, `--changed-only`,
+  # `--base`, or `--exclude`. So the enforced gate is the pooled minimum
+  # `coverde check 80` over the lcov file after the awk filter below drops the
+  # generated + test files. Strict per-axis (line>=80 / branch>=70) splitting
+  # and true changed-only scoping are documented follow-ups (a thin lcov/
+  # genhtml post-step), out of scope for this change. Both 80 and the per-axis
+  # targets are the substitute for the absent mutator; see the four
+  # compensating practices below.
+  #
+  # Four compensating practices for the mutation-testing gap (D5):
+  #   1. coverde line+branch coverage threshold (this job);
+  #   2. golden tests for non-trivial widgets;
+  #   3. explicit Err-branch assertions on every Result-returning repo/use-case;
+  #   4. semantic-finder widget tests (never find.byType alone for layout).
   coverage:
     name: Coverage (coverde)
     runs-on: ubuntu-latest
@@ -347,33 +378,52 @@ jobs:
           dart pub global activate coverde 0.4.0
           echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
 
-      - name: Run full suite with coverage
+      - name: Run full suite with branch coverage
         run: |
           set -euo pipefail
           flutter pub get
-          flutter test --coverage
+          # `--branch-coverage` so coverage/lcov.info carries BRDA branch
+          # records before the gate runs (proposal D3). Without it the branch
+          # target from D1 cannot be met.
+          flutter test --coverage --branch-coverage
 
       - name: Enforce coverage threshold
         run: |
           set -euo pipefail
-          # Generated *.g.dart (Drift / Riverpod / freezed) are rebuild-only and
-          # not meaningfully unit-testable (AGENTS.md §3 / §9: "regenerate, don't
-          # edit"). Dropping them from the coverage trace keeps the threshold
-          # honest — otherwise the generated Drift database alone (hundreds of
-          # lines) drags the foundation below the modest 60% gateway. Hand-written
-          # lib/ and test/ code remain fully counted.
+          # Drop codegen-owned + test files from the GATED trace (proposal D2).
+          #   * Generated: *.g.dart (Drift/Riverpod/freezed), plus the
+          #     generated OpenAPI client in vendor/breakdown_api/**.
+          #   * Test files: test/** and integration_test/** are NOT shipped;
+          #     they are still exercised and their coverage is collected by
+          #     `flutter test --coverage`, but excluded here so the *required*
+          #     gate does not demand coverage on the test suite itself.
+          # Deleted files vanish from lcov automatically; non-executable files
+          # report 100% and do not drag the gate.
           awk '
             /^SF:/ {
               path = substr($0, 4)
-              skip = (path ~ /\.(g|freezed)\.dart$/ || path ~ /(^|\/)vendor\/breakdown_api\//)
+              skip = (path ~ /\.(g|freezed)\.dart$/ \
+                   || path ~ /(^|\/)vendor\/breakdown_api\// \
+                   || path ~ /(^|\/)(test|integration_test)\//)
             }
             /^end_of_record$/ { if (!skip) print; skip=0; next }
             { if (!skip) print }
           ' coverage/lcov.info > coverage/lcov.filtered.info
           mv coverage/lcov.filtered.info coverage/lcov.info
-          # 60% global line coverage — modest for the foundation; rises as
-          # the data/ and feature/ test tiers fill in.
-          coverde check 60 --file-coverage-log-level overview
+          # Pooled 80% line+branch (proposal D1/D3). Design intent is
+          # line >= 80% / branch >= 70% on changed lib/**/*.dart; coverde
+          # enforces the single pooled minimum because it has no per-axis or
+          # changed-only flags.
+          coverde check 80 --file-coverage-log-level overview
+
+      - name: Upload coverage trace on failure
+        # Lets a reviewer inspect which files fell below the gate.
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: coverage-lcov
+          path: frontend-flutter/coverage/lcov.info
+          if-no-files-found: warn
 
   # Gherkin critical-scenario harness + discipline gate (change
   # `add-gherkin-critical-scenarios`, spec flutter-gherkin-hybrid). Enforces
@@ -426,12 +476,14 @@ jobs:
 #      openapi_drift`. See spec `flutter-openapi-client`.
 #
 #  - test-with-coverage:
-#      ✅ WIRED (see job above). `flutter test --coverage` + a `coverde`
-#      line-coverage threshold gate (60% for the foundation; rises as the
-#      data/ and feature/ test tiers fill in). Lands with
-#      `wire-openapi-dart-client` (task 4) +
-#      `add-flutter-ci-tests`. See spec `flutter-test-pyramid` /
-#      `flutter-ci-coverage`.
+#      ✅ WIRED (see job above). `flutter test --coverage --branch-coverage` +
+#      a `coverde check 80` pooled line+branch gate (after dropping generated
+#      + test files from the lcov). Design intent is line >= 80% / branch >=
+#      70% on changed lib/**/*.dart (proposal D1/D2); coverde has no
+#      per-axis or changed-only flags, so the enforced gate is pooled 80%
+#      (proposal D3). This is the substitute for the absent Dart mutator
+#      (spec flutter-test-pyramid D5). Lands with `add-flutter-ci-tests`.
+#      See spec `flutter-test-pyramid` / `flutter-ci-coverage`.
 #
 #  - mutation-testing:
 #      Explicitly NOT a gate — no maintained Dart/Flutter mutator exists
