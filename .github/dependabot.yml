@@ -23,14 +23,13 @@ updates:
     commit-message:
       prefix: "chore(ci)"
   # Flutter app — Dart/pub dependencies for frontend-flutter/.
-  # Reviewer runbook (mandatory for every pub PR): Dependabot edits
-  # pubspec.yaml constraints only and never the lockfile. After a pub PR
-  # lands (or before merge), run on a machine with the Flutter SDK:
-  #   cd frontend-flutter && flutter pub upgrade   # or: --major-versions
-  # and commit the resulting pubspec.lock diff (regenerated android/ glue is
-  # included; once the macOS target lands, macos/ glue too). A PR that only
-  # edits pubspec.yaml without a refreshed lockfile fails flutter-ci.yml at
-  # the first resolve step.
+  # Dependabot's pub updater resolves with native `pub` and commits the
+  # updated pubspec.lock itself, so a pub PR normally includes the lockfile
+  # diff. Reviewer runbook: confirm the pubspec.lock diff is present and that
+  # `flutter pub get` resolves cleanly on the pinned Flutter SDK. Do NOT run
+  # `flutter pub upgrade` on a pub PR — it ignores the committed lockfile and
+  # would override Dependabot's curated resolution. Full checklist:
+  # .github/PULL_REQUEST_TEMPLATE/flutter.md.
   - package-ecosystem: pub
     directory: /frontend-flutter
     schedule:
