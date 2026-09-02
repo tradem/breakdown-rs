@@ -375,6 +375,46 @@ jobs:
           # the data/ and feature/ test tiers fill in.
           coverde check 60 --file-coverage-log-level overview
 
+  # Gherkin critical-scenario harness + discipline gate (change
+  # `add-gherkin-critical-scenarios`, spec flutter-gherkin-hybrid). Enforces
+  # the on-device acceptance discipline for the three designated critical
+  # flows (AGENTS.md §6) without a flaky emulator run: the on-device runner
+  # and all step definitions must COMPILE, and the discipline contract
+  # (features-spec/README.md, tool/check_gherkin.sh) must hold. The full
+  # on-device execution is `tool/run_gherkin.sh` against a device/emulator
+  # (the authoritative gate), wired into an emulator-backed job by the
+  # follow-up change that lands each critical screen.
+  gherkin-critical:
+    name: Gherkin critical scenarios (harness + discipline)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend-flutter
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve packages
+        run: flutter pub get
+
+      - name: Analyze gherkin harness
+        # Cheap, non-flaky gate: the on-device flutter_gherkin runner, its
+        # configuration and every step definition must compile. The actual
+        # on-device execution (which drives a real app on a device) is run via
+        # tool/run_gherkin.sh.
+        run: dart analyze integration_test/gherkin
+
+      - name: Enforce Gherkin discipline
+        run: bash tool/check_gherkin.sh
+
 # ---------------------------------------------------------------------------
 # DEFERRED jobs — NOT wired yet; land with their follow-up changes.
 #
