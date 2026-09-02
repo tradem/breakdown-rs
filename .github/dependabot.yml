@@ -22,3 +22,38 @@ updates:
       - dependencies
     commit-message:
       prefix: "chore(ci)"
+  # Flutter app — Dart/pub dependencies for frontend-flutter/.
+  # Dependabot's pub updater resolves with native `pub` and commits the
+  # updated pubspec.lock itself, so a pub PR normally includes the lockfile
+  # diff. Reviewer runbook: confirm the pubspec.lock diff is present and that
+  # `flutter pub get` resolves cleanly on the pinned Flutter SDK. Do NOT run
+  # `flutter pub upgrade` on a pub PR — it ignores the committed lockfile and
+  # would override Dependabot's curated resolution. Full checklist:
+  # .github/PULL_REQUEST_TEMPLATE/flutter.md.
+  - package-ecosystem: pub
+    directory: /frontend-flutter
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      flutter-pub-deps:
+        patterns:
+          - "*"
+  # Android-first — Gradle/AGP + Kotlin plugin bumps for the Android target.
+  # Caution: Flutter pins an AGP-compatibility floor per Flutter version;
+  # validate major AGP bumps against the currently pinned Flutter SDK before
+  # merging. macOS is a later target; no cocoapods block until native pods
+  # are introduced.
+  - package-ecosystem: gradle
+    directory: /frontend-flutter/android
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "chore(deps-android)"
