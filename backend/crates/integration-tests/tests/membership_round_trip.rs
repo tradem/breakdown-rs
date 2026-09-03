@@ -27,6 +27,7 @@ use std::time::Duration;
 use anyhow::{Result, anyhow, bail};
 use breakdown_core::block::commands::CreateBlock;
 use breakdown_core::block::ports::{BlockCommands, BlockRepository};
+use breakdown_core::error::DomainError;
 use breakdown_core::membership::events::MembershipEvent;
 use breakdown_core::membership::views::{MembershipStateKind, MembershipView};
 use breakdown_core::membership::{
@@ -170,8 +171,13 @@ async fn await_block_projected(pool: &PgPool, block_id: Uuid) -> Result<()> {
     let blocks = BlockRepositoryImpl::new(pool.clone());
     let deadline = std::time::Instant::now() + PROJECTION_DEADLINE;
     loop {
-        if blocks.find_by_id(block_id).await.is_ok() {
-            return Ok(());
+        match blocks.find_by_id(block_id).await {
+            Ok(_) => return Ok(()),
+            // Projection lag: the row is not there yet — keep polling.
+            Err(DomainError::NotFound { .. }) => {}
+            // A genuine repository failure (SQL, row decoding) is not absence:
+            // surface it immediately instead of masking it as projection lag.
+            Err(other) => return Err(anyhow!(other.to_string())),
         }
         if std::time::Instant::now() < deadline {
             tokio::time::sleep(POLL_INTERVAL).await;

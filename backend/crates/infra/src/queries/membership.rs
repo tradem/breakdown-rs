@@ -204,7 +204,9 @@ fn map_membership_row(row: sqlx::postgres::PgRow) -> Result<MembershipView, Doma
     // The columns hold plain tokens (`costume_assistant`, `active`) — see the
     // module docs of `crates/infra/src/projectors/membership.rs`. Rows written
     // by an older projector carry the JSON form and are rejected loudly rather
-    // than silently mis-read.
+    // than silently mis-read. Deliberately no legacy tolerance and no data
+    // migration: the backend is pre-production, so dev databases are re-seeded
+    // (issue #342, `crates/infra/CHANGELOG.md` §0.15.0).
     let role = Role::from_token(&role_str)
         .ok_or_else(|| DomainError::internal(format!("invalid role in projection: {role_str}")))?;
     let state = MembershipStateKind::from_token(&state_str).ok_or_else(|| {
