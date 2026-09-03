@@ -11,6 +11,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: hy4-preview (opencode-go)
 
 use std::collections::HashMap;
 use std::sync::Arc;

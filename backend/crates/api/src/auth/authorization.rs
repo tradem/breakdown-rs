@@ -3,6 +3,7 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: hy4-preview (opencode-go)
 
 //! Authorization policy for the API layer (Section 5, Decision D2/D5).
 //!
