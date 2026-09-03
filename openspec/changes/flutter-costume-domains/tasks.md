@@ -20,11 +20,8 @@
        `details`/`photos`; migration test)
 - [ ] 1.2 Extend `data/costume_repository.dart` — `listBySeason` /
        `get` (cache-backed, snapshot rules), `assign`, `unassign`
-       (body per the checked-in schema — currently the `notes` echo
-       documented in D2, switched to the corrected schema once
-       backend issue #336 is resolved: until #336 lands, the exact
-       body is `UpdateCostumeNotesRequest` = `notes` echoed unchanged
-       from the acted-on `CostumeView` + `version`), `addDetail`,
+       (`VersionRequest` = `version` only, per the corrected schema
+       from backend issue #336), `addDetail`,
        `updateNotes`; overlay reducer helpers for the costume row
        including the version-fence clear condition
        (`projection.version >= acknowledgedVersion`)

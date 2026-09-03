@@ -52,11 +52,7 @@ class CostumeRepository extends BaseRepository {
     ),
   );
 
-  Future<Result<int>> unassign(String id, UpdateCostumeNotesRequest request) =>
-      run(
-        () => api.getHandlersApi().unassignCostume(
-          id: id,
-          updateCostumeNotesRequest: request,
-        ),
-      );
+  Future<Result<int>> unassign(String id, VersionRequest request) => run(
+    () => api.getHandlersApi().unassignCostume(id: id, versionRequest: request),
+  );
 }

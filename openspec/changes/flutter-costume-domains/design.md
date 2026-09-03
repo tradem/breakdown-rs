@@ -19,10 +19,10 @@ From the checked-in `backend/openapi.yaml` and
   {character_id, version}`) → `AggregateVersion`; 409 on conflict.
   `series_id` is derived server-side from the character (correct side
   of the CQRS boundary).
-- `POST /v1/costumes/{id}/unassign` — body schema in the spec is
-  `UpdateCostumeNotesRequest` (quirk, D2 — backend issue #336),
-  handler consumes
-  `VersionRequest`.
+- `POST /v1/costumes/{id}/unassign` (`VersionRequest: {version}`)
+  → `AggregateVersion`. (Spec/handler drift fixed by backend issue
+  #336 — the spec previously declared `UpdateCostumeNotesRequest`,
+  see D2.)
 - `POST /v1/costumes/{id}/details` (`AddCostumeDetailRequest:
   {detail: {subject?, text, category_id?}, version}`);
   `PATCH /v1/costumes/{id}/notes` (`UpdateCostumeNotesRequest

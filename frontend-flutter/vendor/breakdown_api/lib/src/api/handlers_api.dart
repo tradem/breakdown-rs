@@ -6771,7 +6771,7 @@ class HandlersApi {
   ///
   /// Parameters:
   /// * [id]
-  /// * [updateCostumeNotesRequest]
+  /// * [versionRequest]
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -6783,7 +6783,7 @@ class HandlersApi {
   /// Throws [DioException] if API call or serialization fails
   Future<Response<int>> unassignCostume({
     required String id,
-    required UpdateCostumeNotesRequest updateCostumeNotesRequest,
+    required VersionRequest versionRequest,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -6811,9 +6811,8 @@ class HandlersApi {
     dynamic _bodyData;
 
     try {
-      const _type = FullType(UpdateCostumeNotesRequest);
-      _bodyData = _serializers.serialize(updateCostumeNotesRequest,
-          specifiedType: _type);
+      const _type = FullType(VersionRequest);
+      _bodyData = _serializers.serialize(versionRequest, specifiedType: _type);
     } catch (error, stackTrace) {
       throw DioException(
         requestOptions: _options.compose(
