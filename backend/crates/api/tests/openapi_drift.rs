@@ -105,8 +105,12 @@ fn generated_doc_is_a_sane_openapi_contract() {
 fn every_path_template_variable_is_defined() {
     let json = serde_json::to_value(api::api_doc()).expect("serialize OpenAPI doc");
     let paths = json["paths"].as_object().expect("paths object present");
-    // Operations that may carry `parameters:` in this contract.
-    const METHODS: [&str; 7] = ["get", "post", "put", "patch", "delete", "options", "head"];
+    // Operations that may carry `parameters:` in this contract (OpenAPI Path
+    // Item operations; utoipa supports `trace`, so it must not bypass this
+    // guard — CodeRabbit review on PR #349).
+    const METHODS: [&str; 8] = [
+        "get", "post", "put", "patch", "delete", "options", "head", "trace",
+    ];
     let mut failures: Vec<String> = Vec::new();
     for (path, item) in paths {
         let template_vars = template_variables(path);
