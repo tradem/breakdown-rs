@@ -1,8 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: hy4-preview (opencode-go)
 
 //! Membership projection handler: `MembershipEvent` -> `projection_membership`.
+//!
+//! `role` and `state` are written as **plain tokens** (`costume_assistant`,
+//! `active`), not as their JSON forms (`"costume_assistant"`, `"active"`):
+//! the membership authorization predicates compare these columns against
+//! plain SQL string literals (`m.state = 'active'`, `m.role IN (...)`), and
+//! the JSON quotes made those comparisons match nothing. The wire format of
+//! `MembershipView` is unaffected — it is still serde-JSON. See
+//! `Role::as_str` / `MembershipStateKind::as_str`.
 
 use super::PROJECTOR_VERSION;
 use breakdown_core::membership::MembershipMetadata;
@@ -40,9 +49,8 @@ impl<'a> EntityEventHandler<BlockMembership, Transaction<'a, Postgres>> for Memb
                 user_id,
                 role,
             } => {
-                let role_json = serde_json::to_string(&role).unwrap_or_default();
-                let state_json =
-                    serde_json::to_string(&MembershipStateKind::Pending).unwrap_or_default();
+                let role_token = role.as_str();
+                let state_token = MembershipStateKind::Pending.as_str();
                 sqlx::query(
                     r#"
                     INSERT INTO projection_membership
@@ -57,8 +65,8 @@ impl<'a> EntityEventHandler<BlockMembership, Transaction<'a, Postgres>> for Memb
                 )
                 .bind(block_id.0)
                 .bind(user_id.as_str())
-                .bind(role_json)
-                .bind(state_json)
+                .bind(role_token)
+                .bind(state_token)
                 .bind(updated_at)
                 .bind(updated_at)
                 .execute(&mut **ctx)
@@ -69,9 +77,8 @@ impl<'a> EntityEventHandler<BlockMembership, Transaction<'a, Postgres>> for Memb
                 user_id,
                 role,
             } => {
-                let role_json = serde_json::to_string(&role).unwrap_or_default();
-                let state_json =
-                    serde_json::to_string(&MembershipStateKind::Active).unwrap_or_default();
+                let role_token = role.as_str();
+                let state_token = MembershipStateKind::Active.as_str();
                 sqlx::query(
                     r#"
                     UPDATE projection_membership
@@ -81,8 +88,8 @@ impl<'a> EntityEventHandler<BlockMembership, Transaction<'a, Postgres>> for Memb
                 )
                 .bind(block_id.0)
                 .bind(user_id.as_str())
-                .bind(role_json)
-                .bind(state_json)
+                .bind(role_token)
+                .bind(state_token)
                 .bind(updated_at)
                 .execute(&mut **ctx)
                 .await?;
@@ -92,7 +99,7 @@ impl<'a> EntityEventHandler<BlockMembership, Transaction<'a, Postgres>> for Memb
                 user_id,
                 role,
             } => {
-                let role_json = serde_json::to_string(&role).unwrap_or_default();
+                let role_token = role.as_str();
                 sqlx::query(
                     r#"
                     UPDATE projection_membership
@@ -102,7 +109,7 @@ impl<'a> EntityEventHandler<BlockMembership, Transaction<'a, Postgres>> for Memb
                 )
                 .bind(block_id.0)
                 .bind(user_id.as_str())
-                .bind(role_json)
+                .bind(role_token)
                 .bind(updated_at)
                 .execute(&mut **ctx)
                 .await?;
@@ -127,9 +134,8 @@ impl<'a> EntityEventHandler<BlockMembership, Transaction<'a, Postgres>> for Memb
                 // Treated exactly like an accepted invitation: the bootstrapped
                 // user becomes an active member with `role`. Idempotent upsert
                 // keyed by `(block_id, user_id)` keeps redelivery safe.
-                let role_json = serde_json::to_string(&role).unwrap_or_default();
-                let state_json =
-                    serde_json::to_string(&MembershipStateKind::Active).unwrap_or_default();
+                let role_token = role.as_str();
+                let state_token = MembershipStateKind::Active.as_str();
                 sqlx::query(
                     r#"
                     INSERT INTO projection_membership
@@ -145,8 +151,8 @@ impl<'a> EntityEventHandler<BlockMembership, Transaction<'a, Postgres>> for Memb
                 )
                 .bind(block_id.0)
                 .bind(user_id.as_str())
-                .bind(role_json)
-                .bind(state_json)
+                .bind(role_token)
+                .bind(state_token)
                 .bind(updated_at)
                 .bind(PROJECTOR_VERSION)
                 .bind(updated_at)

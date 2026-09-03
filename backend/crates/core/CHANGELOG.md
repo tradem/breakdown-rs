@@ -2,6 +2,7 @@
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: deepseek-v4-flash (opencode-go) -->
 <!-- Co-authored-by: longcat-2.0-free (opencode) -->
+<!-- Co-authored-by: hy4-preview (opencode-go) -->
 
 # Changelog
 
@@ -9,6 +10,33 @@ All notable changes to the `core` crate are documented here. Versioning
 follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
+
+## [Unreleased]
+
+### Added — Series-scoped membership predicate (issue #342)
+
+- `MembershipRepository::has_active_membership_in_series(series_id, user_id)`:
+  the tenant counterpart of `is_active_member`. It answers “is `user_id` an
+  *active* member of any block of `series_id`?” and backs the `GET /v1/audit`
+  gate, whose data is selected by a `series_id` **query parameter** rather
+  than by the caller's active block. Deliberately role-agnostic — the audit
+  journal is an operational record of the whole production, not a
+  costume-department artefact.
+- **Breaking:** new required method on the public `MembershipRepository`
+  trait; every implementor must provide it. Absorbed by the unreleased 0.9.0
+  minor (no `core-v0.9.0` tag yet), so no additional bump.
+
+### Added — Plain-text storage tokens for `Role` / `MembershipStateKind`
+
+- `Role::as_str` / `Role::from_token` and `MembershipStateKind::as_str` /
+  `MembershipStateKind::from_token` are the single source for the **storage**
+  representation of `projection_membership.role` / `.state`
+  (`costume_assistant`, `active`). They are deliberately distinct from the
+  serde wire form (`"costume_assistant"`, `"active"`), which is unchanged:
+  the membership authorization predicates compare those columns against plain
+  SQL string literals, so JSON-quoted values matched nothing and the gates
+  denied every caller. `crates/core/tests/membership_projection_tokens.rs`
+  pins both representations to the same `snake_case` token.
 
 ## [0.9.0] - 2026-08-23
 

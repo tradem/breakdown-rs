@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: hy4-preview (opencode-go)
 
 //! Hexagonal ports for the membership context.
 //!
@@ -9,7 +10,7 @@
 //! owned by the `kameo_es` adapter in `infra`.
 
 use crate::error::DomainError;
-use crate::shared::{BlockId, SeasonId, UserId};
+use crate::shared::{BlockId, SeasonId, SeriesId, UserId};
 
 use super::commands::{
     AcceptInvitation, BootstrapOwner, GrantRole, InviteMember, LeaveBlock, RemoveMember,
@@ -67,6 +68,25 @@ pub trait MembershipRepository: Send + Sync {
     async fn is_active_member(
         &self,
         block_id: BlockId,
+        user_id: UserId,
+    ) -> Result<bool, DomainError>;
+
+    /// Check whether `user_id` is an *active* member of **any** block that
+    /// belongs to `series_id` (membership → block → season → series).
+    ///
+    /// This is the tenant-scoped counterpart of [`Self::is_active_member`] and
+    /// backs the `GET /v1/audit` gate (issue #342): the audit journal is
+    /// filtered by the `series_id` **query parameter**, so the caller's active
+    /// block (the middleware's `X-Active-Block` scope) says nothing about
+    /// whether they may read that series' journal.
+    ///
+    /// Unlike [`Self::has_active_costume_role_in_season`] this predicate is
+    /// **role-agnostic**: any active membership in the series grants access,
+    /// because the journal is an operational record of the whole production,
+    /// not a costume-department artefact.
+    async fn has_active_membership_in_series(
+        &self,
+        series_id: SeriesId,
         user_id: UserId,
     ) -> Result<bool, DomainError>;
 

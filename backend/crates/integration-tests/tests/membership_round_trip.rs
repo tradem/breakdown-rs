@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.2 (neuralwatt)
+// Co-authored-by: hy4-preview (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -24,16 +25,18 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
+use breakdown_core::block::commands::CreateBlock;
+use breakdown_core::block::ports::{BlockCommands, BlockRepository};
 use breakdown_core::membership::events::MembershipEvent;
 use breakdown_core::membership::views::{MembershipStateKind, MembershipView};
 use breakdown_core::membership::{
     AcceptInvitation, BootstrapOwner, GrantRole, InviteMember, LeaveBlock, MembershipCommands,
     MembershipRepository, RemoveMember, Role,
 };
-use breakdown_core::shared::{BlockId, SeriesId, UserId};
-use infra::event_store::MembershipCommandsImpl;
-use infra::projectors::spawn_membership_projector;
-use infra::queries::MembershipRepositoryImpl;
+use breakdown_core::shared::{BlockId, SeasonId, SeriesId, UserId};
+use infra::event_store::{BlockCommandsImpl, MembershipCommandsImpl};
+use infra::projectors::{spawn_block_projector, spawn_membership_projector};
+use infra::queries::{BlockRepositoryImpl, MembershipRepositoryImpl};
 use kameo_es::command_service::CommandService;
 use redis::Client as RedisClient;
 use sqlx::PgPool;
@@ -129,6 +132,70 @@ async fn await_member_absent(
     }
 }
 
+/// Wait until `user_id`'s projected membership state equals `expected`.
+///
+/// Distinct from [`await_member_role`]: an invite is projected with its final
+/// role already set but `state = Pending`, so role alone cannot distinguish
+/// "invited" from "accepted".
+async fn await_member_state(
+    repo: &MembershipRepositoryImpl,
+    block_id: BlockId,
+    user_id: UserId,
+    expected: MembershipStateKind,
+) -> Result<MembershipView> {
+    let deadline = std::time::Instant::now() + PROJECTION_DEADLINE;
+    loop {
+        if let Some(m) = repo
+            .find(block_id, user_id.clone())
+            .await
+            .map_err(|e| anyhow!(e.to_string()))?
+            && m.state == expected
+        {
+            return Ok(m);
+        }
+        if std::time::Instant::now() < deadline {
+            tokio::time::sleep(POLL_INTERVAL).await;
+        } else {
+            bail!(
+                "projection lag: {user_id:?} state not updated to {expected:?} \\
+                 within {PROJECTION_DEADLINE:?}"
+            );
+        }
+    }
+}
+
+/// Wait until the block projection row exists — the series-scoped audit gate
+/// joins on `projection_block.series_id` (issue #342).
+async fn await_block_projected(pool: &PgPool, block_id: Uuid) -> Result<()> {
+    let blocks = BlockRepositoryImpl::new(pool.clone());
+    let deadline = std::time::Instant::now() + PROJECTION_DEADLINE;
+    loop {
+        if blocks.find_by_id(block_id).await.is_ok() {
+            return Ok(());
+        }
+        if std::time::Instant::now() < deadline {
+            tokio::time::sleep(POLL_INTERVAL).await;
+        } else {
+            bail!(
+                "projection lag: Block({block_id}) not projected \\
+                 within {PROJECTION_DEADLINE:?}"
+            );
+        }
+    }
+}
+
+/// `has_active_membership_in_series` with the `DomainError` mapped into
+/// `anyhow` (test ergonomics).
+async fn in_series(
+    repo: &MembershipRepositoryImpl,
+    series_id: SeriesId,
+    user_id: UserId,
+) -> Result<bool> {
+    repo.has_active_membership_in_series(series_id, user_id)
+        .await
+        .map_err(|e| anyhow!(e.to_string()))
+}
+
 /// Spin up Postgres + SierraDB + the membership projector, and a SierraDB-backed
 /// `CommandService` (full command → SierraDB → projector → PG chain).
 fn test_series_id() -> SeriesId {
@@ -146,6 +213,14 @@ async fn init_membership() -> Result<(
 
     // Spawn the membership projector (subscribes to `membership-*` streams).
     let _mp = spawn_membership_projector(
+        pool.clone(),
+        Arc::clone(&sierra_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
+    // The block projector feeds `projection_block.series_id`, the column the
+    // series-scoped audit gate joins on (issue #342).
+    let _bp = spawn_block_projector(
         pool.clone(),
         Arc::clone(&sierra_client),
         infra::projectors::ProjectorFlushConfig::test_profile(),
@@ -445,6 +520,156 @@ async fn membership_projector_is_idempotent_under_redelivery() -> Result<()> {
         .expect("invitee projected");
     assert_eq!(invitee_row.state, MembershipStateKind::Pending);
     assert_eq!(invitee_row.role, Role::CostumeDesigner);
+
+    Ok(())
+}
+
+/// Tier-4: `has_active_membership_in_series` — the tenant predicate behind the
+/// series-scoped audit gate (issue #342).
+///
+/// `GET /v1/audit` filters the journal by the `series_id` **query parameter**,
+/// so its gate cannot rely on the caller's active block. The predicate walks
+/// membership → block → series and must be true **only** for an *active* member
+/// of a block that belongs to the queried series.
+#[tokio::test]
+async fn has_active_membership_in_series_scopes_the_audit_gate_by_series() -> Result<()> {
+    let (pool, cmd_svc, _pg, _sierra) = init_membership().await?;
+    let membership = MembershipCommandsImpl::new(cmd_svc.clone());
+    let blocks = BlockCommandsImpl::new(cmd_svc);
+    let repo = MembershipRepositoryImpl::new(pool.clone());
+
+    let series_id = test_series_id();
+    let foreign_series = test_series_id();
+    let season_id = SeasonId::new();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    let owner = UserId::from_sub("owner-a");
+    let invitee = UserId::from_sub("invitee-b");
+    let outsider = UserId::from_sub("outsider-z");
+
+    // The block must be projected first: the query joins on
+    // `projection_block.series_id`.
+    blocks
+        .create(
+            owner.clone(),
+            CreateBlock {
+                id: block_id.0,
+                season_id,
+                series_id,
+                number: 1,
+                start_date: None,
+                end_date: None,
+            },
+        )
+        .await?;
+    await_block_projected(&pool, block_id.0).await?;
+
+    membership
+        .bootstrap_owner(
+            owner.clone(),
+            BootstrapOwner {
+                block_id,
+                series_id,
+                user_id: owner.clone(),
+                role: Role::CostumeAssistant,
+            },
+        )
+        .await?;
+    await_membership_count(&repo, block_id, 1).await?;
+
+    // (1) Active member of a block of the series → authorized.
+    assert!(
+        in_series(&repo, series_id, owner.clone()).await?,
+        "active member of the series must be authorized"
+    );
+
+    // (1b) Regression guard for the shared encoding: the season-scoped
+    //      predicate lives in the same file and compares the very same
+    //      columns, so a broken `role`/`state` token breaks it too.
+    assert!(
+        repo.has_active_costume_role_in_season(season_id, owner.clone())
+            .await
+            .map_err(|e| anyhow!(e.to_string()))?,
+        "the season-scoped costume-role predicate must match the projected row"
+    );
+
+    // (2) No membership row at all → denied.
+    assert!(
+        !in_series(&repo, series_id, outsider.clone()).await?,
+        "a user without any membership must be denied"
+    );
+
+    // (3) A *foreign* series → denied. This is the tenant boundary the gate
+    //     exists for; a single-tenant deployment has exactly one series, so
+    //     this assertion is the regression guard for multi-series data.
+    assert!(
+        !in_series(&repo, foreign_series, owner.clone()).await?,
+        "membership in one series must not authorize another series"
+    );
+
+    // (4) A pending invitee is not yet an *active* member → denied.
+    membership
+        .invite(
+            owner.clone(),
+            InviteMember {
+                block_id,
+                series_id,
+                user_id: invitee.clone(),
+                role: Role::CostumeDesigner,
+            },
+        )
+        .await?;
+    await_member_state(
+        &repo,
+        block_id,
+        invitee.clone(),
+        MembershipStateKind::Pending,
+    )
+    .await?;
+    assert!(
+        !in_series(&repo, series_id, invitee.clone()).await?,
+        "a pending invitee must not be authorized"
+    );
+
+    // (5) After acceptance the invitee is active → authorized (role-agnostic:
+    //     CostumeDesigner is not a costume-dept-only grant).
+    membership
+        .accept_invitation(
+            invitee.clone(),
+            AcceptInvitation {
+                block_id,
+                series_id,
+                user_id: invitee.clone(),
+            },
+        )
+        .await?;
+    await_member_state(
+        &repo,
+        block_id,
+        invitee.clone(),
+        MembershipStateKind::Active,
+    )
+    .await?;
+    assert!(
+        in_series(&repo, series_id, invitee.clone()).await?,
+        "an active member must be authorized regardless of role"
+    );
+
+    // (6) Removal revokes access immediately (no stale grant).
+    membership
+        .remove_member(
+            owner.clone(),
+            RemoveMember {
+                block_id,
+                series_id,
+                user_id: invitee.clone(),
+            },
+        )
+        .await?;
+    await_member_absent(&repo, block_id, invitee.clone()).await?;
+    assert!(
+        !in_series(&repo, series_id, invitee.clone()).await?,
+        "a removed member must lose access"
+    );
 
     Ok(())
 }

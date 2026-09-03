@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: hy4-preview (opencode-go)
 
 //! `sqlx`-backed implementation of the `MembershipRepository` port.
 
 use breakdown_core::error::DomainError;
+use breakdown_core::membership::Role;
 use breakdown_core::membership::ports::MembershipRepository;
 use breakdown_core::membership::views::{MembershipStateKind, MembershipView};
-use breakdown_core::shared::{BlockId, SeasonId, UserId};
+use breakdown_core::shared::{BlockId, SeasonId, SeriesId, UserId};
 use sqlx::{PgPool, Row};
 
 use async_trait::async_trait;
@@ -85,6 +87,37 @@ impl MembershipRepository for MembershipRepositoryImpl {
             .find(block_id, user_id)
             .await?
             .is_some_and(|m| matches!(m.state, MembershipStateKind::Active)))
+    }
+
+    async fn has_active_membership_in_series(
+        &self,
+        series_id: SeriesId,
+        user_id: UserId,
+    ) -> Result<bool, DomainError> {
+        // Tenant scope is resolved along the production hierarchy
+        // (membership -> block -> season -> series). `projection_block`
+        // carries the series as a denormalized, indexed column written from
+        // the very same event as `season_id`, so the block join answers the
+        // question directly. Role-agnostic: any active membership in any
+        // block of the series grants access (issue #342).
+        let row: Option<(String,)> = sqlx::query_as(
+            r#"
+            SELECT m.role
+            FROM projection_membership m
+            JOIN projection_block b ON b.id = m.block_id
+            WHERE m.user_id = $1
+              AND b.series_id = $2
+              AND m.state = 'active'
+            LIMIT 1
+            "#,
+        )
+        .bind(user_id.as_str())
+        .bind(series_id.0)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| DomainError::internal(e.to_string()))?;
+
+        Ok(row.is_some())
     }
 
     async fn has_active_costume_role_in_season(
@@ -168,10 +201,15 @@ fn map_membership_row(row: sqlx::postgres::PgRow) -> Result<MembershipView, Doma
         .try_get("state")
         .map_err(|e| DomainError::internal(e.to_string()))?;
 
-    let role = serde_json::from_str(&role_str)
-        .map_err(|e| DomainError::internal(format!("invalid role in projection: {e}")))?;
-    let state = serde_json::from_str(&state_str)
-        .map_err(|e| DomainError::internal(format!("invalid state in projection: {e}")))?;
+    // The columns hold plain tokens (`costume_assistant`, `active`) — see the
+    // module docs of `crates/infra/src/projectors/membership.rs`. Rows written
+    // by an older projector carry the JSON form and are rejected loudly rather
+    // than silently mis-read.
+    let role = Role::from_token(&role_str)
+        .ok_or_else(|| DomainError::internal(format!("invalid role in projection: {role_str}")))?;
+    let state = MembershipStateKind::from_token(&state_str).ok_or_else(|| {
+        DomainError::internal(format!("invalid state in projection: {state_str}"))
+    })?;
 
     Ok(MembershipView {
         block_id: BlockId(

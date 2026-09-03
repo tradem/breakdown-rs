@@ -4,6 +4,7 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
 // Co-authored-by: longcat-2.0-free (opencode)
+// Co-authored-by: hy4-preview (opencode-go)
 
 //! Axum-Handler (Request → Command / Query)
 
@@ -477,22 +478,38 @@ async fn series_id_for_costume<P: Ports>(
     path = "/audit",
     params(ListParams),
     responses(
-        (status = 200, body = Vec<AuditEntry>, description = "Audit journal entries, newest first"),
-        (status = 403, body = ProblemDetails, description = "Not authorized"),
+        (status = 200, body = Vec<AuditEntry>, description = "Audit journal entries of the series, newest first"),
+        (status = 400, body = ProblemDetails, description = "Missing series_id query parameter"),
+        (status = 403, body = ProblemDetails, description = "Caller holds no active membership in any block of the queried series"),
         (status = 422, body = ProblemDetails, description = "Validation error"),
     ),
 )]
 pub async fn get_audit_history<P: Ports>(
     State(state): State<AppState<P>>,
-    _current_user: CurrentUser,
+    current_user: CurrentUser,
     Query(params): Query<ListParams>,
 ) -> ApiResult<Vec<AuditEntry>> {
     let series_id = require_series(&params)?;
 
-    // AUTHZ-GATE: Audit history is a privileged administrative view.
-    // For v1, we allow access if the user is authenticated and provides a valid series_id.
-    // In a future iteration, we will implement `MembershipRepository::list_by_series`
-    // to verify actual membership within that tenant.
+    // AUTHZ-GATE: the journal is filtered by the `series_id` **query
+    // parameter**, so the route is series-scoped data, not block-scoped data:
+    // `requirement_for` classifies `/audit` as `Authenticated` and the
+    // membership check happens here (issue #342). Any *active* membership in
+    // any block of the series grants access — the journal is an operational
+    // record of the whole production, not a costume-department artefact, so
+    // the predicate is deliberately role-agnostic. Fails closed: a repository
+    // error denies.
+    let authorized = state
+        .ports
+        .membership_repo()
+        .has_active_membership_in_series(series_id, current_user.sub.clone())
+        .await
+        .unwrap_or(false);
+    if !authorized {
+        return Err(ApiError::Forbidden(
+            "not authorized to read the audit journal of this series",
+        ));
+    }
 
     let entries = state
         .ports

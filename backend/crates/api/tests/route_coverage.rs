@@ -103,8 +103,10 @@ fn api_routes_have_deliberate_authorization_requirement() {
     //
     // Rules of thumb:
     //   `Authenticated` — season-scoped endpoints, block CRUD/listing,
-    //                     invitation acceptance, and photo endpoints (which
-    //                     have handler-internal season-scoped auth gates).
+    //                     invitation acceptance, photo endpoints, AI import,
+    //                     reports and the series-scoped audit journal `/audit`
+    //                     — all of which carry handler-internal auth gates
+    //                     (`// AUTHZ-GATE:`) instead of a middleware check.
     //   `BlockMember`   — everything else: block-scoped read/write operations
     //                     that require active membership in the active block.
     let expected: &[(&str, Requirement)] = &[
@@ -122,9 +124,12 @@ fn api_routes_have_deliberate_authorization_requirement() {
             "/seasons/{season_id}/costume-categories",
             Requirement::Authenticated,
         ),
-        // Audit journal — block-scoped at the middleware; the handler
-        // additionally resolves a `series_id` query parameter (AUTHZ-GATE).
-        ("/audit", Requirement::BlockMember),
+        // Audit journal — the series-scoped twin: the route is filtered by
+        // the `series_id` **query parameter**, so `X-Active-Block` membership
+        // says nothing about the queried series. `Authenticated` here, plus a
+        // handler-internal `// AUTHZ-GATE:` that verifies active membership in
+        // the queried series (issue #342).
+        ("/audit", Requirement::Authenticated),
         // Blocks — creation/listing is Authenticated
         ("/blocks", Requirement::Authenticated),
         ("/blocks/{id}", Requirement::BlockMember),

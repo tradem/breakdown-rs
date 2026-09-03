@@ -94,6 +94,7 @@ block-scoped, never open.
 | `/costumes/{id}/photos*` | `Authenticated` + handler gate | Handler internally calls `SeasonPhotoAccessPolicy::authorize_season` (costume-dept role in an active block of the season) and returns `403` on denial. Marked with `// AUTHZ-GATE:` comments — reviewers grep for them. |
 | `/blocks/{id}/members/accept` | `Authenticated` | The invitee is *not yet* a member (that is the point). The domain command `AcceptInvitation` binds `user_id` to the authenticated `sub`, so a caller can only accept their own invitation. |
 | `/ai-import*`, `/report/*.pdf`, `/report/archive` | `Authenticated` + handler gates | Each handler performs season-scoped internal authorization (costume-dept membership / credential role) with `// AUTHZ-GATE:` comments. |
+| `/audit` (series-scoped journal) | `Authenticated` + handler gate | The journal is filtered by the `series_id` **query parameter**, so the caller's active block (`X-Active-Block`) is unrelated to the series being read — a middleware `BlockMember` check would give false assurance. `requirement_for` therefore classifies the route `Authenticated` and `get_audit_history` verifies `MembershipRepository::has_active_membership_in_series` itself, returning `403` on denial (issue #342). Its block-scoped twin `/blocks/{id}/audit` stays `BlockMember`. |
 
 ### Fail-closed guarantee
 
@@ -110,6 +111,39 @@ let decision = tokio::task::spawn(async move { policy.authorize(&ctx).await })
 
 Any repository error also collapses to `PolicyDecision::Deny` in
 `MembershipAuthorizationPolicy::authorize`.
+
+Every handler-internal gate follows the same shape — the predicate is called
+with `.unwrap_or(false)` so a repository error denies:
+
+```rust
+// crates/api/src/handlers/mod.rs (pattern for all // AUTHZ-GATE: sites)
+let authorized = state
+    .ports
+    .membership_repo()
+    .has_active_membership_in_series(series_id, current_user.sub.clone())
+    .await
+    .unwrap_or(false);
+if !authorized {
+    return Err(ApiError::Forbidden("…"));
+}
+```
+
+## Membership projection encoding (role / state)
+
+`projection_membership.role` and `.state` store **plain tokens**
+(`costume_assistant`, `active`), written by
+`crates/infra/src/projectors/membership.rs`. The wire form of
+`MembershipView` is unchanged serde JSON (`"costume_assistant"`,
+`"active"`). Keeping the two apart matters: every membership authorization
+predicate compares those columns against plain SQL string literals
+(`m.state = 'active'`, `m.role IN ('costume_designer', …)`), so JSON-quoted
+values match nothing and the gate denies every caller.
+
+`Role::as_str` / `Role::from_token` and
+`MembershipStateKind::as_str` / `MembershipStateKind::from_token` are the
+single source for the storage form; `crates/core/tests/membership_projection_tokens.rs`
+pins the storage token to the serde form so they cannot drift (found while
+implementing issue #342).
 
 ### Staged rollout & dev mode
 

@@ -4,6 +4,7 @@
 // Co-authored-by: glm-5.2 (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: longcat-2.0-free (opencode)
+// Co-authored-by: hy4-preview (opencode-go)
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -402,6 +403,10 @@ pub struct FakeMembershipRepo {
     /// tests exercise the allow/deny branches of report-archive authz gates.
     /// `None` = default allow (`Ok(true)`).
     pub report_archive_role_override: Arc<Mutex<Option<Result<bool, DomainError>>>>,
+    /// Configurable outcome of `has_active_membership_in_series` — lets handler
+    /// tests exercise the allow/deny branches of the series-scoped audit gate
+    /// (issue #342). `None` = default allow (`Ok(true)`).
+    pub series_membership_override: Arc<Mutex<Option<Result<bool, DomainError>>>>,
 }
 
 #[async_trait]
@@ -453,6 +458,20 @@ impl MembershipRepository for FakeMembershipRepo {
         user_id: UserId,
     ) -> Result<bool, DomainError> {
         Ok(self.members.lock().await.contains(&(block_id, user_id)))
+    }
+
+    async fn has_active_membership_in_series(
+        &self,
+        series_id: SeriesId,
+        user_id: UserId,
+    ) -> Result<bool, DomainError> {
+        match self.series_membership_override.lock().await.as_ref() {
+            Some(result) => result.clone(),
+            None => {
+                let _ = (series_id, user_id);
+                Ok(true)
+            }
+        }
     }
 
     async fn has_active_costume_role_in_season(
@@ -831,11 +850,20 @@ impl AuditRepository for FakeAuditRepo {
     }
     async fn list_by_series(
         &self,
-        _series_id: SeriesId,
-        _limit: i64,
-        _offset: i64,
+        series_id: SeriesId,
+        limit: i64,
+        offset: i64,
     ) -> Result<Vec<AuditEntry>, DomainError> {
-        Ok(Vec::new())
+        // Filter on the tenant dimension (mirrors the Postgres adapter) so a
+        // handler that drops the `series_id` filter is observable in tests.
+        let all = self.entries.lock().await;
+        Ok(all
+            .iter()
+            .filter(|e| e.series_id == Some(series_id.0))
+            .skip(offset as usize)
+            .take(limit as usize)
+            .cloned()
+            .collect())
     }
 }
 

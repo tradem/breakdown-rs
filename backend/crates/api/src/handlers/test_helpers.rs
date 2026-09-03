@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: hy4-preview (opencode-go)
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -74,7 +75,7 @@ use breakdown_core::membership::commands::{
 };
 use breakdown_core::membership::ports::{MembershipCommands, MembershipRepository};
 use breakdown_core::membership::{MembershipStateKind, MembershipView, Role};
-use breakdown_core::shared::UserId;
+use breakdown_core::shared::{SeriesId, UserId};
 use chrono::{DateTime, Utc};
 use std::collections::HashSet;
 
@@ -287,6 +288,10 @@ impl MembershipCommands for FakeMembershipCommands {
 #[derive(Clone, Default)]
 pub(crate) struct FakeMembershipRepo {
     pub(crate) members: Arc<Mutex<HashSet<(BlockId, UserId)>>>,
+    /// Configurable outcome of `has_active_membership_in_series` — lets
+    /// handler tests exercise the allow/deny branches of the series-scoped
+    /// audit gate (issue #342). `None` = default allow (`Ok(true)`).
+    pub(crate) series_membership_override: Arc<Mutex<Option<Result<bool, DomainError>>>>,
 }
 
 #[async_trait]
@@ -338,6 +343,21 @@ impl MembershipRepository for FakeMembershipRepo {
         user_id: UserId,
     ) -> Result<bool, DomainError> {
         Ok(self.members.lock().await.contains(&(block_id, user_id)))
+    }
+
+    async fn has_active_membership_in_series(
+        &self,
+        series_id: SeriesId,
+        user_id: UserId,
+    ) -> Result<bool, DomainError> {
+        match self.series_membership_override.lock().await.as_ref() {
+            Some(result) => result.clone(),
+            None => {
+                // For test purposes: authorise any user for any series.
+                let _ = (series_id, user_id);
+                Ok(true)
+            }
+        }
     }
 
     async fn has_active_costume_role_in_season(

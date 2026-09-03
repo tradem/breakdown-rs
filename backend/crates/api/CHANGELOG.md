@@ -28,6 +28,25 @@ commits (ADR-020 D5).
   `backend/openapi.yaml` (`UPDATE_OPENAPI=1` regenerates). No public API
   change; no version bump.
 
+### Changed — `GET /v1/audit` is series-scoped, not block-scoped (issue #342)
+
+- **Authorization classification (behavior change):** `requirement_for()` now
+  returns `Authenticated` for the exact path `/audit`. The journal is filtered
+  by the `series_id` **query parameter**, so the caller's active block
+  (`X-Active-Block`) is unrelated to the series being read and the previous
+  `BlockMember` classification gave false assurance: any caller with an
+  active membership in *any* block could read the journal of *any* series.
+- `get_audit_history` now performs the membership check itself behind an
+  `// AUTHZ-GATE:` comment — `MembershipRepository::has_active_membership_in_series`
+  — and returns `403 domain.forbidden` on denial. It fails closed: a
+  repository error denies. The predicate is role-agnostic: any *active*
+  membership in the series grants access.
+- The block-scoped twin `/blocks/{id}/audit` keeps `Requirement::BlockMember`.
+- `backend/openapi.yaml` regenerated: the operation documents the `400`
+  (missing `series_id`) response alongside `403`, and both descriptions now
+  name the actual condition. Additive contract change — the `/v1` path
+  version stays (ADR-021 D1) and no crate version bump is required.
+
 ### Fixed — Export the served scene-shoot / continuity-photo / wrap / JSON-report routes (issue #333)
 
 - `backend/openapi.yaml` was missing 19 served, `#[utoipa::path]`-annotated

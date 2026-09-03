@@ -57,6 +57,7 @@ async fn get_season_membership_returns_capabilities_for_active_member() {
             credential_role_override: Default::default(),
             costume_role_override: Arc::new(Mutex::new(Some(Ok(true)))),
             report_archive_role_override: Default::default(),
+            series_membership_override: Default::default(),
         },
         ..Default::default()
     };
@@ -90,6 +91,7 @@ async fn get_season_membership_returns_empty_capabilities_for_non_member() {
             credential_role_override: Default::default(),
             costume_role_override: Arc::new(Mutex::new(Some(Ok(false)))),
             report_archive_role_override: Default::default(),
+            series_membership_override: Default::default(),
         },
         ..Default::default()
     };
