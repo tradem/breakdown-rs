@@ -172,6 +172,10 @@ fn allowlist_paths_map_to_authenticated_only() {
         "/costumes/00000000-0000-7000-8000-000000000000/photos/00000000-0000-7000-8000-000000000000",
         // Accept invitation
         "/blocks/00000000-0000-7000-8000-000000000000/members/accept",
+        // Series-scoped audit journal (issue #342): the handler verifies
+        // active membership in the queried series itself.
+        "/audit",
+        "/v1/audit",
         // Continuity photos (season-scoped handler-internal gate, issue #333)
         "/shooting-days/00000000-0000-7000-8000-000000000000/scenes/00000000-0000-7000-8000-000000000000/scene-shoots/00000000-0000-7000-8000-000000000000/continuity-photos",
         "/shooting-days/00000000-0000-7000-8000-000000000000/scenes/00000000-0000-7000-8000-000000000000/scene-shoots/00000000-0000-7000-8000-000000000000/continuity-photos/00000000-0000-7000-8000-000000000000",
@@ -226,7 +230,7 @@ use super::SeasonPhotoAccessPolicy;
 use breakdown_core::error::DomainError;
 use breakdown_core::membership::policy::{Action, SeasonAuthContext};
 use breakdown_core::membership::{MembershipRepository, MembershipView};
-use breakdown_core::shared::{SeasonId, UserId};
+use breakdown_core::shared::{SeasonId, SeriesId, UserId};
 
 /// A MembershipRepository whose `has_active_costume_role_in_season` returns
 /// a configurable value — used to test each branch of the authorize_season
@@ -285,6 +289,17 @@ impl MembershipRepository for MockSeasonMembershipRepo {
     ) -> Result<bool, DomainError> {
         Ok(false)
     }
+    async fn has_active_membership_in_series(
+        &self,
+        _series_id: SeriesId,
+        user_id: UserId,
+    ) -> Result<bool, DomainError> {
+        // Mirror the costume-role mock behaviour: this repo is keyed on the
+        // ok/result/err triple, not on the tenant dimension.
+        self.has_active_costume_role_in_season(SeasonId::new(), user_id)
+            .await
+    }
+
     async fn has_active_costume_role_in_season(
         &self,
         _season_id: SeasonId,

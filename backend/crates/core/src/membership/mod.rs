@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: hy4-preview (opencode-go)
 
 //! Block-scoped membership Bounded Context.
 //!
@@ -57,4 +58,32 @@ pub enum Role {
     /// Costume assistant (Kostümassistent*in*) — default role for the block
     /// creator owner bootstrap (see `BootstrapOwner` / Decision A).
     CostumeAssistant,
+}
+
+impl Role {
+    /// Plain-text token of the variant — the **storage representation** of
+    /// the `projection_membership.role` column.
+    ///
+    /// Deliberately distinct from the serde form: `Role` serializes to JSON
+    /// (`"costume_designer"`) on the wire, while the column stores the bare
+    /// token (`costume_designer`) so the membership authz predicates can
+    /// compare it against a plain SQL string literal. A unit test pins both
+    /// representations to the same `snake_case` token so they cannot drift.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Role::CostumeDesigner => "costume_designer",
+            Role::WardrobeSupervisor => "wardrobe_supervisor",
+            Role::CostumeAssistant => "costume_assistant",
+        }
+    }
+
+    /// Inverse of [`Role::as_str`]: `None` for an unknown token.
+    pub fn from_token(token: &str) -> Option<Self> {
+        match token {
+            "costume_designer" => Some(Role::CostumeDesigner),
+            "wardrobe_supervisor" => Some(Role::WardrobeSupervisor),
+            "costume_assistant" => Some(Role::CostumeAssistant),
+            _ => None,
+        }
+    }
 }

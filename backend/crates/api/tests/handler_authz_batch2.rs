@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: claude-sonnet-4-20250514 (opencode-go)
+// Co-authored-by: hy4-preview (opencode-go)
 
 //! Batch 2 — Authz-Handler 403-Tests for mutation-test hardening (issue #274).
 //!
@@ -41,6 +42,7 @@ use breakdown_core::shared::{
 };
 use breakdown_core::shooting_day::ShootingDayView;
 use common::FakePorts;
+use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -583,6 +585,134 @@ async fn get_audit_history_requires_series_id() {
     assert_eq!(problem.status, 400);
     assert_eq!(problem.code, "http.bad-query-param");
     assert!(!problem.detail.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// P2.4b — Series-scoped audit AUTHZ-GATE (issue #342)
+// ---------------------------------------------------------------------------
+
+/// Build `ListParams` carrying only a `series_id`.
+fn audit_params(sid: SeriesId) -> ListParams {
+    ListParams {
+        limit: Some(50),
+        offset: Some(0),
+        episode_id: None,
+        season_id: None,
+        series_id: Some(sid),
+    }
+}
+
+/// A caller with **no** active membership in the queried series is denied
+/// with 403 — even though they are an active member of *some* block (which is
+/// all the middleware can see). This is the gap issue #342 closes.
+#[tokio::test]
+async fn get_audit_history_denies_caller_without_series_membership() {
+    let ports = FakePorts::default();
+    *ports
+        .membership_repo
+        .series_membership_override
+        .lock()
+        .await = Some(Ok(false));
+    let state = app_state(ports);
+
+    let result = api::handlers::get_audit_history::<FakePorts>(
+        State(state),
+        dummy_user(),
+        Query(audit_params(series_id())),
+    )
+    .await;
+
+    let problem = result
+        .expect_err("non-member of the series must be denied")
+        .into_problem();
+    assert_eq!(problem.status, 403);
+    assert_eq!(problem.code, "domain.forbidden");
+    assert!(!problem.detail.is_empty());
+}
+
+/// A repository error must fail closed (deny), never open the journal.
+#[tokio::test]
+async fn get_audit_history_denies_when_membership_lookup_fails() {
+    let ports = FakePorts::default();
+    *ports
+        .membership_repo
+        .series_membership_override
+        .lock()
+        .await = Some(Err(breakdown_core::error::DomainError::internal("boom")));
+    let state = app_state(ports);
+
+    let result = api::handlers::get_audit_history::<FakePorts>(
+        State(state),
+        dummy_user(),
+        Query(audit_params(series_id())),
+    )
+    .await;
+
+    let problem = result
+        .expect_err("a failing membership lookup must deny")
+        .into_problem();
+    assert_eq!(problem.status, 403);
+    assert_eq!(problem.code, "domain.forbidden");
+}
+
+/// An active member of the series reads the journal of exactly that series.
+#[tokio::test]
+async fn get_audit_history_returns_series_journal_for_series_member() {
+    let ports = FakePorts::default();
+    *ports
+        .membership_repo
+        .series_membership_override
+        .lock()
+        .await = Some(Ok(true));
+
+    let sid = series_id();
+    let other_series = Uuid::now_v7();
+    ports
+        .audit_repo
+        .entries
+        .lock()
+        .await
+        .push(breakdown_core::audit::AuditEntry {
+            id: Uuid::now_v7(),
+            entity_type: "season".to_string(),
+            entity_id: Uuid::now_v7().to_string(),
+            event_type: "SeasonCreated".to_string(),
+            block_id: None,
+            series_id: Some(sid.0),
+            actor: Some(breakdown_core::shared::UserId::from_sub(USER)),
+            payload: serde_json::json!({ "number": 1 }),
+            occurred_at: chrono::Utc::now(),
+        });
+    // Entry of a foreign series must not leak into the result.
+    ports
+        .audit_repo
+        .entries
+        .lock()
+        .await
+        .push(breakdown_core::audit::AuditEntry {
+            id: Uuid::now_v7(),
+            entity_type: "season".to_string(),
+            entity_id: Uuid::now_v7().to_string(),
+            event_type: "SeasonCreated".to_string(),
+            block_id: None,
+            series_id: Some(other_series),
+            actor: Some(breakdown_core::shared::UserId::from_sub("other-user")),
+            payload: serde_json::json!({ "number": 2 }),
+            occurred_at: chrono::Utc::now(),
+        });
+
+    let state = app_state(ports);
+    let (status, Json(entries)) = api::handlers::get_audit_history::<FakePorts>(
+        State(state),
+        dummy_user(),
+        Query(audit_params(sid)),
+    )
+    .await
+    .expect("series member must be allowed");
+
+    assert_eq!(status, axum::http::StatusCode::OK);
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].series_id, Some(sid.0));
 }
 
 // ---------------------------------------------------------------------------

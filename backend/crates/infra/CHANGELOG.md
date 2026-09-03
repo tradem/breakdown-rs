@@ -2,6 +2,7 @@
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: deepseek-v4-flash (opencode-go) -->
 <!-- Co-authored-by: longcat-2.0-free (opencode) -->
+<!-- Co-authored-by: hy4-preview (opencode-go) -->
 
 # Changelog
 
@@ -9,6 +10,43 @@ All notable changes to the `infra` crate are documented here. Versioning
 follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
+
+## [0.15.0] - Unreleased
+
+### Fixed — Membership projection stores plain `role` / `state` tokens (issue #342)
+
+- `projectors::membership` wrote `serde_json::to_string(&role)` and
+  `serde_json::to_string(&state)`, so the columns contained
+  `"costume_assistant"` and `"active"` — while every membership authorization
+  predicate compares `m.state = 'active'` and
+  `m.role IN ('costume_designer', 'wardrobe_supervisor', 'costume_assistant')`.
+  **No row could ever match**, so `has_active_costume_role_in_season`,
+  `has_active_report_archive_role_in_season` and
+  `has_active_credential_role` always returned `false` and every photo,
+  continuity-photo, PDF/JSON report, manual-archive, AI-import and credential
+  handler denied every caller with `403`.
+- The projector now writes the bare token (`Role::as_str` /
+  `MembershipStateKind::as_str`) and `map_membership_row` parses it with
+  `from_token`, rejecting unknown values loudly instead of defaulting. The
+  SQL predicates are unchanged and now match.
+- **No data migration:** the backend is not in production, so development
+  databases are re-seeded. Rows written by the previous projector are
+  rejected by `from_token` rather than mis-read.
+
+### Added — `has_active_membership_in_series` (issue #342)
+
+- `MembershipRepositoryImpl` implements the new series-scoped predicate: a
+  single join `projection_membership → projection_block` on the indexed
+  `projection_block.series_id`, filtered to `state = 'active'`. Static SQL,
+  all values bound.
+
+### Changed — Version cascade (ADR-020 D3)
+
+- **MAJOR (cascade):** re-pinned to `breakdown_core` 0.10.0 (the series-scoped
+  audit gate adds a required method to the `MembershipRepository` trait, which
+  `infra` implements); `infra` therefore bumps **0.14.0 → 0.15.0**. The two
+  functional changes above would each be PATCH-class on their own (no public
+  API change), but D3 makes the crate carry the cascade.
 
 ## [0.14.0] - 2026-08-23
 

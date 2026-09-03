@@ -11,7 +11,14 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
-## [Unreleased]
+## [0.9.0] - Unreleased
+
+> **Note (release owner):** this section bundles the entries that accumulated
+> under `[Unreleased]`. Two of them were written as “no version bump”
+> (#29, test-only) / “PATCH bump” (#270); they ship with the **D3 cascade**
+> that the series-scoped audit gate (#342) triggers from `core` 0.10.0, so the
+> released version is **0.8.1 → 0.9.0**. The per-entry notes below keep their
+> original reasoning.
 
 ### Fixed — Dev-auth fallback gated on OIDC_ISS absence (issue #270)
 
@@ -27,6 +34,32 @@ commits (ADR-020 D5).
   canonical YAML and diffs it against the checked-in review artifact
   `backend/openapi.yaml` (`UPDATE_OPENAPI=1` regenerates). No public API
   change; no version bump.
+
+### Changed — `GET /v1/audit` is series-scoped, not block-scoped (issue #342)
+
+- **Authorization classification (behavior change):** `requirement_for()` now
+  returns `Authenticated` for the exact path `/audit`. The journal is filtered
+  by the `series_id` **query parameter**, so the caller's active block
+  (`X-Active-Block`) is unrelated to the series being read and the previous
+  `BlockMember` classification gave false assurance: any caller with an
+  active membership in *any* block could read the journal of *any* series.
+- `get_audit_history` now performs the membership check itself behind an
+  `// AUTHZ-GATE:` comment — `MembershipRepository::has_active_membership_in_series`
+  — and returns `403 domain.forbidden` on denial. It fails closed: a
+  repository error denies. The predicate is role-agnostic: any *active*
+  membership in the series grants access.
+- The block-scoped twin `/blocks/{id}/audit` keeps `Requirement::BlockMember`.
+- `backend/openapi.yaml` regenerated: the operation documents the `400`
+  (missing `series_id`) response alongside `403`, and both descriptions now
+  name the actual condition. Additive contract change — the `/v1` path
+  version stays (ADR-021 D1).
+
+### Changed — Version cascade (ADR-020 D3)
+
+- **MAJOR (cascade):** re-pinned to `breakdown_core` 0.10.0 and `infra`
+  0.15.0; `api` bumps **0.8.1 → 0.9.0**. On its own this change would need no
+  bump at all (behaviour + additive contract), but D3 makes every consumer of
+  the broken `core` API carry a MAJOR.
 
 ### Fixed — Export the served scene-shoot / continuity-photo / wrap / JSON-report routes (issue #333)
 
