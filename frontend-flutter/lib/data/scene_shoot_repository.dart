@@ -27,10 +27,15 @@ class SceneShootRepository extends BaseRepository {
     ),
   );
 
-  Future<Result<int>> unschedule(String id, String shootingDayId) => run(
+  Future<Result<int>> unschedule(
+    String id,
+    String shootingDayId,
+    int version,
+  ) => run(
     () => api.getHandlersApi().unscheduleSceneFromShootingDay(
       id: id,
       shootingDayId: shootingDayId,
+      version: version,
     ),
   );
 

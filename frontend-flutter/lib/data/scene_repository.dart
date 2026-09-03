@@ -38,10 +38,15 @@ class SceneRepository extends BaseRepository {
     ),
   );
 
-  Future<Result<int>> removeCharacter(String id, String characterId) => run(
+  Future<Result<int>> removeCharacter(
+    String id,
+    String characterId,
+    int version,
+  ) => run(
     () => api.getHandlersApi().removeSceneCharacter(
       id: id,
       characterId: characterId,
+      version: version,
     ),
   );
 
@@ -58,10 +63,12 @@ class SceneRepository extends BaseRepository {
   Future<Result<int>> unscheduleFromShootingDay(
     String id,
     String shootingDayId,
+    int version,
   ) => run(
     () => api.getHandlersApi().unscheduleSceneFromShootingDay(
       id: id,
       shootingDayId: shootingDayId,
+      version: version,
     ),
   );
 }
