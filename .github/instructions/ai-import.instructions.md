@@ -1,8 +1,9 @@
 ---
 description: AI import - configuration, concurrency permits, payload storage, GC and restart recovery.
 applyTo:
-  - "crates/*/src/ai/**"
-  - "crates/integration-tests/tests/ai*"
+  - "backend/crates/*/src/ai/**"
+  - "backend/crates/integration-tests/tests/ai*"
+  - "backend/config/default_ai_prompts.toml"
 ---
 
 # AI import (`add-ai-script-and-schedule-import`)

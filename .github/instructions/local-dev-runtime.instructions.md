@@ -1,10 +1,12 @@
 ---
 description: Local dev runtime - compose stack, boot sequence, env vars, OIDC/dev-auth and local IdP overlay.
 applyTo:
-  - "docker-compose*"
+  - "backend/docker-compose*"
+  - "backend/scripts/**"
   - "scripts/**"
+  - "backend/.env*"
   - ".env*"
-  - "dev-certs/**"
+  - "backend/dev-certs/**"
 ---
 
 # Local Dev Runtime

@@ -1,10 +1,11 @@
 ---
 description: CI guardrails and workflow hardening - ast-grep rules, jobs, SHA pinning, script injection.
 applyTo:
-  - "../.github/workflows/**"
-  - "rules/**"
-  - "rules-tests/**"
-  - "scripts/**"
+  - ".github/workflows/**"
+  - ".github/dependabot.yml"
+  - "backend/rules/**"
+  - "backend/rules-tests/**"
+  - "backend/scripts/**"
 ---
 
 # CI hardening: SHA-pinning and script-injection hygiene

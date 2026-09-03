@@ -1,9 +1,9 @@
 ---
 description: Photo bounded context (aggregate, sagas, Garage/S3 storage, GC) - loaded when reading photo code or storage config.
 applyTo:
-  - "crates/*/src/photo/**"
-  - "docker-compose*"
-  - "scripts/**"
+  - "backend/crates/*/src/photo/**"
+  - "backend/docker-compose*"
+  - "backend/scripts/**"
 ---
 
 # Photo bounded context (ADR-019)

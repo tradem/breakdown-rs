@@ -1,7 +1,7 @@
 ---
 description: Long form of the architectural hard rules (CQRS boundary, no panics, SQL, authz, error surface, reliability) - loaded when reading backend Rust files.
 applyTo:
-  - "crates/**/*.rs"
+  - "backend/crates/**/*.rs"
 ---
 
 # Hard-Rules — Langfassung und Begründung
