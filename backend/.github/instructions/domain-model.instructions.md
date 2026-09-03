@@ -6,6 +6,10 @@ applyTo:
   - "crates/api/src/**"
 ---
 
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+<!-- Co-authored-by: glm-5.3 (neuralwatt) -->
+
 # Production hierarchy (ADR: introduce-season-block-episode-hierarchy)
 
 The domain models a four-level production hierarchy:

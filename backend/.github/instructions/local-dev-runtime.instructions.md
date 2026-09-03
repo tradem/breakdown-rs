@@ -7,6 +7,10 @@ applyTo:
   - "dev-certs/**"
 ---
 
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+<!-- Co-authored-by: glm-5.3 (neuralwatt) -->
+
 # Local Dev Runtime
 
 v1 ships a **Postgres-only** dev compose. SierraDB is not included; the live `command → SierraDB → projector → PG` round-trip is deferred to the `sierradb-runtime-and-round-trip` follow-up change.

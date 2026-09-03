@@ -6,6 +6,10 @@ applyTo:
   - "config/default_ai_prompts.toml"
 ---
 
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+<!-- Co-authored-by: glm-5.3 (neuralwatt) -->
+
 # AI import (`add-ai-script-and-schedule-import`)
 
 #### AI import (`add-ai-script-and-schedule-import`)
