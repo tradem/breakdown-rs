@@ -86,6 +86,16 @@ commits (ADR-020 D5).
 - No Rust public API change; the wire contract is additive, so the `/v1` path
   version stays (ADR-021 D1). No crate version bump.
 
+### Fixed — `POST /v1/costumes/{id}/unassign` declares `VersionRequest` body (issue #336)
+
+- The `unassign_costume` handler deserializes `VersionRequest` (`version` only)
+  but the `#[utoipa::path]` annotation declared `UpdateCostumeNotesRequest`
+  (`notes` + `version`), forcing generated clients to send a meaningless
+  `notes` echo. The annotation now references `VersionRequest`;
+  `backend/openapi.yaml` regenerated. No Rust public API change; the wire
+  contract sheds an ignored required field, so the `/v1` path version stays
+  (ADR-021 D1). No crate version bump.
+
 ## [0.8.0] - 2026-08-23
 
 ### Changed — Bump MSRV to 1.98 (issue #257)
