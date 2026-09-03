@@ -4314,6 +4314,12 @@ paths:
       - handlers
   /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots:
     get:
+      description: |-
+        The listing is **day-scoped**: `scene_id` is part of the hierarchy path but
+        does not filter the result, exactly like the sibling handlers on this route
+        family, which address a globally unique `shoot_id` and ignore the parent
+        segments. Filtering by `(scene_id, day_id)` would return at most one row
+        (pair-uniqueness), which is what [`get_scene_shoot`] is for.
       operationId: list_scene_shoots
       parameters:
       - description: Shooting day id
@@ -4338,6 +4344,7 @@ paths:
                   $ref: '#/components/schemas/SceneShootView'
                 type: array
           description: ''
+      summary: Lists the planned shoots of a shooting day.
       tags:
       - handlers
     post:
@@ -4367,6 +4374,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/IdVersionResponse'
           description: ''
+        '400':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Identifier in the body does not match the path parameter
       tags:
       - handlers
   /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}:

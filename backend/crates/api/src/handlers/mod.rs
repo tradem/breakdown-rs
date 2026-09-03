@@ -2442,7 +2442,10 @@ pub struct WrapShootingDayRequest {
     post,
     path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots",
     request_body = PlanSceneShootRequest,
-    responses((status = 201, body = IdVersionResponse)),
+    responses(
+        (status = 201, body = IdVersionResponse),
+        (status = 400, body = ProblemDetails, description = "Identifier in the body does not match the path parameter"),
+    ),
 )]
 pub async fn plan_scene_shoot<P: Ports>(
     State(state): State<AppState<P>>,
@@ -2453,6 +2456,15 @@ pub async fn plan_scene_shoot<P: Ports>(
     if req.shooting_day_id != day_id {
         return Err(ApiError::BadRequest(
             "shooting_day_id in body must match path parameter",
+        ));
+    }
+    // Both identifiers are also carried by the request body; reject a
+    // contradictory payload instead of silently preferring the path value
+    // (the shoot would otherwise be planned for a scene the caller did not
+    // name in the body).
+    if req.scene_id != scene_id {
+        return Err(ApiError::BadRequest(
+            "scene_id in body must match path parameter",
         ));
     }
     let id = SceneShootId::new();
@@ -2622,6 +2634,13 @@ pub async fn get_scene_shoot<P: Ports>(
     Ok((StatusCode::OK, Json(view)))
 }
 
+/// Lists the planned shoots of a shooting day.
+///
+/// The listing is **day-scoped**: `scene_id` is part of the hierarchy path but
+/// does not filter the result, exactly like the sibling handlers on this route
+/// family, which address a globally unique `shoot_id` and ignore the parent
+/// segments. Filtering by `(scene_id, day_id)` would return at most one row
+/// (pair-uniqueness), which is what [`get_scene_shoot`] is for.
 #[utoipa::path(
     get,
     path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots",
@@ -2633,7 +2652,7 @@ pub async fn get_scene_shoot<P: Ports>(
 )]
 pub async fn list_scene_shoots<P: Ports>(
     State(state): State<AppState<P>>,
-    Path(day_id): Path<ShootingDayId>,
+    Path((day_id, _scene_id)): Path<(ShootingDayId, Uuid)>,
 ) -> ApiResult<Vec<SceneShootView>> {
     let views = state
         .ports
@@ -4738,7 +4757,8 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         // --- SceneShoot execution endpoints ---
         .route(
             "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots",
-            routing::post(plan_scene_shoot::<ProductionPorts>),
+            routing::post(plan_scene_shoot::<ProductionPorts>)
+                .get(list_scene_shoots::<ProductionPorts>),
         )
         .route(
             "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}",

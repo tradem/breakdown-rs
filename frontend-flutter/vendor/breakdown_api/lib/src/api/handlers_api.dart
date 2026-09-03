@@ -4789,8 +4789,8 @@ class HandlersApi {
     );
   }
 
-  /// listSceneShoots
-  ///
+  /// Lists the planned shoots of a shooting day.
+  /// The listing is **day-scoped**: &#x60;scene_id&#x60; is part of the hierarchy path but does not filter the result, exactly like the sibling handlers on this route family, which address a globally unique &#x60;shoot_id&#x60; and ignore the parent segments. Filtering by &#x60;(scene_id, day_id)&#x60; would return at most one row (pair-uniqueness), which is what [&#x60;get_scene_shoot&#x60;] is for.
   ///
   /// Parameters:
   /// * [dayId] - Shooting day id
