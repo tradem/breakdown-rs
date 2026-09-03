@@ -14,12 +14,14 @@ if [ "$YEAR" != "2024" ]; then
     COPYRIGHT="Copyright (C) 2024-$YEAR Breakdown RS Contributors"
 fi
 
-# Find supported source files recursively. Covers the Rust backend and the
-# frontend-flutter tree (Dart, Gherkin .feature, YAML).
+# Find supported source files recursively. Covers the Rust backend, the
+# frontend-flutter tree (Dart, Gherkin .feature, YAML) and Markdown docs
+# (AGENTS.md, pi-rules instruction files, ADRs, issue notes).
 find "${1:-.}" -type f \
     \( -name "*.rs" -o -name "*.typ" -o -name "*.sh" \
        -o -name "*.dart" -o -name "*.feature" \
-       -o -name "*.yaml" -o -name "*.yml" \) | while read -r file; do
+       -o -name "*.yaml" -o -name "*.yml" \
+       -o -name "*.md" \) | while read -r file; do
     # Check if header already exists
     if grep -q "SPDX-License-Identifier" "$file"; then
         echo "⏭️  Skipping (already has header): $file"
@@ -44,6 +46,32 @@ find "${1:-.}" -type f \
             echo "# $COPYRIGHT" >> "$temp_file"
             echo "" >> "$temp_file"
             cat "$file" >> "$temp_file"
+            ;;
+        *.md)
+            # Markdown: HTML comments. Files may start with YAML frontmatter
+            # (e.g. pi-rules .github/instructions rule files); the header MUST
+            # go after the closing "---" delimiter, or downstream tools would
+            # parse the frontmatter as plain body text (a rule file would lose
+            # its glob frontmatter and stop matching entirely).
+            frontmatter_end=0
+            if [ "$(head -n 1 "$file")" = "---" ]; then
+                frontmatter_end=$(awk 'NR > 1 && $0 == "---" { print NR; exit }' "$file")
+                frontmatter_end=${frontmatter_end:-0}
+            fi
+            if [ "$frontmatter_end" -gt 0 ]; then
+                head -n "$frontmatter_end" "$file" > "$temp_file"
+                echo "" >> "$temp_file"
+            else
+                : > "$temp_file"
+            fi
+            echo "<!-- SPDX-License-Identifier: $LICENSE -->" >> "$temp_file"
+            echo "<!-- $COPYRIGHT -->" >> "$temp_file"
+            echo "" >> "$temp_file"
+            if [ "$frontmatter_end" -gt 0 ]; then
+                tail -n +$((frontmatter_end + 1)) "$file" >> "$temp_file"
+            else
+                cat "$file" >> "$temp_file"
+            fi
             ;;
         *)
             echo "⚠️  Unsupported file type: $file"
