@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: ox-alpha-free (opencode-go)
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
 //! OpenAPI drift check between the checked-in review artifact
 //! `backend/openapi.yaml` and the utoipa-generated document [`api::api_doc`]
@@ -87,4 +88,87 @@ fn generated_doc_is_a_sane_openapi_contract() {
         json["info"]["version"], "v1",
         "ADR-021 pins info.version to v1"
     );
+}
+
+/// Regression guard for issue #334: every `{var}` in a path template must be
+/// defined as a required `in: path` parameter on the operation (or the
+/// path item).
+///
+/// `utoipa` only infers tuple `Path<(A, B, ...)>` extractors, so a handler
+/// using a single-value `Path(id): Path<Newtype>` documents no parameter at
+/// all unless it is declared explicitly via `params(...)`. The generated
+/// client then emits a literal `{id}` in the request URL — the three PDF
+/// report routes shipped exactly this defect until PR #344 declared the
+/// parameters explicitly. This test fails the contract the moment any
+/// operation reintroduces an undeclared template variable.
+#[test]
+fn every_path_template_variable_is_defined() {
+    let json = serde_json::to_value(api::api_doc()).expect("serialize OpenAPI doc");
+    let paths = json["paths"].as_object().expect("paths object present");
+    // Operations that may carry `parameters:` in this contract.
+    const METHODS: [&str; 7] = ["get", "post", "put", "patch", "delete", "options", "head"];
+    let mut failures: Vec<String> = Vec::new();
+    for (path, item) in paths {
+        let template_vars = template_variables(path);
+        if template_vars.is_empty() {
+            continue;
+        }
+        let item_params = item.get("parameters");
+        for method in METHODS {
+            let Some(op) = item.get(method) else {
+                continue;
+            };
+            let op_params = op.get("parameters");
+            let missing: Vec<String> = template_vars
+                .iter()
+                .filter(|var| {
+                    !(parameter_defined(item_params, var) || parameter_defined(op_params, var))
+                })
+                .map(|var| format!("{{{var}}}"))
+                .collect();
+            if !missing.is_empty() {
+                failures.push(format!(
+                    "{method} {path}: undeclared {}",
+                    missing.join(", ")
+                ));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "path template variables without a required `in: path` parameter (issue #334):\n  {}",
+        failures.join("\n  ")
+    );
+}
+
+/// Extract `{var}` names from an OpenAPI path template.
+fn template_variables(path: &str) -> Vec<&str> {
+    let mut vars = Vec::new();
+    let mut rest = path;
+    while let Some(open) = rest.find('{') {
+        let after = &rest[open + 1..];
+        if let Some(close) = after.find('}') {
+            let name = &after[..close];
+            if !name.is_empty() && !name.contains('/') && !name.contains('{') {
+                vars.push(name);
+            }
+            rest = &after[close + 1..];
+        } else {
+            break;
+        }
+    }
+    vars
+}
+
+/// True when `parameters` (an OpenAPI parameter list) defines `name` as a
+/// required `in: path` parameter.
+fn parameter_defined(parameters: Option<&serde_json::Value>, name: &str) -> bool {
+    let Some(params) = parameters.and_then(serde_json::Value::as_array) else {
+        return false;
+    };
+    params.iter().any(|p| {
+        p.get("name").and_then(serde_json::Value::as_str) == Some(name)
+            && p.get("in").and_then(serde_json::Value::as_str) == Some("path")
+            && p.get("required").and_then(serde_json::Value::as_bool) == Some(true)
+    })
 }
