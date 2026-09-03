@@ -11,7 +11,7 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
-## [Unreleased]
+## [0.15.0] - Unreleased
 
 ### Fixed — Membership projection stores plain `role` / `state` tokens (issue #342)
 
@@ -39,6 +39,14 @@ commits (ADR-020 D5).
   single join `projection_membership → projection_block` on the indexed
   `projection_block.series_id`, filtered to `state = 'active'`. Static SQL,
   all values bound.
+
+### Changed — Version cascade (ADR-020 D3)
+
+- **MAJOR (cascade):** re-pinned to `breakdown_core` 0.10.0 (the series-scoped
+  audit gate adds a required method to the `MembershipRepository` trait, which
+  `infra` implements); `infra` therefore bumps **0.14.0 → 0.15.0**. The two
+  functional changes above would each be PATCH-class on their own (no public
+  API change), but D3 makes the crate carry the cascade.
 
 ## [0.14.0] - 2026-08-23
 

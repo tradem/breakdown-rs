@@ -11,7 +11,7 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
-## [Unreleased]
+## [0.10.0] - Unreleased
 
 ### Added — Series-scoped membership predicate (issue #342)
 
@@ -22,9 +22,10 @@ commits (ADR-020 D5).
   than by the caller's active block. Deliberately role-agnostic — the audit
   journal is an operational record of the whole production, not a
   costume-department artefact.
-- **Breaking:** new required method on the public `MembershipRepository`
-  trait; every implementor must provide it. Absorbed by the unreleased 0.9.0
-  minor (no `core-v0.9.0` tag yet), so no additional bump.
+- **Breaking (MAJOR, ADR-020 D2):** new required method on the public
+  `MembershipRepository` trait — every implementor must provide it. A trait
+  signature change is MAJOR per ADR-020 D2, which in this workspace's 0.x
+  scheme bumps the MINOR component: **0.9.0 → 0.10.0**.
 
 ### Added — Plain-text storage tokens for `Role` / `MembershipStateKind`
 
@@ -37,6 +38,9 @@ commits (ADR-020 D5).
   SQL string literals, so JSON-quoted values matched nothing and the gates
   denied every caller. `crates/core/tests/membership_projection_tokens.rs`
   pins both representations to the same `snake_case` token.
+- **MINOR (additive):** `Role::as_str` / `Role::from_token` and
+  `MembershipStateKind::as_str` / `MembershipStateKind::from_token` are new
+  `pub` items. Subsumed by the MAJOR bump above.
 
 ## [0.9.0] - 2026-08-23
 

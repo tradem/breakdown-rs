@@ -36,9 +36,12 @@
 - [x] `backend/docs/security/security-architecture.md` — allowlist table entry for `/audit`, handler-gate pattern, membership projection encoding section.
 - [x] OpenSpec change `342-audit-series-membership-gate` (proposal, tasks, `api-authorization` delta).
 - [x] CHANGELOG entries for `core`, `infra`, `api`.
+- [x] ADR-020 D2/D3 version cascade: `core` 0.9.0 → 0.10.0 (MAJOR — new required `MembershipRepository` method), `infra` 0.14.0 → 0.15.0 and `api` 0.8.1 → 0.9.0 (MAJOR by cascade), with re-pins in `api`, `infra`, `architecture`, `integration-tests`, `test_support`, `fuzz-targets` and `backend/Cargo.lock`.
 
 ## 6. Verification
 
 - [x] `cargo test --workspace --exclude integration-tests` — 74 test binaries green.
 - [x] `cargo test -p integration-tests --test membership_round_trip` — 4 passed (Docker required).
 - [x] `cargo clippy --workspace --all-targets --all-features` — clean.
+- [x] `cargo fmt --all -- --check` — clean.
+- [x] `cargo semver-checks` per changed crate (baselines `core-v0.8.0`, `infra-v0.13.0`, `api-v0.7.1`) — “no semver update required” for all three.
