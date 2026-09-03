@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: hy4-preview (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -151,6 +152,16 @@ fn block_scoped_paths_default_to_block_member() {
         // Shooting days
         "/shooting-days/00000000-0000-7000-8000-000000000000",
         "/shooting-days/00000000-0000-7000-8000-000000000000/archive",
+        "/shooting-days/00000000-0000-7000-8000-000000000000/wrap",
+        // SceneShoot execution + notes (block-scoped, issue #333)
+        "/shooting-days/00000000-0000-7000-8000-000000000000/scenes/00000000-0000-7000-8000-000000000000/scene-shoots",
+        "/shooting-days/00000000-0000-7000-8000-000000000000/scenes/00000000-0000-7000-8000-000000000000/scene-shoots/00000000-0000-7000-8000-000000000000",
+        "/shooting-days/00000000-0000-7000-8000-000000000000/scenes/00000000-0000-7000-8000-000000000000/scene-shoots/00000000-0000-7000-8000-000000000000/start",
+        "/shooting-days/00000000-0000-7000-8000-000000000000/scenes/00000000-0000-7000-8000-000000000000/scene-shoots/00000000-0000-7000-8000-000000000000/actual-order",
+        "/shooting-days/00000000-0000-7000-8000-000000000000/scenes/00000000-0000-7000-8000-000000000000/scene-shoots/00000000-0000-7000-8000-000000000000/finish",
+        "/shooting-days/00000000-0000-7000-8000-000000000000/scenes/00000000-0000-7000-8000-000000000000/scene-shoots/00000000-0000-7000-8000-000000000000/skip",
+        "/shooting-days/00000000-0000-7000-8000-000000000000/scenes/00000000-0000-7000-8000-000000000000/scene-shoots/00000000-0000-7000-8000-000000000000/notes",
+        "/shooting-days/00000000-0000-7000-8000-000000000000/scenes/00000000-0000-7000-8000-000000000000/scene-shoots/00000000-0000-7000-8000-000000000000/notes/00000000-0000-7000-8000-000000000000",
         // Characters
         "/characters",
         "/characters/00000000-0000-7000-8000-000000000000",
@@ -198,6 +209,14 @@ fn allowlist_paths_map_to_authenticated_only() {
         "/costumes/00000000-0000-7000-8000-000000000000/photos/00000000-0000-7000-8000-000000000000",
         // Accept invitation
         "/blocks/00000000-0000-7000-8000-000000000000/members/accept",
+        // Continuity photos (season-scoped handler-internal gate, issue #333)
+        "/shooting-days/00000000-0000-7000-8000-000000000000/scenes/00000000-0000-7000-8000-000000000000/scene-shoots/00000000-0000-7000-8000-000000000000/continuity-photos",
+        "/shooting-days/00000000-0000-7000-8000-000000000000/scenes/00000000-0000-7000-8000-000000000000/scene-shoots/00000000-0000-7000-8000-000000000000/continuity-photos/00000000-0000-7000-8000-000000000000",
+        // JSON report routes (issue #333): authenticated-only, same
+        // handler-internal season gate as their PDF twins.
+        "/shooting-days/00000000-0000-7000-8000-000000000000/report/dispo",
+        "/shooting-days/00000000-0000-7000-8000-000000000000/report/shoot-day",
+        "/shooting-days/00000000-0000-7000-8000-000000000000/report/soll-ist",
     ];
 
     for path in allowlist {
@@ -209,6 +228,44 @@ fn allowlist_paths_map_to_authenticated_only() {
             "expected Authenticated for allowlist path: {path}"
         );
     }
+}
+
+/// The JSON report routes are authenticated-only like their PDF twins, but
+/// the rule is scoped to shooting-day reports: an unrelated `/report/*` path
+/// must stay block-scoped (kills the "drop the `/shooting-days/` prefix or the
+/// report-kind check" mutants).
+#[test]
+fn json_report_routes_are_authenticated_only() {
+    const DAY: &str = "/shooting-days/00000000-0000-7000-8000-000000000000";
+    for kind in ["dispo", "shoot-day", "soll-ist"] {
+        let path = format!("{DAY}/report/{kind}");
+        assert!(
+            matches!(
+                api::auth::authorization::requirement_for(&path),
+                Requirement::Authenticated
+            ),
+            "expected Authenticated for {path}"
+        );
+    }
+
+    // A report route outside the shooting-day scope stays block-scoped.
+    assert!(
+        matches!(
+            api::auth::authorization::requirement_for(
+                "/episodes/00000000-0000-7000-8000-000000000000/report/dispo"
+            ),
+            Requirement::BlockMember
+        ),
+        "expected BlockMember for a non-shooting-day /report path"
+    );
+    // An unknown shooting-day report kind stays block-scoped.
+    assert!(
+        matches!(
+            api::auth::authorization::requirement_for(&format!("{DAY}/report/summary")),
+            Requirement::BlockMember
+        ),
+        "expected BlockMember for an unknown shooting-day report kind"
+    );
 }
 
 /// PDF report paths require BOTH conditions: ends_with(".pdf") AND

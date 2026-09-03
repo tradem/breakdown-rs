@@ -3,6 +3,7 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: hy4-preview (opencode-go)
 
 //! Authorization policy for the API layer (Section 5, Decision D2/D5).
 //!
@@ -235,10 +236,14 @@ pub fn requirement_for(path: &str) -> Requirement {
     if path == "/blocks" {
         return Requirement::Authenticated;
     }
-    // Photo endpoints (upload, download, delete) are authenticated but not
-    // block-scoped — they use season-scoped authorization (SeasonPhotoAccessPolicy)
-    // which is checked inside the handler itself, not by this middleware.
-    if path.contains("/photos") {
+    // Photo endpoints — costume photos (`/costumes/{id}/photos…`) and the
+    // continuity photos of a scene shoot (`…/scene-shoots/{id}/continuity-photos…`).
+    // Both families use season-scoped authorization (SeasonPhotoAccessPolicy /
+    // the shooting_day → episode → block → season chain) checked *inside* the
+    // handler (see AGENTS.md §7, `// AUTHZ-GATE:`), not by this middleware.
+    // `/continuity-photos` is matched explicitly: a bare `contains("/photos")`
+    // misses the hyphenated segment.
+    if path.contains("/photos") || path.contains("/continuity-photos") {
         return Requirement::Authenticated;
     }
 
@@ -251,6 +256,19 @@ pub fn requirement_for(path: &str) -> Requirement {
     // PDF report endpoints use handler-internal season-scoped auth gates
     // (// AUTHZ-GATE:), just like photo endpoints.
     if path.ends_with(".pdf") && path.contains("/report/") {
+        return Requirement::Authenticated;
+    }
+    // JSON report endpoints (the non-PDF twins of the PDF reports: dispo,
+    // shoot-day, soll-ist) carry the same handler-internal season-scoped auth
+    // gate, so they are authenticated-only as well (issue #333). They are
+    // matched explicitly — not by widening the `.pdf` conjunction above into a
+    // `contains("/report/")` disjunction — so the `&&`-vs-`||` mutation test
+    // in `crates/api/tests/auth_authorization.rs` stays meaningful and no
+    // unrelated `/report/*` route silently drops its block-membership check.
+    if path.starts_with("/shooting-days/")
+        && path.contains("/report/")
+        && (path.ends_with("/dispo") || path.ends_with("/shoot-day") || path.ends_with("/soll-ist"))
+    {
         return Requirement::Authenticated;
     }
 

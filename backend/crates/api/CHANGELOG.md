@@ -2,6 +2,7 @@
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: deepseek-v4-flash (opencode-go) -->
 <!-- Co-authored-by: longcat-2.0-free (opencode) -->
+<!-- Co-authored-by: hy4-preview (opencode-go) -->
 
 # Changelog
 
@@ -26,6 +27,31 @@ commits (ADR-020 D5).
   canonical YAML and diffs it against the checked-in review artifact
   `backend/openapi.yaml` (`UPDATE_OPENAPI=1` regenerates). No public API
   change; no version bump.
+
+### Fixed — Export the served scene-shoot / continuity-photo / wrap / JSON-report routes (issue #333)
+
+- `backend/openapi.yaml` was missing 19 served, `#[utoipa::path]`-annotated
+  operations: the `SceneShoot` execution endpoints (plan / replan / get /
+  list / start / actual-order / finish / skip), the scene-shoot note endpoints,
+  the continuity-photo endpoints, `POST /shooting-days/{id}/wrap`, the three
+  JSON report routes (`dispo`, `shoot-day`, `soll-ist`) and `GET /v1/audit`.
+  They are now registered in `ApiDoc`'s `paths(...)`/`components(schemas(...))`,
+  so the generated Dart client (`vendor/breakdown_api/`) covers them.
+- Declared path parameters for all operations whose handler uses a
+  single-value `Path(id): Path<Newtype>` extractor (utoipa only infers tuple
+  `Path` extractors): this also completes the four pre-existing report routes
+  (`dispo.pdf`, `shoot-day.pdf`, `planned-vs-actual.pdf`, `report/archive`).
+  `VersionRequest` now derives `IntoParams` so `Query<VersionRequest>` handlers
+  document their `version` query parameter.
+- **Authorization classification (behavior change):** `requirement_for()` now
+  returns `Authenticated` for the JSON report routes (matching their `.pdf`
+  twins, which already relied on the handlers' internal `AUTHZ-GATE`) and for
+  the continuity-photo routes (they spell the segment `/continuity-photos`,
+  which the `contains("/photos")` test missed, so they fell through to
+  `BlockMember` although their handlers follow the authenticated-only +
+  handler-internal-gate pattern mandated by AGENTS.md §7).
+- No Rust public API change; the wire contract is additive, so the `/v1` path
+  version stays (ADR-021 D1). No crate version bump.
 
 ## [0.8.0] - 2026-08-23
 

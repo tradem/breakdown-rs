@@ -11,6 +11,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: hy4-preview (opencode-go)
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -247,7 +248,11 @@ pub struct UpdateBlockTimeSpanRequest {
     pub version: AggregateVersion,
 }
 
-#[derive(Debug, Clone, Deserialize, ToSchema)]
+// `IntoParams` so handlers that take it as a `Query` extractor (rather than a
+// JSON body) document the `version` query parameter — utoipa only infers query
+// parameters for `IntoParams` types, and a silently undocumented parameter
+// means the generated client would never send the optimistic-locking version.
+#[derive(Debug, Clone, Deserialize, ToSchema, IntoParams)]
 pub struct VersionRequest {
     pub version: AggregateVersion,
 }
@@ -2437,7 +2442,10 @@ pub struct WrapShootingDayRequest {
     post,
     path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots",
     request_body = PlanSceneShootRequest,
-    responses((status = 201, body = IdVersionResponse)),
+    responses(
+        (status = 201, body = IdVersionResponse),
+        (status = 400, body = ProblemDetails, description = "Identifier in the body does not match the path parameter"),
+    ),
 )]
 pub async fn plan_scene_shoot<P: Ports>(
     State(state): State<AppState<P>>,
@@ -2448,6 +2456,15 @@ pub async fn plan_scene_shoot<P: Ports>(
     if req.shooting_day_id != day_id {
         return Err(ApiError::BadRequest(
             "shooting_day_id in body must match path parameter",
+        ));
+    }
+    // Both identifiers are also carried by the request body; reject a
+    // contradictory payload instead of silently preferring the path value
+    // (the shoot would otherwise be planned for a scene the caller did not
+    // name in the body).
+    if req.scene_id != scene_id {
+        return Err(ApiError::BadRequest(
+            "scene_id in body must match path parameter",
         ));
     }
     let id = SceneShootId::new();
@@ -2617,14 +2634,25 @@ pub async fn get_scene_shoot<P: Ports>(
     Ok((StatusCode::OK, Json(view)))
 }
 
+/// Lists the planned shoots of a shooting day.
+///
+/// The listing is **day-scoped**: `scene_id` is part of the hierarchy path but
+/// does not filter the result, exactly like the sibling handlers on this route
+/// family, which address a globally unique `shoot_id` and ignore the parent
+/// segments. Filtering by `(scene_id, day_id)` would return at most one row
+/// (pair-uniqueness), which is what [`get_scene_shoot`] is for.
 #[utoipa::path(
     get,
     path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots",
+    params(
+        ("day_id" = ShootingDayId, Path, description = "Shooting day id"),
+        ("scene_id" = Uuid, Path, description = "Scene id"),
+    ),
     responses((status = 200, body = Vec<SceneShootView>)),
 )]
 pub async fn list_scene_shoots<P: Ports>(
     State(state): State<AppState<P>>,
-    Path(day_id): Path<ShootingDayId>,
+    Path((day_id, _scene_id)): Path<(ShootingDayId, Uuid)>,
 ) -> ApiResult<Vec<SceneShootView>> {
     let views = state
         .ports
@@ -2796,6 +2824,7 @@ pub async fn list_continuity_photos<P: Ports>(
 #[utoipa::path(
     delete,
     path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/continuity-photos/{photo_id}",
+    params(VersionRequest),
     responses((status = 200, body = AggregateVersion)),
 )]
 pub async fn unlink_continuity_photo<P: Ports>(
@@ -2858,6 +2887,7 @@ pub async fn unlink_continuity_photo<P: Ports>(
 #[utoipa::path(
     post,
     path = "/shooting-days/{id}/wrap",
+    params(("id" = ShootingDayId, Path, description = "Shooting day id")),
     request_body = WrapShootingDayRequest,
     responses((status = 200, body = AggregateVersion)),
 )]
@@ -2889,6 +2919,7 @@ pub async fn wrap_shooting_day<P: Ports>(
 #[utoipa::path(
     get,
     path = "/shooting-days/{id}/report/dispo",
+    params(("id" = ShootingDayId, Path, description = "Shooting day id")),
     responses((status = 200, body = Vec<DispoRow>)),
 )]
 pub async fn dispo_report<P: Ports>(
@@ -2929,6 +2960,7 @@ pub async fn dispo_report<P: Ports>(
 #[utoipa::path(
     get,
     path = "/shooting-days/{id}/report/shoot-day",
+    params(("id" = ShootingDayId, Path, description = "Shooting day id")),
     responses((status = 200, body = Vec<ShootDayRow>)),
 )]
 pub async fn shoot_day_report<P: Ports>(
@@ -2969,6 +3001,7 @@ pub async fn shoot_day_report<P: Ports>(
 #[utoipa::path(
     get,
     path = "/shooting-days/{id}/report/soll-ist",
+    params(("id" = ShootingDayId, Path, description = "Shooting day id")),
     responses((status = 200, body = SollIstReport)),
 )]
 pub async fn soll_ist_report<P: Ports>(
@@ -3037,6 +3070,7 @@ pub fn map_render_error(err: breakdown_core::reporting::ReportRenderError) -> Ap
 #[utoipa::path(
     get,
     path = "/shooting-days/{id}/report/dispo.pdf",
+    params(("id" = ShootingDayId, Path, description = "Shooting day id")),
     responses((status = 200, description = "PDF report")),
 )]
 pub async fn dispo_report_pdf<P: Ports>(
@@ -3115,6 +3149,7 @@ pub async fn dispo_report_pdf<P: Ports>(
 #[utoipa::path(
     get,
     path = "/shooting-days/{id}/report/shoot-day.pdf",
+    params(("id" = ShootingDayId, Path, description = "Shooting day id")),
     responses((status = 200, description = "PDF report")),
 )]
 pub async fn shoot_day_report_pdf<P: Ports>(
@@ -3193,6 +3228,7 @@ pub async fn shoot_day_report_pdf<P: Ports>(
 #[utoipa::path(
     get,
     path = "/shooting-days/{id}/report/planned-vs-actual.pdf",
+    params(("id" = ShootingDayId, Path, description = "Shooting day id")),
     responses((status = 200, description = "PDF report")),
 )]
 pub async fn planned_vs_actual_report_pdf<P: Ports>(
@@ -3293,6 +3329,7 @@ pub struct ManualArchiveJobResult {
 #[utoipa::path(
     post,
     path = "/shooting-days/{id}/report/archive",
+    params(("id" = ShootingDayId, Path, description = "Shooting day id")),
     responses(
         (status = 202, description = "Archival job(s) enqueued"),
         (status = 403, description = "Forbidden"),
@@ -4720,7 +4757,8 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         // --- SceneShoot execution endpoints ---
         .route(
             "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots",
-            routing::post(plan_scene_shoot::<ProductionPorts>),
+            routing::post(plan_scene_shoot::<ProductionPorts>)
+                .get(list_scene_shoots::<ProductionPorts>),
         )
         .route(
             "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}",

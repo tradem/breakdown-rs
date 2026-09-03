@@ -10,6 +10,18 @@ components:
       - detail
       - version
       type: object
+    AddNoteRequest:
+      properties:
+        body:
+          type: string
+        note_id:
+          format: uuid
+          type:
+          - string
+          - 'null'
+      required:
+      - body
+      type: object
     AggregateVersion:
       description: |-
         Aggregate version for optimistic locking.
@@ -745,6 +757,40 @@ components:
       - revoked
       - unreachable
       type: string
+    DispoRow:
+      description: A single row in the Dispo (planned / Soll) report.
+      properties:
+        location:
+          type:
+          - string
+          - 'null'
+        mood:
+          type:
+          - string
+          - 'null'
+        planned_order:
+          $ref: '#/components/schemas/LexicalSortKey'
+        scene_id:
+          format: uuid
+          type: string
+        scene_number:
+          format: int32
+          minimum: 0
+          type:
+          - integer
+          - 'null'
+        script_day:
+          type:
+          - string
+          - 'null'
+        summary:
+          type:
+          - string
+          - 'null'
+      required:
+      - planned_order
+      - scene_id
+      type: object
     DocumentKind:
       description: The two document kinds supported by the import pipeline.
       enum:
@@ -788,6 +834,18 @@ components:
       - number
       - version
       - updated_at
+      type: object
+    FinishSceneShootRequest:
+      properties:
+        end_dt:
+          format: date-time
+          type:
+          - string
+          - 'null'
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - version
       type: object
     GDriveCredentialRequest:
       description: |-
@@ -877,6 +935,16 @@ components:
         between two existing siblings, use [`LexicalSortKey::midpoint`], which
         produces a key strictly between the two in exactly one event.
       type: string
+    LinkContinuityPhotoRequest:
+      properties:
+        photo_id:
+          $ref: '#/components/schemas/PhotoId'
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - photo_id
+      - version
+      type: object
     LlmProvider:
       description: |-
         Curated providers. The enum is intentionally non-exhaustive so adding a
@@ -1094,6 +1162,20 @@ components:
       - binding
       - version
       type: object
+    PlanSceneShootRequest:
+      properties:
+        planned_order:
+          $ref: '#/components/schemas/LexicalSortKey'
+        scene_id:
+          format: uuid
+          type: string
+        shooting_day_id:
+          $ref: '#/components/schemas/ShootingDayId'
+      required:
+      - scene_id
+      - shooting_day_id
+      - planned_order
+      type: object
     ProblemDetails:
       description: |-
         An RFC 9457 problem document (ADR-031 D1).
@@ -1176,6 +1258,16 @@ components:
       required:
       - version
       type: object
+    ReplanSceneShootRequest:
+      properties:
+        planned_order:
+          $ref: '#/components/schemas/LexicalSortKey'
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - planned_order
+      - version
+      type: object
     RevokeAiConfigRequest:
       properties:
         version:
@@ -1254,6 +1346,79 @@ components:
         never decoded inside `core`.
       format: uuid
       type: string
+    SceneShootStatus:
+      description: |-
+        The shoot status lifecycle of a `SceneShoot`.
+
+        `Planned` — the scene is planned (Dispo), no execution data yet.
+        `Scheduled` — the scene is scheduled but not yet in progress.
+        `InProgress` — execution has started (`start_dt` or `actual_order` set).
+        `Shot` — the scene shoot is finished (terminal for this pair).
+        `Skipped` — the scene was skipped on this shooting day.
+      enum:
+      - Planned
+      - Scheduled
+      - InProgress
+      - Shot
+      - Skipped
+      type: string
+    SceneShootView:
+      description: |-
+        Complete scene-shoot read model.
+
+        `updated_at` is sourced from the timestamp of the last applied
+        `SceneShootEvent`, not from the UUIDv7 event id.
+      properties:
+        actual_order:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/LexicalSortKey'
+        continuity_photo_ids:
+          items:
+            $ref: '#/components/schemas/PhotoId'
+          type: array
+        end_dt:
+          format: date-time
+          type:
+          - string
+          - 'null'
+        id:
+          $ref: '#/components/schemas/SceneShootId'
+        notes:
+          items:
+            $ref: '#/components/schemas/SerializedNote'
+          type: array
+        planned_order:
+          $ref: '#/components/schemas/LexicalSortKey'
+        scene_id:
+          format: uuid
+          type: string
+        shooting_day_id:
+          $ref: '#/components/schemas/ShootingDayId'
+        start_dt:
+          format: date-time
+          type:
+          - string
+          - 'null'
+        status:
+          $ref: '#/components/schemas/SceneShootStatus'
+        updated_at:
+          format: date-time
+          type: string
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+          description: Aggregate version of the last applied event; echo back in optimistic-locking commands.
+      required:
+      - id
+      - scene_id
+      - shooting_day_id
+      - planned_order
+      - status
+      - notes
+      - continuity_photo_ids
+      - version
+      - updated_at
+      type: object
     SceneView:
       description: |-
         Complete scene read model.
@@ -1388,6 +1553,18 @@ components:
       - version
       - updated_at
       type: object
+    SerializedNote:
+      description: A note as exposed in the read model (flattened for JSON serialisation).
+      properties:
+        body:
+          type: string
+        id:
+          format: uuid
+          type: string
+      required:
+      - id
+      - body
+      type: object
     SeriesId:
       description: |-
         Opaque identifier for a `Series` (a show run).
@@ -1398,6 +1575,16 @@ components:
         Episode) references it but no `Series` aggregate exists yet.
       format: uuid
       type: string
+    SetActualOrderRequest:
+      properties:
+        actual_order:
+          $ref: '#/components/schemas/LexicalSortKey'
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - actual_order
+      - version
+      type: object
     SettingsView:
       properties:
         binding_state:
@@ -1422,6 +1609,56 @@ components:
       - vault_version
       - binding_state
       - version
+      type: object
+    ShootDayRow:
+      description: A single row in the Shoot Day (execution / Ist) report.
+      properties:
+        actual_order:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/LexicalSortKey'
+        continuity_photo_ids:
+          items:
+            $ref: '#/components/schemas/PhotoId'
+          type: array
+        end_dt:
+          format: date-time
+          type:
+          - string
+          - 'null'
+        location:
+          type:
+          - string
+          - 'null'
+        notes:
+          items:
+            $ref: '#/components/schemas/SerializedNote'
+          type: array
+        scene_id:
+          format: uuid
+          type: string
+        scene_number:
+          format: int32
+          minimum: 0
+          type:
+          - integer
+          - 'null'
+        script_day:
+          type:
+          - string
+          - 'null'
+        start_dt:
+          format: date-time
+          type:
+          - string
+          - 'null'
+        status:
+          $ref: '#/components/schemas/SceneShootStatus'
+      required:
+      - scene_id
+      - status
+      - notes
+      - continuity_photo_ids
       type: object
     ShootingDayId:
       description: |-
@@ -1514,6 +1751,73 @@ components:
       - version
       - updated_at
       type: object
+    SkipSceneShootRequest:
+      properties:
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - version
+      type: object
+    SollIstDiffRow:
+      description: The Soll-Ist-Vergleich diff report for a single scene.
+      properties:
+        actual_order:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/LexicalSortKey'
+        location:
+          type:
+          - string
+          - 'null'
+        missing:
+          description: '`true` when planned but without execution data.'
+          type: boolean
+        moved:
+          description: '`true` when `actual_order` differs from `planned_order`.'
+          type: boolean
+        planned_order:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/LexicalSortKey'
+        reshot_candidate:
+          description: '`true` when the same scene_id has a `Shot` record on another day.'
+          type: boolean
+        scene_id:
+          format: uuid
+          type: string
+        scene_number:
+          format: int32
+          minimum: 0
+          type:
+          - integer
+          - 'null'
+        script_day:
+          type:
+          - string
+          - 'null'
+        skipped:
+          description: '`true` when status is `Skipped`.'
+          type: boolean
+      required:
+      - scene_id
+      - moved
+      - missing
+      - skipped
+      - reshot_candidate
+      type: object
+    SollIstReport:
+      description: The overall Soll-Ist report.
+      properties:
+        is_final:
+          type: boolean
+        rows:
+          items:
+            $ref: '#/components/schemas/SollIstDiffRow'
+          type: array
+      required:
+      - rows
+      - is_final
+      type: object
     SourceFormat:
       description: |-
         The declared format of an AI import source document, captured at the API
@@ -1528,6 +1832,18 @@ components:
       - pdf
       - plain_text
       type: string
+    StartSceneShootRequest:
+      properties:
+        start_dt:
+          format: date-time
+          type:
+          - string
+          - 'null'
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - version
+      type: object
     UpdateAiConfigRequest:
       properties:
         assistant_model:
@@ -1621,6 +1937,16 @@ components:
       - measurements
       - version
       type: object
+    UpdateNoteRequest:
+      properties:
+        body:
+          type: string
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - body
+      - version
+      type: object
     UpdateSceneDetailsRequest:
       properties:
         details:
@@ -1679,6 +2005,13 @@ components:
       - Failed
       type: string
     VersionRequest:
+      properties:
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - version
+      type: object
+    WrapShootingDayRequest:
       properties:
         version:
           $ref: '#/components/schemas/AggregateVersion'
@@ -2034,6 +2367,72 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Unsupported media type
+      tags:
+      - handlers
+  /v1/audit:
+    get:
+      operationId: get_audit_history
+      parameters:
+      - in: query
+        name: limit
+        required: false
+        schema:
+          default: 50
+          format: int64
+          type:
+          - integer
+          - 'null'
+      - in: query
+        name: offset
+        required: false
+        schema:
+          default: 0
+          format: int64
+          type:
+          - integer
+          - 'null'
+      - in: query
+        name: episode_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/EpisodeId'
+      - in: query
+        name: season_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SeasonId'
+      - in: query
+        name: series_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SeriesId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/AuditEntry'
+                type: array
+          description: Audit journal entries, newest first
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Not authorized
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
       tags:
       - handlers
   /v1/blocks:
@@ -3913,6 +4312,499 @@ paths:
           description: Vault unavailable
       tags:
       - handlers
+  /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots:
+    get:
+      description: |-
+        The listing is **day-scoped**: `scene_id` is part of the hierarchy path but
+        does not filter the result, exactly like the sibling handlers on this route
+        family, which address a globally unique `shoot_id` and ignore the parent
+        segments. Filtering by `(scene_id, day_id)` would return at most one row
+        (pair-uniqueness), which is what [`get_scene_shoot`] is for.
+      operationId: list_scene_shoots
+      parameters:
+      - description: Shooting day id
+        in: path
+        name: day_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/ShootingDayId'
+      - description: Scene id
+        in: path
+        name: scene_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/SceneShootView'
+                type: array
+          description: ''
+      summary: Lists the planned shoots of a shooting day.
+      tags:
+      - handlers
+    post:
+      operationId: plan_scene_shoot
+      parameters:
+      - in: path
+        name: day_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/ShootingDayId'
+      - in: path
+        name: scene_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlanSceneShootRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdVersionResponse'
+          description: ''
+        '400':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Identifier in the body does not match the path parameter
+      tags:
+      - handlers
+  /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}:
+    get:
+      operationId: get_scene_shoot
+      parameters:
+      - in: path
+        name: day_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/ShootingDayId'
+      - in: path
+        name: scene_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - in: path
+        name: shoot_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/SceneShootId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SceneShootView'
+          description: ''
+      tags:
+      - handlers
+    patch:
+      operationId: replan_scene_shoot
+      parameters:
+      - in: path
+        name: day_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/ShootingDayId'
+      - in: path
+        name: scene_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - in: path
+        name: shoot_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/SceneShootId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReplanSceneShootRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+      tags:
+      - handlers
+  /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/actual-order:
+    patch:
+      operationId: set_actual_order
+      parameters:
+      - in: path
+        name: day_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/ShootingDayId'
+      - in: path
+        name: scene_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - in: path
+        name: shoot_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/SceneShootId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetActualOrderRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+      tags:
+      - handlers
+  /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/continuity-photos:
+    get:
+      operationId: list_continuity_photos
+      parameters:
+      - in: path
+        name: day_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/ShootingDayId'
+      - in: path
+        name: scene_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - in: path
+        name: shoot_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/SceneShootId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/PhotoId'
+                type: array
+          description: ''
+      tags:
+      - handlers
+    post:
+      operationId: link_continuity_photo
+      parameters:
+      - in: path
+        name: day_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/ShootingDayId'
+      - in: path
+        name: scene_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - in: path
+        name: shoot_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/SceneShootId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LinkContinuityPhotoRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+      tags:
+      - handlers
+  /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/continuity-photos/{photo_id}:
+    delete:
+      operationId: unlink_continuity_photo
+      parameters:
+      - in: query
+        name: version
+        required: true
+        schema:
+          $ref: '#/components/schemas/AggregateVersion'
+      - in: path
+        name: day_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/ShootingDayId'
+      - in: path
+        name: scene_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - in: path
+        name: shoot_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/SceneShootId'
+      - in: path
+        name: photo_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/PhotoId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+      tags:
+      - handlers
+  /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/finish:
+    post:
+      operationId: finish_scene_shoot
+      parameters:
+      - in: path
+        name: day_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/ShootingDayId'
+      - in: path
+        name: scene_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - in: path
+        name: shoot_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/SceneShootId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FinishSceneShootRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+      tags:
+      - handlers
+  /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/notes:
+    post:
+      operationId: add_scene_shoot_note
+      parameters:
+      - in: path
+        name: day_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/ShootingDayId'
+      - in: path
+        name: scene_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - in: path
+        name: shoot_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/SceneShootId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddNoteRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+      tags:
+      - handlers
+  /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/notes/{note_id}:
+    delete:
+      operationId: remove_scene_shoot_note
+      parameters:
+      - in: path
+        name: day_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/ShootingDayId'
+      - in: path
+        name: scene_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - in: path
+        name: shoot_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/SceneShootId'
+      - in: path
+        name: note_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VersionRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+      tags:
+      - handlers
+    put:
+      operationId: update_scene_shoot_note
+      parameters:
+      - in: path
+        name: day_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/ShootingDayId'
+      - in: path
+        name: scene_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - in: path
+        name: shoot_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/SceneShootId'
+      - in: path
+        name: note_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateNoteRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+      tags:
+      - handlers
+  /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/skip:
+    post:
+      operationId: skip_scene_shoot
+      parameters:
+      - in: path
+        name: day_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/ShootingDayId'
+      - in: path
+        name: scene_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - in: path
+        name: shoot_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/SceneShootId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkipSceneShootRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+      tags:
+      - handlers
+  /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/start:
+    post:
+      operationId: start_scene_shoot
+      parameters:
+      - in: path
+        name: day_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/ShootingDayId'
+      - in: path
+        name: scene_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - in: path
+        name: shoot_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/SceneShootId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartSceneShootRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+      tags:
+      - handlers
   /v1/shooting-days/{id}:
     get:
       operationId: get_shooting_day
@@ -4009,6 +4901,13 @@ paths:
         parallel pipeline. Gated stricter than PDF routes: only `CostumeDesigner`
         and `WardrobeSupervisor` (excludes `CostumeAssistant`).
       operationId: manual_archive_reports
+      parameters:
+      - description: Shooting day id
+        in: path
+        name: id
+        required: true
+        schema:
+          $ref: '#/components/schemas/ShootingDayId'
       responses:
         '202':
           description: Archival job(s) enqueued
@@ -4019,9 +4918,37 @@ paths:
       summary: Manual "archive now" remediation endpoint.
       tags:
       - handlers
+  /v1/shooting-days/{id}/report/dispo:
+    get:
+      operationId: dispo_report
+      parameters:
+      - description: Shooting day id
+        in: path
+        name: id
+        required: true
+        schema:
+          $ref: '#/components/schemas/ShootingDayId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/DispoRow'
+                type: array
+          description: ''
+      tags:
+      - handlers
   /v1/shooting-days/{id}/report/dispo.pdf:
     get:
       operationId: dispo_report_pdf
+      parameters:
+      - description: Shooting day id
+        in: path
+        name: id
+        required: true
+        schema:
+          $ref: '#/components/schemas/ShootingDayId'
       responses:
         '200':
           description: PDF report
@@ -4030,17 +4957,96 @@ paths:
   /v1/shooting-days/{id}/report/planned-vs-actual.pdf:
     get:
       operationId: planned_vs_actual_report_pdf
+      parameters:
+      - description: Shooting day id
+        in: path
+        name: id
+        required: true
+        schema:
+          $ref: '#/components/schemas/ShootingDayId'
       responses:
         '200':
           description: PDF report
       tags:
       - handlers
+  /v1/shooting-days/{id}/report/shoot-day:
+    get:
+      operationId: shoot_day_report
+      parameters:
+      - description: Shooting day id
+        in: path
+        name: id
+        required: true
+        schema:
+          $ref: '#/components/schemas/ShootingDayId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/ShootDayRow'
+                type: array
+          description: ''
+      tags:
+      - handlers
   /v1/shooting-days/{id}/report/shoot-day.pdf:
     get:
       operationId: shoot_day_report_pdf
+      parameters:
+      - description: Shooting day id
+        in: path
+        name: id
+        required: true
+        schema:
+          $ref: '#/components/schemas/ShootingDayId'
       responses:
         '200':
           description: PDF report
+      tags:
+      - handlers
+  /v1/shooting-days/{id}/report/soll-ist:
+    get:
+      operationId: soll_ist_report
+      parameters:
+      - description: Shooting day id
+        in: path
+        name: id
+        required: true
+        schema:
+          $ref: '#/components/schemas/ShootingDayId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SollIstReport'
+          description: ''
+      tags:
+      - handlers
+  /v1/shooting-days/{id}/wrap:
+    post:
+      operationId: wrap_shooting_day
+      parameters:
+      - description: Shooting day id
+        in: path
+        name: id
+        required: true
+        schema:
+          $ref: '#/components/schemas/ShootingDayId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WrapShootingDayRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
       tags:
       - handlers
 tags:

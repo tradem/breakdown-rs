@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: longcat-2.0 (opencode-go)
+// Co-authored-by: hy4-preview (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 
@@ -11,12 +12,11 @@ import 'base_repository.dart';
 /// (planned vs actual, moved/missing/skipped/reshot flags) and the report-PDF
 /// generation endpoints.
 ///
-/// NOTE: the report-PDF methods ([dispoReportPdf], [plannedVsActualReportPdf],
-/// [shootDayReportPdf]) currently take NO path parameter in the generated
-/// client because the backend OpenAPI spec declares `{id}` on the route without
-/// defining it (tracked as a backend spec defect). They are wrapped faithfully
-/// here as the generated client exposes them; once the spec defines the
-/// parameter, the generated signature (and this wrapper) will gain the `id`.
+/// Every report/archive endpoint is shooting-day-scoped, so each generated
+/// method takes a required `id` that the wrappers below forward unchanged.
+/// (Until issue #333 declared the path parameter in the backend OpenAPI spec,
+/// the generated client had no `id` argument and emitted a literal `{id}` in
+/// the request URL.)
 class SceneShootRepository extends BaseRepository {
   const SceneShootRepository(super.api);
 
@@ -34,15 +34,15 @@ class SceneShootRepository extends BaseRepository {
     ),
   );
 
-  Future<Result<void>> dispoReportPdf() =>
-      run(() => api.getHandlersApi().dispoReportPdf());
+  Future<Result<void>> dispoReportPdf(String id) =>
+      run(() => api.getHandlersApi().dispoReportPdf(id: id));
 
-  Future<Result<void>> plannedVsActualReportPdf() =>
-      run(() => api.getHandlersApi().plannedVsActualReportPdf());
+  Future<Result<void>> plannedVsActualReportPdf(String id) =>
+      run(() => api.getHandlersApi().plannedVsActualReportPdf(id: id));
 
-  Future<Result<void>> shootDayReportPdf() =>
-      run(() => api.getHandlersApi().shootDayReportPdf());
+  Future<Result<void>> shootDayReportPdf(String id) =>
+      run(() => api.getHandlersApi().shootDayReportPdf(id: id));
 
-  Future<Result<void>> manualArchiveReports() =>
-      run(() => api.getHandlersApi().manualArchiveReports());
+  Future<Result<void>> manualArchiveReports(String id) =>
+      run(() => api.getHandlersApi().manualArchiveReports(id: id));
 }
