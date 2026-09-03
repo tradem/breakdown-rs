@@ -1,9 +1,9 @@
 ---
 description: Domain model - hierarchy, aggregates and invariants (long form from former AGENTS.md section 2).
 applyTo:
-  - "backend/crates/core/src/**"
-  - "backend/crates/infra/src/**"
-  - "backend/crates/api/src/**"
+  - "crates/core/src/**"
+  - "crates/infra/src/**"
+  - "crates/api/src/**"
 ---
 
 # Production hierarchy (ADR: introduce-season-block-episode-hierarchy)

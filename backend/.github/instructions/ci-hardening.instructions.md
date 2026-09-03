@@ -1,25 +1,10 @@
 ---
-description: CI guardrails and workflow hardening - ast-grep rules, jobs, SHA pinning, script injection.
+description: CI guardrails - ast-grep rule set, guardrail jobs and rule editing guidance.
 applyTo:
-  - ".github/workflows/**"
-  - ".github/dependabot.yml"
-  - "backend/rules/**"
-  - "backend/rules-tests/**"
-  - "backend/scripts/**"
+  - "rules/**"
+  - "rules-tests/**"
+  - "scripts/**"
 ---
-
-# CI hardening: SHA-pinning and script-injection hygiene
-
-All GitHub Actions workflows must follow these rules:
-
-- **SHA-pin third-party actions.** Never use a moving tag (`@v7`, `@v2`, `@stable`)
-  directly. Always pin to a 40-character commit SHA with a trailing `# v7` comment for
-  readability. Dependabot (configured in `.github/dependabot.yml`) opens weekly PRs to
-  bump SHAs automatically.
-- **Script-injection avoidance.** Never interpolate `${{ github.event.* }}` or other
-  expression values directly into a `run:` shell command. Pass them through `env:`
-  injection instead (GitHub docs: *Security hardening for GitHub Actions*).
-
 
 # Mechanical Guardrails (CI) — detail
 

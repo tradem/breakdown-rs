@@ -17,7 +17,7 @@ its files), read its AGENTS.md **before** generating code:
 
 | Area | Rules | Status |
 |---|---|---|
-| `backend/` | `backend/AGENTS.md` | slimmed core rules; long forms load on demand from `.github/instructions/` (see its §6 register) |
+| `backend/` | `backend/AGENTS.md` | slimmed core rules; long forms load on demand from `backend/.github/instructions/` (see its §6 register) |
 | `frontend-flutter/` | `frontend-flutter/AGENTS.md` | **not yet reworked** — comprehensive long-form file, authoritative as-is; candidate for the same core/instructions split as the backend |
 
 The Flutter file also documents its own ported pi skills (`.pi/skills/`) and the
@@ -35,11 +35,14 @@ The Flutter file also documents its own ported pi skills (`.pi/skills/`) and the
   `run:`) apply to every workflow in this monorepo.
 
 ## 3. On-demand instructions (pi-rules)
-Detailed backend documentation is injected when matching files are read, from the
-monorepo-root `.github/instructions/` — the register (file, glob scope, content)
-lives in `backend/AGENTS.md` §6. Glob rules are discovered only when pi is launched
-from **this repo root**; `/rules` lists only always-on rules (glob rules appear
-attached to the file reads they match). Frontend instructions may follow later in
-the same layout.
+Detailed backend documentation is injected when matching files are read, from two levels of
+glob-scoped rule files: `backend/.github/instructions/` (backend-relative globs, fires for any
+read under `backend/**`) and the monorepo-root `.github/instructions/` (workflows, root
+scripts). pi-rules resolves the project root **per read file** — the first `Cargo.toml` / `.git`
+marker walking up decides which level's instructions fire — so rules load regardless of the
+session's launch directory. `/rules` lists only always-on rules; glob rules appear attached to
+the file reads they match. The register lives in `backend/AGENTS.md` §6. Recommend launching
+pi in `backend/` for backend-heavy sessions (loads `backend/AGENTS.md` natively and avoids
+per-read re-injection of it); frontend instructions may follow later in the same layout.
 
 *When in doubt, read the area AGENTS.md and the referenced ADRs before generating code.*

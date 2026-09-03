@@ -1,7 +1,7 @@
 ---
 description: Integration tests - tiers, local execution, troubleshooting, gotchas, CI prerequisites.
 applyTo:
-  - "backend/crates/integration-tests/**"
+  - "crates/integration-tests/**"
 ---
 
 ### Integration tests
