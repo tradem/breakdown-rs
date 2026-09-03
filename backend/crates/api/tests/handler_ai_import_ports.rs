@@ -3,6 +3,7 @@
 // Co-authored-by: longcat-2.0-free (opencode)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: Muse Spark (neuralwatt)
 
 //! Handler tests proving the AI import dependencies are reachable through the
 //! generic `Ports` seam (issue #176).
@@ -35,7 +36,9 @@ use breakdown_core::ai::{
     ApplyMapping, ApplyMappingDecision, DocumentKind, DraftScene, JobStatus, LlmProvider,
     ScriptContext, SourceFormat, TelemetryApplyState,
 };
-use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, UserId};
+use breakdown_core::block::BlockView;
+use breakdown_core::membership::Role;
+use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, SeasonId, SeriesId, UserId};
 use chrono::Utc;
 use common::FakePorts;
 use infra::ai::AiPreviewStore;
@@ -52,6 +55,38 @@ fn state(ports: FakePorts) -> AppState<FakePorts> {
     AppState::with_ai_import(
         ports, /*ai_import_enabled=*/ true, /*max_document_bytes=*/ 4096,
     )
+}
+
+/// Seed `block_id` into the block repo with a fresh season and grant the test
+/// user an active costume-dept role in that season, so the AI block/job gates
+/// (`authorize_ai_block`, `authorize_ai_job`) resolve allow from seeded rows
+/// (issue #348).
+async fn seed_ai_block_access(ports: &FakePorts, block_id: BlockId) {
+    let season_id = SeasonId::new();
+    let series_id = SeriesId::new();
+    ports.block_repo.blocks.lock().await.insert(
+        block_id.0,
+        BlockView {
+            id: block_id.0,
+            season_id,
+            series_id,
+            number: 1,
+            start_date: None,
+            end_date: None,
+            version: AggregateVersion::INITIAL,
+            updated_at: Utc::now(),
+        },
+    );
+    ports
+        .membership_repo
+        .seed_active(
+            block_id,
+            UserId::from_sub(TEST_SUB),
+            Role::CostumeDesigner,
+            season_id,
+            series_id,
+        )
+        .await;
 }
 
 /// A PDF upload request carrying the `X-Active-Block` header the AI gate
@@ -105,6 +140,9 @@ async fn upload_ai_script_enqueues_through_the_ports_seam() {
     let queue = ports.ai_import_queue.clone();
     let store = ports.ai_payload_store.clone();
     let block_id = BlockId::from_uuid(Uuid::now_v7());
+    // Seed-backed allow (issue #348): the header block exists in a known
+    // season and the caller holds a costume role there.
+    seed_ai_block_access(&ports, block_id).await;
 
     let result = upload_ai_script::<FakePorts>(
         State(state(ports)),
@@ -148,6 +186,7 @@ async fn upload_ai_schedule_persists_the_declared_source_format() {
         let ports = FakePorts::default();
         let queue = ports.ai_import_queue.clone();
         let block_id = BlockId::from_uuid(Uuid::now_v7());
+        seed_ai_block_access(&ports, block_id).await;
 
         let result = upload_ai_schedule::<FakePorts>(
             State(state(ports)),
@@ -185,6 +224,7 @@ async fn upload_ai_schedule_accepts_normalized_content_types() {
         let ports = FakePorts::default();
         let queue = ports.ai_import_queue.clone();
         let block_id = BlockId::from_uuid(Uuid::now_v7());
+        seed_ai_block_access(&ports, block_id).await;
 
         let result = upload_ai_schedule::<FakePorts>(
             State(state(ports)),
@@ -214,6 +254,7 @@ async fn upload_ai_script_deduplicates_identical_reuploads() {
     let store = ports.ai_payload_store.clone();
     let queue = ports.ai_import_queue.clone();
     let block_id = BlockId::from_uuid(Uuid::now_v7());
+    seed_ai_block_access(&ports, block_id).await;
     let state = state(ports);
 
     let (first_status, Json(first_id)) = upload_ai_script::<FakePorts>(
@@ -264,6 +305,8 @@ async fn upload_ai_script_deduplicates_identical_reuploads() {
 async fn upload_ai_script_rejects_oversize_documents() {
     let ports = FakePorts::default();
     let block_id = BlockId::from_uuid(Uuid::now_v7());
+    // Seed-backed allow so the size check (not the authz gate) rejects.
+    seed_ai_block_access(&ports, block_id).await;
     // `with_ai_import` caps the document at 4096 bytes.
     let body = api::problems::Bytes(axum::body::Bytes::from(vec![b'x'; 4097]));
 
@@ -380,6 +423,9 @@ async fn apply_ai_import_drives_the_script_worker_through_the_ports_seam() {
     *ports.episode_repo.block_id_override.lock().await = Some(block_id);
     let mappings = ports.ai_import_mapping.clone();
     let queue = ports.ai_import_queue.clone();
+    // The job's block lives in a season where the caller holds a costume
+    // role, so the apply reaches the worker (issue #348).
+    seed_ai_block_access(&ports, block_id).await;
     let job_id = seed_applyable_script_job(&ports, Some(block_id), 2).await;
 
     let (status, Json(response)) = apply_ai_import::<FakePorts>(
@@ -444,6 +490,9 @@ async fn apply_ai_import_drives_the_script_worker_through_the_ports_seam() {
 async fn apply_ai_import_rejects_an_episode_from_another_block() {
     let ports = FakePorts::default();
     let job_block = BlockId::from_uuid(Uuid::now_v7());
+    // Seed-backed allow in the *job's* season, so the apply reaches the
+    // cross-block gate (CWE-639) instead of stopping at authz (issue #348).
+    seed_ai_block_access(&ports, job_block).await;
     let other_block = BlockId::from_uuid(Uuid::now_v7());
     // The target episode lives in a DIFFERENT block than the job (CWE-639).
     *ports.episode_repo.block_id_override.lock().await = Some(other_block);
@@ -498,6 +547,7 @@ async fn apply_ai_import_rejects_accept_as_is_with_a_nonzero_edit_distance() {
     *ports.episode_repo.block_id_override.lock().await = Some(block_id);
     let mappings = ports.ai_import_mapping.clone();
     let queue = ports.ai_import_queue.clone();
+    seed_ai_block_access(&ports, block_id).await;
     let job_id = seed_applyable_script_job(&ports, Some(block_id), 1).await;
 
     let problem = apply_ai_import::<FakePorts>(
@@ -543,6 +593,11 @@ async fn apply_ai_import_rejects_accept_as_is_with_a_nonzero_edit_distance() {
 #[tokio::test]
 async fn ai_config_lifecycle_runs_through_the_config_ports() {
     let ports = FakePorts::default();
+    // The config handlers gate on the credential role only (ADR-027).
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
     let commands = ports.ai_config_commands.clone();
     let repo = ports.ai_config_repo.clone();
     let state = state(ports);

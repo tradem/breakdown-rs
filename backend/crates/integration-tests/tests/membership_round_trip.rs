@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.2 (neuralwatt)
 // Co-authored-by: hy4-preview (opencode-go)
+// Co-authored-by: Muse Spark (neuralwatt)
 
 #![allow(
     clippy::unwrap_used,
@@ -675,6 +676,531 @@ async fn has_active_membership_in_series_scopes_the_audit_gate_by_series() -> Re
     assert!(
         !in_series(&repo, series_id, invitee.clone()).await?,
         "a removed member must lose access"
+    );
+
+    Ok(())
+}
+
+/// Create a block in (`season_id`, `series_id`) and bootstrap `user` as its
+/// owner with `role`, waiting until both the block row (the season/series
+/// scope the predicates join on) and the membership row are projected.
+#[allow(clippy::too_many_arguments)]
+async fn seed_block_with_owner(
+    blocks: &BlockCommandsImpl,
+    membership: &MembershipCommandsImpl,
+    pool: &PgPool,
+    repo: &MembershipRepositoryImpl,
+    season_id: SeasonId,
+    series_id: SeriesId,
+    user: UserId,
+    role: Role,
+    number: i32,
+) -> Result<BlockId> {
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    blocks
+        .create(
+            user.clone(),
+            CreateBlock {
+                id: block_id.0,
+                season_id,
+                series_id,
+                number,
+                start_date: None,
+                end_date: None,
+            },
+        )
+        .await
+        .map_err(|e| anyhow!(e.to_string()))?;
+    await_block_projected(pool, block_id.0).await?;
+    membership
+        .bootstrap_owner(
+            user.clone(),
+            BootstrapOwner {
+                block_id,
+                series_id,
+                user_id: user,
+                role,
+            },
+        )
+        .await
+        .map_err(|e| anyhow!(e.to_string()))?;
+    await_membership_count(repo, block_id, 1).await?;
+    Ok(block_id)
+}
+
+/// `has_active_report_archive_role_in_season` with the `DomainError` mapped
+/// into `anyhow` (test ergonomics).
+async fn archive_role(
+    repo: &MembershipRepositoryImpl,
+    season_id: SeasonId,
+    user_id: UserId,
+) -> Result<bool> {
+    repo.has_active_report_archive_role_in_season(season_id, user_id)
+        .await
+        .map_err(|e| anyhow!(e.to_string()))
+}
+
+/// `has_active_costume_role_in_season` with the `DomainError` mapped into
+/// `anyhow` (test ergonomics).
+async fn costume_role(
+    repo: &MembershipRepositoryImpl,
+    season_id: SeasonId,
+    user_id: UserId,
+) -> Result<bool> {
+    repo.has_active_costume_role_in_season(season_id, user_id)
+        .await
+        .map_err(|e| anyhow!(e.to_string()))
+}
+
+/// `has_active_credential_role` with the `DomainError` mapped into `anyhow`
+/// (test ergonomics).
+async fn credential_role(repo: &MembershipRepositoryImpl, user_id: UserId) -> Result<bool> {
+    repo.has_active_credential_role(user_id)
+        .await
+        .map_err(|e| anyhow!(e.to_string()))
+}
+
+/// Tier-4: `has_active_report_archive_role_in_season` — the predicate behind
+/// the manual report-archival gate (`manual_archive_reports`, issue #348).
+///
+/// The allowlist is `costume_designer` + `wardrobe_supervisor`:
+/// `costume_assistant` is deliberately excluded (manual archival is a
+/// deliberate remediation action, not routine season work). Denial must hold
+/// for the right reasons — pending invitees, removed members, strangers, and
+/// callers whose only active block lives in a *different* season.
+#[tokio::test]
+async fn report_archive_role_allowlist_round_trips_through_real_sql() -> Result<()> {
+    let (pool, cmd_svc, _pg, _sierra) = init_membership().await?;
+    let membership = MembershipCommandsImpl::new(cmd_svc.clone());
+    let blocks = BlockCommandsImpl::new(cmd_svc);
+    let repo = MembershipRepositoryImpl::new(pool.clone());
+
+    let series_id = test_series_id();
+    let season_id = SeasonId::new();
+    let other_season = SeasonId::new();
+
+    let designer = UserId::from_sub("archive-designer");
+    let supervisor = UserId::from_sub("archive-supervisor");
+    let assistant = UserId::from_sub("archive-assistant");
+    let foreign = UserId::from_sub("archive-foreign-season");
+    let pending = UserId::from_sub("archive-pending");
+    let removed = UserId::from_sub("archive-removed");
+    let stranger = UserId::from_sub("archive-stranger");
+
+    let home = seed_block_with_owner(
+        &blocks,
+        &membership,
+        &pool,
+        &repo,
+        season_id,
+        series_id,
+        designer.clone(),
+        Role::CostumeDesigner,
+        1,
+    )
+    .await?;
+    seed_block_with_owner(
+        &blocks,
+        &membership,
+        &pool,
+        &repo,
+        season_id,
+        series_id,
+        supervisor.clone(),
+        Role::WardrobeSupervisor,
+        2,
+    )
+    .await?;
+    seed_block_with_owner(
+        &blocks,
+        &membership,
+        &pool,
+        &repo,
+        season_id,
+        series_id,
+        assistant.clone(),
+        Role::CostumeAssistant,
+        3,
+    )
+    .await?;
+    // Active member of a block in a different season: must be denied here.
+    // NOTE: block numbers are unique per *series*
+    // (`idx_projection_block_series_number`), so the foreign-season block
+    // takes number 4, not 1 — reusing 1 would violate the unique index and
+    // the projector could never insert the row (silent rollback, lag timeout).
+    seed_block_with_owner(
+        &blocks,
+        &membership,
+        &pool,
+        &repo,
+        other_season,
+        series_id,
+        foreign.clone(),
+        Role::CostumeDesigner,
+        4,
+    )
+    .await?;
+
+    // Pending invitee in the home season: invited, never accepted.
+    membership
+        .invite(
+            designer.clone(),
+            InviteMember {
+                block_id: home,
+                series_id,
+                user_id: pending.clone(),
+                role: Role::CostumeDesigner,
+            },
+        )
+        .await
+        .map_err(|e| anyhow!(e.to_string()))?;
+    await_member_state(&repo, home, pending.clone(), MembershipStateKind::Pending).await?;
+
+    // Removed member: invited + accepted, then removed by the block owner.
+    membership
+        .invite(
+            designer.clone(),
+            InviteMember {
+                block_id: home,
+                series_id,
+                user_id: removed.clone(),
+                role: Role::WardrobeSupervisor,
+            },
+        )
+        .await
+        .map_err(|e| anyhow!(e.to_string()))?;
+    membership
+        .accept_invitation(
+            removed.clone(),
+            AcceptInvitation {
+                block_id: home,
+                series_id,
+                user_id: removed.clone(),
+            },
+        )
+        .await
+        .map_err(|e| anyhow!(e.to_string()))?;
+    await_member_state(&repo, home, removed.clone(), MembershipStateKind::Active).await?;
+    membership
+        .remove_member(
+            designer.clone(),
+            RemoveMember {
+                block_id: home,
+                series_id,
+                user_id: removed.clone(),
+            },
+        )
+        .await
+        .map_err(|e| anyhow!(e.to_string()))?;
+    await_member_absent(&repo, home, removed.clone()).await?;
+
+    // Allowlist: designer and supervisor are granted …
+    assert!(
+        archive_role(&repo, season_id, designer.clone()).await?,
+        "an active costume_designer must hold the manual archive role"
+    );
+    assert!(
+        archive_role(&repo, season_id, supervisor.clone()).await?,
+        "an active wardrobe_supervisor must hold the manual archive role"
+    );
+    // … the assistant is excluded …
+    assert!(
+        !archive_role(&repo, season_id, assistant.clone()).await?,
+        "an active costume_assistant must NOT hold the manual archive role"
+    );
+    // … and denial holds for the right reasons: foreign season, pending
+    // invite, removed member, and a stranger with no membership at all.
+    assert!(
+        !archive_role(&repo, season_id, foreign.clone()).await?,
+        "membership in another season must not grant the archive role"
+    );
+    assert!(
+        !archive_role(&repo, season_id, pending.clone()).await?,
+        "a pending invitee must not hold the manual archive role"
+    );
+    assert!(
+        !archive_role(&repo, season_id, removed.clone()).await?,
+        "a removed member must lose the manual archive role"
+    );
+    assert!(
+        !archive_role(&repo, season_id, stranger.clone()).await?,
+        "a user without any membership must not hold the manual archive role"
+    );
+
+    Ok(())
+}
+
+/// Tier-4: `has_active_costume_role_in_season` — the shared predicate behind
+/// the photo gate family (`upload/get/delete_costume_photo`,
+/// `link/unlink_continuity_photo`) and the JSON/PDF report family
+/// (`dispo/shoot_day/soll_ist_report` and their `_pdf` twins, issue #348).
+///
+/// All three costume-dept roles grant access. This pins the deny side
+/// against real SQL (only positive coverage existed before): pending and
+/// removed members are denied, and so is a caller whose only active block is
+/// in another season — the cross-season analogue of the audit gate's
+/// tenant boundary.
+#[tokio::test]
+async fn costume_role_gate_families_round_trip_through_real_sql() -> Result<()> {
+    let (pool, cmd_svc, _pg, _sierra) = init_membership().await?;
+    let membership = MembershipCommandsImpl::new(cmd_svc.clone());
+    let blocks = BlockCommandsImpl::new(cmd_svc);
+    let repo = MembershipRepositoryImpl::new(pool.clone());
+
+    let series_id = test_series_id();
+    let season_id = SeasonId::new();
+    let other_season = SeasonId::new();
+
+    let designer = UserId::from_sub("costume-designer");
+    let supervisor = UserId::from_sub("costume-supervisor");
+    let assistant = UserId::from_sub("costume-assistant");
+    let foreign = UserId::from_sub("costume-foreign-season");
+    let pending = UserId::from_sub("costume-pending");
+    let removed = UserId::from_sub("costume-removed");
+    let stranger = UserId::from_sub("costume-stranger");
+
+    let home = seed_block_with_owner(
+        &blocks,
+        &membership,
+        &pool,
+        &repo,
+        season_id,
+        series_id,
+        designer.clone(),
+        Role::CostumeDesigner,
+        1,
+    )
+    .await?;
+    seed_block_with_owner(
+        &blocks,
+        &membership,
+        &pool,
+        &repo,
+        season_id,
+        series_id,
+        supervisor.clone(),
+        Role::WardrobeSupervisor,
+        2,
+    )
+    .await?;
+    seed_block_with_owner(
+        &blocks,
+        &membership,
+        &pool,
+        &repo,
+        season_id,
+        series_id,
+        assistant.clone(),
+        Role::CostumeAssistant,
+        3,
+    )
+    .await?;
+    seed_block_with_owner(
+        &blocks,
+        &membership,
+        &pool,
+        &repo,
+        other_season,
+        series_id,
+        foreign.clone(),
+        Role::CostumeDesigner,
+        4, // series-unique (`idx_projection_block_series_number`); see note above.
+    )
+    .await?;
+
+    membership
+        .invite(
+            designer.clone(),
+            InviteMember {
+                block_id: home,
+                series_id,
+                user_id: pending.clone(),
+                role: Role::CostumeAssistant,
+            },
+        )
+        .await
+        .map_err(|e| anyhow!(e.to_string()))?;
+    await_member_state(&repo, home, pending.clone(), MembershipStateKind::Pending).await?;
+
+    membership
+        .invite(
+            designer.clone(),
+            InviteMember {
+                block_id: home,
+                series_id,
+                user_id: removed.clone(),
+                role: Role::CostumeDesigner,
+            },
+        )
+        .await
+        .map_err(|e| anyhow!(e.to_string()))?;
+    membership
+        .accept_invitation(
+            removed.clone(),
+            AcceptInvitation {
+                block_id: home,
+                series_id,
+                user_id: removed.clone(),
+            },
+        )
+        .await
+        .map_err(|e| anyhow!(e.to_string()))?;
+    await_member_state(&repo, home, removed.clone(), MembershipStateKind::Active).await?;
+    membership
+        .remove_member(
+            designer.clone(),
+            RemoveMember {
+                block_id: home,
+                series_id,
+                user_id: removed.clone(),
+            },
+        )
+        .await
+        .map_err(|e| anyhow!(e.to_string()))?;
+    await_member_absent(&repo, home, removed.clone()).await?;
+
+    // All three costume-dept roles open the photo and report gates …
+    assert!(
+        costume_role(&repo, season_id, designer.clone()).await?,
+        "an active costume_designer must hold the costume role"
+    );
+    assert!(
+        costume_role(&repo, season_id, supervisor.clone()).await?,
+        "an active wardrobe_supervisor must hold the costume role"
+    );
+    assert!(
+        costume_role(&repo, season_id, assistant.clone()).await?,
+        "an active costume_assistant must hold the costume role"
+    );
+    // … while pending, removed, foreign-season, and stranger callers are
+    // denied — the 403 side of every photo and report handler gate.
+    assert!(
+        !costume_role(&repo, season_id, pending.clone()).await?,
+        "a pending invitee must not hold the costume role"
+    );
+    assert!(
+        !costume_role(&repo, season_id, removed.clone()).await?,
+        "a removed member must lose the costume role"
+    );
+    assert!(
+        !costume_role(&repo, season_id, foreign.clone()).await?,
+        "membership in another season must not grant the costume role"
+    );
+    assert!(
+        !costume_role(&repo, season_id, stranger.clone()).await?,
+        "a user without any membership must not hold the costume role"
+    );
+
+    Ok(())
+}
+
+/// Tier-4: `has_active_credential_role` — the predicate behind the settings
+/// credential gate (`create/rotate_gdrive_credential`, `create_credential`,
+/// `get/revoke_settings`, issue #348).
+///
+/// ADR-027 excludes `wardrobe_supervisor`: only `costume_designer` and
+/// `costume_assistant` may manage AI-import credentials. The predicate is
+/// global (any block, no season scope), so an active designer in *any* block
+/// grants access while a removed member and a stranger are denied.
+#[tokio::test]
+async fn credential_role_allowlist_round_trips_through_real_sql() -> Result<()> {
+    let (pool, cmd_svc, _pg, _sierra) = init_membership().await?;
+    let membership = MembershipCommandsImpl::new(cmd_svc.clone());
+    let blocks = BlockCommandsImpl::new(cmd_svc);
+    let repo = MembershipRepositoryImpl::new(pool.clone());
+
+    let series_id = test_series_id();
+    let season_id = SeasonId::new();
+
+    let designer = UserId::from_sub("credential-designer");
+    let assistant = UserId::from_sub("credential-assistant");
+    let supervisor = UserId::from_sub("credential-supervisor");
+    let removed = UserId::from_sub("credential-removed");
+    let stranger = UserId::from_sub("credential-stranger");
+
+    seed_block_with_owner(
+        &blocks,
+        &membership,
+        &pool,
+        &repo,
+        season_id,
+        series_id,
+        designer.clone(),
+        Role::CostumeDesigner,
+        1,
+    )
+    .await?;
+    seed_block_with_owner(
+        &blocks,
+        &membership,
+        &pool,
+        &repo,
+        season_id,
+        series_id,
+        assistant.clone(),
+        Role::CostumeAssistant,
+        2,
+    )
+    .await?;
+    seed_block_with_owner(
+        &blocks,
+        &membership,
+        &pool,
+        &repo,
+        season_id,
+        series_id,
+        supervisor.clone(),
+        Role::WardrobeSupervisor,
+        3,
+    )
+    .await?;
+    let leaver_block = seed_block_with_owner(
+        &blocks,
+        &membership,
+        &pool,
+        &repo,
+        season_id,
+        series_id,
+        removed.clone(),
+        Role::CostumeDesigner,
+        4,
+    )
+    .await?;
+    // A designer who leaves their only block loses the credential role.
+    membership
+        .leave_block(
+            removed.clone(),
+            LeaveBlock {
+                block_id: leaver_block,
+                series_id,
+            },
+        )
+        .await
+        .map_err(|e| anyhow!(e.to_string()))?;
+    await_member_absent(&repo, leaver_block, removed.clone()).await?;
+
+    // ADR-027 allowlist: designer + assistant granted …
+    assert!(
+        credential_role(&repo, designer.clone()).await?,
+        "an active costume_designer must hold the credential role"
+    );
+    assert!(
+        credential_role(&repo, assistant.clone()).await?,
+        "an active costume_assistant must hold the credential role"
+    );
+    // … supervisor excluded …
+    assert!(
+        !credential_role(&repo, supervisor.clone()).await?,
+        "an active wardrobe_supervisor must NOT hold the credential role (ADR-027)"
+    );
+    // … and former members plus strangers denied.
+    assert!(
+        !credential_role(&repo, removed.clone()).await?,
+        "a member who left their only block must lose the credential role"
+    );
+    assert!(
+        !credential_role(&repo, stranger.clone()).await?,
+        "a user without any membership must not hold the credential role"
     );
 
     Ok(())
