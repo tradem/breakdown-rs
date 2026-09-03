@@ -1575,7 +1575,7 @@ pub async fn assign_costume<P: Ports>(
 #[utoipa::path(
     post,
     path = "/costumes/{id}/unassign",
-    request_body = UpdateCostumeNotesRequest,
+    request_body = VersionRequest,
     responses((status = 200, body = AggregateVersion)),
 )]
 pub async fn unassign_costume<P: Ports>(

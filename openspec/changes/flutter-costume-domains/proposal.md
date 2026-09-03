@@ -107,13 +107,12 @@ costume-assignment critical scope (see Non-goals).
   assignment) are added by follow-up commands. The client models the
   create sheet as "create + immediately add first detail" to avoid a
   confusing empty dead-end row.
-- **D2 — Unassign wire quirk conformed to, flagged.** The
-  checked-in spec declares the `unassign` body as
+- **D2 — Unassign wire quirk resolved upstream.** The
+  checked-in spec used to declare the `unassign` body as
   `UpdateCostumeNotesRequest` (`notes` required) while the handler
-  consumes `VersionRequest` only. Backend owns the contract: the client
-  sends `notes` echoed unchanged from the acted-on `CostumeView` plus
-  `version`. Tracked as backend spec defect #336 — no client-side
-  reinterpretation.
+  consumed `VersionRequest` only. Backend issue #336 corrected the
+  spec to `VersionRequest`, so the client sends `version` only —
+  no `notes` echo.
 - **D3 — Client AUTHZ-GATE for photo handlers mirrors the server's
   season-scoped photo policy.** Upload/bytes/delete are handler-gated
   on `has_active_costume_role_in_season` server-side; the client gates
