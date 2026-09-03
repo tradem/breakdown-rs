@@ -350,25 +350,26 @@ where
 /// Recover the aggregate version of a create-style command that a previous,
 /// crashed attempt already appended.
 ///
-/// Both `CreateShootingDay` and `PlanSceneShoot` dispatch with
+/// `CreateScene`, `CreateShootingDay` and `PlanSceneShoot` all dispatch with
 /// `ExpectedVersion::Empty`. Re-driving them onto a stream that a prior attempt
 /// wrote yields `VersionConflict { current }`, whose `current` is precisely the
 /// version the idempotency mapping needs. Because the id came from a durable
 /// reservation, that conflict proves *our own* earlier append — not a foreign
 /// writer — so treating it as success is safe and is what closes the crash
-/// window (issue #179).
+/// window (issue #179). Shared with the script apply path (issue #338).
 ///
 /// `current == 0` means the stream is genuinely empty, i.e. the conflict did
 /// not come from a prior append; that is propagated as an error rather than
 /// confirming a mapping to a nonexistent aggregate.
 /// Derive a deterministic, UUIDv7-shaped aggregate id from `(preview_id, draft_ref)`.
 ///
-/// Schedule-apply ids MUST be stable across retries: a retry after a
+/// Apply ids MUST be stable across retries: a retry after a
 /// mapping-write failure must re-derive the *same* id so the aggregate's
 /// `ExpectedVersion::Empty` guard rejects the duplicate (reporting
 /// `VersionConflict { current }`, which `recover_version` treats as success).
 /// A random id would reopen the crash window that the mapping projection
-/// alone cannot close (issue #182).
+/// alone cannot close (issue #182). Shared with the script apply path, whose
+/// concurrent-duplicate window is closed the same way (issue #338).
 ///
 /// This is the one exception to the repository UUIDv7 rule (AGENTS.md §3):
 /// a time-based UUIDv7 cannot be derived from static inputs, so we hash
@@ -377,7 +378,7 @@ where
 /// compatible with every other id in the system. Collision probability is
 /// bounded by the birthday paradox at 2^-64, negligible for the cardinality
 /// of schedule-apply operations.
-fn derive_id(preview_id: AiImportJobId, draft_ref: &str) -> Uuid {
+pub(crate) fn derive_id(preview_id: AiImportJobId, draft_ref: &str) -> Uuid {
     let mut hasher = Sha256::new();
     hasher.update(preview_id.as_uuid().as_bytes());
     hasher.update(draft_ref.as_bytes());
@@ -390,7 +391,7 @@ fn derive_id(preview_id: AiImportJobId, draft_ref: &str) -> Uuid {
     Uuid::from_bytes(bytes)
 }
 
-fn recover_version(
+pub(crate) fn recover_version(
     result: Result<AggregateVersion, DomainError>,
 ) -> Result<AggregateVersion, DomainError> {
     match result {
