@@ -83,7 +83,7 @@ fn api_routes_are_behind_auth_middleware() {
     //  patterns, not method-verb pairs.)
     assert_eq!(
         api.len(),
-        60,
+        75,
         "number of API route path patterns has changed — \
          see doc comment above for update instructions"
     );
@@ -121,6 +121,9 @@ fn api_routes_have_deliberate_authorization_requirement() {
             "/seasons/{season_id}/costume-categories",
             Requirement::Authenticated,
         ),
+        // Audit journal — block-scoped at the middleware; the handler
+        // additionally resolves a `series_id` query parameter (AUTHZ-GATE).
+        ("/audit", Requirement::BlockMember),
         // Blocks — creation/listing is Authenticated
         ("/blocks", Requirement::Authenticated),
         ("/blocks/{id}", Requirement::BlockMember),
@@ -159,6 +162,40 @@ fn api_routes_have_deliberate_authorization_requirement() {
         // Shooting days
         ("/shooting-days/{id}", Requirement::BlockMember),
         ("/shooting-days/{id}/archive", Requirement::BlockMember),
+        ("/shooting-days/{id}/wrap", Requirement::BlockMember),
+        // SceneShoot execution (Soll/Ist day board) — block-scoped
+        (
+            "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots",
+            Requirement::BlockMember,
+        ),
+        (
+            "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}",
+            Requirement::BlockMember,
+        ),
+        (
+            "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/start",
+            Requirement::BlockMember,
+        ),
+        (
+            "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/actual-order",
+            Requirement::BlockMember,
+        ),
+        (
+            "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/finish",
+            Requirement::BlockMember,
+        ),
+        (
+            "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/skip",
+            Requirement::BlockMember,
+        ),
+        (
+            "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/notes",
+            Requirement::BlockMember,
+        ),
+        (
+            "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/notes/{note_id}",
+            Requirement::BlockMember,
+        ),
         // Characters — scoped under season, but accessed via block context
         ("/characters", Requirement::BlockMember),
         ("/characters/{id}", Requirement::BlockMember),
@@ -183,6 +220,30 @@ fn api_routes_have_deliberate_authorization_requirement() {
         ),
         (
             "/costumes/{costume_id}/photos/{photo_id}/bytes",
+            Requirement::Authenticated,
+        ),
+        // Continuity photos — Authenticated at middleware level,
+        // handler-internal season-scoped auth gate (AUTHZ-GATE, AGENTS.md §7)
+        (
+            "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/continuity-photos",
+            Requirement::Authenticated,
+        ),
+        (
+            "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/continuity-photos/{photo_id}",
+            Requirement::Authenticated,
+        ),
+        // Report endpoints — handler-internal season-scoped auth gates.
+        // The JSON variants are classified like their PDF twins (issue #333).
+        (
+            "/shooting-days/{id}/report/dispo",
+            Requirement::Authenticated,
+        ),
+        (
+            "/shooting-days/{id}/report/shoot-day",
+            Requirement::Authenticated,
+        ),
+        (
+            "/shooting-days/{id}/report/soll-ist",
             Requirement::Authenticated,
         ),
         // PDF report endpoints — handler-internal season-scoped auth gates

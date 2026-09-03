@@ -247,7 +247,11 @@ pub struct UpdateBlockTimeSpanRequest {
     pub version: AggregateVersion,
 }
 
-#[derive(Debug, Clone, Deserialize, ToSchema)]
+// `IntoParams` so handlers that take it as a `Query` extractor (rather than a
+// JSON body) document the `version` query parameter — utoipa only infers query
+// parameters for `IntoParams` types, and a silently undocumented parameter
+// means the generated client would never send the optimistic-locking version.
+#[derive(Debug, Clone, Deserialize, ToSchema, IntoParams)]
 pub struct VersionRequest {
     pub version: AggregateVersion,
 }
@@ -2620,6 +2624,10 @@ pub async fn get_scene_shoot<P: Ports>(
 #[utoipa::path(
     get,
     path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots",
+    params(
+        ("day_id" = ShootingDayId, Path, description = "Shooting day id"),
+        ("scene_id" = Uuid, Path, description = "Scene id"),
+    ),
     responses((status = 200, body = Vec<SceneShootView>)),
 )]
 pub async fn list_scene_shoots<P: Ports>(
@@ -2796,6 +2804,7 @@ pub async fn list_continuity_photos<P: Ports>(
 #[utoipa::path(
     delete,
     path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/continuity-photos/{photo_id}",
+    params(VersionRequest),
     responses((status = 200, body = AggregateVersion)),
 )]
 pub async fn unlink_continuity_photo<P: Ports>(
@@ -2858,6 +2867,7 @@ pub async fn unlink_continuity_photo<P: Ports>(
 #[utoipa::path(
     post,
     path = "/shooting-days/{id}/wrap",
+    params(("id" = ShootingDayId, Path, description = "Shooting day id")),
     request_body = WrapShootingDayRequest,
     responses((status = 200, body = AggregateVersion)),
 )]
@@ -2889,6 +2899,7 @@ pub async fn wrap_shooting_day<P: Ports>(
 #[utoipa::path(
     get,
     path = "/shooting-days/{id}/report/dispo",
+    params(("id" = ShootingDayId, Path, description = "Shooting day id")),
     responses((status = 200, body = Vec<DispoRow>)),
 )]
 pub async fn dispo_report<P: Ports>(
@@ -2929,6 +2940,7 @@ pub async fn dispo_report<P: Ports>(
 #[utoipa::path(
     get,
     path = "/shooting-days/{id}/report/shoot-day",
+    params(("id" = ShootingDayId, Path, description = "Shooting day id")),
     responses((status = 200, body = Vec<ShootDayRow>)),
 )]
 pub async fn shoot_day_report<P: Ports>(
@@ -2969,6 +2981,7 @@ pub async fn shoot_day_report<P: Ports>(
 #[utoipa::path(
     get,
     path = "/shooting-days/{id}/report/soll-ist",
+    params(("id" = ShootingDayId, Path, description = "Shooting day id")),
     responses((status = 200, body = SollIstReport)),
 )]
 pub async fn soll_ist_report<P: Ports>(
@@ -3037,6 +3050,7 @@ pub fn map_render_error(err: breakdown_core::reporting::ReportRenderError) -> Ap
 #[utoipa::path(
     get,
     path = "/shooting-days/{id}/report/dispo.pdf",
+    params(("id" = ShootingDayId, Path, description = "Shooting day id")),
     responses((status = 200, description = "PDF report")),
 )]
 pub async fn dispo_report_pdf<P: Ports>(
@@ -3115,6 +3129,7 @@ pub async fn dispo_report_pdf<P: Ports>(
 #[utoipa::path(
     get,
     path = "/shooting-days/{id}/report/shoot-day.pdf",
+    params(("id" = ShootingDayId, Path, description = "Shooting day id")),
     responses((status = 200, description = "PDF report")),
 )]
 pub async fn shoot_day_report_pdf<P: Ports>(
@@ -3193,6 +3208,7 @@ pub async fn shoot_day_report_pdf<P: Ports>(
 #[utoipa::path(
     get,
     path = "/shooting-days/{id}/report/planned-vs-actual.pdf",
+    params(("id" = ShootingDayId, Path, description = "Shooting day id")),
     responses((status = 200, description = "PDF report")),
 )]
 pub async fn planned_vs_actual_report_pdf<P: Ports>(
@@ -3293,6 +3309,7 @@ pub struct ManualArchiveJobResult {
 #[utoipa::path(
     post,
     path = "/shooting-days/{id}/report/archive",
+    params(("id" = ShootingDayId, Path, description = "Shooting day id")),
     responses(
         (status = 202, description = "Archival job(s) enqueued"),
         (status = 403, description = "Forbidden"),

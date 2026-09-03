@@ -13,6 +13,7 @@ import 'package:dio/dio.dart';
 import 'dart:typed_data';
 import 'package:breakdown_api/src/api_util.dart';
 import 'package:breakdown_api/src/model/add_costume_detail_request.dart';
+import 'package:breakdown_api/src/model/add_note_request.dart';
 import 'package:breakdown_api/src/model/ai_config_view.dart';
 import 'package:breakdown_api/src/model/ai_import_job_response.dart';
 import 'package:breakdown_api/src/model/ai_provider_info.dart';
@@ -34,34 +35,47 @@ import 'package:breakdown_api/src/model/create_episode_request.dart';
 import 'package:breakdown_api/src/model/create_scene_request.dart';
 import 'package:breakdown_api/src/model/create_season_request.dart';
 import 'package:breakdown_api/src/model/create_shooting_day_request.dart';
+import 'package:breakdown_api/src/model/dispo_row.dart';
 import 'package:breakdown_api/src/model/episode_view.dart';
+import 'package:breakdown_api/src/model/finish_scene_shoot_request.dart';
 import 'package:breakdown_api/src/model/g_drive_credential_request.dart';
 import 'package:breakdown_api/src/model/g_drive_credential_update_request.dart';
 import 'package:breakdown_api/src/model/grant_role_request.dart';
 import 'package:breakdown_api/src/model/id_version_response.dart';
 import 'package:breakdown_api/src/model/invite_member_request.dart';
+import 'package:breakdown_api/src/model/link_continuity_photo_request.dart';
 import 'package:breakdown_api/src/model/membership_view.dart';
 import 'package:breakdown_api/src/model/model_info.dart';
 import 'package:breakdown_api/src/model/photo_view.dart';
+import 'package:breakdown_api/src/model/plan_scene_shoot_request.dart';
 import 'package:breakdown_api/src/model/problem_details.dart';
 import 'package:breakdown_api/src/model/rename_episode_request.dart';
 import 'package:breakdown_api/src/model/rename_season_request.dart';
+import 'package:breakdown_api/src/model/replan_scene_shoot_request.dart';
 import 'package:breakdown_api/src/model/revoke_ai_config_request.dart';
+import 'package:breakdown_api/src/model/scene_shoot_view.dart';
 import 'package:breakdown_api/src/model/scene_view.dart';
 import 'package:breakdown_api/src/model/schedule_scene_request.dart';
 import 'package:breakdown_api/src/model/season_membership_dto.dart';
 import 'package:breakdown_api/src/model/season_view.dart';
+import 'package:breakdown_api/src/model/set_actual_order_request.dart';
 import 'package:breakdown_api/src/model/settings_view.dart';
+import 'package:breakdown_api/src/model/shoot_day_row.dart';
 import 'package:breakdown_api/src/model/shooting_day_view.dart';
+import 'package:breakdown_api/src/model/skip_scene_shoot_request.dart';
+import 'package:breakdown_api/src/model/soll_ist_report.dart';
+import 'package:breakdown_api/src/model/start_scene_shoot_request.dart';
 import 'package:breakdown_api/src/model/update_ai_config_request.dart';
 import 'package:breakdown_api/src/model/update_block_time_span_request.dart';
 import 'package:breakdown_api/src/model/update_contact_info_request.dart';
 import 'package:breakdown_api/src/model/update_costume_category_request.dart';
 import 'package:breakdown_api/src/model/update_costume_notes_request.dart';
 import 'package:breakdown_api/src/model/update_measurements_request.dart';
+import 'package:breakdown_api/src/model/update_note_request.dart';
 import 'package:breakdown_api/src/model/update_scene_details_request.dart';
 import 'package:breakdown_api/src/model/update_shooting_day_request.dart';
 import 'package:breakdown_api/src/model/version_request.dart';
+import 'package:breakdown_api/src/model/wrap_shooting_day_request.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:built_value/json_object.dart';
 
@@ -170,6 +184,118 @@ class HandlersApi {
       const _type = FullType(AddCostumeDetailRequest);
       _bodyData =
           _serializers.serialize(addCostumeDetailRequest, specifiedType: _type);
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    int? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null ? null : rawResponse as int;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<int>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// addSceneShootNote
+  ///
+  ///
+  /// Parameters:
+  /// * [dayId]
+  /// * [sceneId]
+  /// * [shootId]
+  /// * [addNoteRequest]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [int] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<int>> addSceneShootNote({
+    required String dayId,
+    required String sceneId,
+    required String shootId,
+    required AddNoteRequest addNoteRequest,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path =
+        r'/v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/notes'
+            .replaceAll(
+                '{' r'day_id' '}',
+                encodeQueryParameter(
+                        _serializers, dayId, const FullType(String))
+                    .toString())
+            .replaceAll(
+                '{' r'scene_id' '}',
+                encodeQueryParameter(
+                        _serializers, sceneId, const FullType(String))
+                    .toString())
+            .replaceAll(
+                '{' r'shoot_id' '}',
+                encodeQueryParameter(
+                        _serializers, shootId, const FullType(String))
+                    .toString());
+    final _options = Options(
+      method: r'POST',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'application/json',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      const _type = FullType(AddNoteRequest);
+      _bodyData = _serializers.serialize(addNoteRequest, specifiedType: _type);
     } catch (error, stackTrace) {
       throw DioException(
         requestOptions: _options.compose(
@@ -1823,10 +1949,90 @@ class HandlersApi {
     return _response;
   }
 
+  /// dispoReport
+  ///
+  ///
+  /// Parameters:
+  /// * [id] - Shooting day id
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [BuiltList<DispoRow>] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<BuiltList<DispoRow>>> dispoReport({
+    required String id,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/shooting-days/{id}/report/dispo'.replaceAll(
+        '{' r'id' '}',
+        encodeQueryParameter(_serializers, id, const FullType(String))
+            .toString());
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    BuiltList<DispoRow>? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(BuiltList, [FullType(DispoRow)]),
+            ) as BuiltList<DispoRow>;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<BuiltList<DispoRow>>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
   /// dispoReportPdf
   ///
   ///
   /// Parameters:
+  /// * [id] - Shooting day id
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -1837,6 +2043,7 @@ class HandlersApi {
   /// Returns a [Future]
   /// Throws [DioException] if API call or serialization fails
   Future<Response<void>> dispoReportPdf({
+    required String id,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -1844,7 +2051,10 @@ class HandlersApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/v1/shooting-days/{id}/report/dispo.pdf';
+    final _path = r'/v1/shooting-days/{id}/report/dispo.pdf'.replaceAll(
+        '{' r'id' '}',
+        encodeQueryParameter(_serializers, id, const FullType(String))
+            .toString());
     final _options = Options(
       method: r'GET',
       headers: <String, dynamic>{
@@ -1866,6 +2076,119 @@ class HandlersApi {
     );
 
     return _response;
+  }
+
+  /// finishSceneShoot
+  ///
+  ///
+  /// Parameters:
+  /// * [dayId]
+  /// * [sceneId]
+  /// * [shootId]
+  /// * [finishSceneShootRequest]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [int] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<int>> finishSceneShoot({
+    required String dayId,
+    required String sceneId,
+    required String shootId,
+    required FinishSceneShootRequest finishSceneShootRequest,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path =
+        r'/v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/finish'
+            .replaceAll(
+                '{' r'day_id' '}',
+                encodeQueryParameter(
+                        _serializers, dayId, const FullType(String))
+                    .toString())
+            .replaceAll(
+                '{' r'scene_id' '}',
+                encodeQueryParameter(
+                        _serializers, sceneId, const FullType(String))
+                    .toString())
+            .replaceAll(
+                '{' r'shoot_id' '}',
+                encodeQueryParameter(
+                        _serializers, shootId, const FullType(String))
+                    .toString());
+    final _options = Options(
+      method: r'POST',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'application/json',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      const _type = FullType(FinishSceneShootRequest);
+      _bodyData =
+          _serializers.serialize(finishSceneShootRequest, specifiedType: _type);
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    int? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null ? null : rawResponse as int;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<int>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
   }
 
   /// getAiConfig
@@ -2094,6 +2417,109 @@ class HandlersApi {
     }
 
     return Response<JsonObject>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// getAuditHistory
+  ///
+  ///
+  /// Parameters:
+  /// * [limit]
+  /// * [offset]
+  /// * [episodeId]
+  /// * [seasonId]
+  /// * [seriesId]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [BuiltList<AuditEntry>] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<BuiltList<AuditEntry>>> getAuditHistory({
+    int? limit = 50,
+    int? offset = 0,
+    String? episodeId,
+    String? seasonId,
+    String? seriesId,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/audit';
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _queryParameters = <String, dynamic>{
+      if (limit != null)
+        r'limit':
+            encodeQueryParameter(_serializers, limit, const FullType(int)),
+      if (offset != null)
+        r'offset':
+            encodeQueryParameter(_serializers, offset, const FullType(int)),
+      if (episodeId != null)
+        r'episode_id': encodeQueryParameter(
+            _serializers, episodeId, const FullType(String)),
+      if (seasonId != null)
+        r'season_id': encodeQueryParameter(
+            _serializers, seasonId, const FullType(String)),
+      if (seriesId != null)
+        r'series_id': encodeQueryParameter(
+            _serializers, seriesId, const FullType(String)),
+    };
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      queryParameters: _queryParameters,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    BuiltList<AuditEntry>? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(BuiltList, [FullType(AuditEntry)]),
+            ) as BuiltList<AuditEntry>;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<BuiltList<AuditEntry>>(
       data: _responseData,
       headers: _response.headers,
       isRedirect: _response.isRedirect,
@@ -2785,6 +3211,102 @@ class HandlersApi {
     );
   }
 
+  /// getSceneShoot
+  ///
+  ///
+  /// Parameters:
+  /// * [dayId]
+  /// * [sceneId]
+  /// * [shootId]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [SceneShootView] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<SceneShootView>> getSceneShoot({
+    required String dayId,
+    required String sceneId,
+    required String shootId,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path =
+        r'/v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}'
+            .replaceAll(
+                '{' r'day_id' '}',
+                encodeQueryParameter(
+                        _serializers, dayId, const FullType(String))
+                    .toString())
+            .replaceAll(
+                '{' r'scene_id' '}',
+                encodeQueryParameter(
+                        _serializers, sceneId, const FullType(String))
+                    .toString())
+            .replaceAll(
+                '{' r'shoot_id' '}',
+                encodeQueryParameter(
+                        _serializers, shootId, const FullType(String))
+                    .toString());
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    SceneShootView? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(SceneShootView),
+            ) as SceneShootView;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<SceneShootView>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
   /// getSeason
   ///
   ///
@@ -3302,6 +3824,119 @@ class HandlersApi {
     return _response;
   }
 
+  /// linkContinuityPhoto
+  ///
+  ///
+  /// Parameters:
+  /// * [dayId]
+  /// * [sceneId]
+  /// * [shootId]
+  /// * [linkContinuityPhotoRequest]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [int] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<int>> linkContinuityPhoto({
+    required String dayId,
+    required String sceneId,
+    required String shootId,
+    required LinkContinuityPhotoRequest linkContinuityPhotoRequest,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path =
+        r'/v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/continuity-photos'
+            .replaceAll(
+                '{' r'day_id' '}',
+                encodeQueryParameter(
+                        _serializers, dayId, const FullType(String))
+                    .toString())
+            .replaceAll(
+                '{' r'scene_id' '}',
+                encodeQueryParameter(
+                        _serializers, sceneId, const FullType(String))
+                    .toString())
+            .replaceAll(
+                '{' r'shoot_id' '}',
+                encodeQueryParameter(
+                        _serializers, shootId, const FullType(String))
+                    .toString());
+    final _options = Options(
+      method: r'POST',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'application/json',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      const _type = FullType(LinkContinuityPhotoRequest);
+      _bodyData = _serializers.serialize(linkContinuityPhotoRequest,
+          specifiedType: _type);
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    int? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null ? null : rawResponse as int;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<int>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
   /// listAiModels
   ///
   ///
@@ -3652,6 +4287,102 @@ class HandlersApi {
     }
 
     return Response<BuiltList<CharacterView>>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// listContinuityPhotos
+  ///
+  ///
+  /// Parameters:
+  /// * [dayId]
+  /// * [sceneId]
+  /// * [shootId]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [BuiltList<String>] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<BuiltList<String>>> listContinuityPhotos({
+    required String dayId,
+    required String sceneId,
+    required String shootId,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path =
+        r'/v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/continuity-photos'
+            .replaceAll(
+                '{' r'day_id' '}',
+                encodeQueryParameter(
+                        _serializers, dayId, const FullType(String))
+                    .toString())
+            .replaceAll(
+                '{' r'scene_id' '}',
+                encodeQueryParameter(
+                        _serializers, sceneId, const FullType(String))
+                    .toString())
+            .replaceAll(
+                '{' r'shoot_id' '}',
+                encodeQueryParameter(
+                        _serializers, shootId, const FullType(String))
+                    .toString());
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    BuiltList<String>? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(BuiltList, [FullType(String)]),
+            ) as BuiltList<String>;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<BuiltList<String>>(
       data: _responseData,
       headers: _response.headers,
       isRedirect: _response.isRedirect,
@@ -4058,6 +4789,93 @@ class HandlersApi {
     );
   }
 
+  /// listSceneShoots
+  ///
+  ///
+  /// Parameters:
+  /// * [dayId] - Shooting day id
+  /// * [sceneId] - Scene id
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [BuiltList<SceneShootView>] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<BuiltList<SceneShootView>>> listSceneShoots({
+    required String dayId,
+    required String sceneId,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots'
+        .replaceAll(
+            '{' r'day_id' '}',
+            encodeQueryParameter(_serializers, dayId, const FullType(String))
+                .toString())
+        .replaceAll(
+            '{' r'scene_id' '}',
+            encodeQueryParameter(_serializers, sceneId, const FullType(String))
+                .toString());
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    BuiltList<SceneShootView>? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType:
+                  const FullType(BuiltList, [FullType(SceneShootView)]),
+            ) as BuiltList<SceneShootView>;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<BuiltList<SceneShootView>>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
   /// listScenes
   ///
   ///
@@ -4245,6 +5063,7 @@ class HandlersApi {
   /// Setting-gerechte fallback when automation fails or is delayed. Uses the **same** dedup key and pipeline as schedule / wrap triggers — never a parallel pipeline. Gated stricter than PDF routes: only &#x60;CostumeDesigner&#x60; and &#x60;WardrobeSupervisor&#x60; (excludes &#x60;CostumeAssistant&#x60;).
   ///
   /// Parameters:
+  /// * [id] - Shooting day id
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -4255,6 +5074,7 @@ class HandlersApi {
   /// Returns a [Future]
   /// Throws [DioException] if API call or serialization fails
   Future<Response<void>> manualArchiveReports({
+    required String id,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -4262,7 +5082,10 @@ class HandlersApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/v1/shooting-days/{id}/report/archive';
+    final _path = r'/v1/shooting-days/{id}/report/archive'.replaceAll(
+        '{' r'id' '}',
+        encodeQueryParameter(_serializers, id, const FullType(String))
+            .toString());
     final _options = Options(
       method: r'POST',
       headers: <String, dynamic>{
@@ -4286,10 +5109,119 @@ class HandlersApi {
     return _response;
   }
 
+  /// planSceneShoot
+  ///
+  ///
+  /// Parameters:
+  /// * [dayId]
+  /// * [sceneId]
+  /// * [planSceneShootRequest]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [IdVersionResponse] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<IdVersionResponse>> planSceneShoot({
+    required String dayId,
+    required String sceneId,
+    required PlanSceneShootRequest planSceneShootRequest,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots'
+        .replaceAll(
+            '{' r'day_id' '}',
+            encodeQueryParameter(_serializers, dayId, const FullType(String))
+                .toString())
+        .replaceAll(
+            '{' r'scene_id' '}',
+            encodeQueryParameter(_serializers, sceneId, const FullType(String))
+                .toString());
+    final _options = Options(
+      method: r'POST',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'application/json',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      const _type = FullType(PlanSceneShootRequest);
+      _bodyData =
+          _serializers.serialize(planSceneShootRequest, specifiedType: _type);
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    IdVersionResponse? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(IdVersionResponse),
+            ) as IdVersionResponse;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<IdVersionResponse>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
   /// plannedVsActualReportPdf
   ///
   ///
   /// Parameters:
+  /// * [id] - Shooting day id
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -4300,6 +5232,7 @@ class HandlersApi {
   /// Returns a [Future]
   /// Throws [DioException] if API call or serialization fails
   Future<Response<void>> plannedVsActualReportPdf({
+    required String id,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -4307,7 +5240,11 @@ class HandlersApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/v1/shooting-days/{id}/report/planned-vs-actual.pdf';
+    final _path = r'/v1/shooting-days/{id}/report/planned-vs-actual.pdf'
+        .replaceAll(
+            '{' r'id' '}',
+            encodeQueryParameter(_serializers, id, const FullType(String))
+                .toString());
     final _options = Options(
       method: r'GET',
       headers: <String, dynamic>{
@@ -4437,6 +5374,125 @@ class HandlersApi {
 
     final _response = await _dio.request<Object>(
       _path,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    int? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null ? null : rawResponse as int;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<int>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// removeSceneShootNote
+  ///
+  ///
+  /// Parameters:
+  /// * [dayId]
+  /// * [sceneId]
+  /// * [shootId]
+  /// * [noteId]
+  /// * [versionRequest]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [int] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<int>> removeSceneShootNote({
+    required String dayId,
+    required String sceneId,
+    required String shootId,
+    required String noteId,
+    required VersionRequest versionRequest,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path =
+        r'/v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/notes/{note_id}'
+            .replaceAll(
+                '{' r'day_id' '}',
+                encodeQueryParameter(
+                        _serializers, dayId, const FullType(String))
+                    .toString())
+            .replaceAll(
+                '{' r'scene_id' '}',
+                encodeQueryParameter(
+                        _serializers, sceneId, const FullType(String))
+                    .toString())
+            .replaceAll(
+                '{' r'shoot_id' '}',
+                encodeQueryParameter(
+                        _serializers, shootId, const FullType(String))
+                    .toString())
+            .replaceAll(
+                '{' r'note_id' '}',
+                encodeQueryParameter(
+                        _serializers, noteId, const FullType(String))
+                    .toString());
+    final _options = Options(
+      method: r'DELETE',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'application/json',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      const _type = FullType(VersionRequest);
+      _bodyData = _serializers.serialize(versionRequest, specifiedType: _type);
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
       options: _options,
       cancelToken: cancelToken,
       onSendProgress: onSendProgress,
@@ -4614,6 +5670,119 @@ class HandlersApi {
       const _type = FullType(RenameSeasonRequest);
       _bodyData =
           _serializers.serialize(renameSeasonRequest, specifiedType: _type);
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    int? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null ? null : rawResponse as int;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<int>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// replanSceneShoot
+  ///
+  ///
+  /// Parameters:
+  /// * [dayId]
+  /// * [sceneId]
+  /// * [shootId]
+  /// * [replanSceneShootRequest]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [int] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<int>> replanSceneShoot({
+    required String dayId,
+    required String sceneId,
+    required String shootId,
+    required ReplanSceneShootRequest replanSceneShootRequest,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path =
+        r'/v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}'
+            .replaceAll(
+                '{' r'day_id' '}',
+                encodeQueryParameter(
+                        _serializers, dayId, const FullType(String))
+                    .toString())
+            .replaceAll(
+                '{' r'scene_id' '}',
+                encodeQueryParameter(
+                        _serializers, sceneId, const FullType(String))
+                    .toString())
+            .replaceAll(
+                '{' r'shoot_id' '}',
+                encodeQueryParameter(
+                        _serializers, shootId, const FullType(String))
+                    .toString());
+    final _options = Options(
+      method: r'PATCH',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'application/json',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      const _type = FullType(ReplanSceneShootRequest);
+      _bodyData =
+          _serializers.serialize(replanSceneShootRequest, specifiedType: _type);
     } catch (error, stackTrace) {
       throw DioException(
         requestOptions: _options.compose(
@@ -5050,10 +6219,203 @@ class HandlersApi {
     );
   }
 
+  /// setActualOrder
+  ///
+  ///
+  /// Parameters:
+  /// * [dayId]
+  /// * [sceneId]
+  /// * [shootId]
+  /// * [setActualOrderRequest]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [int] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<int>> setActualOrder({
+    required String dayId,
+    required String sceneId,
+    required String shootId,
+    required SetActualOrderRequest setActualOrderRequest,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path =
+        r'/v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/actual-order'
+            .replaceAll(
+                '{' r'day_id' '}',
+                encodeQueryParameter(
+                        _serializers, dayId, const FullType(String))
+                    .toString())
+            .replaceAll(
+                '{' r'scene_id' '}',
+                encodeQueryParameter(
+                        _serializers, sceneId, const FullType(String))
+                    .toString())
+            .replaceAll(
+                '{' r'shoot_id' '}',
+                encodeQueryParameter(
+                        _serializers, shootId, const FullType(String))
+                    .toString());
+    final _options = Options(
+      method: r'PATCH',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'application/json',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      const _type = FullType(SetActualOrderRequest);
+      _bodyData =
+          _serializers.serialize(setActualOrderRequest, specifiedType: _type);
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    int? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null ? null : rawResponse as int;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<int>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// shootDayReport
+  ///
+  ///
+  /// Parameters:
+  /// * [id] - Shooting day id
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [BuiltList<ShootDayRow>] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<BuiltList<ShootDayRow>>> shootDayReport({
+    required String id,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/shooting-days/{id}/report/shoot-day'.replaceAll(
+        '{' r'id' '}',
+        encodeQueryParameter(_serializers, id, const FullType(String))
+            .toString());
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    BuiltList<ShootDayRow>? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(BuiltList, [FullType(ShootDayRow)]),
+            ) as BuiltList<ShootDayRow>;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<BuiltList<ShootDayRow>>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
   /// shootDayReportPdf
   ///
   ///
   /// Parameters:
+  /// * [id] - Shooting day id
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -5064,6 +6426,7 @@ class HandlersApi {
   /// Returns a [Future]
   /// Throws [DioException] if API call or serialization fails
   Future<Response<void>> shootDayReportPdf({
+    required String id,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -5071,7 +6434,10 @@ class HandlersApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/v1/shooting-days/{id}/report/shoot-day.pdf';
+    final _path = r'/v1/shooting-days/{id}/report/shoot-day.pdf'.replaceAll(
+        '{' r'id' '}',
+        encodeQueryParameter(_serializers, id, const FullType(String))
+            .toString());
     final _options = Options(
       method: r'GET',
       headers: <String, dynamic>{
@@ -5093,6 +6459,311 @@ class HandlersApi {
     );
 
     return _response;
+  }
+
+  /// skipSceneShoot
+  ///
+  ///
+  /// Parameters:
+  /// * [dayId]
+  /// * [sceneId]
+  /// * [shootId]
+  /// * [skipSceneShootRequest]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [int] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<int>> skipSceneShoot({
+    required String dayId,
+    required String sceneId,
+    required String shootId,
+    required SkipSceneShootRequest skipSceneShootRequest,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path =
+        r'/v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/skip'
+            .replaceAll(
+                '{' r'day_id' '}',
+                encodeQueryParameter(
+                        _serializers, dayId, const FullType(String))
+                    .toString())
+            .replaceAll(
+                '{' r'scene_id' '}',
+                encodeQueryParameter(
+                        _serializers, sceneId, const FullType(String))
+                    .toString())
+            .replaceAll(
+                '{' r'shoot_id' '}',
+                encodeQueryParameter(
+                        _serializers, shootId, const FullType(String))
+                    .toString());
+    final _options = Options(
+      method: r'POST',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'application/json',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      const _type = FullType(SkipSceneShootRequest);
+      _bodyData =
+          _serializers.serialize(skipSceneShootRequest, specifiedType: _type);
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    int? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null ? null : rawResponse as int;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<int>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// sollIstReport
+  ///
+  ///
+  /// Parameters:
+  /// * [id] - Shooting day id
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [SollIstReport] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<SollIstReport>> sollIstReport({
+    required String id,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/shooting-days/{id}/report/soll-ist'.replaceAll(
+        '{' r'id' '}',
+        encodeQueryParameter(_serializers, id, const FullType(String))
+            .toString());
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    SollIstReport? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(SollIstReport),
+            ) as SollIstReport;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<SollIstReport>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// startSceneShoot
+  ///
+  ///
+  /// Parameters:
+  /// * [dayId]
+  /// * [sceneId]
+  /// * [shootId]
+  /// * [startSceneShootRequest]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [int] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<int>> startSceneShoot({
+    required String dayId,
+    required String sceneId,
+    required String shootId,
+    required StartSceneShootRequest startSceneShootRequest,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path =
+        r'/v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/start'
+            .replaceAll(
+                '{' r'day_id' '}',
+                encodeQueryParameter(
+                        _serializers, dayId, const FullType(String))
+                    .toString())
+            .replaceAll(
+                '{' r'scene_id' '}',
+                encodeQueryParameter(
+                        _serializers, sceneId, const FullType(String))
+                    .toString())
+            .replaceAll(
+                '{' r'shoot_id' '}',
+                encodeQueryParameter(
+                        _serializers, shootId, const FullType(String))
+                    .toString());
+    final _options = Options(
+      method: r'POST',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'application/json',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      const _type = FullType(StartSceneShootRequest);
+      _bodyData =
+          _serializers.serialize(startSceneShootRequest, specifiedType: _type);
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    int? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null ? null : rawResponse as int;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<int>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
   }
 
   /// unassignCostume
@@ -5159,6 +6830,112 @@ class HandlersApi {
       _path,
       data: _bodyData,
       options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    int? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null ? null : rawResponse as int;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<int>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// unlinkContinuityPhoto
+  ///
+  ///
+  /// Parameters:
+  /// * [version]
+  /// * [dayId]
+  /// * [sceneId]
+  /// * [shootId]
+  /// * [photoId]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [int] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<int>> unlinkContinuityPhoto({
+    required int version,
+    required String dayId,
+    required String sceneId,
+    required String shootId,
+    required String photoId,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path =
+        r'/v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/continuity-photos/{photo_id}'
+            .replaceAll(
+                '{' r'day_id' '}',
+                encodeQueryParameter(
+                        _serializers, dayId, const FullType(String))
+                    .toString())
+            .replaceAll(
+                '{' r'scene_id' '}',
+                encodeQueryParameter(
+                        _serializers, sceneId, const FullType(String))
+                    .toString())
+            .replaceAll(
+                '{' r'shoot_id' '}',
+                encodeQueryParameter(
+                        _serializers, shootId, const FullType(String))
+                    .toString())
+            .replaceAll(
+                '{' r'photo_id' '}',
+                encodeQueryParameter(
+                        _serializers, photoId, const FullType(String))
+                    .toString());
+    final _options = Options(
+      method: r'DELETE',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _queryParameters = <String, dynamic>{
+      r'version':
+          encodeQueryParameter(_serializers, version, const FullType(int)),
+    };
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      queryParameters: _queryParameters,
       cancelToken: cancelToken,
       onSendProgress: onSendProgress,
       onReceiveProgress: onReceiveProgress,
@@ -5945,6 +7722,126 @@ class HandlersApi {
     );
   }
 
+  /// updateSceneShootNote
+  ///
+  ///
+  /// Parameters:
+  /// * [dayId]
+  /// * [sceneId]
+  /// * [shootId]
+  /// * [noteId]
+  /// * [updateNoteRequest]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [int] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<int>> updateSceneShootNote({
+    required String dayId,
+    required String sceneId,
+    required String shootId,
+    required String noteId,
+    required UpdateNoteRequest updateNoteRequest,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path =
+        r'/v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/notes/{note_id}'
+            .replaceAll(
+                '{' r'day_id' '}',
+                encodeQueryParameter(
+                        _serializers, dayId, const FullType(String))
+                    .toString())
+            .replaceAll(
+                '{' r'scene_id' '}',
+                encodeQueryParameter(
+                        _serializers, sceneId, const FullType(String))
+                    .toString())
+            .replaceAll(
+                '{' r'shoot_id' '}',
+                encodeQueryParameter(
+                        _serializers, shootId, const FullType(String))
+                    .toString())
+            .replaceAll(
+                '{' r'note_id' '}',
+                encodeQueryParameter(
+                        _serializers, noteId, const FullType(String))
+                    .toString());
+    final _options = Options(
+      method: r'PUT',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'application/json',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      const _type = FullType(UpdateNoteRequest);
+      _bodyData =
+          _serializers.serialize(updateNoteRequest, specifiedType: _type);
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    int? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null ? null : rawResponse as int;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<int>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
   /// updateShootingDay
   ///
   ///
@@ -6307,6 +8204,102 @@ class HandlersApi {
     }
 
     return Response<PhotoView>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// wrapShootingDay
+  ///
+  ///
+  /// Parameters:
+  /// * [id] - Shooting day id
+  /// * [wrapShootingDayRequest]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [int] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<int>> wrapShootingDay({
+    required String id,
+    required WrapShootingDayRequest wrapShootingDayRequest,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/shooting-days/{id}/wrap'.replaceAll(
+        '{' r'id' '}',
+        encodeQueryParameter(_serializers, id, const FullType(String))
+            .toString());
+    final _options = Options(
+      method: r'POST',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'application/json',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      const _type = FullType(WrapShootingDayRequest);
+      _bodyData =
+          _serializers.serialize(wrapShootingDayRequest, specifiedType: _type);
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    int? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null ? null : rawResponse as int;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<int>(
       data: _responseData,
       headers: _response.headers,
       isRedirect: _response.isRedirect,
