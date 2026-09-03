@@ -6,372 +6,56 @@
 
 You are the primary coding agent for `breakdown-rs` – a collaborative costume scheduling app. Your goal is to implement features securely, test-driven, and with clean architecture.
 
+> **Layout of this file / on-demand instructions:** It contains only the **core rules** (always
+> loaded). Long-form rationale and reference material live as glob-scoped rule files:
+> backend-scoped rules in `backend/.github/instructions/`, repo-level rules (workflows, root
+> scripts) in the monorepo-root `../.github/instructions/` — see the §6 register. pi-rules
+> resolves the project root **per read file** (first `Cargo.toml` / `.git` marker walking up), so
+> backend rules fire for `backend/**` reads regardless of where pi was launched. `/rules` lists
+> only always-on rules — glob rules appear attached to the file reads they match. Section
+> numbers (§1–§5, §7) and titles are **stable**: source-code comments and CI workflows
+> reference them (`AGENTS.md §1`, `§3`, `§4`).
+
 ## 1. Architecture & Core Patterns
 - **Hexagonal Architecture / Poor Man's DI:** No DI frameworks. External dependencies are defined as traits (ports) in `core` and manually injected in the composition root (`main.rs`).
-- **CQRS & Event Sourcing:**
-  - **Write Side:** All state changes occur via **Commands** sent to **Aggregates**. Aggregates validate commands and emit **Events**. State is never updated directly; it is rebuilt by replaying past events.
-  - **Read Side:** **Queries** read from flat PostgreSQL **Projections**. Event Handlers asynchronously update these projections when new events occur. Never query aggregates directly for views.
-  - **CQRS Boundary (hard rule):** Write-side code — Command adapters (`*CommandsImpl`), Sagas, Aggregates — must **never** query a read-model projection (`*Repository::find_by_id`) to resolve audit/derived context such as `series_id`. Such context must come from the **event data itself** (e.g. `SeasonCreated.series_id`) or from a **command field** populated at the API edge. The API layer (handlers) is the *only* legitimate consumer of read-model queries and may enrich commands before dispatch. Violating this creates a hidden coupling to projector presence and projection lag that breaks tests and, in production, risks silent audit gaps when a parent projector lags. The `cqrs-boundary` job in `architecture-checks.yml` enforces this mechanically for `crates/infra/src/event_store/`, `crates/infra/src/sagas/`, and `crates/infra/src/photo/sagas/` via the AST-based ast-grep rule `backend/rules/cqrs-boundary.yml` (issue #148). A non-audit read-model lookup (e.g. the `ExpectedVersion` concurrency guard in the photo deletion sagas) is permitted only with an explicit `// ast-grep-ignore: cqrs-boundary` suppression on the call line, carrying a justification comment above it.
-- **kameo_es (Actors):** We use `kameo_es` for Event-Sourced aggregates. Each aggregate is a `kameo::Actor` implementing `kameo_es::Entity`. Commands act as `kameo_es::Command`.
+- **CQRS & Event Sourcing:** All state changes occur via **Commands** sent to **Aggregates** (which validate and emit **Events**; state is rebuilt by replay). **Queries** read from flat PostgreSQL **Projections**; event handlers update projections asynchronously. Never query aggregates directly for views.
+- **CQRS Boundary (hard rule):** Write-side code (Command adapters, Sagas, Aggregates) must **never** query a read-model projection (`*Repository::find_by_id`) to resolve audit/derived context (e.g. `series_id`) — that context comes from **event data** or a **command field** populated at the API edge (the only legitimate read-model consumer). Exceptions only with `// ast-grep-ignore: cqrs-boundary` + justification (rule `backend/rules/cqrs-boundary.yml`, job `cqrs-boundary`). Audit metadata must never block command processing: resolve best-effort, `None`/default on projection misses. → Long form: `.github/instructions/architecture-hard-rules.instructions.md`
+- **kameo_es (Actors):** Event-sourced aggregates are `kameo::Actor`s implementing `kameo_es::Entity`; commands act as `kameo_es::Command` (see §5).
 
 ## 2. Workspace Structure
-- **`crates/core`:** Pure domain logic. Contains Commands, Events, Aggregates, Read-Model DTOs, and Port Traits. **No dependencies** on `sqlx`, `axum`, or infrastructure.
-- **`crates/infra`:** Infrastructure implementations. Contains EventStore integrations, Projectors (Read-Model updaters), and `sqlx` queries.
-- **`crates/api`:** Axum web server. Translates HTTP requests to Core Commands (Write) or Infrastructure Queries (Read).
+- **`crates/core`:** Pure domain logic — Commands, Events, Aggregates, Read-Model DTOs, Port Traits. **No dependencies** on `sqlx`, `axum`, or infrastructure.
+- **`crates/infra`:** Infrastructure — EventStore integrations, Projectors, `sqlx` queries.
+- **`crates/api`:** Axum web server — HTTP → Core Commands (Write) / Infrastructure Queries (Read).
 
-### Production hierarchy (ADR: introduce-season-block-episode-hierarchy)
-The domain models a four-level production hierarchy:
-`Series` (opaque `SeriesId` only — no aggregate yet) → `Season` → `Block` → `Episode` → `Scene`.
-`Character` and `Costume` are scoped to a `Season` (`Character.season_id`) / scope-free (`Costume` is bound only to a `Character`).
-Core modules: `season`, `block`, `episode`, `scene`, `scene_shoot`, `shooting_day`, `character`, `costume`, `costume_category`, `shared`.
-The `calculation` context was removed; do not reintroduce it.
-`shooting_day` is an Episode-scoped `Drehtag` aggregate. It carries a `label`, a `LexicalSortKey`
-fractional-ordering value (`shared`), an optional `date`, a `ShootingDaySource` provenance
-discriminator (Manual | AiExtracted), an `archived` flag, and an optional `wrapped_at: Option<DateTime<Utc>>`.
-`wrapped_at` is set idempotently by the `WrapShootingDay` command and indicates the day has been
-"closed" for planning — the Soll-Ist report exposes this as the `final` flag. Scenes link to
-ShootingDays via a many-to-many join (`Scene.schedule_on_shooting_day`) kept on the Scene
-aggregate; the read model mirrors it in `projection_scene_shooting_day`. Archived days are
-excluded from the picker query `ShootingDayRepository::list_by_episode`.
-`scene_shoot` is a Scene-scoped execution-tracking aggregate (category `"scene_shoot"`).
-Each `SceneShoot` represents one planned execution of a Scene on a ShootingDay, tracked
-by `planned_order` (Soll) and `actual_order` (Ist). Lifecycle: `Planned` → `Scheduled` →
-`InProgress` → `Shot` or `Skipped`. Key invariants: pair-uniqueness `(scene_id, shooting_day_id)`,
-`planned_order` freezes after execution data is recorded (`PlannedOrderFrozen`), notes are
-append-only with mutable bodies (`SceneShootNote`), and continuity photos link via
-`ContinuityPhotoLinked/Unlinked` events. Three idempotent read-side reports are served from
-`SceneShootReportRepository`: Dispo (planned_order ASC), Shoot Day (actual_order NULLS LAST),
-and Soll-Ist (diff with moved/missing/skipped/reshot flags + `final` from `wrapped_at`).
-The projector uses version guards (`WHERE version < $N`) to ensure event-redelivery idempotency.
-`SeriesId` is an opaque UUIDv7 seam for a future additive `Series` aggregate — hierarchy entities reference it but no `Series` aggregate exists yet.
-`costume_category` is a **season-scoped vocabulary** aggregate (`CostumeCategory`, category `"costume_category"`)
-that classifies costume parts (e.g. Oberteil/Unterteil/Schuhe). It carries `season_id`, `name`, a
-`LexicalSortKey` order_key, an `archived` flag, and a version. Seeding is a projector-driven **saga**:
-on every `SeasonCreated` the `SeasonSeedingSaga` dispatches `CreateCostumeCategory` for the season's
-default categories (config `config/default_costume_categories.toml`), guarded by
-`CostumeCategoryRepository::count_for_season` so replays never double-seed. `CostumeDetail` is
-enriched with optional `subject` and `category_id`; the costume projector resolves `category_name`
-from `projection_costume_category` at read time. The command API lives at
-`POST/GET /seasons/{season_id}/costume-categories` (and `PATCH`/`POST .../archive` by id);
-`POST /costumes/{id}/details` now accepts the enriched `CostumeDetail`.
-
-`photo` is a bounded context (category `"photo"`) that tracks the lifecycle of costume and
-continuity photos (ADR-019). The `Photo` aggregate is event-sourced in SierraDB and stores photo
-metadata (content-type, size, variant statuses, `binding`). `binding: PhotoBinding` discriminates
-between `Costume { costume_id }` (default for historical events) and `Continuity { scene_shoot_id, costume_id? }`.
-The actual image bytes live in **Garage** (S3-compatible object store) accessed via OpenDAL. The
-`PhotoStorage` port is a **non-CQRS-split CRUD port** for byte storage (read and write on the
-same store), distinct from the command/repository split used by other aggregates. Three sagas
-react to photo events:
-- `PhotoThumbnailSaga` — on `PhotoUploaded`, fetches original bytes, decodes+re-encodes
-  EXIF-stripped, generates Thumb (200×200) and Medium (800×800) variants.
-- `PhotoDeletionSaga` — on `PhotoUnlinked` (costume stream), checks refcount via
-  `COUNT(*)` on `projection_costume_photo`; dispatches `DeletePhoto` when zero.
-- `ContinuityDeletionSaga` — on `ContinuityPhotoUnlinked` (scene_shoot stream), tracks
-  in-memory refcounts; checks costume-side refs before dispatching `DeletePhoto` at zero.
-- `PhotoBytesCleanupSaga` — on `PhotoDeleted`, removes all variant bytes from Garage.
-
-A periodic `PhotoGcSweepTask` (advisory-locked) reconciles Garage objects against
-`projection_photo` and deletes orphans older than `PHOTO_GC_MAX_AGE_SECS`.
-
-**Continuity photo authz:** Handlers under `/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/continuity-photos`
-are gated only by `Requirement::Authenticated` and use handler-internal authz (season-scoped
-membership check via the shooting_day → episode → block → season chain). They follow the same
-`// AUTHZ-GATE:` pattern as the costume photo handlers.
+**Domain map (production hierarchy, ADR: introduce-season-block-episode-hierarchy):**
+`Series` (opaque `SeriesId` seam, no aggregate yet) → `Season` → `Block` → `Episode` → `Scene`; `Character` scoped to a Season, `Costume` bound to a Character. Core modules: `season`, `block`, `episode`, `scene`, `scene_shoot`, `shooting_day`, `character`, `costume`, `costume_category`, `shared`. The `calculation` context was removed — do not reintroduce it.
+Aggregate details and invariants (`shooting_day`/`wrapped_at`, `scene_shoot` lifecycle & pair-uniqueness, `costume_category` seeding saga, `photo` bounded context with sagas) → long form: `.github/instructions/domain-model.instructions.md` and `.github/instructions/photo-context.instructions.md`
 
 ## 3. Workflow & Best Practices
-- **EventStorming Mapping:** 
-  1. **Event** (Past tense, e.g., `SceneCreated`) -> `enum` in `core`
-  2. **Command** (Imperative, e.g., `CreateScene`) -> `struct` in `core`
-  3. **Aggregate** (Noun) -> State `struct` in `core`
-- **Open-Spec / API First:** The API contract is authored **code-first** via
-  `utoipa` derives (ADR-006); the checked-in **`backend/openapi.yaml`** is the
-  review artifact and MUST be kept in sync with it. Any PR that changes the
-  wire contract regenerates the artifact (`UPDATE_OPENAPI=1 cargo test -p api
-  --test openapi_drift`) so contract changes are visible in review; CI fails
-  on drift. Map exact types using `serde`.
-- **ID Generation:** Strictly use **UUIDv7** (`uuid::Uuid::now_v7()`) for all entities and events. No UUIDv4.
-- **Security:** Never hardcode secrets. Your code must pass `gitleaks`.
-- **Security architecture:** the authoritative threat model, trust
-  boundaries, authorization architecture (Deny-by-Default `requirement_for()`,
-  fail-closed policy evaluation), OIDC/JWT validation, supply-chain posture,
-  and the target security-test pyramid are documented in
-  `docs/security/security-architecture.md` — keep it in sync when touching
-  auth/authz code (issue #85).
-- **No panics in production code (hard rule).** Panics are the "safe" equivalent of `unsafe` for crashing production: they bypass structured error handling (`?` / `DomainError`/`anyhow`), produce no tracing span, and (in spawned tasks like projectors and sagas) silently kill the worker — defeating the entire tracing/audit effort. **`unwrap()` / `expect()` / `panic!()` / `unreachable!()` / `todo!()` are forbidden** in production code paths (adapters, sagas, projectors, handlers, `main.rs`). Use `?` with `DomainError`/`anyhow`, or `match` with an explicit fallback. The workspace clippy lints `clippy::unwrap_used`, `clippy::expect_used`, `clippy::panic` are `deny` (CI-enforced via `-D warnings`). `#[allow]` is only acceptable for (a) const-time construction from a known-valid literal (e.g. `LexicalSortKey::from_static`) or (b) test code — both must carry a justification comment. Audit metadata (e.g. `series_id`) must **never** block command processing: resolve it best-effort, returning `None`/default on projection misses (see CQRS-boundary rule in §1).
-- **Security — No string-interpolated SQL (hard rule).** Every SQL statement passed to
-  `sqlx::query(...)`, `sqlx::query_as(...)`, or `sqlx::query_scalar(...)` must be a static
-  `&str` literal (or `r#"..."#`). All dynamic values go through `.bind()`. Identifiers
-  (column/table names, `ORDER BY` column) must come from a hardcoded allowlist, **never**
-  from request input — Postgres cannot bind identifiers. The CI job
-  `no-string-interpolation-sql` in `architecture-checks.yml` enforces this mechanically.
-  See `docs/security/README.md` for detailed safe patterns.
-- **Authorization — Handler-internal auth gates (photo handlers).** Handlers gated only by
-  `Requirement::Authenticated` (e.g. photo endpoints under `/costumes/*/photos*`) do **not**
-  receive block-scoped membership enforcement from the middleware. Every such handler MUST
-  call the relevant `AuthorizationPolicy` method (e.g. `has_active_costume_role_in_season`)
-  *inside the handler body* and return `403` on denial.
-  
-  All three photo handlers (`upload_costume_photo`, `get_costume_photo_bytes`,
-  `delete_costume_photo`) are annotated with `// AUTHZ-GATE:` comments marking their
-  handler-internal authorization check. Any new handler under an `Authenticated`-only route
-  that performs a privileged action MUST follow the same pattern — add a `// AUTHZ-GATE:`
-  comment and call the appropriate policy method. Reviewers `grep` for `AUTHZ-GATE` to
-  verify no handler has missed its gate.
-- **HTTP error surface (ADR-031):** Every HTTP failure is an RFC 9457
-  `application/problem+json` document built by the single problem builder
-  (`crates/api/src/problems`) from the code registry
-  (`crates/core/src/error_registry.rs`). The registry is a single-source
-  `problem_codes!` macro: each entry expands to its `pub const` *and* its
-  `PROBLEM_CODES` array slot from one list, so a code that is not registered
-  cannot exist — a standalone `pub const ...: ProblemCode` outside the
-  invocation is rejected by the `problem-code-registry` CI job, and a
-  compile-time assertion keeps the registry count in sync (issue #232). New
-  codes MUST be added as entries in that invocation, never as a standalone
-  `pub const`. Handlers return `Result<_, ApiError>` and propagate with `?`
-  — there is no per-handler HTTP status mapping and no
-  `map_err`-to-response conversion. Clients branch on the stable `code`
-  (`{context}.{reason}`), never on `detail` text. Extension fields are
-  whitelisted per code and classified S0/S1/S2: S1 fields are emitted only
-  after the handler's `AUTHZ-GATE` has run; S2 data (OIDC `sub`, e-mail) is
-  structurally banned. `detail` is localized server-side via Fluent
-  (`crates/api/locales/<lang>/errors.ftl`, `de` default) — never build
-  client-facing error strings with `format!` in core. Golden snapshots
-  (`crates/api/tests/problem_golden.rs`), the bundle-coverage lint
-  (`crates/api/tests/bundle_coverage.rs`), and the `s2-extension-ban`
-  ast-grep rule enforce the surface mechanically. See `docs/errors/`.
-- **Reliability & error handling (issue #165 review lessons):**
-  - **Never discard fallible results with `let _ = <call>`** in production code:
-    a swallowed error defeats `retry_transient` and ack-after-success
-    redelivery (a delete that never ran is acknowledged and lost). Propagate
-    (`?` / `.map_err`), handle explicitly (`if let Err(e) = ... { warn!(...) }`),
-    or suppress with `// ast-grep-ignore: discard-result` + justification. The
-    `discard-result` rule in `architecture-checks.yml` enforces this.
-  - **Classify transient storage errors:** map OpenDAL errors with
-    `is_temporary() == true` to `DomainError::ServiceUnavailable` so the saga
-    `retry_transient` loop retries them in-loop; map permanent errors to
-    `ValidationError` (reach ack-after-success redelivery). Ignore only
-    not-found errors in delete paths.
-  - **Couple config invariants in code:** when two constants must stay ordered
-    (e.g. batch size vs. subscription window), derive both from one shared
-    named constant and add a compile-time assertion
-    (`const _INVARIANT: () = assert!(...)`).
-  - **Flush partial batches on graceful shutdown:** any ack tracker must flush
-    its final partial batch before `run()` returns `Ok(())`.
-- **Handoff-Prompt / Task-Spec Architecture Review (pre-implementation checklist):**
-  Every handoff prompt or task spec MUST pass this review **before** it is dispatched to an
-  agent. A human reviewer applies each item; any "yes" to a forbidden pattern means the spec
-  must be rewritten before implementation starts (issues #147/#148):
-  - [ ] Does the plan have the write-side query a read-model projection? (CQRS violation —
-        reject unless at the API edge.)
-  - [ ] Does the plan introduce `unwrap`/`expect`/`panic` in hot paths (adapters, sagas,
-        projectors, handlers)?
-  - [ ] Does the plan call test-only helpers from production spawn paths?
-  - [ ] Does the plan carry audit metadata (`series_id`) in a way that couples to projector
-        presence?
-  - [ ] Does the plan discard a fallible result with `let _ = <call>` (swallowing
-        an error the retry/redelivery machinery would otherwise see)?
-  - [ ] Does the plan expose a test-only helper (`*_for_test`) without
-        `#[cfg(feature = "test-support")]` gating?
-
+- **EventStorming Mapping:** **Event** (past tense, e.g. `SceneCreated`) → `enum` in `core`; **Command** (imperative, e.g. `CreateScene`) → `struct` in `core`; **Aggregate** (noun) → state `struct` in `core`.
+- **Open-Spec / API First:** API contract is authored **code-first** via `utoipa` derives (ADR-006); the checked-in **`backend/openapi.yaml`** is the review artifact and MUST be kept in sync (`UPDATE_OPENAPI=1 cargo test -p api --test openapi_drift`); CI fails on drift. Map exact types using `serde`.
+- **ID Generation:** Strictly **UUIDv7** (`uuid::Uuid::now_v7()`) for all entities and events. No UUIDv4.
+- **Security:** Never hardcode secrets. Your code must pass `gitleaks`. Authoritative threat model / authorization architecture: `docs/security/security-architecture.md` — keep it in sync when touching auth/authz code (issue #85).
+- **No panics in production code (hard rule):** `unwrap()`/`expect()`/`panic!()`/`unreachable!()`/`todo!()` forbidden in production paths (adapters, sagas, projectors, handlers, `main.rs`). Use `?` with `DomainError`/`anyhow` or `match` with explicit fallback. Clippy `unwrap_used`/`expect_used`/`panic` are `deny`; `#[allow]` only for const-time construction from known-valid literals or test code, each with justification comment.
+- **No string-interpolated SQL (hard rule):** SQL passed to `sqlx::query*/query_as*/query_scalar*` must be static `&str` literals; dynamic values via `.bind()`; identifiers only from a hardcoded allowlist, never request input. Enforced by job `no-string-interpolation-sql`. Safe patterns: `docs/security/README.md`.
+- **Handler-internal auth gates (hard rule):** Handlers gated only by `Requirement::Authenticated` get no middleware membership enforcement — they MUST call the relevant `AuthorizationPolicy` method *inside the handler body* (403 on denial) and carry an `// AUTHZ-GATE:` comment. Reviewers `grep` for `AUTHZ-GATE`.
+- **HTTP error surface (ADR-031):** Every HTTP failure is RFC 9457 `application/problem+json` from the single problem builder (`crates/api/src/problems`) over the `problem_codes!` registry (`crates/core/src/error_registry.rs`). New codes only as entries in that macro — never standalone `pub const ProblemCode` (job `problem-code-registry`, non-suppressible). Handlers return `Result<_, ApiError>` and use `?` — no per-handler status mapping. Clients branch on stable `code`, never `detail`. Extension fields per code (S0/S1/S2); S2 data (OIDC `sub`, e-mail) structurally banned; `detail` localized via Fluent (`crates/api/locales/<lang>/errors.ftl`), never `format!` in core. → `docs/errors/`
+- **Reliability (issue #165):** Never discard fallible results (`let _ = <call>` → rule `discard-result`); classify transient OpenDAL errors → `ServiceUnavailable` (in-loop retry), permanent → `ValidationError`; ignore only not-found in delete paths; couple ordered config constants via a shared constant + `const _INVARIANT` assert; flush partial batches before `run()` returns `Ok(())`. → Long form: `.github/instructions/architecture-hard-rules.instructions.md`
+- **Handoff-Prompt / Task-Spec Architecture Review (pre-implementation checklist):** Every handoff prompt or task spec MUST pass this review **before** dispatch to an agent; any "yes" means rewrite first (issues #147/#148):
+  - [ ] Write-side queries a read-model projection? (CQRS violation — reject unless at the API edge.)
+  - [ ] `unwrap`/`expect`/`panic` in hot paths (adapters, sagas, projectors, handlers)?
+  - [ ] Test-only helpers called from production spawn paths?
+  - [ ] Audit metadata (`series_id`) coupled to projector presence?
+  - [ ] Fallible result discarded with `let _ = <call>`?
+  - [ ] Test-only helper (`*_for_test`) without `#[cfg(feature = "test-support")]` gating?
 
 ## 4. Testing & Guardrails
-
-- **Unit/Integration Tests:** Write deterministic tests for domain logic in `core`.
-- **Deterministic (timing-safe) tests:** Never gate a test on wall-clock timing or
-  sleep-with-jitter budgets. Compute the worst case analytically against the test
-  budget instead (e.g. `test_profile_is_fast` derives the max backoff from the
-  jitter constants rather than sleeping to "observe" it).
-- **Mutation Testing:** Run `cargo mutants` ([crate](https://crates.io/crates/cargo-mutants) • [GitHub](https://github.com/sourcefrog/cargo-mutants)). Improve test coverage if mutants survive. Use `cargo mutants --in-diff` to only test changed code. The mutation configuration lives in `.cargo/mutants.toml` — a top-level `.mutants.toml` is **not** read by cargo-mutants, so any settings placed there are silently ignored.
-  > ⚠️ **Do NOT run mutation tests locally.** `cargo mutants` spawns a process per mutant and fully builds/runs the test suite for each one — on this workspace that saturates CPU and memory and can freeze the machine for hours. Mutation testing is CI-only; if you need local feedback on test strength, run `cargo llvm-cov` or `cargo tarpaulin` instead.
-- **Architecture Tests:** We use `rust_arkitect` (source-level) and `cargo-deny` (dependency-level) to enforce boundary rules (ADR-017). Run `cargo test -p architecture_tests` and `cargo deny check bans` to ensure core does not depend on infra/api.
-- **Mechanical Guardrails (CI):** The `architecture-checks.yml` workflow enforces the
-  write-side CQRS boundary (`cqrs-boundary` job: no `find_by_id` in
-  `crates/infra/src/event_store/` + `**/sagas/`, via the AST-based ast-grep rule
-  `backend/rules/cqrs-boundary.yml`; `// ast-grep-ignore: cqrs-boundary` for non-audit
-  reads) and blocks test-only helpers in production api code (`test-shim-leak` job:
-  `test_profile`/`aggressive_*`/`spawn_*_with_config` without
-  `ProjectorFlushConfig::default()`, via `backend/rules/test-shim-leak.yml`) — issue #148.
-  The `error-hygiene` job additionally enforces, on all production `crates/*/src` files
-  (test modules excluded), that no fallible result is discarded with `let _ = <call>`
-  (`backend/rules/discard-result.yml`) and that `*_for_test` helpers are gated behind
-  `#[cfg(feature = "test-support")]` (`backend/rules/test-helper-gate.yml`) — issue #165
-  review lessons. All rules accept an explicit `// ast-grep-ignore: <rule-id>` suppression
-  with a justification comment — except `problem-code-registry`, which is
-  deliberately non-suppressible: the shared checker rejects any
-  `ast-grep-ignore: problem-code-registry` directive, because a suppressed
-  standalone declaration would compile unregistered (issue #232). The
-  `problem-code-registry` job (issue #232) runs the
-  shared, syntax-aware scanner `backend/scripts/check-problem-code-registry.sh`
-  (rule `backend/rules/problem-code-registry.yml`, rule tests in
-  `backend/rules-tests/`): every `pub const …: ProblemCode` must be declared
-  through the `problem_codes!` macro in `error_registry.rs` — a standalone
-  declaration compiles but is never registered. The `backend/git-hooks/pre-commit`
-  hook mirrors these guardrails on staged files (warning only if ast-grep is not
-  installed; CI remains the authoritative gate).
-  The `rust-security-ast-grep` job (Layer 9, issue #262) enforces two Rust
-  security rules on all production `crates/*/src` files: no reqwest TLS bypass
-  (`danger_accept_invalid_certs/hostnames(...)` with anything but the literal
-  `false` — consts/variables/expressions are rejected fail-closed; CWE-295;
-  ADR-024 mandates rustls + pinned root CAs) via
-  `backend/rules/reqwest-no-dangerous-tls.yml`, and no hardcoded HTTP auth
-  credentials (`.basic_auth`/`.bearer_auth` with an inline ordinary or raw
-  string literal — CWE-798, complements the gitleaks text scan structurally)
-  via `backend/rules/reqwest-no-hardcoded-auth.yml`. Both are vendored from
-  [`coderabbitai/ast-grep-essentials`](https://github.com/coderabbitai/ast-grep-essentials)
-  (upstream ids `reqwest-accept-invalid-rust` and
-  `secrets-reqwest-hardcoded-auth-rust`, generalized to receiver-agnostic
-  matching and re-severity'd to `error`) with provenance documented in the rule
-  headers. Of the collection's 8 Rust security rules the remaining six are
-  deliberately **not** vendored and should not be re-proposed without cause:
-  the sqlx-builder pair (`empty-password-rust`, `hardcoded-password-rust`) does
-  not even parse under ast-grep 0.45.0 (reserved characters in utility ids) and
-  targets the `*ConnectOptions` builder API we do not use (`DATABASE_URL` via
-  `PgPoolOptions` only); the `postgres`/`tokio-postgres` password rules target
-  crates absent from the stack; and `ssl-verify-none-rust` targets `openssl`,
-  which we never link (rustls exclusively). Revisit individually if one of these
-  dependencies is ever introduced.
-
-### Integration tests
-
-End-to-end, black-box integration tests live in the dedicated workspace member `crates/integration-tests`. They exercise the full `command → event → event-store → projector → projection` chain against ephemeral containers managed by [`testcontainers`](https://crates.io/crates/testcontainers).
-
-- **Tiers 1–3 (Postgres-only)**: projector and repository tests against an ephemeral PostgreSQL container.
-- **Tier 4 (full round-trip, ADR-016)**: `command → SierraDB event persisted → PostgresProcessor catches up → read via *Repository adapter asserts the projection row`, against ephemeral SierraDB (`tqwewe/sierradb:0.3.1`) **and** Postgres containers, with bounded-retry eventual-consistency handling. A second variant verifies projector idempotency under redelivery.
-- **How to run locally**: See [Local development](#local-development-integration-tests) below.
-- **Boundary**: The crate consumes only the `pub` API of `core` and `infra`. It is excluded from the `cargo-mutants` surface — only whitebox `#[cfg(test)]` modules are mutated.
-- **CI trigger**: The integration-test workflow runs on pull requests and pushes to main. The main job runs the Vault fixture, the Postgres-only tests, and the SierraDB round-trip group; a second `ai-import-integration-tests` job runs the heavy Postgres-only AI import/payload suites (issue #226). CI starts the Postgres and SierraDB containers; the photo and AI payload tests additionally start a Garage (S3) container, and the workflow pre-pulls Postgres, SierraDB, Garage and Vault images with retries.
-- **Container policy**: Each test gets fresh containers by default. Optional local container reuse is documented in the harness module docs, but CI always uses fresh containers.
-- **Flaky-test mitigation**: CI pre-pulls Docker images with retries before running tests to handle transient network failures.
-
-### Local development (integration tests)
-
-#### Prerequisites
-- Docker (or a compatible container runtime) must be running
-- Network access to Docker Hub (for pulling `tqwewe/sierradb:0.3.1`, `postgres:16-alpine`, `hashicorp/vault:1.17` and `dxflrs/garage:v1.0.1` — Vault for the vault fixture, Garage for the photo and AI payload tests that start an S3 container)
-- Rust toolchain installed
-
-#### Running all integration tests
-```bash
-cargo test -p integration-tests
-```
-
-#### Running specific test tiers
-```bash
-# Tier 1-3: Postgres-only tests (faster, no SierraDB needed)
-cargo test -p integration-tests -- projector_tests
-
-# Tier 4: Full round-trip tests (requires SierraDB)
-cargo test -p integration-tests -- sierradb_round_trip
-```
-
-#### Running with container reuse (faster iteration)
-```bash
-TESTCONTAINERS_REUSE=1 cargo test -p integration-tests
-```
-When `TESTCONTAINERS_REUSE=1`, testcontainers will reuse containers across test runs instead of creating new ones. This significantly speeds up iteration but requires manual cleanup:
-```bash
-# List testcontainers
-docker ps --filter "label=org.testcontainers"
-
-# Stop all testcontainers
-docker stop $(docker ps -q --filter "label=org.testcontainers")
-```
-
-#### Debugging test failures
-```bash
-# Enable verbose logging
-RUST_LOG=debug cargo test -p integration-tests -- --nocapture
-
-# Run a specific failing test
-cargo test -p integration-tests -- test_name -- --nocapture
-```
-
-### Troubleshooting flaky integration tests
-
-#### Docker image pull failures
-**Symptom**: Tests fail with errors like `pull access denied` or `timeout while pulling image`.
-
-**Cause**: Transient network issues or Docker Hub rate limiting.
-
-**Fix**: The fixtures include automatic retry logic (3 attempts). If tests still fail:
-1. Pre-pull images manually: `docker pull tqwewe/sierradb:0.3.1 && docker pull postgres:16-alpine`
-2. Check Docker Hub status: https://status.docker.com/
-3. Verify network connectivity: `curl -I https://registry-1.docker.io/v2/`
-
-#### Container startup timeout
-**Symptom**: Tests fail with `SierraDB did not become ready` or similar timeout errors.
-
-**Cause**: Container is slow to start (resource constraints, heavy load).
-
-**Fix**: The startup timeout is 120 seconds. If consistently failing:
-1. Check system resources: `docker stats`
-2. Close other Docker containers to free resources
-3. Increase timeout in `fixtures.rs` (`with_startup_timeout(Duration::from_secs(180))`)
-
-#### Eventual consistency flakes
-**Symptom**: Tests fail intermittently with "projection lag" errors.
-
-**Cause**: Projector hasn't caught up within the 15-second deadline.
-
-**Fix**: This is usually a sign of slow CI runners. The polling interval is 150ms with a 15-second deadline. If consistently failing:
-1. Check if SierraDB/Postgres are healthy: `docker logs <container_id>`
-2. Increase `PROJECTION_DEADLINE` in the test file
-3. Check for projector panics in logs
-
-#### FK violation errors
-**Symptom**: Tests fail with `foreign key violation` or `violates foreign key constraint`.
-
-**Cause**: Missing parent rows for FK-constrained tables.
-
-**Fix**: See Integration-test Gotcha #1 below. Always seed parent rows before testing child entities.
-
-### Integration-test Gotchas
-
-When writing Tier-4 integration tests that emit events directly via `eappend`
-instead of through the command pipeline, keep these pitfalls in mind:
-
-1. **Missing projectors cause FK violations.** The `projection_costume` table
-   has `character_id UUID REFERENCES projection_character(id)`. If a test writes
-   a `CharacterCreated` event but does not spawn a character projector, the
-   costume projector's INSERT fails silently (the transaction rolls back, the
-   supervisor restarts, budget is exhausted). Always spawn projectors for every
-   entity type referenced by FK constraints.
-
-2. **Events on the same stream are separate transactions.** A `CostumeCreated`
-   event (0 details) and a subsequent `DetailAdded` event are processed in
-   different worker transactions. A helper like `await_costume_found` that
-   returns on the first successful read may see the row before the detail is
-   projected. Use `await_costume_with_details` or equivalent polling helpers
-   that check the full expected state, not just existence.
-
-3. **`await_costume_detail_category_name` must retry on `NotFound`.** When the
-   costume-category projector hasn't caught up yet, `find_by_id` returns
-   `NotFound`. Propagating this as an immediate failure causes flaky tests.
-   Always retry on `NotFound` within the deadline, matching the pattern used by
-   `await_costume_found`.
-
-### CI prerequisites
-
-The integration-test workflow (`.github/workflows/integration-tests.yml`, ADR-014 / ADR-016) runs on `ubuntu-latest` and requires:
-
-- **Docker** (or a compatible container runtime) available on the runner. The workflow verifies `docker info` and fails loudly if it is missing.
-- **Network access to Docker Hub** — the workflow pre-pulls `tqwewe/sierradb:0.3.1` and `postgres:16-alpine` with retries before running tests. This prevents flaky failures from transient network issues.
-- **Rust caching** — the workflow uses `Swatinem/rust-cache` to speed up builds on repeat runs.
-- **Concurrency control** — concurrent runs on the same branch are automatically cancelled to avoid Docker resource contention.
-- No service containers are declared in the workflow — `testcontainers` provisions both tiers per test, so the only host prerequisite is Docker + Hub connectivity.
-
-### CI hardening: SHA-pinning and script-injection hygiene
-
-All GitHub Actions workflows must follow these rules:
-
-- **SHA-pin third-party actions.** Never use a moving tag (`@v7`, `@v2`, `@stable`)
-  directly. Always pin to a 40-character commit SHA with a trailing `# v7` comment for
-  readability. Dependabot (configured in `.github/dependabot.yml`) opens weekly PRs to
-  bump SHAs automatically.
-- **Script-injection avoidance.** Never interpolate `${{ github.event.* }}` or other
-  expression values directly into a `run:` shell command. Pass them through `env:`
-  injection instead (GitHub docs: *Security hardening for GitHub Actions*).
+- **Unit/Integration Tests:** Deterministic tests for domain logic in `core`. **Timing-safe:** never gate on wall-clock timing or sleep-with-jitter budgets — compute the worst case analytically.
+- **Mutation Testing:** CI-only — **do NOT run locally** (saturates CPU/memory for hours; local feedback via `cargo llvm-cov` / `cargo tarpaulin`). Config lives in `.cargo/mutants.toml` (a top-level `.mutants.toml` is silently ignored). `cargo mutants --in-diff` for changed code only.
+- **Architecture Tests:** `rust_arkitect` + `cargo-deny` (ADR-017). Run `cargo test -p architecture_tests` and `cargo deny check bans` — core must not depend on infra/api.
+- **Mechanical Guardrails (CI):** `architecture-checks.yml` + `backend/rules/*.yml` (ast-grep) enforce: CQRS boundary (`cqrs-boundary`), no-string-interpolation-SQL, test-shim leak (`test-shim-leak`), error hygiene (`discard-result`, `test-helper-gate`), problem-code registry (non-suppressible), UUIDv7-only, reqwest TLS/auth security rules (Layer 9, ADR-024: rustls + pinned CAs). Suppression only via `// ast-grep-ignore: <rule-id>` with a justification comment. `backend/git-hooks/pre-commit` mirrors these on staged files; CI is authoritative. → Job/rule detail: `.github/instructions/ci-hardening.instructions.md`
+- **Integration Tests:** Black-box E2E in `crates/integration-tests` (tiers 1–4, testcontainers, ADR-016). The crate consumes only the `pub` API of `core`/`infra`. → Tiers, local execution, troubleshooting, gotchas: `.github/instructions/integration-tests.instructions.md`
+- **CI hardening (hard rule):** SHA-pin third-party actions (40-char SHA + `# vX` comment); never interpolate `${{ github.event.* }}` into `run:` — pass via `env:`. → Workflow detail: `../.github/instructions/workflow-hardening.instructions.md`
 
 ## 5. Code Example: kameo_es Aggregate
 ```rust
@@ -395,269 +79,33 @@ impl Command<CostumeAggregate> for AssignCostume {
 }
 ```
 
-## 6. Local Dev Runtime
+## 6. Reference Register (on-demand instructions)
+Detailed documentation lives as glob-scoped rule files (Markdown with YAML frontmatter,
+frontmatter aliases `globs`/`paths`/`applyTo`), loaded by `pi-rules` when a file is read that
+matches the rule's globs; `read`/`edit`/`write` are the tracked tools. Bodies are capped at
+12k chars per rule, 40k per tool result. `/rules` lists only always-on rules — glob rules
+appear attached to the file reads they match. **Placement follows pi-rules' per-target project
+root:** the first marker (`Cargo.toml`, `.git`, …) walking up from the read file decides which
+level's instructions fire: `backend/**` files discover `backend/.github/instructions/`,
+repo-level files (workflows, root scripts) discover the root `.github/instructions/`.
+Keep the split discipline when moving or adding rules: **normative stays in this file,
+descriptive goes to the instruction that scopes it** — backend-relative globs for files under
+`backend/.github/instructions/`, repo-relative for the root.
 
-v1 ships a **Postgres-only** dev compose. SierraDB is not included; the live `command → SierraDB → projector → PG` round-trip is deferred to the `sierradb-runtime-and-round-trip` follow-up change.
+| File | Scope (repo-root-relative globs) | Content |
+|---|---|---|
+| `backend/.github/instructions/architecture-hard-rules.instructions.md` | `backend/crates/**/*.rs` | Hard-rules long form (CQRS boundary, no panics, SQL, AUTHZ-GATE, ADR-031, reliability) |
+| `backend/.github/instructions/domain-model.instructions.md` | `backend/crates/{core,infra,api}/src/**` | Domain model: hierarchy, aggregates, invariants, seeding saga |
+| `backend/.github/instructions/photo-context.instructions.md` | `backend/crates/*/src/photo/**`, backend compose/scripts | Photo bounded context, sagas, Garage/S3 env, GC |
+| `backend/.github/instructions/ai-import.instructions.md` | `backend/crates/*/src/ai/**`, `backend/config/default_ai_prompts.toml` | AI import: env, concurrency permits, payload storage/GC, restart recovery |
+| `backend/.github/instructions/integration-tests.instructions.md` | `backend/crates/integration-tests/**` | Tiers, local execution, troubleshooting, gotchas, CI prerequisites |
+| `backend/.github/instructions/local-dev-runtime.instructions.md` | backend compose/scripts/`.env*`/dev-certs | Dev runtime, boot sequence, env vars, OIDC/dev-auth, IdP overlay |
+| `backend/.github/instructions/ci-hardening.instructions.md` | `backend/rules{,-tests}/**`, `backend/scripts/**` | Guardrail ast-grep rule + job detail |
+| `.github/instructions/workflow-hardening.instructions.md` | `.github/workflows/**`, `.github/dependabot.yml` | SHA-pinning, Dependabot, script-injection hygiene |
+| `.github/instructions/local-dev-root.instructions.md` | root `scripts/**`, root `.env*` | Pointer to the local-dev-runtime documentation for root dev assets |
 
-### Prerequisites
-- Docker (or a compatible container runtime) for the dev database **and** the SierraDB event store.
-
-### Start the dev runtime (both tiers)
-The dev compose starts the full two-tier stack from ADR-015 / ADR-016:
-Postgres (read model / projections) **and** SierraDB (event store, RESP3).
-From the `backend/` directory run:
-
-```bash
-docker compose -f docker-compose.dev.yml up -d
-```
-
-This starts:
-- **Postgres** on `localhost:5432` — user `postgres`, password `postgres`, database `breakdown`.
-  An init script (`scripts/postgres-init-roles.sh`) runs on first boot to
-  create two least-privilege roles: `breakdown_migrator` (DDL, schema owner)
-  and `breakdown_app` (DML only).
-- **SierraDB** on `localhost:9090` (RESP3) — pinned to `tqwewe/sierradb:0.3.1`.
-
-### Apply migrations and run the API (full boot sequence)
-1. Start both tiers (above).
-2. Apply Postgres projection migrations + boot the API, pointing at both tiers:
-
-```bash
-DATABASE_URL=postgres://postgres:postgres@localhost:5432/breakdown \
-SIERRADB_URL=redis://127.0.0.1:9090/?protocol=resp3 \
-cargo run -p api
-```
-
-`main.rs` uses a **two-pool Postgres architecture**:
-1. A short-lived migrator pool (`MIGRATOR_DATABASE_URL`, defaults to `DATABASE_URL`)
-   runs `sqlx::migrate!("../infra/migrations")` at boot (DDL rights).
-2. After migration, it enforces the INSERT-only audit restriction
-   (REVOKE UPDATE/DELETE on `projection_audit` from `breakdown_app`).
-3. The migrator pool is dropped, and a long-lived app pool (`DATABASE_URL`,
-   DML only) serves all runtime queries.
-
-In dev mode (single role, `DATABASE_URL` only), both pools use the same
-connection — the audit REVOKE is skipped gracefully.
-
-`main.rs` then opens a RESP3 connection to SierraDB, builds a live
-`CommandService` (write path), and spawns the four `PostgresProcessor`
-projectors that subscribe to SierraDB and update the Postgres projections.
-
-### Environment variables used by the API binary
-- `DATABASE_URL` – Postgres app-role connection string (DML only). Default: `postgres://postgres:postgres@localhost:5432/breakdown`. In production, connect as `breakdown_app` (least-privilege).
-- `MIGRATOR_DATABASE_URL` – Postgres migrator-role connection string (DDL, schema owner). Used only during boot migration, then dropped. Falls back to `DATABASE_URL` when unset or empty (single-role dev mode). In production, connect as `breakdown_migrator`.
-- `SIERRADB_URL` – SierraDB RESP3 connection string (default: `redis://127.0.0.1:9090/?protocol=resp3`). SierraDB speaks RESP3 only — keep `?protocol=resp3` (ADR-016). In production this is `rediss://stunnel:9091/?protocol=resp3` (TLS via the stunnel sidecar, ADR-024).
-- `SIERRADB_TLS_ROOT_CERT` – optional PEM path of the pinned root CA for the SierraDB link (the internal step-ca root in production). When set, the redis client is built with `Client::build_with_tls` and the URL must use `rediss://`.
-- `BIND_ADDR` – HTTP bind address (default: `0.0.0.0:3000`)
-- `REQUIRE_IN_TRANSIT_TLS` – startup gate (default off). When `true`/`1`, `main.rs` refuses a production config whose `DATABASE_URL`/`MIGRATOR_DATABASE_URL` lack `sslmode=verify-full` + `sslrootcert`, whose `SIERRADB_URL` is not `rediss://`, whose `S3_ENDPOINT`/`REPORT_BACKUP_*_ENDPOINT`/`AI_PAYLOAD_S3_ENDPOINT` are not `https://`, or whose `AI_PAYLOAD_S3_ENDPOINT` uses `https://` without `AI_PAYLOAD_S3_TLS_ROOT_CERT` set (ADR-024). Set by `docker-compose.prod.yml`; never inferred from `OIDC_ISS` because the local IdP overlay must keep working against plaintext dev URLs.
-- OpenAPI/Swagger UI is served at `http://localhost:3000/swagger-ui`
-
-#### Photo storage (Garage / S3)
-- `S3_ENDPOINT` – Garage S3 API endpoint (e.g. `http://garage:3900` in dev; `https://caddy:9443` in production — the Caddy internal TLS site, ADR-024)
-- `S3_ACCESS_KEY` – Garage access key
-- `S3_SECRET_KEY` – Garage secret key
-- `S3_BUCKET` – S3 bucket name (default: `costume-photos`)
-- `S3_REGION` – S3 region for OpenDAL (default: `garage`; override for AWS-style external buckets)
-- `S3_TLS_ROOT_CERT` – optional PEM path of the pinned root CA for `https://` S3 endpoints (the internal step-ca root in production); OpenDAL pins it via a custom reqwest client
-- `PHOTO_MAX_SIZE_MB` – maximum upload size in MB (default: `20`)
-- `PHOTO_GC_ENABLED` – enable periodic orphan GC (default: `true`)
-- `PHOTO_GC_INTERVAL_SECS` – GC sweep interval (default: `3600`)
-- `PHOTO_GC_MAX_AGE_SECS` – only sweep orphans older than this (default: `86400`)
-- `PHOTO_GC_BATCH_SIZE` – max orphans per run (default: `1000`)
-- `PHOTO_GC_DRY_RUN` – log-only mode (default: `false`; set `true` for first rollout)
-
-#### AI import (`add-ai-script-and-schedule-import`)
-
-- `AI_IMPORT_ENABLED` – enable AI import routes/workers (default: `false`; accepted values: `true`, `1`, `yes`).
-- `AI_IMPORT_MAX_CHUNKS_PER_SCRIPT` – maximum script scene chunks per job (default: `128`; bounded to `1..=10000`).
-- `AI_IMPORT_MAX_TOKENS_PER_REQ` – maximum output tokens per LLM request (default: `8192`; bounded to `1..=1000000`).
-- `AI_IMPORT_MAX_CONCURRENT_JOBS_GLOBAL` – global in-flight job ceiling (default: `16`).
-- `AI_IMPORT_MAX_CONCURRENT_JOBS_PER_USER` – per-user in-flight job ceiling (default: `2`).
-- `AI_IMPORT_MAX_DOCUMENT_BYTES` – maximum source document size (default: `20971520`).
-- `AI_IMPORT_REQUEST_TIMEOUT_SECS` – provider request timeout (default: `120`).
-- `AI_IMPORT_MAX_RETRIES` – maximum queue retries before dead-lettering (default: `5`).
-- `AI_IMPORT_LEASE_SECS` – worker claim lease in seconds (default: `900`). An out-of-range number is clamped to `30..=86400`; only absent/unparsable values fall back to the default. A claim records `worker_id` + `lease_expires_at`; once the lease expires another worker may reclaim the `running` job (crash recovery, issue #177). Long jobs keep their claim via a background heartbeat (`LeaseHeartbeat`, renewing at 1/3 of the window), so the lease does not need to cover a whole multi-chunk script run. All worker-originated lifecycle writes (`mark_running`, `mark_succeeded`, `mark_failed`, `record_worker_telemetry`) are **owner-fenced**: a worker whose lease lapsed gets `DomainError::Conflict` instead of overwriting the new owner's state.
-- `AI_IMPORT_DEFAULT_PROMPTS_PATH` – optional deployment override documented for prompt packaging; the built-in fallback is `config/default_ai_prompts.toml`.
-
-> **Concurrency permits are cancellation-safe (issue #178).** The two
-> `AI_IMPORT_MAX_CONCURRENT_JOBS_*` ceilings above are enforced by one owned
-> row per permit in `ai_import.concurrency_permit`, not by an anonymous
-> counter. `Drop` cannot `.await`, so a worker cancelled during shutdown could
-> never run `release()`; recovery therefore lives in the permit itself. A
-> permit's `Drop` hands its id to the in-process reclaimer task
-> (`PgAiConcurrencyLimiter::spawn_reclaimer` — the fast path), and every row
-> carries an `expires_at` lease that the next acquisition sweeps, so even a
-> process kill self-heals within one lease window. Long holders renew via
-> `PgAiConcurrencyPermit::renew` at `permit_renewal_interval` (1/3 of the
-> window). All release paths are `DELETE ... WHERE id = $1`, so double-release
-> is impossible.
->
-> `AiWorkerRuntime::run_job` renews the permit while the operation runs, so a
-> multi-hour script job cannot have its capacity swept out from under it (that
-> would over-admit past the ceiling); a `Conflict` aborts the job rather than
-> letting it run on capacity someone else now owns.
->
-> **Composition-root wiring:** call `spawn_reclaimer()` and keep the returned
-> `PermitReclaimer` alive for the process lifetime. Graceful shutdown has a
-> required order, because every sender clone must be gone before the channel
-> closes and permits hold one too: (1) cancel **and join** every task that may
-> hold a permit, (2) drop every clone of the limiter, (3) await
-> `PermitReclaimer::shutdown()`. Skipping a step leaves a live sender and the
-> await hangs; dropping the handle instead aborts the task and silently
-> downgrades those reclaims to lease-only — exactly the 900s capacity outage
-> this design removes. Use `abort()` when the ordering cannot be guaranteed.
-
-#### AI payload storage (durable source/preview blobs)
-
-All three variables (`AI_PAYLOAD_S3_ENDPOINT`, `AI_PAYLOAD_S3_ACCESS_KEY`, `AI_PAYLOAD_S3_SECRET_KEY`) must be set to enable durable S3 storage for AI import payloads.
-
-- `AI_PAYLOAD_S3_ENDPOINT` – S3 API endpoint for AI import payloads (e.g. `http://garage:3900`).
-- `AI_PAYLOAD_S3_ACCESS_KEY` – S3 access key for AI payload storage.
-- `AI_PAYLOAD_S3_SECRET_KEY` – S3 secret key for AI payload storage.
-- `AI_PAYLOAD_S3_BUCKET` – S3 bucket name for AI payloads (default: `ai-import-payloads`).
-- `AI_PAYLOAD_S3_TLS_ROOT_CERT` – optional PEM path of the pinned root CA for `https://` S3 endpoints.
-
-> **Durable storage**: When all three required variables are set, AI import payloads survive API
-> restarts. Pending jobs can resume, retries can reload source documents, and succeeded jobs
-> continue serving previews.
->
-> When `AI_IMPORT_ENABLED` is false, missing S3 variables are acceptable — the API wires
-> `infra::ai::UnconfiguredAiPayloadStore`, which refuses every payload operation with
-> `503` (never in-memory storage, which would accept payloads and drop them on restart;
-> issue #181). When `AI_IMPORT_ENABLED` is true, all three S3 variables must be set or the
-> API **fails to start** to prevent silent data loss.
-
-> **Boot sequence**: Garage must be up and provisioned (bucket + access key) before the API
-> starts. See `docker-compose.dev.yml` for the internal-only Garage service. During first
-> rollout set `PHOTO_GC_DRY_RUN=true` to observe orphan detection logs before enabling deletion.
-
-#### AI payload GC (periodic cleanup)
-
-- `AI_PAYLOAD_GC_ENABLED` – enable periodic cleanup (default: `true`).
-- `AI_PAYLOAD_GC_INTERVAL_SECS` – sweep interval in seconds (default: `3600`).
-- `AI_PAYLOAD_GC_MAX_AGE_SECS` – only cleanup payloads for jobs older than this (default: `604800` = 7 days).
-- `AI_PAYLOAD_GC_BATCH_SIZE` – max terminal-state jobs per run (default: `1000`).
-- `AI_PAYLOAD_GC_DRY_RUN` – log-only mode (default: `false`; set `true` for first rollout).
-
-> **AI payload GC**: A periodic worker cleans up Garage payloads for terminal-state jobs
-> after the configurable grace period. The worker uses a Postgres advisory lock to prevent
-> concurrent sweeps. Set `AI_PAYLOAD_GC_DRY_RUN=true` for the first rollout to observe
-> deletion logs before enabling actual cleanup.
->
-> **Terminal means unclaimable (issue #181).** The sweep covers exactly
-> `succeeded`, `dead_letter` and `payload_unavailable`. `failed` is **never**
-> swept — it is the *retryable* backoff state, and sweeping it deleted the source
-> document of jobs that were still scheduled to run.
->
-> Do not "refine" this to sweep `failed` once `retries >= max_retries`. The claim
-> predicates match `status = 'failed' AND (next_attempt_at IS NULL OR
-> next_attempt_at <= now())` and **never consult `retries`**, so an exhausted
-> `failed` row is still handed to the next worker. Nothing leaks as a result:
-> `mark_failed` dead-letters a job in the same statement that exhausts its budget,
-> so a `failed` row is by construction one that still has a future.
->
-> **The sweep is stateful (issue #206).** Each deleted payload is recorded in
-> `ai_import.ai_payload_cleanup`, keyed `(job_id, payload_kind)`, and the sweep
-> anti-joins those marks so a job is selected only while it still owes a
-> payload. Without the marks the oldest `batch_size` jobs were re-selected on
-> every run forever: deletions are idempotent so nothing broke, but the S3
-> round-trips were re-paid, the run-history counters re-counted the same
-> deletions, and any job behind the `LIMIT` never got swept at all — retention
-> silently stopped being enforced. The `LIMIT` is a rate limit, not a horizon.
->
-> **Only real deletions may be marked.** A mark hides the payload from every
-> future sweep, so it must never outrun the deletion:
-> - deleted → marked;
-> - **not found → marked** (the goal state holds, and a terminal job can never
->   be re-claimed to recreate the payload, so re-probing it is pure waste);
-> - failed → **not** marked, so the next sweep retries it;
-> - dry run → **not** marked, or observation mode would permanently hide the
->   very objects it was meant to report.
->
-> Marks are flushed *before* the run-history row and *before* the early return
-> on the first deletion error, so one failure cannot discard the marks its
-> siblings in the batch earned. A sweep must never touch `updated_at` on the
-> job row — that column is both the retention clock and the sweep's `ORDER BY`
-> key, so writing it there would reset the window it measures.
-
-#### AI import restart recovery (issue #181)
-
-AI import payloads live in Garage (`AI_PAYLOAD_S3_*`), so a process restart does not
-lose them. Behaviour per job status after a restart:
-
-| Status | Behaviour |
-|---|---|
-| `pending` | Runnable; the next worker claims it and loads the source from durable storage. |
-| `running` | Its worker is gone; the claim lease expires and another worker reclaims it, releasing the orphaned permit. |
-| `failed` | Runnable once `next_attempt_at` is due — the claim predicate ignores `retries`. Payloads are **never** GC'd. |
-| `dead_letter` | Terminal; payloads GC-eligible after retention. `mark_failed` lands a budget-exhausted job here directly. |
-| `succeeded` | Preview served from durable storage; apply reloads it. GC-eligible after retention. |
-| `payload_unavailable` | Terminal and **non-resumable**: never claimed, never retried. |
-
-A worker that cannot load a payload because it is **absent** (`DomainError::NotFound`)
-calls `AiImportQueue::mark_payload_unavailable`, which moves the job to
-`payload_unavailable` immediately, bypassing the remaining retry budget — every retry
-could only re-discover the same absence while consuming a claim and a concurrency
-permit. A worker that cannot load it because storage is **unreachable**
-(`ServiceUnavailable`) still fails retryably: that is transient, and the bytes may well
-still be there. Never collapse these two cases.
-
-The composition root must never hold an in-memory payload store: with AI import
-disabled, `main.rs` wires `infra::ai::UnconfiguredAiPayloadStore`, which refuses every
-operation with `ServiceUnavailable` (deliberately not `NotFound`, which would
-dead-letter jobs). `MemoryAiPreviewStore` is test-only.
-
-#### OIDC / authorization (added by `add-oidc-auth-and-membership`)
-- `OIDC_ISS` – IdP issuer URL (expected `iss` claim). Production-only; when
-  absent **and** `DEV_AUTH_SUB` is set, the API runs in **dev auth mode** (see below).
-- `OIDC_AUDIENCE` – resource indicator / expected `aud` claim for this API.
-- `OIDC_JWKS_URL` – IdP JWKS document URL used to fetch RSA signing keys.
-- `AUTHZ_ENFORCE` – `false`/`0` disables authorization enforcement
-  (denials are logged, requests allowed — staged rollout / log-only); any other value
-  (or unset) enforces, returning `403` for non-members. **Dev auth mode defaults
-  enforcement OFF** so local development works without seeded membership.
-- `DEV_AUTH_SUB` – when set (and `OIDC_ISS` unset), auth runs in dev mode:
-  tokens are NOT verified and a fixed dummy `CurrentUser` (`sub = DEV_AUTH_SUB`)
-  is injected. **Never set in production.** `DEV_AUTH_EMAIL` optionally supplies the
-  dummy user's email.
-
-> Dev auth mode is an explicit, env-gated bypass used only for local development
-> and tests. `main.rs` only ever enters it when `OIDC_ISS` is absent and
-> `DEV_AUTH_SUB` is present; production deployments set `OIDC_ISS` and therefore
-> can never reach dev mode.
-
-### Optional: Local IdP for OIDC Development
-
-For auth-related work, you can boot a self-hosted Logto IdP using the IdP overlay. **This is dev-only**; production IdP runtime is governed by ADR-010 (Logto Cloud first, Zitadel migration later) and is not provided by this dev overlay.
-
-```bash
-# Generate the dev CA + leaf certs (IdP + API) — creates dev-certs/
-./scripts/generate-dev-certs.sh
-
-# Boot the full stack with IdP
-docker compose -f docker-compose.dev.yml -f docker-compose.idp.yml up -d
-
-# Seed the OIDC application (generates .env.idp)
-./scripts/seed-logto-dev.sh
-```
-
-This starts:
-- **Logto OIDC** on `https://localhost:3301` — issuer URL for OIDC flows (HTTPS, cert signed by the dev CA)
-- **Logto Admin UI** on `https://localhost:3302` — admin console and Admin API (HTTPS)
-- **logto-db** — dedicated Postgres for Logto state (isolated from breakdown read-model)
-
-After seeding, the `.env.idp` file contains:
-- `OIDC_ISS` — Issuer URL (e.g., `https://localhost:3301`)
-- `OIDC_AUDIENCE` — Resource indicator for your API (e.g., `https://api.breakdown.local`)
-- `OIDC_JWKS_URL` — JWKS endpoint for key discovery (e.g., `https://localhost:3301/.well-known/jwks`)
-
-**Dev IdP TLS (D1 primary):** The IdP serves HTTPS on `:3301` with a leaf cert signed by the dev CA (`dev-certs/ca.pem`). The same CA signs the API cert (`dev-certs/api.pem`), so the Flutter client pins one CA set for both hosts. The leaf certs include `10.0.2.2` as a SAN for Android emulator reachability — the emulator connects to the IdP at `https://10.0.2.2:3301`.
-
-> **First-time setup:** Run `./scripts/generate-dev-certs.sh` before booting the IdP overlay — `docker-compose.idp.yml` mounts `dev-certs/idp.{pem,key}` into the Logto container. The generated certs are git-ignored (see `.gitignore`).
-
-**Dev ≠ Prod IdP:** The backend validates standard OIDC JWTs and is IdP-agnostic. Dev uses self-hosted Logto for convenience; production may use Logto Cloud or Zitadel per ADR-010. No code changes are needed to switch IdPs — only the environment variables change.
-
-**Frontend note:** Local frontend dev should configure the OIDC client to point to `https://localhost:3301` for the issuer. The dev CA (`dev-certs/ca.pem`) replaces the placeholder in `frontend-flutter/assets/certs/dev/ca.pem` — copy it there so the Flutter client trusts the dev IdP + API.
+Further references: `docs/security/security-architecture.md` (threat model),
+`docs/errors/` (problem codes, ADR-031), `backend/openapi.yaml` (API contract), ADRs.
 
 ## 7. Licensing & Headers
 - **License:** AGPL-3.0 (see `LICENSE`)
