@@ -2484,8 +2484,6 @@ pub struct PhotoBytesQuery {
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct PlanSceneShootRequest {
-    pub scene_id: Uuid,
-    pub shooting_day_id: ShootingDayId,
     pub planned_order: LexicalSortKey,
 }
 
@@ -2563,7 +2561,6 @@ pub struct WrapShootingDayRequest {
     request_body = PlanSceneShootRequest,
     responses(
         (status = 201, body = IdVersionResponse),
-        (status = 400, body = ProblemDetails, description = "Identifier in the body does not match the path parameter"),
         (status = 404, body = ProblemDetails, description = "Scene or shooting day not found"),
         (status = 422, body = ProblemDetails, description = "Validation error"),
         (status = 409, body = ProblemDetails, description = "Conflict"),
@@ -2575,20 +2572,6 @@ pub async fn plan_scene_shoot<P: Ports>(
     Path((day_id, scene_id)): Path<(ShootingDayId, Uuid)>,
     Json(req): Json<PlanSceneShootRequest>,
 ) -> ApiResult<IdVersionResponse> {
-    if req.shooting_day_id != day_id {
-        return Err(ApiError::BadRequest(
-            "shooting_day_id in body must match path parameter",
-        ));
-    }
-    // Both identifiers are also carried by the request body; reject a
-    // contradictory payload instead of silently preferring the path value
-    // (the shoot would otherwise be planned for a scene the caller did not
-    // name in the body).
-    if req.scene_id != scene_id {
-        return Err(ApiError::BadRequest(
-            "scene_id in body must match path parameter",
-        ));
-    }
     let id = SceneShootId::new();
     let series_id = Some(series_id_for_scene(&state, scene_id).await?);
     let cmd = PlanSceneShoot {
