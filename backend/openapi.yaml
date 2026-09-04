@@ -3871,6 +3871,11 @@ paths:
     delete:
       operationId: remove_scene_character
       parameters:
+      - in: query
+        name: version
+        required: true
+        schema:
+          $ref: '#/components/schemas/AggregateVersion'
       - in: path
         name: id
         required: true
@@ -3971,6 +3976,11 @@ paths:
     delete:
       operationId: unschedule_scene_from_shooting_day
       parameters:
+      - in: query
+        name: version
+        required: true
+        schema:
+          $ref: '#/components/schemas/AggregateVersion'
       - description: Scene id
         in: path
         name: id

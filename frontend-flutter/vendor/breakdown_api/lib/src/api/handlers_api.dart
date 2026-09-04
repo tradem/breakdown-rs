@@ -5329,6 +5329,7 @@ class HandlersApi {
   ///
   ///
   /// Parameters:
+  /// * [version]
   /// * [id]
   /// * [characterId]
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
@@ -5341,6 +5342,7 @@ class HandlersApi {
   /// Returns a [Future] containing a [Response] with a [int] as data
   /// Throws [DioException] if API call or serialization fails
   Future<Response<int>> removeSceneCharacter({
+    required int version,
     required String id,
     required String characterId,
     CancelToken? cancelToken,
@@ -5372,9 +5374,15 @@ class HandlersApi {
       validateStatus: validateStatus,
     );
 
+    final _queryParameters = <String, dynamic>{
+      r'version':
+          encodeQueryParameter(_serializers, version, const FullType(int)),
+    };
+
     final _response = await _dio.request<Object>(
       _path,
       options: _options,
+      queryParameters: _queryParameters,
       cancelToken: cancelToken,
       onSendProgress: onSendProgress,
       onReceiveProgress: onReceiveProgress,
@@ -6971,6 +6979,7 @@ class HandlersApi {
   ///
   ///
   /// Parameters:
+  /// * [version]
   /// * [id] - Scene id
   /// * [shootingDayId] - Shooting day id
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
@@ -6983,6 +6992,7 @@ class HandlersApi {
   /// Returns a [Future] containing a [Response] with a [int] as data
   /// Throws [DioException] if API call or serialization fails
   Future<Response<int>> unscheduleSceneFromShootingDay({
+    required int version,
     required String id,
     required String shootingDayId,
     CancelToken? cancelToken,
@@ -7014,9 +7024,15 @@ class HandlersApi {
       validateStatus: validateStatus,
     );
 
+    final _queryParameters = <String, dynamic>{
+      r'version':
+          encodeQueryParameter(_serializers, version, const FullType(int)),
+    };
+
     final _response = await _dio.request<Object>(
       _path,
       options: _options,
+      queryParameters: _queryParameters,
       cancelToken: cancelToken,
       onSendProgress: onSendProgress,
       onReceiveProgress: onReceiveProgress,
