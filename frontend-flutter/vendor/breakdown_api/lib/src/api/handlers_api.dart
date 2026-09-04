@@ -2430,7 +2430,7 @@ class HandlersApi {
   }
 
   /// getAuditHistory
-  ///
+  /// Audit journal entries of a series, newest first. Requires the series_id query parameter (400 otherwise).
   ///
   /// Parameters:
   /// * [limit]
@@ -4301,7 +4301,7 @@ class HandlersApi {
   }
 
   /// listBlocks
-  ///
+  /// Lists the blocks of a season. Requires the season_id query parameter (400 otherwise).
   ///
   /// Parameters:
   /// * [limit]
@@ -4404,7 +4404,7 @@ class HandlersApi {
   }
 
   /// listCharacters
-  ///
+  /// Lists the characters of a season. Requires the season_id query parameter (400 otherwise).
   ///
   /// Parameters:
   /// * [limit]
@@ -4684,7 +4684,7 @@ class HandlersApi {
   }
 
   /// listCostumes
-  ///
+  /// Lists the costumes of a season. Requires the season_id query parameter (400 otherwise).
   ///
   /// Parameters:
   /// * [limit]
@@ -4787,14 +4787,13 @@ class HandlersApi {
   }
 
   /// listEpisodes
-  ///
+  /// Lists episodes of a series, or of a single block when block_id is given. Requires series_id unless block_id is present (400 otherwise).
   ///
   /// Parameters:
   /// * [limit]
   /// * [offset]
-  /// * [episodeId]
-  /// * [seasonId]
   /// * [seriesId]
+  /// * [blockId]
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -4807,9 +4806,8 @@ class HandlersApi {
   Future<Response<BuiltList<EpisodeView>>> listEpisodes({
     int? limit = 50,
     int? offset = 0,
-    String? episodeId,
-    String? seasonId,
     String? seriesId,
+    String? blockId,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -4837,15 +4835,12 @@ class HandlersApi {
       if (offset != null)
         r'offset':
             encodeQueryParameter(_serializers, offset, const FullType(int)),
-      if (episodeId != null)
-        r'episode_id': encodeQueryParameter(
-            _serializers, episodeId, const FullType(String)),
-      if (seasonId != null)
-        r'season_id': encodeQueryParameter(
-            _serializers, seasonId, const FullType(String)),
       if (seriesId != null)
         r'series_id': encodeQueryParameter(
             _serializers, seriesId, const FullType(String)),
+      if (blockId != null)
+        r'block_id':
+            encodeQueryParameter(_serializers, blockId, const FullType(String)),
     };
 
     final _response = await _dio.request<Object>(
@@ -5086,7 +5081,7 @@ class HandlersApi {
   }
 
   /// listScenes
-  ///
+  /// Lists the scenes of an episode. Requires the episode_id query parameter (400 otherwise).
   ///
   /// Parameters:
   /// * [limit]

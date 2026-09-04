@@ -3,6 +3,7 @@
 <!-- Co-authored-by: deepseek-v4-flash (opencode-go) -->
 <!-- Co-authored-by: longcat-2.0-free (opencode) -->
 <!-- Co-authored-by: hy4-preview (opencode-go) -->
+<!-- Co-authored-by: muse-spark-1.3-contributor (opencode-go) -->
 
 # Changelog
 
@@ -48,6 +49,21 @@ commits (ADR-020 D5).
   canonical YAML and diffs it against the checked-in review artifact
   `backend/openapi.yaml` (`UPDATE_OPENAPI=1` regenerates). No public API
   change; no version bump.
+
+### Added — `GET /v1/episodes` accepts an optional `block_id` filter (issue #335)
+
+- A dedicated `EpisodeListParams` type carries an optional
+  `block_id: Option<BlockId>` query parameter for `list_episodes` only, so
+  sibling list operations no longer advertise a filter they ignore (issue
+  #335 review). `list_episodes` serves it from the existing
+  `EpisodeRepository::list_by_block` port (limit/offset apply per block);
+  without `block_id` the handler keeps requiring `series_id` and serving
+  `list_by_series`, so existing callers (no filter, `series_id`) are
+  unaffected. Missing both `block_id` and `series_id` still fails with
+  `400 http.bad-query-param`.
+- `backend/openapi.yaml` regenerated (`block_id` is documented only on
+  `GET /v1/episodes`). The wire contract is additive, so the `/v1` path
+  version stays (ADR-021 D1). No crate version bump.
 
 ### Changed — `GET /v1/audit` is series-scoped, not block-scoped (issue #342)
 
@@ -109,6 +125,23 @@ commits (ADR-020 D5).
   `backend/openapi.yaml` regenerated. No Rust public API change; the wire
   contract sheds an ignored required field, so the `/v1` path version stays
   (ADR-021 D1). No crate version bump.
+
+### Added — Per-operation RFC 9457 error responses in the OpenAPI contract (issue #343)
+
+- Every operation now declares its failure surface with `body = ProblemDetails`
+  (rewritten to `application/problem+json` by `api_doc()`), following per-verb
+  minimum sets: 422+409 for POST creates, 404+422+409 for PATCH/PUT, 404+409
+  for DELETE, 404 for id-addressed GETs, 400 for collection GETs with required
+  query params, 403 where an `AUTHZ-GATE` exists. Collection list operations
+  also carry an operation `description` naming the conditional scope-parameter
+  requirement (`series_id`/`season_id`/`episode_id`; `series_id` only without
+  `block_id` on `GET /v1/episodes`).
+- New `openapi_drift` regression test: every operation must document at least
+  one non-2xx `application/problem+json` response typed as `ProblemDetails`,
+  and every declared non-2xx response must carry that typed body.
+- `backend/openapi.yaml` regenerated. Docs-only: no Rust public API change,
+  no wire behavior change (generated Dart client byte-identical), so the
+  `/v1` path version stays (ADR-021 D1). No crate version bump.
 
 ## [0.8.0] - 2026-08-23
 
