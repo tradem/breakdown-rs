@@ -2429,7 +2429,7 @@ class HandlersApi {
   }
 
   /// getAuditHistory
-  ///
+  /// Audit journal entries of a series, newest first. Requires the series_id query parameter (400 otherwise).
   ///
   /// Parameters:
   /// * [limit]
@@ -4092,7 +4092,7 @@ class HandlersApi {
   }
 
   /// listBlocks
-  ///
+  /// Lists the blocks of a season. Requires the season_id query parameter (400 otherwise).
   ///
   /// Parameters:
   /// * [limit]
@@ -4195,7 +4195,7 @@ class HandlersApi {
   }
 
   /// listCharacters
-  ///
+  /// Lists the characters of a season. Requires the season_id query parameter (400 otherwise).
   ///
   /// Parameters:
   /// * [limit]
@@ -4475,7 +4475,7 @@ class HandlersApi {
   }
 
   /// listCostumes
-  ///
+  /// Lists the costumes of a season. Requires the season_id query parameter (400 otherwise).
   ///
   /// Parameters:
   /// * [limit]
@@ -4578,7 +4578,7 @@ class HandlersApi {
   }
 
   /// listEpisodes
-  ///
+  /// Lists episodes of a series, or of a single block when block_id is given. Requires series_id unless block_id is present (400 otherwise).
   ///
   /// Parameters:
   /// * [limit]
@@ -4872,7 +4872,7 @@ class HandlersApi {
   }
 
   /// listScenes
-  ///
+  /// Lists the scenes of an episode. Requires the episode_id query parameter (400 otherwise).
   ///
   /// Parameters:
   /// * [limit]
