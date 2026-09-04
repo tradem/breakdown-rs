@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
 // Co-authored-by: longcat-2.0-free (opencode)
@@ -130,7 +131,8 @@ pub struct IdVersionResponse {
 
 /// Query parameters for paginated list endpoints.
 ///
-/// `episode_id` scopes Scene lists; `season_id` scopes Character/Block/Episode/Costume lists.
+/// `episode_id` scopes Scene lists; `season_id` scopes Character/Block/Episode/Costume lists;
+/// `series_id` scopes Season/Episode lists.
 #[derive(Debug, Clone, Deserialize, IntoParams)]
 pub struct ListParams {
     #[param(default = 50)]
@@ -367,10 +369,8 @@ fn require_season(params: &ListParams) -> Result<SeasonId, ApiError> {
 }
 
 /// Required `series_id` query parameter (`http.bad-query-param`, 400).
-fn require_series(params: &ListParams) -> Result<SeriesId, ApiError> {
-    params
-        .series_id
-        .ok_or(ApiError::BadQueryParam("series_id is required"))
+fn require_series(series_id: Option<SeriesId>) -> Result<SeriesId, ApiError> {
+    series_id.ok_or(ApiError::BadQueryParam("series_id is required"))
 }
 
 /// Resolve the `series_id` for a scene at the API edge (scene → episode → series).
@@ -489,7 +489,7 @@ pub async fn get_audit_history<P: Ports>(
     current_user: CurrentUser,
     Query(params): Query<ListParams>,
 ) -> ApiResult<Vec<AuditEntry>> {
-    let series_id = require_series(&params)?;
+    let series_id = require_series(params.series_id)?;
 
     // AUTHZ-GATE: the journal is filtered by the `series_id` **query
     // parameter**, so the route is series-scoped data, not block-scoped data:
@@ -854,25 +854,47 @@ pub async fn get_episode<P: Ports>(
     Ok((StatusCode::OK, Json(view)))
 }
 
+/// Query parameters for the episode list endpoint.
+///
+/// `block_id` scopes the list to one block; otherwise `series_id` scopes it
+/// to a series (required). Kept separate from `ListParams` so the shared
+/// type does not advertise `block_id` on sibling operations that ignore it
+/// (issue #335 review).
+#[derive(Debug, Clone, Deserialize, IntoParams)]
+pub struct EpisodeListParams {
+    #[param(default = 50)]
+    pub limit: Option<i64>,
+    #[param(default = 0)]
+    pub offset: Option<i64>,
+    pub series_id: Option<SeriesId>,
+    pub block_id: Option<BlockId>,
+}
+
 #[utoipa::path(
     get,
     path = "/episodes",
-    params(ListParams),
+    params(EpisodeListParams),
     responses((status = 200, body = Vec<EpisodeView>)),
 )]
 pub async fn list_episodes<P: Ports>(
     State(state): State<AppState<P>>,
-    Query(params): Query<ListParams>,
+    Query(params): Query<EpisodeListParams>,
 ) -> ApiResult<Vec<EpisodeView>> {
-    let series_id = require_series(&params)?;
+    let limit = params.limit.unwrap_or(50);
+    let offset = params.offset.unwrap_or(0);
+    if let Some(block_id) = params.block_id {
+        let views = state
+            .ports
+            .episode_repo()
+            .list_by_block(block_id, limit, offset)
+            .await?;
+        return Ok((StatusCode::OK, Json(views)));
+    }
+    let series_id = require_series(params.series_id)?;
     let views = state
         .ports
         .episode_repo()
-        .list_by_series(
-            series_id,
-            params.limit.unwrap_or(50),
-            params.offset.unwrap_or(0),
-        )
+        .list_by_series(series_id, limit, offset)
         .await?;
     Ok((StatusCode::OK, Json(views)))
 }

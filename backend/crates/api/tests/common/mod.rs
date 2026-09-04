@@ -955,19 +955,49 @@ impl EpisodeRepository for FakeEpisodeRepo {
     }
     async fn list_by_block(
         &self,
-        _block_id: BlockId,
-        _limit: i64,
-        _offset: i64,
+        block_id: BlockId,
+        limit: i64,
+        offset: i64,
     ) -> Result<Vec<EpisodeView>, DomainError> {
-        Ok(Vec::new())
+        let all = self.episodes.lock().await;
+        // Materialize and sort like the production repository (`ORDER BY
+        // number`, `id` as deterministic tiebreak): `HashMap::values()` has
+        // no stable order, so paginating the raw iterator would return
+        // different episodes for the same scope, offset, and limit.
+        let mut views: Vec<EpisodeView> = all
+            .values()
+            .filter(|e| e.block_id == block_id)
+            .cloned()
+            .collect();
+        views.sort_by(|a, b| a.number.cmp(&b.number).then(a.id.cmp(&b.id)));
+        Ok(views
+            .into_iter()
+            .skip(offset as usize)
+            .take(limit as usize)
+            .collect())
     }
     async fn list_by_series(
         &self,
-        _series_id: SeriesId,
-        _limit: i64,
-        _offset: i64,
+        series_id: SeriesId,
+        limit: i64,
+        offset: i64,
     ) -> Result<Vec<EpisodeView>, DomainError> {
-        Ok(Vec::new())
+        let all = self.episodes.lock().await;
+        // Materialize and sort like the production repository (`ORDER BY
+        // number`, `id` as deterministic tiebreak): `HashMap::values()` has
+        // no stable order, so paginating the raw iterator would return
+        // different episodes for the same scope, offset, and limit.
+        let mut views: Vec<EpisodeView> = all
+            .values()
+            .filter(|e| e.series_id == series_id)
+            .cloned()
+            .collect();
+        views.sort_by(|a, b| a.number.cmp(&b.number).then(a.id.cmp(&b.id)));
+        Ok(views
+            .into_iter()
+            .skip(offset as usize)
+            .take(limit as usize)
+            .collect())
     }
     async fn find_by_series_and_number(
         &self,

@@ -35,6 +35,21 @@ commits (ADR-020 D5).
   `backend/openapi.yaml` (`UPDATE_OPENAPI=1` regenerates). No public API
   change; no version bump.
 
+### Added — `GET /v1/episodes` accepts an optional `block_id` filter (issue #335)
+
+- A dedicated `EpisodeListParams` type carries an optional
+  `block_id: Option<BlockId>` query parameter for `list_episodes` only, so
+  sibling list operations no longer advertise a filter they ignore (issue
+  #335 review). `list_episodes` serves it from the existing
+  `EpisodeRepository::list_by_block` port (limit/offset apply per block);
+  without `block_id` the handler keeps requiring `series_id` and serving
+  `list_by_series`, so existing callers (no filter, `series_id`) are
+  unaffected. Missing both `block_id` and `series_id` still fails with
+  `400 http.bad-query-param`.
+- `backend/openapi.yaml` regenerated (`block_id` is documented only on
+  `GET /v1/episodes`). The wire contract is additive, so the `/v1` path
+  version stays (ADR-021 D1). No crate version bump.
+
 ### Changed — `GET /v1/audit` is series-scoped, not block-scoped (issue #342)
 
 - **Authorization classification (behavior change):** `requirement_for()` now
