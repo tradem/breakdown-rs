@@ -33,18 +33,25 @@ mkdir -p "$FIXTURE/frontend-flutter/lib/src"
 mkdir -p "$FIXTURE/frontend-flutter/.dart_tool"
 
 printf 'components:\n  schemas: {}\n' > "$FIXTURE/backend/openapi.yaml"
-printf '// GENERATED — do not edit. Regenerate with `scripts/regen-client.sh`.\n// other content\n' > "$FIXTURE/frontend-flutter/vendor/breakdown_api/lib/src/soll_ist_report.dart"
-printf '// GENERATED CODE - DO NOT MODIFY BY HAND\n// build_runner output\n' > "$FIXTURE/frontend-flutter/lib/src/cache_database.g.dart"
-printf '// GENERATED CODE - DO NOT MODIFY BY HAND\n// freezed output\n' > "$FIXTURE/frontend-flutter/lib/src/model.freezed.dart"
-printf '// GENERATED CODE - DO NOT MODIFY BY HAND\n// mockito output\n' > "$FIXTURE/frontend-flutter/lib/src/service.mocks.dart"
+# Path-exclusion fixtures intentionally omit any GENERATED banner so each
+# path predicate is tested independently of the content-level guard. Only
+# future_generated.dart below exercises the content guard.
+printf '// Vendor artifact — committed output of scripts/regen-client.sh.\n// other content\n' > "$FIXTURE/frontend-flutter/vendor/breakdown_api/lib/src/soll_ist_report.dart"
+printf '// build_runner output\n// other content\n' > "$FIXTURE/frontend-flutter/lib/src/cache_database.g.dart"
+printf '// freezed output\n// other content\n' > "$FIXTURE/frontend-flutter/lib/src/model.freezed.dart"
+printf '// mockito output\n// other content\n' > "$FIXTURE/frontend-flutter/lib/src/service.mocks.dart"
 printf '// GENERATED, DO NOT EDIT: future generated tree at an unknown path.\n// covered by the content-level banner guard, not the path prune.\n' > "$FIXTURE/frontend-flutter/lib/src/future_generated.dart"
 printf '// some dart_tool artifact\n' > "$FIXTURE/frontend-flutter/.dart_tool/package_config.dart"
 
 # --- Fixture: hand-authored files that must gain a header ---
 mkdir -p "$FIXTURE/backend/src"
 mkdir -p "$FIXTURE/frontend-flutter/lib/src"
+mkdir -p "$FIXTURE/docs"
 printf 'fn main() {}\n' > "$FIXTURE/backend/src/main.rs"
 printf 'void main() {}\n' > "$FIXTURE/frontend-flutter/lib/src/hand_written.dart"
+# Authored OpenAPI document outside backend/: must NOT match the scoped
+# backend/openapi.yaml exclusion, so it still gains a header.
+printf 'components:\n  schemas: {}\n' > "$FIXTURE/docs/openapi.yaml"
 
 # Record pre-run checksums of every generated file.
 declare -A before
@@ -74,7 +81,7 @@ for f in "${!before[@]}"; do
 done
 
 # --- Assert: hand-authored files gained a header ---
-for f in "$FIXTURE/backend/src/main.rs" "$FIXTURE/frontend-flutter/lib/src/hand_written.dart"; do
+for f in "$FIXTURE/backend/src/main.rs" "$FIXTURE/frontend-flutter/lib/src/hand_written.dart" "$FIXTURE/docs/openapi.yaml"; do
     if grep -q "SPDX-License-Identifier" "$f"; then
         pass "$f gained SPDX header"
     else

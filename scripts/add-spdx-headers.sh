@@ -9,9 +9,11 @@
 # Skip list (rebuild-only artifacts, issue #345): the following trees/files are
 # reproduced byte-for-byte by tooling, so an injected SPDX header would be
 # stripped by the next regeneration and break drift checks instead of helping:
-#   - backend/openapi.yaml (`-not -name "openapi.yaml"`): written verbatim by
-#     `UPDATE_OPENAPI=1 cargo test -p api --test openapi_drift`; any header
-#     makes the artifact differ from the generated document.
+#   - backend/openapi.yaml (`-not -path "*/backend/openapi.yaml"`): written
+#     verbatim by `UPDATE_OPENAPI=1 cargo test -p api --test openapi_drift`;
+#     any header makes the artifact differ from the generated document.
+#     Scoped to backend/ so a hand-authored openapi.yaml elsewhere still
+#     gains a header.
 #   - frontend-flutter/vendor/**: committed output of scripts/regen-client.sh;
 #     a header makes the committed tree differ from the regenerated tree and
 #     fails the `openapi-client-drift` CI job.
@@ -43,7 +45,8 @@ find "${1:-.}" -type f \
        -o -name "*.md" \) \
     -not -path "*/.dart_tool/*" \
     -not -path "*/frontend-flutter/vendor/*" \
-    -not -name "openapi.yaml" \
+    -not -path "*/backend/openapi.yaml" \
+    -not -path "backend/openapi.yaml" \
     -not -name "*.g.dart" -not -name "*.freezed.dart" -not -name "*.mocks.dart" \
     | while read -r file; do
     # Rebuild-only files carry their own banner and are reproduced verbatim by
