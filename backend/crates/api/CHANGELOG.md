@@ -35,6 +35,22 @@ commits (ADR-020 D5).
 - **MINOR bump (ADR-020 D2):** new public routes + response type:
   **0.9.0 → 0.10.0**.
 
+### Fixed — AI import review follow-ups (issue #337)
+
+- `GET /v1/ai-import/jobs` paginates the gate-filtered (visible) rows: the
+  per-row season gate now runs before `LIMIT`/`OFFSET`, so denied rows ahead
+  of the window can no longer punch holes into (or empty out) the page. The
+  store is scanned in bounded 100-row windows until the visible window is
+  full or exhausted.
+- `GET /v1/ai-import/jobs` and `GET /v1/ai-import/config` return
+  `Cache-Control: no-store` via the shared `no_store_json` helper, matching
+  the single-item AI endpoints (`GET …/jobs/{id}`, `…/preview`).
+- `GET /v1/ai-import/jobs/{id}/preview` declares the reachable `422
+  domain.validation` response for corrupt preview blobs in `openapi.yaml`
+  (the Dart client regenerates byte-identical: error-only changes emit no
+  client code).
+- Rides with the 0.10.0 MINOR above; no additional bump.
+
 ### Fixed — Dev-auth fallback gated on OIDC_ISS absence (issue #270)
 
 - `AuthState::from_env_or_dev()` no longer falls back to unverified-token dev

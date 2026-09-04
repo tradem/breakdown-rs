@@ -4215,7 +4215,7 @@ pub async fn upload_ai_schedule<P: Ports>(
     enqueue_ai_upload(&state, current_user, headers, body, DocumentKind::Schedule).await
 }
 
-#[derive(Debug, Clone, Serialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AiImportJobResponse {
     pub job: breakdown_core::ai::AiImportJob,
 }
@@ -4238,6 +4238,13 @@ pub async fn get_ai_import_job<P: Ports>(
     Ok(no_store_json(StatusCode::OK, AiImportJobResponse { job }))
 }
 
+/// Stored-row scan window for `list_ai_import_jobs` (issue #337 review).
+///
+/// Every `list_for_user` backend clamps `LIMIT` to `1..=100`, so a wider
+/// window would silently shrink to 100 rows and could stall the visible-page
+/// scan loop that pages past gate-denied rows.
+const AI_JOB_LIST_SCAN_PAGE: i64 = 100;
+
 #[utoipa::path(
     get,
     path = "/ai-import/jobs",
@@ -4248,37 +4255,56 @@ pub async fn list_ai_import_jobs<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
     Query(params): Query<ListParams>,
-) -> ApiResult<Vec<AiImportJobResponse>> {
+) -> Result<Response, ApiError> {
     // AUTHZ-GATE: the caller's own jobs only (`user_id` filter); each row is
     // additionally passed through the per-job season gate so a revoked
     // membership hides the job here exactly as it 403s the single-job view.
     // Rows denied by the gate are skipped, not fatal: the list stays usable
     // when one job's block is gone. Infra failures still propagate.
-    let jobs = state
-        .ports
-        .ai_import_queue()
-        .list_for_user(
-            &current_user.sub,
-            params.limit.unwrap_or(50),
-            params.offset.unwrap_or(0),
-        )
-        .await?;
-    let mut visible = Vec::with_capacity(jobs.len());
-    for job in jobs {
-        match authorize_ai_job(&state, &current_user, &job, Action::Read).await {
-            Ok(()) => visible.push(AiImportJobResponse { job }),
-            Err(ApiError::Forbidden(_)) | Err(ApiError::NotFound(_)) => continue,
-            Err(error) => return Err(error),
+    //
+    // The gate runs *before* pagination: `LIMIT`/`OFFSET` slice the visible
+    // rows, never the stored rows, so denied rows ahead of the window cannot
+    // punch holes into (or empty out) the page. The store is scanned in
+    // bounded `AI_JOB_LIST_SCAN_PAGE` windows until the visible window is
+    // full or the store is exhausted.
+    let limit = params.limit.unwrap_or(50).clamp(1, 100) as usize;
+    let offset = params.offset.unwrap_or(0).max(0) as usize;
+    let needed = offset.saturating_add(limit);
+    let mut visible: Vec<AiImportJobResponse> = Vec::new();
+    let mut stored_offset: i64 = 0;
+    loop {
+        let stored = state
+            .ports
+            .ai_import_queue()
+            .list_for_user(&current_user.sub, AI_JOB_LIST_SCAN_PAGE, stored_offset)
+            .await?;
+        let fetched = stored.len();
+        for job in stored {
+            match authorize_ai_job(&state, &current_user, &job, Action::Read).await {
+                Ok(()) => {
+                    visible.push(AiImportJobResponse { job });
+                    if visible.len() >= needed {
+                        break;
+                    }
+                }
+                Err(ApiError::Forbidden(_)) | Err(ApiError::NotFound(_)) => continue,
+                Err(error) => return Err(error),
+            }
         }
+        if visible.len() >= needed || fetched < AI_JOB_LIST_SCAN_PAGE as usize {
+            break;
+        }
+        stored_offset += fetched as i64;
     }
-    Ok((StatusCode::OK, Json(visible)))
+    let page: Vec<AiImportJobResponse> = visible.into_iter().skip(offset).take(limit).collect();
+    Ok(no_store_json(StatusCode::OK, page))
 }
 
 #[utoipa::path(
     get,
     path = "/ai-import/jobs/{id}/preview",
     params(("id" = Uuid, Path)),
-    responses((status = 200, body = AiImportPreviewResponse), (status = 404, body = ProblemDetails))
+    responses((status = 200, body = AiImportPreviewResponse), (status = 404, body = ProblemDetails), (status = 422, body = ProblemDetails))
 )]
 pub async fn get_ai_import_preview<P: Ports>(
     State(state): State<AppState<P>>,
@@ -4653,7 +4679,7 @@ pub async fn list_ai_configs<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
     Query(params): Query<ListParams>,
-) -> ApiResult<Vec<AiConfigView>> {
+) -> Result<Response, ApiError> {
     // AUTHZ-GATE: AI configuration discovery is a credential-role-only view;
     // rows are owner-scoped so a caller can only ever discover their own.
     if !credential_role_gate(&state, &current_user).await? {
@@ -4668,7 +4694,7 @@ pub async fn list_ai_configs<P: Ports>(
             params.offset.unwrap_or(0),
         )
         .await?;
-    Ok((StatusCode::OK, Json(views)))
+    Ok(no_store_json(StatusCode::OK, views))
 }
 
 #[utoipa::path(
