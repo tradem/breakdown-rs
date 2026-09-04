@@ -1,7 +1,28 @@
 #!/bin/bash
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: muse-spark-1.3-contributor-free (opencode)
 # add-spdx-headers.sh - Add SPDX license headers to source files
 # Usage: ./add-spdx-headers.sh [directory]
 # Defaults to current directory if no argument provided
+#
+# Skip list (rebuild-only artifacts, issue #345): the following trees/files are
+# reproduced byte-for-byte by tooling, so an injected SPDX header would be
+# stripped by the next regeneration and break drift checks instead of helping:
+#   - backend/openapi.yaml (`-not -path "*/backend/openapi.yaml"`): written
+#     verbatim by `UPDATE_OPENAPI=1 cargo test -p api --test openapi_drift`;
+#     any header makes the artifact differ from the generated document.
+#     Scoped to backend/ so a hand-authored openapi.yaml elsewhere still
+#     gains a header.
+#   - frontend-flutter/vendor/**: committed output of scripts/regen-client.sh;
+#     a header makes the committed tree differ from the regenerated tree and
+#     fails the `openapi-client-drift` CI job.
+#   - *.g.dart / *.freezed.dart / *.mocks.dart and **/.dart_tool/**: output of
+#     `dart run build_runner build`; the next run strips the header again,
+#     causing endless diff churn and possible `dart format` failures.
+# Complementing the path-level prune, a content-level guard skips any file
+# whose first line matches "GENERATED", so a future generated tree is covered
+# even if nobody updates the path list.
 
 set -e
 
@@ -21,7 +42,21 @@ find "${1:-.}" -type f \
     \( -name "*.rs" -o -name "*.typ" -o -name "*.sh" \
        -o -name "*.dart" -o -name "*.feature" \
        -o -name "*.yaml" -o -name "*.yml" \
-       -o -name "*.md" \) | while read -r file; do
+       -o -name "*.md" \) \
+    -not -path "*/.dart_tool/*" \
+    -not -path "*/frontend-flutter/vendor/*" \
+    -not -path "*/backend/openapi.yaml" \
+    -not -path "backend/openapi.yaml" \
+    -not -name "*.g.dart" -not -name "*.freezed.dart" -not -name "*.mocks.dart" \
+    | while read -r file; do
+    # Rebuild-only files carry their own banner and are reproduced verbatim by
+    # tooling; an SPDX header here would be stripped by the next regeneration
+    # (issue #345). The path-level prune above covers the known trees; this
+    # content-level guard covers any future generated tree regardless of path.
+    if head -n 1 "$file" | grep -q "GENERATED"; then
+        echo "⏭️  Skipping (generated file): $file"
+        continue
+    fi
     # Check if header already exists
     if grep -q "SPDX-License-Identifier" "$file"; then
         echo "⏭️  Skipping (already has header): $file"
