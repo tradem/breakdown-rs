@@ -381,11 +381,15 @@ where
                     model: Some(self.model.clone()),
                     doc_kind: Some(DocumentKind::Script),
                     chunk_count,
+                    // Fully specified (no `..Default` spread) so a deleted
+                    // field is a compile error, not a surviving mutant
+                    // (issue #307): token counts are 0 until measured.
+                    tokens_in: 0,
+                    tokens_out: 0,
                     latency_total: started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
                     // The job only reached preview; the apply outcome (if any)
                     // is recorded by the apply path as `Applied`.
                     apply_state: TelemetryApplyState::NotApplied,
-                    ..Telemetry::default()
                 },
             )
             .await?;
@@ -589,11 +593,16 @@ where
                     provider: (!native_csv).then_some(self.provider),
                     model: (!native_csv).then(|| self.model.clone()),
                     doc_kind: Some(DocumentKind::Schedule),
+                    // Fully specified (no `..Default` spread) so a deleted
+                    // field is a compile error, not a surviving mutant
+                    // (issue #307).
+                    chunk_count: 0,
+                    tokens_in: 0,
+                    tokens_out: 0,
                     latency_total: started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
                     // The job only reached preview; the apply outcome (if any)
                     // is recorded by the apply path as `Applied`.
                     apply_state: TelemetryApplyState::NotApplied,
-                    ..Telemetry::default()
                 },
             )
             .await?;

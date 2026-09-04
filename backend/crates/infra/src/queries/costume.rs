@@ -136,10 +136,16 @@ impl CostumeRepositoryImpl {
             });
         }
 
+        // Fully specified (no `..view` spread) so a deleted field is a
+        // compile error, not a surviving mutant (issue #307).
         Ok(CostumeView {
+            id: view.id,
+            character_id: view.character_id,
+            notes: view.notes,
             details,
             photos: enriched_photos,
-            ..view
+            version: view.version,
+            updated_at: view.updated_at,
         })
     }
 }

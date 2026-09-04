@@ -108,10 +108,17 @@ where
                 job.id,
                 worker_id,
                 Telemetry {
+                    // Fully specified (no `..Default` spread) so a deleted
+                    // field is a compile error, not a surviving mutant
+                    // (issue #307): the pure merge records no provider/model.
+                    provider: None,
+                    model: None,
                     doc_kind: Some(DocumentKind::Schedule),
+                    chunk_count: 0,
+                    tokens_in: 0,
+                    tokens_out: 0,
                     latency_total: started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
                     apply_state: TelemetryApplyState::NotApplied,
-                    ..Telemetry::default()
                 },
             )
             .await?;
