@@ -347,20 +347,6 @@ where
     }
 }
 
-/// Recover the aggregate version of a create-style command that a previous,
-/// crashed attempt already appended.
-///
-/// `CreateScene`, `CreateShootingDay` and `PlanSceneShoot` all dispatch with
-/// `ExpectedVersion::Empty`. Re-driving them onto a stream that a prior attempt
-/// wrote yields `VersionConflict { current }`, whose `current` is precisely the
-/// version the idempotency mapping needs. Because the id came from a durable
-/// reservation, that conflict proves *our own* earlier append — not a foreign
-/// writer — so treating it as success is safe and is what closes the crash
-/// window (issue #179). Shared with the script apply path (issue #338).
-///
-/// `current == 0` means the stream is genuinely empty, i.e. the conflict did
-/// not come from a prior append; that is propagated as an error rather than
-/// confirming a mapping to a nonexistent aggregate.
 /// Derive a deterministic, UUIDv7-shaped aggregate id from `(preview_id, draft_ref)`.
 ///
 /// Apply ids MUST be stable across retries: a retry after a
@@ -391,6 +377,20 @@ pub(crate) fn derive_id(preview_id: AiImportJobId, draft_ref: &str) -> Uuid {
     Uuid::from_bytes(bytes)
 }
 
+/// Recover the aggregate version of a create-style command that a previous,
+/// crashed attempt already appended.
+///
+/// `CreateScene`, `CreateShootingDay` and `PlanSceneShoot` all dispatch with
+/// `ExpectedVersion::Empty`. Re-driving them onto a stream that a prior attempt
+/// wrote yields `VersionConflict { current }`, whose `current` is precisely the
+/// version the idempotency mapping needs. Because the id came from a durable
+/// reservation, that conflict proves *our own* earlier append — not a foreign
+/// writer — so treating it as success is safe and is what closes the crash
+/// window (issue #179). Shared with the script apply path (issue #338).
+///
+/// `current == 0` means the stream is genuinely empty, i.e. the conflict did
+/// not come from a prior append; that is propagated as an error rather than
+/// confirming a mapping to a nonexistent aggregate.
 pub(crate) fn recover_version(
     result: Result<AggregateVersion, DomainError>,
 ) -> Result<AggregateVersion, DomainError> {
