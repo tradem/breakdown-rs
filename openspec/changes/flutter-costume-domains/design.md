@@ -36,7 +36,8 @@ From the checked-in `backend/openapi.yaml` and
   (version echo). No rename route.
 - `POST /v1/scenes/{id}/characters` (`AssignCharacterRequest
   {character_id, version}` — the scene's version); `DELETE
-  /v1/scenes/{id}/characters/{character_id}`. `SceneView.
+  /v1/scenes/{id}/characters/{character_id}?version=…` (optimistic-lock
+  version as a query parameter, backend issue #341). `SceneView.
   assigned_characters` carries the ids (read-model join resolves the
   display names from the characters projection).
 - Shooting days: `GET/POST /v1/episodes/{episode_id}/shooting-days`
@@ -49,7 +50,8 @@ From the checked-in `backend/openapi.yaml` and
   /v1/shooting-days/{id}/archive` (version).
 - Scene scheduling: `POST /v1/scenes/{id}/shooting-days`
   (`ScheduleSceneRequest {shooting_day_id, version — scene's}`);
-  `DELETE /v1/scenes/{id}/shooting-days/{shooting_day_id}`.
+  `DELETE /v1/scenes/{id}/shooting-days/{shooting_day_id}?version=…`
+  (version query parameter, backend issue #341).
 - Photos: `POST /v1/costumes/{costume_id}/photos` (RAW body,
   `image/jpeg|png|webp`, ≤ `PHOTO_MAX_SIZE_MB` (default 20 MB), 413/415
   server errors) → 201 `PhotoView`; `GET
@@ -59,8 +61,11 @@ From the checked-in `backend/openapi.yaml` and
   columns in `backend/crates/api/src/auth/authorization.rs`).
   `VariantStatus: Pending → Ready | Failed`.
 
-**Blocked surface (no OpenAPI routes):** scene-shoot plan/start/
+**Follow-up surface (own change, now unblocked):** scene-shoot plan/start/
 actual-order/skip/finish/notes, continuity photos, wrap, JSON reports
+(`flutter-shoot-day-execution` / `flutter-reports`; backend issue #333
+landed, PR #344). Error responses are per-operation RFC 9457
+`application/problem+json` with stable codes (backend issue #343).
 (`dispo`, `shoot-day`, `soll-ist`). The backend router serves them; the
 checked-in spec does not. The generated client therefore cannot
 express them — excluded entirely (see proposal Blocker and design §7).

@@ -4,23 +4,20 @@
 
 # Design: Shoot-Day Execution
 
-## 1. Blocker restated (binding)
+## 1. Contract status (landed)
 
-The route family is server-implemented and router-mounted
-(`backend/crates/api/src/handlers/mod.rs::routes()` declares the
-paths **unversioned** — `/shooting-days/{day_id}/scenes/{scene_id}/
-scene-shoots` … plus notes, continuity-photos, and
-`/shooting-days/{id}/wrap` — while `app_router` mounts them under the
-`/v1` prefix, so the externally reachable paths are
-`/v1/shooting-days/…`). Throughout this document every route is
-written with the **`/v1` prefix** as it is externally reachable, and
-Task 0.3 verifies the generated client against those `/v1` paths, not
-against the unversioned router strings. They are absent from the
-checked-in `backend/openapi.yaml`, which the client drift-checks
-against. Consequence (unchanged from the Phase 2 finding): the
-generated Dart client cannot express these calls, and by the
-never-retype rule nothing below may be implemented until the contract
-catches up. All tasks in `tasks.md` are gated on Task 0.
+Backend issue #333 landed (PR #344): the route family is exported to
+the checked-in `backend/openapi.yaml` (externally reachable `/v1`
+prefix; `app_router` mounts the unversioned router paths under `/v1`)
+and the Dart client is regenerated via `scripts/regen-client.sh`.
+Task 0.3 verifies the generated client against those `/v1` paths.
+Follow-up shape change: backend issue #346 (PR #359) slimmed
+`PlanSceneShootRequest` to `{ planned_order: LexicalSortKey }` —
+`day_id`/`scene_id` come from the path only; the former body/path
+equality checks and their `400` mismatch response no longer exist.
+All commands below consume the generated DTOs exclusively
+(never-retype rule). Error copy branches on the stable problem `code`
+from the per-operation RFC 9457 responses (backend issue #343).
 
 ## 2. Intended UX (spec'd now, built when unblocked)
 

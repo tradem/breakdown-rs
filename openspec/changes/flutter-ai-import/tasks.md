@@ -9,7 +9,8 @@
        credential submission (`POST /v1/settings/credentials` →
        `IdVersionResponse`) + `vault_key_id` hand-off read
        (`GET /v1/settings/{id}` → `SettingsView`), config
-       create/get/update/revoke (Result-typed; version echo on
+       create/list-first-discovery (`GET /v1/ai-import/config`, backend
+       issue #337) /get/update/revoke (Result-typed; version echo on
        update/revoke), and the rollback path (`DELETE
        /v1/settings/{id}` + `VersionRequest`, bounded retry, orphaned-
        credential surfacing) — all `/v1`-prefixed routes only
@@ -18,12 +19,14 @@
        branching), `getJob`, `getPreview`, `apply`. The ambiguous-
        timeout path reconciles by re-reading the config/settings
        before any credential cleanup (never delete a credential that
-       a committed config may reference). NOTE: server-side apply
-       idempotency is tracked in backend issue #338 — until it lands,
-       the client MUST NOT auto-retry an apply whose outcome is
-       unknown; it surfaces the reconcile state instead
+       a committed config may reference). Server-side apply is idempotent
+       (reserve-before-create, backend issue #338 / PR #351): the ambiguous-
+       timeout path reconciles by re-reading the job/outcome first, then
+       bounded-retry — never blind re-dispatch
 - [ ] 1.3 Secure-storage `ai_config_id` + recent-`job_ids` hand-off
-       store (bounded N) — **keyed by the authenticated `sub`** and
+       store (bounded N, fast-path/fallback to the `GET
+       /v1/ai-import/config` + `GET /v1/ai-import/jobs` list routes,
+       backend issue #337) — **keyed by the authenticated `sub`** and
        cleared by the Phase 1a sign-out reset; unit test asserts the
        user A → B switch exposes no state of A
 - [ ] 1.4 Drift `ai_import_jobs` table + migration; repository
@@ -60,8 +63,9 @@
        callout, 413/415/403/404 copy
 
 ## 4. Preview + apply feature
-- [ ] 4.1 `preview_screen.dart` + `PreviewRowAdapter` —
-       runtime-validated rows, degraded unrecognized-row cards,
+- [ ] 4.1 `preview_screen.dart` — typed `AiImportPreviewResponse` /
+       `AiPreviewPayload` (`kind`/`data`: script/schedule/merged,
+       backend issue #337) rendering; degraded unknown-`kind` cards,
        404-empty state
 - [ ] 4.2 `apply_controller.dart` — mapping request builder (Create /
        Update-from-picked-DTO / skip; verbatim `draft_ref`s), episode
@@ -69,7 +73,8 @@
        navigation stack; explicit episode picker when the persisted
        context is missing), `accept_as_is` + `edit_distance` from real
        selection state; outcome summary card + deep navigation
-- [ ] 4.3 Unit tests: adapter (recognized/unrecognized/empty);
+- [ ] 4.3 Unit tests: typed-preview rendering (script/schedule/merged
+       + unknown-`kind` degraded + empty);
        mapping builder; apply round-trip against a fake; episode
        context for fresh-job AND remembered-job entry (incl. the
        missing-context → picker-required path)

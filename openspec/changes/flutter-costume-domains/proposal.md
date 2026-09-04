@@ -17,16 +17,12 @@ and scaffold repositories exist (`lib/data/costume_repository.dart`,
 `shooting_day_repository.dart`) — but there are no caches, no
 controllers, no screens.
 
-**Blocker discovered during grounding (documented, not worked around):**
-the backend router serves scene-shoot execution and continuity-photo
-routes (`/v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots…`,
-`…/continuity-photos…`, `/v1/shooting-days/{id}/wrap`, JSON reports),
-but the checked-in `backend/openapi.yaml` — the single source of truth
-for the generated Dart client — does NOT contain them. Per the
-never-retrotype-DTOs hard rule, the Soll/Ist scene-shoot UI and the
-continuity-photo capture UI are **excluded from this change** and await
-a backend OpenAPI re-export + their own change
-(`flutter-shoot-day-execution`, unblock gate: GitHub issue #333). The continuity-photo and Soll-Ist
+**Follow-up unblocked during this change's lifetime (no scope change):**
+the scene-shoot execution and continuity-photo routes were exported
+to the checked-in `backend/openapi.yaml` (backend issue #333, PR #344).
+Per the never-retrotype-DTOs hard rule, the Soll/Ist scene-shoot UI and the
+continuity-photo capture UI remain **excluded from this change** and live
+in their own change (`flutter-shoot-day-execution`, now unblocked). The continuity-photo and Soll-Ist
 Gherkin critical scenarios move with them; this change carries the
 costume-assignment critical scope (see Non-goals).
 
@@ -131,7 +127,17 @@ costume-assignment critical scope (see Non-goals).
   with bounded backoff until `CostumePhotoView.variants[].status` is
   terminal (`Ready`/`Failed`), and stops when the last subscriber
   leaves — no background polling, no wake-ups (store compliance).
-- **D6 — Empty state honesty for blocked features.** The scene detail's
+- **D6 — Empty state honesty for follow-up features.** The scene detail's
   "shooting days" section shows scheduled days and the schedule/
   unschedule actions that the available routes support; any Soll/Ist
-  affordance is absent rather than stubbed.
+  affordance is absent rather than stubbed (the follow-up
+  `flutter-shoot-day-execution` is unblocked since backend issue #333
+  landed).
+- **D7 — Backend sync (Sept 2026).** DELETEs that mutate aggregates carry
+  the optimistic-lock `version` as a `?version=` query parameter
+  (backend issue #341, PR #352 — scene and scene-shoot DELETEs; the
+  generated client exposes it). All error copy branches on the stable
+  problem `code` from the per-operation RFC 9457
+  `application/problem+json` responses (backend issue #343, PR #356).
+  Membership-denial copy follows the repaired real-SQL predicates
+  (backend issue #348, PR #354).

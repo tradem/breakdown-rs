@@ -56,7 +56,11 @@ under `lib/features/auth/widgets/` with no Riverpod imports. States:
 
 Copy rules follow ADR-012/problem-details discipline: never render the
 server `detail` or raw exception strings; unknown codes fall back to a
-generic error listing the stable `code`.
+generic error listing the stable `code`. Backend issue #343 (PR #356)
+declares the per-operation RFC 9457 `application/problem+json` error
+responses in the contract, so clients branch on the stable `code`
+(never on `detail`); `401` stays middleware-enforced and is
+intentionally NOT declared per operation.
 
 ## 3. OIDC platform leg (D2)
 

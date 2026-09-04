@@ -13,10 +13,10 @@ concerns):
 - `GET /v1/blocks?season_id=…` → `List<BlockView>`; `POST /v1/blocks`
   (`CreateBlockRequest`, required `series_id` + `season_id` + `number`)
   → 201 `IdVersionResponse`.
-- `GET /v1/episodes?season_id=…` → `List<EpisodeView>` — **no
-  `block_id` filter exists** (D3, backend issue #335);
-  `EpisodeView.block_id` carries the
-  grouping key. `POST /v1/episodes` requires `series_id` + `block_id` +
+- `GET /v1/episodes?season_id=…` / `?block_id=…` → `List<EpisodeView>` —
+  the server-side `block_id` filter exists (D3, backend issue #335,
+  PR #355); `EpisodeView.block_id` remains the grouping key for merged
+  renders. `POST /v1/episodes` requires `series_id` + `block_id` +
   `number`.
 - `GET /v1/scenes?episode_id=…` → `List<SceneView>`; `POST /v1/scenes`
   requires `episode_id` + `details` (`SceneDetails`); the read model

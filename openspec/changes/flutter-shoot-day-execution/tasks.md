@@ -2,17 +2,18 @@
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: glm-5.3 (neuralwatt) -->
 
-# Tasks: Shoot-Day Execution (Soll/Ist + Continuity) — BLOCKED
+# Tasks: Shoot-Day Execution (Soll/Ist + Continuity) — READY
 
-## 0. Unblock gate (blocking everything below)
-- [ ] 0.1 Backend re-export lands the scene-shoot / continuity-photo /
+## 0. Unblock gate (landed)
+- [x] 0.1 Backend re-export landed the scene-shoot / continuity-photo /
        wrap routes in `backend/openapi.yaml` (GitHub issue #333,
-       filed via the Phase 2 change's blocker task
-       0.1)
+       PR #344)
 - [ ] 0.2 `bash scripts/regen-client.sh`; commit the regenerated
-       `vendor/breakdown_api/` tree; confirm the new DTOs
+       `vendor/breakdown_api/` tree; confirm the new DTOs — incl. the
+       slimmed `PlanSceneShootRequest { planned_order }` (path ids
+       only, backend issue #346, PR #359)
 - [ ] 0.3 Verify the intended routes in the generated client match
-       the router-served family from design.md D1 (no improvisation)
+       the router-served family from design.md §1 (no improvisation)
 
 ## 1. Data layer
 - [ ] 1.1 Extend `data/scene_shoot_repository.dart` with the

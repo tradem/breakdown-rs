@@ -41,8 +41,9 @@ job → review the preview → apply mapped drafts into an episode.
   narratives; `last_error` displayed as secondary detail only.
 - Result-typed repositories (`data/ai_import_repository.dart`,
   `data/ai_config_repository.dart`) on the generated client; Drift
-  caching for the *job list* only (config is secure-storage id
-  handoff; preview is never cached — regenerable).
+  caching for the *job list* only (backed by `GET /v1/ai-import/jobs`;
+  config discovery is list-first via `GET /v1/ai-import/config` with the
+  secure-storage id as fallback; preview is never cached — regenerable).
 - Tests: unit (repos, mapping-request builders, status state machine),
   widget + goldens (light/dark × android/macos), Gherkin none (AI
   import is not a designated critical scope), integration smoke with a
@@ -66,28 +67,15 @@ job → review the preview → apply mapped drafts into an episode.
   compliance + online-first `flutter-offline-scope`).
 - No client-side LLM calls — the client never contacts an AI provider
   (mirrors the AI notice already shipped in the info dialog).
-- No config list refresh beyond the realized contract — there is no
-  list route (D2).
+- Config/job list refresh via the realized list routes (`GET /v1/ai-import/config`, `GET /v1/ai-import/jobs` with `limit`/`offset`) — landed backend issue #337 (D2); the job list remains the only Drift-cached AI-import surface.
 - No cancellation of a running job — no such route exists (D3); the
   user/client can only stop observing.
 - No editing of the preview server-side (no such command); apply is
   the only write path.
 
 ## Design Decisions
-- **D1 — Preview is consumed as an untyped-but-validated object.** The
-  checked-in spec types the preview 200 response as a plain object.
-  The client renders it through a runtime-validated row adapter
-  (tolerant of absent fields, rejecting unknown row shapes with an
-  explicit error state) instead of retyping DTOs client-side
-  (never-retype hard rule). The apply request's `draft_ref`s are taken
-  verbatim from the rows the user acted on. Backend asked to type
-  the preview schema (GitHub issue #337); switching later is a mapper-only change.
-- **D2 — Config discovery is via a locally remembered id.** The API
-  offers no config-list route (GitHub issue #337); `GET
-  `/ai-import/config/{id}` requires the id. The client persists the id from the create response in
-  `flutter_secure_storage` and treats "no remembered id or 404" as the
-  first-run state ("not configured yet"). Documented as an API gap —
-  no workaround projections are invented.
+- **D1 — Preview is consumed typed (`AiImportPreviewResponse`).** Backend issue #337 landed (PR #357): `GET /v1/ai-import/jobs/{id}/preview` now returns the typed `AiImportPreviewResponse { job_id, document_kind, status, preview: AiPreviewPayload }` with the `kind`/`data` enum (`script(ScriptContext)`, `schedule(ShootingSchedule)`, `merged(MergedPreview)`). The client consumes the generated DTOs exclusively (never-retype hard rule) and renders rows from the typed payload; an unknown `kind` (future backend shape) renders the explicit degraded error card with a stable code instead of guessed content. The apply request's `draft_ref`s are taken verbatim from the rows the user acted on.
+- **D2 — Config/job discovery is list-first with remembered-id fallback.** Backend issue #337 landed (PR #357): `GET /v1/ai-import/config` (caller's configs, newest-first) and `GET /v1/ai-import/jobs` (caller's jobs, newest-first, `limit`/`offset` pagination) now exist. The client discovers via the list routes first; the `flutter_secure_storage`-persisted config id from the create response remains as a fast-path/fallback, and "empty list or 404 on the remembered id" is the first-run state ("not configured yet"). No workaround projections are invented.
 - **D3 — No cancellation route exists.** "Cancel" in the UI is local
   stop-observing (dispose the watch); job processing continues
   server-side. The UI copy is honest ("processing continues; you can
@@ -112,3 +100,4 @@ job → review the preview → apply mapped drafts into an episode.
   and only the opaque `vault_key_id` flows into the config. It is
   never stored on the device (no secure-storage row, no logging,
   masked input field).
+- **D7 — Backend sync (Sept 2026).** Provider/model pickers follow the refreshed curated catalog (backend PR #360: per-provider model sets, e.g. OpenAI gpt-5.6-luna/terra, Neuralwatt glm-5.3 tiers) via the discovery routes — no hardcoded model ids. All error copy branches on the stable problem `code` from the per-operation RFC 9457 `application/problem+json` responses (backend issue #343, PR #356); `401` stays middleware-only and is never declared per operation.

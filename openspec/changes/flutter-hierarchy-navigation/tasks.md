@@ -26,7 +26,9 @@
        (GET `?season_id=`; snapshot-replace), `create(request)`
        (`Result<IdVersionResponse, ProblemError>`)
 - [ ] 2.3 `data/episode_repository.dart` — `listBySeason(seasonId)`
-       + `groupByBlock(rows)` pure mapper (D3: no block_id filter exists);
+       + `listByBlock(blockId)` via the server-side `?block_id=` filter
+       (`GET /v1/episodes`, backend issue #335, PR #355) + `groupByBlock(rows)`
+       pure mapper for the merged grouping render;
        `create(request)`
 - [ ] 2.4 `data/scene_repository.dart` — `listByEpisode(episodeId)`,
        `create(request)`
@@ -49,7 +51,8 @@
        overlays/commandError; `create()` gated by the session
        AUTHZ-GATE (`// AUTHZ-GATE:` annotated, ids from the season DTO)
 - [ ] 4.2 `features/episodes/` — `EpisodesController(blockId, seasonId)`
-       (repository-side group-by), create gated likewise
+       (server-side `?block_id=` filter, `groupByBlock` for merged renders),
+       create gated likewise
 - [ ] 4.3 `features/scenes/` — `ScenesController(episodeId)`, create
        gated likewise
 - [ ] 4.4 `features/costume_categories/` — controller + next-order-key
@@ -69,8 +72,8 @@
 - [ ] 5.2 `BlocksScreen` — list + empty state + pull-to-refresh + FAB
        (create block; fields number/start/end, ids pre-filled from the
        season DTO), membership/capabilities chip on the AppBar
-- [ ] 5.3 `EpisodesScreen` — grouped episodes of the tapped block +
-       create (number + optional name)
+- [ ] 5.3 `EpisodesScreen` — block-scoped episodes of the tapped block
+       (`GET /v1/episodes?block_id=…`) + create (number + optional name)
 - [ ] 5.4 `ScenesScreen` — episodes' scenes with read-only detail data
        (mood, location, summary, script day, schedule flag,
        `assigned_characters.length`, `shooting_day_ids.length`) + create
@@ -105,7 +108,6 @@
 - [ ] 8.2 `openspec` coverage audit: every scenario in
        `flutter-hierarchy-navigation` and
        `flutter-costume-categories-screen` has a passing test
-- [ ] 8.3 Backend issue #335 tracks the episodes `block_id` filter
-       gap (design.md D3 — client-side grouping in the meantime); a
-       follow-up swaps the repository to the server filter once the
-       contract lands — no `backend/openapi.yaml` edit in this change
+- [ ] 8.3 Backend issue #335 landed (PR #355): the episodes `block_id`
+       filter is consumed server-side (design.md D3); no
+       `backend/openapi.yaml` edit in this change

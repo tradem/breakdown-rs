@@ -11,8 +11,9 @@ From the checked-in `backend/openapi.yaml` and
 
 - **Discovery:** `GET /v1/ai-import/providers` → `AiProviderInfo
   {provider: LlmProvider, key}` (enum: openai, openrouter, eurouter,
-  neuralwatt, opencode-go, opencode, ollama); `GET
-  /v1/ai-import/providers/{provider}/models` → `ModelInfo {id,
+  neuralwatt, opencode-go, opencode, ollama; curated model sets refreshed
+  per backend PR #360 — pickers read the routes, never hardcoded ids);
+  `GET /v1/ai-import/providers/{provider}/models` → `ModelInfo {id,
   provider, display_name?}` (422 on unknown provider).
 - **Credentials:** `POST /v1/settings/credentials`
   (`CreateCredentialRequest {provider, secret}`) → `IdVersionResponse`
@@ -21,7 +22,9 @@ From the checked-in `backend/openapi.yaml` and
 - **Config:** `POST /v1/ai-import/config`
   (`CreateAiConfigRequest {provider, assistant_model, prompts:
   {script|schedule → text}, vault_key_id, image_model?}`) → 201
-  `IdVersionResponse`; `GET /v1/ai-import/config/{id}` → `AiConfigView`
+  `IdVersionResponse`; `GET /v1/ai-import/config` → caller's configs
+  (newest-first; backend issue #337, PR #357); `GET
+  /v1/ai-import/config/{id}` → `AiConfigView`
   (public view: opaque `vault_key_id`, NO secret material; owner
   check server-side); `PATCH …` (`UpdateAiConfigRequest`, version
   echo) → `AggregateVersion`; `POST …/revoke`
@@ -40,19 +43,33 @@ From the checked-in `backend/openapi.yaml` and
   `source_format`, timings. `JobStatus`: `pending | running |
   succeeded | failed` (retryable) `| dead_letter | payload_unavailable`
   (both terminal).
-- **Preview:** `GET /v1/ai-import/jobs/{id}/preview` — 200 body typed
-  as a **plain object** in the spec (D1); 404 when no preview exists.
+- **Preview:** `GET /v1/ai-import/jobs/{id}/preview` → 200
+  `AiImportPreviewResponse { job_id, document_kind, status, preview:
+  AiPreviewPayload }` with the `kind`/`data` enum (`script` →
+  `ScriptContext`, `schedule` → `ShootingSchedule` (pre-merge) or
+  `merged` → `MergedPreview`; backend issue #337, PR #357 — the
+  former plain-object shape is superseded); 404 when no preview exists.
+  Every operation additionally declares its RFC 9457
+  `application/problem+json` error responses (backend issue #343,
+  PR #356) — error copy branches on the stable problem `code`.
 - **Apply:** `POST /v1/ai-import/jobs/{id}/apply` with
   `ApplyAiImportRequest {episode_id (required), series_id?, mappings:
   [ApplyMapping {draft_ref, decision: Create | Update{aggregate_id,
   version}}], accept_as_is, edit_distance}` → 200
   `ApplyAiImportResponse {applied_count, created_days,
-  planned_scene_shoots}`; 403.
+  planned_scene_shoots}`; 403. Server-side apply is idempotent
+  (reserve-before-create, backend issue #338 / PR #351): an apply with
+  an unknown outcome reconciles by re-reading before any bounded retry
+  — never blind re-dispatch.
+- **Job list:** `GET /v1/ai-import/jobs` → caller's jobs,
+  newest-first with `limit`/`offset` pagination (backend issue #337,
+  PR #357); per-job season-membership filtering mirrors
+  `authorize_ai_job(Read)` server-side.
 
-There is **no** config-list route and **no** job-list route (jobs are
-reached by id) — both tracked in GitHub issue #337 — and **no**
-cancel route (a deliberate design gap, not an issue); D2/D3 in the
-proposal document these honestly.
+There is **no** cancel route (a deliberate design gap, not an issue);
+D3 in the proposal documents this honestly. Config/job discovery via
+the list routes (D2) and the typed preview (D1) supersede the former
+issue-#337 gaps.
 
 ## 2. Feature structure
 

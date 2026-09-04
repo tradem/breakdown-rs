@@ -17,10 +17,12 @@ secret SHALL NOT be stored on the device, logged, or echoed back
 after submission (masked input field).
 
 #### Scenario: First-run configuration
-- **WHEN** no config id is remembered (or the remembered id 404s).
+- **WHEN** the config list (`GET /v1/ai-import/config`, backend issue
+  #337) is empty, or the remembered id 404s.
 - **THEN** the screen renders the "not configured yet" state with the
   provider picker and the masked key field; create persists the
-  returned id in `flutter_secure_storage`.
+  returned id in `flutter_secure_storage` as a fast-path for the next
+  launch (list-first discovery remains authoritative).
 
 #### Scenario: Editing the configuration
 - **WHEN** the user changes the assistant model or prompts.
@@ -51,3 +53,9 @@ masquerading as "no providers exist".
 - **WHEN** a provider's model route returns 422.
 - **THEN** the model step shows "provider unavailable" copy and the
   flow cannot proceed to that provider's config.
+
+#### Scenario: Model catalog follows the discovery routes
+- **WHEN** the backend refreshes the curated per-provider model sets
+  (backend PR #360).
+- **THEN** the pickers render the route-supplied models with honest
+  degradation — no hardcoded model ids exist client-side.

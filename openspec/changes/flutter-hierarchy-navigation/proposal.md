@@ -32,8 +32,8 @@ later AUTHZ-GATE.
   caches per projection with TTL + on-write invalidation):**
   - `features/blocks/` — `GET /v1/blocks?season_id=…`, create via
     `POST /v1/blocks`
-  - `features/episodes/` — season-scoped `GET /v1/episodes` grouped by
-    `block_id` client-side (API gap, see D3), create via
+  - `features/episodes/` — block-scoped `GET /v1/episodes?block_id=…`
+    (backend issue #335 landed), create via
     `POST /v1/episodes`
   - `features/scenes/` — `GET /v1/scenes?episode_id=…`, scene detail data
     (mood, location, summary, script_day, schedule flag, character /
@@ -96,15 +96,7 @@ later AUTHZ-GATE.
   single-flight/generation logic is extracted verbatim-in-behavior to
   `lib/domain/reconciliation/` and parameterized per aggregate. Screens
   keep per-aggregate overlay notifiers (no global overlay store).
-- **D3 — Episodes-by-block client-side filtering (API gap, worked around
-  read-side only).** `GET /v1/episodes` supports `season_id` but NOT
-  `block_id` filters (spec-checked). `EpisodesScreen` therefore fetches
-  the season's episodes (one GET, `season_id` filter) and groups by
-  `EpisodeView.block_id` in the repository layer — read-projection
-  filtering, allowed by the CQRS boundary rules (no aggregate
-  reconstruction, no cross-projection command backfill). Flagged for a
-  future backend `block_id` filter (GitHub issue #335); switching
-later is repository-internal.
+- **D3 — Episodes-by-block server-side filtering (landed).** `GET /v1/episodes` supports `season_id` AND `block_id` (backend issue #335, PR #355). `EpisodesScreen` fetches the tapped block's episodes with the server-side `?block_id=` filter; `groupByBlock` remains as a pure mapper for merged/season renders only — read-projection filtering, allowed by the CQRS boundary rules (no aggregate reconstruction, no cross-projection command backfill).
 - **D4 — Costume-category order keys are computed from the read model.**
   `CreateCostumeCategoryRequest` requires `order_key`. The client derives
   the next lexicographic key over existing keys from the SAME season

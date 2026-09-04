@@ -2,28 +2,23 @@
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: glm-5.3 (neuralwatt) -->
 
-# Tasks: Reports — PARTIALLY BLOCKED
+# Tasks: Reports — READY
 
-**Blocked by the unblock gate:** sections 1–4 below MUST NOT be started
-before 0.1–0.3 are complete. The gate is a hard dependency, not a
-reminder: until the backend contract lands and `scripts/regen-client.sh`
-has produced per-day PDF methods plus the report DTOs, there is nothing
-to implement against (no hand-built URLs, no retyped DTOs).
+**Unblock gate landed:** 0.1–0.3 below are satisfied by backend PRs #344 (issue #333) + #349 (issue #334); remaining work is regen + implementation (still no hand-built URLs, no retyped DTOs).
 
-## 0. Unblock gate
-- [ ] 0.1 Backend: define the `{id}` path parameter on the three PDF
-       routes in `backend/openapi.yaml` (GitHub issue #334, also
-       referenced in `data/scene_shoot_repository.dart`)
-- [ ] 0.2 Backend: OpenAPI re-export including the JSON report routes
-       (`dispo`, `shoot-day`, `soll-ist`) — GitHub issue #333 (same
-       re-export as the Phase 2b unblock gate)
+## 0. Unblock gate (landed)
+- [x] 0.1 Backend: define the `{id}` path parameter on the three PDF
+       routes in `backend/openapi.yaml` (GitHub issue #334, PR #349)
+- [x] 0.2 Backend: OpenAPI re-export including the JSON report routes
+       (`dispo`, `shoot-day`, `soll-ist`) — GitHub issue #333 (PR #344)
 - [ ] 0.3 `bash scripts/regen-client.sh`; commit the regenerated
        client; verify per-day PDF methods and report DTOs exist
 
 ## 1. Data layer
 - [ ] 1.1 Extend `data/scene_shoot_repository.dart` — per-day PDF
-       methods (B1 surface) + Soll-Ist report fetch; remove the
-       no-parameter wrappers once the signature lands
+       methods (B1 surface, day id as a real parameter since issues
+       #333/#334 landed) + Soll-Ist report fetch; the old no-parameter
+       wrappers are removed as part of this task
 - [ ] 1.2 `data/report_cache.dart` — **stream-to-temp-file, not an
        in-memory buffer**: path-keyed interceptor sets
        `ResponseType.stream` for the PDF routes (the generated methods
