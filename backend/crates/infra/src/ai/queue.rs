@@ -11,6 +11,7 @@ use breakdown_core::ai::{
     DocumentKind, JobStatus, SourceFormat, Telemetry,
 };
 use breakdown_core::error::DomainError;
+use breakdown_core::shared::UserId;
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
@@ -415,6 +416,36 @@ impl AiImportQueue for PgAiImportQueue {
         .await
         .map_err(map_sqlx_error)?;
         row.map(map_job_row).transpose()
+    }
+
+    /// List the caller's jobs, newest first (issue #337).
+    ///
+    /// `LIMIT`/`OFFSET` are clamped in Rust; the statement itself stays a
+    /// static literal with `.bind()` values (AGENTS.md §3).
+    async fn list_for_user(
+        &self,
+        user_id: &UserId,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<AiImportJob>, DomainError> {
+        let limit = limit.clamp(1, 100);
+        let offset = offset.max(0);
+        let rows = sqlx::query(
+            r#"
+            SELECT *
+            FROM ai_import.ai_import_job
+            WHERE user_id = $1
+            ORDER BY created_at DESC, id DESC
+            LIMIT $2 OFFSET $3
+            "#,
+        )
+        .bind(user_id.as_str())
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        rows.into_iter().map(map_job_row).collect()
     }
 
     /// Re-affirm the `running` status and extend the current lease.

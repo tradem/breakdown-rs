@@ -1464,6 +1464,27 @@ impl AiConfigRepository for FakeAiConfigRepo {
             .cloned()
             .ok_or_else(|| DomainError::not_found("ai-config"))
     }
+
+    async fn list_for_user(
+        &self,
+        user_id: &UserId,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<AiConfigView>, DomainError> {
+        let limit = limit.clamp(1, 100) as usize;
+        let offset = offset.max(0) as usize;
+        let guard = self.views.lock().await;
+        let mut views: Vec<AiConfigView> = guard
+            .values()
+            .filter(|view| view.user_id == *user_id)
+            .cloned()
+            .collect();
+        // `AiConfigView` carries no timestamp; id order (UUIDv7) is the
+        // creation order, mirroring production's newest-first.
+        views.sort_by_key(|view| view.id);
+        views.reverse();
+        Ok(views.into_iter().skip(offset).take(limit).collect())
+    }
 }
 
 #[derive(Clone, Default)]
@@ -1533,6 +1554,28 @@ impl AiImportQueue for FakeAiImportQueue {
 
     async fn get(&self, id: AiImportJobId) -> Result<Option<AiImportJob>, DomainError> {
         Ok(self.jobs.lock().await.get(&id.as_uuid()).cloned())
+    }
+
+    async fn list_for_user(
+        &self,
+        user_id: &UserId,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<AiImportJob>, DomainError> {
+        let limit = limit.clamp(1, 100) as usize;
+        let offset = offset.max(0) as usize;
+        let guard = self.jobs.lock().await;
+        let mut jobs: Vec<AiImportJob> = guard
+            .values()
+            .filter(|job| job.user_id == *user_id)
+            .cloned()
+            .collect();
+        jobs.sort_by(|a, b| {
+            b.created_at
+                .cmp(&a.created_at)
+                .then_with(|| b.id.as_uuid().cmp(&a.id.as_uuid()))
+        });
+        Ok(jobs.into_iter().skip(offset).take(limit).collect())
     }
 
     async fn mark_running(&self, id: AiImportJobId, _worker_id: &str) -> Result<(), DomainError> {

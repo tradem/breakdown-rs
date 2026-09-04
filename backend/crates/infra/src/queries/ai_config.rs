@@ -98,42 +98,82 @@ impl AiConfigRepository for AiConfigRepositoryImpl {
             id,
         })?;
 
-        let provider = parse_provider(row.try_get("provider").map_err(map_sqlx_error)?)?;
-        let prompts: HashMap<DocumentKind, String> = row
-            .try_get::<serde_json::Value, _>("prompts")
-            .map_err(map_sqlx_error)
-            .and_then(|value| {
-                serde_json::from_value(value).map_err(|error| {
-                    DomainError::validation(format!("invalid AI prompt projection: {error}"))
-                })
-            })?;
-        let mut prompt_kinds: Vec<_> = prompts.keys().copied().collect();
-        prompt_kinds.sort_by_key(|kind| kind.as_str());
-        Ok(AiConfigView {
-            id: row.try_get("id").map_err(map_sqlx_error)?,
-            user_id: UserId::from_sub(
-                row.try_get::<String, _>("user_id")
-                    .map_err(map_sqlx_error)?,
-            ),
-            provider,
-            assistant_model: row.try_get("assistant_model").map_err(map_sqlx_error)?,
-            image_model: row.try_get("image_model").map_err(map_sqlx_error)?,
-            prompt_kinds,
-            vault_key_id: row.try_get("vault_key_id").map_err(map_sqlx_error)?,
-            version: {
-                let raw: i64 = row.try_get("version").map_err(map_sqlx_error)?;
-                if raw < 0 {
-                    // Projection-integrity defect: a permanent condition, not a
-                    // transient service failure — retries cannot fix it.
-                    return Err(DomainError::validation(
-                        "AI config aggregate version cannot be negative",
-                    ));
-                }
-                AggregateVersion(raw as u64)
-            },
-            revoked: row.try_get("revoked").map_err(map_sqlx_error)?,
-        })
+        map_config_row(&row)
     }
+
+    /// List the caller's configs, newest first (issue #337).
+    ///
+    /// `LIMIT`/`OFFSET` are clamped to a sane range: `LIMIT`/`ORDER BY`
+    /// cannot be bound as identifiers, so the values are sanitized in Rust
+    /// (static SQL, `.bind()` for the user id — no string interpolation,
+    /// AGENTS.md §3).
+    async fn list_for_user(
+        &self,
+        user_id: &UserId,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<AiConfigView>, DomainError> {
+        let limit = limit.clamp(1, 100);
+        let offset = offset.max(0);
+        let rows = sqlx::query(
+            r#"
+            SELECT id, user_id, provider, assistant_model, image_model,
+                   prompts, vault_key_id, revoked, version
+            FROM ai_import.projection_ai_config
+            WHERE user_id = $1
+            ORDER BY updated_at DESC, id DESC
+            LIMIT $2 OFFSET $3
+            "#,
+        )
+        .bind(user_id.as_str())
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        rows.iter().map(map_config_row).collect()
+    }
+}
+
+/// Map one `projection_ai_config` row to its view. Shared by `find_by_id`
+/// and `list_for_user` so the parsing logic and its error messages stay in
+/// one place.
+fn map_config_row(row: &PgRow) -> Result<AiConfigView, DomainError> {
+    let provider = parse_provider(row.try_get("provider").map_err(map_sqlx_error)?)?;
+    let prompts: HashMap<DocumentKind, String> = row
+        .try_get::<serde_json::Value, _>("prompts")
+        .map_err(map_sqlx_error)
+        .and_then(|value| {
+            serde_json::from_value(value).map_err(|error| {
+                DomainError::validation(format!("invalid AI prompt projection: {error}"))
+            })
+        })?;
+    let mut prompt_kinds: Vec<_> = prompts.keys().copied().collect();
+    prompt_kinds.sort_by_key(|kind| kind.as_str());
+    Ok(AiConfigView {
+        id: row.try_get("id").map_err(map_sqlx_error)?,
+        user_id: UserId::from_sub(
+            row.try_get::<String, _>("user_id")
+                .map_err(map_sqlx_error)?,
+        ),
+        provider,
+        assistant_model: row.try_get("assistant_model").map_err(map_sqlx_error)?,
+        image_model: row.try_get("image_model").map_err(map_sqlx_error)?,
+        prompt_kinds,
+        vault_key_id: row.try_get("vault_key_id").map_err(map_sqlx_error)?,
+        version: {
+            let raw: i64 = row.try_get("version").map_err(map_sqlx_error)?;
+            if raw < 0 {
+                // Projection-integrity defect: a permanent condition, not a
+                // transient service failure — retries cannot fix it.
+                return Err(DomainError::validation(
+                    "AI config aggregate version cannot be negative",
+                ));
+            }
+            AggregateVersion(raw as u64)
+        },
+        revoked: row.try_get("revoked").map_err(map_sqlx_error)?,
+    })
 }
 
 fn parse_provider(value: String) -> Result<LlmProvider, DomainError> {

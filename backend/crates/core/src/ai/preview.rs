@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+use super::views::{DocumentKind, JobStatus};
 use crate::error::DomainError;
 use crate::scene::commands::{CreateScene, UpdateSceneDetails};
 use crate::scene::events::SceneDetails;
@@ -98,6 +99,37 @@ pub struct MergedPreview {
     pub scenes: Vec<MergedScene>,
     pub unmatched_schedule_rows: Vec<ShootingScheduleRow>,
     pub unmatched_script_scenes: Vec<SceneView>,
+}
+
+/// Typed preview payload served by `GET /v1/ai-import/jobs/{id}/preview`
+/// (issue #337).
+///
+/// Workers persist one of three shapes depending on the job's document kind
+/// and stage: `Script` (`ScriptContext`, script jobs), `Schedule`
+/// (`ShootingSchedule`, schedule jobs before the merge worker runs), or
+/// `Merged` (`MergedPreview`, schedule jobs after the merge). The
+/// externally-tagged representation lets generated clients consume preview
+/// rows structurally instead of through a runtime-validated row adapter.
+/// `MergeInput` is deliberately excluded: it is worker-internal scaffolding,
+/// never a renderable preview.
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+#[serde(tag = "kind", content = "data", rename_all = "snake_case")]
+pub enum AiPreviewPayload {
+    Script(ScriptContext),
+    Schedule(ShootingSchedule),
+    Merged(MergedPreview),
+}
+
+/// Typed envelope for the preview endpoint: job identity plus the parsed
+/// payload. Parsing happens server-side so a corrupt blob surfaces as
+/// `422 domain.validation` instead of an untyped blob the client must
+/// validate at runtime.
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct AiImportPreviewResponse {
+    pub job_id: Uuid,
+    pub document_kind: DocumentKind,
+    pub status: JobStatus,
+    pub preview: AiPreviewPayload,
 }
 
 /// Immutable scene context for deterministic schedule merging.

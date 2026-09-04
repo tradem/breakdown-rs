@@ -11,7 +11,17 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
-## [0.15.0] - Unreleased
+## [0.16.0] - Unreleased
+
+### Added — AI import discovery list queries (issue #337)
+
+- `AiConfigRepositoryImpl::list_for_user`: caller's configs from
+  `ai_import.projection_ai_config` (`WHERE user_id`, newest-first,
+  `LIMIT`/`OFFSET` clamped in Rust over static SQL).
+- `PgAiImportQueue::list_for_user`: caller's jobs from
+  `ai_import.ai_import_job` (`WHERE user_id`, newest-first) reusing
+  `map_job_row`.
+- **MINOR bump (ADR-020 D2):** additive read-model surface: **0.15.0 → 0.16.0**.
 
 ### Fixed — Script apply reserves the scene id before creating (issue #338)
 

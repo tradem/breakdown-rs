@@ -16,6 +16,7 @@ import 'package:breakdown_api/src/model/add_costume_detail_request.dart';
 import 'package:breakdown_api/src/model/add_note_request.dart';
 import 'package:breakdown_api/src/model/ai_config_view.dart';
 import 'package:breakdown_api/src/model/ai_import_job_response.dart';
+import 'package:breakdown_api/src/model/ai_import_preview_response.dart';
 import 'package:breakdown_api/src/model/ai_provider_info.dart';
 import 'package:breakdown_api/src/model/apply_ai_import_request.dart';
 import 'package:breakdown_api/src/model/apply_ai_import_response.dart';
@@ -2361,9 +2362,9 @@ class HandlersApi {
   /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
   /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
   ///
-  /// Returns a [Future] containing a [Response] with a [JsonObject] as data
+  /// Returns a [Future] containing a [Response] with a [AiImportPreviewResponse] as data
   /// Throws [DioException] if API call or serialization fails
-  Future<Response<JsonObject>> getAiImportPreview({
+  Future<Response<AiImportPreviewResponse>> getAiImportPreview({
     required String id,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
@@ -2396,7 +2397,7 @@ class HandlersApi {
       onReceiveProgress: onReceiveProgress,
     );
 
-    JsonObject? _responseData;
+    AiImportPreviewResponse? _responseData;
 
     try {
       final rawResponse = _response.data;
@@ -2404,8 +2405,8 @@ class HandlersApi {
           ? null
           : _serializers.deserialize(
               rawResponse,
-              specifiedType: const FullType(JsonObject),
-            ) as JsonObject;
+              specifiedType: const FullType(AiImportPreviewResponse),
+            ) as AiImportPreviewResponse;
     } catch (error, stackTrace) {
       throw DioException(
         requestOptions: _response.requestOptions,
@@ -2416,7 +2417,7 @@ class HandlersApi {
       );
     }
 
-    return Response<JsonObject>(
+    return Response<AiImportPreviewResponse>(
       data: _responseData,
       headers: _response.headers,
       isRedirect: _response.isRedirect,
@@ -3926,6 +3927,214 @@ class HandlersApi {
     }
 
     return Response<int>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// listAiConfigs
+  ///
+  ///
+  /// Parameters:
+  /// * [limit]
+  /// * [offset]
+  /// * [episodeId]
+  /// * [seasonId]
+  /// * [seriesId]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [BuiltList<AiConfigView>] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<BuiltList<AiConfigView>>> listAiConfigs({
+    int? limit = 50,
+    int? offset = 0,
+    String? episodeId,
+    String? seasonId,
+    String? seriesId,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/ai-import/config';
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _queryParameters = <String, dynamic>{
+      if (limit != null)
+        r'limit':
+            encodeQueryParameter(_serializers, limit, const FullType(int)),
+      if (offset != null)
+        r'offset':
+            encodeQueryParameter(_serializers, offset, const FullType(int)),
+      if (episodeId != null)
+        r'episode_id': encodeQueryParameter(
+            _serializers, episodeId, const FullType(String)),
+      if (seasonId != null)
+        r'season_id': encodeQueryParameter(
+            _serializers, seasonId, const FullType(String)),
+      if (seriesId != null)
+        r'series_id': encodeQueryParameter(
+            _serializers, seriesId, const FullType(String)),
+    };
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      queryParameters: _queryParameters,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    BuiltList<AiConfigView>? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType:
+                  const FullType(BuiltList, [FullType(AiConfigView)]),
+            ) as BuiltList<AiConfigView>;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<BuiltList<AiConfigView>>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// listAiImportJobs
+  ///
+  ///
+  /// Parameters:
+  /// * [limit]
+  /// * [offset]
+  /// * [episodeId]
+  /// * [seasonId]
+  /// * [seriesId]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [BuiltList<AiImportJobResponse>] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<BuiltList<AiImportJobResponse>>> listAiImportJobs({
+    int? limit = 50,
+    int? offset = 0,
+    String? episodeId,
+    String? seasonId,
+    String? seriesId,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/ai-import/jobs';
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _queryParameters = <String, dynamic>{
+      if (limit != null)
+        r'limit':
+            encodeQueryParameter(_serializers, limit, const FullType(int)),
+      if (offset != null)
+        r'offset':
+            encodeQueryParameter(_serializers, offset, const FullType(int)),
+      if (episodeId != null)
+        r'episode_id': encodeQueryParameter(
+            _serializers, episodeId, const FullType(String)),
+      if (seasonId != null)
+        r'season_id': encodeQueryParameter(
+            _serializers, seasonId, const FullType(String)),
+      if (seriesId != null)
+        r'series_id': encodeQueryParameter(
+            _serializers, seriesId, const FullType(String)),
+    };
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      queryParameters: _queryParameters,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    BuiltList<AiImportJobResponse>? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType:
+                  const FullType(BuiltList, [FullType(AiImportJobResponse)]),
+            ) as BuiltList<AiImportJobResponse>;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<BuiltList<AiImportJobResponse>>(
       data: _responseData,
       headers: _response.headers,
       isRedirect: _response.isRedirect,

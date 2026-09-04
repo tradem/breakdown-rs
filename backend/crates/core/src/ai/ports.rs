@@ -104,6 +104,19 @@ pub trait AiConfigCommands: Send + Sync {
 #[async_trait]
 pub trait AiConfigRepository: Send + Sync {
     async fn find_by_id(&self, id: Uuid) -> Result<super::views::AiConfigView, DomainError>;
+
+    /// List the caller's configs, newest first (issue #337).
+    ///
+    /// Backs `GET /v1/ai-import/config`. The default empty impl keeps
+    /// test-only backends compiling; production and API fakes override it.
+    async fn list_for_user(
+        &self,
+        _user_id: &UserId,
+        _limit: i64,
+        _offset: i64,
+    ) -> Result<Vec<super::views::AiConfigView>, DomainError> {
+        Ok(Vec::new())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -266,6 +279,19 @@ pub trait AiImportQueue: Send + Sync {
     }
 
     async fn get(&self, id: AiImportJobId) -> Result<Option<AiImportJob>, DomainError>;
+
+    /// List the caller's jobs, newest first (issue #337).
+    ///
+    /// Backs `GET /v1/ai-import/jobs`. The default empty impl keeps
+    /// test-only backends compiling; production and API fakes override it.
+    async fn list_for_user(
+        &self,
+        _user_id: &UserId,
+        _limit: i64,
+        _offset: i64,
+    ) -> Result<Vec<AiImportJob>, DomainError> {
+        Ok(Vec::new())
+    }
 
     // --- Lifecycle transitions (owner-fenced) ------------------------------
     //

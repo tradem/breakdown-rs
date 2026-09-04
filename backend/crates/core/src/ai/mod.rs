@@ -30,10 +30,11 @@ pub use ports::{
     CuratedLlmProvider, LlmChatRequest, LlmClient, LlmModelCatalog, ModelInfo,
 };
 pub use preview::{
-    ApplyGateError, ApplyMapping, ApplyMappingDecision, DraftScene, MergeInput, MergedPreview,
-    MergedScene, SceneApplyCommand, SceneChunk, ScriptContext, ShootingSchedule,
-    ShootingScheduleRow, Uncertainty, ensure_merge_applyable, ensure_script_applyable,
-    extract_scenes, merge_from_input, merge_schedule_to_scenes, plan_scene_apply,
+    AiImportPreviewResponse, AiPreviewPayload, ApplyGateError, ApplyMapping, ApplyMappingDecision,
+    DraftScene, MergeInput, MergedPreview, MergedScene, SceneApplyCommand, SceneChunk,
+    ScriptContext, ShootingSchedule, ShootingScheduleRow, Uncertainty, ensure_merge_applyable,
+    ensure_script_applyable, extract_scenes, merge_from_input, merge_schedule_to_scenes,
+    plan_scene_apply,
 };
 pub use views::{
     AiConfigView, AiImportJob, AiImportJobId, DocumentKind, JobStatus, SourceFormat, Telemetry,
