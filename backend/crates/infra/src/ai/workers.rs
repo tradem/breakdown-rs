@@ -16,8 +16,9 @@ use breakdown_core::ai::{
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::scene::commands::{CreateScene, UpdateSceneDetails};
+use breakdown_core::scene::events::SceneDetails;
 use breakdown_core::scene::ports::SceneCommands;
-use breakdown_core::shared::{EpisodeId, SeriesId, UserId};
+use breakdown_core::shared::{AggregateVersion, EpisodeId, SeriesId, UserId};
 
 #[cfg(test)]
 #[path = "worker_mutation_tests.rs"]
@@ -643,6 +644,18 @@ pub struct ApplyWorker<C, M, Q> {
     pub queue: Arc<Q>,
 }
 
+/// Parameters for one reserved scene create in the script apply path.
+/// Bundled so `create_scene_reserved` stays under the `too_many_arguments`
+/// lint (an `#[allow]` would violate AGENTS.md §3).
+struct ReservedSceneDraft {
+    preview_id: AiImportJobId,
+    draft_ref: String,
+    candidate_id: Uuid,
+    episode_id: EpisodeId,
+    series_id: Option<SeriesId>,
+    details: SceneDetails,
+}
+
 impl<C, M, Q> ApplyWorker<C, M, Q>
 where
     C: SceneCommands + 'static,
@@ -675,65 +688,96 @@ where
                 .mappings
                 .find(preview_id, &draft_ref) // ast-grep-ignore: cqrs-boundary
                 .await?;
-            let decision = stored
-                .map(|mapping| ApplyMappingDecision::Update {
-                    aggregate_id: mapping.aggregate_id,
-                    version: mapping.aggregate_version,
-                })
-                .or_else(|| {
-                    decisions
-                        .iter()
-                        .find(|decision| decision.draft_ref == draft_ref)
-                        .map(|decision| decision.decision.clone())
-                })
-                .ok_or_else(|| {
-                    DomainError::validation(format!("missing mapping for {draft_ref}"))
-                })?;
+            // A confirmed mapping means this row already applied: a retry —
+            // or a concurrent duplicate that confirmed first — is a no-op
+            // returning the stored id/version instead of re-dispatching
+            // (issue #338). Re-dispatching an `Update` here would also fail
+            // in production: identical details are rejected as unchanged.
+            if let Some(confirmed) = stored.as_ref().filter(|mapping| !mapping.is_reserved()) {
+                applied.push(UuidVersion {
+                    aggregate_id: confirmed.aggregate_id,
+                    version: confirmed.aggregate_version,
+                });
+                continue;
+            }
+            // A reservation means a previous attempt already claimed an
+            // aggregate id for this draft. The reservation wins over the
+            // client-supplied decision: the reserved stream may already hold
+            // our append (crash after create, before confirm), so switching
+            // targets would orphan it. Reusing the reserved id also converges
+            // concurrent duplicates onto one stream, whose
+            // `ExpectedVersion::Empty` guard turns the loser into a
+            // `recover_version` success — mirroring the schedule apply path.
+            let reserved_id = stored
+                .filter(|mapping| mapping.is_reserved())
+                .map(|mapping| mapping.aggregate_id);
             let details = draft.scene_details();
-            let (aggregate_id, version) = match decision {
-                ApplyMappingDecision::Create => {
-                    let (id, version) = self
-                        .scene_commands
-                        .create(
+            let (aggregate_id, version) = if let Some(candidate_id) = reserved_id {
+                self.create_scene_reserved(
+                    actor.clone(),
+                    ReservedSceneDraft {
+                        preview_id,
+                        draft_ref,
+                        candidate_id,
+                        episode_id,
+                        series_id,
+                        details,
+                    },
+                )
+                .await?
+            } else {
+                let decision = decisions
+                    .iter()
+                    .find(|decision| decision.draft_ref == draft_ref)
+                    .map(|decision| decision.decision.clone())
+                    .ok_or_else(|| {
+                        DomainError::validation(format!("missing mapping for {draft_ref}"))
+                    })?;
+                match decision {
+                    ApplyMappingDecision::Create => {
+                        let candidate_id = super::schedule_apply::derive_id(preview_id, &draft_ref);
+                        self.create_scene_reserved(
                             actor.clone(),
-                            CreateScene {
-                                id: Uuid::now_v7(),
+                            ReservedSceneDraft {
+                                preview_id,
+                                draft_ref,
+                                candidate_id,
                                 episode_id,
                                 series_id,
                                 details,
                             },
                         )
-                        .await?;
-                    (id, version)
-                }
-                ApplyMappingDecision::Update {
-                    aggregate_id,
-                    version,
-                } => {
-                    let new_version = self
-                        .scene_commands
-                        .update_details(
-                            actor.clone(),
-                            UpdateSceneDetails {
-                                id: aggregate_id,
-                                details,
-                                series_id,
-                                version,
-                            },
-                        )
-                        .await?;
-                    (aggregate_id, new_version)
+                        .await?
+                    }
+                    ApplyMappingDecision::Update {
+                        aggregate_id,
+                        version,
+                    } => {
+                        let new_version = self
+                            .scene_commands
+                            .update_details(
+                                actor.clone(),
+                                UpdateSceneDetails {
+                                    id: aggregate_id,
+                                    details,
+                                    series_id,
+                                    version,
+                                },
+                            )
+                            .await?;
+                        self.mappings
+                            .insert(AiImportMapping {
+                                preview_id,
+                                draft_ref,
+                                aggregate_kind: "scene".to_owned(),
+                                aggregate_id,
+                                aggregate_version: new_version,
+                            })
+                            .await?;
+                        (aggregate_id, new_version)
+                    }
                 }
             };
-            self.mappings
-                .insert(AiImportMapping {
-                    preview_id,
-                    draft_ref,
-                    aggregate_kind: "scene".to_owned(),
-                    aggregate_id,
-                    aggregate_version: version,
-                })
-                .await?;
             applied.push(UuidVersion {
                 aggregate_id,
                 version,
@@ -743,6 +787,64 @@ where
             self.queue.record_telemetry(preview_id, telemetry).await?;
         }
         Ok(applied)
+    }
+
+    /// Reserve `candidate_id` for `(preview_id, draft_ref)` *before*
+    /// dispatching `CreateScene`, then confirm the mapping — mirroring the
+    /// schedule apply path (issue #338).
+    ///
+    /// The reservation is insert-if-absent: concurrent duplicates (or a retry
+    /// after a crashed confirm) converge on the winning row's id, and the
+    /// command runs against that id. A `VersionConflict` on the reserved
+    /// stream proves our own earlier append, so `recover_version` treats it
+    /// as success instead of duplicating the scene.
+    async fn create_scene_reserved(
+        &self,
+        actor: UserId,
+        draft: ReservedSceneDraft,
+    ) -> Result<(Uuid, AggregateVersion), DomainError> {
+        let ReservedSceneDraft {
+            preview_id,
+            draft_ref,
+            candidate_id,
+            episode_id,
+            series_id,
+            details,
+        } = draft;
+        let reservation = self
+            .mappings
+            .reserve(AiImportMapping::reservation(
+                preview_id,
+                draft_ref,
+                "scene".to_owned(),
+                candidate_id,
+            ))
+            .await?;
+        let id = reservation.aggregate_id;
+        let version = super::schedule_apply::recover_version(
+            self.scene_commands
+                .create(
+                    actor,
+                    CreateScene {
+                        id,
+                        episode_id,
+                        series_id,
+                        details,
+                    },
+                )
+                .await
+                .map(|(_, version)| version),
+        )?;
+        self.mappings
+            .insert(AiImportMapping {
+                preview_id: reservation.preview_id,
+                draft_ref: reservation.draft_ref,
+                aggregate_kind: reservation.aggregate_kind,
+                aggregate_id: id,
+                aggregate_version: version,
+            })
+            .await?;
+        Ok((id, version))
     }
 }
 
