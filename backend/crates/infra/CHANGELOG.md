@@ -13,6 +13,25 @@ commits (ADR-020 D5).
 
 ## [0.15.0] - Unreleased
 
+### Fixed — Script apply reserves the scene id before creating (issue #338)
+
+- `ApplyWorker::apply_script` read the draft→aggregate mapping before
+  `SceneCommands::create` but never reserved it, so two concurrent applies
+  for the same job both observed "no mapping yet" and created two scenes
+  per draft (a client retry after an ambiguous timeout duplicated scenes).
+- The script path now mirrors the schedule apply path: a deterministic id
+  derived from `(preview_id, draft_ref)` is reserved via
+  `AiImportMappingRepository::reserve` before dispatch and the command runs
+  against the winning reservation; a `VersionConflict` on the reserved
+  stream is recovered via `recover_version`, so concurrent duplicates
+  converge on one scene per draft with a stable `applied_count`.
+- A confirmed mapping makes a repeated apply a no-op returning the stored
+  id/version (re-dispatching an `Update` would fail in production:
+  identical details are rejected as unchanged). A reservation wins over a
+  changed client decision so a crashed create is never orphaned.
+- No public API change (`derive_id` / `recover_version` are shared
+  `pub(crate)`); no version bump beyond the unreleased 0.15.0.
+
 ### Fixed — Membership projection stores plain `role` / `state` tokens (issue #342)
 
 - `projectors::membership` wrote `serde_json::to_string(&role)` and
