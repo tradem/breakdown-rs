@@ -2,7 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.2 (neuralwatt)
 // Co-authored-by: hy4-preview (opencode-go)
-// Co-authored-by: Muse Spark (neuralwatt)
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
 #![allow(
     clippy::unwrap_used,

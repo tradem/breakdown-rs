@@ -5,7 +5,7 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: longcat-2.0-free (opencode)
 // Co-authored-by: hy4-preview (opencode-go)
-// Co-authored-by: Muse Spark (neuralwatt)
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
 use std::collections::HashMap;
 use std::sync::Arc;

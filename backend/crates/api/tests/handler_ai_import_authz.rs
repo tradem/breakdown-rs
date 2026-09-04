@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
-// Co-authored-by: Muse Spark (neuralwatt)
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
 //! Handler-level authorization tests for the AI import gates (issue #175).
 //!
