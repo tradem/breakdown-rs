@@ -171,9 +171,9 @@ fn template_variables(path: &str) -> Vec<&str> {
 ///
 /// The `application/problem+json` media type is the post-`api_doc()` rewrite
 /// of any `body = ProblemDetails` response (the rewrite keys on the
-/// `ProblemDetails` schema ref), so asserting on the media type enforces both
-/// halves of the convention at once: a declared error status AND a typed
-/// problem body.
+/// `ProblemDetails` schema ref). The test asserts both halves explicitly —
+/// media type AND schema `$ref` — instead of relying on the rewrite, so a
+/// hand-written problem media type with an unrelated schema still fails.
 #[test]
 fn every_operation_documents_an_error_response() {
     let json = serde_json::to_value(api::api_doc()).expect("serialize OpenAPI doc");
@@ -197,15 +197,22 @@ fn every_operation_documents_an_error_response() {
                 if !is_error {
                     continue;
                 }
+                // Assert the schema `$ref`, not just the media type: any schema
+                // under `application/problem+json` would otherwise pass and a
+                // future unrelated schema could silently break the typed error
+                // contract of the generated client.
                 let has_problem_body = response
                     .get("content")
-                    .and_then(serde_json::Value::as_object)
-                    .is_some_and(|content| content.contains_key("application/problem+json"));
+                    .and_then(|content| content.get("application/problem+json"))
+                    .and_then(|media| media.get("schema"))
+                    .and_then(|schema| schema.get("$ref"))
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|ref_location| ref_location.ends_with("/ProblemDetails"));
                 if has_problem_body {
                     has_problem_error = true;
                 } else {
                     failures.push(format!(
-                        "{method} {path}: response {status} has no application/problem+json body (issue #343)"
+                        "{method} {path}: response {status} has no ProblemDetails application/problem+json body (issue #343)"
                     ));
                 }
             }

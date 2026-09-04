@@ -476,6 +476,7 @@ async fn series_id_for_costume<P: Ports>(
 #[utoipa::path(
     get,
     path = "/audit",
+    description = "Audit journal entries of a series, newest first. Requires the series_id query parameter (400 otherwise).",
     params(ListParams),
     responses(
         (status = 200, body = Vec<AuditEntry>, description = "Audit journal entries of the series, newest first"),
@@ -774,6 +775,7 @@ pub async fn get_block_audit<P: Ports>(
 #[utoipa::path(
     get,
     path = "/blocks",
+    description = "Lists the blocks of a season. Requires the season_id query parameter (400 otherwise).",
     params(ListParams),
     responses(
         (status = 200, body = Vec<BlockView>),
@@ -898,6 +900,7 @@ pub struct EpisodeListParams {
 #[utoipa::path(
     get,
     path = "/episodes",
+    description = "Lists episodes of a series, or of a single block when block_id is given. Requires series_id unless block_id is present (400 otherwise).",
     params(EpisodeListParams),
     responses(
         (status = 200, body = Vec<EpisodeView>),
@@ -1021,6 +1024,7 @@ pub async fn get_scene<P: Ports>(
 #[utoipa::path(
     get,
     path = "/scenes",
+    description = "Lists the scenes of an episode. Requires the episode_id query parameter (400 otherwise).",
     params(ListParams),
     responses(
         (status = 200, body = Vec<SceneView>),
@@ -1433,6 +1437,7 @@ pub async fn get_character<P: Ports>(
 #[utoipa::path(
     get,
     path = "/characters",
+    description = "Lists the characters of a season. Requires the season_id query parameter (400 otherwise).",
     params(ListParams),
     responses(
         (status = 200, body = Vec<CharacterView>),
@@ -1569,6 +1574,7 @@ pub async fn get_costume<P: Ports>(
 #[utoipa::path(
     get,
     path = "/costumes",
+    description = "Lists the costumes of a season. Requires the season_id query parameter (400 otherwise).",
     params(ListParams),
     responses(
         (status = 200, body = Vec<CostumeView>),

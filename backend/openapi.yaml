@@ -2371,6 +2371,7 @@ paths:
       - handlers
   /v1/audit:
     get:
+      description: Audit journal entries of a series, newest first. Requires the series_id query parameter (400 otherwise).
       operationId: get_audit_history
       parameters:
       - in: query
@@ -2443,6 +2444,7 @@ paths:
       - handlers
   /v1/blocks:
     get:
+      description: Lists the blocks of a season. Requires the season_id query parameter (400 otherwise).
       operationId: list_blocks
       parameters:
       - in: query
@@ -2998,6 +3000,7 @@ paths:
       - handlers
   /v1/characters:
     get:
+      description: Lists the characters of a season. Requires the season_id query parameter (400 otherwise).
       operationId: list_characters
       parameters:
       - in: query
@@ -3257,6 +3260,7 @@ paths:
       - handlers
   /v1/costumes:
     get:
+      description: Lists the costumes of a season. Requires the season_id query parameter (400 otherwise).
       operationId: list_costumes
       parameters:
       - in: query
@@ -3662,6 +3666,7 @@ paths:
       - handlers
   /v1/episodes:
     get:
+      description: Lists episodes of a series, or of a single block when block_id is given. Requires series_id unless block_id is present (400 otherwise).
       operationId: list_episodes
       parameters:
       - in: query
@@ -3882,6 +3887,7 @@ paths:
       - handlers
   /v1/scenes:
     get:
+      description: Lists the scenes of an episode. Requires the episode_id query parameter (400 otherwise).
       operationId: list_scenes
       parameters:
       - in: query
