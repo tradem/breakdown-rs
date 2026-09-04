@@ -21,6 +21,11 @@ import 'package:breakdown_api/src/model/add_note_request.dart';
 import 'package:breakdown_api/src/model/ai_config_view.dart';
 import 'package:breakdown_api/src/model/ai_import_job.dart';
 import 'package:breakdown_api/src/model/ai_import_job_response.dart';
+import 'package:breakdown_api/src/model/ai_import_preview_response.dart';
+import 'package:breakdown_api/src/model/ai_preview_payload.dart';
+import 'package:breakdown_api/src/model/ai_preview_payload_one_of.dart';
+import 'package:breakdown_api/src/model/ai_preview_payload_one_of1.dart';
+import 'package:breakdown_api/src/model/ai_preview_payload_one_of2.dart';
 import 'package:breakdown_api/src/model/ai_provider_info.dart';
 import 'package:breakdown_api/src/model/apply_ai_import_request.dart';
 import 'package:breakdown_api/src/model/apply_ai_import_response.dart';
@@ -53,6 +58,7 @@ import 'package:breakdown_api/src/model/create_shooting_day_request.dart';
 import 'package:breakdown_api/src/model/credential_binding_state.dart';
 import 'package:breakdown_api/src/model/dispo_row.dart';
 import 'package:breakdown_api/src/model/document_kind.dart';
+import 'package:breakdown_api/src/model/draft_scene.dart';
 import 'package:breakdown_api/src/model/episode_view.dart';
 import 'package:breakdown_api/src/model/finish_scene_shoot_request.dart';
 import 'package:breakdown_api/src/model/g_drive_credential_request.dart';
@@ -67,6 +73,8 @@ import 'package:breakdown_api/src/model/manual_archive_job_result.dart';
 import 'package:breakdown_api/src/model/manual_archive_response.dart';
 import 'package:breakdown_api/src/model/membership_state_kind.dart';
 import 'package:breakdown_api/src/model/membership_view.dart';
+import 'package:breakdown_api/src/model/merged_preview.dart';
+import 'package:breakdown_api/src/model/merged_scene.dart';
 import 'package:breakdown_api/src/model/model_info.dart';
 import 'package:breakdown_api/src/model/photo_binding.dart';
 import 'package:breakdown_api/src/model/photo_binding_one_of.dart';
@@ -89,6 +97,7 @@ import 'package:breakdown_api/src/model/scene_shoot_status.dart';
 import 'package:breakdown_api/src/model/scene_shoot_view.dart';
 import 'package:breakdown_api/src/model/scene_view.dart';
 import 'package:breakdown_api/src/model/schedule_scene_request.dart';
+import 'package:breakdown_api/src/model/script_context.dart';
 import 'package:breakdown_api/src/model/season_membership_dto.dart';
 import 'package:breakdown_api/src/model/season_view.dart';
 import 'package:breakdown_api/src/model/serialized_note.dart';
@@ -99,11 +108,14 @@ import 'package:breakdown_api/src/model/shooting_day_source.dart';
 import 'package:breakdown_api/src/model/shooting_day_source_one_of.dart';
 import 'package:breakdown_api/src/model/shooting_day_source_one_of_ai_extracted.dart';
 import 'package:breakdown_api/src/model/shooting_day_view.dart';
+import 'package:breakdown_api/src/model/shooting_schedule.dart';
+import 'package:breakdown_api/src/model/shooting_schedule_row.dart';
 import 'package:breakdown_api/src/model/skip_scene_shoot_request.dart';
 import 'package:breakdown_api/src/model/soll_ist_diff_row.dart';
 import 'package:breakdown_api/src/model/soll_ist_report.dart';
 import 'package:breakdown_api/src/model/source_format.dart';
 import 'package:breakdown_api/src/model/start_scene_shoot_request.dart';
+import 'package:breakdown_api/src/model/uncertainty.dart';
 import 'package:breakdown_api/src/model/update_ai_config_request.dart';
 import 'package:breakdown_api/src/model/update_block_time_span_request.dart';
 import 'package:breakdown_api/src/model/update_contact_info_request.dart';
@@ -125,6 +137,11 @@ part 'serializers.g.dart';
   AiConfigView,
   AiImportJob,
   AiImportJobResponse,
+  AiImportPreviewResponse,
+  AiPreviewPayload,
+  AiPreviewPayloadOneOf,
+  AiPreviewPayloadOneOf1,
+  AiPreviewPayloadOneOf2,
   AiProviderInfo,
   ApplyAiImportRequest,
   ApplyAiImportResponse,
@@ -157,6 +174,7 @@ part 'serializers.g.dart';
   CredentialBindingState,
   DispoRow,
   DocumentKind,
+  DraftScene,
   EpisodeView,
   FinishSceneShootRequest,
   GDriveCredentialRequest,
@@ -172,6 +190,8 @@ part 'serializers.g.dart';
   ManualArchiveResponse,
   MembershipStateKind,
   MembershipView,
+  MergedPreview,
+  MergedScene,
   ModelInfo,
   PhotoBinding,
   PhotoBindingOneOf,
@@ -194,6 +214,7 @@ part 'serializers.g.dart';
   SceneShootView,
   SceneView,
   ScheduleSceneRequest,
+  ScriptContext,
   SeasonMembershipDto,
   SeasonView,
   SerializedNote,
@@ -204,11 +225,14 @@ part 'serializers.g.dart';
   ShootingDaySourceOneOf,
   ShootingDaySourceOneOfAiExtracted,
   ShootingDayView,
+  ShootingSchedule,
+  ShootingScheduleRow,
   SkipSceneShootRequest,
   SollIstDiffRow,
   SollIstReport,
   SourceFormat,
   StartSceneShootRequest,
+  Uncertainty,
   UpdateAiConfigRequest,
   UpdateBlockTimeSpanRequest,
   UpdateContactInfoRequest,
@@ -256,6 +280,10 @@ Serializers serializers = (_$serializers.toBuilder()
         () => ListBuilder<CostumePhotoView>(),
       )
       ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(AiConfigView)]),
+        () => ListBuilder<AiConfigView>(),
+      )
+      ..addBuilderFactory(
         const FullType(BuiltList, [FullType(DispoRow)]),
         () => ListBuilder<DispoRow>(),
       )
@@ -270,6 +298,10 @@ Serializers serializers = (_$serializers.toBuilder()
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(SollIstDiffRow)]),
         () => ListBuilder<SollIstDiffRow>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(DraftScene)]),
+        () => ListBuilder<DraftScene>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(ModelInfo)]),
@@ -296,12 +328,28 @@ Serializers serializers = (_$serializers.toBuilder()
         () => ListBuilder<SceneShootView>(),
       )
       ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(Uncertainty)]),
+        () => ListBuilder<Uncertainty>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(ShootingScheduleRow)]),
+        () => ListBuilder<ShootingScheduleRow>(),
+      )
+      ..addBuilderFactory(
         const FullType(BuiltList, [FullType(AuditEntry)]),
         () => ListBuilder<AuditEntry>(),
       )
       ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(AiImportJobResponse)]),
+        () => ListBuilder<AiImportJobResponse>(),
+      )
+      ..addBuilderFactory(
         const FullType(BuiltList, [FullType(ManualArchiveJobResult)]),
         () => ListBuilder<ManualArchiveJobResult>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(MergedScene)]),
+        () => ListBuilder<MergedScene>(),
       )
       ..addBuilderFactory(
         const FullType(

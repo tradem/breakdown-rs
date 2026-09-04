@@ -25,9 +25,10 @@ use axum::response::{IntoResponse, Response};
 use axum::{Router, routing};
 use breakdown_core::ai::{
     AiConfigCommands, AiConfigRepository, AiConfigView, AiImportEnqueueRequest,
-    AiImportEnqueueResult, AiImportJobId, AiImportQueue, ApplyMapping, CreateAiConfig,
-    DocumentKind, LlmProvider, MergedPreview, ModelInfo, RevokeAiConfig, ScriptContext,
-    SourceFormat, Telemetry, TelemetryApplyState, UpdateAiConfig,
+    AiImportEnqueueResult, AiImportJobId, AiImportPreviewResponse, AiImportQueue, AiPreviewPayload,
+    ApplyMapping, CreateAiConfig, DocumentKind, LlmProvider, MergedPreview, ModelInfo,
+    RevokeAiConfig, ScriptContext, ShootingSchedule, SourceFormat, Telemetry, TelemetryApplyState,
+    UpdateAiConfig,
 };
 use breakdown_core::audit::{AuditEntry, AuditRepository};
 use breakdown_core::block::commands::{CreateBlock, UpdateBlockTimeSpan};
@@ -4214,7 +4215,7 @@ pub async fn upload_ai_schedule<P: Ports>(
     enqueue_ai_upload(&state, current_user, headers, body, DocumentKind::Schedule).await
 }
 
-#[derive(Debug, Clone, Serialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AiImportJobResponse {
     pub job: breakdown_core::ai::AiImportJob,
 }
@@ -4237,11 +4238,73 @@ pub async fn get_ai_import_job<P: Ports>(
     Ok(no_store_json(StatusCode::OK, AiImportJobResponse { job }))
 }
 
+/// Stored-row scan window for `list_ai_import_jobs` (issue #337 review).
+///
+/// Every `list_for_user` backend clamps `LIMIT` to `1..=100`, so a wider
+/// window would silently shrink to 100 rows and could stall the visible-page
+/// scan loop that pages past gate-denied rows.
+const AI_JOB_LIST_SCAN_PAGE: i64 = 100;
+
+#[utoipa::path(
+    get,
+    path = "/ai-import/jobs",
+    params(ListParams),
+    responses((status = 200, body = Vec<AiImportJobResponse>), (status = 400, body = ProblemDetails))
+)]
+pub async fn list_ai_import_jobs<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Query(params): Query<ListParams>,
+) -> Result<Response, ApiError> {
+    // AUTHZ-GATE: the caller's own jobs only (`user_id` filter); each row is
+    // additionally passed through the per-job season gate so a revoked
+    // membership hides the job here exactly as it 403s the single-job view.
+    // Rows denied by the gate are skipped, not fatal: the list stays usable
+    // when one job's block is gone. Infra failures still propagate.
+    //
+    // The gate runs *before* pagination: `LIMIT`/`OFFSET` slice the visible
+    // rows, never the stored rows, so denied rows ahead of the window cannot
+    // punch holes into (or empty out) the page. The store is scanned in
+    // bounded `AI_JOB_LIST_SCAN_PAGE` windows until the visible window is
+    // full or the store is exhausted.
+    let limit = params.limit.unwrap_or(50).clamp(1, 100) as usize;
+    let offset = params.offset.unwrap_or(0).max(0) as usize;
+    let needed = offset.saturating_add(limit);
+    let mut visible: Vec<AiImportJobResponse> = Vec::new();
+    let mut stored_offset: i64 = 0;
+    loop {
+        let stored = state
+            .ports
+            .ai_import_queue()
+            .list_for_user(&current_user.sub, AI_JOB_LIST_SCAN_PAGE, stored_offset)
+            .await?;
+        let fetched = stored.len();
+        for job in stored {
+            match authorize_ai_job(&state, &current_user, &job, Action::Read).await {
+                Ok(()) => {
+                    visible.push(AiImportJobResponse { job });
+                    if visible.len() >= needed {
+                        break;
+                    }
+                }
+                Err(ApiError::Forbidden(_)) | Err(ApiError::NotFound(_)) => continue,
+                Err(error) => return Err(error),
+            }
+        }
+        if visible.len() >= needed || fetched < AI_JOB_LIST_SCAN_PAGE as usize {
+            break;
+        }
+        stored_offset += fetched as i64;
+    }
+    let page: Vec<AiImportJobResponse> = visible.into_iter().skip(offset).take(limit).collect();
+    Ok(no_store_json(StatusCode::OK, page))
+}
+
 #[utoipa::path(
     get,
     path = "/ai-import/jobs/{id}/preview",
     params(("id" = Uuid, Path)),
-    responses((status = 200, body = Object), (status = 404, body = ProblemDetails))
+    responses((status = 200, body = AiImportPreviewResponse), (status = 404, body = ProblemDetails), (status = 422, body = ProblemDetails))
 )]
 pub async fn get_ai_import_preview<P: Ports>(
     State(state): State<AppState<P>>,
@@ -4252,18 +4315,56 @@ pub async fn get_ai_import_preview<P: Ports>(
     let job = state.ports.ai_import_queue().get(id).await?;
     let job = job.ok_or(ApiError::NotFound("AI import job not found"))?;
     authorize_ai_job(&state, &current_user, &job, Action::Read).await?;
-    let handle = job.preview_handle.ok_or(ApiError::NotFound("AI preview"))?;
+    let handle = job
+        .preview_handle
+        .clone()
+        .ok_or(ApiError::NotFound("AI preview"))?;
     let payload = state
         .ports
         .ai_preview_store()
         .get(&handle)
         .await?
         .ok_or(ApiError::NotFound("AI preview"))?;
-    let value: serde_json::Value = serde_json::from_slice(&payload).map_err(|error| {
-        tracing::error!(error = %error, "invalid AI preview JSON");
-        ApiError::Validation("invalid AI preview JSON")
-    })?;
-    Ok(no_store_json(StatusCode::OK, value))
+    let preview = parse_preview_payload(job.document_kind, &payload)?;
+    Ok(no_store_json(
+        StatusCode::OK,
+        AiImportPreviewResponse {
+            job_id: job.id.as_uuid(),
+            document_kind: job.document_kind,
+            status: job.status,
+            preview,
+        },
+    ))
+}
+
+/// Parse the stored preview bytes into the typed union (issue #337).
+///
+/// Script jobs persist `ScriptContext`; schedule jobs persist
+/// `ShootingSchedule` until the merge worker overwrites the handle with a
+/// `MergedPreview`, so a schedule payload is tried as merged first and
+/// falls back to the raw schedule shape. A blob matching neither shape is a
+/// corrupt preview (`422`), never an untyped blob for the client to guess at.
+fn parse_preview_payload(kind: DocumentKind, payload: &[u8]) -> Result<AiPreviewPayload, ApiError> {
+    match kind {
+        DocumentKind::Script => serde_json::from_slice::<ScriptContext>(payload)
+            .map(AiPreviewPayload::Script)
+            .map_err(|error| {
+                tracing::error!(error = %error, "invalid ScriptContext preview");
+                ApiError::Validation("invalid AI preview payload")
+            }),
+        DocumentKind::Schedule => {
+            if let Ok(merged) = serde_json::from_slice::<MergedPreview>(payload) {
+                Ok(AiPreviewPayload::Merged(merged))
+            } else {
+                serde_json::from_slice::<ShootingSchedule>(payload)
+                    .map(AiPreviewPayload::Schedule)
+                    .map_err(|error| {
+                        tracing::error!(error = %error, "invalid schedule preview");
+                        ApiError::Validation("invalid AI preview payload")
+                    })
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -4569,6 +4670,34 @@ pub async fn get_ai_config<P: Ports>(
 }
 
 #[utoipa::path(
+    get,
+    path = "/ai-import/config",
+    params(ListParams),
+    responses((status = 200, body = Vec<AiConfigView>), (status = 403, body = ProblemDetails))
+)]
+pub async fn list_ai_configs<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Query(params): Query<ListParams>,
+) -> Result<Response, ApiError> {
+    // AUTHZ-GATE: AI configuration discovery is a credential-role-only view;
+    // rows are owner-scoped so a caller can only ever discover their own.
+    if !credential_role_gate(&state, &current_user).await? {
+        return Err(forbidden_ai_config());
+    }
+    let views = state
+        .ports
+        .ai_config_repo()
+        .list_for_user(
+            &current_user.sub,
+            params.limit.unwrap_or(50),
+            params.offset.unwrap_or(0),
+        )
+        .await?;
+    Ok(no_store_json(StatusCode::OK, views))
+}
+
+#[utoipa::path(
     patch,
     path = "/ai-import/config/{id}",
     params(("id" = Uuid, Path)),
@@ -4748,6 +4877,10 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         // routes keep Axum's default body limit.
         .route_layer(DefaultBodyLimit::max(ai_document_limit))
         .route(
+            "/ai-import/jobs",
+            routing::get(list_ai_import_jobs::<ProductionPorts>),
+        )
+        .route(
             "/ai-import/jobs/{id}",
             routing::get(get_ai_import_job::<ProductionPorts>),
         )
@@ -4761,7 +4894,8 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         )
         .route(
             "/ai-import/config",
-            routing::post(create_ai_config::<ProductionPorts>),
+            routing::post(create_ai_config::<ProductionPorts>)
+                .get(list_ai_configs::<ProductionPorts>),
         )
         .route(
             "/ai-import/config/{id}",

@@ -11,7 +11,21 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
-## [0.10.0] - Unreleased
+## [0.11.0] - Unreleased
+
+### Added — AI import discovery lists + typed preview envelope (issue #337)
+
+- `AiConfigRepository::list_for_user` / `AiImportQueue::list_for_user`:
+  owner-scoped, newest-first paginated reads backing `GET /v1/ai-import/config`
+  and `GET /v1/ai-import/jobs`. Both carry a default empty impl so test-only
+  backends keep compiling; production adapters override them.
+- `AiPreviewPayload` (`script` / `schedule` / `merged` tagged union over
+  `ScriptContext` / `ShootingSchedule` / `MergedPreview`) and
+  `AiImportPreviewResponse` (`job_id`, `document_kind`, `status`, `preview`):
+  the typed 200 body of `GET /v1/ai-import/jobs/{id}/preview`, replacing the
+  untyped `object` so generated clients consume preview rows structurally.
+- **MINOR bump (ADR-020 D2):** new public types and trait methods are additive
+  API surface: **0.10.0 → 0.11.0**.
 
 ### Added — Series-scoped membership predicate (issue #342)
 

@@ -12,14 +12,44 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
-## [0.9.0] - Unreleased
+## [0.10.0] - Unreleased
 
 > **Note (release owner):** this section bundles the entries that accumulated
 > under `[Unreleased]`. Two of them were written as “no version bump”
 > (#29, test-only) / “PATCH bump” (#270); they ship with the **D3 cascade**
 > that the series-scoped audit gate (#342) triggers from `core` 0.10.0, so the
 > released version is **0.8.1 → 0.9.0**. The per-entry notes below keep their
-> original reasoning.
+> original reasoning. Issue #337 below adds new public routes on top, moving
+> the release to **0.10.0**.
+
+### Added — AI import discovery routes + typed preview (issue #337)
+
+- `GET /v1/ai-import/config`: the caller's configs, newest-first
+  (`ListParams` pagination), behind the credential-role `// AUTHZ-GATE:`.
+- `GET /v1/ai-import/jobs`: the caller's jobs, newest-first (`ListParams`
+  pagination), owner-scoped with per-row season-gate filtering (denied rows
+  are skipped, infra errors propagate).
+- `GET /v1/ai-import/jobs/{id}/preview` now serves the typed
+  `AiImportPreviewResponse` envelope (`script` / `schedule` / `merged`
+  union); corrupt blobs are `422 domain.validation`.
+- **MINOR bump (ADR-020 D2):** new public routes + response type:
+  **0.9.0 → 0.10.0**.
+
+### Fixed — AI import review follow-ups (issue #337)
+
+- `GET /v1/ai-import/jobs` paginates the gate-filtered (visible) rows: the
+  per-row season gate now runs before `LIMIT`/`OFFSET`, so denied rows ahead
+  of the window can no longer punch holes into (or empty out) the page. The
+  store is scanned in bounded 100-row windows until the visible window is
+  full or exhausted.
+- `GET /v1/ai-import/jobs` and `GET /v1/ai-import/config` return
+  `Cache-Control: no-store` via the shared `no_store_json` helper, matching
+  the single-item AI endpoints (`GET …/jobs/{id}`, `…/preview`).
+- `GET /v1/ai-import/jobs/{id}/preview` declares the reachable `422
+  domain.validation` response for corrupt preview blobs in `openapi.yaml`
+  (the Dart client regenerates byte-identical: error-only changes emit no
+  client code).
+- Rides with the 0.10.0 MINOR above; no additional bump.
 
 ### Fixed — Dev-auth fallback gated on OIDC_ISS absence (issue #270)
 

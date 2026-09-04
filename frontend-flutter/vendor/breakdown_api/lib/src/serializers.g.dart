@@ -13,6 +13,14 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(AiConfigView.serializer)
       ..add(AiImportJob.serializer)
       ..add(AiImportJobResponse.serializer)
+      ..add(AiImportPreviewResponse.serializer)
+      ..add(AiPreviewPayload.serializer)
+      ..add(AiPreviewPayloadOneOf.serializer)
+      ..add(AiPreviewPayloadOneOf1.serializer)
+      ..add(AiPreviewPayloadOneOf1KindEnum.serializer)
+      ..add(AiPreviewPayloadOneOf2.serializer)
+      ..add(AiPreviewPayloadOneOf2KindEnum.serializer)
+      ..add(AiPreviewPayloadOneOfKindEnum.serializer)
       ..add(AiProviderInfo.serializer)
       ..add(ApplyAiImportRequest.serializer)
       ..add(ApplyAiImportResponse.serializer)
@@ -45,6 +53,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(CredentialBindingState.serializer)
       ..add(DispoRow.serializer)
       ..add(DocumentKind.serializer)
+      ..add(DraftScene.serializer)
       ..add(EpisodeView.serializer)
       ..add(FinishSceneShootRequest.serializer)
       ..add(GDriveCredentialUpdateRequest.serializer)
@@ -58,6 +67,8 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ManualArchiveResponse.serializer)
       ..add(MembershipStateKind.serializer)
       ..add(MembershipView.serializer)
+      ..add(MergedPreview.serializer)
+      ..add(MergedScene.serializer)
       ..add(ModelInfo.serializer)
       ..add(PhotoBinding.serializer)
       ..add(PhotoBindingOneOf.serializer)
@@ -80,6 +91,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(SceneShootView.serializer)
       ..add(SceneView.serializer)
       ..add(ScheduleSceneRequest.serializer)
+      ..add(ScriptContext.serializer)
       ..add(SeasonMembershipDto.serializer)
       ..add(SeasonView.serializer)
       ..add(SerializedNote.serializer)
@@ -90,11 +102,14 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ShootingDaySourceOneOf.serializer)
       ..add(ShootingDaySourceOneOfAiExtracted.serializer)
       ..add(ShootingDayView.serializer)
+      ..add(ShootingSchedule.serializer)
+      ..add(ShootingScheduleRow.serializer)
       ..add(SkipSceneShootRequest.serializer)
       ..add(SollIstDiffRow.serializer)
       ..add(SollIstReport.serializer)
       ..add(SourceFormat.serializer)
       ..add(StartSceneShootRequest.serializer)
+      ..add(Uncertainty.serializer)
       ..add(UpdateAiConfigRequest.serializer)
       ..add(UpdateBlockTimeSpanRequest.serializer)
       ..add(UpdateContactInfoRequest.serializer)
@@ -120,18 +135,45 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(BuiltList, const [const FullType(DocumentKind)]),
           () => ListBuilder<DocumentKind>())
       ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(DraftScene)]),
+          () => ListBuilder<DraftScene>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(Uncertainty)]),
+          () => ListBuilder<Uncertainty>())
+      ..addBuilderFactory(
           const FullType(
               BuiltList, const [const FullType(ManualArchiveJobResult)]),
           () => ListBuilder<ManualArchiveJobResult>())
       ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(MergedScene)]),
+          () => ListBuilder<MergedScene>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(ShootingScheduleRow)]),
+          () => ListBuilder<ShootingScheduleRow>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(SceneView)]),
+          () => ListBuilder<SceneView>())
+      ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(PhotoVariantView)]),
           () => ListBuilder<PhotoVariantView>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(PhotoVariantView)]),
           () => ListBuilder<PhotoVariantView>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(ShootingScheduleRow)]),
+          () => ListBuilder<ShootingScheduleRow>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(ShootingScheduleRow)]),
+          () => ListBuilder<ShootingScheduleRow>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(SollIstDiffRow)]),
           () => ListBuilder<SollIstDiffRow>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(String)]),
           () => ListBuilder<String>())

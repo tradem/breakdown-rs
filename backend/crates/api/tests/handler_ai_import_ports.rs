@@ -20,21 +20,23 @@
 mod common;
 
 use api::problems::Json; // test-only alias for the wrapper extractor (ADR-031)
-use api::problems::Path;
+use api::problems::{Path, Query};
 use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 
 use api::auth::CurrentUser;
 use api::handlers::{
-    ApplyAiImportRequest, CreateAiConfigRequest, RevokeAiConfigRequest, UpdateAiConfigRequest,
-    apply_ai_import, create_ai_config, get_ai_config, get_ai_import_job, get_ai_import_preview,
+    AiImportJobResponse, ApplyAiImportRequest, CreateAiConfigRequest, ListParams,
+    RevokeAiConfigRequest, UpdateAiConfigRequest, apply_ai_import, create_ai_config, get_ai_config,
+    get_ai_import_job, get_ai_import_preview, list_ai_configs, list_ai_import_jobs,
     revoke_ai_config, update_ai_config, upload_ai_schedule, upload_ai_script,
 };
 use api::state::AppState;
 use breakdown_core::ai::{
-    AiConfigView, AiImportJob, AiImportJobId, AiImportMappingRepository, AiImportQueue,
-    ApplyMapping, ApplyMappingDecision, DocumentKind, DraftScene, JobStatus, LlmProvider,
-    ScriptContext, SourceFormat, TelemetryApplyState,
+    AiConfigView, AiImportJob, AiImportJobId, AiImportMappingRepository, AiImportPreviewResponse,
+    AiImportQueue, AiPreviewPayload, ApplyMapping, ApplyMappingDecision, DocumentKind, DraftScene,
+    JobStatus, LlmProvider, MergedPreview, ScriptContext, ShootingSchedule, SourceFormat,
+    TelemetryApplyState,
 };
 use breakdown_core::block::BlockView;
 use breakdown_core::membership::Role;
@@ -364,11 +366,24 @@ async fn get_ai_import_job_denies_a_foreign_owner() {
 async fn get_ai_import_preview_reads_through_the_preview_store_port() {
     let ports = FakePorts::default();
     // Store the payload through the port itself so the handle is exactly the
-    // one the production store would mint for this job.
+    // one the production store would mint for this job. A full
+    // `ScriptContext` — the typed shape script jobs persist.
+    let preview = ScriptContext {
+        title: Some("test script".to_owned()),
+        scenes: vec![DraftScene {
+            draft_ref: "scene-0".to_owned(),
+            scene_number: Some(1),
+            ..DraftScene::default()
+        }],
+        uncertainties: vec![],
+    };
     let mut job = succeeded_job("placeholder");
     let handle = ports
         .ai_payload_store
-        .put(job.id, br#"{"scenes":[]}"#.to_vec())
+        .put(
+            job.id,
+            serde_json::to_vec(&preview).expect("preview serializes"),
+        )
         .await
         .expect("preview store write should succeed");
     job.preview_handle = Some(handle);
@@ -379,6 +394,19 @@ async fn get_ai_import_preview_reads_through_the_preview_store_port() {
         .await
         .expect("preview should be served from the fake store");
     assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .expect("preview body should read");
+    let typed: AiImportPreviewResponse =
+        serde_json::from_slice(&body).expect("preview body is the typed envelope");
+    assert_eq!(typed.job_id, job_id.as_uuid());
+    assert_eq!(typed.document_kind, DocumentKind::Script);
+    assert_eq!(typed.status, JobStatus::Succeeded);
+    assert!(
+        matches!(typed.preview, AiPreviewPayload::Script(ref context)
+            if context.scenes.len() == 1 && context.scenes[0].draft_ref == "scene-0"),
+        "script payload must carry its draft rows structurally"
+    );
 }
 
 /// Seed a succeeded script job whose preview holds `scene_count` draft scenes
@@ -677,6 +705,12 @@ async fn ai_config_lifecycle_runs_through_the_config_ports() {
 #[tokio::test]
 async fn get_ai_config_denies_a_foreign_owner() {
     let ports = FakePorts::default();
+    // Seed the credential role so the denial exercises the ownership check,
+    // not the credential gate (issue #348 fail-closed fakes).
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
     let id = Uuid::now_v7();
     ports.ai_config_repo.views.lock().await.insert(
         id,
@@ -748,5 +782,362 @@ async fn ai_upload_is_not_found_when_the_feature_is_disabled() {
     assert_eq!(problem.status, StatusCode::NOT_FOUND.as_u16());
     assert_eq!(problem.code, "domain.not-found");
     // Detail is localized (ADR-031 D5); the code is the contract.
+    assert!(!problem.detail.is_empty());
+}
+
+/// Seed a succeeded schedule job holding `payload` bytes verbatim.
+async fn seed_schedule_job_with_payload(ports: &FakePorts, payload: Vec<u8>) -> AiImportJobId {
+    let now = Utc::now();
+    let mut job = succeeded_job("placeholder");
+    job.document_kind = DocumentKind::Schedule;
+    job.source_format = SourceFormat::Csv;
+    job.created_at = now;
+    job.updated_at = now;
+    let handle = ports
+        .ai_payload_store
+        .put(job.id, payload)
+        .await
+        .expect("preview store write should succeed");
+    job.preview_handle = Some(handle);
+    let job_id = job.id;
+    ports.ai_import_queue.seed(job).await;
+    job_id
+}
+
+async fn preview_body(ports: FakePorts, job_id: AiImportJobId) -> AiImportPreviewResponse {
+    let response = get_ai_import_preview::<FakePorts>(State(state(ports)), user(), Path(job_id))
+        .await
+        .expect("preview should be served");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .expect("preview body should read");
+    serde_json::from_slice(&body).expect("preview body is the typed envelope")
+}
+
+#[tokio::test]
+async fn get_ai_import_preview_serves_merged_schedule_payload() {
+    let ports = FakePorts::default();
+    let payload = serde_json::to_vec(&MergedPreview::default()).expect("preview serializes");
+    let job_id = seed_schedule_job_with_payload(&ports, payload).await;
+
+    let typed = preview_body(ports, job_id).await;
+    assert_eq!(typed.document_kind, DocumentKind::Schedule);
+    assert!(
+        matches!(typed.preview, AiPreviewPayload::Merged(_)),
+        "post-merge schedule payload must surface as the merged variant"
+    );
+}
+
+#[tokio::test]
+async fn get_ai_import_preview_serves_raw_schedule_payload() {
+    let ports = FakePorts::default();
+    let payload = serde_json::to_vec(&ShootingSchedule::default()).expect("preview serializes");
+    let job_id = seed_schedule_job_with_payload(&ports, payload).await;
+
+    let typed = preview_body(ports, job_id).await;
+    assert!(
+        matches!(typed.preview, AiPreviewPayload::Schedule(_)),
+        "pre-merge schedule payload must surface as the schedule variant"
+    );
+}
+
+#[tokio::test]
+async fn get_ai_import_preview_rejects_an_unparseable_payload() {
+    let ports = FakePorts::default();
+    let job_id = seed_schedule_job_with_payload(&ports, b"not json at all".to_vec()).await;
+
+    let problem = get_ai_import_preview::<FakePorts>(State(state(ports)), user(), Path(job_id))
+        .await
+        .expect_err("a corrupt preview must not be served untyped")
+        .into_problem();
+    assert_eq!(problem.status, StatusCode::UNPROCESSABLE_ENTITY.as_u16());
+    assert_eq!(problem.code, "domain.validation");
+    assert!(!problem.detail.is_empty());
+}
+
+fn jobs_query(limit: Option<i64>, offset: Option<i64>) -> Query<ListParams> {
+    Query(ListParams {
+        limit,
+        offset,
+        episode_id: None,
+        season_id: None,
+        series_id: None,
+    })
+}
+
+/// Read a `no_store_json` list response: assert the anti-cache header, then
+/// return the status and the deserialized JSON body.
+async fn read_no_store_list<T: serde::de::DeserializeOwned>(
+    response: axum::response::Response,
+) -> (StatusCode, T) {
+    assert_eq!(
+        response
+            .headers()
+            .get(axum::http::header::CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok()),
+        Some("no-store"),
+        "authenticated AI lists must not be cacheable"
+    );
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .expect("list body should read");
+    let value = serde_json::from_slice(&body).expect("list body is JSON");
+    (status, value)
+}
+
+/// Seed a block in a fresh season *without* granting the caller a role there,
+/// so the AI season gate denies jobs pointing at it (fail-closed fakes,
+/// issue #348).
+async fn seed_denied_block(ports: &FakePorts) -> BlockId {
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    ports.block_repo.blocks.lock().await.insert(
+        block_id.0,
+        BlockView {
+            id: block_id.0,
+            season_id: SeasonId::new(),
+            series_id: SeriesId::new(),
+            number: 1,
+            start_date: None,
+            end_date: None,
+            version: AggregateVersion::INITIAL,
+            updated_at: Utc::now(),
+        },
+    );
+    block_id
+}
+
+#[tokio::test]
+async fn list_ai_import_jobs_returns_only_the_caller_jobs_newest_first() {
+    let ports = FakePorts::default();
+    let base = Utc::now();
+    let mut first = succeeded_job("ai-preview/first");
+    first.created_at = base;
+    first.updated_at = base;
+    let mut second = succeeded_job("ai-preview/second");
+    second.created_at = base + chrono::Duration::seconds(10);
+    second.updated_at = second.created_at;
+    let mut foreign = succeeded_job("ai-preview/foreign");
+    foreign.user_id = UserId::from_sub("someone-else");
+    let second_id = second.id;
+    let first_id = first.id;
+    ports.ai_import_queue.seed(first).await;
+    ports.ai_import_queue.seed(second).await;
+    ports.ai_import_queue.seed(foreign).await;
+
+    let response =
+        list_ai_import_jobs::<FakePorts>(State(state(ports)), user(), jobs_query(None, None))
+            .await
+            .expect("owner should list their own jobs");
+    let (status, jobs): (StatusCode, Vec<AiImportJobResponse>) = read_no_store_list(response).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        jobs.iter().map(|entry| entry.job.id).collect::<Vec<_>>(),
+        vec![second_id, first_id],
+        "jobs must be newest-first and scoped to the caller"
+    );
+}
+
+#[tokio::test]
+async fn list_ai_import_jobs_honors_pagination() {
+    let ports = FakePorts::default();
+    let base = Utc::now();
+    for index in 0..3 {
+        let mut job = succeeded_job(&format!("ai-preview/{index}"));
+        job.created_at = base + chrono::Duration::seconds(index);
+        job.updated_at = job.created_at;
+        ports.ai_import_queue.seed(job).await;
+    }
+
+    let response = list_ai_import_jobs::<FakePorts>(
+        State(state(ports.clone())),
+        user(),
+        jobs_query(Some(1), Some(1)),
+    )
+    .await
+    .expect("pagination should select the middle row");
+    let (status, page): (StatusCode, Vec<AiImportJobResponse>) = read_no_store_list(response).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(page.len(), 1);
+}
+
+#[tokio::test]
+async fn list_ai_import_jobs_paginates_visible_rows_after_the_season_gate() {
+    let ports = FakePorts::default();
+    let denied_block = seed_denied_block(&ports).await;
+    let base = Utc::now();
+    let mut denied_newest = succeeded_job("ai-preview/denied-newest");
+    denied_newest.block_id = Some(denied_block);
+    denied_newest.created_at = base + chrono::Duration::seconds(30);
+    denied_newest.updated_at = denied_newest.created_at;
+    let mut denied_older = succeeded_job("ai-preview/denied-older");
+    denied_older.block_id = Some(denied_block);
+    denied_older.created_at = base + chrono::Duration::seconds(20);
+    denied_older.updated_at = denied_older.created_at;
+    let mut allowed_newer = succeeded_job("ai-preview/allowed-newer");
+    allowed_newer.created_at = base + chrono::Duration::seconds(10);
+    allowed_newer.updated_at = allowed_newer.created_at;
+    let mut allowed_older = succeeded_job("ai-preview/allowed-older");
+    allowed_older.created_at = base;
+    allowed_older.updated_at = base;
+    let allowed_newer_id = allowed_newer.id;
+    let allowed_older_id = allowed_older.id;
+    for job in [denied_newest, denied_older, allowed_newer, allowed_older] {
+        ports.ai_import_queue.seed(job).await;
+    }
+
+    // Two denied rows precede the allowed ones in stored order; the visible
+    // page must still fill from the allowed rows (previously: empty page).
+    let response = list_ai_import_jobs::<FakePorts>(
+        State(state(ports.clone())),
+        user(),
+        jobs_query(Some(2), Some(0)),
+    )
+    .await
+    .expect("denied rows must not punch holes in the page");
+    let (status, jobs): (StatusCode, Vec<AiImportJobResponse>) = read_no_store_list(response).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        jobs.iter().map(|entry| entry.job.id).collect::<Vec<_>>(),
+        vec![allowed_newer_id, allowed_older_id],
+        "pagination must slice visible rows, not stored rows"
+    );
+
+    // The offset counts visible rows, not stored rows.
+    let response =
+        list_ai_import_jobs::<FakePorts>(State(state(ports)), user(), jobs_query(Some(1), Some(1)))
+            .await
+            .expect("offset must skip visible rows");
+    let (status, jobs): (StatusCode, Vec<AiImportJobResponse>) = read_no_store_list(response).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        jobs.iter().map(|entry| entry.job.id).collect::<Vec<_>>(),
+        vec![allowed_older_id],
+        "offset must skip visible rows, not stored rows"
+    );
+}
+
+#[tokio::test]
+async fn list_ai_import_jobs_scans_past_a_full_denied_page() {
+    let ports = FakePorts::default();
+    let denied_block = seed_denied_block(&ports).await;
+    let base = Utc::now();
+    // One full scan window of denied rows: the visible scan must advance to
+    // the next stored page instead of stopping at the first page boundary.
+    for index in 0..100 {
+        let mut denied = succeeded_job(&format!("ai-preview/denied-{index}"));
+        denied.block_id = Some(denied_block);
+        denied.created_at = base + chrono::Duration::seconds(index + 1);
+        denied.updated_at = denied.created_at;
+        ports.ai_import_queue.seed(denied).await;
+    }
+    let mut allowed = succeeded_job("ai-preview/allowed");
+    allowed.created_at = base;
+    allowed.updated_at = base;
+    let allowed_id = allowed.id;
+    ports.ai_import_queue.seed(allowed).await;
+
+    let response =
+        list_ai_import_jobs::<FakePorts>(State(state(ports)), user(), jobs_query(None, None))
+            .await
+            .expect("the scan must reach past the denied page");
+    let (status, jobs): (StatusCode, Vec<AiImportJobResponse>) = read_no_store_list(response).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        jobs.iter().map(|entry| entry.job.id).collect::<Vec<_>>(),
+        vec![allowed_id],
+        "the visible scan must advance past a full page of denied rows"
+    );
+}
+
+#[tokio::test]
+async fn list_ai_import_jobs_hides_jobs_losing_the_season_gate() {
+    let ports = FakePorts::default();
+    let mut gated = succeeded_job("ai-preview/gated");
+    gated.block_id = Some(BlockId::from_uuid(Uuid::now_v7()));
+    ports.ai_import_queue.seed(gated).await;
+    let plain = succeeded_job("ai-preview/plain");
+    ports.ai_import_queue.seed(plain).await;
+    // Revoke the season role: the block-scoped job must drop out of the
+    // list while the block-less job stays visible.
+    *ports.membership_repo.costume_role_override.lock().await = Some(Ok(false));
+
+    let response =
+        list_ai_import_jobs::<FakePorts>(State(state(ports)), user(), jobs_query(None, None))
+            .await
+            .expect("gate denials must skip rows, not fail the list");
+    let (status, jobs): (StatusCode, Vec<AiImportJobResponse>) = read_no_store_list(response).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(
+        jobs[0].job.preview_handle.as_deref(),
+        Some("ai-preview/plain")
+    );
+}
+
+fn config_view(user_sub: &str) -> AiConfigView {
+    AiConfigView {
+        id: Uuid::now_v7(),
+        user_id: UserId::from_sub(user_sub),
+        provider: LlmProvider::Neuralwatt,
+        assistant_model: "assistant".to_owned(),
+        image_model: None,
+        prompt_kinds: vec![],
+        vault_key_id: "vault-key".to_owned(),
+        version: AggregateVersion::INITIAL,
+        revoked: false,
+    }
+}
+
+#[tokio::test]
+async fn list_ai_configs_returns_only_the_caller_configs() {
+    let ports = FakePorts::default();
+    // Seed-backed allow (issue #348): without a credential-role row the
+    // fail-closed fake denies with 403 before reaching the list.
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    let mine = config_view(TEST_SUB);
+    let mine_id = mine.id;
+    let foreign = config_view("someone-else");
+    ports
+        .ai_config_repo
+        .views
+        .lock()
+        .await
+        .insert(mine_id, mine);
+    ports
+        .ai_config_repo
+        .views
+        .lock()
+        .await
+        .insert(foreign.id, foreign);
+
+    let response =
+        list_ai_configs::<FakePorts>(State(state(ports)), user(), jobs_query(None, None))
+            .await
+            .expect("credential-role member should discover their configs");
+    let (status, views): (StatusCode, Vec<AiConfigView>) = read_no_store_list(response).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        views.iter().map(|view| view.id).collect::<Vec<_>>(),
+        vec![mine_id],
+        "config discovery must be scoped to the caller"
+    );
+}
+
+#[tokio::test]
+async fn list_ai_configs_is_denied_without_the_credential_role() {
+    let ports = FakePorts::default();
+    *ports.membership_repo.credential_role_override.lock().await = Some(Ok(false));
+
+    let problem = list_ai_configs::<FakePorts>(State(state(ports)), user(), jobs_query(None, None))
+        .await
+        .expect_err("a non-credential-role caller must be denied")
+        .into_problem();
+    assert_eq!(problem.status, StatusCode::FORBIDDEN.as_u16());
+    assert_eq!(problem.code, "domain.forbidden");
     assert!(!problem.detail.is_empty());
 }

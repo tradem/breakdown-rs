@@ -84,7 +84,7 @@ fn api_routes_are_behind_auth_middleware() {
     //  patterns, not method-verb pairs.)
     assert_eq!(
         api.len(),
-        75,
+        76,
         "number of API route path patterns has changed — \
          see doc comment above for update instructions"
     );
@@ -271,6 +271,7 @@ fn api_routes_have_deliberate_authorization_requirement() {
         ),
         ("/ai-import/scripts", Requirement::Authenticated),
         ("/ai-import/schedules", Requirement::Authenticated),
+        ("/ai-import/jobs", Requirement::Authenticated),
         ("/ai-import/jobs/{id}", Requirement::Authenticated),
         ("/ai-import/jobs/{id}/preview", Requirement::Authenticated),
         ("/ai-import/jobs/{id}/apply", Requirement::Authenticated),

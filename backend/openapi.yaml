@@ -147,6 +147,75 @@ components:
       required:
       - job
       type: object
+    AiImportPreviewResponse:
+      description: |-
+        Typed envelope for the preview endpoint: job identity plus the parsed
+        payload. Parsing happens server-side so a corrupt blob surfaces as
+        `422 domain.validation` instead of an untyped blob the client must
+        validate at runtime.
+      properties:
+        document_kind:
+          $ref: '#/components/schemas/DocumentKind'
+        job_id:
+          format: uuid
+          type: string
+        preview:
+          $ref: '#/components/schemas/AiPreviewPayload'
+        status:
+          $ref: '#/components/schemas/JobStatus'
+      required:
+      - job_id
+      - document_kind
+      - status
+      - preview
+      type: object
+    AiPreviewPayload:
+      description: |-
+        Typed preview payload served by `GET /v1/ai-import/jobs/{id}/preview`
+        (issue #337).
+
+        Workers persist one of three shapes depending on the job's document kind
+        and stage: `Script` (`ScriptContext`, script jobs), `Schedule`
+        (`ShootingSchedule`, schedule jobs before the merge worker runs), or
+        `Merged` (`MergedPreview`, schedule jobs after the merge). The
+        externally-tagged representation lets generated clients consume preview
+        rows structurally instead of through a runtime-validated row adapter.
+        `MergeInput` is deliberately excluded: it is worker-internal scaffolding,
+        never a renderable preview.
+      oneOf:
+      - properties:
+          data:
+            $ref: '#/components/schemas/ScriptContext'
+          kind:
+            enum:
+            - script
+            type: string
+        required:
+        - data
+        - kind
+        type: object
+      - properties:
+          data:
+            $ref: '#/components/schemas/ShootingSchedule'
+          kind:
+            enum:
+            - schedule
+            type: string
+        required:
+        - data
+        - kind
+        type: object
+      - properties:
+          data:
+            $ref: '#/components/schemas/MergedPreview'
+          kind:
+            enum:
+            - merged
+            type: string
+        required:
+        - data
+        - kind
+        type: object
     AiProviderInfo:
       properties:
         key:
@@ -797,6 +866,40 @@ components:
       - script
       - schedule
       type: string
+    DraftScene:
+      properties:
+        characters:
+          items:
+            type: string
+          type: array
+        draft_ref:
+          type: string
+        location:
+          type:
+          - string
+          - 'null'
+        mood:
+          type:
+          - string
+          - 'null'
+        scene_number:
+          format: int32
+          minimum: 0
+          type:
+          - integer
+          - 'null'
+        script_day:
+          type:
+          - string
+          - 'null'
+        summary:
+          type:
+          - string
+          - 'null'
+      required:
+      - draft_ref
+      - characters
+      type: object
     EpisodeId:
       description: Opaque identifier for an `Episode` aggregate.
       format: uuid
@@ -1021,6 +1124,37 @@ components:
       - role
       - state
       - joined_at
+      type: object
+    MergedPreview:
+      properties:
+        scenes:
+          items:
+            $ref: '#/components/schemas/MergedScene'
+          type: array
+        unmatched_schedule_rows:
+          items:
+            $ref: '#/components/schemas/ShootingScheduleRow'
+          type: array
+        unmatched_script_scenes:
+          items:
+            $ref: '#/components/schemas/SceneView'
+          type: array
+      required:
+      - scenes
+      - unmatched_schedule_rows
+      - unmatched_script_scenes
+      type: object
+    MergedScene:
+      properties:
+        scene:
+          $ref: '#/components/schemas/SceneView'
+        schedule_rows:
+          items:
+            $ref: '#/components/schemas/ShootingScheduleRow'
+          type: array
+      required:
+      - scene
+      - schedule_rows
       type: object
     ModelInfo:
       properties:
@@ -1494,6 +1628,27 @@ components:
       - shooting_day_id
       - version
       type: object
+    ScriptContext:
+      description: |-
+        Static LLM target for script extraction. Optional fields express the
+        null-on-doubt rule: uncertain values must not be asserted by the model.
+      properties:
+        scenes:
+          items:
+            $ref: '#/components/schemas/DraftScene'
+          type: array
+        title:
+          type:
+          - string
+          - 'null'
+        uncertainties:
+          items:
+            $ref: '#/components/schemas/Uncertainty'
+          type: array
+      required:
+      - scenes
+      - uncertainties
+      type: object
     SeasonId:
       description: Opaque identifier for a `Season` aggregate.
       format: uuid
@@ -1751,6 +1906,51 @@ components:
       - version
       - updated_at
       type: object
+    ShootingSchedule:
+      properties:
+        block_id:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/BlockId'
+        rows:
+          items:
+            $ref: '#/components/schemas/ShootingScheduleRow'
+          type: array
+      required:
+      - rows
+      type: object
+    ShootingScheduleRow:
+      properties:
+        date:
+          format: date
+          type:
+          - string
+          - 'null'
+        location:
+          type:
+          - string
+          - 'null'
+        order:
+          format: int32
+          minimum: 0
+          type:
+          - integer
+          - 'null'
+        row_ref:
+          type: string
+        scene_number:
+          format: int32
+          minimum: 0
+          type:
+          - integer
+          - 'null'
+        shooting_day_label:
+          type:
+          - string
+          - 'null'
+      required:
+      - row_ref
+      type: object
     SkipSceneShootRequest:
       properties:
         version:
@@ -1843,6 +2043,24 @@ components:
           $ref: '#/components/schemas/AggregateVersion'
       required:
       - version
+      type: object
+    Uncertainty:
+      properties:
+        field:
+          type: string
+        note:
+          type: string
+        scene_index:
+          minimum: 0
+          type: integer
+        suggested_value:
+          type:
+          - string
+          - 'null'
+      required:
+      - scene_index
+      - field
+      - note
       type: object
     UpdateAiConfigRequest:
       properties:
@@ -2030,6 +2248,65 @@ info:
 openapi: 3.1.0
 paths:
   /v1/ai-import/config:
+    get:
+      operationId: list_ai_configs
+      parameters:
+      - in: query
+        name: limit
+        required: false
+        schema:
+          default: 50
+          format: int64
+          type:
+          - integer
+          - 'null'
+      - in: query
+        name: offset
+        required: false
+        schema:
+          default: 0
+          format: int64
+          type:
+          - integer
+          - 'null'
+      - in: query
+        name: episode_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/EpisodeId'
+      - in: query
+        name: season_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SeasonId'
+      - in: query
+        name: series_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SeriesId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/AiConfigView'
+                type: array
+          description: ''
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
     post:
       operationId: create_ai_config
       requestBody:
@@ -2139,6 +2416,66 @@ paths:
           description: ''
       tags:
       - handlers
+  /v1/ai-import/jobs:
+    get:
+      operationId: list_ai_import_jobs
+      parameters:
+      - in: query
+        name: limit
+        required: false
+        schema:
+          default: 50
+          format: int64
+          type:
+          - integer
+          - 'null'
+      - in: query
+        name: offset
+        required: false
+        schema:
+          default: 0
+          format: int64
+          type:
+          - integer
+          - 'null'
+      - in: query
+        name: episode_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/EpisodeId'
+      - in: query
+        name: season_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SeasonId'
+      - in: query
+        name: series_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SeriesId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/AiImportJobResponse'
+                type: array
+          description: ''
+        '400':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
   /v1/ai-import/jobs/{id}:
     get:
       operationId: get_ai_import_job
@@ -2210,9 +2547,15 @@ paths:
           content:
             application/json:
               schema:
-                type: object
+                $ref: '#/components/schemas/AiImportPreviewResponse'
           description: ''
         '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+        '422':
           content:
             application/problem+json:
               schema:
