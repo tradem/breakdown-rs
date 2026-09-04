@@ -307,7 +307,7 @@ pub(crate) struct FakeMembershipRepo {
     pub(crate) series_membership_override: Arc<Mutex<Option<Result<bool, DomainError>>>>,
 }
 
-pub(crate) impl FakeMembershipRepo {
+impl FakeMembershipRepo {
     /// Seed an *active* membership with an explicit role in a known
     /// season/series scope (block → season/series attribution included).
     pub(crate) async fn seed_active(
