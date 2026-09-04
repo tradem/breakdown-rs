@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: hy4-preview (opencode-go)
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -283,15 +284,83 @@ impl MembershipCommands for FakeMembershipCommands {
     }
 }
 
-/// In-memory membership repository whose active-membership is driven by a
-/// controllable set of `(block_id, user_id)` pairs.
+/// In-memory membership repository whose predicates resolve from seeded data
+/// (issue #348) instead of hardcoding `Ok(true)`.
+///
+/// `members` holds `(block_id, user_id)` pairs meaning an *active*
+/// `CostumeAssistant`; `detailed` holds role/state-distinct rows and `scopes`
+/// attributes blocks to a `(season_id, series_id)` scope. The
+/// `series_membership_override` keeps precedence for error-injection tests.
+/// With no override and no matching seed row the predicates fail closed
+/// (`Ok(false)`) — like the production SQL — so these fakes can no longer
+/// mask a broken predicate. Mirrors `crates/api/tests/common/mod.rs`.
 #[derive(Clone, Default)]
 pub(crate) struct FakeMembershipRepo {
     pub(crate) members: Arc<Mutex<HashSet<(BlockId, UserId)>>>,
+    /// Role/state-distinct membership rows (see the struct docs).
+    pub(crate) detailed: Arc<Mutex<HashMap<(BlockId, UserId), (Role, MembershipStateKind)>>>,
+    /// Block → (season, series) scope attribution (see the struct docs).
+    pub(crate) scopes: Arc<Mutex<HashMap<BlockId, (SeasonId, SeriesId)>>>,
     /// Configurable outcome of `has_active_membership_in_series` — lets
     /// handler tests exercise the allow/deny branches of the series-scoped
-    /// audit gate (issue #342). `None` = default allow (`Ok(true)`).
+    /// audit gate (issue #342). `None` = resolve from seeded data.
     pub(crate) series_membership_override: Arc<Mutex<Option<Result<bool, DomainError>>>>,
+}
+
+impl FakeMembershipRepo {
+    /// Seed an *active* membership with an explicit role in a known
+    /// season/series scope (block → season/series attribution included).
+    pub(crate) async fn seed_active(
+        &self,
+        block_id: BlockId,
+        user_id: UserId,
+        role: Role,
+        season_id: SeasonId,
+        series_id: SeriesId,
+    ) {
+        self.detailed
+            .lock()
+            .await
+            .insert((block_id, user_id), (role, MembershipStateKind::Active));
+        self.scopes.lock().await.insert(block_id, (season_id, series_id));
+    }
+
+    /// Every known row as `(block_id, user_id, role, state)`: the `members`
+    /// shorthand (active assistant) unioned with the `detailed` rows, which
+    /// win on key conflict.
+    async fn rows(&self) -> Vec<(BlockId, UserId, Role, MembershipStateKind)> {
+        let members = self.members.lock().await;
+        let detailed = self.detailed.lock().await;
+        let mut rows: DetailedMembers = members
+            .iter()
+            .map(|key| (key.clone(), (Role::CostumeAssistant, MembershipStateKind::Active)))
+            .collect();
+        rows.extend(detailed.iter().map(|(k, v)| (k.clone(), *v)));
+        rows.into_iter()
+            .map(|((block_id, user_id), (role, state))| (block_id, user_id, role, state))
+            .collect()
+    }
+
+    /// Season-scoped allowlist check over the seeded rows: some *active* row
+    /// for `user_id` whose role is in `allowed` and whose block is attributed
+    /// to `season_id`. Unknown blocks never match (fail closed).
+    async fn has_seeded_role_in_season(
+        &self,
+        season_id: &SeasonId,
+        user_id: &UserId,
+        allowed: &[Role],
+    ) -> bool {
+        let rows = self.rows().await;
+        let scopes = self.scopes.lock().await;
+        rows.iter().any(|(block_id, row_user, role, state)| {
+            row_user == user_id
+                && *state == MembershipStateKind::Active
+                && allowed.contains(role)
+                && scopes
+                    .get(block_id)
+                    .is_some_and(|(season, _)| season == season_id)
+        })
+    }
 }
 
 #[async_trait]
@@ -301,6 +370,20 @@ impl MembershipRepository for FakeMembershipRepo {
         block_id: BlockId,
         user_id: UserId,
     ) -> Result<Option<MembershipView>, DomainError> {
+        if let Some((role, state)) = self
+            .detailed
+            .lock()
+            .await
+            .get(&(block_id, user_id.clone()))
+        {
+            return Ok(Some(MembershipView {
+                block_id,
+                user_id,
+                role: *role,
+                state: *state,
+                joined_at: Utc::now(),
+            }));
+        }
         if self
             .members
             .lock()
@@ -325,14 +408,25 @@ impl MembershipRepository for FakeMembershipRepo {
         _offset: i64,
     ) -> Result<Vec<MembershipView>, DomainError> {
         let members = self.members.lock().await;
-        Ok(members
+        let detailed = self.detailed.lock().await;
+        let mut rows: DetailedMembers = members
             .iter()
             .filter(|(b, _)| *b == block_id)
-            .map(|(b, u)| MembershipView {
-                block_id: *b,
-                user_id: u.clone(),
-                role: Role::CostumeAssistant,
-                state: MembershipStateKind::Active,
+            .map(|key| (key.clone(), (Role::CostumeAssistant, MembershipStateKind::Active)))
+            .collect();
+        rows.extend(
+            detailed
+                .iter()
+                .filter(|((b, _), _)| *b == block_id)
+                .map(|(k, v)| (k.clone(), *v)),
+        );
+        Ok(rows
+            .into_iter()
+            .map(|((b, u), (role, state))| MembershipView {
+                block_id: b,
+                user_id: u,
+                role,
+                state,
                 joined_at: Utc::now(),
             })
             .collect())
@@ -342,6 +436,14 @@ impl MembershipRepository for FakeMembershipRepo {
         block_id: BlockId,
         user_id: UserId,
     ) -> Result<bool, DomainError> {
+        if let Some((_, state)) = self
+            .detailed
+            .lock()
+            .await
+            .get(&(block_id, user_id.clone()))
+        {
+            return Ok(*state == MembershipStateKind::Active);
+        }
         Ok(self.members.lock().await.contains(&(block_id, user_id)))
     }
 
@@ -350,14 +452,20 @@ impl MembershipRepository for FakeMembershipRepo {
         series_id: SeriesId,
         user_id: UserId,
     ) -> Result<bool, DomainError> {
-        match self.series_membership_override.lock().await.as_ref() {
-            Some(result) => result.clone(),
-            None => {
-                // For test purposes: authorise any user for any series.
-                let _ = (series_id, user_id);
-                Ok(true)
-            }
+        if let Some(result) = self.series_membership_override.lock().await.clone() {
+            return result;
         }
+        // Role-agnostic (issue #342): any *active* row whose block is
+        // attributed to the series grants access. Unscoped rows never match.
+        let rows = self.rows().await;
+        let scopes = self.scopes.lock().await;
+        Ok(rows.iter().any(|(block_id, row_user, _, state)| {
+            row_user == &user_id
+                && *state == MembershipStateKind::Active
+                && scopes
+                    .get(block_id)
+                    .is_some_and(|(_, series)| series == &series_id)
+        }))
     }
 
     async fn has_active_costume_role_in_season(
@@ -365,9 +473,17 @@ impl MembershipRepository for FakeMembershipRepo {
         season_id: SeasonId,
         user_id: UserId,
     ) -> Result<bool, DomainError> {
-        // For test purposes: authorise any user for any season.
-        let _ = (season_id, user_id);
-        Ok(true)
+        Ok(self
+            .has_seeded_role_in_season(
+                &season_id,
+                &user_id,
+                &[
+                    Role::CostumeDesigner,
+                    Role::WardrobeSupervisor,
+                    Role::CostumeAssistant,
+                ],
+            )
+            .await)
     }
 
     async fn has_active_report_archive_role_in_season(
@@ -375,9 +491,31 @@ impl MembershipRepository for FakeMembershipRepo {
         season_id: SeasonId,
         user_id: UserId,
     ) -> Result<bool, DomainError> {
-        // Default test fake admits archive roles (designer/supervisor).
-        let _ = (season_id, user_id);
-        Ok(true)
+        // `costume_assistant` is deliberately excluded (manual archival is a
+        // deliberate remediation action) — mirroring the SQL allowlist.
+        Ok(self
+            .has_seeded_role_in_season(
+                &season_id,
+                &user_id,
+                &[Role::CostumeDesigner, Role::WardrobeSupervisor],
+            )
+            .await)
+    }
+
+    async fn has_active_credential_role(&self, user_id: UserId) -> Result<bool, DomainError> {
+        // ADR-027: designer + assistant only, global scope (any block).
+        Ok(self
+            .rows()
+            .await
+            .iter()
+            .any(|(_, row_user, role, state)| {
+                row_user == &user_id
+                    && *state == MembershipStateKind::Active
+                    && matches!(
+                        role,
+                        Role::CostumeDesigner | Role::CostumeAssistant
+                    )
+            }))
     }
 }
 

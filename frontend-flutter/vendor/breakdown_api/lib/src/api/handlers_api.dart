@@ -4583,9 +4583,8 @@ class HandlersApi {
   /// Parameters:
   /// * [limit]
   /// * [offset]
-  /// * [episodeId]
-  /// * [seasonId]
   /// * [seriesId]
+  /// * [blockId]
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -4598,9 +4597,8 @@ class HandlersApi {
   Future<Response<BuiltList<EpisodeView>>> listEpisodes({
     int? limit = 50,
     int? offset = 0,
-    String? episodeId,
-    String? seasonId,
     String? seriesId,
+    String? blockId,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -4628,15 +4626,12 @@ class HandlersApi {
       if (offset != null)
         r'offset':
             encodeQueryParameter(_serializers, offset, const FullType(int)),
-      if (episodeId != null)
-        r'episode_id': encodeQueryParameter(
-            _serializers, episodeId, const FullType(String)),
-      if (seasonId != null)
-        r'season_id': encodeQueryParameter(
-            _serializers, seasonId, const FullType(String)),
       if (seriesId != null)
         r'series_id': encodeQueryParameter(
             _serializers, seriesId, const FullType(String)),
+      if (blockId != null)
+        r'block_id':
+            encodeQueryParameter(_serializers, blockId, const FullType(String)),
     };
 
     final _response = await _dio.request<Object>(
