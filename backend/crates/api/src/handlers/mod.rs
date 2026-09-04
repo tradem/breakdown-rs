@@ -1047,7 +1047,7 @@ pub async fn assign_scene_character<P: Ports>(
 #[utoipa::path(
     delete,
     path = "/scenes/{id}/characters/{character_id}",
-    params(("id" = Uuid, Path), ("character_id" = Uuid, Path)),
+    params(VersionRequest, ("id" = Uuid, Path), ("character_id" = Uuid, Path)),
     responses((status = 200, body = AggregateVersion), (status = 409, body = ProblemDetails)),
 )]
 pub async fn remove_scene_character<P: Ports>(
@@ -1281,6 +1281,7 @@ pub async fn schedule_scene_on_shooting_day<P: Ports>(
     delete,
     path = "/scenes/{id}/shooting-days/{shooting_day_id}",
     params(
+        VersionRequest,
         ("id" = Uuid, Path, description = "Scene id"),
         ("shooting_day_id" = ShootingDayId, Path, description = "Shooting day id")
     ),
