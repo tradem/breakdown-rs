@@ -16,7 +16,7 @@ use breakdown_core::shared::{AggregateVersion, BlockId, SeriesId};
 use chrono::Utc;
 use uuid::Uuid;
 
-use api::handlers::{ListParams, list_episodes};
+use api::handlers::{EpisodeListParams, list_episodes};
 use api::state::AppState;
 
 mod common;
@@ -33,12 +33,10 @@ fn episode_view(id: Uuid, block_id: BlockId, series_id: SeriesId, number: i32) -
     }
 }
 
-fn list_params() -> ListParams {
-    ListParams {
+fn list_params() -> EpisodeListParams {
+    EpisodeListParams {
         limit: Some(50),
         offset: Some(0),
-        episode_id: None,
-        season_id: None,
         series_id: None,
         block_id: None,
     }
@@ -131,4 +129,32 @@ fn openapi_doc_exposes_block_id_on_episode_list() {
         names.contains(&"block_id"),
         "GET /v1/episodes must expose block_id (issue #335), got {names:?}"
     );
+}
+
+/// `block_id` is consumed only by `list_episodes`: sibling list operations
+/// must not advertise a filter they ignore (issue #335 review).
+#[test]
+fn openapi_doc_hides_block_id_on_sibling_lists() {
+    let json = serde_json::to_value(api::api_doc()).expect("ApiDoc serializes to JSON");
+    for path in [
+        "/v1/audit",
+        "/v1/blocks",
+        "/v1/blocks/{id}/audit",
+        "/v1/blocks/{id}/members",
+        "/v1/characters",
+        "/v1/costumes",
+        "/v1/scenes",
+    ] {
+        let params = &json["paths"][path]["get"]["parameters"];
+        let names: Vec<&str> = params
+            .as_array()
+            .unwrap_or_else(|| panic!("{path} has no parameters"))
+            .iter()
+            .filter_map(|p| p.get("name").and_then(serde_json::Value::as_str))
+            .collect();
+        assert!(
+            !names.contains(&"block_id"),
+            "GET {path} must not expose block_id (issue #335 review), got {names:?}"
+        );
+    }
 }

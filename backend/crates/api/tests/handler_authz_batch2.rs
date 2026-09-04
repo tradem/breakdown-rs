@@ -575,7 +575,6 @@ async fn get_audit_history_requires_series_id() {
             episode_id: None,
             season_id: None,
             series_id: None,
-            block_id: None,
         }),
     )
     .await;
@@ -600,7 +599,6 @@ fn audit_params(sid: SeriesId) -> ListParams {
         episode_id: None,
         season_id: None,
         series_id: Some(sid),
-        block_id: None,
     }
 }
 

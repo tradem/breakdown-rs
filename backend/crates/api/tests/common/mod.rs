@@ -960,12 +960,20 @@ impl EpisodeRepository for FakeEpisodeRepo {
         offset: i64,
     ) -> Result<Vec<EpisodeView>, DomainError> {
         let all = self.episodes.lock().await;
-        Ok(all
+        // Materialize and sort like the production repository (`ORDER BY
+        // number`, `id` as deterministic tiebreak): `HashMap::values()` has
+        // no stable order, so paginating the raw iterator would return
+        // different episodes for the same scope, offset, and limit.
+        let mut views: Vec<EpisodeView> = all
             .values()
             .filter(|e| e.block_id == block_id)
+            .cloned()
+            .collect();
+        views.sort_by(|a, b| a.number.cmp(&b.number).then(a.id.cmp(&b.id)));
+        Ok(views
+            .into_iter()
             .skip(offset as usize)
             .take(limit as usize)
-            .cloned()
             .collect())
     }
     async fn list_by_series(
@@ -975,12 +983,20 @@ impl EpisodeRepository for FakeEpisodeRepo {
         offset: i64,
     ) -> Result<Vec<EpisodeView>, DomainError> {
         let all = self.episodes.lock().await;
-        Ok(all
+        // Materialize and sort like the production repository (`ORDER BY
+        // number`, `id` as deterministic tiebreak): `HashMap::values()` has
+        // no stable order, so paginating the raw iterator would return
+        // different episodes for the same scope, offset, and limit.
+        let mut views: Vec<EpisodeView> = all
             .values()
             .filter(|e| e.series_id == series_id)
+            .cloned()
+            .collect();
+        views.sort_by(|a, b| a.number.cmp(&b.number).then(a.id.cmp(&b.id)));
+        Ok(views
+            .into_iter()
             .skip(offset as usize)
             .take(limit as usize)
-            .cloned()
             .collect())
     }
     async fn find_by_series_and_number(

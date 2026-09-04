@@ -159,7 +159,6 @@ async fn list_members_returns_projection_views() {
             episode_id: None,
             season_id: None,
             series_id: None,
-            block_id: None,
         }),
     )
     .await;
