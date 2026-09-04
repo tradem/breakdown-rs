@@ -53,7 +53,7 @@ class AppConfig {
     // ADR-033 D5): CI injects `--dart-define=APP_VERSION=<X.Y.Z+N>`; local
     // builds without the define fall back to 'unknown' (the spec'd fallback).
     // Never hardcoded — the single source of truth is pubspec.yaml.
-    final appVersionRaw = String.fromEnvironment('APP_VERSION');
+    const appVersionRaw = String.fromEnvironment('APP_VERSION');
     final appVersion = appVersionRaw.isEmpty ? 'unknown' : appVersionRaw;
     // Optional pre-fill for season-creating forms. Env-sourced, never
     // hardcoded (AGENTS.md §5); the field stays editable when absent.
