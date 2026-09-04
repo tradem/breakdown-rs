@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: muse-spark (opencode-go)
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:dio/dio.dart';
@@ -23,6 +25,7 @@ const _devConfig = AppConfig(
   oidcClientId: '',
   oidcRedirectUri: '',
   devIdpInsecure: '',
+  appVersion: '1.0.0+1',
 );
 
 const _realConfig = AppConfig(
@@ -34,6 +37,7 @@ const _realConfig = AppConfig(
   oidcClientId: 'client',
   oidcRedirectUri: 'breakdown://redirect',
   devIdpInsecure: '',
+  appVersion: '1.0.0+1',
 );
 
 SeasonMembershipDto _dto({

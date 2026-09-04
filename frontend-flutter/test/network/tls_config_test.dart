@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: muse-spark (opencode-go)
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
 import 'dart:io';
 
@@ -21,6 +23,7 @@ void main() {
     oidcClientId: 'c',
     oidcRedirectUri: 'breakdown://redirect',
     devIdpInsecure: '',
+    appVersion: '1.0.0+1',
   );
 
   group('loadPinnedSecurityContext (D4 — exclusive, fail-closed)', () {

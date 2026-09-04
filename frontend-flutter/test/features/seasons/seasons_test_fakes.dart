@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: qwen3.8-flash (opencode-go)
+// Co-authored-by: muse-spark (opencode-go)
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
 import 'dart:async';
 
@@ -24,6 +26,7 @@ const devAuthConfig = AppConfig(
   oidcClientId: '',
   oidcRedirectUri: '',
   devIdpInsecure: '',
+  appVersion: '1.0.0+1',
   defaultSeriesId: 'series-1',
 );
 
@@ -38,6 +41,7 @@ const realOidcConfig = AppConfig(
   oidcClientId: 'client',
   oidcRedirectUri: 'breakdown://redirect',
   devIdpInsecure: '',
+  appVersion: '1.0.0+1',
   defaultSeriesId: '',
 );
 
