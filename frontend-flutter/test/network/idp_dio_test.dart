@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: muse-spark (opencode-go)
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -21,6 +23,7 @@ void main() {
       oidcClientId: 'c',
       oidcRedirectUri: 'breakdown://redirect',
       devIdpInsecure: '1',
+      appVersion: '1.0.0+1',
     );
     final dio = await buildIdpDio(config);
     // The dev IdP HTTP exception relaxes ONLY the IdP host transport; the

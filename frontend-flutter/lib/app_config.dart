@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: muse-spark (opencode-go)
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
 import 'package:flutter/foundation.dart' show kReleaseMode;
 
@@ -21,6 +23,7 @@ class AppConfig {
     required this.oidcClientId,
     required this.oidcRedirectUri,
     required this.devIdpInsecure,
+    required this.appVersion,
     this.defaultSeriesId = '',
   });
 
@@ -46,6 +49,12 @@ class AppConfig {
     // composition root aborts startup when it is set under any non-dev flavor
     // or a release build (see bootstrap()).
     const devIdpInsecure = String.fromEnvironment('DEV_IDP_INSECURE');
+    // Application version for the About/Info dialog (spec flutter-app-dialogs,
+    // ADR-033 D5): CI injects `--dart-define=APP_VERSION=<X.Y.Z+N>`; local
+    // builds without the define fall back to 'unknown' (the spec'd fallback).
+    // Never hardcoded — the single source of truth is pubspec.yaml.
+    const appVersionRaw = String.fromEnvironment('APP_VERSION');
+    final appVersion = appVersionRaw.isEmpty ? 'unknown' : appVersionRaw;
     // Optional pre-fill for season-creating forms. Env-sourced, never
     // hardcoded (AGENTS.md §5); the field stays editable when absent.
     const defaultSeriesId = String.fromEnvironment('DEFAULT_SERIES_ID');
@@ -59,6 +68,7 @@ class AppConfig {
       oidcClientId: oidcClientId,
       oidcRedirectUri: oidcRedirectUri,
       devIdpInsecure: devIdpInsecure,
+      appVersion: appVersion,
       defaultSeriesId: defaultSeriesId,
     );
   }
@@ -83,6 +93,14 @@ class AppConfig {
   /// startup checks in `bootstrap()` (D1 — dev-flavor-only documented
   /// exception, impossible in prod/release).
   final String devIdpInsecure;
+
+  /// Display version for the About/Info dialog (spec flutter-app-dialogs,
+  /// ADR-033 D5): the CI-injected `APP_VERSION` define, or `'unknown'` for
+  /// local builds. Native `version`/`buildNumber` (pubspec `X.Y.Z+N`, incl.
+  /// CI `--build-name`/`--build-number` overrides) are readable via
+  /// `package_info_plus` and SHOULD equal this value in release builds
+  /// (enforced by the `version-drift` CI job).
+  final String appVersion;
 
   /// `DEFAULT_SERIES_ID` dart-define (may be empty). Used only as a form
   /// pre-fill; the authoritative `series_id` of a season always comes from

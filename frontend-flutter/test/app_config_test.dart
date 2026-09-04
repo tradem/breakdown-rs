@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: muse-spark (opencode-go)
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -15,6 +17,7 @@ AppConfig _config({
   String devIdpInsecure = '',
   String oidcClientId = 'client',
   String oidcRedirectUri = 'breakdown://redirect',
+  String appVersion = '1.0.0+1',
 }) => AppConfig(
   flavor: flavor,
   apiBase: apiBase,
@@ -24,6 +27,7 @@ AppConfig _config({
   oidcClientId: oidcClientId,
   oidcRedirectUri: oidcRedirectUri,
   devIdpInsecure: devIdpInsecure,
+  appVersion: appVersion,
 );
 
 void main() {
@@ -52,6 +56,22 @@ void main() {
         _config(flavor: Flavor.prod, oidcIss: '', devAuthSub: 'u').devAuthMode,
         isFalse,
       );
+    });
+  });
+
+  group('AppConfig.appVersion (ADR-033 D5)', () {
+    test('explicit version passes through', () {
+      expect(
+        _config(flavor: Flavor.dev, appVersion: '2.3.4+56').appVersion,
+        '2.3.4+56',
+      );
+    });
+
+    test('fromEnvironment falls back to unknown without the define', () {
+      // The test runner injects no --dart-define=APP_VERSION, so both
+      // flavors deterministically observe the spec'd fallback.
+      expect(AppConfig.fromEnvironment(Flavor.dev).appVersion, 'unknown');
+      expect(AppConfig.fromEnvironment(Flavor.prod).appVersion, 'unknown');
     });
   });
 
