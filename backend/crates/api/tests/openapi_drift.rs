@@ -164,6 +164,65 @@ fn template_variables(path: &str) -> Vec<&str> {
     vars
 }
 
+/// Regression guard for issue #343 (ADR-031): every operation must document
+/// at least one non-2xx response with an `application/problem+json` body, so
+/// the generated Dart client keeps a typed error contract and new handlers
+/// cannot regress to success-only documentation.
+///
+/// The `application/problem+json` media type is the post-`api_doc()` rewrite
+/// of any `body = ProblemDetails` response (the rewrite keys on the
+/// `ProblemDetails` schema ref), so asserting on the media type enforces both
+/// halves of the convention at once: a declared error status AND a typed
+/// problem body.
+#[test]
+fn every_operation_documents_an_error_response() {
+    let json = serde_json::to_value(api::api_doc()).expect("serialize OpenAPI doc");
+    let paths = json["paths"].as_object().expect("paths object present");
+    const METHODS: [&str; 8] = [
+        "get", "post", "put", "patch", "delete", "options", "head", "trace",
+    ];
+    let mut failures: Vec<String> = Vec::new();
+    for (path, item) in paths {
+        for method in METHODS {
+            let Some(op) = item.get(method) else {
+                continue;
+            };
+            let Some(responses) = op.get("responses").and_then(serde_json::Value::as_object) else {
+                failures.push(format!("{method} {path}: no responses documented"));
+                continue;
+            };
+            let mut has_problem_error = false;
+            for (status, response) in responses {
+                let is_error = status.starts_with('4') || status.starts_with('5');
+                if !is_error {
+                    continue;
+                }
+                let has_problem_body = response
+                    .get("content")
+                    .and_then(serde_json::Value::as_object)
+                    .is_some_and(|content| content.contains_key("application/problem+json"));
+                if has_problem_body {
+                    has_problem_error = true;
+                } else {
+                    failures.push(format!(
+                        "{method} {path}: response {status} has no application/problem+json body (issue #343)"
+                    ));
+                }
+            }
+            if !has_problem_error {
+                failures.push(format!(
+                    "{method} {path}: no non-2xx application/problem+json response (issue #343)"
+                ));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "operations without a documented RFC 9457 error response (issue #343):\n  {}",
+        failures.join("\n  ")
+    );
+}
+
 /// True when `parameters` (an OpenAPI parameter list) defines `name` as a
 /// required `in: path` parameter.
 fn parameter_defined(parameters: Option<&serde_json::Value>, name: &str) -> bool {
