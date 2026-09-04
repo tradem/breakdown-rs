@@ -879,7 +879,19 @@ impl breakdown_core::scene::ports::SceneCommands for FakeSceneCommands {
         _actor: UserId,
         command: breakdown_core::scene::commands::CreateScene,
     ) -> Result<(Uuid, breakdown_core::shared::AggregateVersion), DomainError> {
-        self.created.lock().unwrap().push(command.id);
+        let mut created = self.created.lock().unwrap();
+        // Faithful to `SceneCommandsImpl`, which dispatches with
+        // `ExpectedVersion::Empty`: a second create on the same (already
+        // written) stream cannot append and reports the current version, so
+        // concurrent script applies converging on one reserved id do not
+        // duplicate the scene (issue #338).
+        if created.contains(&command.id) {
+            return Err(DomainError::VersionConflict {
+                expected: breakdown_core::shared::AggregateVersion(0),
+                current: breakdown_core::shared::AggregateVersion::INITIAL,
+            });
+        }
+        created.push(command.id);
         Ok((
             command.id,
             breakdown_core::shared::AggregateVersion::INITIAL,
@@ -1607,8 +1619,12 @@ async fn schedule_apply_ids_are_deterministic_and_distinct() {
     );
 }
 
+/// Issue #338: a repeated apply is a no-op for already-applied rows. The
+/// retry returns the confirmed id/version without re-dispatching — a re-run
+/// `Update` would fail in production (identical details are rejected as
+/// unchanged) — and without creating a duplicate scene.
 #[tokio::test]
-async fn apply_retry_updates_mapping_without_creating_duplicate_scenes() {
+async fn apply_retry_is_a_noop_for_confirmed_mappings() {
     let queue = Arc::new(FakeQueue::default());
     let mappings = Arc::new(FakeMappings::default());
     let commands = Arc::new(FakeSceneCommands::default());
@@ -1630,7 +1646,7 @@ async fn apply_retry_updates_mapping_without_creating_duplicate_scenes() {
         draft_ref: "fixture-scene".to_owned(),
         decision: breakdown_core::ai::ApplyMappingDecision::Create,
     };
-    worker
+    let first = worker
         .apply_script(ApplyScriptRequest {
             actor: UserId::from_sub("ai-test-user"),
             preview_id: job.id,
@@ -1651,7 +1667,7 @@ async fn apply_retry_updates_mapping_without_creating_duplicate_scenes() {
         })
         .await
         .unwrap();
-    worker
+    let second = worker
         .apply_script(ApplyScriptRequest {
             actor: UserId::from_sub("ai-test-user"),
             preview_id: job.id,
@@ -1663,14 +1679,118 @@ async fn apply_retry_updates_mapping_without_creating_duplicate_scenes() {
         })
         .await
         .unwrap();
+    assert_eq!(first, second, "the retry must return the stored id/version");
     assert_eq!(commands.created.lock().unwrap().len(), 1);
-    assert_eq!(commands.updated.lock().unwrap().len(), 1);
+    assert!(
+        commands.updated.lock().unwrap().is_empty(),
+        "the retry must not re-dispatch the confirmed row"
+    );
     let state = queue.state.lock().unwrap();
     assert!(state.telemetry.iter().any(|telemetry| telemetry.apply_state
         == TelemetryApplyState::Applied {
             accept_as_is: true,
             edit_distance: 0,
         }));
+}
+
+/// Issue #338 AC #3: two applies in flight for the same job yield one scene
+/// per draft and a stable `applied_count`. Both callers reserve-then-create
+/// the same deterministic id; the `ExpectedVersion::Empty` guard rejects the
+/// duplicate append and `recover_version` turns it into the same version, so
+/// both callers observe identical results.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn apply_script_concurrent_applies_create_one_scene_per_draft() {
+    use tokio::sync::Barrier;
+
+    let queue = Arc::new(FakeQueue::default());
+    let mappings = Arc::new(FakeMappings::default());
+    let commands = Arc::new(FakeSceneCommands::default());
+    let preview = ScriptContext {
+        title: Some("fixture".to_owned()),
+        scenes: vec![
+            DraftScene {
+                draft_ref: "concurrent-a".to_owned(),
+                scene_number: Some(1),
+                ..Default::default()
+            },
+            DraftScene {
+                draft_ref: "concurrent-b".to_owned(),
+                scene_number: Some(2),
+                ..Default::default()
+            },
+        ],
+        uncertainties: Vec::new(),
+    };
+    let preview_id = AiImportJobId::new();
+    let decisions = vec![
+        ApplyMapping {
+            draft_ref: "concurrent-a".to_owned(),
+            decision: breakdown_core::ai::ApplyMappingDecision::Create,
+        },
+        ApplyMapping {
+            draft_ref: "concurrent-b".to_owned(),
+            decision: breakdown_core::ai::ApplyMappingDecision::Create,
+        },
+    ];
+    let episode_id = breakdown_core::shared::EpisodeId::new();
+    let barrier = Arc::new(Barrier::new(2));
+    let mut handles = Vec::new();
+    for _ in 0..2 {
+        let worker = ApplyWorker {
+            scene_commands: Arc::clone(&commands),
+            mappings: Arc::clone(&mappings),
+            queue: Arc::clone(&queue),
+        };
+        let barrier = Arc::clone(&barrier);
+        let preview = preview.clone();
+        let decisions = decisions.clone();
+        handles.push(tokio::spawn(async move {
+            barrier.wait().await;
+            worker
+                .apply_script(ApplyScriptRequest {
+                    actor: UserId::from_sub("ai-test-user"),
+                    preview_id,
+                    preview: &preview,
+                    decisions: &decisions,
+                    episode_id,
+                    series_id: None,
+                    telemetry: None,
+                })
+                .await
+        }));
+    }
+    let mut results = Vec::new();
+    for handle in handles {
+        results.push(
+            handle
+                .await
+                .expect("apply task panicked")
+                .expect("apply failed"),
+        );
+    }
+    assert_eq!(results[0], results[1], "both applies must converge");
+    assert_eq!(results[0].len(), 2, "stable applied_count per draft");
+    let created = commands.created.lock().unwrap().clone();
+    let mut unique: Vec<Uuid> = created.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(unique.len(), 2, "one scene per draft, got {created:?}");
+    assert_eq!(
+        unique.len(),
+        created.len(),
+        "no duplicate scene streams were appended"
+    );
+    for draft_ref in ["concurrent-a", "concurrent-b"] {
+        let mapping = mappings
+            .find(preview_id, draft_ref)
+            .await
+            .expect("mappings readable")
+            .expect("mapping exists");
+        assert!(
+            !mapping.is_reserved(),
+            "every row must confirm, got {mapping:?}"
+        );
+    }
 }
 
 fn tiny_script_pdf() -> Vec<u8> {
