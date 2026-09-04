@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
 //! Handler-level authorization tests for the AI import gates (issue #175).
 //!
@@ -24,6 +25,7 @@ use api::auth::CurrentUser;
 use api::handlers::{list_ai_models, list_ai_providers};
 use api::state::AppState;
 use breakdown_core::error::DomainError;
+use breakdown_core::shared::BlockId;
 use common::FakePorts;
 
 /// Build a handler state with AI import enabled and a membership repo whose
@@ -38,10 +40,20 @@ fn dummy_user() -> CurrentUser {
     CurrentUser::dummy("ai-import-test-user")
 }
 
+/// Seed an active credential-role (designer) membership for the test user so
+/// the credential gate resolves allow from seeded rows (issue #348).
+async fn seed_credential_member(ports: &FakePorts) {
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), dummy_user().sub)
+        .await;
+}
+
 #[tokio::test]
 async fn list_ai_providers_allows_credential_role_member() {
     let ports = FakePorts::default();
-    // Default fake grants the credential role.
+    // Seed-backed allow: an active designer, resolved from the seeded rows.
+    seed_credential_member(&ports).await;
     let state = ai_import_state(ports).await;
 
     let result = list_ai_providers::<FakePorts>(State(state), dummy_user()).await;
@@ -89,7 +101,8 @@ async fn list_ai_providers_propagates_repo_failure_as_server_error() {
 #[tokio::test]
 async fn list_ai_models_allows_credential_role_member() {
     let ports = FakePorts::default();
-    // Default fake grants the credential role.
+    // Seed-backed allow: an active designer, resolved from the seeded rows.
+    seed_credential_member(&ports).await;
     let state = ai_import_state(ports).await;
 
     let result = list_ai_models::<FakePorts>(
