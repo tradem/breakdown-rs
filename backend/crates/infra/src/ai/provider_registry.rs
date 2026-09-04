@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
 //! Centralized curated `LlmProvider` metadata.
 //!
@@ -102,35 +103,53 @@ pub fn resolve_provider(value: &str) -> Option<LlmProvider> {
 /// `as_str` match in core.
 pub fn curated_model_ids(provider: LlmProvider) -> &'static [&'static str] {
     match provider {
-        LlmProvider::OpenAI => &["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"],
+        LlmProvider::OpenAI => &["gpt-5.6-luna", "gpt-5.6-terra", "gpt-4.1-mini"],
         LlmProvider::OpenRouter => &[
-            "openai/gpt-4o-mini",
-            "openai/gpt-4o",
-            "meta-llama/llama-3.1-8b-instruct:free",
+            "openai/gpt-5-mini",
+            "deepseek/deepseek-v4-flash",
+            "nvidia/nemotron-3-nano:free",
         ],
-        LlmProvider::EURouter => &["mistral-large-3", "mistral-small-3.1", "deepseek-v4-flash"],
+        LlmProvider::EURouter => &[
+            "mistral-large-3",
+            "mistral-small-3.1",
+            "deepseek-v4-flash",
+            "deepseek-v4-pro",
+            "mistral-medium-3.5",
+        ],
         LlmProvider::Neuralwatt => &[
             "deepseek-v4-flash",
             "glm-5.2",
             "glm-5.2-fast",
+            "glm-5.2-flex",
+            "glm-5.2-short",
+            "glm-5.3",
+            "glm-5.3-fast",
+            "glm-5.3-flex",
+            "glm-5.3-short",
             "kimi-k2.7-code",
+            "kimi-k2.7-code-fast",
+            "kimi-k2.7-code-flex",
             "kimi-k3",
+            "kimi-k3-fast",
+            "kimi-k3-flex",
             "qwen3.6-35b",
+            "qwen3.6-35b-fast",
+            "qwen-3.8-27b",
         ],
         LlmProvider::OpenCodeGo | LlmProvider::OpenCode => &[
             "deepseek-v4-pro",
             "deepseek-v4-flash",
             "glm-5.2",
-            "glm-5.1",
+            "glm-5.3",
             "kimi-k3",
             "kimi-k2.7-code",
-            "kimi-k2.6",
             "minimax-m3",
             "minimax-m2.7",
             "mimo-v2.5",
             "grok-4.5",
+            "grok-4.6",
         ],
-        LlmProvider::Ollama => &["llama3.1:8b", "qwen2.5:7b"],
+        LlmProvider::Ollama => &["qwen3:8b", "llama3.2", "qwen2.5-coder:7b"],
         // LlmProvider is #[non_exhaustive]; future variants get an empty
         // list so the registry stays backward-compatible without a catch-all.
         _ => &[],
