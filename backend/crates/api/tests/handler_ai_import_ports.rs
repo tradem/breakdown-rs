@@ -705,6 +705,12 @@ async fn ai_config_lifecycle_runs_through_the_config_ports() {
 #[tokio::test]
 async fn get_ai_config_denies_a_foreign_owner() {
     let ports = FakePorts::default();
+    // Seed the credential role so the denial exercises the ownership check,
+    // not the credential gate (issue #348 fail-closed fakes).
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
     let id = Uuid::now_v7();
     ports.ai_config_repo.views.lock().await.insert(
         id,
@@ -953,6 +959,12 @@ fn config_view(user_sub: &str) -> AiConfigView {
 #[tokio::test]
 async fn list_ai_configs_returns_only_the_caller_configs() {
     let ports = FakePorts::default();
+    // Seed-backed allow (issue #348): without a credential-role row the
+    // fail-closed fake denies with 403 before reaching the list.
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
     let mine = config_view(TEST_SUB);
     let mine_id = mine.id;
     let foreign = config_view("someone-else");
