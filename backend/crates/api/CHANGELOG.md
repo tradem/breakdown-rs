@@ -81,6 +81,23 @@ commits (ADR-020 D5).
   `GET /v1/episodes`). The wire contract is additive, so the `/v1` path
   version stays (ADR-021 D1). No crate version bump.
 
+### Changed — `PlanSceneShootRequest` drops redundant path identifiers (issue #346)
+
+- `POST /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots` no longer
+  takes `scene_id` / `shooting_day_id` in the request body: both identifiers
+  come from the path only, and the two body/path equality checks (plus the
+  `400` mismatch response they produced) are removed. The body is now
+  `{ planned_order }` only. The core `PlanSceneShoot` command is unchanged —
+  it still carries both ids, populated at the API edge from the path.
+- `backend/openapi.yaml` regenerated and
+  `frontend-flutter/vendor/breakdown_api/` regenerated (only
+  `plan_scene_shoot_request.{dart,g.dart}` change).
+- **Pre-release-cleanup exception to ADR-021 (no `/v2`):** the route family
+  was only just exported in #344 (issue #333) and no shipped client sends
+  these fields yet, so there is no deployed consumer to protect with a
+  deprecation window. Once a client ships against a contract, ADR-021
+  D2/D3 apply in full. No crate version bump beyond the open 0.10.0.
+
 ### Changed — `GET /v1/audit` is series-scoped, not block-scoped (issue #342)
 
 - **Authorization classification (behavior change):** `requirement_for()` now

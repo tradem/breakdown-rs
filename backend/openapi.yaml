@@ -1300,14 +1300,7 @@ components:
       properties:
         planned_order:
           $ref: '#/components/schemas/LexicalSortKey'
-        scene_id:
-          format: uuid
-          type: string
-        shooting_day_id:
-          $ref: '#/components/schemas/ShootingDayId'
       required:
-      - scene_id
-      - shooting_day_id
       - planned_order
       type: object
     ProblemDetails:
@@ -4958,12 +4951,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/IdVersionResponse'
           description: ''
-        '400':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Identifier in the body does not match the path parameter
         '404':
           content:
             application/problem+json:
