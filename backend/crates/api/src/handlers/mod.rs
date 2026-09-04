@@ -130,7 +130,8 @@ pub struct IdVersionResponse {
 
 /// Query parameters for paginated list endpoints.
 ///
-/// `episode_id` scopes Scene lists; `season_id` scopes Character/Block/Episode/Costume lists.
+/// `episode_id` scopes Scene lists; `season_id` scopes Character/Block/Episode/Costume lists;
+/// `block_id` scopes Episode lists; `series_id` scopes Season/Episode lists.
 #[derive(Debug, Clone, Deserialize, IntoParams)]
 pub struct ListParams {
     #[param(default = 50)]
@@ -140,6 +141,7 @@ pub struct ListParams {
     pub episode_id: Option<EpisodeId>,
     pub season_id: Option<SeasonId>,
     pub series_id: Option<SeriesId>,
+    pub block_id: Option<BlockId>,
 }
 
 // ---------------------------------------------------------------------------
@@ -864,15 +866,21 @@ pub async fn list_episodes<P: Ports>(
     State(state): State<AppState<P>>,
     Query(params): Query<ListParams>,
 ) -> ApiResult<Vec<EpisodeView>> {
+    let limit = params.limit.unwrap_or(50);
+    let offset = params.offset.unwrap_or(0);
+    if let Some(block_id) = params.block_id {
+        let views = state
+            .ports
+            .episode_repo()
+            .list_by_block(block_id, limit, offset)
+            .await?;
+        return Ok((StatusCode::OK, Json(views)));
+    }
     let series_id = require_series(&params)?;
     let views = state
         .ports
         .episode_repo()
-        .list_by_series(
-            series_id,
-            params.limit.unwrap_or(50),
-            params.offset.unwrap_or(0),
-        )
+        .list_by_series(series_id, limit, offset)
         .await?;
     Ok((StatusCode::OK, Json(views)))
 }

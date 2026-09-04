@@ -776,19 +776,33 @@ impl EpisodeRepository for FakeEpisodeRepo {
     }
     async fn list_by_block(
         &self,
-        _block_id: BlockId,
-        _limit: i64,
-        _offset: i64,
+        block_id: BlockId,
+        limit: i64,
+        offset: i64,
     ) -> Result<Vec<EpisodeView>, DomainError> {
-        Ok(Vec::new())
+        let all = self.episodes.lock().await;
+        Ok(all
+            .values()
+            .filter(|e| e.block_id == block_id)
+            .skip(offset as usize)
+            .take(limit as usize)
+            .cloned()
+            .collect())
     }
     async fn list_by_series(
         &self,
-        _series_id: SeriesId,
-        _limit: i64,
-        _offset: i64,
+        series_id: SeriesId,
+        limit: i64,
+        offset: i64,
     ) -> Result<Vec<EpisodeView>, DomainError> {
-        Ok(Vec::new())
+        let all = self.episodes.lock().await;
+        Ok(all
+            .values()
+            .filter(|e| e.series_id == series_id)
+            .skip(offset as usize)
+            .take(limit as usize)
+            .cloned()
+            .collect())
     }
     async fn find_by_series_and_number(
         &self,

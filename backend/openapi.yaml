@@ -2412,6 +2412,13 @@ paths:
           oneOf:
           - type: 'null'
           - $ref: '#/components/schemas/SeriesId'
+      - in: query
+        name: block_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/BlockId'
       responses:
         '200':
           content:
@@ -2484,6 +2491,13 @@ paths:
           oneOf:
           - type: 'null'
           - $ref: '#/components/schemas/SeriesId'
+      - in: query
+        name: block_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/BlockId'
       responses:
         '200':
           content:
@@ -2588,6 +2602,13 @@ paths:
           oneOf:
           - type: 'null'
           - $ref: '#/components/schemas/SeriesId'
+      - in: query
+        name: block_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/BlockId'
       responses:
         '200':
           content:
@@ -2662,6 +2683,13 @@ paths:
           oneOf:
           - type: 'null'
           - $ref: '#/components/schemas/SeriesId'
+      - in: query
+        name: block_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/BlockId'
       responses:
         '200':
           content:
@@ -3003,6 +3031,13 @@ paths:
           oneOf:
           - type: 'null'
           - $ref: '#/components/schemas/SeriesId'
+      - in: query
+        name: block_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/BlockId'
       responses:
         '200':
           content:
@@ -3234,6 +3269,13 @@ paths:
           oneOf:
           - type: 'null'
           - $ref: '#/components/schemas/SeriesId'
+      - in: query
+        name: block_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/BlockId'
       responses:
         '200':
           content:
@@ -3603,6 +3645,13 @@ paths:
           oneOf:
           - type: 'null'
           - $ref: '#/components/schemas/SeriesId'
+      - in: query
+        name: block_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/BlockId'
       responses:
         '200':
           content:
@@ -3770,6 +3819,13 @@ paths:
           oneOf:
           - type: 'null'
           - $ref: '#/components/schemas/SeriesId'
+      - in: query
+        name: block_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/BlockId'
       responses:
         '200':
           content:

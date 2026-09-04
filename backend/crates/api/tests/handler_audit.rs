@@ -49,6 +49,7 @@ async fn get_block_audit_returns_journal_entries_for_block() {
             episode_id: None,
             season_id: None,
             series_id: None,
+            block_id: None,
         }),
     )
     .await;
