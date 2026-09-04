@@ -476,6 +476,7 @@ async fn series_id_for_costume<P: Ports>(
 #[utoipa::path(
     get,
     path = "/audit",
+    description = "Audit journal entries of a series, newest first. Requires the series_id query parameter (400 otherwise).",
     params(ListParams),
     responses(
         (status = 200, body = Vec<AuditEntry>, description = "Audit journal entries of the series, newest first"),
@@ -531,7 +532,11 @@ pub async fn get_audit_history<P: Ports>(
     post,
     path = "/seasons",
     request_body = CreateSeasonRequest,
-    responses((status = 201, description = "Season created", body = IdVersionResponse)),
+    responses(
+        (status = 201, description = "Season created", body = IdVersionResponse),
+        (status = 422, body = ProblemDetails, description = "Validation error"),
+        (status = 409, body = ProblemDetails, description = "Conflict"),
+    ),
 )]
 pub async fn create_season<P: Ports>(
     State(state): State<AppState<P>>,
@@ -642,7 +647,12 @@ pub async fn get_season_membership<P: Ports>(
     patch,
     path = "/seasons/{id}/name",
     request_body = RenameSeasonRequest,
-    responses((status = 200, body = AggregateVersion)),
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 404, body = ProblemDetails, description = "Season not found"),
+        (status = 422, body = ProblemDetails, description = "Validation error"),
+        (status = 409, body = ProblemDetails, description = "Conflict"),
+    ),
 )]
 pub async fn rename_season<P: Ports>(
     State(state): State<AppState<P>>,
@@ -673,7 +683,11 @@ pub async fn rename_season<P: Ports>(
     post,
     path = "/blocks",
     request_body = CreateBlockRequest,
-    responses((status = 201, description = "Block created", body = IdVersionResponse)),
+    responses(
+        (status = 201, description = "Block created", body = IdVersionResponse),
+        (status = 422, body = ProblemDetails, description = "Validation error"),
+        (status = 409, body = ProblemDetails, description = "Conflict"),
+    ),
 )]
 pub async fn create_block<P: Ports>(
     State(state): State<AppState<P>>,
@@ -761,8 +775,12 @@ pub async fn get_block_audit<P: Ports>(
 #[utoipa::path(
     get,
     path = "/blocks",
+    description = "Lists the blocks of a season. Requires the season_id query parameter (400 otherwise).",
     params(ListParams),
-    responses((status = 200, body = Vec<BlockView>)),
+    responses(
+        (status = 200, body = Vec<BlockView>),
+        (status = 400, body = ProblemDetails, description = "Missing season_id query parameter"),
+    ),
 )]
 pub async fn list_blocks<P: Ports>(
     State(state): State<AppState<P>>,
@@ -785,7 +803,12 @@ pub async fn list_blocks<P: Ports>(
     patch,
     path = "/blocks/{id}/time-span",
     request_body = UpdateBlockTimeSpanRequest,
-    responses((status = 200, body = AggregateVersion)),
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 404, body = ProblemDetails, description = "Block not found"),
+        (status = 422, body = ProblemDetails, description = "Validation error"),
+        (status = 409, body = ProblemDetails, description = "Conflict"),
+    ),
 )]
 pub async fn update_block_time_span<P: Ports>(
     State(state): State<AppState<P>>,
@@ -817,7 +840,11 @@ pub async fn update_block_time_span<P: Ports>(
     post,
     path = "/episodes",
     request_body = CreateEpisodeRequest,
-    responses((status = 201, description = "Episode created", body = IdVersionResponse)),
+    responses(
+        (status = 201, description = "Episode created", body = IdVersionResponse),
+        (status = 422, body = ProblemDetails, description = "Validation error"),
+        (status = 409, body = ProblemDetails, description = "Conflict"),
+    ),
 )]
 pub async fn create_episode<P: Ports>(
     State(state): State<AppState<P>>,
@@ -873,8 +900,12 @@ pub struct EpisodeListParams {
 #[utoipa::path(
     get,
     path = "/episodes",
+    description = "Lists episodes of a series, or of a single block when block_id is given. Requires series_id unless block_id is present (400 otherwise).",
     params(EpisodeListParams),
-    responses((status = 200, body = Vec<EpisodeView>)),
+    responses(
+        (status = 200, body = Vec<EpisodeView>),
+        (status = 400, body = ProblemDetails, description = "Missing series_id query parameter"),
+    ),
 )]
 pub async fn list_episodes<P: Ports>(
     State(state): State<AppState<P>>,
@@ -903,7 +934,12 @@ pub async fn list_episodes<P: Ports>(
     patch,
     path = "/episodes/{id}/name",
     request_body = RenameEpisodeRequest,
-    responses((status = 200, body = AggregateVersion)),
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 404, body = ProblemDetails, description = "Episode not found"),
+        (status = 422, body = ProblemDetails, description = "Validation error"),
+        (status = 409, body = ProblemDetails, description = "Conflict"),
+    ),
 )]
 pub async fn rename_episode<P: Ports>(
     State(state): State<AppState<P>>,
@@ -988,8 +1024,12 @@ pub async fn get_scene<P: Ports>(
 #[utoipa::path(
     get,
     path = "/scenes",
+    description = "Lists the scenes of an episode. Requires the episode_id query parameter (400 otherwise).",
     params(ListParams),
-    responses((status = 200, body = Vec<SceneView>))
+    responses(
+        (status = 200, body = Vec<SceneView>),
+        (status = 400, body = ProblemDetails, description = "Missing episode_id query parameter"),
+    )
 )]
 pub async fn list_scenes<P: Ports>(
     State(state): State<AppState<P>>,
@@ -1102,7 +1142,12 @@ pub async fn remove_scene_character<P: Ports>(
     path = "/episodes/{episode_id}/shooting-days",
     params(("episode_id" = EpisodeId, Path, description = "Episode id")),
     request_body = CreateShootingDayRequest,
-    responses((status = 201, description = "Shooting day created", body = IdVersionResponse)),
+    responses(
+        (status = 201, description = "Shooting day created", body = IdVersionResponse),
+        (status = 404, body = ProblemDetails, description = "Episode not found"),
+        (status = 422, body = ProblemDetails, description = "Validation error"),
+        (status = 409, body = ProblemDetails, description = "Conflict"),
+    ),
 )]
 pub async fn create_shooting_day<P: Ports>(
     State(state): State<AppState<P>>,
@@ -1143,7 +1188,10 @@ pub async fn create_shooting_day<P: Ports>(
     get,
     path = "/episodes/{episode_id}/shooting-days",
     params(("episode_id" = EpisodeId, Path, description = "Episode id")),
-    responses((status = 200, body = Vec<ShootingDayView>)),
+    responses(
+        (status = 200, body = Vec<ShootingDayView>),
+        (status = 404, body = ProblemDetails, description = "Episode not found"),
+    ),
 )]
 pub async fn list_shooting_days<P: Ports>(
     State(state): State<AppState<P>>,
@@ -1178,7 +1226,7 @@ pub async fn get_shooting_day<P: Ports>(
     request_body = UpdateShootingDayRequest,
     responses(
         (status = 200, body = AggregateVersion),
-        (status = 422, description = "No update field provided"),
+        (status = 422, body = ProblemDetails, description = "No update field provided"),
         (status = 409, body = ProblemDetails),
     ),
 )]
@@ -1389,8 +1437,12 @@ pub async fn get_character<P: Ports>(
 #[utoipa::path(
     get,
     path = "/characters",
+    description = "Lists the characters of a season. Requires the season_id query parameter (400 otherwise).",
     params(ListParams),
-    responses((status = 200, body = Vec<CharacterView>))
+    responses(
+        (status = 200, body = Vec<CharacterView>),
+        (status = 400, body = ProblemDetails, description = "Missing season_id query parameter"),
+    )
 )]
 pub async fn list_characters<P: Ports>(
     State(state): State<AppState<P>>,
@@ -1444,7 +1496,12 @@ pub async fn update_measurements<P: Ports>(
     patch,
     path = "/characters/{id}/contact",
     request_body = UpdateContactInfoRequest,
-    responses((status = 200, body = AggregateVersion)),
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 404, body = ProblemDetails, description = "Character not found"),
+        (status = 422, body = ProblemDetails, description = "Validation error"),
+        (status = 409, body = ProblemDetails, description = "Conflict"),
+    ),
 )]
 pub async fn update_contact_info<P: Ports>(
     State(state): State<AppState<P>>,
@@ -1517,8 +1574,12 @@ pub async fn get_costume<P: Ports>(
 #[utoipa::path(
     get,
     path = "/costumes",
+    description = "Lists the costumes of a season. Requires the season_id query parameter (400 otherwise).",
     params(ListParams),
-    responses((status = 200, body = Vec<CostumeView>))
+    responses(
+        (status = 200, body = Vec<CostumeView>),
+        (status = 400, body = ProblemDetails, description = "Missing season_id query parameter"),
+    )
 )]
 pub async fn list_costumes<P: Ports>(
     State(state): State<AppState<P>>,
@@ -1599,7 +1660,11 @@ pub async fn assign_costume<P: Ports>(
     post,
     path = "/costumes/{id}/unassign",
     request_body = VersionRequest,
-    responses((status = 200, body = AggregateVersion)),
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 404, body = ProblemDetails, description = "Costume not found"),
+        (status = 409, body = ProblemDetails, description = "Conflict"),
+    ),
 )]
 pub async fn unassign_costume<P: Ports>(
     State(state): State<AppState<P>>,
@@ -1630,7 +1695,12 @@ pub async fn unassign_costume<P: Ports>(
     path = "/costumes/{id}/details",
     params(("id" = Uuid, Path, description = "Costume id")),
     request_body = AddCostumeDetailRequest,
-    responses((status = 200, body = AggregateVersion)),
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 404, body = ProblemDetails, description = "Costume not found"),
+        (status = 422, body = ProblemDetails, description = "Validation error"),
+        (status = 409, body = ProblemDetails, description = "Conflict"),
+    ),
 )]
 pub async fn add_costume_detail<P: Ports>(
     State(state): State<AppState<P>>,
@@ -1663,7 +1733,12 @@ pub async fn add_costume_detail<P: Ports>(
     path = "/seasons/{season_id}/costume-categories",
     params(("season_id" = SeasonId, Path, description = "Season id")),
     request_body = CreateCostumeCategoryRequest,
-    responses((status = 201, description = "Costume category created", body = IdVersionResponse)),
+    responses(
+        (status = 201, description = "Costume category created", body = IdVersionResponse),
+        (status = 404, body = ProblemDetails, description = "Season not found"),
+        (status = 422, body = ProblemDetails, description = "Validation error"),
+        (status = 409, body = ProblemDetails, description = "Conflict"),
+    ),
 )]
 pub async fn create_costume_category<P: Ports>(
     State(state): State<AppState<P>>,
@@ -1699,7 +1774,10 @@ pub async fn create_costume_category<P: Ports>(
     get,
     path = "/seasons/{season_id}/costume-categories",
     params(("season_id" = SeasonId, Path, description = "Season id")),
-    responses((status = 200, body = Vec<CostumeCategoryView>)),
+    responses(
+        (status = 200, body = Vec<CostumeCategoryView>),
+        (status = 404, body = ProblemDetails, description = "Season not found"),
+    ),
 )]
 pub async fn list_costume_categories<P: Ports>(
     State(state): State<AppState<P>>,
@@ -1720,7 +1798,7 @@ pub async fn list_costume_categories<P: Ports>(
     request_body = UpdateCostumeCategoryRequest,
     responses(
         (status = 200, body = AggregateVersion),
-        (status = 422, description = "No update field provided"),
+        (status = 422, body = ProblemDetails, description = "No update field provided"),
         (status = 409, body = ProblemDetails),
     ),
 )]
@@ -2485,6 +2563,9 @@ pub struct WrapShootingDayRequest {
     responses(
         (status = 201, body = IdVersionResponse),
         (status = 400, body = ProblemDetails, description = "Identifier in the body does not match the path parameter"),
+        (status = 404, body = ProblemDetails, description = "Scene or shooting day not found"),
+        (status = 422, body = ProblemDetails, description = "Validation error"),
+        (status = 409, body = ProblemDetails, description = "Conflict"),
     ),
 )]
 pub async fn plan_scene_shoot<P: Ports>(
@@ -2531,7 +2612,12 @@ pub async fn plan_scene_shoot<P: Ports>(
     patch,
     path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}",
     request_body = ReplanSceneShootRequest,
-    responses((status = 200, body = AggregateVersion)),
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 404, body = ProblemDetails, description = "Scene shoot not found"),
+        (status = 422, body = ProblemDetails, description = "Validation error"),
+        (status = 409, body = ProblemDetails, description = "Conflict"),
+    ),
 )]
 pub async fn replan_scene_shoot<P: Ports>(
     State(state): State<AppState<P>>,
@@ -2558,7 +2644,12 @@ pub async fn replan_scene_shoot<P: Ports>(
     post,
     path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/start",
     request_body = StartSceneShootRequest,
-    responses((status = 200, body = AggregateVersion)),
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 404, body = ProblemDetails, description = "Scene shoot not found"),
+        (status = 422, body = ProblemDetails, description = "Validation error"),
+        (status = 409, body = ProblemDetails, description = "Conflict"),
+    ),
 )]
 pub async fn start_scene_shoot<P: Ports>(
     State(state): State<AppState<P>>,
@@ -2585,7 +2676,12 @@ pub async fn start_scene_shoot<P: Ports>(
     patch,
     path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/actual-order",
     request_body = SetActualOrderRequest,
-    responses((status = 200, body = AggregateVersion)),
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 404, body = ProblemDetails, description = "Scene shoot not found"),
+        (status = 422, body = ProblemDetails, description = "Validation error"),
+        (status = 409, body = ProblemDetails, description = "Conflict"),
+    ),
 )]
 pub async fn set_actual_order<P: Ports>(
     State(state): State<AppState<P>>,
@@ -2612,7 +2708,12 @@ pub async fn set_actual_order<P: Ports>(
     post,
     path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/finish",
     request_body = FinishSceneShootRequest,
-    responses((status = 200, body = AggregateVersion)),
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 404, body = ProblemDetails, description = "Scene shoot not found"),
+        (status = 422, body = ProblemDetails, description = "Validation error"),
+        (status = 409, body = ProblemDetails, description = "Conflict"),
+    ),
 )]
 pub async fn finish_scene_shoot<P: Ports>(
     State(state): State<AppState<P>>,
@@ -2639,7 +2740,11 @@ pub async fn finish_scene_shoot<P: Ports>(
     post,
     path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/skip",
     request_body = SkipSceneShootRequest,
-    responses((status = 200, body = AggregateVersion)),
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 404, body = ProblemDetails, description = "Scene shoot not found"),
+        (status = 409, body = ProblemDetails, description = "Conflict"),
+    ),
 )]
 pub async fn skip_scene_shoot<P: Ports>(
     State(state): State<AppState<P>>,
@@ -2664,7 +2769,10 @@ pub async fn skip_scene_shoot<P: Ports>(
 #[utoipa::path(
     get,
     path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}",
-    responses((status = 200, body = SceneShootView)),
+    responses(
+        (status = 200, body = SceneShootView),
+        (status = 404, body = ProblemDetails, description = "Scene shoot not found"),
+    ),
 )]
 pub async fn get_scene_shoot<P: Ports>(
     State(state): State<AppState<P>>,
@@ -2688,7 +2796,10 @@ pub async fn get_scene_shoot<P: Ports>(
         ("day_id" = ShootingDayId, Path, description = "Shooting day id"),
         ("scene_id" = Uuid, Path, description = "Scene id"),
     ),
-    responses((status = 200, body = Vec<SceneShootView>)),
+    responses(
+        (status = 200, body = Vec<SceneShootView>),
+        (status = 404, body = ProblemDetails, description = "Shooting day or scene not found"),
+    ),
 )]
 pub async fn list_scene_shoots<P: Ports>(
     State(state): State<AppState<P>>,
@@ -2710,7 +2821,12 @@ pub async fn list_scene_shoots<P: Ports>(
     post,
     path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/notes",
     request_body = AddNoteRequest,
-    responses((status = 200, body = AggregateVersion)),
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 404, body = ProblemDetails, description = "Scene shoot not found"),
+        (status = 422, body = ProblemDetails, description = "Validation error"),
+        (status = 409, body = ProblemDetails, description = "Conflict"),
+    ),
 )]
 pub async fn add_scene_shoot_note<P: Ports>(
     State(state): State<AppState<P>>,
@@ -2739,7 +2855,12 @@ pub async fn add_scene_shoot_note<P: Ports>(
     put,
     path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/notes/{note_id}",
     request_body = UpdateNoteRequest,
-    responses((status = 200, body = AggregateVersion)),
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 404, body = ProblemDetails, description = "Scene shoot or note not found"),
+        (status = 422, body = ProblemDetails, description = "Validation error"),
+        (status = 409, body = ProblemDetails, description = "Conflict"),
+    ),
 )]
 pub async fn update_scene_shoot_note<P: Ports>(
     State(state): State<AppState<P>>,
@@ -2766,7 +2887,11 @@ pub async fn update_scene_shoot_note<P: Ports>(
 #[utoipa::path(
     delete,
     path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/notes/{note_id}",
-    responses((status = 200, body = AggregateVersion)),
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 404, body = ProblemDetails, description = "Scene shoot or note not found"),
+        (status = 409, body = ProblemDetails, description = "Conflict"),
+    ),
 )]
 pub async fn remove_scene_shoot_note<P: Ports>(
     State(state): State<AppState<P>>,
@@ -2797,7 +2922,12 @@ pub async fn remove_scene_shoot_note<P: Ports>(
     post,
     path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/continuity-photos",
     request_body = LinkContinuityPhotoRequest,
-    responses((status = 200, body = AggregateVersion)),
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 403, body = ProblemDetails, description = "Not authorized"),
+        (status = 404, body = ProblemDetails, description = "Scene shoot or shooting day not found"),
+        (status = 409, body = ProblemDetails, description = "Conflict"),
+    ),
 )]
 pub async fn link_continuity_photo<P: Ports>(
     State(state): State<AppState<P>>,
@@ -2851,7 +2981,10 @@ pub async fn link_continuity_photo<P: Ports>(
 #[utoipa::path(
     get,
     path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/continuity-photos",
-    responses((status = 200, body = Vec<PhotoId>)),
+    responses(
+        (status = 200, body = Vec<PhotoId>),
+        (status = 404, body = ProblemDetails, description = "Scene shoot not found"),
+    ),
 )]
 pub async fn list_continuity_photos<P: Ports>(
     State(state): State<AppState<P>>,
@@ -2865,7 +2998,12 @@ pub async fn list_continuity_photos<P: Ports>(
     delete,
     path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/continuity-photos/{photo_id}",
     params(VersionRequest),
-    responses((status = 200, body = AggregateVersion)),
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 403, body = ProblemDetails, description = "Not authorized"),
+        (status = 404, body = ProblemDetails, description = "Scene shoot or shooting day not found"),
+        (status = 409, body = ProblemDetails, description = "Conflict"),
+    ),
 )]
 pub async fn unlink_continuity_photo<P: Ports>(
     State(state): State<AppState<P>>,
@@ -2929,7 +3067,11 @@ pub async fn unlink_continuity_photo<P: Ports>(
     path = "/shooting-days/{id}/wrap",
     params(("id" = ShootingDayId, Path, description = "Shooting day id")),
     request_body = WrapShootingDayRequest,
-    responses((status = 200, body = AggregateVersion)),
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 404, body = ProblemDetails, description = "Shooting day not found"),
+        (status = 409, body = ProblemDetails, description = "Conflict"),
+    ),
 )]
 pub async fn wrap_shooting_day<P: Ports>(
     State(state): State<AppState<P>>,
@@ -2960,7 +3102,11 @@ pub async fn wrap_shooting_day<P: Ports>(
     get,
     path = "/shooting-days/{id}/report/dispo",
     params(("id" = ShootingDayId, Path, description = "Shooting day id")),
-    responses((status = 200, body = Vec<DispoRow>)),
+    responses(
+        (status = 200, body = Vec<DispoRow>),
+        (status = 403, body = ProblemDetails, description = "Not authorized"),
+        (status = 404, body = ProblemDetails, description = "Shooting day not found"),
+    ),
 )]
 pub async fn dispo_report<P: Ports>(
     State(state): State<AppState<P>>,
@@ -3001,7 +3147,11 @@ pub async fn dispo_report<P: Ports>(
     get,
     path = "/shooting-days/{id}/report/shoot-day",
     params(("id" = ShootingDayId, Path, description = "Shooting day id")),
-    responses((status = 200, body = Vec<ShootDayRow>)),
+    responses(
+        (status = 200, body = Vec<ShootDayRow>),
+        (status = 403, body = ProblemDetails, description = "Not authorized"),
+        (status = 404, body = ProblemDetails, description = "Shooting day not found"),
+    ),
 )]
 pub async fn shoot_day_report<P: Ports>(
     State(state): State<AppState<P>>,
@@ -3042,7 +3192,11 @@ pub async fn shoot_day_report<P: Ports>(
     get,
     path = "/shooting-days/{id}/report/soll-ist",
     params(("id" = ShootingDayId, Path, description = "Shooting day id")),
-    responses((status = 200, body = SollIstReport)),
+    responses(
+        (status = 200, body = SollIstReport),
+        (status = 403, body = ProblemDetails, description = "Not authorized"),
+        (status = 404, body = ProblemDetails, description = "Shooting day not found"),
+    ),
 )]
 pub async fn soll_ist_report<P: Ports>(
     State(state): State<AppState<P>>,
@@ -3111,7 +3265,11 @@ pub fn map_render_error(err: breakdown_core::reporting::ReportRenderError) -> Ap
     get,
     path = "/shooting-days/{id}/report/dispo.pdf",
     params(("id" = ShootingDayId, Path, description = "Shooting day id")),
-    responses((status = 200, description = "PDF report")),
+    responses(
+        (status = 200, description = "PDF report"),
+        (status = 403, body = ProblemDetails, description = "Not authorized"),
+        (status = 404, body = ProblemDetails, description = "Shooting day not found"),
+    ),
 )]
 pub async fn dispo_report_pdf<P: Ports>(
     State(state): State<AppState<P>>,
@@ -3190,7 +3348,11 @@ pub async fn dispo_report_pdf<P: Ports>(
     get,
     path = "/shooting-days/{id}/report/shoot-day.pdf",
     params(("id" = ShootingDayId, Path, description = "Shooting day id")),
-    responses((status = 200, description = "PDF report")),
+    responses(
+        (status = 200, description = "PDF report"),
+        (status = 403, body = ProblemDetails, description = "Not authorized"),
+        (status = 404, body = ProblemDetails, description = "Shooting day not found"),
+    ),
 )]
 pub async fn shoot_day_report_pdf<P: Ports>(
     State(state): State<AppState<P>>,
@@ -3269,7 +3431,11 @@ pub async fn shoot_day_report_pdf<P: Ports>(
     get,
     path = "/shooting-days/{id}/report/planned-vs-actual.pdf",
     params(("id" = ShootingDayId, Path, description = "Shooting day id")),
-    responses((status = 200, description = "PDF report")),
+    responses(
+        (status = 200, description = "PDF report"),
+        (status = 403, body = ProblemDetails, description = "Not authorized"),
+        (status = 404, body = ProblemDetails, description = "Shooting day not found"),
+    ),
 )]
 pub async fn planned_vs_actual_report_pdf<P: Ports>(
     State(state): State<AppState<P>>,
@@ -3372,8 +3538,8 @@ pub struct ManualArchiveJobResult {
     params(("id" = ShootingDayId, Path, description = "Shooting day id")),
     responses(
         (status = 202, description = "Archival job(s) enqueued"),
-        (status = 403, description = "Forbidden"),
-        (status = 404, description = "Shooting day not found"),
+        (status = 403, body = ProblemDetails, description = "Forbidden"),
+        (status = 404, body = ProblemDetails, description = "Shooting day not found"),
     ),
 )]
 pub async fn manual_archive_reports<P: Ports>(

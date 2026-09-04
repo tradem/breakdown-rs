@@ -2371,6 +2371,7 @@ paths:
       - handlers
   /v1/audit:
     get:
+      description: Audit journal entries of a series, newest first. Requires the series_id query parameter (400 otherwise).
       operationId: get_audit_history
       parameters:
       - in: query
@@ -2443,6 +2444,7 @@ paths:
       - handlers
   /v1/blocks:
     get:
+      description: Lists the blocks of a season. Requires the season_id query parameter (400 otherwise).
       operationId: list_blocks
       parameters:
       - in: query
@@ -2493,6 +2495,12 @@ paths:
                   $ref: '#/components/schemas/BlockView'
                 type: array
           description: ''
+        '400':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Missing season_id query parameter
       tags:
       - handlers
     post:
@@ -2510,6 +2518,18 @@ paths:
               schema:
                 $ref: '#/components/schemas/IdVersionResponse'
           description: Block created
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Conflict
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
       tags:
       - handlers
   /v1/blocks/{id}:
@@ -2958,10 +2978,29 @@ paths:
               schema:
                 $ref: '#/components/schemas/AggregateVersion'
           description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Block not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Conflict
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
       tags:
       - handlers
   /v1/characters:
     get:
+      description: Lists the characters of a season. Requires the season_id query parameter (400 otherwise).
       operationId: list_characters
       parameters:
       - in: query
@@ -3012,6 +3051,12 @@ paths:
                   $ref: '#/components/schemas/CharacterView'
                 type: array
           description: ''
+        '400':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Missing season_id query parameter
       tags:
       - handlers
     post:
@@ -3086,6 +3131,24 @@ paths:
               schema:
                 $ref: '#/components/schemas/AggregateVersion'
           description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Character not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Conflict
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
       tags:
       - handlers
   /v1/characters/{id}/measurements:
@@ -3156,6 +3219,10 @@ paths:
                 $ref: '#/components/schemas/ProblemDetails'
           description: ''
         '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
           description: No update field provided
       tags:
       - handlers
@@ -3193,6 +3260,7 @@ paths:
       - handlers
   /v1/costumes:
     get:
+      description: Lists the costumes of a season. Requires the season_id query parameter (400 otherwise).
       operationId: list_costumes
       parameters:
       - in: query
@@ -3243,6 +3311,12 @@ paths:
                   $ref: '#/components/schemas/CostumeView'
                 type: array
           description: ''
+        '400':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Missing season_id query parameter
       tags:
       - handlers
     post:
@@ -3496,6 +3570,24 @@ paths:
               schema:
                 $ref: '#/components/schemas/AggregateVersion'
           description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Costume not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Conflict
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
       tags:
       - handlers
   /v1/costumes/{id}/notes:
@@ -3558,10 +3650,23 @@ paths:
               schema:
                 $ref: '#/components/schemas/AggregateVersion'
           description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Costume not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Conflict
       tags:
       - handlers
   /v1/episodes:
     get:
+      description: Lists episodes of a series, or of a single block when block_id is given. Requires series_id unless block_id is present (400 otherwise).
       operationId: list_episodes
       parameters:
       - in: query
@@ -3605,6 +3710,12 @@ paths:
                   $ref: '#/components/schemas/EpisodeView'
                 type: array
           description: ''
+        '400':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Missing series_id query parameter
       tags:
       - handlers
     post:
@@ -3622,6 +3733,18 @@ paths:
               schema:
                 $ref: '#/components/schemas/IdVersionResponse'
           description: Episode created
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Conflict
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
       tags:
       - handlers
   /v1/episodes/{episode_id}/shooting-days:
@@ -3643,6 +3766,12 @@ paths:
                   $ref: '#/components/schemas/ShootingDayView'
                 type: array
           description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Episode not found
       tags:
       - handlers
     post:
@@ -3667,6 +3796,24 @@ paths:
               schema:
                 $ref: '#/components/schemas/IdVersionResponse'
           description: Shooting day created
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Episode not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Conflict
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
       tags:
       - handlers
   /v1/episodes/{id}:
@@ -3718,10 +3865,29 @@ paths:
               schema:
                 $ref: '#/components/schemas/AggregateVersion'
           description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Episode not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Conflict
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
       tags:
       - handlers
   /v1/scenes:
     get:
+      description: Lists the scenes of an episode. Requires the episode_id query parameter (400 otherwise).
       operationId: list_scenes
       parameters:
       - in: query
@@ -3772,6 +3938,12 @@ paths:
                   $ref: '#/components/schemas/SceneView'
                 type: array
           description: ''
+        '400':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Missing episode_id query parameter
       tags:
       - handlers
     post:
@@ -4018,6 +4190,18 @@ paths:
               schema:
                 $ref: '#/components/schemas/IdVersionResponse'
           description: Season created
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Conflict
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
       tags:
       - handlers
   /v1/seasons/{id}:
@@ -4101,6 +4285,24 @@ paths:
               schema:
                 $ref: '#/components/schemas/AggregateVersion'
           description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Season not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Conflict
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
       tags:
       - handlers
   /v1/seasons/{season_id}/costume-categories:
@@ -4122,6 +4324,12 @@ paths:
                   $ref: '#/components/schemas/CostumeCategoryView'
                 type: array
           description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Season not found
       tags:
       - handlers
     post:
@@ -4146,6 +4354,24 @@ paths:
               schema:
                 $ref: '#/components/schemas/IdVersionResponse'
           description: Costume category created
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Season not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Conflict
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
       tags:
       - handlers
   /v1/settings/credentials:
@@ -4353,6 +4579,12 @@ paths:
                   $ref: '#/components/schemas/SceneShootView'
                 type: array
           description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Shooting day or scene not found
       summary: Lists the planned shoots of a shooting day.
       tags:
       - handlers
@@ -4389,6 +4621,24 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Identifier in the body does not match the path parameter
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Scene or shooting day not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Conflict
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
       tags:
       - handlers
   /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}:
@@ -4418,6 +4668,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/SceneShootView'
           description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Scene shoot not found
       tags:
       - handlers
     patch:
@@ -4452,6 +4708,24 @@ paths:
               schema:
                 $ref: '#/components/schemas/AggregateVersion'
           description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Scene shoot not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Conflict
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
       tags:
       - handlers
   /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/actual-order:
@@ -4487,6 +4761,24 @@ paths:
               schema:
                 $ref: '#/components/schemas/AggregateVersion'
           description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Scene shoot not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Conflict
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
       tags:
       - handlers
   /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/continuity-photos:
@@ -4518,6 +4810,12 @@ paths:
                   $ref: '#/components/schemas/PhotoId'
                 type: array
           description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Scene shoot not found
       tags:
       - handlers
     post:
@@ -4552,6 +4850,24 @@ paths:
               schema:
                 $ref: '#/components/schemas/AggregateVersion'
           description: ''
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Not authorized
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Scene shoot or shooting day not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Conflict
       tags:
       - handlers
   /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/continuity-photos/{photo_id}:
@@ -4591,6 +4907,24 @@ paths:
               schema:
                 $ref: '#/components/schemas/AggregateVersion'
           description: ''
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Not authorized
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Scene shoot or shooting day not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Conflict
       tags:
       - handlers
   /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/finish:
@@ -4626,6 +4960,24 @@ paths:
               schema:
                 $ref: '#/components/schemas/AggregateVersion'
           description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Scene shoot not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Conflict
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
       tags:
       - handlers
   /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/notes:
@@ -4661,6 +5013,24 @@ paths:
               schema:
                 $ref: '#/components/schemas/AggregateVersion'
           description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Scene shoot not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Conflict
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
       tags:
       - handlers
   /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/notes/{note_id}:
@@ -4702,6 +5072,18 @@ paths:
               schema:
                 $ref: '#/components/schemas/AggregateVersion'
           description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Scene shoot or note not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Conflict
       tags:
       - handlers
     put:
@@ -4742,6 +5124,24 @@ paths:
               schema:
                 $ref: '#/components/schemas/AggregateVersion'
           description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Scene shoot or note not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Conflict
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
       tags:
       - handlers
   /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/skip:
@@ -4777,6 +5177,18 @@ paths:
               schema:
                 $ref: '#/components/schemas/AggregateVersion'
           description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Scene shoot not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Conflict
       tags:
       - handlers
   /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/start:
@@ -4812,6 +5224,24 @@ paths:
               schema:
                 $ref: '#/components/schemas/AggregateVersion'
           description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Scene shoot not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Conflict
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
       tags:
       - handlers
   /v1/shooting-days/{id}:
@@ -4868,6 +5298,10 @@ paths:
                 $ref: '#/components/schemas/ProblemDetails'
           description: ''
         '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
           description: No update field provided
       tags:
       - handlers
@@ -4921,8 +5355,16 @@ paths:
         '202':
           description: Archival job(s) enqueued
         '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
           description: Forbidden
         '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
           description: Shooting day not found
       summary: Manual "archive now" remediation endpoint.
       tags:
@@ -4946,6 +5388,18 @@ paths:
                   $ref: '#/components/schemas/DispoRow'
                 type: array
           description: ''
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Not authorized
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Shooting day not found
       tags:
       - handlers
   /v1/shooting-days/{id}/report/dispo.pdf:
@@ -4961,6 +5415,18 @@ paths:
       responses:
         '200':
           description: PDF report
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Not authorized
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Shooting day not found
       tags:
       - handlers
   /v1/shooting-days/{id}/report/planned-vs-actual.pdf:
@@ -4976,6 +5442,18 @@ paths:
       responses:
         '200':
           description: PDF report
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Not authorized
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Shooting day not found
       tags:
       - handlers
   /v1/shooting-days/{id}/report/shoot-day:
@@ -4997,6 +5475,18 @@ paths:
                   $ref: '#/components/schemas/ShootDayRow'
                 type: array
           description: ''
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Not authorized
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Shooting day not found
       tags:
       - handlers
   /v1/shooting-days/{id}/report/shoot-day.pdf:
@@ -5012,6 +5502,18 @@ paths:
       responses:
         '200':
           description: PDF report
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Not authorized
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Shooting day not found
       tags:
       - handlers
   /v1/shooting-days/{id}/report/soll-ist:
@@ -5031,6 +5533,18 @@ paths:
               schema:
                 $ref: '#/components/schemas/SollIstReport'
           description: ''
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Not authorized
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Shooting day not found
       tags:
       - handlers
   /v1/shooting-days/{id}/wrap:
@@ -5056,6 +5570,18 @@ paths:
               schema:
                 $ref: '#/components/schemas/AggregateVersion'
           description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Shooting day not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Conflict
       tags:
       - handlers
 tags:
