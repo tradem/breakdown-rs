@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: claude-sonnet-4-20250514 (opencode-go)
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: hy4-preview (opencode-go)
 
 //! Batch 2 — Authz-Handler 403-Tests for mutation-test hardening (issue #274).
