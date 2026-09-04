@@ -2,7 +2,7 @@
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: glm-5.3 (neuralwatt) -->
 
-# Proposal: Reports — Phase 4 (PARTIALLY BLOCKED)
+# Proposal: Reports — Phase 4 (READY — contract landed)
 
 ## Why
 Phase 4 delivers the reporting surface: on-screen Soll-Ist
@@ -11,30 +11,12 @@ reports (disposition, shoot-day, planned-vs-actual) viewable and
 shareable from the day context. The roadmap's designated Gherkin
 critical scope "Soll-Ist report" lands here.
 
-**Two contract defects were found during grounding (documented
-blockers, not worked around):**
+**Both contract defects landed (no workarounds needed):**
 
-1. **PDF path-parameter defect:** the three PDF routes declare the
-   `{id}` path segment without defining it in the spec, so the
-   generated Dart client methods (`dispoReportPdf`,
-   `shootDayReportPdf`, `plannedVsActualReportPdf`) take **no path
-   parameter and cannot address a specific day** — already faithfully
-   wrapped in `data/scene_shoot_repository.dart` and tracked as
-   backend defect GitHub issue #334 (also noted in AGENTS.md §7).
-   No client workaround (no hand-built URLs bypassing the client)
-   is permissible.
-2. **Missing JSON report routes:** the backend router serves the
-   source JSON reports (`/v1/shooting-days/{id}/report/dispo`,
-   `shoot-day`, `soll-ist`) but the checked-in `backend/openapi.yaml`
-   does not contain them — the on-screen Soll-Ist report data has no
-   contract surface yet (same family of gap as the Phase 2b change;
-   GitHub issue #333).
+1. **PDF path-parameter defect fixed:** every path template variable is now defined in the spec (backend issue #334, PR #349 — route-coverage guard test), so the regenerated Dart client methods (`dispoReportPdf`, `shootDayReportPdf`, `plannedVsActualReportPdf`) take the day id and address a specific day.
+2. **JSON report routes exported:** the source JSON reports (`/v1/shooting-days/{id}/report/dispo`, `shoot-day`, `soll-ist`) are in the checked-in `backend/openapi.yaml` (backend issue #333, PR #344) — the on-screen Soll-Ist report consumes the read DTOs via the generated client.
 
-This change is created now to spec the UX, dependency-light, with
-every task gated on the two backend fixes (a single OpenAPI re-export
-plus the PDF parameter definitions).
-
-## What changes (when unblocked)
+## What changes
 - `features/reports/` — day-context report screen:
   - **Soll-Ist on-screen report** rendered from the JSON report route
     (pure presentation of the read DTO — planned vs actual scene
@@ -55,11 +37,11 @@ plus the PDF parameter definitions).
 
 ## Dependencies
 - **Depends on:** `flutter-costume-domains` (day context),
-  `flutter-shoot-day-execution` (wrapped days / Ist data; Part 2b
-  blocked as documented).
-- **Blocked on:** GitHub issues #333 (JSON report route export) and
-  #334 (the PDF `{id}` path parameter definitions); each fix is
-  followed by `scripts/regen-client.sh`.
+  `flutter-shoot-day-execution` (wrapped days / Ist data — unblocked
+  alongside this change).
+- **Contract:** GitHub issues #333 (JSON report route export, PR #344)
+  and #334 (PDF `{id}` definitions, PR #349) landed; followed by
+  `scripts/regen-client.sh`.
 - **New packages:** PDF in-app viewing via a FOSS renderer
   (e.g. `pdfrx`) + share via `share_plus` — both FOSS/store-compliant;
   selection and pinning are finalized in design.md when unblocked.
@@ -71,10 +53,11 @@ plus the PDF parameter definitions).
   minimization apply — reports stay user-initiated).
 
 ## Design Decisions
-- **D1 — No hand-built URLs.** Until the generated client can carry
-  the day id, no PDF fetch ships — not even via manual `Dio.get`
-  string interpolation. The drift-checked contract is the only
-  sanctioned transport surface.
+- **D1 — No hand-built URLs.** All PDF fetches dispatch via the
+  generated per-day client methods (day id as a real parameter since
+  issues #333/#334 landed) — never via manual `Dio.get` string
+  interpolation. The drift-checked contract is the only sanctioned
+  transport surface.
 - **D2 — On-screen report is a read-model render.** All flag and
   finality semantics (`moved/missing/skipped/reshot`, `final` from
   `wrapped_at`) come from the report read DTO; the client renders

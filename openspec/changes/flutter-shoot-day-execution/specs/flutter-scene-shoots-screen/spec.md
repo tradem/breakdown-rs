@@ -9,16 +9,23 @@
 ### Requirement: Contract-Gated Implementation
 The scene-shoot execution screens SHALL be implemented only against
 routes present in the generated Dart client (regenerated from
-`backend/openapi.yaml`). While the scene-shoot / continuity-photo /
-wrap route family is absent from the checked-in OpenAPI contract, the
-client SHALL NOT ship improvised calls, retyped DTOs, or substitute
-routes for this surface.
+`backend/openapi.yaml`). The scene-shoot / continuity-photo / wrap
+route family landed in the checked-in contract (backend issue #333,
+PR #344) — the client consumes the generated DTOs exclusively: no
+improvised calls, no retyped DTOs, no substitute routes for this
+surface.
 
 #### Scenario: Contract lands
 - **WHEN** the backend re-export includes the scene-shoot route
   family and the client is regenerated.
 - **THEN** this change's implementation tasks unblock and consume the
   generated DTOs exclusively.
+
+#### Scenario: Plan carries path ids only
+- **WHEN** the user plans a scene shoot.
+- **THEN** `day_id`/`scene_id` travel in the path only and the body
+  carries just `{ planned_order }` (backend issue #346) — no
+  redundant body ids, no mismatch policing.
 
 ### Requirement: Day Board Follows the Reference Pattern
 When unblocked, the day board SHALL render the day's scene shoots in

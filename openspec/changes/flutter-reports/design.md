@@ -4,23 +4,17 @@
 
 # Design: Reports
 
-## 1. Blockers restated (binding)
+## 1. Contract status (landed)
 
-- **B1 — PDF parameter defect:** the spec declares the `{id}` path
-  template segment for `/v1/shooting-days/{id}/report/*.pdf` without
-  defining it, so the generated methods accept no day id
-  (`data/scene_shoot_repository.dart` documents this faithfully).
-  Fix: define `{id}` (uuid) in the three PDF routes (GitHub issue
-  #334); regen.
-- **B2 — Missing JSON report routes:** the router serves
-  `/v1/shooting-days/{id}/report/{dispo|shoot-day|soll-ist}` but the
-  checked-in spec does not export them. Fix: OpenAPI re-export
-  (same tracked backend item as Phase 2b's blocker); regen.
+- **B1 — PDF parameter defect fixed:** `{id}` (uuid) is defined on the three PDF routes (backend issue #334, PR #349); the generated methods accept the day id.
+- **B2 — JSON report routes exported:** `/v1/shooting-days/{id}/report/{dispo|shoot-day|soll-ist}` are in the checked-in spec (backend issue #333, PR #344).
 
-Both fixes are backend-owned; the client change delivers
-`scripts/regen-client.sh` + implementation in the unblocked order.
+Both fixes are backend-landed; the client change runs
+`scripts/regen-client.sh` + implementation. Error copy branches on the
+stable problem `code` from the per-operation RFC 9457 responses
+(backend issue #343, PR #356).
 
-## 2. Intended UX (spec'd now, built when unblocked)
+## 2. Intended UX
 
 ```text
 Day context (Phase 2 shooting-days screen) ── "Reports" action

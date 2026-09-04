@@ -20,6 +20,14 @@ the parent list on both platforms.
 - **THEN** `BlocksScreen` pushes with that `SeasonView` as context and
   renders the season's `BlockView` rows (`GET /v1/blocks?season_id=…`).
 
+#### Scenario: Navigating to a block's episodes
+- **WHEN** the user taps a block row.
+- **THEN** `EpisodesScreen` pushes with the `BlockView` as context and
+  renders the block's `EpisodeView` rows via the server-side filter
+  (`GET /v1/episodes?block_id=…`, backend issue #335); error copy is
+  keyed on the stable problem `code` from the per-operation RFC 9457
+  responses (backend issue #343).
+
 #### Scenario: Back navigation
 - **WHEN** the user invokes system back (Android) or mouse-back (macOS)
   on `EpisodesScreen`.

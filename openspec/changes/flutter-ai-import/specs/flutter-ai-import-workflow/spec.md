@@ -55,10 +55,7 @@ the user may only close/leave, and the copy SHALL say so.
   copy and the `last_error` string as secondary detail; the watch ends.
 
 ### Requirement: Tolerant Preview Rendering and Explicit Apply
-The preview screen SHALL render the (contractually untyped) preview
-object through a runtime-validated row adapter: recognized rows as
-cards, unrecognized rows as explicit degraded cards — never silently
-coerced data. The apply action SHALL submit `ApplyAiImportRequest`
+The preview screen SHALL render the typed `AiImportPreviewResponse` / `AiPreviewPayload` (`kind`/`data`: `script` → `ScriptContext`, `schedule` → `ShootingSchedule`, `merged` → `MergedPreview`; backend issue #337, PR #357) from the generated client: recognized payloads as cards, an unknown future `kind` as an explicit degraded card with a stable code — never silently coerced data, never retyped DTOs. The apply action SHALL submit `ApplyAiImportRequest`
 with `draft_ref`s taken verbatim from the preview rows the user acted
 on, per-row decisions (Create / Update with the picked aggregate id +
 version from the read DTO / skip), the episode context from the
@@ -67,11 +64,16 @@ the actual selection state. The 200 response SHALL render the outcome
 summary (`applied_count`, `created_days`, `planned_scene_shoots`).
 
 #### Scenario: Partial preview results
-- **WHEN** the preview contains a mix of recognized and unrecognized
-  rows.
-- **THEN** recognized rows are actionable; unrecognized rows render as
-  degraded cards excluded from one-tap accept-all; apply proceeds only
+- **WHEN** the preview contains a mix of recognized rows and an
+  unknown future `kind`.
+- **THEN** recognized rows are actionable; the unknown payload renders as
+  a degraded card excluded from one-tap accept-all; apply proceeds only
   with explicit user decisions.
+
+#### Scenario: Unknown preview kind strict-rejects
+- **WHEN** the preview carries a `kind` string the client does not know.
+- **THEN** the screen renders the standard error state keyed on the
+  stable code instead of guessing a meaning (no guessed rendering).
 
 #### Scenario: Apply with mixed decisions
 - **WHEN** the user marks one row Create, one Update (existing
@@ -79,6 +81,12 @@ summary (`applied_count`, `created_days`, `planned_scene_shoots`).
 - **THEN** the request carries exactly those mappings; the summary
   card reflects the server's outcome counts; deep navigation to the
   affected episode is offered.
+
+#### Scenario: Apply reconciles after an ambiguous timeout
+- **WHEN** an apply dispatch times out with an unknown outcome.
+- **THEN** the controller re-reads the job/outcome first and reconciles
+  (bounded retry, server-side idempotency per backend issue #338) —
+  never blind re-dispatch, never a duplicate import implied.
 
 #### Scenario: Empty preview
 - **WHEN** a succeeded job's preview returns 404.

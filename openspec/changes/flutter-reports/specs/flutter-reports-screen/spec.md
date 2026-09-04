@@ -10,16 +10,18 @@
 The reports feature SHALL be implemented only against routes the
 generated Dart client carries: the on-screen Soll-Ist report from the
 JSON report routes, and the PDF reports from the three PDF routes
-WITH the day id expressible through the client. Until the backend
-defines the PDF `{id}` parameter (backend issue #334) and exports the
-JSON report routes, the client SHALL NOT ship hand-built URLs,
-retyped report DTOs, or substitute data sources for this surface.
+WITH the day id expressible through the client. Both landed in the
+checked-in contract (backend issues #333/#334, PRs #344/#349) — the
+client dispatches via the generated per-day methods only (no `Dio`
+string interpolation of the route) and consumes the generated report
+DTOs (no retyped DTOs, no substitute data sources).
 
-#### Scenario: PDF contract lands
+#### Scenario: PDF contract landed
 - **WHEN** the spec defines `{id}` on the three PDF routes and the
   client is regenerated.
 - **THEN** the PDF cards dispatch via the generated per-day methods
-  only (no `Dio` string interpolation of the route).
+  only (no `Dio` string interpolation of the route) — the landed
+  state since backend issues #333/#334.
 
 ### Requirement: Soll-Ist On-Screen Report From the Read Model
 The report screen SHALL render the day's Soll-Ist report (planned vs
