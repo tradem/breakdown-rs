@@ -354,7 +354,7 @@ final class BlocksViewControllerProvider
 }
 
 String _$blocksViewControllerHash() =>
-    r'42c96b6d6125782060bba4ed56a0b8177a825380';
+    r'86e37e31b3de040babb7bef903ab38f0eb270472';
 
 /// Read-projection controller.
 ///
@@ -446,6 +446,104 @@ abstract class _$BlocksViewController
   }
 }
 
+/// TTL-based cache staleness for one season's blocks (issue #366).
+///
+/// Backed by [BlockRepository.isCacheStale] (client-only `cachedAt` + the
+/// injectable [clockProvider]); a check failure resolves to `false`
+/// (fail-closed — the error path still banners a failed refetch).
+
+@ProviderFor(blocksCacheStale)
+final blocksCacheStaleProvider = BlocksCacheStaleFamily._();
+
+/// TTL-based cache staleness for one season's blocks (issue #366).
+///
+/// Backed by [BlockRepository.isCacheStale] (client-only `cachedAt` + the
+/// injectable [clockProvider]); a check failure resolves to `false`
+/// (fail-closed — the error path still banners a failed refetch).
+
+final class BlocksCacheStaleProvider
+    extends $FunctionalProvider<AsyncValue<bool>, bool, FutureOr<bool>>
+    with $FutureModifier<bool>, $FutureProvider<bool> {
+  /// TTL-based cache staleness for one season's blocks (issue #366).
+  ///
+  /// Backed by [BlockRepository.isCacheStale] (client-only `cachedAt` + the
+  /// injectable [clockProvider]); a check failure resolves to `false`
+  /// (fail-closed — the error path still banners a failed refetch).
+  BlocksCacheStaleProvider._({
+    required BlocksCacheStaleFamily super.from,
+    required String super.argument,
+  }) : super(
+         retry: null,
+         name: r'blocksCacheStaleProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$blocksCacheStaleHash();
+
+  @override
+  String toString() {
+    return r'blocksCacheStaleProvider'
+        ''
+        '($argument)';
+  }
+
+  @$internal
+  @override
+  $FutureProviderElement<bool> $createElement($ProviderPointer pointer) =>
+      $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<bool> create(Ref ref) {
+    final argument = this.argument as String;
+    return blocksCacheStale(ref, argument);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is BlocksCacheStaleProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$blocksCacheStaleHash() => r'5b80e2adac54013666d8f860550d0f3679a545d1';
+
+/// TTL-based cache staleness for one season's blocks (issue #366).
+///
+/// Backed by [BlockRepository.isCacheStale] (client-only `cachedAt` + the
+/// injectable [clockProvider]); a check failure resolves to `false`
+/// (fail-closed — the error path still banners a failed refetch).
+
+final class BlocksCacheStaleFamily extends $Family
+    with $FunctionalFamilyOverride<FutureOr<bool>, String> {
+  BlocksCacheStaleFamily._()
+    : super(
+        retry: null,
+        name: r'blocksCacheStaleProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// TTL-based cache staleness for one season's blocks (issue #366).
+  ///
+  /// Backed by [BlockRepository.isCacheStale] (client-only `cachedAt` + the
+  /// injectable [clockProvider]); a check failure resolves to `false`
+  /// (fail-closed — the error path still banners a failed refetch).
+
+  BlocksCacheStaleProvider call(String seasonId) =>
+      BlocksCacheStaleProvider._(argument: seasonId, from: this);
+
+  @override
+  String toString() => r'blocksCacheStaleProvider';
+}
+
 /// The projection a screen reads (selector).
 ///
 /// Always exposes a usable value: during loading it serves the seeded
@@ -520,7 +618,7 @@ final class BlocksViewProvider
   }
 }
 
-String _$blocksViewHash() => r'9045a1f26325b4c63a3d50767f75a9cebf65a83f';
+String _$blocksViewHash() => r'19f7965ae48724ff614a8abccd36e28491d64ace';
 
 /// The projection a screen reads (selector).
 ///

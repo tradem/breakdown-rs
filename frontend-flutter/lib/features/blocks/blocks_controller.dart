@@ -141,6 +141,22 @@ class BlocksViewController extends _$BlocksViewController {
   }
 }
 
+/// TTL-based cache staleness for one season's blocks (issue #366).
+///
+/// Backed by [BlockRepository.isCacheStale] (client-only `cachedAt` + the
+/// injectable [clockProvider]); a check failure resolves to `false`
+/// (fail-closed — the error path still banners a failed refetch).
+@riverpod
+Future<bool> blocksCacheStale(Ref ref, String seasonId) async {
+  final repo = ref.watch(blockRepositoryProvider);
+  final clock = ref.watch(clockProvider);
+  try {
+    return await repo.isCacheStale(seasonId, clock: clock);
+  } on Object {
+    return false;
+  }
+}
+
 /// The projection a screen reads (selector).
 ///
 /// Always exposes a usable value: during loading it serves the seeded
@@ -150,6 +166,9 @@ class BlocksViewController extends _$BlocksViewController {
 BlocksView blocksView(Ref ref, String seasonId) {
   final async = ref.watch(blocksViewControllerProvider(seasonId));
   final prev = ref.watch(blocksPrevRowsProvider(seasonId));
+  // TTL-based staleness (issue #366): a fresh cache served while a normal
+  // refetch is in flight is NOT stale. Unknown staleness reads as fresh.
+  final ttlStale = ref.watch(blocksCacheStaleProvider(seasonId)).value ?? false;
   return switch (async) {
     AsyncData(:final value) => value,
     AsyncError(:final error) => BlocksView(
@@ -159,7 +178,10 @@ BlocksView blocksView(Ref ref, String seasonId) {
           ? error
           : const ProblemError(code: 'unknown'),
     ),
-    AsyncLoading() => BlocksView(rows: prev, isStale: prev.isNotEmpty),
+    AsyncLoading() => BlocksView(
+      rows: prev,
+      isStale: prev.isNotEmpty && ttlStale,
+    ),
   };
 }
 

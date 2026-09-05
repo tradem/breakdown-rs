@@ -371,3 +371,56 @@ abstract class _$SeasonsViewController
     return element.handleCreate(ref, build);
   }
 }
+
+/// TTL-based cache staleness for the seasons projection (issue #366).
+///
+/// Backed by [SeasonRepository.isCacheStale] (client-only `cachedAt` + the
+/// injectable [clockProvider]); a staleness-check failure resolves to
+/// `false` (fail-closed: no banner when staleness itself is unknown — the
+/// error path still banners a failed refetch serving retained rows).
+
+@ProviderFor(seasonsCacheStale)
+final seasonsCacheStaleProvider = SeasonsCacheStaleProvider._();
+
+/// TTL-based cache staleness for the seasons projection (issue #366).
+///
+/// Backed by [SeasonRepository.isCacheStale] (client-only `cachedAt` + the
+/// injectable [clockProvider]); a staleness-check failure resolves to
+/// `false` (fail-closed: no banner when staleness itself is unknown — the
+/// error path still banners a failed refetch serving retained rows).
+
+final class SeasonsCacheStaleProvider
+    extends $FunctionalProvider<AsyncValue<bool>, bool, FutureOr<bool>>
+    with $FutureModifier<bool>, $FutureProvider<bool> {
+  /// TTL-based cache staleness for the seasons projection (issue #366).
+  ///
+  /// Backed by [SeasonRepository.isCacheStale] (client-only `cachedAt` + the
+  /// injectable [clockProvider]); a staleness-check failure resolves to
+  /// `false` (fail-closed: no banner when staleness itself is unknown — the
+  /// error path still banners a failed refetch serving retained rows).
+  SeasonsCacheStaleProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'seasonsCacheStaleProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$seasonsCacheStaleHash();
+
+  @$internal
+  @override
+  $FutureProviderElement<bool> $createElement($ProviderPointer pointer) =>
+      $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<bool> create(Ref ref) {
+    return seasonsCacheStale(ref);
+  }
+}
+
+String _$seasonsCacheStaleHash() => r'54e042c33fe8fc3b44989886979db51a88364a34';
