@@ -304,24 +304,39 @@ final class OidcClientProvider
 
 String _$oidcClientHash() => r'70adf11ca37b12e1f2bd1b7ae38a4998453376d8';
 
-/// The platform browser/deep-link leg of the authorization flow. Overridden
-/// at the composition root once the native Custom-Tabs wiring lands; tests
-/// inject fakes.
+/// The platform browser/deep-link leg of the authorization flow.
+///
+/// Resolves to [PlatformAuthorizationUi] (Custom Tabs + `app_links`
+/// redirect capture, spec `flutter-auth-shell`) whenever the build carries
+/// a routable `OIDC_REDIRECT_URI`; otherwise the fail-closed
+/// [NotConfiguredAuthorizationUi] — without a redirect the platform leg
+/// could never return, so no authorization request may start. Tests inject
+/// fakes via overrides.
 
 @ProviderFor(authorizationUi)
 final authorizationUiProvider = AuthorizationUiProvider._();
 
-/// The platform browser/deep-link leg of the authorization flow. Overridden
-/// at the composition root once the native Custom-Tabs wiring lands; tests
-/// inject fakes.
+/// The platform browser/deep-link leg of the authorization flow.
+///
+/// Resolves to [PlatformAuthorizationUi] (Custom Tabs + `app_links`
+/// redirect capture, spec `flutter-auth-shell`) whenever the build carries
+/// a routable `OIDC_REDIRECT_URI`; otherwise the fail-closed
+/// [NotConfiguredAuthorizationUi] — without a redirect the platform leg
+/// could never return, so no authorization request may start. Tests inject
+/// fakes via overrides.
 
 final class AuthorizationUiProvider
     extends
         $FunctionalProvider<AuthorizationUi, AuthorizationUi, AuthorizationUi>
     with $Provider<AuthorizationUi> {
-  /// The platform browser/deep-link leg of the authorization flow. Overridden
-  /// at the composition root once the native Custom-Tabs wiring lands; tests
-  /// inject fakes.
+  /// The platform browser/deep-link leg of the authorization flow.
+  ///
+  /// Resolves to [PlatformAuthorizationUi] (Custom Tabs + `app_links`
+  /// redirect capture, spec `flutter-auth-shell`) whenever the build carries
+  /// a routable `OIDC_REDIRECT_URI`; otherwise the fail-closed
+  /// [NotConfiguredAuthorizationUi] — without a redirect the platform leg
+  /// could never return, so no authorization request may start. Tests inject
+  /// fakes via overrides.
   AuthorizationUiProvider._()
     : super(
         from: null,
@@ -355,41 +370,13 @@ final class AuthorizationUiProvider
   }
 }
 
-String _$authorizationUiHash() => r'acfcaf4e4cd55f317b1593ab7b6adb85163a5d6b';
-
-/// The current auth session.
-///
-/// - Dev-auth mode (`DEV_AUTH_SUB`, no `OIDC_ISS` — backend ADR-018 D6
-///   parity, Task 5.1): a permissive [AuthSession] with `DEV_AUTH_SUB` as
-///   subject, no network, no tokens. Structurally unreachable in `prod`
-///   (`AppConfig.devAuthMode` requires the dev flavor) and the composition
-///   root aborts startup if prod ever carries the flag.
-/// - Otherwise: the session is restored from secure storage; `null` means
-///   signed out. Use [signIn]/[signOut] to mutate.
+String _$authorizationUiHash() => r'3cd40fcb27a1f5629fe03ce7e9592f9b9a617216';
 
 @ProviderFor(AuthSessionController)
 final authSessionControllerProvider = AuthSessionControllerProvider._();
 
-/// The current auth session.
-///
-/// - Dev-auth mode (`DEV_AUTH_SUB`, no `OIDC_ISS` — backend ADR-018 D6
-///   parity, Task 5.1): a permissive [AuthSession] with `DEV_AUTH_SUB` as
-///   subject, no network, no tokens. Structurally unreachable in `prod`
-///   (`AppConfig.devAuthMode` requires the dev flavor) and the composition
-///   root aborts startup if prod ever carries the flag.
-/// - Otherwise: the session is restored from secure storage; `null` means
-///   signed out. Use [signIn]/[signOut] to mutate.
 final class AuthSessionControllerProvider
     extends $AsyncNotifierProvider<AuthSessionController, AuthSession?> {
-  /// The current auth session.
-  ///
-  /// - Dev-auth mode (`DEV_AUTH_SUB`, no `OIDC_ISS` — backend ADR-018 D6
-  ///   parity, Task 5.1): a permissive [AuthSession] with `DEV_AUTH_SUB` as
-  ///   subject, no network, no tokens. Structurally unreachable in `prod`
-  ///   (`AppConfig.devAuthMode` requires the dev flavor) and the composition
-  ///   root aborts startup if prod ever carries the flag.
-  /// - Otherwise: the session is restored from secure storage; `null` means
-  ///   signed out. Use [signIn]/[signOut] to mutate.
   AuthSessionControllerProvider._()
     : super(
         from: null,
@@ -410,17 +397,7 @@ final class AuthSessionControllerProvider
 }
 
 String _$authSessionControllerHash() =>
-    r'66d7dc7175ba8681a1a8398b7c201ad7f628f035';
-
-/// The current auth session.
-///
-/// - Dev-auth mode (`DEV_AUTH_SUB`, no `OIDC_ISS` — backend ADR-018 D6
-///   parity, Task 5.1): a permissive [AuthSession] with `DEV_AUTH_SUB` as
-///   subject, no network, no tokens. Structurally unreachable in `prod`
-///   (`AppConfig.devAuthMode` requires the dev flavor) and the composition
-///   root aborts startup if prod ever carries the flag.
-/// - Otherwise: the session is restored from secure storage; `null` means
-///   signed out. Use [signIn]/[signOut] to mutate.
+    r'46c422b68ddfc2469fa5e36108a405c9ba5c95fb';
 
 abstract class _$AuthSessionController extends $AsyncNotifier<AuthSession?> {
   FutureOr<AuthSession?> build();
