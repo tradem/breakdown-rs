@@ -5,6 +5,7 @@
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 
+import 'hierarchy_cache.dart';
 import 'season_cache.dart';
 
 part 'cache_database.g.dart';
@@ -15,7 +16,15 @@ part 'cache_database.g.dart';
 /// Tables mirror projection DTOs only. In production this is opened against a
 /// file via [CacheDatabase.connect]; tests open an in-memory instance with the
 /// default constructor.
-@DriftDatabase(tables: [SeasonCacheRows])
+@DriftDatabase(
+  tables: [
+    SeasonCacheRows,
+    BlockCacheRows,
+    EpisodeCacheRows,
+    SceneCacheRows,
+    CostumeCategoryCacheRows,
+  ],
+)
 class CacheDatabase extends _$CacheDatabase {
   /// Opens an in-memory database by default (used by tests). Production code
   /// passes a file-backed [QueryExecutor] via [CacheDatabase.connect].
@@ -27,18 +36,29 @@ class CacheDatabase extends _$CacheDatabase {
   CacheDatabase.connect(super.executor);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
+    onCreate: (m) async {
+      await m.createAll();
+    },
     onUpgrade: (m, from, to) async {
       // Additive migrations for DTO-shape changes land here, in the same PR
       // as the projection DTO change (AGENTS.md §8 / Task 5.1). Each added
       // column uses `m.addColumn(...)` so the cache never silently drops a
       // field. No destructive (drop/rename) migrations are permitted; the
       // backend is authoritative for existence (D3: snapshot-replace).
-      // (No migrations yet — schemaVersion is 1.)
       assert(from <= to, 'cache schema downgrade is unsupported');
+      if (from < 2) {
+        // `flutter-hierarchy-navigation` 2.1: hierarchy projection tables
+        // (blocks, episodes, scenes, costume_categories mirroring the read
+        // DTOs). Fresh tables for existing installs — no data to migrate.
+        await m.createTable(blockCacheRows);
+        await m.createTable(episodeCacheRows);
+        await m.createTable(sceneCacheRows);
+        await m.createTable(costumeCategoryCacheRows);
+      }
     },
   );
 }
