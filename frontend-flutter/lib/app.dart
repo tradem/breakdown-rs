@@ -4,11 +4,13 @@
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: glm-5.3-flash (opencode-go)
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show kReleaseMode, visibleForTesting;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app_config.dart';
@@ -206,6 +208,15 @@ Future<void> bootstrap(Flavor flavor) async {
     return;
   }
 
+  // The native deep-link registration was derived from oidc-config.json
+  // at Gradle time; prove the compiled dart-define agrees before any
+  // client exists — a drifted define would hang the sign-in on device.
+  final redirectError = await checkRedirectConsistency(config);
+  if (redirectError != null) {
+    runApp(FatalConfigErrorApp(error: redirectError));
+    return;
+  }
+
   Object? tlsError;
   Dio? apiDio;
   Dio? idpDio;
@@ -280,6 +291,61 @@ Future<AppConfig> applyApiBaseOverride(AppConfig config) async {
     override,
     isDev: true,
   ).match((_) => config, (base) => config.copyWith(apiBase: base));
+}
+
+/// Proves the compiled `OIDC_REDIRECT_URI` dart-define matches the bundled
+/// `oidc-config.json` that Gradle used for the native deep-link
+/// registration (task 3.3 follow-up: an explicit `--dart-define` bypasses
+/// both the file and the environment, which neither side can otherwise see).
+/// Fail-closed: any mismatch aborts startup with an actionable message
+/// instead of hanging the sign-in on device. Skipped in dev-auth mode (no
+/// OIDC) and when no redirect is configured at all (already rejected by
+/// [validateStartupConfig] unless dev-auth applies). Exposed for tests.
+@visibleForTesting
+Future<String?> checkRedirectConsistency(
+  AppConfig config, {
+  // Asset-loading seam: production reads the bundled file; tests inject
+  // canned JSON (unit-test bundles do not carry app assets).
+  Future<String> Function(String key)? loadAsset,
+}) async {
+  if (config.devAuthMode || config.oidcRedirectUri.isEmpty) return null;
+  String? fileUri;
+  try {
+    final load = loadAsset ?? rootBundle.loadString;
+    final decoded = jsonDecode(await load('oidc-config.json'));
+    if (decoded is Map<String, dynamic>) {
+      final value = decoded['OIDC_REDIRECT_URI'];
+      if (value is String) fileUri = value;
+    }
+  } catch (_) {
+    return 'OIDC redirect configuration unreadable: '
+        'oidc-config.json missing from the bundle';
+  }
+  return redirectMismatchError(
+    fileUri: fileUri,
+    defineUri: config.oidcRedirectUri,
+  );
+}
+
+/// Pure comparison behind [checkRedirectConsistency] (Tier-1 testable):
+/// returns an error description on mismatch, `null` when file and define
+/// agree.
+@visibleForTesting
+String? redirectMismatchError({
+  required String? fileUri,
+  required String defineUri,
+}) {
+  if (fileUri == null || fileUri.isEmpty) {
+    return 'OIDC redirect configuration unreadable: '
+        'oidc-config.json carries no OIDC_REDIRECT_URI';
+  }
+  if (fileUri != defineUri) {
+    return 'OIDC_REDIRECT_URI dart-define ($defineUri) does not match '
+        'oidc-config.json ($fileUri) used for the native deep-link '
+        'registration. Set the URI in oidc-config.json and pass it via '
+        '--dart-define-from-file instead of --dart-define.';
+  }
+  return null;
 }
 
 /// Returns a human-readable reason when the build configuration violates a

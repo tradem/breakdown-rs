@@ -117,4 +117,109 @@ void main() {
       expect(platform.store.containsKey(ApiBaseOverrideStore.key), isFalse);
     });
   });
+
+  group('checkRedirectConsistency (review: Dart-side drift enforcement)', () {
+    test('dev-auth skips the check (no OIDC)', () async {
+      expect(await checkRedirectConsistency(_devBase), isNull);
+    });
+
+    test('empty redirect skips (rejected elsewhere unless dev-auth)', () async {
+      const noRedirect = AppConfig(
+        flavor: Flavor.dev,
+        apiBase: 'http://10.0.2.2:3000',
+        oidcIss: 'https://idp.example',
+        devAuthSub: '',
+        oidcAudience: '',
+        oidcClientId: 'client',
+        oidcRedirectUri: '',
+        devIdpInsecure: '',
+        appVersion: '1.0.0+1',
+        defaultSeriesId: '',
+      );
+      expect(await checkRedirectConsistency(noRedirect), isNull);
+    });
+
+    test('define matching the bundled file passes', () async {
+      const matching = AppConfig(
+        flavor: Flavor.dev,
+        apiBase: 'http://10.0.2.2:3000',
+        oidcIss: 'https://idp.example',
+        devAuthSub: '',
+        oidcAudience: '',
+        oidcClientId: 'client',
+        oidcRedirectUri: 'breakdown://auth/callback',
+        devIdpInsecure: '',
+        appVersion: '1.0.0+1',
+        defaultSeriesId: '',
+      );
+      expect(
+        await checkRedirectConsistency(
+          matching,
+          loadAsset: (_) async =>
+              '{"OIDC_REDIRECT_URI": "breakdown://auth/callback"}',
+        ),
+        isNull,
+      );
+    });
+
+    test('drifted define fails closed with both values', () async {
+      const drifted = AppConfig(
+        flavor: Flavor.dev,
+        apiBase: 'http://10.0.2.2:3000',
+        oidcIss: 'https://idp.example',
+        devAuthSub: '',
+        oidcAudience: '',
+        oidcClientId: 'client',
+        oidcRedirectUri: 'myapp://auth/callback',
+        devIdpInsecure: '',
+        appVersion: '1.0.0+1',
+        defaultSeriesId: '',
+      );
+      final error = await checkRedirectConsistency(
+        drifted,
+        loadAsset: (_) async =>
+            '{"OIDC_REDIRECT_URI": "breakdown://auth/callback"}',
+      );
+      expect(error, isNotNull);
+      expect(error, contains('myapp://auth/callback'));
+      expect(error, contains('breakdown://auth/callback'));
+      expect(error, contains('--dart-define-from-file'));
+    });
+    test('unreadable bundle fails closed', () async {
+      const matching = AppConfig(
+        flavor: Flavor.dev,
+        apiBase: 'http://10.0.2.2:3000',
+        oidcIss: 'https://idp.example',
+        devAuthSub: '',
+        oidcAudience: '',
+        oidcClientId: 'client',
+        oidcRedirectUri: 'breakdown://auth/callback',
+        devIdpInsecure: '',
+        appVersion: '1.0.0+1',
+        defaultSeriesId: '',
+      );
+      final error = await checkRedirectConsistency(
+        matching,
+        loadAsset: (_) => throw StateError('no bundle'),
+      );
+      expect(error, contains('missing from the bundle'));
+    });
+  });
+
+  group('redirectMismatchError (pure)', () {
+    test('missing file value errors', () {
+      expect(redirectMismatchError(fileUri: null, defineUri: 'x'), isNotNull);
+      expect(redirectMismatchError(fileUri: '', defineUri: 'x'), isNotNull);
+    });
+
+    test('equal values pass', () {
+      expect(
+        redirectMismatchError(
+          fileUri: 'breakdown://auth/callback',
+          defineUri: 'breakdown://auth/callback',
+        ),
+        isNull,
+      );
+    });
+  });
 }

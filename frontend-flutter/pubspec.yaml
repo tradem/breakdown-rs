@@ -136,6 +136,10 @@ flutter:
   assets:
     - assets/certs/dev/ca.pem
     - assets/certs/prod/ca.pem
+    # Single source for the OIDC redirect URI (task 3.3): bundled so
+    # `bootstrap()` can prove the dart-define matches the value Gradle
+    # used for the native deep-link registration (fail-closed on drift).
+    - oidc-config.json
 
   # To add assets to your application, add an assets section, like this:
   # assets:
