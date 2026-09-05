@@ -3,6 +3,7 @@
 // Co-authored-by: longcat-2.0 (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
+import 'package:built_collection/built_collection.dart';
 import 'package:dio/dio.dart';
 import 'package:fpdart/fpdart.dart';
 
@@ -28,11 +29,41 @@ abstract class BaseRepository {
   final BreakdownApi api;
 
   /// Runs a generated client call, returning its decoded body on success or a
-  /// [ProblemError] on failure. Never throws.
-  Future<Result<T>> run<T>(Future<Response<T>> Function() call) async {
+  /// [ProblemError] on failure. Never throws. A `null` body (the generated
+  /// client surfaces an empty payload as `null`) maps to [dtoInvalidCode]
+  /// so a single-object fetch cannot throw a cast error out of the awaited
+  /// call (AGENTS.md §5: no throw in `data/`).
+  Future<Result<T>> run<T>(
+    Future<Response<T>> Function() call, {
+    String dtoInvalidCode = 'dto.invalid',
+  }) async {
     try {
       final response = await call();
-      return Right(response.data as T);
+      final data = response.data;
+      if (data == null) {
+        return Left(ProblemError(code: dtoInvalidCode));
+      }
+      return Right(data);
+    } on DioException catch (e) {
+      return Left(problemErrorFromDio(e));
+    }
+  }
+
+  /// Runs a generated list call, returning its decoded rows on success or a
+  /// [ProblemError] on failure. Never throws. A `null` body (the generated
+  /// client surfaces an empty payload as `null`) maps to [dtoInvalidCode]
+  /// so list fetches cannot throw a cast error out of [run].
+  Future<Result<List<T>>> runList<T>(
+    Future<Response<BuiltList<T>>> Function() call, {
+    String dtoInvalidCode = 'dto.invalid',
+  }) async {
+    try {
+      final response = await call();
+      final data = response.data;
+      if (data == null) {
+        return Left(ProblemError(code: dtoInvalidCode));
+      }
+      return Right(data.toList());
     } on DioException catch (e) {
       return Left(problemErrorFromDio(e));
     }

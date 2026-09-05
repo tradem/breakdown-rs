@@ -8,62 +8,6 @@ part of 'seasons_controller.dart';
 
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // ignore_for_file: type=lint, type=warning
-/// The reconciliation backoff seam (overridden with a controllable fake in
-/// tests).
-
-@ProviderFor(reconciliationScheduler)
-final reconciliationSchedulerProvider = ReconciliationSchedulerProvider._();
-
-/// The reconciliation backoff seam (overridden with a controllable fake in
-/// tests).
-
-final class ReconciliationSchedulerProvider
-    extends
-        $FunctionalProvider<
-          ReconciliationScheduler,
-          ReconciliationScheduler,
-          ReconciliationScheduler
-        >
-    with $Provider<ReconciliationScheduler> {
-  /// The reconciliation backoff seam (overridden with a controllable fake in
-  /// tests).
-  ReconciliationSchedulerProvider._()
-    : super(
-        from: null,
-        argument: null,
-        retry: null,
-        name: r'reconciliationSchedulerProvider',
-        isAutoDispose: true,
-        dependencies: null,
-        $allTransitiveDependencies: null,
-      );
-
-  @override
-  String debugGetCreateSourceHash() => _$reconciliationSchedulerHash();
-
-  @$internal
-  @override
-  $ProviderElement<ReconciliationScheduler> $createElement(
-    $ProviderPointer pointer,
-  ) => $ProviderElement(pointer);
-
-  @override
-  ReconciliationScheduler create(Ref ref) {
-    return reconciliationScheduler(ref);
-  }
-
-  /// {@macro riverpod.override_with_value}
-  Override overrideWithValue(ReconciliationScheduler value) {
-    return $ProviderOverride(
-      origin: this,
-      providerOverride: $SyncValueProvider<ReconciliationScheduler>(value),
-    );
-  }
-}
-
-String _$reconciliationSchedulerHash() =>
-    r'0f4a742ba7b53da9a2ecf4ecf5c28ef57acd38da';
-
 /// The first screen's controller — the reference pattern for every
 /// subsequent screen (AGENTS.md §9).
 ///
@@ -133,7 +77,7 @@ final class SeasonsControllerProvider
   }
 }
 
-String _$seasonsControllerHash() => r'e3f2d25417617900306365e335480ed8ccbb0545';
+String _$seasonsControllerHash() => r'36e06f092846dce99bf35cfd64f47c07a3c287e1';
 
 /// The first screen's controller — the reference pattern for every
 /// subsequent screen (AGENTS.md §9).

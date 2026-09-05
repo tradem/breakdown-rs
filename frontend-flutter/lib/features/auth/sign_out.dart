@@ -13,6 +13,11 @@ import '../../data/cache/cache_generation.dart';
 import '../../data/cache/seasons_cache_providers.dart';
 import '../../data/settings/api_base_override_store.dart';
 import '../../data/settings/api_base_validation.dart';
+import '../../auth/season_membership_provider.dart';
+import '../blocks/blocks_controller.dart';
+import '../costume_categories/costume_categories_controller.dart';
+import '../episodes/episodes_controller.dart';
+import '../scenes/scenes_controller.dart';
 import '../seasons/seasons_controller.dart';
 import 'login_screen.dart';
 
@@ -119,7 +124,9 @@ class SessionReset extends Notifier<void> {
 
   /// Resets keepAlive UI/session state after sign-out (identity change:
   /// nothing from the previous session may survive — including the
-  /// retained snapshot rows).
+  /// retained snapshot rows). The hierarchy families
+  /// (`flutter-hierarchy-navigation`) reset alongside the seasons scope so
+  /// no cross-identity rows, overlays, or membership reads survive.
   void _invalidateSessionScope() {
     ref
       ..invalidate(seasonOverlaysProvider)
@@ -128,7 +135,33 @@ class SessionReset extends Notifier<void> {
       ..invalidate(seasonsControllerProvider)
       ..invalidate(signInErrorProvider)
       ..invalidate(membershipFetchProvider)
-      ..invalidate(currentMembershipProvider);
+      ..invalidate(currentMembershipProvider)
+      ..invalidate(seasonMembershipCacheProvider)
+      ..invalidate(blocksControllerProvider)
+      ..invalidate(blocksViewControllerProvider)
+      ..invalidate(blocksListFetchProvider)
+      ..invalidate(blocksPrevRowsProvider)
+      ..invalidate(blocksOverlaysProvider)
+      ..invalidate(blocksCommandErrorProvider)
+      ..invalidate(episodesControllerProvider)
+      ..invalidate(episodesViewControllerProvider)
+      ..invalidate(episodesListFetchProvider)
+      ..invalidate(episodesPrevRowsProvider)
+      ..invalidate(episodesOverlaysProvider)
+      ..invalidate(episodesCommandErrorProvider)
+      ..invalidate(scenesControllerProvider)
+      ..invalidate(scenesViewControllerProvider)
+      ..invalidate(scenesListFetchProvider)
+      ..invalidate(scenesPrevRowsProvider)
+      ..invalidate(scenesOverlaysProvider)
+      ..invalidate(scenesCommandErrorProvider)
+      ..invalidate(costumeCategoriesControllerProvider)
+      ..invalidate(costumeCategoriesViewControllerProvider)
+      ..invalidate(costumeCategoriesListFetchProvider)
+      ..invalidate(costumeCategoriesPrevRowsProvider)
+      ..invalidate(costumeCategoriesOverlaysProvider)
+      ..invalidate(costumeCategoriesCommandErrorProvider)
+      ..invalidate(costumeCategoriesShowArchivedProvider);
   }
 
   /// Resets read state after a backend switch (session kept): like

@@ -53,35 +53,20 @@ final class ClockProvider extends $FunctionalProvider<Clock, Clock, Clock>
 
 String _$clockHash() => r'4dd5d715e870200c4891084601c954bf4bc8b51a';
 
-/// Generated API client.
-///
-/// NOTE: production must inject the pinned-CA Dio from
-/// `lib/src/network/api_client.dart` here (deferred to the wiring/auth change).
-/// For now a default `BreakdownApi()` is sufficient — the list fetch is
-/// overridden in tests and the single-entity path is exercised by later
-/// changes.
+/// Generated API client over the rebuildable pinned Dio (task 6.3 —
+/// follows runtime base-URL switches; same pinned `SecurityContext`).
 
 @ProviderFor(apiClient)
 final apiClientProvider = ApiClientProvider._();
 
-/// Generated API client.
-///
-/// NOTE: production must inject the pinned-CA Dio from
-/// `lib/src/network/api_client.dart` here (deferred to the wiring/auth change).
-/// For now a default `BreakdownApi()` is sufficient — the list fetch is
-/// overridden in tests and the single-entity path is exercised by later
-/// changes.
+/// Generated API client over the rebuildable pinned Dio (task 6.3 —
+/// follows runtime base-URL switches; same pinned `SecurityContext`).
 
 final class ApiClientProvider
     extends $FunctionalProvider<BreakdownApi, BreakdownApi, BreakdownApi>
     with $Provider<BreakdownApi> {
-  /// Generated API client.
-  ///
-  /// NOTE: production must inject the pinned-CA Dio from
-  /// `lib/src/network/api_client.dart` here (deferred to the wiring/auth change).
-  /// For now a default `BreakdownApi()` is sufficient — the list fetch is
-  /// overridden in tests and the single-entity path is exercised by later
-  /// changes.
+  /// Generated API client over the rebuildable pinned Dio (task 6.3 —
+  /// follows runtime base-URL switches; same pinned `SecurityContext`).
   ApiClientProvider._()
     : super(
         from: null,
@@ -115,7 +100,7 @@ final class ApiClientProvider
   }
 }
 
-String _$apiClientHash() => r'bff3ea636e849e86a1de2c4f153e80d10e9e2ad2';
+String _$apiClientHash() => r'015c019bab23df442be6b0161b331fcba9a7ebf0';
 
 /// The read-projection cache database.
 ///
@@ -288,7 +273,7 @@ final class SeasonsListFetchProvider
   }
 }
 
-String _$seasonsListFetchHash() => r'265d74d5e3ba241e00c48bf8e423b43f9c9ba0cf';
+String _$seasonsListFetchHash() => r'f3fd1c3dfda29cb0092af5ef2e415cfbe915f553';
 
 /// Read-projection controller (Design Decisions D1–D4).
 ///
@@ -354,7 +339,7 @@ final class SeasonsViewControllerProvider
 }
 
 String _$seasonsViewControllerHash() =>
-    r'de8cbc7a49fd4a1d561aa2933cd1212c65a6b404';
+    r'42ae3fe3666c780bba17ce97db061e04f550a916';
 
 /// Read-projection controller (Design Decisions D1–D4).
 ///

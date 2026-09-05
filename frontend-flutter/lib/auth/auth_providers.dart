@@ -136,7 +136,6 @@ class AuthSession {
 ///   carries the flag.
 /// - Otherwise: the session is restored from secure storage; `null` means
 ///   signed out. Use [signIn]/[signOut] to mutate.
-@Riverpod(keepAlive: true)
 /// FIFO async mutex (no dependency): serializes session-state transitions
 /// so a stale restore build can never overwrite a newer mutation (review
 /// finding: a retry scheduled from a failed restore could otherwise complete
@@ -163,6 +162,7 @@ class _AsyncMutex {
   }
 }
 
+@Riverpod(keepAlive: true)
 class AuthSessionController extends _$AuthSessionController {
   /// Guards every state transition ([build], [signIn], [signOut],
   /// [failSession]): restore builds and user actions never interleave, so

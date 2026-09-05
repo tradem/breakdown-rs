@@ -13,80 +13,25 @@ import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
 import '../../core/result.dart';
 import '../../data/cache/seasons_cache_providers.dart';
+import '../../domain/reconciliation/reconciliation.dart';
 import 'seasons_state.dart';
 
+/// Compatibility re-exports: the scheduler, budget, warning and overlay
+/// bookkeeping used to live in this file. They moved verbatim-in-behavior
+/// to `lib/domain/reconciliation/` (`flutter-hierarchy-navigation` D2);
+/// existing imports keep resolving through here.
+export '../../domain/reconciliation/reconciliation.dart';
+
 part 'seasons_controller.g.dart';
-
-/// Bounded-retry budget for the projector-lag reconciliation
-/// (`flutter-first-screen` D2/D3). The first attempt runs immediately;
-/// later attempts wait on [ReconciliationScheduler].
-const int kMaxReconcileAttempts = 4;
-
-/// Non-fatal warning retained with a stale overlay after retry exhaustion
-/// (D3). Client-side copy — the screen never shows server `detail` text.
-const String kReconcileStaleWarning =
-    'Created — the list is still catching up. Pull to refresh.';
-
-/// Injectable backoff seam so reconciliation tests are deterministic
-/// (AGENTS.md §6: never gate a test on wall-clock / real `Future.delayed`).
-abstract class ReconciliationScheduler {
-  const ReconciliationScheduler();
-
-  /// Waits before reconciliation attempt [attempt] (0-based, so the first
-  /// pass through [_runReconcile] never sleeps).
-  Future<void> tick(int attempt);
-}
-
-/// Production scheduler: capped exponential backoff (500ms → 4s).
-class ExponentialBackoffScheduler extends ReconciliationScheduler {
-  const ExponentialBackoffScheduler();
-
-  @override
-  Future<void> tick(int attempt) =>
-      Future<void>.delayed(const Duration(milliseconds: 500) * (1 << attempt));
-}
-
-/// The reconciliation backoff seam (overridden with a controllable fake in
-/// tests).
-@riverpod
-ReconciliationScheduler reconciliationScheduler(Ref ref) =>
-    const ExponentialBackoffScheduler();
 
 /// Ephemeral optimistic overlay store (D2: controller state, NOT Drift).
 ///
 /// Kept in its own [Notifier] so the overlay survives projection rebuilds
 /// (`SeasonsController.build()` re-runs whenever the projection changes;
 /// inlining the list there would wipe it).
-class SeasonOverlays extends Notifier<List<SeasonOverlay>> {
+class SeasonOverlays extends OverlayStore<SeasonOverlay> {
   @override
   List<SeasonOverlay> build() => const [];
-
-  /// Replaces any overlay with the same `id` (a re-acked create).
-  void add(SeasonOverlay overlay) =>
-      state = [...state.where((o) => o.id != overlay.id), overlay];
-
-  /// Every overlay still awaiting projection confirmation moves to
-  /// `reconciling` (acknowledged *and* previously-stale rows get another
-  /// bounded pass on pull-to-refresh).
-  void markAllReconciling() => state = [
-    for (final o in state) o.copyWith(status: OverlayStatus.reconciling),
-  ];
-
-  /// Drops overlays whose id is now carried by a projected row — a clean
-  /// replace-by-id (D2). A fresh reconciliation success removes the entry;
-  /// it is never marked `stale` on success.
-  void dropProjected(List<SeasonView> projected) {
-    final projectedIds = {for (final s in projected) s.id};
-    if (projectedIds.isEmpty) return;
-    state = state.where((o) => !projectedIds.contains(o.id)).toList();
-  }
-
-  /// Bounded-retry exhaustion: retain the overlays, marked `stale` with the
-  /// non-fatal warning (D3 — never silently discarded).
-  void markAllStale(String warning) => state = [
-    for (final o in state)
-      o.copyWith(status: OverlayStatus.stale, warning: warning),
-  ];
 }
 
 final seasonOverlaysProvider =
@@ -120,16 +65,27 @@ final seasonCommandErrorProvider =
 /// `POST /v1/seasons`.
 @Riverpod(keepAlive: true)
 class SeasonsController extends _$SeasonsController {
-  /// Single-flight guard so concurrent create/refresh calls join one
-  /// bounded reconciliation pass instead of storming the projection.
-  Future<void>? _reconcileInFlight;
+  /// Shared single-flight + ack-generation reconcile runner (D2). Created
+  /// lazily — the closures capture [ref], which is only available after
+  /// the notifier is mounted.
+  ReconciliationCoordinator? _coordinator;
 
-  /// Acknowledgement generation counter: bumped on every optimistic overlay
-  /// insert. A reconciliation pass captures the value it started at and, on
-  /// completion, runs a dedicated follow-up if a later acknowledgement
-  /// arrived mid-pass (so that overlay still gets a post-ack projection
-  /// fetch). See [reconcile].
-  int _ackGeneration = 0;
+  ReconciliationCoordinator get _reconcile =>
+      _coordinator ??= ReconciliationCoordinator(
+        refetchProjectedIds: () async {
+          final rows = await _refetchProjection();
+          return rows?.map((s) => s.id).toList();
+        },
+        hasOverlays: () => ref.read(seasonOverlaysProvider).isNotEmpty,
+        markAllReconciling: () =>
+            ref.read(seasonOverlaysProvider.notifier).markAllReconciling(),
+        dropProjectedIds: (ids) =>
+            ref.read(seasonOverlaysProvider.notifier).dropProjectedIds(ids),
+        markAllStale: (warning) =>
+            ref.read(seasonOverlaysProvider.notifier).markAllStale(warning),
+        scheduler: () => ref.read(reconciliationSchedulerProvider),
+        isAlive: () => ref.mounted,
+      );
 
   @override
   SeasonsScreenState build() {
@@ -223,7 +179,7 @@ class SeasonsController extends _$SeasonsController {
         // A late acknowledgement during an in-flight reconcile must trigger
         // a dedicated follow-up pass (see [reconcile]); bump the generation
         // before kicking off reconciliation.
-        _ackGeneration++;
+        _reconcile.ackReceived();
         // Fire-and-forget is intentional: the UI must not block on
         // projector lag (Riverpod async state surfaces progress instead).
         unawaited(reconcile());
@@ -242,63 +198,17 @@ class SeasonsController extends _$SeasonsController {
     }
   }
 
-  /// Bounded-retry reconciliation pass (D2): refetch the seasons projection
-  /// up to [kMaxReconcileAttempts] times, dropping overlays whose id the
-  /// projection now carries. On exhaustion the overlays are retained and
-  /// marked `stale` — Drift still contains no unprojected row.
+  /// Bounded-retry reconciliation pass (D2, shared runner): refetch the
+  /// seasons projection up to [kMaxReconcileAttempts] times, dropping
+  /// overlays whose id the projection now carries. On exhaustion the
+  /// overlays are retained and marked `stale` — Drift still contains no
+  /// unprojected row.
   ///
-  /// Also used by pull-to-refresh (task 4.3): a stale overlay gets a fresh
-  /// bounded pass. Single-flight: concurrent callers join the in-flight
-  /// pass.
-  ///
-  /// A second `create` can acknowledge while a pass is in flight; that call
-  /// joins the existing pass via single-flight, so its overlay would share
-  /// the in-flight pass's attempt budget and could be marked `stale` without
-  /// a fetch that started after its acknowledgement. To avoid that, each pass
-  /// records the acknowledgement generation it started at ([_ackGeneration]);
-  /// on completion, if a later acknowledgement arrived and overlays remain, a
-  /// dedicated follow-up pass runs so every overlay gets a post-ack fetch.
-  Future<void> reconcile() =>
-      _reconcileInFlight ??= _runReconcileWithFollowUp();
-
-  /// Runs one bounded retry pass and, if a later acknowledgement arrived
-  /// while it was in flight, chains a dedicated follow-up pass (see
-  /// [reconcile]). The follow-up is returned from the `.then` callback so the
-  /// single-flight future the caller awaits includes it; the guard is cleared
-  /// in an arrow `whenComplete` to keep the result handled (breakdown_lints
-  /// `discard_result`).
-  Future<void> _runReconcileWithFollowUp() {
-    final generationAtStart = _ackGeneration;
-    return _runReconcile().whenComplete(() => _reconcileInFlight = null).then((
-      _,
-    ) {
-      if (generationAtStart != _ackGeneration &&
-          ref.read(seasonOverlaysProvider).isNotEmpty) {
-        return reconcile();
-      }
-    });
-  }
-
-  Future<void> _runReconcile() async {
-    final overlays = ref.read(seasonOverlaysProvider.notifier);
-    if (ref.read(seasonOverlaysProvider).isEmpty) {
-      // No optimistic rows in flight: a plain projection refresh.
-      await _refetchProjection();
-      return;
-    }
-    overlays.markAllReconciling();
-    for (var attempt = 0; attempt < kMaxReconcileAttempts; attempt++) {
-      if (attempt > 0) {
-        await ref.read(reconciliationSchedulerProvider).tick(attempt);
-      }
-      final rows = await _refetchProjection();
-      if (rows != null) {
-        overlays.dropProjected(rows);
-      }
-      if (ref.read(seasonOverlaysProvider).isEmpty) return;
-    }
-    overlays.markAllStale(kReconcileStaleWarning);
-  }
+  /// Also used by pull-to-refresh: a stale overlay gets a fresh bounded
+  /// pass. Single-flight: concurrent callers join the in-flight pass; a
+  /// late acknowledgement mid-pass gets a dedicated follow-up pass (see
+  /// [ReconciliationCoordinator]).
+  Future<void> reconcile() => _reconcile.reconcile();
 
   /// Pull-to-refresh (task 4.3): clears a stale command error and runs a
   /// fresh bounded reconciliation pass.

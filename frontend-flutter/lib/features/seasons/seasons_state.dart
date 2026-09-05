@@ -6,24 +6,16 @@ import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/problem_error.dart';
+import '../../domain/reconciliation/overlay_store.dart';
 
-/// Reconciliation status of an optimistic overlay row (spec
-/// `flutter-first-screen`, Design Decision D2).
-///
-/// * [acknowledged] — `POST /v1/seasons` returned 2xx; the row is shown
-///   immediately, before the projection catches up.
-/// * [reconciling]  — the bounded-retry projection refetch is in flight.
-/// * [stale]        — the refetch exhausted its retries; the overlay is
-///   retained with a non-fatal [SeasonOverlay.warning] and pull-to-refresh
-///   is offered (never discarded silently, D3).
-enum OverlayStatus { acknowledged, reconciling, stale }
+export '../../domain/reconciliation/overlay_store.dart' show OverlayStatus;
 
 /// The controller-state optimistic overlay entry (spec `OverlayEntry`;
 /// renamed to avoid the collision with Flutter's `OverlayEntry`). It is
 /// ephemeral UI state keyed by the server-assigned `id` from
 /// `IdVersionResponse` — never written to Drift (D2: Drift holds only
 /// projected rows).
-class SeasonOverlay {
+class SeasonOverlay implements ReconciliationOverlay {
   const SeasonOverlay({
     required this.id,
     required this.status,
@@ -33,6 +25,7 @@ class SeasonOverlay {
   });
 
   /// Server-assigned id (from the command's 2xx acknowledgement).
+  @override
   final String id;
 
   /// Display name carried from the Create Season form so the row renders
@@ -42,10 +35,23 @@ class SeasonOverlay {
   /// Season number carried from the submitted form (display-only field).
   final int? number;
 
+  @override
   final OverlayStatus status;
 
   /// Non-fatal warning shown when [status] is [OverlayStatus.stale].
+  @override
   final String? warning;
+
+  @override
+  SeasonOverlay copyWithStatus({
+    OverlayStatus? status,
+    String? warning,
+    bool clearWarning = false,
+  }) => copyWith(
+    status: status,
+    warning: warning,
+    clearWarning: clearWarning ? () {} : null,
+  );
 
   SeasonOverlay copyWith({
     OverlayStatus? status,

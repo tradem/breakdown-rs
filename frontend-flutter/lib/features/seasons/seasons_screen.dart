@@ -11,6 +11,8 @@ import '../../core/problem_error.dart';
 import '../app_info/info_dialog.dart';
 import '../app_info/settings_dialog.dart';
 import '../auth/sign_out.dart';
+import '../blocks/blocks_screen.dart';
+import '../costume_categories/costume_categories_screen.dart';
 import 'create_season_sheet.dart';
 import 'seasons_controller.dart';
 import 'seasons_state.dart';
@@ -81,7 +83,29 @@ class SeasonsScreen extends ConsumerWidget {
                       key: const Key('seasons-list'),
                       physics: const AlwaysScrollableScrollPhysics(),
                       itemCount: rows.length,
-                      itemBuilder: (context, i) => _SeasonTile(row: rows[i]),
+                      itemBuilder: (context, i) {
+                        final row = rows[i];
+                        return _SeasonTile(
+                          row: row,
+                          onOpenBlocks: row is ProjectedSeasonRow
+                              ? () => Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) =>
+                                        BlocksScreen(season: row.season),
+                                  ),
+                                )
+                              : null,
+                          onOpenCategories: row is ProjectedSeasonRow
+                              ? () => Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => CostumeCategoriesScreen(
+                                      season: row.season,
+                                    ),
+                                  ),
+                                )
+                              : null,
+                        );
+                      },
                     ),
             ),
           ),
@@ -111,9 +135,20 @@ class SeasonsScreen extends ConsumerWidget {
 }
 
 class _SeasonTile extends StatelessWidget {
-  const _SeasonTile({required this.row});
+  const _SeasonTile({
+    required this.row,
+    this.onOpenBlocks,
+    this.onOpenCategories,
+  });
 
   final SeasonRow row;
+
+  /// Pushes `BlocksScreen` with the row's `SeasonView` (5.1).
+  final VoidCallback? onOpenBlocks;
+
+  /// Pushes the season's `CostumeCategoriesScreen` (5.1: the entry to the
+  /// categories screen of the selected season).
+  final VoidCallback? onOpenCategories;
 
   @override
   Widget build(BuildContext context) => switch (row) {
@@ -121,6 +156,15 @@ class _SeasonTile extends StatelessWidget {
       key: Key('season-${season.id}'),
       title: Text(season.title ?? 'Season ${season.number}'),
       subtitle: Text('Number ${season.number}'),
+      trailing: onOpenCategories == null
+          ? const Icon(Icons.chevron_right)
+          : IconButton(
+              key: Key('season-categories-${season.id}'),
+              icon: const Icon(Icons.style_outlined),
+              tooltip: 'Costume categories',
+              onPressed: onOpenCategories,
+            ),
+      onTap: onOpenBlocks,
     ),
     OptimisticSeasonRow(:final overlay) => ListTile(
       key: Key('overlay-${overlay.id}'),
