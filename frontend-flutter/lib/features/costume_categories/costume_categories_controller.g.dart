@@ -376,7 +376,7 @@ final class CostumeCategoriesViewControllerProvider
 }
 
 String _$costumeCategoriesViewControllerHash() =>
-    r'af921b06ead3182c99e0e0295ba4da7d5a35ed15';
+    r'03359de5fc991683a55a7b9ab722ce9909db561b';
 
 /// Read-projection controller.
 ///
@@ -463,6 +463,112 @@ abstract class _$CostumeCategoriesViewController
   }
 }
 
+/// TTL-based cache staleness for one season's categories (issue #366).
+///
+/// Backed by [CostumeCategoryRepository.isCacheStale] (client-only
+/// `cachedAt` + the injectable [clockProvider]); a check failure resolves
+/// to `false` (fail-closed — the error path still banners a failed
+/// refetch).
+
+@ProviderFor(costumeCategoriesCacheStale)
+final costumeCategoriesCacheStaleProvider =
+    CostumeCategoriesCacheStaleFamily._();
+
+/// TTL-based cache staleness for one season's categories (issue #366).
+///
+/// Backed by [CostumeCategoryRepository.isCacheStale] (client-only
+/// `cachedAt` + the injectable [clockProvider]); a check failure resolves
+/// to `false` (fail-closed — the error path still banners a failed
+/// refetch).
+
+final class CostumeCategoriesCacheStaleProvider
+    extends $FunctionalProvider<AsyncValue<bool>, bool, FutureOr<bool>>
+    with $FutureModifier<bool>, $FutureProvider<bool> {
+  /// TTL-based cache staleness for one season's categories (issue #366).
+  ///
+  /// Backed by [CostumeCategoryRepository.isCacheStale] (client-only
+  /// `cachedAt` + the injectable [clockProvider]); a check failure resolves
+  /// to `false` (fail-closed — the error path still banners a failed
+  /// refetch).
+  CostumeCategoriesCacheStaleProvider._({
+    required CostumeCategoriesCacheStaleFamily super.from,
+    required String super.argument,
+  }) : super(
+         retry: null,
+         name: r'costumeCategoriesCacheStaleProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$costumeCategoriesCacheStaleHash();
+
+  @override
+  String toString() {
+    return r'costumeCategoriesCacheStaleProvider'
+        ''
+        '($argument)';
+  }
+
+  @$internal
+  @override
+  $FutureProviderElement<bool> $createElement($ProviderPointer pointer) =>
+      $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<bool> create(Ref ref) {
+    final argument = this.argument as String;
+    return costumeCategoriesCacheStale(ref, argument);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is CostumeCategoriesCacheStaleProvider &&
+        other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$costumeCategoriesCacheStaleHash() =>
+    r'5cd9f0f11a6508d089c6b3d8cb175b478419822b';
+
+/// TTL-based cache staleness for one season's categories (issue #366).
+///
+/// Backed by [CostumeCategoryRepository.isCacheStale] (client-only
+/// `cachedAt` + the injectable [clockProvider]); a check failure resolves
+/// to `false` (fail-closed — the error path still banners a failed
+/// refetch).
+
+final class CostumeCategoriesCacheStaleFamily extends $Family
+    with $FunctionalFamilyOverride<FutureOr<bool>, String> {
+  CostumeCategoriesCacheStaleFamily._()
+    : super(
+        retry: null,
+        name: r'costumeCategoriesCacheStaleProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// TTL-based cache staleness for one season's categories (issue #366).
+  ///
+  /// Backed by [CostumeCategoryRepository.isCacheStale] (client-only
+  /// `cachedAt` + the injectable [clockProvider]); a check failure resolves
+  /// to `false` (fail-closed — the error path still banners a failed
+  /// refetch).
+
+  CostumeCategoriesCacheStaleProvider call(String seasonId) =>
+      CostumeCategoriesCacheStaleProvider._(argument: seasonId, from: this);
+
+  @override
+  String toString() => r'costumeCategoriesCacheStaleProvider';
+}
+
 /// The projection a screen reads (selector).
 
 @ProviderFor(costumeCategoriesView)
@@ -532,7 +638,7 @@ final class CostumeCategoriesViewProvider
 }
 
 String _$costumeCategoriesViewHash() =>
-    r'dcce938f28209a85950080c7031a8bb67d36f504';
+    r'6a8925e2e44ade86e0a03e38d6fdc7a7fa5fad2c';
 
 /// The projection a screen reads (selector).
 
@@ -983,7 +1089,7 @@ final class CostumeCategoriesControllerProvider
 }
 
 String _$costumeCategoriesControllerHash() =>
-    r'a81cc521f961bf5b3738687cc5d666a912949771';
+    r'3a6dd62206ce48ee39dbc41d700d8efa32a0fccd';
 
 /// `CostumeCategoriesController(seasonId)` on the shared reconciliation
 /// runner: create follows the optimistic-overlay pattern; rename echoes the

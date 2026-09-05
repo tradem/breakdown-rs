@@ -16,6 +16,8 @@ import 'package:fpdart/fpdart.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
+import 'package:frontend_flutter/data/cache/cache_ttl.dart';
+import 'package:frontend_flutter/data/cache/clock.dart';
 import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/data/cache/seasons_view.dart';
@@ -192,6 +194,87 @@ void main() {
       // The invalidate inside createSeason must re-run the list fetch.
       await settle(container);
       expect(fetchCalls, greaterThan(before));
+    });
+  });
+
+  // Issue #366 — loading staleness is TTL-based: a fresh cache served
+  // while a normal refetch is in flight is NOT stale; an expired cache
+  // served while loading IS stale. The fetch never resolves here so the
+  // controller stays in `AsyncLoading`.
+  group('seasonsView loading staleness is TTL-based (issue #366)', () {
+    late CacheDatabase db;
+
+    setUp(() => db = CacheDatabase(NativeDatabase.memory()));
+    tearDown(() => db.close());
+
+    Future<ProviderContainer> buildLoadingContainer({
+      required DateTime cachedAt,
+      required DateTime now,
+    }) async {
+      await SeasonCacheDao(db)
+          .applySnapshot([_season('s1', title: 'Spring')], cachedAt);
+      final container = ProviderContainer(
+        overrides: [
+          apiDioProvider.overrideWithValue(Dio()),
+          cacheDatabaseProvider.overrideWithValue(db),
+          clockProvider.overrideWithValue(Clock.fixed(now)),
+          seasonsListFetchProvider.overrideWith(
+            (ref) => Completer<Result<List<SeasonView>>>().future,
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      // Pin the auto-dispose controller chain so rebuilds propagate.
+      final sub = container.listen(seasonsViewControllerProvider, (_, _) {});
+      addTearDown(sub.close);
+      // Drain the fire-and-forget cache seed (bounded, never wall-clock).
+      for (
+        var i = 0;
+        i < 200 && container.read(seasonsPrevRowsProvider).isEmpty;
+        i++
+      ) {
+        await pumpEventQueue();
+      }
+      return container;
+    }
+
+    test('loading with a fresh cache serves rows without stale', () async {
+      final now = DateTime.utc(2026, 6, 1, 12);
+      final container = await buildLoadingContainer(
+        cachedAt: now,
+        now: now.add(const Duration(hours: 1)),
+      );
+
+      expect(
+        container.read(seasonsViewControllerProvider),
+        isA<AsyncLoading>(),
+      );
+      // Settle the TTL check first: the view reads its (async) value and
+      // rebuilds once it resolves.
+      expect(await container.read(seasonsCacheStaleProvider.future), isFalse);
+      final view = container.read(seasonsView);
+      expect(view.rows.map((s) => s.id).toList(), ['s1']);
+      expect(view.isStale, isFalse);
+      expect(view.error, isNull);
+    });
+
+    test('loading with an expired cache marks rows stale', () async {
+      final cachedAt = DateTime.utc(2026, 6, 1, 12);
+      final container = await buildLoadingContainer(
+        cachedAt: cachedAt,
+        now: cachedAt.add(kCacheTtl).add(const Duration(minutes: 1)),
+      );
+
+      expect(
+        container.read(seasonsViewControllerProvider),
+        isA<AsyncLoading>(),
+      );
+      // Settle the TTL check first (see above).
+      expect(await container.read(seasonsCacheStaleProvider.future), isTrue);
+      final view = container.read(seasonsView);
+      expect(view.rows.map((s) => s.id).toList(), ['s1']);
+      expect(view.isStale, isTrue);
+      expect(view.error, isNull);
     });
   });
 }

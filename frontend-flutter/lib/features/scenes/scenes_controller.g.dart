@@ -328,7 +328,7 @@ final class ScenesViewControllerProvider
 }
 
 String _$scenesViewControllerHash() =>
-    r'eb674370b999377c50ec57ef1fabce5704b98e1b';
+    r'4d02226a437b374271e4d74c9ab8b90b597e92dc';
 
 /// Read-projection controller.
 ///
@@ -405,6 +405,104 @@ abstract class _$ScenesViewController
   }
 }
 
+/// TTL-based cache staleness for one episode's scenes (issue #366).
+///
+/// Backed by [SceneRepository.isCacheStale] (client-only `cachedAt` + the
+/// injectable [clockProvider]); a check failure resolves to `false`
+/// (fail-closed — the error path still banners a failed refetch).
+
+@ProviderFor(scenesCacheStale)
+final scenesCacheStaleProvider = ScenesCacheStaleFamily._();
+
+/// TTL-based cache staleness for one episode's scenes (issue #366).
+///
+/// Backed by [SceneRepository.isCacheStale] (client-only `cachedAt` + the
+/// injectable [clockProvider]); a check failure resolves to `false`
+/// (fail-closed — the error path still banners a failed refetch).
+
+final class ScenesCacheStaleProvider
+    extends $FunctionalProvider<AsyncValue<bool>, bool, FutureOr<bool>>
+    with $FutureModifier<bool>, $FutureProvider<bool> {
+  /// TTL-based cache staleness for one episode's scenes (issue #366).
+  ///
+  /// Backed by [SceneRepository.isCacheStale] (client-only `cachedAt` + the
+  /// injectable [clockProvider]); a check failure resolves to `false`
+  /// (fail-closed — the error path still banners a failed refetch).
+  ScenesCacheStaleProvider._({
+    required ScenesCacheStaleFamily super.from,
+    required String super.argument,
+  }) : super(
+         retry: null,
+         name: r'scenesCacheStaleProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$scenesCacheStaleHash();
+
+  @override
+  String toString() {
+    return r'scenesCacheStaleProvider'
+        ''
+        '($argument)';
+  }
+
+  @$internal
+  @override
+  $FutureProviderElement<bool> $createElement($ProviderPointer pointer) =>
+      $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<bool> create(Ref ref) {
+    final argument = this.argument as String;
+    return scenesCacheStale(ref, argument);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is ScenesCacheStaleProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$scenesCacheStaleHash() => r'1acccf0bf44d85cb0f6c7559db6e126b9f472c8b';
+
+/// TTL-based cache staleness for one episode's scenes (issue #366).
+///
+/// Backed by [SceneRepository.isCacheStale] (client-only `cachedAt` + the
+/// injectable [clockProvider]); a check failure resolves to `false`
+/// (fail-closed — the error path still banners a failed refetch).
+
+final class ScenesCacheStaleFamily extends $Family
+    with $FunctionalFamilyOverride<FutureOr<bool>, String> {
+  ScenesCacheStaleFamily._()
+    : super(
+        retry: null,
+        name: r'scenesCacheStaleProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// TTL-based cache staleness for one episode's scenes (issue #366).
+  ///
+  /// Backed by [SceneRepository.isCacheStale] (client-only `cachedAt` + the
+  /// injectable [clockProvider]); a check failure resolves to `false`
+  /// (fail-closed — the error path still banners a failed refetch).
+
+  ScenesCacheStaleProvider call(String episodeId) =>
+      ScenesCacheStaleProvider._(argument: episodeId, from: this);
+
+  @override
+  String toString() => r'scenesCacheStaleProvider';
+}
+
 /// The projection a screen reads (selector).
 
 @ProviderFor(scenesView)
@@ -467,7 +565,7 @@ final class ScenesViewProvider
   }
 }
 
-String _$scenesViewHash() => r'b1e33ffbdbce2501e6aec640866929c530a22d0e';
+String _$scenesViewHash() => r'fd2f8866f2192e57e95a5779ad271f70a8fe2009';
 
 /// The projection a screen reads (selector).
 
