@@ -43,9 +43,13 @@ class _CaptureFailed {
 ///
 /// Flow: subscribe to the deep-link stream FIRST (a warm Custom Tab may
 /// deliver the redirect before `launchUrl` returns), then open the
-/// authorization URL, then await the first redirect whose scheme matches
-/// the configured [redirectUri]. The subscription is cancelled on every
-/// exit path — no listener survives the in-flight sign-in.
+/// authorization URL, then await the first redirect that matches the
+/// configured [redirectUri] by scheme, host, port, and path (query
+/// parameters carry the code/state and are preserved). Unrelated links —
+/// including same-scheme ones — are ignored while waiting, so a stray
+/// deep link can neither complete nor abort the flow. The subscription is
+/// cancelled on every exit path — no listener survives the in-flight
+/// sign-in.
 ///
 /// Exactly three platform failure modes (design.md §3), each its own `Err`
 /// with a stable `oidc.*` code; the login screen renders localized copy
@@ -61,7 +65,8 @@ class PlatformAuthorizationUi implements AuthorizationUi {
   }) : _launchBrowser = launchBrowser ?? _defaultLaunchBrowser,
        _openLinkStream = openLinkStream ?? _defaultOpenLinkStream;
 
-  /// The configured `OIDC_REDIRECT_URI` (scheme selects the redirect).
+  /// The configured `OIDC_REDIRECT_URI` (scheme, host, port, and path
+  /// select the redirect; the query carries code/state).
   final Uri redirectUri;
 
   /// How long to wait for the redirect before failing with
@@ -71,6 +76,14 @@ class PlatformAuthorizationUi implements AuthorizationUi {
   final LaunchBrowser _launchBrowser;
   final OpenLinkStream _openLinkStream;
 
+  /// Whether [uri] is the configured IdP callback (scheme, host, port,
+  /// and path match; the query is preserved verbatim for `OidcClient`).
+  bool _isRedirect(Uri uri) =>
+      uri.scheme == redirectUri.scheme &&
+      uri.host == redirectUri.host &&
+      uri.port == redirectUri.port &&
+      uri.path == redirectUri.path;
+
   @override
   Future<Result<Uri>> launch(Uri authorizationUrl) async {
     final received = Completer<Uri>();
@@ -78,11 +91,11 @@ class PlatformAuthorizationUi implements AuthorizationUi {
     late final StreamSubscription<Uri> sub;
     sub = _openLinkStream().listen(
       (uri) {
-        // Only the configured redirect scheme completes the flow; unrelated
+        // Only the configured callback completes the flow; unrelated
         // deep links are ignored (the listener never fires for them — a
         // non-matching redirect is a capture failure by absence, and the
         // timeout below bounds the wait).
-        if (!settled && uri.scheme == redirectUri.scheme) {
+        if (!settled && _isRedirect(uri)) {
           settled = true;
           received.complete(uri);
         }

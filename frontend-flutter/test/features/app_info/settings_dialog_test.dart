@@ -92,7 +92,6 @@ const _prodConfig = AppConfig(
 void main() {
   late _OverridePlatform platform;
   late CacheDatabase db;
-  late FakeSeasonRepository repo;
   late ProviderContainer container;
 
   /// Dialog host with full composition (db, repo, token store, pinned
@@ -114,7 +113,6 @@ void main() {
     FlutterSecureStoragePlatform.instance = platform;
     db = CacheDatabase(NativeDatabase.memory());
     addTearDown(db.close);
-    repo = FakeSeasonRepository(BreakdownApi(), SeasonCacheDao(db));
     final holder = ValueNotifier<Result<List<SeasonView>>>(Right(initialRows));
     container = ProviderContainer(
       retry: (_, _) => null,
@@ -123,7 +121,15 @@ void main() {
         tokenStoreProvider.overrideWithValue(FakeTokenStore(null)),
         pinnedSecurityContextProvider.overrideWithValue(SecurityContext()),
         cacheDatabaseProvider.overrideWithValue(db),
-        seasonRepositoryProvider.overrideWithValue(repo),
+        // Provider-backed repository (review): the fake wraps the REAL
+        // injected client, so the post-switch request below proves the
+        // rebuilt `apiDioProvider` base instead of a hand-built client.
+        seasonRepositoryProvider.overrideWith(
+          (ref) => FakeSeasonRepository(
+            ref.watch(apiClientProvider),
+            SeasonCacheDao(ref.watch(cacheDatabaseProvider)),
+          ),
+        ),
         seasonsListFetchProvider.overrideWith((ref) async {
           final r = ref.watch(seasonRepositoryProvider);
           if (realFetch) {
@@ -278,6 +284,11 @@ void main() {
 
       // Save accepted (loopback http is valid); dialog closed…
       expect(find.byKey(const Key('settings-dialog')), findsNothing);
+      // …against the rebuilt client targeting the switched base…
+      expect(
+        container.read(apiDioProvider).options.baseUrl,
+        'http://127.0.0.1:9',
+      );
       // …and the real fetch against the unreachable base fails transport.
       // Real socket IO must run outside the fake-async test zone
       // (same `runAsync` pattern as the seasons offline widget test).

@@ -1,0 +1,4 @@
+{
+  "_note": "Single source for the OIDC redirect URI (flutter-login-and-app-shell task 3.3): Gradle reads this file for the Android deep-link manifestPlaceholder AND CI passes it via --dart-define-from-file, so the native registration cannot drift from the Dart configuration. An explicit --dart-define=OIDC_REDIRECT_URI wins over this file; the OIDC_REDIRECT_URI environment variable applies only when this file is absent. Dev default below; production uses its IdP-registered URI.",
+  "OIDC_REDIRECT_URI": "breakdown://auth/callback"
+}

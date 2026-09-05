@@ -52,7 +52,9 @@ class SessionReset extends Notifier<void> {
     final emptied = await ref.read(seasonRepositoryProvider).clearCache();
     final emptyError = emptied.getLeft().toNullable();
     if (emptyError != null) {
-      ref.read(authSessionControllerProvider.notifier).failSession(emptyError);
+      await ref
+          .read(authSessionControllerProvider.notifier)
+          .failSession(emptyError);
     }
     _invalidateSessionScope();
   }
@@ -104,7 +106,9 @@ class SessionReset extends Notifier<void> {
     final emptied = await ref.read(seasonRepositoryProvider).clearCache();
     final emptyError = emptied.getLeft().toNullable();
     if (emptyError != null) {
-      ref.read(authSessionControllerProvider.notifier).failSession(emptyError);
+      await ref
+          .read(authSessionControllerProvider.notifier)
+          .failSession(emptyError);
       return Left(emptyError);
     }
     // Refetch against the new base (the gate stays — session is kept).

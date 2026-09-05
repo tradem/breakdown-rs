@@ -46,6 +46,9 @@ void main() {
 
       // Discarded, not persisted: caller keeps the rows, cache stays empty.
       expect(result.isRight(), isTrue);
+      expect(result.getRight().toNullable()?.map((row) => row.id).toList(), [
+        'fenced',
+      ]);
       expect(await SeasonCacheDao(db).readAll(), isEmpty);
     });
 

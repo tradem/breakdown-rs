@@ -24,11 +24,11 @@ FLUTTER_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB_DIR="$FLUTTER_ROOT/lib"
 
 # Widget code under review (generated + vendored trees are rebuild-only and
-# out of scope; `lib/design` OWNS the tokens by definition).
+# out of scope; `lib/design` OWNS the tokens by definition and is not
+# scanned — a token file legitimately constructs `Color(...)`).
 SCAN_DIRS=(
   "$LIB_DIR/features"
   "$LIB_DIR/auth"
-  "$LIB_DIR/design"
 )
 
 # Files exempt with documented reason (design.md §5).
@@ -52,8 +52,10 @@ for dir in "${SCAN_DIRS[@]}"; do
       continue
     fi
     # Non-comment lines only; word-boundary so `ColorScheme(` never matches.
-    if grep -v '^[[:space:]]*///' "$file" | grep -v '^[[:space:]]*//' \
-      | grep -q -e '\<Color('; then
+    # No `grep -q`: an early exit would SIGPIPE the upstream grep and, under
+    # `pipefail`, mask the match.
+    if grep -v '^[[:space:]]*//' "$file" \
+      | grep -c -e '\<Color(' >/dev/null; then
       echo "HARDCODED COLOR: $file (use color-scheme roles or lib/design)"
       violations=$((violations + 1))
     fi

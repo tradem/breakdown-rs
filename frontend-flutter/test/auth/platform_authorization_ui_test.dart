@@ -76,6 +76,29 @@ void main() {
       expect(result.getRight().toNullable()?.queryParameters['code'], 'yes');
     });
 
+    test('same scheme with different host/path/port never completes', () async {
+      final links = StreamController<Uri>();
+      addTearDown(links.close);
+      final ui = PlatformAuthorizationUi(
+        redirectUri: redirectBase,
+        redirectTimeout: const Duration(milliseconds: 10),
+        launchBrowser: (url) async {
+          // Same scheme, wrong host / path / port: none may complete the
+          // flow — the wait ends in a timeout, not a mismatched capture.
+          links.add(Uri.parse('breakdown://other/callback?code=a'));
+          links.add(Uri.parse('breakdown://auth/other?code=b'));
+          links.add(Uri.parse('breakdown://auth:1234/callback?code=c'));
+          return true;
+        },
+        openLinkStream: () => links.stream,
+      );
+
+      final result = await ui.launch(authUrl);
+
+      expect(result.isLeft(), isTrue);
+      expect(result.getLeft().toNullable()?.code, 'oidc.redirect_timeout');
+    });
+
     test('launch returning false maps to browser_launch_failed', () async {
       var cancelled = false;
       final links = StreamController<Uri>(onCancel: () => cancelled = true);

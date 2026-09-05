@@ -29,11 +29,13 @@
                  delivers the IdP authorization redirect to `app_links` so
                  `PlatformAuthorizationUi` can complete the sign-in. The
                  scheme comes from the `oidcRedirectScheme` manifest
-                 placeholder, which `build.gradle.kts` derives from the SAME
-                 `OIDC_REDIRECT_URI` environment value that CI passes as the
-                 `OIDC_REDIRECT_URI` dart-define: the native registration
-                 cannot drift from the configured URI. Canonical value for
-                 both flavors (single application ID, no Gradle flavors):
+                 placeholder, which `build.gradle.kts` derives from one
+                 build input (`oidc-config.json`, else the
+                 `OIDC_REDIRECT_URI` environment, else the canonical
+                 default) — the same file CI passes with the dart-define
+                 file flag, so the native registration cannot drift from
+                 the configured URI. Canonical value for both flavors
+                 (single application ID, no Gradle flavors):
                  `breakdown://auth/callback` (the IdP client registration
                  must allowlist it server-side). singleTop + empty
                  taskAffinity keep the redirect on the existing activity. -->

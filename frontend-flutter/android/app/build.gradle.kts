@@ -1,3 +1,5 @@
+import groovy.json.JsonSlurper
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
@@ -5,6 +7,22 @@ plugins {
     // Kotlin Gradle Plugin — required because android.builtInKotlin=false in
     // gradle.properties (Flutter template default for AGP 9 compatibility).
     id("org.jetbrains.kotlin.android")
+}
+
+/// Single source for the OIDC redirect URI (task 3.3): `oidc-config.json`
+/// next to this `android/` dir when present, else the `OIDC_REDIRECT_URI`
+/// environment value, else the canonical dev default.
+fun oidcRedirectUriFromConfig(): String {
+    val configFile = rootProject.file("../oidc-config.json")
+    if (configFile.isFile) {
+        @Suppress("unchecked_cast")
+        val parsed = JsonSlurper().parse(configFile) as Map<String, Any?>
+        val fromFile = (parsed["OIDC_REDIRECT_URI"] as String?).orEmpty()
+        if (fromFile.isNotBlank()) return fromFile
+    }
+    return System.getenv("OIDC_REDIRECT_URI")
+        .orEmpty()
+        .ifEmpty { "breakdown://auth/callback" }
 }
 
 android {
@@ -24,15 +42,15 @@ android {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "rs.breakdown.frontend_flutter"
         // OIDC redirect scheme (spec `flutter-auth-shell`, task 3.3): the
-        // `oidcRedirectScheme` manifest placeholder is derived from the SAME
-        // `OIDC_REDIRECT_URI` environment value that CI passes to Flutter as
-        // `--dart-define=OIDC_REDIRECT_URI`, so the native deep-link
-        // registration cannot drift from the Dart configuration. Default is
-        // the canonical URI for both flavors (single application ID, no
-        // Gradle flavors): `breakdown://auth/callback`.
-        val oidcRedirectUri = System.getenv("OIDC_REDIRECT_URI")
-            .orEmpty()
-            .ifEmpty { "breakdown://auth/callback" }
+        // `oidcRedirectScheme` manifest placeholder is derived from ONE
+        // build input — `../../oidc-config.json` when present, else the
+        // `OIDC_REDIRECT_URI` environment value, else the canonical
+        // default. CI feeds the same file to Flutter via
+        // `--dart-define-from-file` (an explicit `--dart-define=` wins),
+        // so the native deep-link registration cannot drift from the Dart
+        // configuration. Default is the canonical URI for both flavors
+        // (single application ID, no Gradle flavors).
+        val oidcRedirectUri = oidcRedirectUriFromConfig()
         val oidcRedirectScheme = oidcRedirectUri
             .substringBefore("://")
             .substringBefore(":")

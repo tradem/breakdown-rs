@@ -137,39 +137,41 @@ class AuthSession {
 /// - Otherwise: the session is restored from secure storage; `null` means
 ///   signed out. Use [signIn]/[signOut] to mutate.
 @Riverpod(keepAlive: true)
-class AuthSessionController extends _$AuthSessionController {
-  /// Handshake for in-flight `build()` passes (initial restore or a
-  /// retry): external mutations ([signIn]/[signOut]) must wait for it —
-  /// assigning `state` while a build is pending is clobbered when that
-  /// build completes. Set synchronously as the first step of every build.
-  Completer<void>? _settleGate;
+/// FIFO async mutex (no dependency): serializes session-state transitions
+/// so a stale restore build can never overwrite a newer mutation (review
+/// finding: a retry scheduled from a failed restore could otherwise complete
+/// after `signIn`/`signOut`/`failSession` and clobber the fresh state).
+/// Single non-reentrant lock; none of the guarded bodies re-enter it, so it
+/// is deadlock-free by construction. FIFO fairness bounds the wait.
+class _AsyncMutex {
+  /// Pending tails, newest last. A list (rather than a single field) so
+  /// chaining is a `void` add-statement — a bare `Future`-typed assignment
+  /// would trip the discard_result rule.
+  final List<Future<void>> _tails = [Future.value()];
 
-  /// Waits until no build is in flight. Loops (instead of awaiting once)
-  /// because a retry may start a fresh build pass while the previous one
-  /// completes. Terminates: builds always settle (success or `AsyncError`)
-  /// and retries are bounded (Riverpod default policy).
-  Future<void> _settleInitialization() async {
-    while (state is AsyncLoading) {
-      final gate = _settleGate;
-      if (gate == null) {
-        await Future<void>.delayed(Duration.zero);
-      } else {
-        await gate.future;
-      }
-    }
-  }
-
-  @override
-  Future<AuthSession?> build() async {
+  Future<T> run<T>(Future<T> Function() body) async {
+    final previous = _tails.last;
     final gate = Completer<void>();
-    _settleGate = gate;
+    _tails.add(gate.future);
+    await previous;
     try {
-      return await _restore();
+      return await body();
     } finally {
-      _settleGate = null;
+      _tails.remove(previous);
       gate.complete();
     }
   }
+}
+
+class AuthSessionController extends _$AuthSessionController {
+  /// Guards every state transition ([build], [signIn], [signOut],
+  /// [failSession]): restore builds and user actions never interleave, so
+  /// a restore result always reflects the latest settled reality and can
+  /// never clobber a newer mutation (or vice versa).
+  final _mutex = _AsyncMutex();
+
+  @override
+  Future<AuthSession?> build() => _mutex.run(_restore);
 
   /// Session restore: permissive dev-auth session, else secure-storage
   /// read (`null` = signed out; `Err` → throw → `AsyncError`, never
@@ -197,13 +199,11 @@ class AuthSessionController extends _$AuthSessionController {
   /// the authenticated session. In dev-auth mode it resolves the permissive
   /// session explicitly (no network, no tokens). An authorization/refresh
   /// failure is surfaced as `AsyncError` (never swallowed, AGENTS.md §5).
-  Future<void> signIn() async {
-    // Settle-before-mutate (see [_settleInitialization]): the gate only
-    // offers sign-in after settle, but a retry window can still be pending
-    // (see `AuthGate`), and callers may dispatch immediately after
-    // container creation. A failed restore must not block signing in —
-    // the gate surfaces it.
-    await _settleInitialization();
+  Future<void> signIn() => _mutex.run(() async {
+    // No settle gate needed: the mutex serializes against in-flight
+    // restores (a retry build either completes first — then this body sees
+    // its outcome — or waits until this body releases). A failed restore
+    // must not block signing in — the gate surfaces it.
     final config = ref.watch(appConfigProvider);
     if (config.devAuthMode) {
       // Dev-auth Continue (spec `flutter-auth-shell`): the login screen's
@@ -232,7 +232,7 @@ class AuthSessionController extends _$AuthSessionController {
     state = AsyncData(
       AuthSession(sub: subFromIdToken(tokens.idToken) ?? '', tokens: tokens),
     );
-  }
+  });
 
   /// Signs out: clears tokens, then recomposes the root to `LoginScreen`.
   /// Cache emptying and provider invalidation run in `SessionReset`
@@ -245,9 +245,7 @@ class AuthSessionController extends _$AuthSessionController {
   ///
   /// Never throws: failures are `AsyncError` state, so menu callers need no
   /// error handling (the gate renders the error surface).
-  Future<void> signOut() async {
-    // Same settle-before-mutate race as [signIn] (see above).
-    await _settleInitialization();
+  Future<void> signOut() => _mutex.run(() async {
     final config = ref.watch(appConfigProvider);
     if (!config.devAuthMode) {
       final cleared = await ref.read(tokenStoreProvider).clear();
@@ -261,12 +259,12 @@ class AuthSessionController extends _$AuthSessionController {
       }
     }
     state = const AsyncData(null);
-  }
+  });
 
   /// Marks the session as failed (used by session-reset flows whose
   /// post-token step fails — e.g. the Drift cache clear in `SessionReset`).
   /// Fail-closed like [signOut]: the gate leaves the authenticated subtree.
-  void failSession(ProblemError error) {
+  Future<void> failSession(ProblemError error) => _mutex.run(() async {
     state = AsyncError(error, StackTrace.current);
-  }
+  });
 }

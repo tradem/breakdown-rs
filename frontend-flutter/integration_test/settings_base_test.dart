@@ -39,7 +39,6 @@ void main() {
   ) async {
     final db = CacheDatabase(NativeDatabase.memory());
     addTearDown(db.close);
-    final repo = FakeSeasonRepository(BreakdownApi(), SeasonCacheDao(db));
     final holder = ValueNotifier<Result<List<SeasonView>>>(
       Right([season('e2e-1', number: 1, title: 'E2E Season')]),
     );
@@ -50,7 +49,15 @@ void main() {
         tokenStoreProvider.overrideWithValue(FakeTokenStore(null)),
         pinnedSecurityContextProvider.overrideWithValue(SecurityContext()),
         cacheDatabaseProvider.overrideWithValue(db),
-        seasonRepositoryProvider.overrideWithValue(repo),
+        // Provider-backed repository (review): the fake wraps the REAL
+        // injected client, so the post-switch request proves the rebuilt
+        // `apiDioProvider` base instead of a hand-built client.
+        seasonRepositoryProvider.overrideWith(
+          (ref) => FakeSeasonRepository(
+            ref.watch(apiClientProvider),
+            SeasonCacheDao(ref.watch(cacheDatabaseProvider)),
+          ),
+        ),
         reconciliationSchedulerProvider.overrideWith(
           (ref) => const ImmediateReconciliationScheduler(),
         ),
@@ -117,6 +124,8 @@ void main() {
     await tester.tap(find.byKey(const Key('settings-save')));
     await frames(n: 12);
     expect(find.byKey(const Key('settings-dialog')), findsNothing);
+    // The rebuilt client targets the switched base (provider chain).
+    expect(container.read(apiDioProvider).options.baseUrl, 'http://10.0.2.2:9');
 
     // …and the failed refetch surfaces: retained rows + stale banner.
     expect(find.text('E2E Season'), findsOneWidget);

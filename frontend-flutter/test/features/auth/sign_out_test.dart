@@ -361,5 +361,7 @@ class _OverridePlatform extends FlutterSecureStoragePlatform {
 }
 
 void _useOverridePlatform(_OverridePlatform platform) {
+  final previous = FlutterSecureStoragePlatform.instance;
   FlutterSecureStoragePlatform.instance = platform;
+  addTearDown(() => FlutterSecureStoragePlatform.instance = previous);
 }

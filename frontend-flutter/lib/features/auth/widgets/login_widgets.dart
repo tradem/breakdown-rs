@@ -117,7 +117,10 @@ class LoginErrorBanner extends StatelessWidget {
   });
 
   final String copy;
-  final VoidCallback onRetry;
+
+  /// Null while a sign-in is in flight: the retry button disables so a
+  /// second OIDC flow cannot start concurrently.
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {

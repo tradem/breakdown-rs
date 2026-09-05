@@ -107,7 +107,9 @@ class LoginScreen extends ConsumerWidget {
                 const SizedBox(height: AppSpacing.space16),
                 LoginErrorBanner(
                   copy: loginErrorCopy(error),
-                  onRetry: () => _dispatchSignIn(ref),
+                  // Disabled while a dispatch is in flight: a second tap
+                  // must not start a concurrent OIDC flow.
+                  onRetry: inFlight ? null : () => _dispatchSignIn(ref),
                 ),
               ],
             ],

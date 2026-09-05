@@ -36,6 +36,7 @@ void main() {
     WidgetTester tester,
     AuthorizationUi ui, {
     Brightness brightness = Brightness.light,
+    ProblemError? restoreError,
   }) async {
     tokens = FakeTokenStore(null);
     final uiClient = clientFor(ui);
@@ -62,7 +63,7 @@ void main() {
             theme: AppThemes.light(),
             darkTheme: AppThemes.dark(),
             themeMode: ThemeMode.system,
-            home: const LoginScreen(),
+            home: LoginScreen(restoreError: restoreError),
           ),
         ),
       ),
@@ -111,6 +112,39 @@ void main() {
       ui.complete(Right(Uri.parse('breakdown://redirect?code=abc123')));
       await pumpFrames(tester);
       expect(find.byKey(const Key('login-spinner')), findsNothing);
+    });
+
+    testWidgets('retry disabled while a dispatch is in flight', (tester) async {
+      final ui = DeferredAuthorizationUi();
+      await pumpLogin(
+        tester,
+        ui,
+        restoreError: const ProblemError(code: 'auth.restore_failed'),
+      );
+      expect(find.byKey(const Key('login-error-banner')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('login-signin-button')));
+      await pumpFrames(tester, n: 2);
+
+      // The banner stays (restore error) but retry cannot start a second
+      // concurrent OIDC flow while the first is pending.
+      expect(find.byKey(const Key('login-error-banner')), findsOneWidget);
+      expect(
+        tester
+            .widget<TextButton>(find.byKey(const Key('login-error-retry')))
+            .enabled,
+        isFalse,
+      );
+
+      final state = ui.launchedUrl!.queryParameters['state'];
+      ui.complete(
+        Right(Uri.parse('breakdown://redirect?code=abc123&state=$state')),
+      );
+      await pumpFrames(tester);
+      final session = await container.read(
+        authSessionControllerProvider.future,
+      );
+      expect(session?.sub, 'user-1');
     });
 
     testWidgets('error: keyed copy plus retry recovers', (tester) async {
