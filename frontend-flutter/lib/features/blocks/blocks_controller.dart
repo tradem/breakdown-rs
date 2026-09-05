@@ -117,8 +117,22 @@ class BlocksViewController extends _$BlocksViewController {
     return switch (fetch) {
       AsyncData(:final value) => value.match(
         (err) => AsyncValue<BlocksView>.error(err, StackTrace.current),
-        (rows) =>
-            AsyncValue<BlocksView>.data(BlocksView(rows: rows, isStale: false)),
+        (rows) {
+          // Converge the retained snapshot with every successful snapshot
+          // (including empty ones): a later loading/error state must serve
+          // the latest projection, never resurrected deleted rows. Deferred
+          // microtask, never a synchronous set during build; this seeder
+          // does not watch prevRows, so its own write cannot loop back.
+          unawaited(
+            Future.microtask(() {
+              if (!ref.mounted) return;
+              ref.read(blocksPrevRowsProvider(seasonId).notifier).set(rows);
+            }),
+          );
+          return AsyncValue<BlocksView>.data(
+            BlocksView(rows: rows, isStale: false),
+          );
+        },
       ),
       AsyncError(:final error, :final stackTrace) =>
         AsyncValue<BlocksView>.error(error, stackTrace),

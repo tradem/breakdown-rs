@@ -29,11 +29,21 @@ abstract class BaseRepository {
   final BreakdownApi api;
 
   /// Runs a generated client call, returning its decoded body on success or a
-  /// [ProblemError] on failure. Never throws.
-  Future<Result<T>> run<T>(Future<Response<T>> Function() call) async {
+  /// [ProblemError] on failure. Never throws. A `null` body (the generated
+  /// client surfaces an empty payload as `null`) maps to [dtoInvalidCode]
+  /// so a single-object fetch cannot throw a cast error out of the awaited
+  /// call (AGENTS.md §5: no throw in `data/`).
+  Future<Result<T>> run<T>(
+    Future<Response<T>> Function() call, {
+    String dtoInvalidCode = 'dto.invalid',
+  }) async {
     try {
       final response = await call();
-      return Right(response.data as T);
+      final data = response.data;
+      if (data == null) {
+        return Left(ProblemError(code: dtoInvalidCode));
+      }
+      return Right(data);
     } on DioException catch (e) {
       return Left(problemErrorFromDio(e));
     }

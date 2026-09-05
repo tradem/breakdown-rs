@@ -79,6 +79,10 @@ class _CreateBlockFormState extends ConsumerState<_CreateBlockForm> {
     final d = int.tryParse(parts[2]);
     if (y == null || m == null || d == null) return null;
     if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+    // Reject non-existent calendar dates (e.g. 2026-02-31): DateTime
+    // normalizes overflow, so round-trip and compare components.
+    final probe = DateTime.utc(y, m, d);
+    if (probe.year != y || probe.month != m || probe.day != d) return null;
     return Date(y, m, d);
   }
 

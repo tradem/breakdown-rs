@@ -238,6 +238,26 @@ void main() {
       expect(find.byKey(const Key('overlay-n1')), findsNothing);
     });
 
+    testWidgets('non-existent calendar date is rejected by validation', (
+      tester,
+    ) async {
+      await setupContainer();
+      await pumpScreen(tester);
+
+      await tester.tap(find.byKey(const Key('block-add-fab')));
+      await _pumpFrames(tester, n: 60);
+      await tester.enterText(find.byKey(const Key('create-block-number')), '2');
+      await tester.enterText(
+        find.byKey(const Key('create-block-start')),
+        '2026-02-31',
+      );
+      await tester.tap(find.byKey(const Key('create-block-submit')));
+      await _pumpFrames(tester);
+
+      expect(find.text('Use YYYY-MM-DD'), findsOneWidget);
+      expect(repo.creates, 0);
+    });
+
     testWidgets('404: narrative with back affordance, no stale rows', (
       tester,
     ) async {

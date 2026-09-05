@@ -161,6 +161,17 @@ void main() {
       expect(ctx.repo.lastCreateRequest?.orderKey, '!');
     });
 
+    test('an unprojected overlay key feeds the next derivation', () async {
+      final ctx = await _buildFixture();
+      ctx.repo.nextList = Right([_category('c1', orderKey: '!')]);
+      await ctx.controller.refresh();
+      await ctx.controller.create(name: 'Second');
+      // First ack ('"') is still an overlay (projection unchanged): the
+      // next key must follow the overlay, never re-derive '"'.
+      expect(ctx.repo.lastCreateRequest?.orderKey, '"');
+      expect(ctx.controller.deriveNextOrderKey(), '#');
+    });
+
     test('reconciliation drops the overlay once projected', () async {
       final ctx = await _buildFixture();
       ctx.repo.nextList = Right([_category('n1', orderKey: '!')]);
@@ -171,6 +182,42 @@ void main() {
   });
 
   group('CostumeCategoriesController failure paths', () {
+    test(
+      'successful fetch converges the retained snapshot, incl. empty',
+      () async {
+        final ctx = await _buildFixture();
+        // Hold a subscription: pins the autoDispose view/fetch
+        // chain so rebuilds propagate deterministically.
+        final sub = ctx.container.listen(
+          costumeCategoriesControllerProvider('season-1'),
+          (_, _) {},
+        );
+        addTearDown(sub.close);
+        ctx.repo.nextList = Right([_category('c1'), _category('c2')]);
+        await ctx.controller.refresh();
+        // Drain the notify → rebuild → microtask-set chain (bounded).
+        for (var i = 0; i < 10; i++) {
+          await pumpEventQueue();
+        }
+        expect(
+          ctx.container
+              .read(costumeCategoriesPrevRowsProvider('season-1'))
+              .map((c) => c.id),
+          ['c1', 'c2'],
+        );
+        ctx.repo.nextList = const Right([]);
+        await ctx.controller.refresh();
+        // Drain the notify → rebuild → microtask-set chain (bounded).
+        for (var i = 0; i < 10; i++) {
+          await pumpEventQueue();
+        }
+        expect(
+          ctx.container.read(costumeCategoriesPrevRowsProvider('season-1')),
+          isEmpty,
+        );
+      },
+    );
+
     test('network failure before 2xx: no overlay, Err keyed on code', () async {
       final ctx = await _buildFixture();
       ctx.repo.nextList = const Right([]);

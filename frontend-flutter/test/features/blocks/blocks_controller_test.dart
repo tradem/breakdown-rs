@@ -249,6 +249,40 @@ void main() {
 
   group('BlocksController reconciliation + 404', () {
     test(
+      'successful fetch converges the retained snapshot, incl. empty',
+      () async {
+        final ctx = await _buildFixture();
+        // Hold a subscription: pins the autoDispose view/fetch
+        // chain so rebuilds propagate deterministically.
+        final sub = ctx.container.listen(
+          blocksControllerProvider('season-1'),
+          (_, _) {},
+        );
+        addTearDown(sub.close);
+        ctx.repo.nextList = Right([_block('a'), _block('b')]);
+        await ctx.controller.refresh();
+        // Drain the notify → rebuild → microtask-set chain (bounded).
+        for (var i = 0; i < 10; i++) {
+          await pumpEventQueue();
+        }
+        expect(
+          ctx.container
+              .read(blocksPrevRowsProvider('season-1'))
+              .map((b) => b.id),
+          ['a', 'b'],
+        );
+        // A successful EMPTY snapshot replaces (never resurrects deleted).
+        ctx.repo.nextList = const Right([]);
+        await ctx.controller.refresh();
+        // Drain the notify → rebuild → microtask-set chain (bounded).
+        for (var i = 0; i < 10; i++) {
+          await pumpEventQueue();
+        }
+        expect(ctx.container.read(blocksPrevRowsProvider('season-1')), isEmpty);
+      },
+    );
+
+    test(
       'retry exhaustion retains the overlay marked stale + warning',
       () async {
         final ctx = await _buildFixture();

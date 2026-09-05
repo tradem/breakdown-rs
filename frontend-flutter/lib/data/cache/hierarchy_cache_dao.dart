@@ -406,13 +406,20 @@ class CostumeCategoryCacheDao {
 /// (D5): after a successful parent snapshot, child rows whose parent id is
 /// absent from [liveParentIds] are removed. Invoked on the next successful
 /// parent snapshot — never on a failed fetch.
+///
+/// An empty live set means a successful EMPTY parent snapshot: every cached
+/// child row of that scope is orphaned, so the whole child table (scope) is
+/// cleared. Filtered deletes apply to non-empty sets only.
 Future<void> pruneOrphanedHierarchyRows(
   CacheDatabase db, {
   required Set<String> liveSeasonIds,
   required Set<String> liveBlockIds,
   required Set<String> liveEpisodeIds,
 }) => db.transaction(() async {
-  if (liveSeasonIds.isNotEmpty) {
+  if (liveSeasonIds.isEmpty) {
+    await db.delete(db.blockCacheRows).go();
+    await db.delete(db.costumeCategoryCacheRows).go();
+  } else {
     await (db.delete(
       db.blockCacheRows,
     )..where((t) => t.seasonId.isNotIn(liveSeasonIds))).go();
@@ -420,12 +427,16 @@ Future<void> pruneOrphanedHierarchyRows(
       db.costumeCategoryCacheRows,
     )..where((t) => t.seasonId.isNotIn(liveSeasonIds))).go();
   }
-  if (liveBlockIds.isNotEmpty) {
+  if (liveBlockIds.isEmpty) {
+    await db.delete(db.episodeCacheRows).go();
+  } else {
     await (db.delete(
       db.episodeCacheRows,
     )..where((t) => t.blockId.isNotIn(liveBlockIds))).go();
   }
-  if (liveEpisodeIds.isNotEmpty) {
+  if (liveEpisodeIds.isEmpty) {
+    await db.delete(db.sceneCacheRows).go();
+  } else {
     await (db.delete(
       db.sceneCacheRows,
     )..where((t) => t.episodeId.isNotIn(liveEpisodeIds))).go();

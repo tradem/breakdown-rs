@@ -102,8 +102,22 @@ class ScenesViewController extends _$ScenesViewController {
     return switch (fetch) {
       AsyncData(:final value) => value.match(
         (err) => AsyncValue<ScenesView>.error(err, StackTrace.current),
-        (rows) =>
-            AsyncValue<ScenesView>.data(ScenesView(rows: rows, isStale: false)),
+        (rows) {
+          // Converge the retained snapshot with every successful snapshot
+          // (including empty ones): a later loading/error state must serve
+          // the latest projection, never resurrected deleted rows. Deferred
+          // microtask, never a synchronous set during build; this seeder
+          // does not watch prevRows, so its own write cannot loop back.
+          unawaited(
+            Future.microtask(() {
+              if (!ref.mounted) return;
+              ref.read(scenesPrevRowsProvider(episodeId).notifier).set(rows);
+            }),
+          );
+          return AsyncValue<ScenesView>.data(
+            ScenesView(rows: rows, isStale: false),
+          );
+        },
       ),
       AsyncError(:final error, :final stackTrace) =>
         AsyncValue<ScenesView>.error(error, stackTrace),

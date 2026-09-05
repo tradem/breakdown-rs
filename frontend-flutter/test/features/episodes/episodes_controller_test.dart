@@ -167,6 +167,42 @@ void main() {
   });
 
   group('EpisodesController failure paths', () {
+    test(
+      'successful fetch converges the retained snapshot, incl. empty',
+      () async {
+        final ctx = await _buildFixture();
+        // Hold a subscription: pins the autoDispose view/fetch
+        // chain so rebuilds propagate deterministically.
+        final sub = ctx.container.listen(
+          episodesControllerProvider('block-1', 'season-1'),
+          (_, _) {},
+        );
+        addTearDown(sub.close);
+        ctx.repo.nextList = Right([_episode('e1'), _episode('e2')]);
+        await ctx.controller.refresh();
+        // Drain the notify → rebuild → microtask-set chain (bounded).
+        for (var i = 0; i < 10; i++) {
+          await pumpEventQueue();
+        }
+        expect(
+          ctx.container
+              .read(episodesPrevRowsProvider('block-1', 'season-1'))
+              .map((e) => e.id),
+          ['e1', 'e2'],
+        );
+        ctx.repo.nextList = const Right([]);
+        await ctx.controller.refresh();
+        // Drain the notify → rebuild → microtask-set chain (bounded).
+        for (var i = 0; i < 10; i++) {
+          await pumpEventQueue();
+        }
+        expect(
+          ctx.container.read(episodesPrevRowsProvider('block-1', 'season-1')),
+          isEmpty,
+        );
+      },
+    );
+
     test('409 conflict: no overlay, keyed copy code', () async {
       final ctx = await _buildFixture();
       ctx.repo.nextList = const Right([]);

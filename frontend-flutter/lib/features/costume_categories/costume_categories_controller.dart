@@ -117,9 +117,24 @@ class CostumeCategoriesViewController
       AsyncData(:final value) => value.match(
         (err) =>
             AsyncValue<CostumeCategoriesView>.error(err, StackTrace.current),
-        (rows) => AsyncValue<CostumeCategoriesView>.data(
-          CostumeCategoriesView(rows: rows, isStale: false),
-        ),
+        (rows) {
+          // Converge the retained snapshot with every successful snapshot
+          // (including empty ones): a later loading/error state must serve
+          // the latest projection, never resurrected deleted rows. Deferred
+          // microtask, never a synchronous set during build; this seeder
+          // does not watch prevRows, so its own write cannot loop back.
+          unawaited(
+            Future.microtask(() {
+              if (!ref.mounted) return;
+              ref
+                  .read(costumeCategoriesPrevRowsProvider(seasonId).notifier)
+                  .set(rows);
+            }),
+          );
+          return AsyncValue<CostumeCategoriesView>.data(
+            CostumeCategoriesView(rows: rows, isStale: false),
+          );
+        },
       ),
       AsyncError(:final error, :final stackTrace) =>
         AsyncValue<CostumeCategoriesView>.error(error, stackTrace),
@@ -251,7 +266,9 @@ class CostumeCategoriesController extends _$CostumeCategoriesController {
   ///
   /// Reads through the list-fetch provider (never through this controller
   /// itself — a provider cannot depend on itself), with the retained
-  /// snapshot as the error/loading fallback.
+  /// snapshot as the error/loading fallback. Acknowledged overlay keys are
+  /// included so a second create before reconciliation cannot re-derive
+  /// the same append key as the still-unprojected first one.
   List<String> cachedOrderKeys() {
     final fetch = ref.read(costumeCategoriesListFetchProvider(seasonId));
     final rows = switch (fetch) {
@@ -261,7 +278,11 @@ class CostumeCategoriesController extends _$CostumeCategoriesController {
       ),
       _ => ref.read(costumeCategoriesPrevRowsProvider(seasonId)),
     };
-    return [for (final c in rows) c.orderKey];
+    final overlayKeys = [
+      for (final o in ref.read(costumeCategoriesOverlaysProvider(seasonId)))
+        if (o.orderKey != null) o.orderKey!,
+    ];
+    return [for (final c in rows) c.orderKey, ...overlayKeys];
   }
 
   /// Submits the Create Category command with the derived append order key.

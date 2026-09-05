@@ -115,7 +115,10 @@ class FakeBlockRepository extends BlockRepository {
   }
 
   @override
-  Future<Result<T>> run<T>(Future<Response<T>> Function() call) async {
+  Future<Result<T>> run<T>(
+    Future<Response<T>> Function() call, {
+    String dtoInvalidCode = 'dto.invalid',
+  }) async {
     if (T == IdVersionResponse && nextCreate != null) {
       return nextCreate as Result<T>;
     }
@@ -142,7 +145,10 @@ class FakeEpisodeRepository extends EpisodeRepository {
   }
 
   @override
-  Future<Result<T>> run<T>(Future<Response<T>> Function() call) async {
+  Future<Result<T>> run<T>(
+    Future<Response<T>> Function() call, {
+    String dtoInvalidCode = 'dto.invalid',
+  }) async {
     if (T == IdVersionResponse && nextCreate != null) {
       return nextCreate as Result<T>;
     }
@@ -169,7 +175,10 @@ class FakeSceneRepository extends SceneRepository {
   }
 
   @override
-  Future<Result<T>> run<T>(Future<Response<T>> Function() call) async {
+  Future<Result<T>> run<T>(
+    Future<Response<T>> Function() call, {
+    String dtoInvalidCode = 'dto.invalid',
+  }) async {
     if (T == IdVersionResponse && nextCreate != null) {
       return nextCreate as Result<T>;
     }
@@ -197,7 +206,10 @@ class FakeCostumeCategoryRepository extends CostumeCategoryRepository {
   }
 
   @override
-  Future<Result<T>> run<T>(Future<Response<T>> Function() call) async {
+  Future<Result<T>> run<T>(
+    Future<Response<T>> Function() call, {
+    String dtoInvalidCode = 'dto.invalid',
+  }) async {
     if (T == IdVersionResponse && nextCreate != null) {
       return nextCreate as Result<T>;
     }
@@ -281,6 +293,27 @@ void main() {
       );
       expect(await EpisodeCacheDao(db).readByBlock('b-drop'), isEmpty);
     });
+
+    test(
+      'successful empty parent snapshot clears the whole child scope',
+      () async {
+        final at = DateTime.utc(2026, 1, 1);
+        await BlockCacheDao(db)
+            .applySnapshotForSeason('s', [_block('b', seasonId: 's')], at);
+        await EpisodeCacheDao(db)
+            .applySnapshotForBlock('b', [_episode('e', blockId: 'b')], at);
+
+        await pruneOrphanedHierarchyRows(
+          db,
+          liveSeasonIds: const {},
+          liveBlockIds: const {},
+          liveEpisodeIds: const {},
+        );
+
+        expect(await BlockCacheDao(db).readBySeason('s'), isEmpty);
+        expect(await EpisodeCacheDao(db).readByBlock('b'), isEmpty);
+      },
+    );
 
     test('scoped expiry reports stale rows per TTL', () async {
       final dao = BlockCacheDao(db);

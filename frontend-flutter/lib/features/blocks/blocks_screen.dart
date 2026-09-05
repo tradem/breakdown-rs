@@ -248,14 +248,13 @@ class _Banner extends StatelessWidget {
               ),
             ),
             if (onDismiss != null)
-              GestureDetector(
-                onTap: onDismiss,
-                child: IconTheme(
-                  data: IconThemeData(color: scheme.onErrorContainer),
-                  child: const Icon(
-                    Icons.close,
-                    key: Key('block-create-error-dismiss'),
-                  ),
+              IconButton(
+                onPressed: onDismiss,
+                color: scheme.onErrorContainer,
+                tooltip: 'Dismiss',
+                icon: const Icon(
+                  Icons.close,
+                  key: Key('block-create-error-dismiss'),
                 ),
               ),
           ],
