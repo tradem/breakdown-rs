@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
 
 import 'dart:async' show unawaited;
@@ -11,7 +12,9 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../core/problem_error.dart';
 import '../../core/result.dart';
+import '../../src/network/api_client.dart';
 import 'cache_database.dart';
+import 'cache_generation.dart';
 import 'clock.dart';
 import 'season_cache_dao.dart';
 import 'seasons_view.dart';
@@ -23,15 +26,10 @@ part 'seasons_cache_providers.g.dart';
 @riverpod
 Clock clock(Ref ref) => Clock.system;
 
-/// Generated API client.
-///
-/// NOTE: production must inject the pinned-CA Dio from
-/// `lib/src/network/api_client.dart` here (deferred to the wiring/auth change).
-/// For now a default `BreakdownApi()` is sufficient — the list fetch is
-/// overridden in tests and the single-entity path is exercised by later
-/// changes.
+/// Generated API client over the rebuildable pinned Dio (task 6.3 —
+/// follows runtime base-URL switches; same pinned `SecurityContext`).
 @riverpod
-BreakdownApi apiClient(Ref ref) => BreakdownApi();
+BreakdownApi apiClient(Ref ref) => BreakdownApi(dio: ref.watch(apiDioProvider));
 
 /// The read-projection cache database.
 ///
@@ -59,10 +57,20 @@ SeasonRepository seasonRepository(Ref ref) => SeasonRepository(
 Future<Result<List<SeasonView>>> seasonsListFetch(Ref ref) {
   final repo = ref.watch(seasonRepositoryProvider);
   final clock = ref.watch(clockProvider);
+  // Generation fence (task 6.3): a base switch / sign-out reset that lands
+  // while this fetch is in flight discards its cache write (no cross-identity
+  // rows). Unwatched-after-dispose reads as stale too — dead screens cannot
+  // persist.
+  final generation = ref.watch(cacheGenerationProvider);
   return repo.fetchAndCacheList(
     () async =>
         const Left(ProblemError(code: 'transport.seasons_list_unavailable')),
     clock: clock,
+    fence: CacheWriteFence(
+      generation: generation,
+      isCurrentGeneration: (g) =>
+          ref.mounted && ref.read(cacheGenerationProvider) == g,
+    ),
   );
 }
 
@@ -101,6 +109,10 @@ class SeasonsViewController extends _$SeasonsViewController {
     // or has failed. Fire-and-forget is intentional: `build()` is sync and
     // must return the placeholder immediately, so the cache read is scheduled
     // via `unawaited` rather than awaited (discard_result rule, AGENTS.md §5).
+    // The seed never overwrites a populated snapshot with an empty read:
+    // after a reset clear the database is briefly empty while the retained
+    // rows are still the last-good state (stale banner over them, task 6.7).
+    // Identity changes reset the snapshot explicitly (`SessionReset`).
     unawaited(() async {
       final cached = (await repo.readCached()).getOrElse(
         (_) => const <SeasonView>[],
@@ -109,7 +121,9 @@ class SeasonsViewController extends _$SeasonsViewController {
       // (e.g. a screen torn down right after cold start) — touching `ref`
       // then would throw out of a fire-and-forget body.
       if (!ref.mounted) return;
-      ref.read(seasonsPrevRowsProvider.notifier).set(cached);
+      if (cached.isNotEmpty || ref.read(seasonsPrevRowsProvider).isEmpty) {
+        ref.read(seasonsPrevRowsProvider.notifier).set(cached);
+      }
     }());
 
     // Map the injected fetch `Result` into our projection's AsyncValue. The

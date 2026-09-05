@@ -9,7 +9,10 @@ plugins {
 
 android {
     namespace = "rs.breakdown.frontend_flutter"
-    compileSdk = flutter.compileSdkVersion
+    // Pinned above `flutter.compileSdkVersion` (currently 36):
+    // `flutter_secure_storage` ships AAR metadata requiring compileSdk 37+.
+    // Revisit when the Flutter stable template moves past 36.
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -20,6 +23,39 @@ android {
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "rs.breakdown.frontend_flutter"
+        // OIDC redirect scheme (spec `flutter-auth-shell`, task 3.3): the
+        // `oidcRedirectScheme` manifest placeholder is derived from the SAME
+        // `OIDC_REDIRECT_URI` environment value that CI passes to Flutter as
+        // `--dart-define=OIDC_REDIRECT_URI`, so the native deep-link
+        // registration cannot drift from the Dart configuration. Default is
+        // the canonical URI for both flavors (single application ID, no
+        // Gradle flavors): `breakdown://auth/callback`.
+        val oidcRedirectUri = System.getenv("OIDC_REDIRECT_URI")
+            .orEmpty()
+            .ifEmpty { "breakdown://auth/callback" }
+        val oidcRedirectScheme = oidcRedirectUri
+            .substringBefore("://")
+            .substringBefore(":")
+        require(
+            oidcRedirectScheme.isNotBlank() &&
+                !oidcRedirectScheme.contains("/")
+        ) {
+            "OIDC_REDIRECT_URI has no valid custom scheme: " +
+                "'$oidcRedirectUri' (expected e.g. 'breakdown://auth/callback')"
+        }
+        // An explicitly passed `-PoidcRedirectScheme=...` must agree with
+        // the derived scheme — a mismatch fails the build instead of
+        // shipping a native registration the IdP redirect can never reach.
+        val explicitScheme = project.findProperty("oidcRedirectScheme") as String?
+        if (explicitScheme != null && explicitScheme != oidcRedirectScheme) {
+            throw GradleException(
+                "oidcRedirectScheme property ('$explicitScheme') does not " +
+                    "match the scheme derived from OIDC_REDIRECT_URI " +
+                    "('$oidcRedirectScheme'). Pass the same OIDC_REDIRECT_URI " +
+                    "to Gradle and --dart-define."
+            )
+        }
+        manifestPlaceholders["oidcRedirectScheme"] = oidcRedirectScheme
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

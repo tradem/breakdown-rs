@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: glm-5.3-flash (opencode-go)
 
@@ -10,8 +11,37 @@ import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:flutter/foundation.dart' show FlutterError, kReleaseMode;
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app_config.dart';
+import '../../auth/auth_providers.dart';
+import '../../auth/token_store.dart';
+import '../../data/settings/api_base_override_store.dart';
+import 'auth_token_interceptor.dart';
+
+/// Pinned-CA [SecurityContext] loaded once at bootstrap and reused across
+/// Dio rebuilds (task 6.3). Overridden at the composition root with the
+/// context from [loadPinnedSecurityContext]; reading it before the override
+/// is a programming error.
+final pinnedSecurityContextProvider = Provider<SecurityContext>(
+  (ref) => throw UnimplementedError(
+    'pinnedSecurityContextProvider must be overridden at bootstrap',
+  ),
+);
+
+/// Rebuildable API [Dio] (task 6.3): the effective base is the runtime
+/// override when set, else the (possibly override-merged) `AppConfig.apiBase`
+/// from bootstrap. Built over the reused pinned context with the
+/// bearer-attaching interceptor; every dependent client/repository rebuilds
+/// when the base changes.
+final apiDioProvider = Provider<Dio>((ref) {
+  final config = ref.watch(appConfigProvider);
+  return buildPinnedDio(
+    baseUrl: ref.watch(runtimeApiBaseProvider) ?? config.apiBase,
+    context: ref.watch(pinnedSecurityContextProvider),
+    tokenStore: ref.watch(tokenStoreProvider),
+  );
+});
 
 /// Builds a [SecurityContext] that trusts ONLY the supplied CA certificate
 /// bytes. `withTrustedRoots: false` deliberately excludes the system trust
@@ -94,8 +124,28 @@ Future<SecurityContext> loadPinnedSecurityContext(
   }
 }
 
+/// Builds a pinned-CA [Dio] over an already-resolved [SecurityContext]
+/// (synchronous core shared by [buildApiClient] and the rebuildable
+/// `apiDioProvider` — the context is loaded once at bootstrap and reused
+/// across base-URL rebuilds, task 6.3).
+///
+/// Attaches [AuthTokenInterceptor] (bearer over HTTPS only, withheld on
+/// cleartext) backed by [tokenStore].
+Dio buildPinnedDio({
+  required String baseUrl,
+  required SecurityContext context,
+  required TokenStore tokenStore,
+}) {
+  final dio = Dio(BaseOptions(baseUrl: baseUrl));
+  dio.httpClientAdapter = IOHttpClientAdapter(
+    createHttpClient: () => HttpClient(context: context),
+  );
+  dio.interceptors.add(AuthTokenInterceptor(tokenStore));
+  return dio;
+}
+
 /// Builds the [Dio] HTTP client for the active flavor with per-flavor CA
-/// pinning.
+/// pinning (delegates transport construction to [buildPinnedDio]).
 ///
 /// The base URL is taken from [AppConfig.apiBase] (sourced from `--dart-define`
 /// at build time). The trusted CA is resolved by [loadPinnedSecurityContext]
@@ -107,7 +157,11 @@ Future<SecurityContext> loadPinnedSecurityContext(
 /// Throws [TlsConfigError] (fail-closed, D4) when the pinned-CA source is
 /// missing or invalid — call this from the composition root where the fatal
 /// screen can be rendered.
-Future<Dio> buildApiClient(AppConfig config, {String? inlinePem}) async {
+Future<Dio> buildApiClient(
+  AppConfig config, {
+  String? inlinePem,
+  TokenStore? tokenStore,
+}) async {
   // Prod requires HTTPS: a clear-text http:// base URL would bypass the
   // pinned-CA TLS context entirely, defeating the TLS pinning. Enforce
   // this at the composition root so a misconfigured --dart-define
@@ -119,12 +173,11 @@ Future<Dio> buildApiClient(AppConfig config, {String? inlinePem}) async {
   );
 
   final ctx = await loadPinnedSecurityContext(config, inlinePem: inlinePem);
-
-  final dio = Dio(BaseOptions(baseUrl: config.apiBase));
-  dio.httpClientAdapter = IOHttpClientAdapter(
-    createHttpClient: () => HttpClient(context: ctx),
+  return buildPinnedDio(
+    baseUrl: config.apiBase,
+    context: ctx,
+    tokenStore: tokenStore ?? SecureTokenStore(),
   );
-  return dio;
 }
 
 /// Builds the [Dio] client used for IdP (OIDC discovery / token endpoint)

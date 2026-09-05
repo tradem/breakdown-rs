@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: glm-5.3-flash (opencode-go)
+
+import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show kReleaseMode, visibleForTesting;
@@ -10,23 +13,124 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app_config.dart';
 import 'auth/auth_providers.dart';
+import 'core/problem_error.dart';
+import 'data/settings/api_base_override_store.dart';
+import 'data/settings/api_base_validation.dart';
+import 'design/spacing.dart';
+import 'design/theme.dart';
+import 'features/auth/login_screen.dart';
 import 'features/seasons/seasons_screen.dart';
 import 'src/network/api_client.dart';
 
 /// Root widget. Riverpod is the sole composition mechanism (AGENTS.md §1, D3);
 /// widgets render and dispatch, they never branch on domain semantics.
-class App extends StatelessWidget {
+///
+/// The Material 3 theme pair comes from [AppThemes] with
+/// `themeMode: ThemeMode.system` (spec `flutter-design-tokens`): a system
+/// brightness change re-renders without an app restart. The content subtree
+/// is the auth gate ([AuthGate], D1) — main-app screens are unreachable
+/// without a resolved authenticated session because the subtree does not
+/// exist.
+class App extends ConsumerWidget {
   const App({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return MaterialApp(
       title: 'Breakdown',
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
+      theme: AppThemes.light(),
+      darkTheme: AppThemes.dark(),
+      themeMode: ThemeMode.system,
+      home: const AuthGate(),
+    );
+  }
+}
+
+/// Root auth gate (D1, spec `flutter-auth-shell`). The ONLY place that
+/// branches on auth state:
+///
+/// - `AsyncLoading` → [SplashView] (restore in flight — a pending restore
+///   MUST NOT flash `LoginScreen`).
+/// - `AsyncData(null)` → [LoginScreen] (signed out; the seasons subtree is
+///   not built, so no main-app network call can happen).
+/// - `AsyncData(session)` → [SeasonsScreen].
+/// - `AsyncError` → [LoginScreen] with the failure surfaced. The error is
+///   normalized to a stable-code [ProblemError] first: `AsyncError` is not
+///   constrained to `ProblemError`, and the login error contract renders
+///   localized copy keyed on `code` only — raw exception text or server
+///   `detail` never reaches the screen.
+/// - `AsyncLoading` carrying an error (Riverpod 3 auto-retries a failed
+///   restore: while a retry is pending the state is loading WITH the
+///   previous error seeded) → [LoginScreen] as well. Failing fast to the
+///   login surface instead of flashing the splash through the backoff
+///   window: a restore failure renders login, never splash.
+///
+/// Sign-out (failed or not) always lands here: a failed cleanup surfaces as
+/// `AsyncError`, which still renders [LoginScreen], so main-app content is
+/// never reachable and no stale projection is rendered after sign-out.
+class AuthGate extends ConsumerWidget {
+  const AuthGate({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final session = ref.watch(authSessionControllerProvider);
+    return switch (session) {
+      AsyncError(:final error) => LoginScreen(
+        restoreError: normalizeGateError(error),
       ),
-      home: const SeasonsScreen(),
+      AsyncLoading(:final error) when error != null => LoginScreen(
+        restoreError: normalizeGateError(error),
+      ),
+      AsyncLoading() => const SplashView(),
+      AsyncData(:final value) => switch (value) {
+        null => const LoginScreen(),
+        _ => const SeasonsScreen(),
+      },
+    };
+  }
+}
+
+/// Normalizes a gate failure to the login error contract: [ProblemError]
+/// passes through; any other throw (e.g. a storage exception during
+/// restore) maps to the stable generic `auth.restore_failed` code with
+/// neutral copy. Exposed for tests (`@visibleForTesting`).
+@visibleForTesting
+ProblemError normalizeGateError(Object error) => error is ProblemError
+    ? error
+    : const ProblemError(code: 'auth.restore_failed');
+
+/// Branded launch splash: design-token spacing and color-scheme roles only
+/// (no hardcoded colors), with a [CircularProgressIndicator] for the
+/// pending session restore.
+class SplashView extends StatelessWidget {
+  const SplashView({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Scaffold(
+      backgroundColor: scheme.surface,
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.checkroom,
+              key: const Key('splash-brand-icon'),
+              size: 64,
+              color: scheme.primary,
+            ),
+            const SizedBox(height: AppSpacing.space16),
+            Text(
+              'Breakdown',
+              style: Theme.of(context).textTheme.headlineSmall
+                  ?.copyWith(color: scheme.onSurface),
+            ),
+            const SizedBox(height: AppSpacing.space24),
+            const CircularProgressIndicator(key: Key('splash-spinner')),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -94,7 +198,7 @@ class FatalConfigErrorApp extends StatelessWidget {
 ///   fail-closed posture).
 Future<void> bootstrap(Flavor flavor) async {
   WidgetsFlutterBinding.ensureInitialized();
-  final config = AppConfig.fromEnvironment(flavor);
+  final config = await resolveAppConfig(flavor);
 
   final configError = validateStartupConfig(config);
   if (configError != null) {
@@ -105,13 +209,21 @@ Future<void> bootstrap(Flavor flavor) async {
   Object? tlsError;
   Dio? apiDio;
   Dio? idpDio;
+  SecurityContext? pinnedContext;
   try {
+    // The pinned context is loaded once and shared: `buildApiClient` uses
+    // it for the bootstrap Dio, and `apiDioProvider` reuses it across
+    // runtime base-URL rebuilds (task 6.3).
+    pinnedContext = await loadPinnedSecurityContext(config);
     apiDio = await buildApiClient(config);
     idpDio = await buildIdpDio(config);
   } on TlsConfigError catch (e) {
     tlsError = e;
   }
-  if (tlsError != null || apiDio == null || idpDio == null) {
+  if (tlsError != null ||
+      apiDio == null ||
+      idpDio == null ||
+      pinnedContext == null) {
     runApp(
       FatalConfigErrorApp(error: tlsError ?? 'HTTP client construction failed'),
     );
@@ -124,10 +236,50 @@ Future<void> bootstrap(Flavor flavor) async {
         appConfigProvider.overrideWithValue(config),
         dioProvider.overrideWithValue(apiDio),
         idpDioProvider.overrideWith((ref) => Future.value(idpDio)),
+        pinnedSecurityContextProvider.overrideWithValue(pinnedContext),
       ],
       child: const App(),
     ),
   );
+}
+
+/// Resolves the effective runtime configuration: [AppConfig.fromEnvironment]
+/// (compile-time `--dart-define` values) with the persisted backend-URI
+/// override applied on top (task 6.1). No request is ever constructed before
+/// this returns, so no request can target the compile-time base when an
+/// override is stored. Exposed for tests (`@visibleForTesting`); production
+/// calls it from [bootstrap].
+@visibleForTesting
+Future<AppConfig> resolveAppConfig(Flavor flavor) async {
+  final base = AppConfig.fromEnvironment(flavor);
+  return applyApiBaseOverride(base);
+}
+
+/// Applies the persisted `api_base_override` (if any) to [config].
+///
+/// Flavor-guarded (spec `flutter-app-dialogs`): the override applies ONLY
+/// in `dev`. In `prod` a stored override — e.g. left over from a dev
+/// install over the same application ID (Android ships one ID, no product
+/// flavors) — is ignored AND cleared on boot; the compile-time HTTPS base
+/// is always used. An invalid stored value is ignored (the dialog validates
+/// on save; this is the defensive second check). A store read failure falls
+/// back to the compile-time base (secure-storage breakage already surfaces
+/// via session restore at the gate).
+@visibleForTesting
+Future<AppConfig> applyApiBaseOverride(AppConfig config) async {
+  final store = ApiBaseOverrideStore.secure();
+  final override = (await store.read()).getRight().toNullable();
+  if (override == null || override.isEmpty) return config;
+  if (config.flavor != Flavor.dev) {
+    // Best-effort cleanup: a failed clear only leaves a stale override
+    // that the next boot ignores (and retries clearing) the same way.
+    (await store.clear()).fold((_) {}, (_) {});
+    return config;
+  }
+  return validateApiBase(
+    override,
+    isDev: true,
+  ).match((_) => config, (base) => config.copyWith(apiBase: base));
 }
 
 /// Returns a human-readable reason when the build configuration violates a

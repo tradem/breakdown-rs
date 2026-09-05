@@ -15,6 +15,18 @@ releases are cut as `flutter-vX.Y.Z` tags.
 
 ### Added
 
+- Login & app shell (`flutter-login-and-app-shell`): auth gate (splash →
+  login → seasons), OIDC platform leg (Custom Tabs + deep-link capture),
+  light/dark Material 3 design tokens, app-shell overflow menu (identity,
+  About, Settings, sign-out with cache clear), About/Info dialog (version,
+  AGPL-3.0 + source link, AI usage notice), and settings dialog with
+  dev-only runtime backend-URI override (validated, pinned-CA rebuild,
+  generation-fenced cache reset).
+- `AuthTokenInterceptor`: attaches the session bearer token over HTTPS
+  only, always withheld on cleartext (CWE-319).
+- Android deep-link registration for `OIDC_REDIRECT_URI` (Gradle
+  `manifestPlaceholder` derived from the same source; `compileSdk 37` for
+  `flutter_secure_storage`).
 - Versioning scheme per ADR-033 (`pubspec.yaml` as single source of truth,
   `flutter-vX.Y.Z` release tags, monotonically increasing `+N` build number
   for the Play Store `versionCode`).

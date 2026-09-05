@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
@@ -57,13 +58,16 @@ void main() {
   late ManualReconciliationScheduler scheduler;
   late ProviderContainer container;
 
-  /// Container with dev-auth session (or signed out for [realOidcConfig]),
-  /// fake create, holder-driven projection writing the in-memory Drift cache.
-  void setupContainer({
+  /// Container with fake create and holder-driven projection writing the
+  /// in-memory Drift cache. Dev-auth boots signed out at the login gate
+  /// (spec `flutter-auth-shell`), so a dev-auth container resolves the
+  /// permissive session explicitly — the `Continue` action the gate offers.
+  /// [realOidcConfig] stays signed out (AUTHZ-GATE denial paths).
+  Future<void> setupContainer({
     AppConfig config = devAuthConfig,
     List<SeasonView> initialRows = const [],
     bool failInitialFetch = false,
-  }) {
+  }) async {
     db = CacheDatabase(NativeDatabase.memory());
     addTearDown(db.close);
     repo = FakeSeasonRepository(BreakdownApi(), SeasonCacheDao(db));
@@ -88,6 +92,9 @@ void main() {
       ],
     );
     addTearDown(container.dispose);
+    if (config.devAuthMode) {
+      await container.read(authSessionControllerProvider.notifier).signIn();
+    }
   }
 
   Future<void> pumpScreen(WidgetTester tester) async {
@@ -146,7 +153,9 @@ void main() {
     testWidgets('renders projected rows from the cache + FAB when authed', (
       tester,
     ) async {
-      setupContainer(initialRows: [season('a', number: 1, title: 'Spring')]);
+      await setupContainer(
+        initialRows: [season('a', number: 1, title: 'Spring')],
+      );
       await pumpScreen(tester);
 
       expect(find.text('Seasons'), findsOneWidget);
@@ -157,7 +166,7 @@ void main() {
     });
 
     testWidgets('empty projection shows the empty state', (tester) async {
-      setupContainer();
+      await setupContainer();
       await pumpScreen(tester);
       expect(find.text('No seasons yet'), findsOneWidget);
     });
@@ -165,7 +174,7 @@ void main() {
     testWidgets('AUTHZ-GATE: signed out → FAB hidden (task 3.3)', (
       tester,
     ) async {
-      setupContainer(config: realOidcConfig);
+      await setupContainer(config: realOidcConfig);
       await pumpScreen(tester);
       expect(find.byKey(const Key('season-add-fab')), findsNothing);
     });
@@ -173,7 +182,7 @@ void main() {
 
   group('Create Season sheet (task 3.2)', () {
     testWidgets('FAB opens the form and submits a command', (tester) async {
-      setupContainer();
+      await setupContainer();
       await pumpScreen(tester);
 
       await submitCreate(
@@ -193,7 +202,7 @@ void main() {
     });
 
     testWidgets('invalid number blocks submission', (tester) async {
-      setupContainer();
+      await setupContainer();
       await pumpScreen(tester);
       await tester.tap(find.byKey(const Key('season-add-fab')));
       await tester.pumpAndSettle();
@@ -212,7 +221,7 @@ void main() {
     testWidgets('POST network failure → banner keyed on code, no phantom row', (
       tester,
     ) async {
-      setupContainer();
+      await setupContainer();
       repo.createResult = const Left(_networkDown);
       await pumpScreen(tester);
 
@@ -228,7 +237,9 @@ void main() {
     testWidgets('409 conflict → banner keyed on code, nothing to revert', (
       tester,
     ) async {
-      setupContainer(initialRows: [season('a', number: 1, title: 'Spring')]);
+      await setupContainer(
+        initialRows: [season('a', number: 1, title: 'Spring')],
+      );
       repo.createResult = const Left(_conflict);
       await pumpScreen(tester);
 
@@ -252,7 +263,7 @@ void main() {
     testWidgets('retry exhaustion retains a stale overlay with warning', (
       tester,
     ) async {
-      setupContainer();
+      await setupContainer();
       await pumpScreen(tester);
       await submitCreate(
         tester,
@@ -301,7 +312,7 @@ void main() {
   testWidgets('SeasonsScreen golden (projected + stale overlay)', (
     tester,
   ) async {
-    setupContainer(
+    await setupContainer(
       initialRows: [
         season('a', number: 1, title: 'Spring'),
         season('b', number: 2, title: 'Summer'),

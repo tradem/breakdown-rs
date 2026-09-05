@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
@@ -8,6 +9,7 @@ import 'package:fpdart/fpdart.dart';
 import '../core/problem_error.dart';
 import '../core/result.dart';
 import 'base_repository.dart';
+import 'cache/cache_generation.dart';
 import 'cache/cache_ttl.dart';
 import 'cache/clock.dart';
 import 'cache/season_cache_dao.dart';
@@ -91,14 +93,22 @@ class SeasonRepository extends BaseRepository {
   /// call, tests pass a fake. On [Right] it applies the snapshot (upsert-all +
   /// delete missing ids, one transaction) and returns the rows. On [Left] it
   /// returns the error **without touching the cache** (D1).
+  ///
+  /// When [fence] is given, a write whose generation went stale while the
+  /// fetch was in flight (base switch / sign-out reset) is discarded: the
+  /// rows are still returned, but never persisted (task 6.3).
   Future<Result<List<SeasonView>>> fetchAndCacheList(
     Future<Result<List<SeasonView>>> Function() fetch, {
     Clock clock = Clock.system,
+    CacheWriteFence? fence,
   }) async {
     final result = await fetch();
     return result.match(
       (err) async => Left<ProblemError, List<SeasonView>>(err),
       (views) async {
+        if (fence != null && !fence.isCurrentGeneration(fence.generation)) {
+          return Right(views);
+        }
         try {
           await cache.applySnapshot(views, clock.now());
         } on Object {
@@ -139,4 +149,17 @@ class SeasonRepository extends BaseRepository {
     Clock clock = Clock.system,
     Duration ttl = kCacheTtl,
   }) => cache.isAnyExpired(ttl, clock: clock);
+
+  /// Empties the read-projection cache (sign-out and backend-switch
+  /// resets, spec `flutter-auth-shell`: rows from one identity/backend must
+  /// never leak into the next). Errors are values (`cache.clear_failed`),
+  /// never throws (AGENTS.md §5: no throw in `data/`).
+  Future<Result<void>> clearCache() async {
+    try {
+      await cache.clear();
+      return const Right<ProblemError, void>(null);
+    } on Object {
+      return const Left(ProblemError(code: 'cache.clear_failed'));
+    }
+  }
 }

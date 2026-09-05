@@ -70,6 +70,20 @@ class FakeSeasonRepository extends SeasonRepository {
   /// The last request that reached the "network" (payload assertions).
   CreateSeasonRequest? lastCreateRequest;
 
+  /// Scripted outcome for [clearCache]. `null` = real DAO clear.
+  Result<void>? clearCacheResult;
+
+  /// How many cache clears ran (sign-out empties the cache exactly once).
+  int clearCacheCalls = 0;
+
+  @override
+  Future<Result<void>> clearCache() {
+    clearCacheCalls++;
+    final scripted = clearCacheResult;
+    if (scripted != null) return Future.value(scripted);
+    return super.clearCache();
+  }
+
   @override
   Future<Result<IdVersionResponse>> create(CreateSeasonRequest request) {
     createCalls++;
@@ -95,6 +109,10 @@ class FakeTokenStore implements TokenStore {
 
   AuthTokens? tokens;
 
+  /// When true, [clear] fails with `auth.token_store_clear_failed`
+  /// (sign-out Err-path tests) instead of wiping.
+  bool failClear = false;
+
   @override
   Future<Result<AuthTokens?>> read() async =>
       Right<ProblemError, AuthTokens?>(tokens);
@@ -107,6 +125,9 @@ class FakeTokenStore implements TokenStore {
 
   @override
   Future<Result<void>> clear() async {
+    if (failClear) {
+      return const Left(ProblemError(code: 'auth.token_store_clear_failed'));
+    }
     tokens = null;
     return const Right<ProblemError, void>(null);
   }
