@@ -15,6 +15,11 @@ releases are cut as `flutter-vX.Y.Z` tags.
 
 ### Added
 
+- Pre-release version line: the client versions as `0.1.x+N` until the
+  first store submission, which will cut `1.0.0` (the `1.0.0+1` in
+  `pubspec.yaml` was the untouched `flutter create` scaffold default, not
+  a maturity claim; backend components version 0.x likewise). Build
+  number `+N` keeps increasing monotonically for the Play `versionCode`.
 - Login & app shell (`flutter-login-and-app-shell`): auth gate (splash →
   login → seasons), OIDC platform leg (Custom Tabs + deep-link capture),
   light/dark Material 3 design tokens, app-shell overflow menu (identity,
