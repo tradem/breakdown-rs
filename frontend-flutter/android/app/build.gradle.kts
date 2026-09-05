@@ -1,3 +1,5 @@
+import groovy.json.JsonSlurper
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
@@ -7,9 +9,28 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+/// Single source for the OIDC redirect URI (task 3.3): `oidc-config.json`
+/// next to this `android/` dir when present, else the `OIDC_REDIRECT_URI`
+/// environment value, else the canonical dev default.
+fun oidcRedirectUriFromConfig(): String {
+    val configFile = rootProject.file("../oidc-config.json")
+    if (configFile.isFile) {
+        @Suppress("unchecked_cast")
+        val parsed = JsonSlurper().parse(configFile) as Map<String, Any?>
+        val fromFile = (parsed["OIDC_REDIRECT_URI"] as String?).orEmpty()
+        if (fromFile.isNotBlank()) return fromFile
+    }
+    return System.getenv("OIDC_REDIRECT_URI")
+        .orEmpty()
+        .ifEmpty { "breakdown://auth/callback" }
+}
+
 android {
     namespace = "rs.breakdown.frontend_flutter"
-    compileSdk = flutter.compileSdkVersion
+    // Pinned above `flutter.compileSdkVersion` (currently 36):
+    // `flutter_secure_storage` ships AAR metadata requiring compileSdk 37+.
+    // Revisit when the Flutter stable template moves past 36.
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -20,6 +41,39 @@ android {
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "rs.breakdown.frontend_flutter"
+        // OIDC redirect scheme (spec `flutter-auth-shell`, task 3.3): the
+        // `oidcRedirectScheme` manifest placeholder is derived from ONE
+        // build input — `../../oidc-config.json` when present, else the
+        // `OIDC_REDIRECT_URI` environment value, else the canonical
+        // default. CI feeds the same file to Flutter via
+        // `--dart-define-from-file` (an explicit `--dart-define=` wins),
+        // so the native deep-link registration cannot drift from the Dart
+        // configuration. Default is the canonical URI for both flavors
+        // (single application ID, no Gradle flavors).
+        val oidcRedirectUri = oidcRedirectUriFromConfig()
+        val oidcRedirectScheme = oidcRedirectUri
+            .substringBefore("://")
+            .substringBefore(":")
+        require(
+            oidcRedirectScheme.isNotBlank() &&
+                !oidcRedirectScheme.contains("/")
+        ) {
+            "OIDC_REDIRECT_URI has no valid custom scheme: " +
+                "'$oidcRedirectUri' (expected e.g. 'breakdown://auth/callback')"
+        }
+        // An explicitly passed `-PoidcRedirectScheme=...` must agree with
+        // the derived scheme — a mismatch fails the build instead of
+        // shipping a native registration the IdP redirect can never reach.
+        val explicitScheme = project.findProperty("oidcRedirectScheme") as String?
+        if (explicitScheme != null && explicitScheme != oidcRedirectScheme) {
+            throw GradleException(
+                "oidcRedirectScheme property ('$explicitScheme') does not " +
+                    "match the scheme derived from OIDC_REDIRECT_URI " +
+                    "('$oidcRedirectScheme'). Pass the same OIDC_REDIRECT_URI " +
+                    "to Gradle and --dart-define."
+            )
+        }
+        manifestPlaceholders["oidcRedirectScheme"] = oidcRedirectScheme
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

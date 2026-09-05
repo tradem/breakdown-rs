@@ -108,6 +108,10 @@ void main() {
         ],
       );
       addTearDown(container.dispose);
+      // Dev-auth boots signed out at the login gate (spec
+      // `flutter-auth-shell`); resolve the permissive session explicitly —
+      // the `Continue` action the gate offers — for the AUTHZ-GATE FAB.
+      await container.read(authSessionControllerProvider.notifier).signIn();
 
       await tester.pumpWidget(
         UncontrolledProviderScope(

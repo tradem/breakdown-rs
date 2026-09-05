@@ -25,6 +25,26 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- OIDC redirect capture (spec `flutter-auth-shell`, task 3.3):
+                 delivers the IdP authorization redirect to `app_links` so
+                 `PlatformAuthorizationUi` can complete the sign-in. The
+                 scheme comes from the `oidcRedirectScheme` manifest
+                 placeholder, which `build.gradle.kts` derives from one
+                 build input (`oidc-config.json`, else the
+                 `OIDC_REDIRECT_URI` environment, else the canonical
+                 default) — the same file CI passes with the dart-define
+                 file flag, so the native registration cannot drift from
+                 the configured URI. Canonical value for both flavors
+                 (single application ID, no Gradle flavors):
+                 `breakdown://auth/callback` (the IdP client registration
+                 must allowlist it server-side). singleTop + empty
+                 taskAffinity keep the redirect on the existing activity. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="${oidcRedirectScheme}"/>
+            </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

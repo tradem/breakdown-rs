@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
@@ -32,9 +33,12 @@ const _listUnavailable = ProblemError(
 
 /// Container wired to: in-memory Drift, fake create, holder-backed list fetch
 /// (which writes Drift on Right and leaves it untouched on Left — exactly the
-/// `add-drift-read-cache` contract under test), controllable scheduler,
-/// dev-auth session.
-_Fixture _buildFixture({List<SeasonView>? initialRows}) {
+/// `add-drift-read-cache` contract under test), controllable scheduler.
+/// Dev-auth boots signed out at the login gate (spec `flutter-auth-shell`),
+/// so the fixture resolves the permissive session explicitly — the
+/// `Continue` action the gate offers — matching the AUTHZ-GATE the create
+/// path enforces.
+Future<_Fixture> _buildFixture({List<SeasonView>? initialRows}) async {
   final db = CacheDatabase(NativeDatabase.memory());
   final repo = FakeSeasonRepository(BreakdownApi(), SeasonCacheDao(db));
   final holder = ValueNotifier<Result<List<SeasonView>>>(
@@ -55,6 +59,7 @@ _Fixture _buildFixture({List<SeasonView>? initialRows}) {
   );
   addTearDown(container.dispose);
   addTearDown(db.close);
+  await container.read(authSessionControllerProvider.notifier).signIn();
   return _Fixture(container, db, repo, holder, scheduler);
 }
 
@@ -92,7 +97,7 @@ void main() {
 
   group('SeasonsController.create (D1: ack-gated optimistic insert)', () {
     test('create transmits the form-mapped request payload (seriesId/number/title)', () async {
-      final ctx = _buildFixture();
+      final ctx = await _buildFixture();
 
       final res = await ctx.controller.create(
         seriesId: 'series-7',
@@ -113,7 +118,7 @@ void main() {
     test(
       'Right after 2xx inserts a controller-state overlay, never Drift',
       () async {
-        final ctx = _buildFixture();
+        final ctx = await _buildFixture();
 
         final res = await ctx.controller.create(
           seriesId: 'series-1',
@@ -137,7 +142,7 @@ void main() {
     test(
       'reconciliation drops the overlay when the projection carries the id',
       () async {
-        final ctx = _buildFixture();
+        final ctx = await _buildFixture();
         // The projection already contains the new season, so the bounded pass
         // reconciles on its first attempt.
         ctx.holder.value = Right([
@@ -173,7 +178,7 @@ void main() {
     test(
       'network/5xx before 2xx: no overlay, Drift untouched, Err keyed on code',
       () async {
-        final ctx = _buildFixture();
+        final ctx = await _buildFixture();
         ctx.repo.createResult = const Left(_networkDown);
 
         final res = await ctx.controller.create(
@@ -196,7 +201,7 @@ void main() {
     test(
       '409 conflict (command-side, before 2xx): no overlay exists to revert',
       () async {
-        final ctx = _buildFixture(initialRows: [season('a')]);
+        final ctx = await _buildFixture(initialRows: [season('a')]);
         // Let the initial projection settle first, then snapshot Drift: the
         // failed command must not change it afterwards.
         await ctx.controller.reconcile();
@@ -245,8 +250,7 @@ void main() {
 
   group('bounded-retry reconciliation (D2/D3)', () {
     test('a late-acknowledged overlay triggers a dedicated follow-up reconcile pass', () async {
-      final ctx =
-          _buildFixture(); // holder Left → projection never carries overlays
+      final ctx = await _buildFixture(); // holder Left → projection never carries overlays
       await ctx.controller.create(seriesId: 'series-1', number: 2, title: 'A');
       final pass = ctx.controller.reconcile(); // pass1 in flight
       // Second create acknowledges while pass1 is in flight; it joins the
@@ -270,7 +274,7 @@ void main() {
     test(
       'retry exhaustion retains the overlay marked stale + warning',
       () async {
-        final ctx = _buildFixture(); // holder Left → every refetch fails
+        final ctx = await _buildFixture(); // holder Left → every refetch fails
         await ctx.controller.create(
           seriesId: 'series-1',
           number: 2,
@@ -294,7 +298,7 @@ void main() {
     test(
       'pull-to-refresh gives a stale overlay a fresh bounded pass',
       () async {
-        final ctx = _buildFixture();
+        final ctx = await _buildFixture();
         await ctx.controller.create(
           seriesId: 'series-1',
           number: 2,
@@ -314,7 +318,7 @@ void main() {
     );
 
     test('reconcile with no overlays is a plain projection refresh', () async {
-      final ctx = _buildFixture();
+      final ctx = await _buildFixture();
       ctx.holder.value = Right([season('a')]);
 
       await ctx.controller.refresh();

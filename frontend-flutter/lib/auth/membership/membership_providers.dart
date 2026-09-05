@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: glm-5.3-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
@@ -7,6 +8,7 @@ import 'package:fpdart/fpdart.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../core/result.dart';
+import '../../src/network/api_client.dart';
 import '../auth_providers.dart';
 import 'capability.dart';
 import 'membership_repository.dart';
@@ -39,7 +41,9 @@ Future<Result<SeasonMembershipDto>> membershipFetch(
   if (config.devAuthMode) {
     return Right(devAuthMembership(seasonId));
   }
-  final repo = MembershipRepository(BreakdownApi(dio: ref.watch(dioProvider)));
+  final repo = MembershipRepository(
+    BreakdownApi(dio: ref.watch(apiDioProvider)),
+  );
   return repo.fetch(seasonId);
 }
 

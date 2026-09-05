@@ -122,4 +122,20 @@ class AppConfig {
   /// artifact. Even when true, only the IdP host's transport is relaxed — the
   /// API host remains pinned.
   bool get devIdpHttpAllowed => isDev && !kReleaseMode && devIdpInsecure == '1';
+
+  /// Copies this config with [apiBase] replaced (runtime backend-URI
+  /// override application in `bootstrap()` — task 6.1; every other field
+  /// stays exactly as `--dart-define` provided it).
+  AppConfig copyWith({required String apiBase}) => AppConfig(
+    flavor: flavor,
+    apiBase: apiBase,
+    oidcIss: oidcIss,
+    devAuthSub: devAuthSub,
+    oidcAudience: oidcAudience,
+    oidcClientId: oidcClientId,
+    oidcRedirectUri: oidcRedirectUri,
+    devIdpInsecure: devIdpInsecure,
+    appVersion: appVersion,
+    defaultSeriesId: defaultSeriesId,
+  );
 }

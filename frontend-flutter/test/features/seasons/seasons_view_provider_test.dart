@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
 
 import 'dart:async';
 
 import 'package:breakdown_api/breakdown_api.dart';
+import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -18,6 +20,7 @@ import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/data/cache/seasons_view.dart';
 import 'package:frontend_flutter/data/season_repository.dart';
+import 'package:frontend_flutter/src/network/api_client.dart';
 
 SeasonView _season(String id, {int number = 1, String? title}) => SeasonView(
   (b) => b
@@ -41,6 +44,9 @@ ProviderContainer buildContainer(
 }) {
   return ProviderContainer(
     overrides: [
+      // Transport is never exercised here (fetch is holder-driven);
+      // the override satisfies the fail-closed composition default.
+      apiDioProvider.overrideWithValue(Dio()),
       cacheDatabaseProvider.overrideWithValue(db),
       if (repository != null)
         seasonRepositoryProvider.overrideWithValue(repository),

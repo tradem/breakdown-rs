@@ -1,0 +1,4 @@
+{
+  "_note": "Single source for the OIDC redirect URI (flutter-login-and-app-shell task 3.3): Gradle reads this file for the Android deep-link manifestPlaceholder AND CI passes it via --dart-define-from-file (an explicit --dart-define wins, but bootstrap fail-closes on any mismatch — see checkRedirectConsistency). This file is also bundled as an app asset for that check. Dev default below; production uses its IdP-registered URI.",
+  "OIDC_REDIRECT_URI": "breakdown://auth/callback"
+}

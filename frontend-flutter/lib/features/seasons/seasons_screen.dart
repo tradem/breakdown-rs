@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
 
 import 'package:flutter/material.dart';
@@ -7,6 +8,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
+import '../app_info/info_dialog.dart';
+import '../app_info/settings_dialog.dart';
+import '../auth/sign_out.dart';
 import 'create_season_sheet.dart';
 import 'seasons_controller.dart';
 import 'seasons_state.dart';
@@ -41,7 +45,10 @@ class SeasonsScreen extends ConsumerWidget {
     final controller = ref.read(seasonsControllerProvider.notifier);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Seasons')),
+      appBar: AppBar(
+        title: const Text('Seasons'),
+        actions: const [_ShellMenu()],
+      ),
       body: Column(
         children: [
           if (state.commandError case final error?)
@@ -140,6 +147,77 @@ class _SeasonTile extends StatelessWidget {
 }
 
 enum BannerTone { warning, error }
+
+/// App-shell overflow menu (task 4.1): authenticated identity, About,
+/// Settings, Sign out. Lives on the seasons screen until Phase 1b adds a
+/// dedicated shell.
+///
+/// About opens the info dialog (task 5.1); Settings opens the settings
+/// dialog (task 6.4). Sign out runs the full [SessionReset] coordinator
+/// (never throws — failures surface as gate state).
+class _ShellMenu extends ConsumerWidget {
+  const _ShellMenu();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final session = ref.watch(authSessionControllerProvider);
+    final sub = switch (session) {
+      AsyncData(:final value) => value?.sub ?? '',
+      _ => '',
+    };
+    return PopupMenuButton<_ShellMenuItem>(
+      key: const Key('seasons-menu-button'),
+      icon: const Icon(Icons.more_vert),
+      tooltip: 'Account and app options',
+      onSelected: (item) async {
+        switch (item) {
+          case _ShellMenuItem.about:
+            if (context.mounted) await showAppInfoDialog(context);
+          case _ShellMenuItem.settings:
+            if (context.mounted) await showSettingsDialog(context);
+          case _ShellMenuItem.signOut:
+            await ref.read(sessionResetProvider.notifier).signOut();
+        }
+      },
+      itemBuilder: (context) => [
+        PopupMenuItem<_ShellMenuItem>(
+          enabled: false,
+          child: ListTile(
+            key: const Key('menu-identity'),
+            leading: const Icon(Icons.account_circle),
+            title: Text(sub.isEmpty ? 'Signed out' : sub),
+            subtitle: const Text('Signed in'),
+          ),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem<_ShellMenuItem>(
+          key: Key('menu-about'),
+          value: _ShellMenuItem.about,
+          child: ListTile(
+            leading: Icon(Icons.info_outline),
+            title: Text('About'),
+          ),
+        ),
+        const PopupMenuItem<_ShellMenuItem>(
+          key: Key('menu-settings'),
+          value: _ShellMenuItem.settings,
+          child: ListTile(
+            leading: Icon(Icons.settings_outlined),
+            title: Text('Settings'),
+          ),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem<_ShellMenuItem>(
+          key: Key('menu-signout'),
+          value: _ShellMenuItem.signOut,
+          child: ListTile(leading: Icon(Icons.logout), title: Text('Sign out')),
+        ),
+      ],
+    );
+  }
+}
+
+enum _ShellMenuItem { about, settings, signOut }
 
 class _Banner extends StatelessWidget {
   const _Banner({
