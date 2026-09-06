@@ -18,8 +18,14 @@ import 'package:frontend_flutter/data/cache/hierarchy_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/data/scene_repository.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
+import 'package:frontend_flutter/auth/membership/membership_providers.dart';
+import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
+import 'package:frontend_flutter/data/character_repository.dart';
+import 'package:frontend_flutter/data/shooting_day_repository.dart';
+import 'package:frontend_flutter/features/characters/characters_controller.dart';
 import 'package:frontend_flutter/features/scenes/scenes_controller.dart';
 import 'package:frontend_flutter/features/scenes/scenes_screen.dart';
+import 'package:frontend_flutter/features/shooting_days/shooting_days_controller.dart';
 
 import '../seasons/seasons_test_fakes.dart';
 
@@ -133,7 +139,9 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: MaterialApp(home: ScenesScreen(episode: _episode())),
+        child: MaterialApp(
+          home: ScenesScreen(episode: _episode(), seasonId: 'season-1'),
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -252,7 +260,7 @@ void main() {
               theme: ThemeData.light(),
               darkTheme: ThemeData.dark(),
               themeMode: mode,
-              home: ScenesScreen(episode: _episode()),
+              home: ScenesScreen(episode: _episode(), seasonId: 'season-1'),
             ),
           ),
         );
@@ -304,6 +312,80 @@ void main() {
         mode: ThemeMode.dark,
         platform: TargetPlatform.macOS,
       );
+    });
+  });
+
+  group('Scene detail navigation (flutter-costume-domains 5.2/6.2)', () {
+    testWidgets('tile tap pushes the collapsible detail sections', (
+      tester,
+    ) async {
+      await setupContainer(initialRows: [_scene('s1')]);
+      // The pushed detail resolves characters/days/membership through
+      // plain-Dio fakes (never the pinned production Dio).
+      final navContainer = ProviderContainer(
+        overrides: [
+          appConfigProvider.overrideWithValue(devAuthConfig),
+          cacheDatabaseProvider.overrideWithValue(db),
+          sceneRepositoryProvider.overrideWithValue(repo),
+          reconciliationSchedulerProvider.overrideWith(
+            (ref) => ManualReconciliationScheduler(),
+          ),
+          scenesListFetchProvider('episode-1').overrideWith((ref) async {
+            final dao = SceneCacheDao(ref.watch(cacheDatabaseProvider));
+            return holder.value.match(
+              (err) => Left<ProblemError, List<SceneView>>(err),
+              (rows) async {
+                await dao.applySnapshotForEpisode(
+                  'episode-1',
+                  rows,
+                  DateTime.utc(2026, 1, 1),
+                );
+                return Right<ProblemError, List<SceneView>>(rows);
+              },
+            );
+          }),
+          characterRepositoryProvider.overrideWithValue(
+            CharacterRepository(BreakdownApi(), CharacterCacheDao(db)),
+          ),
+          shootingDayRepositoryProvider.overrideWithValue(
+            ShootingDayRepository(BreakdownApi(), ShootingDayCacheDao(db)),
+          ),
+          membershipFetchProvider('season-1').overrideWith(
+            (ref) async => Right(
+              SeasonMembershipDto(
+                (b) => b
+                  ..seasonId = 'season-1'
+                  ..hasActiveCostumeRoleInSeason = true
+                  ..capabilities.replace(['assign_costumes']),
+              ),
+            ),
+          ),
+          charactersListFetchProvider('season-1')
+              .overrideWith((ref) async => const Right([])),
+          shootingDaysListFetchProvider('episode-1')
+              .overrideWith((ref) async => const Right([])),
+        ],
+      );
+      addTearDown(navContainer.dispose);
+      await navContainer.read(authSessionControllerProvider.notifier).signIn();
+      tester.view.physicalSize = const Size(800, 1200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: navContainer,
+          child: MaterialApp(
+            home: ScenesScreen(episode: _episode(), seasonId: 'season-1'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('scene-s1')));
+      await tester.pumpAndSettle();
+      // Collapsible Characters + Shooting days sections (design §4).
+      expect(find.byKey(const Key('scene-detail-s1')), findsOneWidget);
+      expect(find.byKey(const Key('scene-characters-s1')), findsOneWidget);
+      expect(find.byKey(const Key('scene-shooting-days-s1')), findsOneWidget);
     });
   });
 }

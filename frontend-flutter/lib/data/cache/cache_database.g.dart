@@ -2915,6 +2915,2182 @@ class CostumeCategoryCacheRowsCompanion
   }
 }
 
+class $CostumeCacheRowsTable extends CostumeCacheRows
+    with TableInfo<$CostumeCacheRowsTable, CostumeCacheRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $CostumeCacheRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _seasonIdMeta = const VerificationMeta(
+    'seasonId',
+  );
+  @override
+  late final GeneratedColumn<String> seasonId = GeneratedColumn<String>(
+    'season_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _characterIdMeta = const VerificationMeta(
+    'characterId',
+  );
+  @override
+  late final GeneratedColumn<String> characterId = GeneratedColumn<String>(
+    'character_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _notesMeta = const VerificationMeta('notes');
+  @override
+  late final GeneratedColumn<String> notes = GeneratedColumn<String>(
+    'notes',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _detailsJsonMeta = const VerificationMeta(
+    'detailsJson',
+  );
+  @override
+  late final GeneratedColumn<String> detailsJson = GeneratedColumn<String>(
+    'details_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _photosJsonMeta = const VerificationMeta(
+    'photosJson',
+  );
+  @override
+  late final GeneratedColumn<String> photosJson = GeneratedColumn<String>(
+    'photos_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _versionMeta = const VerificationMeta(
+    'version',
+  );
+  @override
+  late final GeneratedColumn<int> version = GeneratedColumn<int>(
+    'version',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _cachedAtMeta = const VerificationMeta(
+    'cachedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> cachedAt = GeneratedColumn<DateTime>(
+    'cached_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    seasonId,
+    characterId,
+    notes,
+    detailsJson,
+    photosJson,
+    updatedAt,
+    version,
+    cachedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'costume_cache_rows';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<CostumeCacheRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('season_id')) {
+      context.handle(
+        _seasonIdMeta,
+        seasonId.isAcceptableOrUnknown(data['season_id']!, _seasonIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_seasonIdMeta);
+    }
+    if (data.containsKey('character_id')) {
+      context.handle(
+        _characterIdMeta,
+        characterId.isAcceptableOrUnknown(
+          data['character_id']!,
+          _characterIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('notes')) {
+      context.handle(
+        _notesMeta,
+        notes.isAcceptableOrUnknown(data['notes']!, _notesMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_notesMeta);
+    }
+    if (data.containsKey('details_json')) {
+      context.handle(
+        _detailsJsonMeta,
+        detailsJson.isAcceptableOrUnknown(
+          data['details_json']!,
+          _detailsJsonMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_detailsJsonMeta);
+    }
+    if (data.containsKey('photos_json')) {
+      context.handle(
+        _photosJsonMeta,
+        photosJson.isAcceptableOrUnknown(data['photos_json']!, _photosJsonMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_photosJsonMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    if (data.containsKey('version')) {
+      context.handle(
+        _versionMeta,
+        version.isAcceptableOrUnknown(data['version']!, _versionMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_versionMeta);
+    }
+    if (data.containsKey('cached_at')) {
+      context.handle(
+        _cachedAtMeta,
+        cachedAt.isAcceptableOrUnknown(data['cached_at']!, _cachedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_cachedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  CostumeCacheRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return CostumeCacheRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      seasonId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}season_id'],
+      )!,
+      characterId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}character_id'],
+      ),
+      notes: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}notes'],
+      )!,
+      detailsJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}details_json'],
+      )!,
+      photosJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}photos_json'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+      version: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}version'],
+      )!,
+      cachedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}cached_at'],
+      )!,
+    );
+  }
+
+  @override
+  $CostumeCacheRowsTable createAlias(String alias) {
+    return $CostumeCacheRowsTable(attachedDatabase, alias);
+  }
+}
+
+class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
+  /// Mirrors `CostumeView.id`.
+  final String id;
+
+  /// Fetch scope: `GET /v1/costumes?season_id=` (NOT on the wire DTO).
+  final String seasonId;
+
+  /// Mirrors `CostumeView.characterId` (nullable assignment).
+  final String? characterId;
+
+  /// Mirrors `CostumeView.notes`.
+  final String notes;
+
+  /// JSON snapshot of `CostumeView.details` (list of `CostumeDetailView`
+  /// wire maps, serialized via the generated `breakdown_api` serializers).
+  final String detailsJson;
+
+  /// JSON snapshot of `CostumeView.photos` (list of `CostumePhotoView`
+  /// wire maps, each with nested `variants`). Never cached independently —
+  /// rides the costume row (no photo-list route).
+  final String photosJson;
+
+  /// Mirrors `CostumeView.updatedAt` — server timestamp, preserved unchanged.
+  final DateTime updatedAt;
+
+  /// Mirrors `CostumeView.version` (optimistic-locking round-trips).
+  final int version;
+
+  /// Client-only cache-write time. TTL is computed from this column only.
+  final DateTime cachedAt;
+  const CostumeCacheRow({
+    required this.id,
+    required this.seasonId,
+    this.characterId,
+    required this.notes,
+    required this.detailsJson,
+    required this.photosJson,
+    required this.updatedAt,
+    required this.version,
+    required this.cachedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['season_id'] = Variable<String>(seasonId);
+    if (!nullToAbsent || characterId != null) {
+      map['character_id'] = Variable<String>(characterId);
+    }
+    map['notes'] = Variable<String>(notes);
+    map['details_json'] = Variable<String>(detailsJson);
+    map['photos_json'] = Variable<String>(photosJson);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    map['version'] = Variable<int>(version);
+    map['cached_at'] = Variable<DateTime>(cachedAt);
+    return map;
+  }
+
+  CostumeCacheRowsCompanion toCompanion(bool nullToAbsent) {
+    return CostumeCacheRowsCompanion(
+      id: Value(id),
+      seasonId: Value(seasonId),
+      characterId: characterId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(characterId),
+      notes: Value(notes),
+      detailsJson: Value(detailsJson),
+      photosJson: Value(photosJson),
+      updatedAt: Value(updatedAt),
+      version: Value(version),
+      cachedAt: Value(cachedAt),
+    );
+  }
+
+  factory CostumeCacheRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return CostumeCacheRow(
+      id: serializer.fromJson<String>(json['id']),
+      seasonId: serializer.fromJson<String>(json['seasonId']),
+      characterId: serializer.fromJson<String?>(json['characterId']),
+      notes: serializer.fromJson<String>(json['notes']),
+      detailsJson: serializer.fromJson<String>(json['detailsJson']),
+      photosJson: serializer.fromJson<String>(json['photosJson']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+      version: serializer.fromJson<int>(json['version']),
+      cachedAt: serializer.fromJson<DateTime>(json['cachedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'seasonId': serializer.toJson<String>(seasonId),
+      'characterId': serializer.toJson<String?>(characterId),
+      'notes': serializer.toJson<String>(notes),
+      'detailsJson': serializer.toJson<String>(detailsJson),
+      'photosJson': serializer.toJson<String>(photosJson),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+      'version': serializer.toJson<int>(version),
+      'cachedAt': serializer.toJson<DateTime>(cachedAt),
+    };
+  }
+
+  CostumeCacheRow copyWith({
+    String? id,
+    String? seasonId,
+    Value<String?> characterId = const Value.absent(),
+    String? notes,
+    String? detailsJson,
+    String? photosJson,
+    DateTime? updatedAt,
+    int? version,
+    DateTime? cachedAt,
+  }) => CostumeCacheRow(
+    id: id ?? this.id,
+    seasonId: seasonId ?? this.seasonId,
+    characterId: characterId.present ? characterId.value : this.characterId,
+    notes: notes ?? this.notes,
+    detailsJson: detailsJson ?? this.detailsJson,
+    photosJson: photosJson ?? this.photosJson,
+    updatedAt: updatedAt ?? this.updatedAt,
+    version: version ?? this.version,
+    cachedAt: cachedAt ?? this.cachedAt,
+  );
+  CostumeCacheRow copyWithCompanion(CostumeCacheRowsCompanion data) {
+    return CostumeCacheRow(
+      id: data.id.present ? data.id.value : this.id,
+      seasonId: data.seasonId.present ? data.seasonId.value : this.seasonId,
+      characterId: data.characterId.present
+          ? data.characterId.value
+          : this.characterId,
+      notes: data.notes.present ? data.notes.value : this.notes,
+      detailsJson: data.detailsJson.present
+          ? data.detailsJson.value
+          : this.detailsJson,
+      photosJson: data.photosJson.present
+          ? data.photosJson.value
+          : this.photosJson,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      version: data.version.present ? data.version.value : this.version,
+      cachedAt: data.cachedAt.present ? data.cachedAt.value : this.cachedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CostumeCacheRow(')
+          ..write('id: $id, ')
+          ..write('seasonId: $seasonId, ')
+          ..write('characterId: $characterId, ')
+          ..write('notes: $notes, ')
+          ..write('detailsJson: $detailsJson, ')
+          ..write('photosJson: $photosJson, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('version: $version, ')
+          ..write('cachedAt: $cachedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    seasonId,
+    characterId,
+    notes,
+    detailsJson,
+    photosJson,
+    updatedAt,
+    version,
+    cachedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CostumeCacheRow &&
+          other.id == this.id &&
+          other.seasonId == this.seasonId &&
+          other.characterId == this.characterId &&
+          other.notes == this.notes &&
+          other.detailsJson == this.detailsJson &&
+          other.photosJson == this.photosJson &&
+          other.updatedAt == this.updatedAt &&
+          other.version == this.version &&
+          other.cachedAt == this.cachedAt);
+}
+
+class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
+  final Value<String> id;
+  final Value<String> seasonId;
+  final Value<String?> characterId;
+  final Value<String> notes;
+  final Value<String> detailsJson;
+  final Value<String> photosJson;
+  final Value<DateTime> updatedAt;
+  final Value<int> version;
+  final Value<DateTime> cachedAt;
+  final Value<int> rowid;
+  const CostumeCacheRowsCompanion({
+    this.id = const Value.absent(),
+    this.seasonId = const Value.absent(),
+    this.characterId = const Value.absent(),
+    this.notes = const Value.absent(),
+    this.detailsJson = const Value.absent(),
+    this.photosJson = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.version = const Value.absent(),
+    this.cachedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  CostumeCacheRowsCompanion.insert({
+    required String id,
+    required String seasonId,
+    this.characterId = const Value.absent(),
+    required String notes,
+    required String detailsJson,
+    required String photosJson,
+    required DateTime updatedAt,
+    required int version,
+    required DateTime cachedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       seasonId = Value(seasonId),
+       notes = Value(notes),
+       detailsJson = Value(detailsJson),
+       photosJson = Value(photosJson),
+       updatedAt = Value(updatedAt),
+       version = Value(version),
+       cachedAt = Value(cachedAt);
+  static Insertable<CostumeCacheRow> custom({
+    Expression<String>? id,
+    Expression<String>? seasonId,
+    Expression<String>? characterId,
+    Expression<String>? notes,
+    Expression<String>? detailsJson,
+    Expression<String>? photosJson,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? version,
+    Expression<DateTime>? cachedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (seasonId != null) 'season_id': seasonId,
+      if (characterId != null) 'character_id': characterId,
+      if (notes != null) 'notes': notes,
+      if (detailsJson != null) 'details_json': detailsJson,
+      if (photosJson != null) 'photos_json': photosJson,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (version != null) 'version': version,
+      if (cachedAt != null) 'cached_at': cachedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  CostumeCacheRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? seasonId,
+    Value<String?>? characterId,
+    Value<String>? notes,
+    Value<String>? detailsJson,
+    Value<String>? photosJson,
+    Value<DateTime>? updatedAt,
+    Value<int>? version,
+    Value<DateTime>? cachedAt,
+    Value<int>? rowid,
+  }) {
+    return CostumeCacheRowsCompanion(
+      id: id ?? this.id,
+      seasonId: seasonId ?? this.seasonId,
+      characterId: characterId ?? this.characterId,
+      notes: notes ?? this.notes,
+      detailsJson: detailsJson ?? this.detailsJson,
+      photosJson: photosJson ?? this.photosJson,
+      updatedAt: updatedAt ?? this.updatedAt,
+      version: version ?? this.version,
+      cachedAt: cachedAt ?? this.cachedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (seasonId.present) {
+      map['season_id'] = Variable<String>(seasonId.value);
+    }
+    if (characterId.present) {
+      map['character_id'] = Variable<String>(characterId.value);
+    }
+    if (notes.present) {
+      map['notes'] = Variable<String>(notes.value);
+    }
+    if (detailsJson.present) {
+      map['details_json'] = Variable<String>(detailsJson.value);
+    }
+    if (photosJson.present) {
+      map['photos_json'] = Variable<String>(photosJson.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (version.present) {
+      map['version'] = Variable<int>(version.value);
+    }
+    if (cachedAt.present) {
+      map['cached_at'] = Variable<DateTime>(cachedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CostumeCacheRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('seasonId: $seasonId, ')
+          ..write('characterId: $characterId, ')
+          ..write('notes: $notes, ')
+          ..write('detailsJson: $detailsJson, ')
+          ..write('photosJson: $photosJson, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('version: $version, ')
+          ..write('cachedAt: $cachedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $CharacterCacheRowsTable extends CharacterCacheRows
+    with TableInfo<$CharacterCacheRowsTable, CharacterCacheRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $CharacterCacheRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _seasonIdMeta = const VerificationMeta(
+    'seasonId',
+  );
+  @override
+  late final GeneratedColumn<String> seasonId = GeneratedColumn<String>(
+    'season_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _categoryMeta = const VerificationMeta(
+    'category',
+  );
+  @override
+  late final GeneratedColumn<String> category = GeneratedColumn<String>(
+    'category',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _heightMeta = const VerificationMeta('height');
+  @override
+  late final GeneratedColumn<String> height = GeneratedColumn<String>(
+    'height',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _weightMeta = const VerificationMeta('weight');
+  @override
+  late final GeneratedColumn<String> weight = GeneratedColumn<String>(
+    'weight',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _chestMeta = const VerificationMeta('chest');
+  @override
+  late final GeneratedColumn<String> chest = GeneratedColumn<String>(
+    'chest',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _waistMeta = const VerificationMeta('waist');
+  @override
+  late final GeneratedColumn<String> waist = GeneratedColumn<String>(
+    'waist',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _hipsMeta = const VerificationMeta('hips');
+  @override
+  late final GeneratedColumn<String> hips = GeneratedColumn<String>(
+    'hips',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _shoeSizeMeta = const VerificationMeta(
+    'shoeSize',
+  );
+  @override
+  late final GeneratedColumn<String> shoeSize = GeneratedColumn<String>(
+    'shoe_size',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _hatSizeMeta = const VerificationMeta(
+    'hatSize',
+  );
+  @override
+  late final GeneratedColumn<String> hatSize = GeneratedColumn<String>(
+    'hat_size',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _emailMeta = const VerificationMeta('email');
+  @override
+  late final GeneratedColumn<String> email = GeneratedColumn<String>(
+    'email',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _phoneMeta = const VerificationMeta('phone');
+  @override
+  late final GeneratedColumn<String> phone = GeneratedColumn<String>(
+    'phone',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _versionMeta = const VerificationMeta(
+    'version',
+  );
+  @override
+  late final GeneratedColumn<int> version = GeneratedColumn<int>(
+    'version',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _cachedAtMeta = const VerificationMeta(
+    'cachedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> cachedAt = GeneratedColumn<DateTime>(
+    'cached_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    seasonId,
+    name,
+    category,
+    height,
+    weight,
+    chest,
+    waist,
+    hips,
+    shoeSize,
+    hatSize,
+    email,
+    phone,
+    updatedAt,
+    version,
+    cachedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'character_cache_rows';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<CharacterCacheRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('season_id')) {
+      context.handle(
+        _seasonIdMeta,
+        seasonId.isAcceptableOrUnknown(data['season_id']!, _seasonIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_seasonIdMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('category')) {
+      context.handle(
+        _categoryMeta,
+        category.isAcceptableOrUnknown(data['category']!, _categoryMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_categoryMeta);
+    }
+    if (data.containsKey('height')) {
+      context.handle(
+        _heightMeta,
+        height.isAcceptableOrUnknown(data['height']!, _heightMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_heightMeta);
+    }
+    if (data.containsKey('weight')) {
+      context.handle(
+        _weightMeta,
+        weight.isAcceptableOrUnknown(data['weight']!, _weightMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_weightMeta);
+    }
+    if (data.containsKey('chest')) {
+      context.handle(
+        _chestMeta,
+        chest.isAcceptableOrUnknown(data['chest']!, _chestMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_chestMeta);
+    }
+    if (data.containsKey('waist')) {
+      context.handle(
+        _waistMeta,
+        waist.isAcceptableOrUnknown(data['waist']!, _waistMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_waistMeta);
+    }
+    if (data.containsKey('hips')) {
+      context.handle(
+        _hipsMeta,
+        hips.isAcceptableOrUnknown(data['hips']!, _hipsMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_hipsMeta);
+    }
+    if (data.containsKey('shoe_size')) {
+      context.handle(
+        _shoeSizeMeta,
+        shoeSize.isAcceptableOrUnknown(data['shoe_size']!, _shoeSizeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_shoeSizeMeta);
+    }
+    if (data.containsKey('hat_size')) {
+      context.handle(
+        _hatSizeMeta,
+        hatSize.isAcceptableOrUnknown(data['hat_size']!, _hatSizeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_hatSizeMeta);
+    }
+    if (data.containsKey('email')) {
+      context.handle(
+        _emailMeta,
+        email.isAcceptableOrUnknown(data['email']!, _emailMeta),
+      );
+    }
+    if (data.containsKey('phone')) {
+      context.handle(
+        _phoneMeta,
+        phone.isAcceptableOrUnknown(data['phone']!, _phoneMeta),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    if (data.containsKey('version')) {
+      context.handle(
+        _versionMeta,
+        version.isAcceptableOrUnknown(data['version']!, _versionMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_versionMeta);
+    }
+    if (data.containsKey('cached_at')) {
+      context.handle(
+        _cachedAtMeta,
+        cachedAt.isAcceptableOrUnknown(data['cached_at']!, _cachedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_cachedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  CharacterCacheRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return CharacterCacheRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      seasonId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}season_id'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      category: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}category'],
+      )!,
+      height: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}height'],
+      )!,
+      weight: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}weight'],
+      )!,
+      chest: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}chest'],
+      )!,
+      waist: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}waist'],
+      )!,
+      hips: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}hips'],
+      )!,
+      shoeSize: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}shoe_size'],
+      )!,
+      hatSize: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}hat_size'],
+      )!,
+      email: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}email'],
+      ),
+      phone: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}phone'],
+      ),
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+      version: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}version'],
+      )!,
+      cachedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}cached_at'],
+      )!,
+    );
+  }
+
+  @override
+  $CharacterCacheRowsTable createAlias(String alias) {
+    return $CharacterCacheRowsTable(attachedDatabase, alias);
+  }
+}
+
+class CharacterCacheRow extends DataClass
+    implements Insertable<CharacterCacheRow> {
+  /// Mirrors `CharacterView.id`.
+  final String id;
+
+  /// Mirrors `CharacterView.seasonId` (fetch scope).
+  final String seasonId;
+
+  /// Mirrors `CharacterView.name`.
+  final String name;
+
+  /// Mirrors `CharacterView.category` (`main_cast|guest|extra` wire string;
+  /// unknown variants strictly reject at parse time, never guessed).
+  final String category;
+
+  /// Flattened `CharacterMeasurements` (all seven required strings).
+  final String height;
+  final String weight;
+  final String chest;
+  final String waist;
+  final String hips;
+  final String shoeSize;
+  final String hatSize;
+
+  /// Flattened `ContactInfo` (both nullable).
+  final String? email;
+  final String? phone;
+
+  /// Mirrors `CharacterView.updatedAt` — server timestamp, preserved unchanged.
+  final DateTime updatedAt;
+
+  /// Mirrors `CharacterView.version` (optimistic-locking round-trips).
+  final int version;
+
+  /// Client-only cache-write time. TTL is computed from this column only.
+  final DateTime cachedAt;
+  const CharacterCacheRow({
+    required this.id,
+    required this.seasonId,
+    required this.name,
+    required this.category,
+    required this.height,
+    required this.weight,
+    required this.chest,
+    required this.waist,
+    required this.hips,
+    required this.shoeSize,
+    required this.hatSize,
+    this.email,
+    this.phone,
+    required this.updatedAt,
+    required this.version,
+    required this.cachedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['season_id'] = Variable<String>(seasonId);
+    map['name'] = Variable<String>(name);
+    map['category'] = Variable<String>(category);
+    map['height'] = Variable<String>(height);
+    map['weight'] = Variable<String>(weight);
+    map['chest'] = Variable<String>(chest);
+    map['waist'] = Variable<String>(waist);
+    map['hips'] = Variable<String>(hips);
+    map['shoe_size'] = Variable<String>(shoeSize);
+    map['hat_size'] = Variable<String>(hatSize);
+    if (!nullToAbsent || email != null) {
+      map['email'] = Variable<String>(email);
+    }
+    if (!nullToAbsent || phone != null) {
+      map['phone'] = Variable<String>(phone);
+    }
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    map['version'] = Variable<int>(version);
+    map['cached_at'] = Variable<DateTime>(cachedAt);
+    return map;
+  }
+
+  CharacterCacheRowsCompanion toCompanion(bool nullToAbsent) {
+    return CharacterCacheRowsCompanion(
+      id: Value(id),
+      seasonId: Value(seasonId),
+      name: Value(name),
+      category: Value(category),
+      height: Value(height),
+      weight: Value(weight),
+      chest: Value(chest),
+      waist: Value(waist),
+      hips: Value(hips),
+      shoeSize: Value(shoeSize),
+      hatSize: Value(hatSize),
+      email: email == null && nullToAbsent
+          ? const Value.absent()
+          : Value(email),
+      phone: phone == null && nullToAbsent
+          ? const Value.absent()
+          : Value(phone),
+      updatedAt: Value(updatedAt),
+      version: Value(version),
+      cachedAt: Value(cachedAt),
+    );
+  }
+
+  factory CharacterCacheRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return CharacterCacheRow(
+      id: serializer.fromJson<String>(json['id']),
+      seasonId: serializer.fromJson<String>(json['seasonId']),
+      name: serializer.fromJson<String>(json['name']),
+      category: serializer.fromJson<String>(json['category']),
+      height: serializer.fromJson<String>(json['height']),
+      weight: serializer.fromJson<String>(json['weight']),
+      chest: serializer.fromJson<String>(json['chest']),
+      waist: serializer.fromJson<String>(json['waist']),
+      hips: serializer.fromJson<String>(json['hips']),
+      shoeSize: serializer.fromJson<String>(json['shoeSize']),
+      hatSize: serializer.fromJson<String>(json['hatSize']),
+      email: serializer.fromJson<String?>(json['email']),
+      phone: serializer.fromJson<String?>(json['phone']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+      version: serializer.fromJson<int>(json['version']),
+      cachedAt: serializer.fromJson<DateTime>(json['cachedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'seasonId': serializer.toJson<String>(seasonId),
+      'name': serializer.toJson<String>(name),
+      'category': serializer.toJson<String>(category),
+      'height': serializer.toJson<String>(height),
+      'weight': serializer.toJson<String>(weight),
+      'chest': serializer.toJson<String>(chest),
+      'waist': serializer.toJson<String>(waist),
+      'hips': serializer.toJson<String>(hips),
+      'shoeSize': serializer.toJson<String>(shoeSize),
+      'hatSize': serializer.toJson<String>(hatSize),
+      'email': serializer.toJson<String?>(email),
+      'phone': serializer.toJson<String?>(phone),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+      'version': serializer.toJson<int>(version),
+      'cachedAt': serializer.toJson<DateTime>(cachedAt),
+    };
+  }
+
+  CharacterCacheRow copyWith({
+    String? id,
+    String? seasonId,
+    String? name,
+    String? category,
+    String? height,
+    String? weight,
+    String? chest,
+    String? waist,
+    String? hips,
+    String? shoeSize,
+    String? hatSize,
+    Value<String?> email = const Value.absent(),
+    Value<String?> phone = const Value.absent(),
+    DateTime? updatedAt,
+    int? version,
+    DateTime? cachedAt,
+  }) => CharacterCacheRow(
+    id: id ?? this.id,
+    seasonId: seasonId ?? this.seasonId,
+    name: name ?? this.name,
+    category: category ?? this.category,
+    height: height ?? this.height,
+    weight: weight ?? this.weight,
+    chest: chest ?? this.chest,
+    waist: waist ?? this.waist,
+    hips: hips ?? this.hips,
+    shoeSize: shoeSize ?? this.shoeSize,
+    hatSize: hatSize ?? this.hatSize,
+    email: email.present ? email.value : this.email,
+    phone: phone.present ? phone.value : this.phone,
+    updatedAt: updatedAt ?? this.updatedAt,
+    version: version ?? this.version,
+    cachedAt: cachedAt ?? this.cachedAt,
+  );
+  CharacterCacheRow copyWithCompanion(CharacterCacheRowsCompanion data) {
+    return CharacterCacheRow(
+      id: data.id.present ? data.id.value : this.id,
+      seasonId: data.seasonId.present ? data.seasonId.value : this.seasonId,
+      name: data.name.present ? data.name.value : this.name,
+      category: data.category.present ? data.category.value : this.category,
+      height: data.height.present ? data.height.value : this.height,
+      weight: data.weight.present ? data.weight.value : this.weight,
+      chest: data.chest.present ? data.chest.value : this.chest,
+      waist: data.waist.present ? data.waist.value : this.waist,
+      hips: data.hips.present ? data.hips.value : this.hips,
+      shoeSize: data.shoeSize.present ? data.shoeSize.value : this.shoeSize,
+      hatSize: data.hatSize.present ? data.hatSize.value : this.hatSize,
+      email: data.email.present ? data.email.value : this.email,
+      phone: data.phone.present ? data.phone.value : this.phone,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      version: data.version.present ? data.version.value : this.version,
+      cachedAt: data.cachedAt.present ? data.cachedAt.value : this.cachedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CharacterCacheRow(')
+          ..write('id: $id, ')
+          ..write('seasonId: $seasonId, ')
+          ..write('name: $name, ')
+          ..write('category: $category, ')
+          ..write('height: $height, ')
+          ..write('weight: $weight, ')
+          ..write('chest: $chest, ')
+          ..write('waist: $waist, ')
+          ..write('hips: $hips, ')
+          ..write('shoeSize: $shoeSize, ')
+          ..write('hatSize: $hatSize, ')
+          ..write('email: $email, ')
+          ..write('phone: $phone, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('version: $version, ')
+          ..write('cachedAt: $cachedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    seasonId,
+    name,
+    category,
+    height,
+    weight,
+    chest,
+    waist,
+    hips,
+    shoeSize,
+    hatSize,
+    email,
+    phone,
+    updatedAt,
+    version,
+    cachedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CharacterCacheRow &&
+          other.id == this.id &&
+          other.seasonId == this.seasonId &&
+          other.name == this.name &&
+          other.category == this.category &&
+          other.height == this.height &&
+          other.weight == this.weight &&
+          other.chest == this.chest &&
+          other.waist == this.waist &&
+          other.hips == this.hips &&
+          other.shoeSize == this.shoeSize &&
+          other.hatSize == this.hatSize &&
+          other.email == this.email &&
+          other.phone == this.phone &&
+          other.updatedAt == this.updatedAt &&
+          other.version == this.version &&
+          other.cachedAt == this.cachedAt);
+}
+
+class CharacterCacheRowsCompanion extends UpdateCompanion<CharacterCacheRow> {
+  final Value<String> id;
+  final Value<String> seasonId;
+  final Value<String> name;
+  final Value<String> category;
+  final Value<String> height;
+  final Value<String> weight;
+  final Value<String> chest;
+  final Value<String> waist;
+  final Value<String> hips;
+  final Value<String> shoeSize;
+  final Value<String> hatSize;
+  final Value<String?> email;
+  final Value<String?> phone;
+  final Value<DateTime> updatedAt;
+  final Value<int> version;
+  final Value<DateTime> cachedAt;
+  final Value<int> rowid;
+  const CharacterCacheRowsCompanion({
+    this.id = const Value.absent(),
+    this.seasonId = const Value.absent(),
+    this.name = const Value.absent(),
+    this.category = const Value.absent(),
+    this.height = const Value.absent(),
+    this.weight = const Value.absent(),
+    this.chest = const Value.absent(),
+    this.waist = const Value.absent(),
+    this.hips = const Value.absent(),
+    this.shoeSize = const Value.absent(),
+    this.hatSize = const Value.absent(),
+    this.email = const Value.absent(),
+    this.phone = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.version = const Value.absent(),
+    this.cachedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  CharacterCacheRowsCompanion.insert({
+    required String id,
+    required String seasonId,
+    required String name,
+    required String category,
+    required String height,
+    required String weight,
+    required String chest,
+    required String waist,
+    required String hips,
+    required String shoeSize,
+    required String hatSize,
+    this.email = const Value.absent(),
+    this.phone = const Value.absent(),
+    required DateTime updatedAt,
+    required int version,
+    required DateTime cachedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       seasonId = Value(seasonId),
+       name = Value(name),
+       category = Value(category),
+       height = Value(height),
+       weight = Value(weight),
+       chest = Value(chest),
+       waist = Value(waist),
+       hips = Value(hips),
+       shoeSize = Value(shoeSize),
+       hatSize = Value(hatSize),
+       updatedAt = Value(updatedAt),
+       version = Value(version),
+       cachedAt = Value(cachedAt);
+  static Insertable<CharacterCacheRow> custom({
+    Expression<String>? id,
+    Expression<String>? seasonId,
+    Expression<String>? name,
+    Expression<String>? category,
+    Expression<String>? height,
+    Expression<String>? weight,
+    Expression<String>? chest,
+    Expression<String>? waist,
+    Expression<String>? hips,
+    Expression<String>? shoeSize,
+    Expression<String>? hatSize,
+    Expression<String>? email,
+    Expression<String>? phone,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? version,
+    Expression<DateTime>? cachedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (seasonId != null) 'season_id': seasonId,
+      if (name != null) 'name': name,
+      if (category != null) 'category': category,
+      if (height != null) 'height': height,
+      if (weight != null) 'weight': weight,
+      if (chest != null) 'chest': chest,
+      if (waist != null) 'waist': waist,
+      if (hips != null) 'hips': hips,
+      if (shoeSize != null) 'shoe_size': shoeSize,
+      if (hatSize != null) 'hat_size': hatSize,
+      if (email != null) 'email': email,
+      if (phone != null) 'phone': phone,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (version != null) 'version': version,
+      if (cachedAt != null) 'cached_at': cachedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  CharacterCacheRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? seasonId,
+    Value<String>? name,
+    Value<String>? category,
+    Value<String>? height,
+    Value<String>? weight,
+    Value<String>? chest,
+    Value<String>? waist,
+    Value<String>? hips,
+    Value<String>? shoeSize,
+    Value<String>? hatSize,
+    Value<String?>? email,
+    Value<String?>? phone,
+    Value<DateTime>? updatedAt,
+    Value<int>? version,
+    Value<DateTime>? cachedAt,
+    Value<int>? rowid,
+  }) {
+    return CharacterCacheRowsCompanion(
+      id: id ?? this.id,
+      seasonId: seasonId ?? this.seasonId,
+      name: name ?? this.name,
+      category: category ?? this.category,
+      height: height ?? this.height,
+      weight: weight ?? this.weight,
+      chest: chest ?? this.chest,
+      waist: waist ?? this.waist,
+      hips: hips ?? this.hips,
+      shoeSize: shoeSize ?? this.shoeSize,
+      hatSize: hatSize ?? this.hatSize,
+      email: email ?? this.email,
+      phone: phone ?? this.phone,
+      updatedAt: updatedAt ?? this.updatedAt,
+      version: version ?? this.version,
+      cachedAt: cachedAt ?? this.cachedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (seasonId.present) {
+      map['season_id'] = Variable<String>(seasonId.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (category.present) {
+      map['category'] = Variable<String>(category.value);
+    }
+    if (height.present) {
+      map['height'] = Variable<String>(height.value);
+    }
+    if (weight.present) {
+      map['weight'] = Variable<String>(weight.value);
+    }
+    if (chest.present) {
+      map['chest'] = Variable<String>(chest.value);
+    }
+    if (waist.present) {
+      map['waist'] = Variable<String>(waist.value);
+    }
+    if (hips.present) {
+      map['hips'] = Variable<String>(hips.value);
+    }
+    if (shoeSize.present) {
+      map['shoe_size'] = Variable<String>(shoeSize.value);
+    }
+    if (hatSize.present) {
+      map['hat_size'] = Variable<String>(hatSize.value);
+    }
+    if (email.present) {
+      map['email'] = Variable<String>(email.value);
+    }
+    if (phone.present) {
+      map['phone'] = Variable<String>(phone.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (version.present) {
+      map['version'] = Variable<int>(version.value);
+    }
+    if (cachedAt.present) {
+      map['cached_at'] = Variable<DateTime>(cachedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CharacterCacheRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('seasonId: $seasonId, ')
+          ..write('name: $name, ')
+          ..write('category: $category, ')
+          ..write('height: $height, ')
+          ..write('weight: $weight, ')
+          ..write('chest: $chest, ')
+          ..write('waist: $waist, ')
+          ..write('hips: $hips, ')
+          ..write('shoeSize: $shoeSize, ')
+          ..write('hatSize: $hatSize, ')
+          ..write('email: $email, ')
+          ..write('phone: $phone, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('version: $version, ')
+          ..write('cachedAt: $cachedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $ShootingDayCacheRowsTable extends ShootingDayCacheRows
+    with TableInfo<$ShootingDayCacheRowsTable, ShootingDayCacheRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ShootingDayCacheRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _episodeIdMeta = const VerificationMeta(
+    'episodeId',
+  );
+  @override
+  late final GeneratedColumn<String> episodeId = GeneratedColumn<String>(
+    'episode_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _orderKeyMeta = const VerificationMeta(
+    'orderKey',
+  );
+  @override
+  late final GeneratedColumn<String> orderKey = GeneratedColumn<String>(
+    'order_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sourceJsonMeta = const VerificationMeta(
+    'sourceJson',
+  );
+  @override
+  late final GeneratedColumn<String> sourceJson = GeneratedColumn<String>(
+    'source_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _labelMeta = const VerificationMeta('label');
+  @override
+  late final GeneratedColumn<String> label = GeneratedColumn<String>(
+    'label',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _dateMeta = const VerificationMeta('date');
+  @override
+  late final GeneratedColumn<String> date = GeneratedColumn<String>(
+    'date',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _archivedMeta = const VerificationMeta(
+    'archived',
+  );
+  @override
+  late final GeneratedColumn<bool> archived = GeneratedColumn<bool>(
+    'archived',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("archived" IN (0, 1))',
+    ),
+  );
+  static const VerificationMeta _wrappedAtMeta = const VerificationMeta(
+    'wrappedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> wrappedAt = GeneratedColumn<DateTime>(
+    'wrapped_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _versionMeta = const VerificationMeta(
+    'version',
+  );
+  @override
+  late final GeneratedColumn<int> version = GeneratedColumn<int>(
+    'version',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _cachedAtMeta = const VerificationMeta(
+    'cachedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> cachedAt = GeneratedColumn<DateTime>(
+    'cached_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    episodeId,
+    orderKey,
+    sourceJson,
+    label,
+    date,
+    archived,
+    wrappedAt,
+    updatedAt,
+    version,
+    cachedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'shooting_day_cache_rows';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<ShootingDayCacheRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('episode_id')) {
+      context.handle(
+        _episodeIdMeta,
+        episodeId.isAcceptableOrUnknown(data['episode_id']!, _episodeIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_episodeIdMeta);
+    }
+    if (data.containsKey('order_key')) {
+      context.handle(
+        _orderKeyMeta,
+        orderKey.isAcceptableOrUnknown(data['order_key']!, _orderKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_orderKeyMeta);
+    }
+    if (data.containsKey('source_json')) {
+      context.handle(
+        _sourceJsonMeta,
+        sourceJson.isAcceptableOrUnknown(data['source_json']!, _sourceJsonMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sourceJsonMeta);
+    }
+    if (data.containsKey('label')) {
+      context.handle(
+        _labelMeta,
+        label.isAcceptableOrUnknown(data['label']!, _labelMeta),
+      );
+    }
+    if (data.containsKey('date')) {
+      context.handle(
+        _dateMeta,
+        date.isAcceptableOrUnknown(data['date']!, _dateMeta),
+      );
+    }
+    if (data.containsKey('archived')) {
+      context.handle(
+        _archivedMeta,
+        archived.isAcceptableOrUnknown(data['archived']!, _archivedMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_archivedMeta);
+    }
+    if (data.containsKey('wrapped_at')) {
+      context.handle(
+        _wrappedAtMeta,
+        wrappedAt.isAcceptableOrUnknown(data['wrapped_at']!, _wrappedAtMeta),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    if (data.containsKey('version')) {
+      context.handle(
+        _versionMeta,
+        version.isAcceptableOrUnknown(data['version']!, _versionMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_versionMeta);
+    }
+    if (data.containsKey('cached_at')) {
+      context.handle(
+        _cachedAtMeta,
+        cachedAt.isAcceptableOrUnknown(data['cached_at']!, _cachedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_cachedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  ShootingDayCacheRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ShootingDayCacheRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      episodeId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}episode_id'],
+      )!,
+      orderKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}order_key'],
+      )!,
+      sourceJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_json'],
+      )!,
+      label: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}label'],
+      ),
+      date: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}date'],
+      ),
+      archived: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}archived'],
+      )!,
+      wrappedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}wrapped_at'],
+      ),
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+      version: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}version'],
+      )!,
+      cachedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}cached_at'],
+      )!,
+    );
+  }
+
+  @override
+  $ShootingDayCacheRowsTable createAlias(String alias) {
+    return $ShootingDayCacheRowsTable(attachedDatabase, alias);
+  }
+}
+
+class ShootingDayCacheRow extends DataClass
+    implements Insertable<ShootingDayCacheRow> {
+  /// Mirrors `ShootingDayView.id`.
+  final String id;
+
+  /// Mirrors `ShootingDayView.episodeId` (fetch scope).
+  final String episodeId;
+
+  /// Mirrors `ShootingDayView.orderKey` (server `ORDER BY order_key ASC`;
+  /// the client never re-sorts).
+  final String orderKey;
+
+  /// Mirrors `ShootingDayView.source` as wire JSON (`"Manual"` or
+  /// `{"AiExtracted":{...}}`). Stored verbatim so future variants survive.
+  final String sourceJson;
+
+  /// Mirrors `ShootingDayView.label` (nullable).
+  final String? label;
+
+  /// Mirrors `ShootingDayView.date` as ISO-8601 `yyyy-MM-dd` text (nullable;
+  /// `null` = unscheduled. Distinct from absent — see update semantics).
+  final String? date;
+
+  /// Mirrors `ShootingDayView.archived`.
+  final bool archived;
+
+  /// Mirrors `ShootingDayView.wrappedAt` (nullable — `None` means open).
+  final DateTime? wrappedAt;
+
+  /// Mirrors `ShootingDayView.updatedAt` — server timestamp, preserved.
+  final DateTime updatedAt;
+
+  /// Mirrors `ShootingDayView.version` (optimistic-locking round-trips).
+  final int version;
+
+  /// Client-only cache-write time. TTL is computed from this column only.
+  final DateTime cachedAt;
+  const ShootingDayCacheRow({
+    required this.id,
+    required this.episodeId,
+    required this.orderKey,
+    required this.sourceJson,
+    this.label,
+    this.date,
+    required this.archived,
+    this.wrappedAt,
+    required this.updatedAt,
+    required this.version,
+    required this.cachedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['episode_id'] = Variable<String>(episodeId);
+    map['order_key'] = Variable<String>(orderKey);
+    map['source_json'] = Variable<String>(sourceJson);
+    if (!nullToAbsent || label != null) {
+      map['label'] = Variable<String>(label);
+    }
+    if (!nullToAbsent || date != null) {
+      map['date'] = Variable<String>(date);
+    }
+    map['archived'] = Variable<bool>(archived);
+    if (!nullToAbsent || wrappedAt != null) {
+      map['wrapped_at'] = Variable<DateTime>(wrappedAt);
+    }
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    map['version'] = Variable<int>(version);
+    map['cached_at'] = Variable<DateTime>(cachedAt);
+    return map;
+  }
+
+  ShootingDayCacheRowsCompanion toCompanion(bool nullToAbsent) {
+    return ShootingDayCacheRowsCompanion(
+      id: Value(id),
+      episodeId: Value(episodeId),
+      orderKey: Value(orderKey),
+      sourceJson: Value(sourceJson),
+      label: label == null && nullToAbsent
+          ? const Value.absent()
+          : Value(label),
+      date: date == null && nullToAbsent ? const Value.absent() : Value(date),
+      archived: Value(archived),
+      wrappedAt: wrappedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(wrappedAt),
+      updatedAt: Value(updatedAt),
+      version: Value(version),
+      cachedAt: Value(cachedAt),
+    );
+  }
+
+  factory ShootingDayCacheRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ShootingDayCacheRow(
+      id: serializer.fromJson<String>(json['id']),
+      episodeId: serializer.fromJson<String>(json['episodeId']),
+      orderKey: serializer.fromJson<String>(json['orderKey']),
+      sourceJson: serializer.fromJson<String>(json['sourceJson']),
+      label: serializer.fromJson<String?>(json['label']),
+      date: serializer.fromJson<String?>(json['date']),
+      archived: serializer.fromJson<bool>(json['archived']),
+      wrappedAt: serializer.fromJson<DateTime?>(json['wrappedAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+      version: serializer.fromJson<int>(json['version']),
+      cachedAt: serializer.fromJson<DateTime>(json['cachedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'episodeId': serializer.toJson<String>(episodeId),
+      'orderKey': serializer.toJson<String>(orderKey),
+      'sourceJson': serializer.toJson<String>(sourceJson),
+      'label': serializer.toJson<String?>(label),
+      'date': serializer.toJson<String?>(date),
+      'archived': serializer.toJson<bool>(archived),
+      'wrappedAt': serializer.toJson<DateTime?>(wrappedAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+      'version': serializer.toJson<int>(version),
+      'cachedAt': serializer.toJson<DateTime>(cachedAt),
+    };
+  }
+
+  ShootingDayCacheRow copyWith({
+    String? id,
+    String? episodeId,
+    String? orderKey,
+    String? sourceJson,
+    Value<String?> label = const Value.absent(),
+    Value<String?> date = const Value.absent(),
+    bool? archived,
+    Value<DateTime?> wrappedAt = const Value.absent(),
+    DateTime? updatedAt,
+    int? version,
+    DateTime? cachedAt,
+  }) => ShootingDayCacheRow(
+    id: id ?? this.id,
+    episodeId: episodeId ?? this.episodeId,
+    orderKey: orderKey ?? this.orderKey,
+    sourceJson: sourceJson ?? this.sourceJson,
+    label: label.present ? label.value : this.label,
+    date: date.present ? date.value : this.date,
+    archived: archived ?? this.archived,
+    wrappedAt: wrappedAt.present ? wrappedAt.value : this.wrappedAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+    version: version ?? this.version,
+    cachedAt: cachedAt ?? this.cachedAt,
+  );
+  ShootingDayCacheRow copyWithCompanion(ShootingDayCacheRowsCompanion data) {
+    return ShootingDayCacheRow(
+      id: data.id.present ? data.id.value : this.id,
+      episodeId: data.episodeId.present ? data.episodeId.value : this.episodeId,
+      orderKey: data.orderKey.present ? data.orderKey.value : this.orderKey,
+      sourceJson: data.sourceJson.present
+          ? data.sourceJson.value
+          : this.sourceJson,
+      label: data.label.present ? data.label.value : this.label,
+      date: data.date.present ? data.date.value : this.date,
+      archived: data.archived.present ? data.archived.value : this.archived,
+      wrappedAt: data.wrappedAt.present ? data.wrappedAt.value : this.wrappedAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      version: data.version.present ? data.version.value : this.version,
+      cachedAt: data.cachedAt.present ? data.cachedAt.value : this.cachedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ShootingDayCacheRow(')
+          ..write('id: $id, ')
+          ..write('episodeId: $episodeId, ')
+          ..write('orderKey: $orderKey, ')
+          ..write('sourceJson: $sourceJson, ')
+          ..write('label: $label, ')
+          ..write('date: $date, ')
+          ..write('archived: $archived, ')
+          ..write('wrappedAt: $wrappedAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('version: $version, ')
+          ..write('cachedAt: $cachedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    episodeId,
+    orderKey,
+    sourceJson,
+    label,
+    date,
+    archived,
+    wrappedAt,
+    updatedAt,
+    version,
+    cachedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ShootingDayCacheRow &&
+          other.id == this.id &&
+          other.episodeId == this.episodeId &&
+          other.orderKey == this.orderKey &&
+          other.sourceJson == this.sourceJson &&
+          other.label == this.label &&
+          other.date == this.date &&
+          other.archived == this.archived &&
+          other.wrappedAt == this.wrappedAt &&
+          other.updatedAt == this.updatedAt &&
+          other.version == this.version &&
+          other.cachedAt == this.cachedAt);
+}
+
+class ShootingDayCacheRowsCompanion
+    extends UpdateCompanion<ShootingDayCacheRow> {
+  final Value<String> id;
+  final Value<String> episodeId;
+  final Value<String> orderKey;
+  final Value<String> sourceJson;
+  final Value<String?> label;
+  final Value<String?> date;
+  final Value<bool> archived;
+  final Value<DateTime?> wrappedAt;
+  final Value<DateTime> updatedAt;
+  final Value<int> version;
+  final Value<DateTime> cachedAt;
+  final Value<int> rowid;
+  const ShootingDayCacheRowsCompanion({
+    this.id = const Value.absent(),
+    this.episodeId = const Value.absent(),
+    this.orderKey = const Value.absent(),
+    this.sourceJson = const Value.absent(),
+    this.label = const Value.absent(),
+    this.date = const Value.absent(),
+    this.archived = const Value.absent(),
+    this.wrappedAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.version = const Value.absent(),
+    this.cachedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ShootingDayCacheRowsCompanion.insert({
+    required String id,
+    required String episodeId,
+    required String orderKey,
+    required String sourceJson,
+    this.label = const Value.absent(),
+    this.date = const Value.absent(),
+    required bool archived,
+    this.wrappedAt = const Value.absent(),
+    required DateTime updatedAt,
+    required int version,
+    required DateTime cachedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       episodeId = Value(episodeId),
+       orderKey = Value(orderKey),
+       sourceJson = Value(sourceJson),
+       archived = Value(archived),
+       updatedAt = Value(updatedAt),
+       version = Value(version),
+       cachedAt = Value(cachedAt);
+  static Insertable<ShootingDayCacheRow> custom({
+    Expression<String>? id,
+    Expression<String>? episodeId,
+    Expression<String>? orderKey,
+    Expression<String>? sourceJson,
+    Expression<String>? label,
+    Expression<String>? date,
+    Expression<bool>? archived,
+    Expression<DateTime>? wrappedAt,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? version,
+    Expression<DateTime>? cachedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (episodeId != null) 'episode_id': episodeId,
+      if (orderKey != null) 'order_key': orderKey,
+      if (sourceJson != null) 'source_json': sourceJson,
+      if (label != null) 'label': label,
+      if (date != null) 'date': date,
+      if (archived != null) 'archived': archived,
+      if (wrappedAt != null) 'wrapped_at': wrappedAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (version != null) 'version': version,
+      if (cachedAt != null) 'cached_at': cachedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ShootingDayCacheRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? episodeId,
+    Value<String>? orderKey,
+    Value<String>? sourceJson,
+    Value<String?>? label,
+    Value<String?>? date,
+    Value<bool>? archived,
+    Value<DateTime?>? wrappedAt,
+    Value<DateTime>? updatedAt,
+    Value<int>? version,
+    Value<DateTime>? cachedAt,
+    Value<int>? rowid,
+  }) {
+    return ShootingDayCacheRowsCompanion(
+      id: id ?? this.id,
+      episodeId: episodeId ?? this.episodeId,
+      orderKey: orderKey ?? this.orderKey,
+      sourceJson: sourceJson ?? this.sourceJson,
+      label: label ?? this.label,
+      date: date ?? this.date,
+      archived: archived ?? this.archived,
+      wrappedAt: wrappedAt ?? this.wrappedAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      version: version ?? this.version,
+      cachedAt: cachedAt ?? this.cachedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (episodeId.present) {
+      map['episode_id'] = Variable<String>(episodeId.value);
+    }
+    if (orderKey.present) {
+      map['order_key'] = Variable<String>(orderKey.value);
+    }
+    if (sourceJson.present) {
+      map['source_json'] = Variable<String>(sourceJson.value);
+    }
+    if (label.present) {
+      map['label'] = Variable<String>(label.value);
+    }
+    if (date.present) {
+      map['date'] = Variable<String>(date.value);
+    }
+    if (archived.present) {
+      map['archived'] = Variable<bool>(archived.value);
+    }
+    if (wrappedAt.present) {
+      map['wrapped_at'] = Variable<DateTime>(wrappedAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (version.present) {
+      map['version'] = Variable<int>(version.value);
+    }
+    if (cachedAt.present) {
+      map['cached_at'] = Variable<DateTime>(cachedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ShootingDayCacheRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('episodeId: $episodeId, ')
+          ..write('orderKey: $orderKey, ')
+          ..write('sourceJson: $sourceJson, ')
+          ..write('label: $label, ')
+          ..write('date: $date, ')
+          ..write('archived: $archived, ')
+          ..write('wrappedAt: $wrappedAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('version: $version, ')
+          ..write('cachedAt: $cachedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$CacheDatabase extends GeneratedDatabase {
   _$CacheDatabase(QueryExecutor e) : super(e);
   $CacheDatabaseManager get managers => $CacheDatabaseManager(this);
@@ -2928,6 +5104,13 @@ abstract class _$CacheDatabase extends GeneratedDatabase {
   late final $SceneCacheRowsTable sceneCacheRows = $SceneCacheRowsTable(this);
   late final $CostumeCategoryCacheRowsTable costumeCategoryCacheRows =
       $CostumeCategoryCacheRowsTable(this);
+  late final $CostumeCacheRowsTable costumeCacheRows = $CostumeCacheRowsTable(
+    this,
+  );
+  late final $CharacterCacheRowsTable characterCacheRows =
+      $CharacterCacheRowsTable(this);
+  late final $ShootingDayCacheRowsTable shootingDayCacheRows =
+      $ShootingDayCacheRowsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -2938,6 +5121,9 @@ abstract class _$CacheDatabase extends GeneratedDatabase {
     episodeCacheRows,
     sceneCacheRows,
     costumeCategoryCacheRows,
+    costumeCacheRows,
+    characterCacheRows,
+    shootingDayCacheRows,
   ];
 }
 
@@ -4376,6 +6562,1052 @@ typedef $$CostumeCategoryCacheRowsTableProcessedTableManager =
       CostumeCategoryCacheRow,
       PrefetchHooks Function()
     >;
+typedef $$CostumeCacheRowsTableCreateCompanionBuilder =
+    CostumeCacheRowsCompanion Function({
+      required String id,
+      required String seasonId,
+      Value<String?> characterId,
+      required String notes,
+      required String detailsJson,
+      required String photosJson,
+      required DateTime updatedAt,
+      required int version,
+      required DateTime cachedAt,
+      Value<int> rowid,
+    });
+typedef $$CostumeCacheRowsTableUpdateCompanionBuilder =
+    CostumeCacheRowsCompanion Function({
+      Value<String> id,
+      Value<String> seasonId,
+      Value<String?> characterId,
+      Value<String> notes,
+      Value<String> detailsJson,
+      Value<String> photosJson,
+      Value<DateTime> updatedAt,
+      Value<int> version,
+      Value<DateTime> cachedAt,
+      Value<int> rowid,
+    });
+
+class $$CostumeCacheRowsTableFilterComposer
+    extends Composer<_$CacheDatabase, $CostumeCacheRowsTable> {
+  $$CostumeCacheRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get seasonId => $composableBuilder(
+    column: $table.seasonId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get characterId => $composableBuilder(
+    column: $table.characterId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get notes => $composableBuilder(
+    column: $table.notes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get detailsJson => $composableBuilder(
+    column: $table.detailsJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get photosJson => $composableBuilder(
+    column: $table.photosJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get version => $composableBuilder(
+    column: $table.version,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get cachedAt => $composableBuilder(
+    column: $table.cachedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$CostumeCacheRowsTableOrderingComposer
+    extends Composer<_$CacheDatabase, $CostumeCacheRowsTable> {
+  $$CostumeCacheRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get seasonId => $composableBuilder(
+    column: $table.seasonId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get characterId => $composableBuilder(
+    column: $table.characterId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get notes => $composableBuilder(
+    column: $table.notes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get detailsJson => $composableBuilder(
+    column: $table.detailsJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get photosJson => $composableBuilder(
+    column: $table.photosJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get version => $composableBuilder(
+    column: $table.version,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get cachedAt => $composableBuilder(
+    column: $table.cachedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$CostumeCacheRowsTableAnnotationComposer
+    extends Composer<_$CacheDatabase, $CostumeCacheRowsTable> {
+  $$CostumeCacheRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get seasonId =>
+      $composableBuilder(column: $table.seasonId, builder: (column) => column);
+
+  GeneratedColumn<String> get characterId => $composableBuilder(
+    column: $table.characterId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get notes =>
+      $composableBuilder(column: $table.notes, builder: (column) => column);
+
+  GeneratedColumn<String> get detailsJson => $composableBuilder(
+    column: $table.detailsJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get photosJson => $composableBuilder(
+    column: $table.photosJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<int> get version =>
+      $composableBuilder(column: $table.version, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get cachedAt =>
+      $composableBuilder(column: $table.cachedAt, builder: (column) => column);
+}
+
+class $$CostumeCacheRowsTableTableManager
+    extends
+        RootTableManager<
+          _$CacheDatabase,
+          $CostumeCacheRowsTable,
+          CostumeCacheRow,
+          $$CostumeCacheRowsTableFilterComposer,
+          $$CostumeCacheRowsTableOrderingComposer,
+          $$CostumeCacheRowsTableAnnotationComposer,
+          $$CostumeCacheRowsTableCreateCompanionBuilder,
+          $$CostumeCacheRowsTableUpdateCompanionBuilder,
+          (
+            CostumeCacheRow,
+            BaseReferences<
+              _$CacheDatabase,
+              $CostumeCacheRowsTable,
+              CostumeCacheRow
+            >,
+          ),
+          CostumeCacheRow,
+          PrefetchHooks Function()
+        > {
+  $$CostumeCacheRowsTableTableManager(
+    _$CacheDatabase db,
+    $CostumeCacheRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$CostumeCacheRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$CostumeCacheRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$CostumeCacheRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> seasonId = const Value.absent(),
+                Value<String?> characterId = const Value.absent(),
+                Value<String> notes = const Value.absent(),
+                Value<String> detailsJson = const Value.absent(),
+                Value<String> photosJson = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<int> version = const Value.absent(),
+                Value<DateTime> cachedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => CostumeCacheRowsCompanion(
+                id: id,
+                seasonId: seasonId,
+                characterId: characterId,
+                notes: notes,
+                detailsJson: detailsJson,
+                photosJson: photosJson,
+                updatedAt: updatedAt,
+                version: version,
+                cachedAt: cachedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String seasonId,
+                Value<String?> characterId = const Value.absent(),
+                required String notes,
+                required String detailsJson,
+                required String photosJson,
+                required DateTime updatedAt,
+                required int version,
+                required DateTime cachedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => CostumeCacheRowsCompanion.insert(
+                id: id,
+                seasonId: seasonId,
+                characterId: characterId,
+                notes: notes,
+                detailsJson: detailsJson,
+                photosJson: photosJson,
+                updatedAt: updatedAt,
+                version: version,
+                cachedAt: cachedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$CostumeCacheRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$CacheDatabase,
+      $CostumeCacheRowsTable,
+      CostumeCacheRow,
+      $$CostumeCacheRowsTableFilterComposer,
+      $$CostumeCacheRowsTableOrderingComposer,
+      $$CostumeCacheRowsTableAnnotationComposer,
+      $$CostumeCacheRowsTableCreateCompanionBuilder,
+      $$CostumeCacheRowsTableUpdateCompanionBuilder,
+      (
+        CostumeCacheRow,
+        BaseReferences<
+          _$CacheDatabase,
+          $CostumeCacheRowsTable,
+          CostumeCacheRow
+        >,
+      ),
+      CostumeCacheRow,
+      PrefetchHooks Function()
+    >;
+typedef $$CharacterCacheRowsTableCreateCompanionBuilder =
+    CharacterCacheRowsCompanion Function({
+      required String id,
+      required String seasonId,
+      required String name,
+      required String category,
+      required String height,
+      required String weight,
+      required String chest,
+      required String waist,
+      required String hips,
+      required String shoeSize,
+      required String hatSize,
+      Value<String?> email,
+      Value<String?> phone,
+      required DateTime updatedAt,
+      required int version,
+      required DateTime cachedAt,
+      Value<int> rowid,
+    });
+typedef $$CharacterCacheRowsTableUpdateCompanionBuilder =
+    CharacterCacheRowsCompanion Function({
+      Value<String> id,
+      Value<String> seasonId,
+      Value<String> name,
+      Value<String> category,
+      Value<String> height,
+      Value<String> weight,
+      Value<String> chest,
+      Value<String> waist,
+      Value<String> hips,
+      Value<String> shoeSize,
+      Value<String> hatSize,
+      Value<String?> email,
+      Value<String?> phone,
+      Value<DateTime> updatedAt,
+      Value<int> version,
+      Value<DateTime> cachedAt,
+      Value<int> rowid,
+    });
+
+class $$CharacterCacheRowsTableFilterComposer
+    extends Composer<_$CacheDatabase, $CharacterCacheRowsTable> {
+  $$CharacterCacheRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get seasonId => $composableBuilder(
+    column: $table.seasonId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get category => $composableBuilder(
+    column: $table.category,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get height => $composableBuilder(
+    column: $table.height,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get weight => $composableBuilder(
+    column: $table.weight,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get chest => $composableBuilder(
+    column: $table.chest,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get waist => $composableBuilder(
+    column: $table.waist,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get hips => $composableBuilder(
+    column: $table.hips,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get shoeSize => $composableBuilder(
+    column: $table.shoeSize,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get hatSize => $composableBuilder(
+    column: $table.hatSize,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get email => $composableBuilder(
+    column: $table.email,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get phone => $composableBuilder(
+    column: $table.phone,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get version => $composableBuilder(
+    column: $table.version,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get cachedAt => $composableBuilder(
+    column: $table.cachedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$CharacterCacheRowsTableOrderingComposer
+    extends Composer<_$CacheDatabase, $CharacterCacheRowsTable> {
+  $$CharacterCacheRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get seasonId => $composableBuilder(
+    column: $table.seasonId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get category => $composableBuilder(
+    column: $table.category,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get height => $composableBuilder(
+    column: $table.height,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get weight => $composableBuilder(
+    column: $table.weight,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get chest => $composableBuilder(
+    column: $table.chest,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get waist => $composableBuilder(
+    column: $table.waist,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get hips => $composableBuilder(
+    column: $table.hips,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get shoeSize => $composableBuilder(
+    column: $table.shoeSize,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get hatSize => $composableBuilder(
+    column: $table.hatSize,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get email => $composableBuilder(
+    column: $table.email,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get phone => $composableBuilder(
+    column: $table.phone,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get version => $composableBuilder(
+    column: $table.version,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get cachedAt => $composableBuilder(
+    column: $table.cachedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$CharacterCacheRowsTableAnnotationComposer
+    extends Composer<_$CacheDatabase, $CharacterCacheRowsTable> {
+  $$CharacterCacheRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get seasonId =>
+      $composableBuilder(column: $table.seasonId, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get category =>
+      $composableBuilder(column: $table.category, builder: (column) => column);
+
+  GeneratedColumn<String> get height =>
+      $composableBuilder(column: $table.height, builder: (column) => column);
+
+  GeneratedColumn<String> get weight =>
+      $composableBuilder(column: $table.weight, builder: (column) => column);
+
+  GeneratedColumn<String> get chest =>
+      $composableBuilder(column: $table.chest, builder: (column) => column);
+
+  GeneratedColumn<String> get waist =>
+      $composableBuilder(column: $table.waist, builder: (column) => column);
+
+  GeneratedColumn<String> get hips =>
+      $composableBuilder(column: $table.hips, builder: (column) => column);
+
+  GeneratedColumn<String> get shoeSize =>
+      $composableBuilder(column: $table.shoeSize, builder: (column) => column);
+
+  GeneratedColumn<String> get hatSize =>
+      $composableBuilder(column: $table.hatSize, builder: (column) => column);
+
+  GeneratedColumn<String> get email =>
+      $composableBuilder(column: $table.email, builder: (column) => column);
+
+  GeneratedColumn<String> get phone =>
+      $composableBuilder(column: $table.phone, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<int> get version =>
+      $composableBuilder(column: $table.version, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get cachedAt =>
+      $composableBuilder(column: $table.cachedAt, builder: (column) => column);
+}
+
+class $$CharacterCacheRowsTableTableManager
+    extends
+        RootTableManager<
+          _$CacheDatabase,
+          $CharacterCacheRowsTable,
+          CharacterCacheRow,
+          $$CharacterCacheRowsTableFilterComposer,
+          $$CharacterCacheRowsTableOrderingComposer,
+          $$CharacterCacheRowsTableAnnotationComposer,
+          $$CharacterCacheRowsTableCreateCompanionBuilder,
+          $$CharacterCacheRowsTableUpdateCompanionBuilder,
+          (
+            CharacterCacheRow,
+            BaseReferences<
+              _$CacheDatabase,
+              $CharacterCacheRowsTable,
+              CharacterCacheRow
+            >,
+          ),
+          CharacterCacheRow,
+          PrefetchHooks Function()
+        > {
+  $$CharacterCacheRowsTableTableManager(
+    _$CacheDatabase db,
+    $CharacterCacheRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$CharacterCacheRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$CharacterCacheRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$CharacterCacheRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> seasonId = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<String> category = const Value.absent(),
+                Value<String> height = const Value.absent(),
+                Value<String> weight = const Value.absent(),
+                Value<String> chest = const Value.absent(),
+                Value<String> waist = const Value.absent(),
+                Value<String> hips = const Value.absent(),
+                Value<String> shoeSize = const Value.absent(),
+                Value<String> hatSize = const Value.absent(),
+                Value<String?> email = const Value.absent(),
+                Value<String?> phone = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<int> version = const Value.absent(),
+                Value<DateTime> cachedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => CharacterCacheRowsCompanion(
+                id: id,
+                seasonId: seasonId,
+                name: name,
+                category: category,
+                height: height,
+                weight: weight,
+                chest: chest,
+                waist: waist,
+                hips: hips,
+                shoeSize: shoeSize,
+                hatSize: hatSize,
+                email: email,
+                phone: phone,
+                updatedAt: updatedAt,
+                version: version,
+                cachedAt: cachedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String seasonId,
+                required String name,
+                required String category,
+                required String height,
+                required String weight,
+                required String chest,
+                required String waist,
+                required String hips,
+                required String shoeSize,
+                required String hatSize,
+                Value<String?> email = const Value.absent(),
+                Value<String?> phone = const Value.absent(),
+                required DateTime updatedAt,
+                required int version,
+                required DateTime cachedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => CharacterCacheRowsCompanion.insert(
+                id: id,
+                seasonId: seasonId,
+                name: name,
+                category: category,
+                height: height,
+                weight: weight,
+                chest: chest,
+                waist: waist,
+                hips: hips,
+                shoeSize: shoeSize,
+                hatSize: hatSize,
+                email: email,
+                phone: phone,
+                updatedAt: updatedAt,
+                version: version,
+                cachedAt: cachedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$CharacterCacheRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$CacheDatabase,
+      $CharacterCacheRowsTable,
+      CharacterCacheRow,
+      $$CharacterCacheRowsTableFilterComposer,
+      $$CharacterCacheRowsTableOrderingComposer,
+      $$CharacterCacheRowsTableAnnotationComposer,
+      $$CharacterCacheRowsTableCreateCompanionBuilder,
+      $$CharacterCacheRowsTableUpdateCompanionBuilder,
+      (
+        CharacterCacheRow,
+        BaseReferences<
+          _$CacheDatabase,
+          $CharacterCacheRowsTable,
+          CharacterCacheRow
+        >,
+      ),
+      CharacterCacheRow,
+      PrefetchHooks Function()
+    >;
+typedef $$ShootingDayCacheRowsTableCreateCompanionBuilder =
+    ShootingDayCacheRowsCompanion Function({
+      required String id,
+      required String episodeId,
+      required String orderKey,
+      required String sourceJson,
+      Value<String?> label,
+      Value<String?> date,
+      required bool archived,
+      Value<DateTime?> wrappedAt,
+      required DateTime updatedAt,
+      required int version,
+      required DateTime cachedAt,
+      Value<int> rowid,
+    });
+typedef $$ShootingDayCacheRowsTableUpdateCompanionBuilder =
+    ShootingDayCacheRowsCompanion Function({
+      Value<String> id,
+      Value<String> episodeId,
+      Value<String> orderKey,
+      Value<String> sourceJson,
+      Value<String?> label,
+      Value<String?> date,
+      Value<bool> archived,
+      Value<DateTime?> wrappedAt,
+      Value<DateTime> updatedAt,
+      Value<int> version,
+      Value<DateTime> cachedAt,
+      Value<int> rowid,
+    });
+
+class $$ShootingDayCacheRowsTableFilterComposer
+    extends Composer<_$CacheDatabase, $ShootingDayCacheRowsTable> {
+  $$ShootingDayCacheRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get episodeId => $composableBuilder(
+    column: $table.episodeId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get orderKey => $composableBuilder(
+    column: $table.orderKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sourceJson => $composableBuilder(
+    column: $table.sourceJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get label => $composableBuilder(
+    column: $table.label,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get date => $composableBuilder(
+    column: $table.date,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get archived => $composableBuilder(
+    column: $table.archived,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get wrappedAt => $composableBuilder(
+    column: $table.wrappedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get version => $composableBuilder(
+    column: $table.version,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get cachedAt => $composableBuilder(
+    column: $table.cachedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$ShootingDayCacheRowsTableOrderingComposer
+    extends Composer<_$CacheDatabase, $ShootingDayCacheRowsTable> {
+  $$ShootingDayCacheRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get episodeId => $composableBuilder(
+    column: $table.episodeId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get orderKey => $composableBuilder(
+    column: $table.orderKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sourceJson => $composableBuilder(
+    column: $table.sourceJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get label => $composableBuilder(
+    column: $table.label,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get date => $composableBuilder(
+    column: $table.date,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get archived => $composableBuilder(
+    column: $table.archived,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get wrappedAt => $composableBuilder(
+    column: $table.wrappedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get version => $composableBuilder(
+    column: $table.version,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get cachedAt => $composableBuilder(
+    column: $table.cachedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$ShootingDayCacheRowsTableAnnotationComposer
+    extends Composer<_$CacheDatabase, $ShootingDayCacheRowsTable> {
+  $$ShootingDayCacheRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get episodeId =>
+      $composableBuilder(column: $table.episodeId, builder: (column) => column);
+
+  GeneratedColumn<String> get orderKey =>
+      $composableBuilder(column: $table.orderKey, builder: (column) => column);
+
+  GeneratedColumn<String> get sourceJson => $composableBuilder(
+    column: $table.sourceJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get label =>
+      $composableBuilder(column: $table.label, builder: (column) => column);
+
+  GeneratedColumn<String> get date =>
+      $composableBuilder(column: $table.date, builder: (column) => column);
+
+  GeneratedColumn<bool> get archived =>
+      $composableBuilder(column: $table.archived, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get wrappedAt =>
+      $composableBuilder(column: $table.wrappedAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<int> get version =>
+      $composableBuilder(column: $table.version, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get cachedAt =>
+      $composableBuilder(column: $table.cachedAt, builder: (column) => column);
+}
+
+class $$ShootingDayCacheRowsTableTableManager
+    extends
+        RootTableManager<
+          _$CacheDatabase,
+          $ShootingDayCacheRowsTable,
+          ShootingDayCacheRow,
+          $$ShootingDayCacheRowsTableFilterComposer,
+          $$ShootingDayCacheRowsTableOrderingComposer,
+          $$ShootingDayCacheRowsTableAnnotationComposer,
+          $$ShootingDayCacheRowsTableCreateCompanionBuilder,
+          $$ShootingDayCacheRowsTableUpdateCompanionBuilder,
+          (
+            ShootingDayCacheRow,
+            BaseReferences<
+              _$CacheDatabase,
+              $ShootingDayCacheRowsTable,
+              ShootingDayCacheRow
+            >,
+          ),
+          ShootingDayCacheRow,
+          PrefetchHooks Function()
+        > {
+  $$ShootingDayCacheRowsTableTableManager(
+    _$CacheDatabase db,
+    $ShootingDayCacheRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ShootingDayCacheRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ShootingDayCacheRowsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$ShootingDayCacheRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> episodeId = const Value.absent(),
+                Value<String> orderKey = const Value.absent(),
+                Value<String> sourceJson = const Value.absent(),
+                Value<String?> label = const Value.absent(),
+                Value<String?> date = const Value.absent(),
+                Value<bool> archived = const Value.absent(),
+                Value<DateTime?> wrappedAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<int> version = const Value.absent(),
+                Value<DateTime> cachedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ShootingDayCacheRowsCompanion(
+                id: id,
+                episodeId: episodeId,
+                orderKey: orderKey,
+                sourceJson: sourceJson,
+                label: label,
+                date: date,
+                archived: archived,
+                wrappedAt: wrappedAt,
+                updatedAt: updatedAt,
+                version: version,
+                cachedAt: cachedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String episodeId,
+                required String orderKey,
+                required String sourceJson,
+                Value<String?> label = const Value.absent(),
+                Value<String?> date = const Value.absent(),
+                required bool archived,
+                Value<DateTime?> wrappedAt = const Value.absent(),
+                required DateTime updatedAt,
+                required int version,
+                required DateTime cachedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => ShootingDayCacheRowsCompanion.insert(
+                id: id,
+                episodeId: episodeId,
+                orderKey: orderKey,
+                sourceJson: sourceJson,
+                label: label,
+                date: date,
+                archived: archived,
+                wrappedAt: wrappedAt,
+                updatedAt: updatedAt,
+                version: version,
+                cachedAt: cachedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$ShootingDayCacheRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$CacheDatabase,
+      $ShootingDayCacheRowsTable,
+      ShootingDayCacheRow,
+      $$ShootingDayCacheRowsTableFilterComposer,
+      $$ShootingDayCacheRowsTableOrderingComposer,
+      $$ShootingDayCacheRowsTableAnnotationComposer,
+      $$ShootingDayCacheRowsTableCreateCompanionBuilder,
+      $$ShootingDayCacheRowsTableUpdateCompanionBuilder,
+      (
+        ShootingDayCacheRow,
+        BaseReferences<
+          _$CacheDatabase,
+          $ShootingDayCacheRowsTable,
+          ShootingDayCacheRow
+        >,
+      ),
+      ShootingDayCacheRow,
+      PrefetchHooks Function()
+    >;
 
 class $CacheDatabaseManager {
   final _$CacheDatabase _db;
@@ -4393,4 +7625,10 @@ class $CacheDatabaseManager {
         _db,
         _db.costumeCategoryCacheRows,
       );
+  $$CostumeCacheRowsTableTableManager get costumeCacheRows =>
+      $$CostumeCacheRowsTableTableManager(_db, _db.costumeCacheRows);
+  $$CharacterCacheRowsTableTableManager get characterCacheRows =>
+      $$CharacterCacheRowsTableTableManager(_db, _db.characterCacheRows);
+  $$ShootingDayCacheRowsTableTableManager get shootingDayCacheRows =>
+      $$ShootingDayCacheRowsTableTableManager(_db, _db.shootingDayCacheRows);
 }

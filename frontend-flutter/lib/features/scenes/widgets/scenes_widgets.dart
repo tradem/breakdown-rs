@@ -14,9 +14,10 @@ import '../scenes_state.dart';
 /// Scene detail data (mood, location, summary, script day, schedule flag,
 /// character / shooting-day counts) renders read-only in Phase 1b.
 class SceneTile extends StatelessWidget {
-  const SceneTile({super.key, required this.row});
+  const SceneTile({super.key, required this.row, this.onTap});
 
   final SceneRow row;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) => switch (row) {
@@ -24,6 +25,7 @@ class SceneTile extends StatelessWidget {
       label: 'Scene ${scene.sceneNumber ?? scene.id}',
       child: ListTile(
         key: Key('scene-${scene.id}'),
+        onTap: onTap,
         minTileHeight: 48,
         title: Text(
           scene.summary?.isNotEmpty == true

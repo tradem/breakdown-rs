@@ -19,7 +19,11 @@ import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/data/episode_repository.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 import 'package:frontend_flutter/features/episodes/episodes_controller.dart';
+import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
+import 'package:frontend_flutter/data/shooting_day_repository.dart';
 import 'package:frontend_flutter/features/episodes/episodes_screen.dart';
+import 'package:frontend_flutter/features/shooting_days/shooting_days_controller.dart';
+import 'package:frontend_flutter/features/shooting_days/shooting_days_screen.dart';
 
 import '../seasons/seasons_test_fakes.dart';
 
@@ -308,6 +312,65 @@ void main() {
         mode: ThemeMode.dark,
         platform: TargetPlatform.macOS,
       );
+    });
+  });
+
+  group('Episode context entries (flutter-costume-domains 6.1)', () {
+    testWidgets('shooting-days button pushes the episode day list', (
+      tester,
+    ) async {
+      await setupContainer(
+        initialRows: [_episode('e1', number: 1, name: 'Pilot')],
+      );
+      // The pushed day list runs its own cache-backed fetch over a
+      // plain-Dio repository (never the pinned production Dio).
+      final navContainer = ProviderContainer(
+        overrides: [
+          appConfigProvider.overrideWithValue(devAuthConfig),
+          cacheDatabaseProvider.overrideWithValue(db),
+          episodeRepositoryProvider.overrideWithValue(repo),
+          reconciliationSchedulerProvider.overrideWith(
+            (ref) => ManualReconciliationScheduler(),
+          ),
+          episodesListFetchProvider('block-1', 'season-1').overrideWith((
+            ref,
+          ) async {
+            final dao = EpisodeCacheDao(ref.watch(cacheDatabaseProvider));
+            return holder.value.match(
+              (err) => Left<ProblemError, List<EpisodeView>>(err),
+              (rows) async {
+                await dao.applySnapshotForBlock(
+                  'block-1',
+                  rows,
+                  DateTime.utc(2026, 1, 1),
+                );
+                return Right<ProblemError, List<EpisodeView>>(rows);
+              },
+            );
+          }),
+          shootingDayRepositoryProvider.overrideWithValue(
+            ShootingDayRepository(BreakdownApi(), ShootingDayCacheDao(db)),
+          ),
+          shootingDaysListFetchProvider('e1')
+              .overrideWith((ref) async => const Right([])),
+        ],
+      );
+      addTearDown(navContainer.dispose);
+      await navContainer.read(authSessionControllerProvider.notifier).signIn();
+      tester.view.physicalSize = const Size(800, 1200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: navContainer,
+          child: MaterialApp(home: EpisodesScreen(block: _block())),
+        ),
+      );
+      await tester.pumpAndSettle();
+      // Episode context entry (design §4): per-episode shooting-days.
+      await tester.tap(find.byKey(const Key('episode-shooting-days-e1')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('shooting-days-list')), findsOneWidget);
     });
   });
 }

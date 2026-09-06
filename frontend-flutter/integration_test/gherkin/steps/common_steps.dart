@@ -54,12 +54,12 @@ StepDefinitionGeneric whenOpenContinuityPhoto() => when1<String, FlutterWorld>(
   },
 );
 
-/// Opens costume assignment for a season (forward-looking).
+/// Opens costume assignment for a season: the season tile's Costumes entry
+/// (`open-costume-assignment-<season>`, seasons reference pattern).
 StepDefinitionGeneric whenOpenCostumeAssignment() =>
     when1<String, FlutterWorld>(
       'I open the costume assignment for season {string}',
       (String seasonId, context) async {
-        // TODO(screen): tap the assignment affordance once the screen ships.
         final locator = find.byValueKey('open-costume-assignment-$seasonId');
         await FlutterDriverUtils.tap(context.world.driver!, locator);
       },

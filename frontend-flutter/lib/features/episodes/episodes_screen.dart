@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
 import '../scenes/scenes_screen.dart';
+import '../shooting_days/shooting_days_screen.dart';
 import 'create_episode_sheet.dart';
 import 'episodes_controller.dart';
 import 'episodes_state.dart';
@@ -111,21 +112,53 @@ class EpisodesScreen extends ConsumerWidget {
                                 key: const Key('episodes-list'),
                                 physics: const AlwaysScrollableScrollPhysics(),
                                 itemCount: rows.length,
-                                itemBuilder: (context, i) => EpisodeTile(
-                                  row: rows[i],
-                                  onTap: rows[i] is ProjectedEpisodeRow
-                                      ? () => Navigator.of(context).push(
-                                          MaterialPageRoute<void>(
-                                            builder: (_) => ScenesScreen(
-                                              episode:
-                                                  (rows[i]
-                                                          as ProjectedEpisodeRow)
-                                                      .episode,
-                                            ),
+                                itemBuilder: (context, i) {
+                                  final row = rows[i];
+                                  return Row(
+                                    children: [
+                                      Expanded(
+                                        child: EpisodeTile(
+                                          row: row,
+                                          onTap: row is ProjectedEpisodeRow
+                                              ? () => Navigator.of(context)
+                                                    .push(
+                                                      MaterialPageRoute<void>(
+                                                        builder: (_) =>
+                                                            ScenesScreen(
+                                                              episode:
+                                                                  row.episode,
+                                                              seasonId: block
+                                                                  .seasonId,
+                                                            ),
+                                                      ),
+                                                    )
+                                              : null,
+                                        ),
+                                      ),
+                                      // Episode context entry (design §4):
+                                      // shooting-days list for this episode.
+                                      if (row is ProjectedEpisodeRow)
+                                        IconButton(
+                                          key: Key(
+                                            'episode-shooting-days-${row.episode.id}',
                                           ),
-                                        )
-                                      : null,
-                                ),
+                                          icon: const Icon(
+                                            Icons.calendar_month_outlined,
+                                          ),
+                                          tooltip: 'Shooting days',
+                                          onPressed: () => Navigator.of(context)
+                                              .push(
+                                                MaterialPageRoute<void>(
+                                                  builder: (_) =>
+                                                      ShootingDaysScreen(
+                                                        episode: row.episode,
+                                                      ),
+                                                ),
+                                              ),
+                                        ),
+                                    ],
+                                  );
+                                },
                               ),
                     },
                   ),

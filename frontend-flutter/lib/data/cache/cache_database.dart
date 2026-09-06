@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 
+import 'costume_domains_cache.dart';
 import 'hierarchy_cache.dart';
 import 'season_cache.dart';
 
@@ -23,6 +25,9 @@ part 'cache_database.g.dart';
     EpisodeCacheRows,
     SceneCacheRows,
     CostumeCategoryCacheRows,
+    CostumeCacheRows,
+    CharacterCacheRows,
+    ShootingDayCacheRows,
   ],
 )
 class CacheDatabase extends _$CacheDatabase {
@@ -36,7 +41,7 @@ class CacheDatabase extends _$CacheDatabase {
   CacheDatabase.connect(super.executor);
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -58,6 +63,15 @@ class CacheDatabase extends _$CacheDatabase {
         await m.createTable(episodeCacheRows);
         await m.createTable(sceneCacheRows);
         await m.createTable(costumeCategoryCacheRows);
+      }
+      if (from < 3) {
+        // `flutter-costume-domains` 1.1: costume-domain projection tables
+        // (costumes, characters, shooting_days). Fresh tables for existing
+        // installs — no data to migrate. Photo bytes are memory-cached
+        // only, never persisted (design §3).
+        await m.createTable(costumeCacheRows);
+        await m.createTable(characterCacheRows);
+        await m.createTable(shootingDayCacheRows);
       }
     },
   );

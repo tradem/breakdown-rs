@@ -12,10 +12,9 @@ Feature: Costume assignment (optimistic update + role denial)
   reconciled afterwards; and the client-side AUTHZ-GATE (D6) that denies the
   assignment on the costume stream for an unprivileged caller.
 
-  The costume assignment screen is not yet landed, so these scenarios are the
-  acceptance contract and are tagged @pending until the screen ships.
+  The costume assignment screen ships with `flutter-costume-domains`, so these
+  scenarios run on device (no @pending).
 
-  @pending
   Scenario: Command shows optimistically then reconciles with the projection
     Given the app is launched in dev-auth mode
     And I am authenticated as a "costume_dept" user
@@ -24,7 +23,6 @@ Feature: Costume assignment (optimistic update + role denial)
     Then the costume assignment appears optimistically
     And the costume assignment projection refreshes
 
-  @pending
   Scenario: Unprivileged caller is denied on the costume stream
     Given the app is launched in dev-auth mode
     And I am authenticated as a "viewer" user
