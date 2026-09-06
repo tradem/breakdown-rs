@@ -638,7 +638,7 @@ final class CostumeCategoriesViewProvider
 }
 
 String _$costumeCategoriesViewHash() =>
-    r'6a8925e2e44ade86e0a03e38d6fdc7a7fa5fad2c';
+    r'2348dfaa25ebdec38c4079ecb984a27c61ee4074';
 
 /// The projection a screen reads (selector).
 
@@ -1089,7 +1089,7 @@ final class CostumeCategoriesControllerProvider
 }
 
 String _$costumeCategoriesControllerHash() =>
-    r'3a6dd62206ce48ee39dbc41d700d8efa32a0fccd';
+    r'd3b65451ed7d39625b8fce84ee371a5909db25b3';
 
 /// `CostumeCategoriesController(seasonId)` on the shared reconciliation
 /// runner: create follows the optimistic-overlay pattern; rename echoes the

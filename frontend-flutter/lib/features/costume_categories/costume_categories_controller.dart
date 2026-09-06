@@ -151,6 +151,8 @@ class CostumeCategoriesViewController
 /// refetch).
 @riverpod
 Future<bool> costumeCategoriesCacheStale(Ref ref, String seasonId) async {
+  // NOTE (issue #366 review): memoized until invalidated — every refetch
+  // path invalidates this alongside the list fetch (see _refetchProjection).
   final repo = ref.watch(costumeCategoryRepositoryProvider);
   final clock = ref.watch(clockProvider);
   try {
@@ -477,6 +479,9 @@ class CostumeCategoriesController extends _$CostumeCategoriesController {
 
   Future<List<CostumeCategoryView>?> _refetchProjection() async {
     ref.invalidate(costumeCategoriesListFetchProvider(seasonId));
+    // Refetch boundary (issue #366 review): recompute the TTL result so a
+    // later loading state never consumes a pre-write memo.
+    ref.invalidate(costumeCategoriesCacheStaleProvider(seasonId));
     final res = await ref.read(
       costumeCategoriesListFetchProvider(seasonId).future,
     );

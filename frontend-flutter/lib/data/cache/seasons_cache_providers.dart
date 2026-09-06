@@ -154,6 +154,10 @@ class SeasonsViewController extends _$SeasonsViewController {
     final res = await repo.create(request);
     if (res.isRight()) {
       ref.invalidate(seasonsListFetchProvider);
+      // Refetch boundary (issue #366 review): recompute the TTL result so
+      // the loading state below never consumes a pre-write memo. The
+      // view only reads it while loading; success serves AsyncData.
+      ref.invalidate(seasonsCacheStaleProvider);
       ref.invalidateSelf();
     }
     return res;
@@ -168,6 +172,8 @@ class SeasonsViewController extends _$SeasonsViewController {
     final res = await repo.rename(id, request);
     if (res.isRight()) {
       ref.invalidate(seasonsListFetchProvider);
+      // Refetch boundary (issue #366 review): see createSeason.
+      ref.invalidate(seasonsCacheStaleProvider);
       ref.invalidateSelf();
     }
     return res;
@@ -182,6 +188,11 @@ class SeasonsViewController extends _$SeasonsViewController {
 /// error path still banners a failed refetch serving retained rows).
 @riverpod
 Future<bool> seasonsCacheStale(Ref ref) async {
+  // NOTE: this provider memoizes until a dependency changes or it is
+  // invalidated. Every refetch path invalidates it explicitly alongside
+  // the list fetch (see createSeason/renameSeason/_refetchProjection), so
+  // a later loading state never consumes a pre-write result. The
+  // repo/clock watches below only cover resets (new repo identity).
   final repo = ref.watch(seasonRepositoryProvider);
   final clock = ref.watch(clockProvider);
   try {

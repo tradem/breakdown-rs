@@ -565,7 +565,7 @@ final class ScenesViewProvider
   }
 }
 
-String _$scenesViewHash() => r'fd2f8866f2192e57e95a5779ad271f70a8fe2009';
+String _$scenesViewHash() => r'872da89b2cc71b88eb942fe89ccd491779b9236f';
 
 /// The projection a screen reads (selector).
 
@@ -863,7 +863,7 @@ final class ScenesControllerProvider
   }
 }
 
-String _$scenesControllerHash() => r'b98322b99e6a3cf97308ec58c69b9a838a8a34fe';
+String _$scenesControllerHash() => r'26582f9f9f6c17bb6147490d83823305a1bf29b2';
 
 /// `ScenesController(episodeId)` on the shared reconciliation runner.
 

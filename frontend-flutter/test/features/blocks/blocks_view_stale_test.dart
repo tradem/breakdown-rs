@@ -9,7 +9,9 @@ import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fpdart/fpdart.dart';
 
+import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/cache_ttl.dart';
@@ -30,6 +32,8 @@ BlockView _block(String id, {int number = 1}) => BlockView(
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = 1,
 );
+
+const _networkDown = ProblemError(code: 'transport.connectionError');
 
 void main() {
   // Issue #366 — the hierarchy representative: loading staleness is
@@ -121,5 +125,78 @@ void main() {
       expect(view.isStale, isTrue);
       expect(view.error, isNull);
     });
+
+    // CodeRabbit review on PR #367: same single-container clock-advance
+    // regression as the seasons suite — driven through the public refresh()
+    // (no overlays → a single _refetchProjection with no scheduler ticks).
+    test(
+      'refresh recomputes staleness when the clock passes the TTL',
+      () async {
+        var now = DateTime.utc(2026, 6, 1, 12);
+        await BlockCacheDao(db)
+            .applySnapshotForSeason('season-1', [_block('b1')], now);
+        final gate = Completer<Result<List<BlockView>>>();
+        final container = ProviderContainer(
+          overrides: [
+            apiDioProvider.overrideWithValue(Dio()),
+            cacheDatabaseProvider.overrideWithValue(db),
+            // Mutable clock: advancing it does NOT change the provider
+            // identity, so any recompute must come from the refetch path.
+            clockProvider.overrideWithValue(Clock(() => now)),
+            blocksListFetchProvider('season-1')
+                .overrideWith((ref) => gate.future),
+          ],
+        );
+        addTearDown(container.dispose);
+        final sub = container.listen(
+          blocksControllerProvider('season-1'),
+          (_, _) {},
+        );
+        addTearDown(sub.close);
+        for (
+          var i = 0;
+          i < 200 && container.read(blocksPrevRowsProvider('season-1')).isEmpty;
+          i++
+        ) {
+          await pumpEventQueue();
+        }
+
+        // Fresh cache loading → not stale.
+        expect(
+          await container.read(blocksCacheStaleProvider('season-1').future),
+          isFalse,
+        );
+        expect(container.read(blocksViewProvider('season-1')).isStale, isFalse);
+
+        // Advance past the TTL and pull-to-refresh: the loading view must
+        // turn stale with NO manual staleness invalidation (the refetch
+        // path invalidates it alongside the list fetch).
+        now = now.add(kCacheTtl).add(const Duration(minutes: 1));
+        var done = false;
+        final pass = container
+            .read(blocksControllerProvider('season-1').notifier)
+            .refresh();
+        pass.then((_) => done = true);
+        for (var i = 0; i < 50 && !done; i++) {
+          await pumpEventQueue();
+        }
+        expect(done, isFalse);
+        expect(
+          await container.read(blocksCacheStaleProvider('season-1').future),
+          isTrue,
+        );
+        expect(container.read(blocksViewProvider('season-1')).isStale, isTrue);
+
+        // Let the gated fetch fail: refresh finishes, the error branch
+        // keeps serving the retained rows as stale.
+        gate.complete(const Left(_networkDown));
+        await pass;
+        expect(done, isTrue);
+        final view = container.read(blocksViewProvider('season-1'));
+        expect(view.rows.map((b) => b.id).toList(), ['b1']);
+        expect(view.isStale, isTrue);
+        expect(view.error?.code, 'transport.connectionError');
+      },
+    );
   });
 }

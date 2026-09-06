@@ -133,6 +133,8 @@ class ScenesViewController extends _$ScenesViewController {
 /// (fail-closed — the error path still banners a failed refetch).
 @riverpod
 Future<bool> scenesCacheStale(Ref ref, String episodeId) async {
+  // NOTE (issue #366 review): memoized until invalidated — every refetch
+  // path invalidates this alongside the list fetch (see _refetchProjection).
   final repo = ref.watch(sceneRepositoryProvider);
   final clock = ref.watch(clockProvider);
   try {
@@ -318,6 +320,9 @@ class ScenesController extends _$ScenesController {
 
   Future<List<SceneView>?> _refetchProjection() async {
     ref.invalidate(scenesListFetchProvider(episodeId));
+    // Refetch boundary (issue #366 review): recompute the TTL result so a
+    // later loading state never consumes a pre-write memo.
+    ref.invalidate(scenesCacheStaleProvider(episodeId));
     final res = await ref.read(scenesListFetchProvider(episodeId).future);
     return res.match((_) => null, (rows) => rows);
   }

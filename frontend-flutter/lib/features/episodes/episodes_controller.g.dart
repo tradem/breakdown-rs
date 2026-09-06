@@ -587,7 +587,7 @@ final class EpisodesViewProvider
   }
 }
 
-String _$episodesViewHash() => r'77d7876acf6e4ef87a738ada9bc26ab49ac29e15';
+String _$episodesViewHash() => r'46bec670c98358bb4b51cec2a71fcec159c739b4';
 
 /// The projection a screen reads (selector).
 
@@ -897,7 +897,7 @@ final class EpisodesControllerProvider
 }
 
 String _$episodesControllerHash() =>
-    r'ba015653f703a4cf9d5f2e258410495b396cd8ce';
+    r'7538c3960ac1414ddbb018c4e6da067dfee6c3ad';
 
 /// `EpisodesController(blockId, seasonId)` on the shared reconciliation
 /// runner: the `blockId` is the fetch scope (server-side `?block_id=`

@@ -618,7 +618,7 @@ final class BlocksViewProvider
   }
 }
 
-String _$blocksViewHash() => r'19f7965ae48724ff614a8abccd36e28491d64ace';
+String _$blocksViewHash() => r'f86a5256f55b2cfebe4ed345c7a3e01a65c0ca68';
 
 /// The projection a screen reads (selector).
 ///
@@ -930,7 +930,7 @@ final class BlocksControllerProvider
   }
 }
 
-String _$blocksControllerHash() => r'38afa58e2193260cadcce17d5907d6666ed1edb2';
+String _$blocksControllerHash() => r'048120cdb748b29eae9fa36480e3d9e9a7ac3162';
 
 /// Family `BlocksController(seasonId)` on the shared reconciliation runner
 /// (seasons reference pattern): projected `AsyncValue` rows, cached rows,

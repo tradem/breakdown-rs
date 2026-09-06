@@ -148,6 +148,8 @@ class BlocksViewController extends _$BlocksViewController {
 /// (fail-closed — the error path still banners a failed refetch).
 @riverpod
 Future<bool> blocksCacheStale(Ref ref, String seasonId) async {
+  // NOTE (issue #366 review): memoized until invalidated — every refetch
+  // path invalidates this alongside the list fetch (see _refetchProjection).
   final repo = ref.watch(blockRepositoryProvider);
   final clock = ref.watch(clockProvider);
   try {
@@ -353,6 +355,9 @@ class BlocksController extends _$BlocksController {
 
   Future<List<BlockView>?> _refetchProjection() async {
     ref.invalidate(blocksListFetchProvider(seasonId));
+    // Refetch boundary (issue #366 review): recompute the TTL result so a
+    // later loading state never consumes a pre-write memo.
+    ref.invalidate(blocksCacheStaleProvider(seasonId));
     final res = await ref.read(blocksListFetchProvider(seasonId).future);
     return res.match((_) => null, (rows) => rows);
   }
