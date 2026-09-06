@@ -23,7 +23,6 @@ import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/shooting_day_repository.dart';
 import 'package:frontend_flutter/features/episodes/episodes_screen.dart';
 import 'package:frontend_flutter/features/shooting_days/shooting_days_controller.dart';
-import 'package:frontend_flutter/features/shooting_days/shooting_days_screen.dart';
 
 import '../seasons/seasons_test_fakes.dart';
 
