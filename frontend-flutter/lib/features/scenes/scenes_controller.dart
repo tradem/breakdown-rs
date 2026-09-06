@@ -126,11 +126,33 @@ class ScenesViewController extends _$ScenesViewController {
   }
 }
 
+/// TTL-based cache staleness for one episode's scenes (issue #366).
+///
+/// Backed by [SceneRepository.isCacheStale] (client-only `cachedAt` + the
+/// injectable [clockProvider]); a check failure resolves to `false`
+/// (fail-closed — the error path still banners a failed refetch).
+@riverpod
+Future<bool> scenesCacheStale(Ref ref, String episodeId) async {
+  // NOTE (issue #366 review): memoized until invalidated — every refetch
+  // path invalidates this alongside the list fetch (see _refetchProjection).
+  final repo = ref.watch(sceneRepositoryProvider);
+  final clock = ref.watch(clockProvider);
+  try {
+    return await repo.isCacheStale(episodeId, clock: clock);
+  } on Object {
+    return false;
+  }
+}
+
 /// The projection a screen reads (selector).
 @riverpod
 ScenesView scenesView(Ref ref, String episodeId) {
   final async = ref.watch(scenesViewControllerProvider(episodeId));
   final prev = ref.watch(scenesPrevRowsProvider(episodeId));
+  // TTL-based staleness (issue #366): a fresh cache served while a normal
+  // refetch is in flight is NOT stale. Unknown staleness reads as fresh.
+  final ttlStale =
+      ref.watch(scenesCacheStaleProvider(episodeId)).value ?? false;
   return switch (async) {
     AsyncData(:final value) => value,
     AsyncError(:final error) => ScenesView(
@@ -140,7 +162,10 @@ ScenesView scenesView(Ref ref, String episodeId) {
           ? error
           : const ProblemError(code: 'unknown'),
     ),
-    AsyncLoading() => ScenesView(rows: prev, isStale: prev.isNotEmpty),
+    AsyncLoading() => ScenesView(
+      rows: prev,
+      isStale: prev.isNotEmpty && ttlStale,
+    ),
   };
 }
 
@@ -295,6 +320,9 @@ class ScenesController extends _$ScenesController {
 
   Future<List<SceneView>?> _refetchProjection() async {
     ref.invalidate(scenesListFetchProvider(episodeId));
+    // Refetch boundary (issue #366 review): recompute the TTL result so a
+    // later loading state never consumes a pre-write memo.
+    ref.invalidate(scenesCacheStaleProvider(episodeId));
     final res = await ref.read(scenesListFetchProvider(episodeId).future);
     return res.match((_) => null, (rows) => rows);
   }

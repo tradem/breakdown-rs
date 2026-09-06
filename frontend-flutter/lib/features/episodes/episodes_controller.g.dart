@@ -345,7 +345,7 @@ final class EpisodesViewControllerProvider
 }
 
 String _$episodesViewControllerHash() =>
-    r'd35c708237f2b7261bb7f2b953df77d0c2c14815';
+    r'b088dfd1be377e73e45d68f296d21bd96b950935';
 
 /// Read-projection controller.
 ///
@@ -426,6 +426,105 @@ abstract class _$EpisodesViewController
   }
 }
 
+/// TTL-based cache staleness for one block's episodes (issue #366).
+///
+/// Backed by [EpisodeRepository.isCacheStale] (client-only `cachedAt` + the
+/// injectable [clockProvider]); a check failure resolves to `false`
+/// (fail-closed — the error path still banners a failed refetch).
+
+@ProviderFor(episodesCacheStale)
+final episodesCacheStaleProvider = EpisodesCacheStaleFamily._();
+
+/// TTL-based cache staleness for one block's episodes (issue #366).
+///
+/// Backed by [EpisodeRepository.isCacheStale] (client-only `cachedAt` + the
+/// injectable [clockProvider]); a check failure resolves to `false`
+/// (fail-closed — the error path still banners a failed refetch).
+
+final class EpisodesCacheStaleProvider
+    extends $FunctionalProvider<AsyncValue<bool>, bool, FutureOr<bool>>
+    with $FutureModifier<bool>, $FutureProvider<bool> {
+  /// TTL-based cache staleness for one block's episodes (issue #366).
+  ///
+  /// Backed by [EpisodeRepository.isCacheStale] (client-only `cachedAt` + the
+  /// injectable [clockProvider]); a check failure resolves to `false`
+  /// (fail-closed — the error path still banners a failed refetch).
+  EpisodesCacheStaleProvider._({
+    required EpisodesCacheStaleFamily super.from,
+    required String super.argument,
+  }) : super(
+         retry: null,
+         name: r'episodesCacheStaleProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$episodesCacheStaleHash();
+
+  @override
+  String toString() {
+    return r'episodesCacheStaleProvider'
+        ''
+        '($argument)';
+  }
+
+  @$internal
+  @override
+  $FutureProviderElement<bool> $createElement($ProviderPointer pointer) =>
+      $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<bool> create(Ref ref) {
+    final argument = this.argument as String;
+    return episodesCacheStale(ref, argument);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is EpisodesCacheStaleProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$episodesCacheStaleHash() =>
+    r'd522f5e51cff0f0fe526d0720a93972454b0d804';
+
+/// TTL-based cache staleness for one block's episodes (issue #366).
+///
+/// Backed by [EpisodeRepository.isCacheStale] (client-only `cachedAt` + the
+/// injectable [clockProvider]); a check failure resolves to `false`
+/// (fail-closed — the error path still banners a failed refetch).
+
+final class EpisodesCacheStaleFamily extends $Family
+    with $FunctionalFamilyOverride<FutureOr<bool>, String> {
+  EpisodesCacheStaleFamily._()
+    : super(
+        retry: null,
+        name: r'episodesCacheStaleProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// TTL-based cache staleness for one block's episodes (issue #366).
+  ///
+  /// Backed by [EpisodeRepository.isCacheStale] (client-only `cachedAt` + the
+  /// injectable [clockProvider]); a check failure resolves to `false`
+  /// (fail-closed — the error path still banners a failed refetch).
+
+  EpisodesCacheStaleProvider call(String blockId) =>
+      EpisodesCacheStaleProvider._(argument: blockId, from: this);
+
+  @override
+  String toString() => r'episodesCacheStaleProvider';
+}
+
 /// The projection a screen reads (selector).
 
 @ProviderFor(episodesView)
@@ -488,7 +587,7 @@ final class EpisodesViewProvider
   }
 }
 
-String _$episodesViewHash() => r'03a69d6569f8d442a89c0fb3bc6965a7bcc407b4';
+String _$episodesViewHash() => r'46bec670c98358bb4b51cec2a71fcec159c739b4';
 
 /// The projection a screen reads (selector).
 
@@ -798,7 +897,7 @@ final class EpisodesControllerProvider
 }
 
 String _$episodesControllerHash() =>
-    r'ba015653f703a4cf9d5f2e258410495b396cd8ce';
+    r'7538c3960ac1414ddbb018c4e6da067dfee6c3ad';
 
 /// `EpisodesController(blockId, seasonId)` on the shared reconciliation
 /// runner: the `blockId` is the fetch scope (server-side `?block_id=`

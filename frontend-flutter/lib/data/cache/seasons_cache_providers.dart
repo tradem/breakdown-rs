@@ -154,6 +154,10 @@ class SeasonsViewController extends _$SeasonsViewController {
     final res = await repo.create(request);
     if (res.isRight()) {
       ref.invalidate(seasonsListFetchProvider);
+      // Refetch boundary (issue #366 review): recompute the TTL result so
+      // the loading state below never consumes a pre-write memo. The
+      // view only reads it while loading; success serves AsyncData.
+      ref.invalidate(seasonsCacheStaleProvider);
       ref.invalidateSelf();
     }
     return res;
@@ -168,9 +172,33 @@ class SeasonsViewController extends _$SeasonsViewController {
     final res = await repo.rename(id, request);
     if (res.isRight()) {
       ref.invalidate(seasonsListFetchProvider);
+      // Refetch boundary (issue #366 review): see createSeason.
+      ref.invalidate(seasonsCacheStaleProvider);
       ref.invalidateSelf();
     }
     return res;
+  }
+}
+
+/// TTL-based cache staleness for the seasons projection (issue #366).
+///
+/// Backed by [SeasonRepository.isCacheStale] (client-only `cachedAt` + the
+/// injectable [clockProvider]); a staleness-check failure resolves to
+/// `false` (fail-closed: no banner when staleness itself is unknown — the
+/// error path still banners a failed refetch serving retained rows).
+@riverpod
+Future<bool> seasonsCacheStale(Ref ref) async {
+  // NOTE: this provider memoizes until a dependency changes or it is
+  // invalidated. Every refetch path invalidates it explicitly alongside
+  // the list fetch (see createSeason/renameSeason/_refetchProjection), so
+  // a later loading state never consumes a pre-write result. The
+  // repo/clock watches below only cover resets (new repo identity).
+  final repo = ref.watch(seasonRepositoryProvider);
+  final clock = ref.watch(clockProvider);
+  try {
+    return await repo.isCacheStale(clock: clock);
+  } on Object {
+    return false;
   }
 }
 
@@ -182,6 +210,11 @@ class SeasonsViewController extends _$SeasonsViewController {
 final seasonsView = Provider<SeasonsView>((ref) {
   final async = ref.watch(seasonsViewControllerProvider);
   final prev = ref.watch(seasonsPrevRowsProvider);
+  // TTL-based staleness (issue #366): a fresh cache served while a normal
+  // refetch is in flight is NOT stale — the banner shows only for an
+  // expired cache or a failed refetch serving retained rows. Unknown
+  // (still loading / failed) staleness reads as fresh (fail-closed).
+  final ttlStale = ref.watch(seasonsCacheStaleProvider).value ?? false;
   return switch (async) {
     AsyncData(:final value) => value,
     AsyncError(:final error) => SeasonsView(
@@ -191,6 +224,9 @@ final seasonsView = Provider<SeasonsView>((ref) {
           ? error
           : const ProblemError(code: 'unknown'),
     ),
-    AsyncLoading() => SeasonsView(rows: prev, isStale: prev.isNotEmpty),
+    AsyncLoading() => SeasonsView(
+      rows: prev,
+      isStale: prev.isNotEmpty && ttlStale,
+    ),
   };
 });

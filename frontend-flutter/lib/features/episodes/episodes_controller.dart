@@ -132,11 +132,33 @@ class EpisodesViewController extends _$EpisodesViewController {
   }
 }
 
+/// TTL-based cache staleness for one block's episodes (issue #366).
+///
+/// Backed by [EpisodeRepository.isCacheStale] (client-only `cachedAt` + the
+/// injectable [clockProvider]); a check failure resolves to `false`
+/// (fail-closed — the error path still banners a failed refetch).
+@riverpod
+Future<bool> episodesCacheStale(Ref ref, String blockId) async {
+  // NOTE (issue #366 review): memoized until invalidated — every refetch
+  // path invalidates this alongside the list fetch (see _refetchProjection).
+  final repo = ref.watch(episodeRepositoryProvider);
+  final clock = ref.watch(clockProvider);
+  try {
+    return await repo.isCacheStale(blockId, clock: clock);
+  } on Object {
+    return false;
+  }
+}
+
 /// The projection a screen reads (selector).
 @riverpod
 EpisodesView episodesView(Ref ref, String blockId, String seasonId) {
   final async = ref.watch(episodesViewControllerProvider(blockId, seasonId));
   final prev = ref.watch(episodesPrevRowsProvider(blockId, seasonId));
+  // TTL-based staleness (issue #366): a fresh cache served while a normal
+  // refetch is in flight is NOT stale. Unknown staleness reads as fresh.
+  final ttlStale =
+      ref.watch(episodesCacheStaleProvider(blockId)).value ?? false;
   return switch (async) {
     AsyncData(:final value) => value,
     AsyncError(:final error) => EpisodesView(
@@ -146,7 +168,10 @@ EpisodesView episodesView(Ref ref, String blockId, String seasonId) {
           ? error
           : const ProblemError(code: 'unknown'),
     ),
-    AsyncLoading() => EpisodesView(rows: prev, isStale: prev.isNotEmpty),
+    AsyncLoading() => EpisodesView(
+      rows: prev,
+      isStale: prev.isNotEmpty && ttlStale,
+    ),
   };
 }
 
@@ -314,6 +339,9 @@ class EpisodesController extends _$EpisodesController {
 
   Future<List<EpisodeView>?> _refetchProjection() async {
     ref.invalidate(episodesListFetchProvider(blockId, seasonId));
+    // Refetch boundary (issue #366 review): recompute the TTL result so a
+    // later loading state never consumes a pre-write memo.
+    ref.invalidate(episodesCacheStaleProvider(blockId));
     final res = await ref.read(
       episodesListFetchProvider(blockId, seasonId).future,
     );

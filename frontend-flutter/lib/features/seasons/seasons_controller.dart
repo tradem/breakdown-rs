@@ -225,6 +225,8 @@ class SeasonsController extends _$SeasonsController {
   /// never on failure) and returns the fresh rows, or `null` on `Err`.
   Future<List<SeasonView>?> _refetchProjection() async {
     ref.invalidate(seasonsListFetchProvider);
+    // Refetch boundary (issue #366 review): see createSeason.
+    ref.invalidate(seasonsCacheStaleProvider);
     final res = await ref.read(seasonsListFetchProvider.future);
     return res.match((_) => null, (rows) => rows);
   }
