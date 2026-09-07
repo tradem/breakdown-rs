@@ -76,9 +76,15 @@ class CacheDatabase extends _$CacheDatabase {
       if (from < 4) {
         // CodeRabbit review follow-up: snapshot ordinal on the costume rows
         // so `readBySeason` reproduces the server `ORDER BY updated_at
-        // DESC` exactly. Existing rows share the 0 default and are replaced
-        // by the next snapshot anyway.
-        await m.addColumn(costumeCacheRows, costumeCacheRows.snapshotIndex);
+        // DESC` exactly. Plain `m.addColumn` emits `ADD COLUMN ... NOT
+        // NULL` without a default, which SQLite rejects on populated v3
+        // tables (and would otherwise leave NULLs the non-nullable Dart
+        // mapping cannot read) — so the statement carries `DEFAULT 0`
+        // explicitly. The next snapshot replaces all rows anyway.
+        await m.database.customStatement(
+          'ALTER TABLE costume_cache_rows '
+          'ADD COLUMN snapshot_index INTEGER NOT NULL DEFAULT 0',
+        );
       }
     },
   );
