@@ -202,9 +202,11 @@ class SceneShootsScreen extends ConsumerWidget {
       ),
     );
     if (confirmed == true && context.mounted) {
-      await ref
+      // Handled: failures surface via the command-error provider.
+      final wrapResult = await ref
           .read(sceneShootsControllerProvider(scope).notifier)
           .wrap(dayVersion: day.version);
+      wrapResult.match<void>((_) {}, (_) {});
     }
   }
 }
@@ -359,11 +361,11 @@ class _ShootOrderMenu extends ConsumerWidget {
       key: Key('scene-shoot-menu-${shoot.id}'),
       icon: const Icon(Icons.unfold_more),
       tooltip: 'Order',
-      onSelected: (value) {
+      onSelected: (value) async {
         if (value == 'actual') {
-          _editActualOrder(context, controller);
+          await _editActualOrder(context, controller);
         } else if (value == 'replan') {
-          _editPlannedOrder(context, controller);
+          await _editPlannedOrder(context, controller);
         }
       },
       itemBuilder: (context) => [
@@ -393,7 +395,12 @@ class _ShootOrderMenu extends ConsumerWidget {
       initial: shoot.actualOrder ?? shoot.plannedOrder,
     );
     if (key != null && key.isNotEmpty && key != shoot.actualOrder) {
-      await controller.setActualOrder(shoot: shoot, actualOrder: key);
+      // Handled: failures surface via the command-error provider.
+      final res = await controller.setActualOrder(
+        shoot: shoot,
+        actualOrder: key,
+      );
+      res.match<void>((_) {}, (_) {});
     }
   }
 
@@ -408,7 +415,9 @@ class _ShootOrderMenu extends ConsumerWidget {
       initial: shoot.plannedOrder,
     );
     if (key != null && key.isNotEmpty && key != shoot.plannedOrder) {
-      await controller.replan(shoot: shoot, plannedOrder: key);
+      // Handled: failures surface via the command-error provider.
+      final res = await controller.replan(shoot: shoot, plannedOrder: key);
+      res.match<void>((_) {}, (_) {});
     }
   }
 }
@@ -559,7 +568,9 @@ class _ShootNotes extends ConsumerWidget {
   ) async {
     final body = await _NoteEditorDialog.show(context);
     if (body != null && body.isNotEmpty) {
-      await controller.addNote(shoot: shoot, body: body);
+      // Handled: failures surface via the command-error provider.
+      final res = await controller.addNote(shoot: shoot, body: body);
+      res.match<void>((_) {}, (_) {});
     }
   }
 
@@ -570,7 +581,13 @@ class _ShootNotes extends ConsumerWidget {
   ) async {
     final body = await _NoteEditorDialog.show(context, initial: note.body);
     if (body != null && body.isNotEmpty && body != note.body) {
-      await controller.updateNote(shoot: shoot, noteId: note.id, body: body);
+      // Handled: failures surface via the command-error provider.
+      final res = await controller.updateNote(
+        shoot: shoot,
+        noteId: note.id,
+        body: body,
+      );
+      res.match<void>((_) {}, (_) {});
     }
   }
 
@@ -599,7 +616,9 @@ class _ShootNotes extends ConsumerWidget {
       ),
     );
     if (confirmed == true) {
-      await controller.removeNote(shoot: shoot, noteId: note.id);
+      // Handled: failures surface via the command-error provider.
+      final res = await controller.removeNote(shoot: shoot, noteId: note.id);
+      res.match<void>((_) {}, (_) {});
     }
   }
 }

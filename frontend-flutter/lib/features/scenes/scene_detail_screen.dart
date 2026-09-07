@@ -3,6 +3,9 @@
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
+
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -409,10 +412,13 @@ class _SceneShootingDaysSection extends ConsumerWidget {
   }
 
   void _openBoard(BuildContext context, ShootingDayView day) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) =>
-            SceneShootsScreen(day: day, scene: scene, seasonId: seasonId),
+    // Fire-and-forget navigation (route push has no consumable result).
+    unawaited(
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) =>
+              SceneShootsScreen(day: day, scene: scene, seasonId: seasonId),
+        ),
       ),
     );
   }
