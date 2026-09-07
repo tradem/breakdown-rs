@@ -150,7 +150,13 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
             hint: const Text('Store photo on…'),
             items: [
               for (final c in costumes.rows)
-                DropdownMenuItem(value: c.id, child: Text(_costumeLabel(c))),
+                DropdownMenuItem(
+                  // Gherkin contract key for the continuity capture
+                  // critical scenario (costume pick on device).
+                  key: Key('continuity-costume-option-${c.id}'),
+                  value: c.id,
+                  child: Text(_costumeLabel(c)),
+                ),
             ],
             onChanged: (v) => setState(() => _costumeId = v),
           ),

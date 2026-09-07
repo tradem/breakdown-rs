@@ -10,6 +10,7 @@ import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
 import '../characters/characters_controller.dart';
 import '../costumes/widgets/costumes_widgets.dart';
+import '../scene_shoots/scene_shoots_screen.dart';
 import '../shooting_days/shooting_days_controller.dart';
 import 'scenes_controller.dart';
 import 'scenes_state.dart';
@@ -368,11 +369,29 @@ class _SceneShootingDaysSection extends ConsumerWidget {
               subtitle: byId[id]?.date != null
                   ? Text('Date: ${byId[id]!.date}')
                   : null,
-              trailing: IconButton(
-                key: Key('scene-shooting-day-unschedule-$id'),
-                icon: const Icon(Icons.event_busy),
-                tooltip: 'Unschedule',
-                onPressed: () => _unschedule(context, ref, id),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Day-board entry (`flutter-shoot-day-execution` 2.1):
+                  // opens the Soll/Ist execution board with the acted-on
+                  // day + scene DTOs (never a second projection lookup).
+                  // Gherkin contract key (`open-day-board-<day>`) for the
+                  // shoot-day execution critical scenarios.
+                  IconButton(
+                    key: Key('open-day-board-$id'),
+                    icon: const Icon(Icons.view_agenda_outlined),
+                    tooltip: 'Open day board',
+                    onPressed: byId[id] == null
+                        ? null
+                        : () => _openBoard(context, byId[id]!),
+                  ),
+                  IconButton(
+                    key: Key('scene-shooting-day-unschedule-$id'),
+                    icon: const Icon(Icons.event_busy),
+                    tooltip: 'Unschedule',
+                    onPressed: () => _unschedule(context, ref, id),
+                  ),
+                ],
               ),
             ),
         Align(
@@ -386,6 +405,18 @@ class _SceneShootingDaysSection extends ConsumerWidget {
           ),
         ),
       ],
+    );
+  }
+
+  void _openBoard(BuildContext context, ShootingDayView day) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SceneShootsScreen(
+          day: day,
+          scene: scene,
+          seasonId: seasonId,
+        ),
+      ),
     );
   }
 

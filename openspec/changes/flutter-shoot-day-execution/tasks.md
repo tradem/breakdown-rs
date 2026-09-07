@@ -41,7 +41,7 @@
        narratives
 
 ## 3. Gherkin (designated critical scenarios)
-- [ ] 3.1 `features-spec/continuity_photo_capture.feature` — gate →
+- [x] 3.1 `features-spec/continuity_photo_capture.feature` — gate →
        capture → upload → variant Ready → thumb appears; plus the
        watch-expired case (variant still `Processing` at the deadline
        → polling stops + recovery affordance)
