@@ -22,6 +22,27 @@ commits (ADR-020 D5).
 > original reasoning. Issue #337 below adds new public routes on top, moving
 > the release to **0.10.0**.
 
+### Fixed — `PATCH /v1/shooting-days/{id}` explicit date/label clear (issue #372)
+
+- `UpdateShootingDayRequest.date` / `.label` are presence-tracked
+  (`Option<Option<..>>` with `#[serde(default, deserialize_with = …)]`): an
+  absent field means "no update", an explicit JSON `null` (`Some(None)`)
+  clears the value (unschedule / rename-to-null), and a value
+  (`Some(Some(v))`) sets it. Previously both fields were plain `Option<T>`,
+  so serde collapsed explicit `null` and absent identically to `None` and
+  every clear fell through to `422 no update field provided` — the
+  unschedule/rename-to-null affordance was inexpressible end to end. The
+  handler dispatches `Some(date)` (including `None`) to `reschedule` and
+  `Some(label)` (including `None`) to `rename`; `order_key` is unchanged.
+- `backend/openapi.yaml` regenerated: `date` / `label` are nullable
+  (`type: [string, 'null']`), optional, with the three-state semantics in the
+  schema description, so the regenerated Dart client can express the clear
+  (client regeneration itself stays Flutter-side, per the issue non-goals).
+- New `crates/api/tests/handler_shooting_day.rs`: serde three-state cases
+  plus handler dispatch cases (reschedule with date, unschedule with explicit
+  null, rename with label, rename-to-null, and the 422 no-field case).
+- Rides with the open 0.10.0 MINOR; no additional bump.
+
 ### Added — AI import discovery routes + typed preview (issue #337)
 
 - `GET /v1/ai-import/config`: the caller's configs, newest-first
