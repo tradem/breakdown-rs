@@ -11,6 +11,13 @@
 // downscale of a tiny fixture), upload, watch reconciliation and gallery
 // rendering. Run via `dart run integration_test run-tests` against a
 // device/emulator; not part of the headless `flutter test` pass.
+//
+// Issue #370: the `prepareImage` isolate boundary never completes headless
+// under `flutter_test`, so the 3-line wrapper has no headless coverage.
+// This file is the on-device cover: the smoke below deliberately does NOT
+// override `preparePhotoProvider` (production `Isolate.run` path), and the
+// dedicated isolate test asserts `defaultPreparePhoto` resolves to
+// `PrepareReady` on device.
 
 import 'dart:typed_data';
 
@@ -44,6 +51,7 @@ import 'package:frontend_flutter/features/costume_categories/costume_categories_
 import 'package:frontend_flutter/features/costumes/costumes_controller.dart';
 import 'package:frontend_flutter/features/costumes/costumes_screen.dart';
 import 'package:frontend_flutter/features/photos/capture.dart';
+import 'package:frontend_flutter/features/photos/prepare.dart';
 
 SeasonView _season() => SeasonView(
   (b) => b
@@ -377,7 +385,13 @@ void main() {
       await tester.pumpAndSettle();
       expect(repo.assignCalls, 1);
 
-      // Capture (picker faked) → prepare → upload → Ready thumb.
+      // Capture (picker faked) → prepare (real isolate: no
+      // `preparePhotoProvider` override above — production `Isolate.run`)
+      // → upload → Ready thumb. `uploadCalls == 1` proves the isolate
+      // prepare resolved to `PrepareReady` (upload only runs on that
+      // branch); the dedicated isolate test below asserts the boundary
+      // directly. Deterministic: `pumpAndSettle` bounds the wait, no
+      // wall-clock-gated correctness.
       await tester.tap(
         find.byKey(const Key('photo-capture-camera-e2e-costume')),
       );
@@ -386,4 +400,20 @@ void main() {
       expect(find.byKey(const Key('photo-tile-e2e-photo')), findsOneWidget);
     },
   );
+
+  testWidgets('Prepare isolate boundary resolves on device (issue #370)', (
+    tester,
+  ) async {
+    // Direct `Isolate.run` boundary assertion: plain `await` (the harness
+    // bounds the wait — never a wall-clock-gated correctness check, never
+    // `Future.delayed`). Headless this future never completes, which is
+    // why the wrapper stays uncovered in `flutter test` coverage.
+    final prepared = await defaultPreparePhoto(
+      PrepareInput(bytes: _tinyJpeg(), contentType: 'image/jpeg'),
+    );
+    expect(prepared, isA<PrepareReady>());
+    final ready = prepared as PrepareReady;
+    expect(ready.contentType, 'image/jpeg');
+    expect(ready.bytes.lengthInBytes, greaterThan(0));
+  });
 }

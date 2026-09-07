@@ -148,7 +148,10 @@ PrepareResult prepareImageCore(PrepareInput input) {
 /// Tier-1 unit tests stay Flutter-free). The isolate boundary itself
 /// cannot complete headless in `flutter_test`; screens therefore call
 /// [preparePhotoProvider] (overridable to the synchronous core in tests)
-/// instead of this function directly.
+/// instead of this function directly. On-device cover lives in
+/// `integration_test/costume_domains_smoke_test.dart` (issue #370: the
+/// smoke uses the production seam without override plus a direct
+/// `defaultPreparePhoto` → `PrepareReady` boundary assertion).
 Future<PrepareResult> prepareImage(PrepareInput input) =>
     Isolate.run(() => prepareImageCore(input));
 
