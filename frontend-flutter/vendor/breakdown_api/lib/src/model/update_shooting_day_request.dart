@@ -11,7 +11,7 @@ import 'package:built_value/serializer.dart';
 
 part 'update_shooting_day_request.g.dart';
 
-/// Request body for mutating a `ShootingDay`.  Exactly one of `order_key` / `date` / `label` should be set; the handler dispatches the matching command (reorder > reschedule > rename). `date` being `Some(None)` is the explicit \"unschedule\" (clear the calendar date).
+/// Request body for mutating a `ShootingDay`.  Exactly one of `order_key` / `date` / `label` should be set; the handler dispatches the matching command (reorder > reschedule > rename). `date` and `label` are presence-tracked (`Option<Option<..>>`): an absent field means \"no update\", an explicit JSON `null` (`Some(None)`) clears the value (unschedule / rename-to-null), and a value (`Some(Some(v))`) sets it.
 ///
 /// Properties:
 /// * [date]
