@@ -5,10 +5,11 @@
 // Tier-1 coverage tests (Task 8.3): branches the happy-path suites leave
 // cold — prepare reduction/tooLarge via the injectable budget seam,
 // capture intent extras (generic failure, settings opener, rationale
-// provider), DAO TTL/clear/miss paths, repository cache-fault Err values
-// (closed-DB write/read/clear failures), photo upload Ok, screen-state row
-// merging, error-copy branches, overlay-store bookkeeping. No Flutter
-// imports; deterministic (fake clocks, no wall-clock).
+// provider), DAO TTL/clear/miss paths, photo upload Ok (dispatch-level
+// adapter), screen-state row merging, error-copy branches, overlay-store
+// bookkeeping. Runs under `flutter test --coverage --branch-coverage`
+// (some fixtures need Flutter packages such as flutter_riverpod and
+// image_picker); deterministic (fake clocks, no wall-clock).
 
 import 'dart:convert';
 import 'dart:typed_data';
@@ -241,6 +242,65 @@ void main() {
       expect(container.read(photoRationaleSeenProvider), isFalse);
       container.read(photoRationaleSeenProvider.notifier).markSeen();
       expect(container.read(photoRationaleSeenProvider), isTrue);
+    });
+  });
+
+  group('costume snapshot order (ordinal)', () {
+    test('readBySeason reproduces snapshot order incl. ties', () async {
+      final db = CacheDatabase();
+      addTearDown(db.close);
+      final dao = CostumeCacheDao(db);
+      CostumeView costume(String id) => CostumeView(
+        (b) => b
+          ..id = id
+          ..notes = 'n'
+          ..details.replace(BuiltList<CostumeDetailView>())
+          ..photos.replace(BuiltList<CostumePhotoView>())
+          // Identical timestamps: only the ordinal separates them.
+          ..updatedAt = DateTime.utc(2026, 1, 1)
+          ..version = 1,
+      );
+      // Snapshot arrives in server order (updated_at DESC); SQLite must
+      // not resurface insertion order instead.
+      await dao.applySnapshotForSeason('s-1', [
+        costume('c-b'),
+        costume('c-a'),
+        costume('c-c'),
+      ], DateTime.utc(2026, 1, 2));
+      expect((await dao.readBySeason('s-1')).map((c) => c.id), [
+        'c-b',
+        'c-a',
+        'c-c',
+      ]);
+    });
+
+    test('single-row upsert preserves the existing ordinal', () async {
+      final db = CacheDatabase();
+      addTearDown(db.close);
+      final dao = CostumeCacheDao(db);
+      CostumeView costume(String id) => CostumeView(
+        (b) => b
+          ..id = id
+          ..notes = 'n'
+          ..details.replace(BuiltList<CostumeDetailView>())
+          ..photos.replace(BuiltList<CostumePhotoView>())
+          ..updatedAt = DateTime.utc(2026, 1, 1)
+          ..version = 1,
+      );
+      await dao.applySnapshotForSeason('s-1', [
+        costume('c-1'),
+        costume('c-2'),
+      ], DateTime.utc(2026, 1, 1));
+      // Refetch of one row keeps its list position …
+      await dao.upsert('s-1', costume('c-2'), DateTime.utc(2026, 1, 2));
+      expect((await dao.readBySeason('s-1')).map((c) => c.id), ['c-1', 'c-2']);
+      // … while a brand-new row appends after the season maximum.
+      await dao.upsert('s-1', costume('c-9'), DateTime.utc(2026, 1, 2));
+      expect((await dao.readBySeason('s-1')).map((c) => c.id), [
+        'c-1',
+        'c-2',
+        'c-9',
+      ]);
     });
   });
 

@@ -215,22 +215,27 @@ void main() {
       expect(find.byKey(const Key('overlay-d-new-1')), findsOneWidget);
     });
 
-    testWidgets('unschedule: date null is the explicit clear', (tester) async {
+    testWidgets('unschedule: disabled until explicit clear works end to end', (
+      tester,
+    ) async {
       final day = _day('d-1', date: Date(2026, 5, 1));
       await setupContainer(initialRows: [day]);
       await pumpScreen(tester);
       await tester.tap(find.byKey(const Key('shooting-day-menu-d-1')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('shooting-day-unschedule-d-1')));
-      await tester.pumpAndSettle();
+      // Explicit date clears are inexpressible end to end (backend issue
+      // #372): the item renders disabled with its key so the affordance
+      // does not silently vanish — and dispatches nothing.
+      final item = tester.widget<PopupMenuItem<VoidCallback>>(
+        find.byKey(const Key('shooting-day-unschedule-d-1')),
+      );
+      expect(item.enabled, isFalse);
       await tester.tap(
-        find.byKey(const Key('shooting-day-unschedule-confirm-d-1')),
+        find.byKey(const Key('shooting-day-unschedule-d-1')),
+        warnIfMissed: false,
       );
       await _pumpFrames(tester);
-      expect(repo.updateCalls, 1);
-      // The request carries no date value (absent = explicit unschedule —
-      // the handler interprets Some(None)); version echoes.
-      expect(repo.lastUpdate!.version, 1);
+      expect(repo.updateCalls, 0);
     });
 
     testWidgets('conflict: 409 renders keyed copy', (tester) async {

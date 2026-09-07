@@ -257,6 +257,8 @@ class _SceneCharactersSection extends ConsumerWidget {
       // the current projection version, not the rejected one. The command
       // itself is never re-dispatched automatically.
       await ref.read(scenesControllerProvider(episodeId).notifier).refresh();
+      // Navigation or sign-out can unmount while the refresh is pending.
+      if (!context.mounted) return;
       result.match(
         (err) =>
             ScaffoldMessenger.of(context)
@@ -305,6 +307,7 @@ class _SceneCharactersSection extends ConsumerWidget {
                 await ref
                     .read(scenesControllerProvider(episodeId).notifier)
                     .refresh();
+                if (!dialogContext.mounted) return;
                 result.match(
                   (err) => ScaffoldMessenger.of(dialogContext).showSnackBar(
                     SnackBar(content: Text(characterErrorCopy(err))),
@@ -437,6 +440,8 @@ class _SceneShootingDaysSection extends ConsumerWidget {
     } else if (context.mounted) {
       // Reconcile the version even on conflict (never re-dispatch).
       await ref.read(scenesControllerProvider(episodeId).notifier).refresh();
+      // Navigation or sign-out can unmount while the refresh is pending.
+      if (!context.mounted) return;
       result.match(
         (err) => ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(shootingDayErrorCopy(err)))),
@@ -465,6 +470,7 @@ class _SceneShootingDaysSection extends ConsumerWidget {
       // action echoes the current version, and conflict copy renders keyed
       // on `code`; no automatic version bump re-dispatch.
       await ref.read(scenesControllerProvider(episodeId).notifier).refresh();
+      if (!context.mounted) return;
       result.match(
         (err) => ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(shootingDayErrorCopy(err)))),

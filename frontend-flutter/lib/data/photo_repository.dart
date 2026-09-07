@@ -156,34 +156,32 @@ class PhotoRepository extends BaseRepository {
   }) async* {
     final startedAt = clock.now();
     var attempts = 0;
+    Stream<PhotoWatchEvent> emitExpired() async* {
+      final last = await fetchCostume();
+      yield* last.match(
+        (err) async* {
+          yield PhotoWatchEvent.expired(null, err);
+        },
+        (view) async* {
+          yield PhotoWatchEvent.expired(view, null);
+        },
+      );
+    }
+
     while (true) {
       if (attempts >= kPhotoWatchMaxAttempts) {
-        final last = await fetchCostume();
-        yield* last.match(
-          (err) async* {
-            yield PhotoWatchEvent.expired(null, err);
-          },
-          (view) async* {
-            yield PhotoWatchEvent.expired(view, null);
-          },
-        );
-        return;
-      }
-      final elapsed = clock.now().difference(startedAt);
-      if (elapsed > kPhotoWatchMaxElapsed) {
-        final last = await fetchCostume();
-        yield* last.match(
-          (err) async* {
-            yield PhotoWatchEvent.expired(null, err);
-          },
-          (view) async* {
-            yield PhotoWatchEvent.expired(view, null);
-          },
-        );
+        yield* emitExpired();
         return;
       }
       if (attempts > 0) {
         await (delay ?? _defaultWatchDelay)(attempts);
+      }
+      // Rechecked after the delay: a delay can cross the deadline, and
+      // only the expiry fetch may run past the budget (never a normal
+      // fetch plus an expiry fetch).
+      if (clock.now().difference(startedAt) >= kPhotoWatchMaxElapsed) {
+        yield* emitExpired();
+        return;
       }
       attempts++;
       final result = await fetchCostume();
@@ -255,11 +253,11 @@ bool isPhotoWatchTerminal(CostumeView view) {
     // is not terminal: keep polling until variants appear and settle.
     if (photo.variants.isEmpty) return false;
     for (final variant in photo.variants) {
-      final status = serializers.serializeWith(
-        VariantStatus.serializer,
-        variant.status,
-      );
-      if (status != 'Ready' && status != 'Failed') return false;
+      // Direct enum comparison (same rationale as `photoRowStatus`).
+      if (variant.status != VariantStatus.ready &&
+          variant.status != VariantStatus.failed) {
+        return false;
+      }
     }
   }
   return true;

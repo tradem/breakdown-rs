@@ -3016,6 +3016,17 @@ class $CostumeCacheRowsTable extends CostumeCacheRows
     type: DriftSqlType.dateTime,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _snapshotIndexMeta = const VerificationMeta(
+    'snapshotIndex',
+  );
+  @override
+  late final GeneratedColumn<int> snapshotIndex = GeneratedColumn<int>(
+    'snapshot_index',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -3027,6 +3038,7 @@ class $CostumeCacheRowsTable extends CostumeCacheRows
     updatedAt,
     version,
     cachedAt,
+    snapshotIndex,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -3113,6 +3125,17 @@ class $CostumeCacheRowsTable extends CostumeCacheRows
     } else if (isInserting) {
       context.missing(_cachedAtMeta);
     }
+    if (data.containsKey('snapshot_index')) {
+      context.handle(
+        _snapshotIndexMeta,
+        snapshotIndex.isAcceptableOrUnknown(
+          data['snapshot_index']!,
+          _snapshotIndexMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_snapshotIndexMeta);
+    }
     return context;
   }
 
@@ -3158,6 +3181,10 @@ class $CostumeCacheRowsTable extends CostumeCacheRows
         DriftSqlType.dateTime,
         data['${effectivePrefix}cached_at'],
       )!,
+      snapshotIndex: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}snapshot_index'],
+      )!,
     );
   }
 
@@ -3197,6 +3224,12 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
 
   /// Client-only cache-write time. TTL is computed from this column only.
   final DateTime cachedAt;
+
+  /// Snapshot ordinal: position in the last `listBySeason` response
+  /// (server `ORDER BY updated_at DESC`). SQLite does not guarantee row
+  /// order without `ORDER BY`, so the snapshot index is persisted to
+  /// reproduce the server order exactly, including `updated_at` ties.
+  final int snapshotIndex;
   const CostumeCacheRow({
     required this.id,
     required this.seasonId,
@@ -3207,6 +3240,7 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
     required this.updatedAt,
     required this.version,
     required this.cachedAt,
+    required this.snapshotIndex,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -3222,6 +3256,7 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
     map['updated_at'] = Variable<DateTime>(updatedAt);
     map['version'] = Variable<int>(version);
     map['cached_at'] = Variable<DateTime>(cachedAt);
+    map['snapshot_index'] = Variable<int>(snapshotIndex);
     return map;
   }
 
@@ -3238,6 +3273,7 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
       updatedAt: Value(updatedAt),
       version: Value(version),
       cachedAt: Value(cachedAt),
+      snapshotIndex: Value(snapshotIndex),
     );
   }
 
@@ -3256,6 +3292,7 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
       version: serializer.fromJson<int>(json['version']),
       cachedAt: serializer.fromJson<DateTime>(json['cachedAt']),
+      snapshotIndex: serializer.fromJson<int>(json['snapshotIndex']),
     );
   }
   @override
@@ -3271,6 +3308,7 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
       'version': serializer.toJson<int>(version),
       'cachedAt': serializer.toJson<DateTime>(cachedAt),
+      'snapshotIndex': serializer.toJson<int>(snapshotIndex),
     };
   }
 
@@ -3284,6 +3322,7 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
     DateTime? updatedAt,
     int? version,
     DateTime? cachedAt,
+    int? snapshotIndex,
   }) => CostumeCacheRow(
     id: id ?? this.id,
     seasonId: seasonId ?? this.seasonId,
@@ -3294,6 +3333,7 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
     updatedAt: updatedAt ?? this.updatedAt,
     version: version ?? this.version,
     cachedAt: cachedAt ?? this.cachedAt,
+    snapshotIndex: snapshotIndex ?? this.snapshotIndex,
   );
   CostumeCacheRow copyWithCompanion(CostumeCacheRowsCompanion data) {
     return CostumeCacheRow(
@@ -3312,6 +3352,9 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       version: data.version.present ? data.version.value : this.version,
       cachedAt: data.cachedAt.present ? data.cachedAt.value : this.cachedAt,
+      snapshotIndex: data.snapshotIndex.present
+          ? data.snapshotIndex.value
+          : this.snapshotIndex,
     );
   }
 
@@ -3326,7 +3369,8 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
           ..write('photosJson: $photosJson, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('version: $version, ')
-          ..write('cachedAt: $cachedAt')
+          ..write('cachedAt: $cachedAt, ')
+          ..write('snapshotIndex: $snapshotIndex')
           ..write(')'))
         .toString();
   }
@@ -3342,6 +3386,7 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
     updatedAt,
     version,
     cachedAt,
+    snapshotIndex,
   );
   @override
   bool operator ==(Object other) =>
@@ -3355,7 +3400,8 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
           other.photosJson == this.photosJson &&
           other.updatedAt == this.updatedAt &&
           other.version == this.version &&
-          other.cachedAt == this.cachedAt);
+          other.cachedAt == this.cachedAt &&
+          other.snapshotIndex == this.snapshotIndex);
 }
 
 class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
@@ -3368,6 +3414,7 @@ class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
   final Value<DateTime> updatedAt;
   final Value<int> version;
   final Value<DateTime> cachedAt;
+  final Value<int> snapshotIndex;
   final Value<int> rowid;
   const CostumeCacheRowsCompanion({
     this.id = const Value.absent(),
@@ -3379,6 +3426,7 @@ class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
     this.updatedAt = const Value.absent(),
     this.version = const Value.absent(),
     this.cachedAt = const Value.absent(),
+    this.snapshotIndex = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   CostumeCacheRowsCompanion.insert({
@@ -3391,6 +3439,7 @@ class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
     required DateTime updatedAt,
     required int version,
     required DateTime cachedAt,
+    required int snapshotIndex,
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        seasonId = Value(seasonId),
@@ -3399,7 +3448,8 @@ class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
        photosJson = Value(photosJson),
        updatedAt = Value(updatedAt),
        version = Value(version),
-       cachedAt = Value(cachedAt);
+       cachedAt = Value(cachedAt),
+       snapshotIndex = Value(snapshotIndex);
   static Insertable<CostumeCacheRow> custom({
     Expression<String>? id,
     Expression<String>? seasonId,
@@ -3410,6 +3460,7 @@ class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
     Expression<DateTime>? updatedAt,
     Expression<int>? version,
     Expression<DateTime>? cachedAt,
+    Expression<int>? snapshotIndex,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -3422,6 +3473,7 @@ class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
       if (updatedAt != null) 'updated_at': updatedAt,
       if (version != null) 'version': version,
       if (cachedAt != null) 'cached_at': cachedAt,
+      if (snapshotIndex != null) 'snapshot_index': snapshotIndex,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -3436,6 +3488,7 @@ class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
     Value<DateTime>? updatedAt,
     Value<int>? version,
     Value<DateTime>? cachedAt,
+    Value<int>? snapshotIndex,
     Value<int>? rowid,
   }) {
     return CostumeCacheRowsCompanion(
@@ -3448,6 +3501,7 @@ class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
       updatedAt: updatedAt ?? this.updatedAt,
       version: version ?? this.version,
       cachedAt: cachedAt ?? this.cachedAt,
+      snapshotIndex: snapshotIndex ?? this.snapshotIndex,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -3482,6 +3536,9 @@ class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
     if (cachedAt.present) {
       map['cached_at'] = Variable<DateTime>(cachedAt.value);
     }
+    if (snapshotIndex.present) {
+      map['snapshot_index'] = Variable<int>(snapshotIndex.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -3500,6 +3557,7 @@ class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
           ..write('updatedAt: $updatedAt, ')
           ..write('version: $version, ')
           ..write('cachedAt: $cachedAt, ')
+          ..write('snapshotIndex: $snapshotIndex, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -6573,6 +6631,7 @@ typedef $$CostumeCacheRowsTableCreateCompanionBuilder =
       required DateTime updatedAt,
       required int version,
       required DateTime cachedAt,
+      required int snapshotIndex,
       Value<int> rowid,
     });
 typedef $$CostumeCacheRowsTableUpdateCompanionBuilder =
@@ -6586,6 +6645,7 @@ typedef $$CostumeCacheRowsTableUpdateCompanionBuilder =
       Value<DateTime> updatedAt,
       Value<int> version,
       Value<DateTime> cachedAt,
+      Value<int> snapshotIndex,
       Value<int> rowid,
     });
 
@@ -6640,6 +6700,11 @@ class $$CostumeCacheRowsTableFilterComposer
 
   ColumnFilters<DateTime> get cachedAt => $composableBuilder(
     column: $table.cachedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get snapshotIndex => $composableBuilder(
+    column: $table.snapshotIndex,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -6697,6 +6762,11 @@ class $$CostumeCacheRowsTableOrderingComposer
     column: $table.cachedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get snapshotIndex => $composableBuilder(
+    column: $table.snapshotIndex,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$CostumeCacheRowsTableAnnotationComposer
@@ -6740,6 +6810,11 @@ class $$CostumeCacheRowsTableAnnotationComposer
 
   GeneratedColumn<DateTime> get cachedAt =>
       $composableBuilder(column: $table.cachedAt, builder: (column) => column);
+
+  GeneratedColumn<int> get snapshotIndex => $composableBuilder(
+    column: $table.snapshotIndex,
+    builder: (column) => column,
+  );
 }
 
 class $$CostumeCacheRowsTableTableManager
@@ -6788,6 +6863,7 @@ class $$CostumeCacheRowsTableTableManager
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<int> version = const Value.absent(),
                 Value<DateTime> cachedAt = const Value.absent(),
+                Value<int> snapshotIndex = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CostumeCacheRowsCompanion(
                 id: id,
@@ -6799,6 +6875,7 @@ class $$CostumeCacheRowsTableTableManager
                 updatedAt: updatedAt,
                 version: version,
                 cachedAt: cachedAt,
+                snapshotIndex: snapshotIndex,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -6812,6 +6889,7 @@ class $$CostumeCacheRowsTableTableManager
                 required DateTime updatedAt,
                 required int version,
                 required DateTime cachedAt,
+                required int snapshotIndex,
                 Value<int> rowid = const Value.absent(),
               }) => CostumeCacheRowsCompanion.insert(
                 id: id,
@@ -6823,6 +6901,7 @@ class $$CostumeCacheRowsTableTableManager
                 updatedAt: updatedAt,
                 version: version,
                 cachedAt: cachedAt,
+                snapshotIndex: snapshotIndex,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

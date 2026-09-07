@@ -41,7 +41,7 @@ class CacheDatabase extends _$CacheDatabase {
   CacheDatabase.connect(super.executor);
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -72,6 +72,13 @@ class CacheDatabase extends _$CacheDatabase {
         await m.createTable(costumeCacheRows);
         await m.createTable(characterCacheRows);
         await m.createTable(shootingDayCacheRows);
+      }
+      if (from < 4) {
+        // CodeRabbit review follow-up: snapshot ordinal on the costume rows
+        // so `readBySeason` reproduces the server `ORDER BY updated_at
+        // DESC` exactly. Existing rows share the 0 default and are replaced
+        // by the next snapshot anyway.
+        await m.addColumn(costumeCacheRows, costumeCacheRows.snapshotIndex);
       }
     },
   );

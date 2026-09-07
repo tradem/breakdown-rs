@@ -58,6 +58,12 @@ class CostumeCacheRows extends Table {
   /// Client-only cache-write time. TTL is computed from this column only.
   DateTimeColumn get cachedAt => dateTime()();
 
+  /// Snapshot ordinal: position in the last `listBySeason` response
+  /// (server `ORDER BY updated_at DESC`). SQLite does not guarantee row
+  /// order without `ORDER BY`, so the snapshot index is persisted to
+  /// reproduce the server order exactly, including `updated_at` ties.
+  IntColumn get snapshotIndex => integer()();
+
   @override
   Set<Column<Object>> get primaryKey => {id};
 }

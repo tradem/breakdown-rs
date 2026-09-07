@@ -502,12 +502,32 @@ void main() {
     testWidgets('controller refresh clears and reconciles', (tester) async {
       await setupContainer(initialRows: [_character('ch-1')]);
       await pumpScreen(tester);
-      await container
-          .read(charactersControllerProvider('season-1').notifier)
-          .refresh();
-      await container
-          .read(charactersControllerProvider('season-1').notifier)
-          .reconcile();
+      final controller = container.read(
+        charactersControllerProvider('season-1').notifier,
+      );
+      // Refresh reconciles the initial projection into the retained rows.
+      await controller.refresh();
+      await _pumpFrames(tester);
+      expect(
+        container
+            .read(charactersControllerProvider('season-1'))
+            .cachedRows
+            .map((row) => row.id),
+        ['ch-1'],
+      );
+      // A later projection (renamed upstream) reconciles the same way.
+      // No scheduler tick is needed: with no overlays the pass is a
+      // single refetch, not a bounded retry.
+      holder.value = Right([_character('ch-1', name: 'Ada Updated')]);
+      await controller.reconcile();
+      await _pumpFrames(tester);
+      expect(
+        container
+            .read(charactersControllerProvider('season-1'))
+            .cachedRows
+            .map((row) => row.name),
+        ['Ada Updated'],
+      );
       expect(
         container.read(charactersControllerProvider('season-1')).commandError,
         isNull,

@@ -21,6 +21,8 @@ import '../costumes/costumes_controller.dart';
 import '../episodes/episodes_controller.dart';
 import '../scenes/scenes_controller.dart';
 import '../seasons/seasons_controller.dart';
+import '../photos/capture.dart';
+import '../photos/widgets/photo_gallery.dart';
 import '../shooting_days/shooting_days_controller.dart';
 import 'login_screen.dart';
 
@@ -64,6 +66,9 @@ class SessionReset extends Notifier<void> {
           .read(authSessionControllerProvider.notifier)
           .failSession(emptyError);
     }
+    // Decoded photo bytes are sensitive (CWE-524): drop the in-memory LRU
+    // before the next session starts (Drift never persisted them).
+    ref.read(photoBytesLruProvider).clear();
     _invalidateSessionScope();
   }
 
@@ -186,7 +191,10 @@ class SessionReset extends Notifier<void> {
       ..invalidate(shootingDaysListFetchProvider)
       ..invalidate(shootingDaysPrevRowsProvider)
       ..invalidate(shootingDaysOverlaysProvider)
-      ..invalidate(shootingDaysCommandErrorProvider);
+      ..invalidate(shootingDaysCommandErrorProvider)
+      // Session-scoped photo rationale: the next user must see the
+      // pre-permission rationale instead of inheriting `seen`.
+      ..invalidate(photoRationaleSeenProvider);
   }
 
   /// Resets read state after a backend switch (session kept): like

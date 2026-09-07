@@ -459,6 +459,34 @@ void main() {
       expect(isPhotoWatchTerminal(view), isFalse);
     });
 
+    test('delay crossing the deadline skips the normal fetch', () async {
+      final repo = PhotoRepository(BreakdownApi(dio: Dio()));
+      var calls = 0;
+      Future<Result<CostumeView>> fetch() async {
+        calls++;
+        return Right(_costumeWithVariants('c-1', ['Pending']));
+      }
+
+      final fixed = DateTime.utc(2026, 1, 1);
+      var now = fixed;
+      final clock = Clock(() => now);
+      Future<void> delay(int attempt) async {
+        // Cross the deadline during the backoff itself.
+        now = now.add(const Duration(seconds: 61));
+      }
+
+      final events = await repo
+          .watch('c-1', fetch, clock: clock, delay: delay)
+          .toList();
+      // Exactly one progress emission plus the expiry fetch — the
+      // crossed deadline never spends a normal fetch first.
+      expect(events.map((e) => e.state), [
+        PhotoWatchState.progress,
+        PhotoWatchState.expired,
+      ]);
+      expect(calls, 2);
+    });
+
     test(
       'watch expires with watch_expired and stops (no further calls)',
       () async {

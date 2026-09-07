@@ -48,6 +48,10 @@ class PhotoBytesLru {
     _entries.removeWhere((k, _) => k.startsWith('$photoId@'));
   }
 
+  /// Drops all memoized bytes (sign-out: decoded photo bytes must not
+  /// survive an identity change in the app-level provider scope).
+  void clear() => _entries.clear();
+
   @visibleForTesting
   int get length => _entries.length;
 }
@@ -167,12 +171,10 @@ PhotoRowStatus photoRowStatus(CostumePhotoView photo) {
   if (photo.variants.isEmpty) return PhotoRowStatus.pending;
   var pending = false;
   for (final v in photo.variants) {
-    final status = serializers.serializeWith(
-      VariantStatus.serializer,
-      v.status,
-    );
-    if (status == 'Failed') return PhotoRowStatus.failed;
-    if (status == 'Pending') pending = true;
+    // Direct enum comparison (never serialized wire strings): a wire-name
+    // change cannot silently promote a non-ready variant to ready.
+    if (v.status == VariantStatus.failed) return PhotoRowStatus.failed;
+    if (v.status == VariantStatus.pending) pending = true;
   }
   return pending ? PhotoRowStatus.pending : PhotoRowStatus.ready;
 }

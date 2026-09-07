@@ -60,6 +60,7 @@ class CostumeCacheDao {
     String seasonId,
     CostumeView view,
     DateTime cachedAt,
+    int snapshotIndex,
   ) => CostumeCacheRowsCompanion.insert(
     id: view.id,
     seasonId: seasonId,
@@ -74,6 +75,7 @@ class CostumeCacheDao {
     updatedAt: view.updatedAt,
     version: view.version,
     cachedAt: cachedAt,
+    snapshotIndex: snapshotIndex,
   );
 
   CostumeView _toView(String seasonId, CostumeCacheRow row) => CostumeView((b) {
@@ -92,10 +94,38 @@ class CostumeCacheDao {
     assert(seasonId.isNotEmpty, 'season scope must be non-empty');
   });
 
-  Future<void> upsert(String seasonId, CostumeView view, DateTime cachedAt) =>
-      _db
-          .into(_db.costumeCacheRows)
-          .insertOnConflictUpdate(_companion(seasonId, view, cachedAt));
+  /// Single-row upsert preserving the existing snapshot ordinal (a
+  /// refetched row keeps its list position; brand-new rows append after
+  /// the current season maximum so they never jump ahead of the snapshot
+  /// order).
+  Future<void> upsert(
+    String seasonId,
+    CostumeView view,
+    DateTime cachedAt,
+  ) async {
+    final existing =
+        await (_db.select(
+              _db.costumeCacheRows,
+            )..where((t) => t.id.equals(view.id) & t.seasonId.equals(seasonId)))
+            .getSingleOrNull();
+    var index = existing?.snapshotIndex;
+    index ??= await _seasonMaxIndex(seasonId);
+    await _db
+        .into(_db.costumeCacheRows)
+        .insertOnConflictUpdate(
+          _companion(seasonId, view, cachedAt, (index ?? -1) + 1),
+        );
+  }
+
+  Future<int?> _seasonMaxIndex(String seasonId) async {
+    final row =
+        await (_db.select(_db.costumeCacheRows)
+              ..where((t) => t.seasonId.equals(seasonId))
+              ..orderBy([(t) => OrderingTerm.desc(t.snapshotIndex)])
+              ..limit(1))
+            .getSingleOrNull();
+    return row?.snapshotIndex;
+  }
 
   /// Snapshot-replace scoped to one season: upserts every [views] row by id
   /// and deletes cached rows of [seasonId] absent from [views], in ONE
@@ -107,10 +137,12 @@ class CostumeCacheDao {
   ) {
     return _db.transaction(() async {
       final ids = views.map((v) => v.id).toSet();
-      for (final view in views) {
+      for (var i = 0; i < views.length; i++) {
         await _db
             .into(_db.costumeCacheRows)
-            .insertOnConflictUpdate(_companion(seasonId, view, cachedAt));
+            .insertOnConflictUpdate(
+              _companion(seasonId, views[i], cachedAt, i),
+            );
       }
       if (ids.isEmpty) {
         await (_db.delete(
@@ -124,10 +156,15 @@ class CostumeCacheDao {
     });
   }
 
+  /// Reads the season's costumes in snapshot order (`snapshotIndex`
+  /// ASC reproduces the server `ORDER BY updated_at DESC` exactly,
+  /// including timestamp ties that no column ordering could separate).
   Future<List<CostumeView>> readBySeason(String seasonId) async {
-    final rows = await (_db.select(
-      _db.costumeCacheRows,
-    )..where((t) => t.seasonId.equals(seasonId))).get();
+    final rows =
+        await (_db.select(_db.costumeCacheRows)
+              ..where((t) => t.seasonId.equals(seasonId))
+              ..orderBy([(t) => OrderingTerm.asc(t.snapshotIndex)]))
+            .get();
     return rows.map((r) => _toView(seasonId, r)).toList();
   }
 
