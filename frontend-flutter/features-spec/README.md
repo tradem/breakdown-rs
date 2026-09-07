@@ -4,13 +4,17 @@
 
 # Gherkin critical acceptance scenarios (`features-spec/`)
 
-This directory holds the `.feature` files for the three **designated
+This directory holds the `.feature` files for the **designated
 business-critical acceptance scopes** mandated by the `flutter-gherkin-hybrid`
-decision (Q2→c) and `frontend-flutter/AGENTS.md` §6:
+decision (Q2→c) and `frontend-flutter/AGENTS.md` §6 — the three minimum
+scopes plus the shoot-day execution scope shipped with
+`flutter-shoot-day-execution` (same Soll-Ist family as the report scope,
+own screen):
 
 | Scope | File | Gates exercised |
 | --- | --- | --- |
 | Soll-Ist report | `soll_ist_report.feature` | planned vs actual; moved/missing/skipped/reshot; `final` from `wrapped_at` |
+| Soll-Ist execution | `soll_ist_execution.feature` | plan → start → actual-order → finish; skip; wrap finality on the day board |
 | Continuity photo capture | `continuity_photo_capture.feature` | AUTHZ-GATE preflight + server handler gate; upload → projector-lag → thumb |
 | Costume assignment | `costume_assignment.feature` | optimistic update + projection refresh; role denial on the costume stream |
 
@@ -82,7 +86,7 @@ test. Such a step:
 - [ ] Setup/assertion steps that legitimately only establish state or verify
       rendered UI (no HTTP) are still allowed — they run on device, they just
       don't issue a request.
-- [ ] The three designated critical scopes each have a `.feature`; a PR that
+- [ ] The designated critical scopes each have a `.feature`; a PR that
       substantially changes one of those screens without an accompanying
       `.feature` (or a justified exclusion) is blocked.
 
@@ -93,7 +97,7 @@ Two complementary gates enforce the on-device requirement:
 1. **Static CI gate** (`gherkin-critical` job in `.github/workflows/flutter-ci.yml`):
    - `dart analyze integration_test/gherkin` — the runner, its configuration
      and every step definition must compile (cheap, non-flaky).
-   - `bash tool/check_gherkin.sh` — enforces the discipline: the three
+   - `bash tool/check_gherkin.sh` — enforces the discipline: the
      designated critical `.feature` files exist and are tagged
      `@critical` (as real Gherkin tags, not prose); each has at least one
      `Scenario`; and the runner config excludes `@pending`

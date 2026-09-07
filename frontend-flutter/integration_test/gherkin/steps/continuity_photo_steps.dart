@@ -69,9 +69,7 @@ Iterable<StepDefinitionGeneric> continuityPhotoSteps() => [
       );
     }
   }),
-  then<FlutterWorld>('the day board shows the command denial', (
-    context,
-  ) async {
+  then<FlutterWorld>('the day board shows the command denial', (context) async {
     // Server-side gate: the handler rejected the link (403 problem `code`
     // from the per-operation RFC 9457 responses); the board surfaces the
     // keyed copy in the command-error banner.
@@ -107,15 +105,14 @@ Iterable<StepDefinitionGeneric> continuityPhotoSteps() => [
       );
     },
   ),
-  when<FlutterWorld>(
-    '75 seconds pass so the watch budget expires',
-    (context) async {
-      // The bounded watch budget (60s wall time) must elapse on device so
-      // the expiry assertions observe the post-budget state. Slow by
-      // design — the seed holds the variant in Processing throughout.
-      await Future<void>.delayed(const Duration(seconds: 75));
-    },
-  ),
+  when<FlutterWorld>('75 seconds pass so the watch budget expires', (
+    context,
+  ) async {
+    // The bounded watch budget (60s wall time) must elapse on device so
+    // the expiry assertions observe the post-budget state. Slow by
+    // design — the seed holds the variant in Processing throughout.
+    await Future<void>.delayed(const Duration(seconds: 75));
+  }),
   then1<String, FlutterWorld>(
     'the continuity strip for {string} still shows processing',
     (String sceneShootId, context) async {
@@ -130,18 +127,16 @@ Iterable<StepDefinitionGeneric> continuityPhotoSteps() => [
       );
     },
   ),
-  then1<String, FlutterWorld>(
-    'the capture affordance for {string} remains',
-    (String sceneShootId, context) async {
-      // Recovery affordance: capture-again stays available after expiry
-      // (no destructive state, manual refresh via pull-to-refresh).
-      final locator = find.byValueKey(
-        'continuity-capture-camera-$sceneShootId',
-      );
-      await context.world.driver!.waitFor(
-        locator,
-        timeout: const Duration(seconds: 10),
-      );
-    },
-  ),
+  then1<String, FlutterWorld>('the capture affordance for {string} remains', (
+    String sceneShootId,
+    context,
+  ) async {
+    // Recovery affordance: capture-again stays available after expiry
+    // (no destructive state, manual refresh via pull-to-refresh).
+    final locator = find.byValueKey('continuity-capture-camera-$sceneShootId');
+    await context.world.driver!.waitFor(
+      locator,
+      timeout: const Duration(seconds: 10),
+    );
+  }),
 ];

@@ -47,7 +47,7 @@
        → polling stops + recovery affordance)
 - [x] 3.2 `features-spec/soll_ist_execution.feature` — plan → start
        → actual-order → finish; skip; wrap finality
-- [ ] 3.3 Wire into the flutter_gherkin CI manifest
+- [x] 3.3 Wire into the flutter_gherkin CI manifest
 
 ## 4. Integration + housekeeping
 - [ ] 4.1 On-emulator smoke: plan two shoots → start/finish/skip →

@@ -463,8 +463,9 @@ jobs:
 
   # Gherkin critical-scenario harness + discipline gate (change
   # `add-gherkin-critical-scenarios`, spec flutter-gherkin-hybrid). Enforces
-  # the on-device acceptance discipline for the three designated critical
-  # flows (AGENTS.md §6) without a flaky emulator run: the on-device runner
+  # the on-device acceptance discipline for the designated critical
+  # flows (AGENTS.md §6 minimum scopes plus shoot-day execution) without
+  # a flaky emulator run: the on-device runner
   # and all step definitions must COMPILE, and the discipline contract
   # (features-spec/README.md, tool/check_gherkin.sh) must hold. The full
   # on-device execution is `tool/run_gherkin.sh` against a device/emulator
