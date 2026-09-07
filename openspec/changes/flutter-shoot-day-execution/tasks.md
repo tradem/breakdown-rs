@@ -36,7 +36,7 @@
        finality copy
 - [x] 2.3 Continuity strip reusing the Phase 2 capture pipeline
        (scene-shoot context, optional costume link)
-- [ ] 2.4 Widget tests + goldens ({light,dark} × {android,macos});
+- [x] 2.4 Widget tests + goldens ({light,dark} × {android,macos});
        statuses, wrapped-day read-only state, 409 conflicts, denial
        narratives
 

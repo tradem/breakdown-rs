@@ -132,7 +132,10 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
                     'Photo ${id.length > 8 ? id.substring(0, 8) : id}',
                   ),
                   deleteIcon: widget.enabled
-                      ? const Icon(Icons.link_off)
+                      ? Icon(
+                          Icons.link_off,
+                          key: Key('continuity-orphan-unlink-$id'),
+                        )
                       : null,
                   onDeleted: widget.enabled ? () => _confirmUnlink(id) : null,
                 ),
