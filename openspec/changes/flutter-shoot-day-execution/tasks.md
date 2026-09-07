@@ -34,7 +34,7 @@
        controllers on the shared reconciliation module
 - [x] 2.2 Notes widget on the shoot cards; wrap confirm dialog with
        finality copy
-- [ ] 2.3 Continuity strip reusing the Phase 2 capture pipeline
+- [x] 2.3 Continuity strip reusing the Phase 2 capture pipeline
        (scene-shoot context, optional costume link)
 - [ ] 2.4 Widget tests + goldens ({light,dark} × {android,macos});
        statuses, wrapped-day read-only state, 409 conflicts, denial

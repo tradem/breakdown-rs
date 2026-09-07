@@ -8,8 +8,11 @@
 // continuity AUTHZ-GATE (link/list/unlink) denies locally with ZERO repo
 // calls for a viewer while allowing for the continuity capability.
 
+import 'dart:typed_data';
+
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:built_collection/built_collection.dart';
+import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -23,8 +26,12 @@ import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/scene_shoot_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
+import 'package:frontend_flutter/data/costume_repository.dart';
+import 'package:frontend_flutter/data/photo_repository.dart';
 import 'package:frontend_flutter/data/scene_shoot_repository.dart';
+import 'package:frontend_flutter/features/costumes/costumes_controller.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 import 'package:frontend_flutter/features/scene_shoots/scene_shoots_controller.dart';
 import 'package:frontend_flutter/features/scene_shoots/scene_shoots_screen.dart';
@@ -244,12 +251,60 @@ class _FakeSceneShootRepository extends SceneShootRepository {
   }
 }
 
+class _FakePhotoRepository extends PhotoRepository {
+  _FakePhotoRepository(super.api);
+
+  int uploadCalls = 0;
+  String? lastCostumeId;
+  String? lastContentType;
+
+  @override
+  Future<Result<PhotoView>> upload(
+    String costumeId,
+    Uint8List bytes,
+    String contentType, {
+    ProgressCallback? onSendProgress,
+  }) {
+    uploadCalls++;
+    lastCostumeId = costumeId;
+    lastContentType = contentType;
+    return Future.value(
+      Right<ProblemError, PhotoView>(
+        PhotoView(
+          (b) => b
+            ..id = 'ph-new'
+            ..binding.replace(
+              PhotoBinding(
+                (pb) => pb
+                  ..oneOf = OneOf.fromValue1(
+                    value: PhotoBindingOneOf(
+                      (o) => o
+                        ..costume.replace(
+                          PhotoBindingOneOfCostume(
+                            (c) => c..costumeId = costumeId,
+                          ),
+                        ),
+                    ),
+                  ),
+              ),
+            )
+            ..contentType = contentType
+            ..sizeBytes = bytes.length
+            ..variants.replace(BuiltList<PhotoVariantView>())
+            ..version = 1,
+        ),
+      ),
+    );
+  }
+}
+
 void main() {
   late CacheDatabase db;
   late _FakeSceneShootRepository repo;
   late ValueNotifier<Result<List<SceneShootView>>> holder;
   late ValueNotifier<Result<SeasonMembershipDto>> membershipHolder;
   late ManualReconciliationScheduler scheduler;
+  late _FakePhotoRepository photoRepo;
   late ProviderContainer container;
 
   Future<void> setupContainer({
@@ -259,6 +314,7 @@ void main() {
     db = CacheDatabase(NativeDatabase.memory());
     addTearDown(db.close);
     repo = _FakeSceneShootRepository(BreakdownApi(), SceneShootCacheDao(db));
+    photoRepo = _FakePhotoRepository(BreakdownApi());
     holder = ValueNotifier<Result<List<SceneShootView>>>(Right(initialRows));
     membershipHolder = ValueNotifier<Result<SeasonMembershipDto>>(
       Right(_membership(capabilities)),
@@ -269,6 +325,15 @@ void main() {
         appConfigProvider.overrideWithValue(devAuthConfig),
         cacheDatabaseProvider.overrideWithValue(db),
         sceneShootRepositoryProvider.overrideWithValue(repo),
+        costumePhotoRepositoryProvider.overrideWithValue(photoRepo),
+        costumeRepositoryProvider.overrideWithValue(
+          CostumeRepository(BreakdownApi(), CostumeCacheDao(db)),
+        ),
+        // The continuity strip joins against the season costumes; the
+        // board smoke tests run with an empty costume projection (strip
+        // renders linked ids as orphans, capture stays disabled).
+        costumesListFetchProvider('season-1')
+            .overrideWith((ref) async => const Right([])),
         reconciliationSchedulerProvider.overrideWith((ref) => scheduler),
         membershipFetchProvider('season-1')
             .overrideWith((ref) async => membershipHolder.value),
@@ -507,6 +572,50 @@ void main() {
     });
   });
 
+  group('SceneShootsController continuity upload (2.3)', () {
+    test('viewer denial: 403 narrative, zero upload calls', () async {
+      await setupContainer(
+        initialRows: [_shoot('ssh-1')],
+        capabilities: const [],
+      );
+      final res = await controller().uploadContinuityBytes(
+        costumeId: 'c-1',
+        bytes: Uint8List.fromList([1, 2, 3]),
+        contentType: 'image/jpeg',
+      );
+      expect(res.isLeft(), isTrue);
+      res.fold((l) {
+        expect(l.code, 'photo.forbidden');
+        expect(l.status, 403);
+      }, (_) => fail('expected Left(photo.forbidden)'));
+      expect(photoRepo.uploadCalls, 0);
+    });
+
+    test('holder upload reaches the costume endpoint, then links', () async {
+      await setupContainer(initialRows: [_shoot('ssh-1')]);
+      final upload = await controller().uploadContinuityBytes(
+        costumeId: 'c-1',
+        bytes: Uint8List.fromList([1, 2, 3]),
+        contentType: 'image/jpeg',
+      );
+      expect(upload.isRight(), isTrue);
+      expect(photoRepo.uploadCalls, 1);
+      expect(photoRepo.lastCostumeId, 'c-1');
+      expect(photoRepo.lastContentType, 'image/jpeg');
+      final photoId = upload.fold((_) => '', (view) => view.id);
+      expect(photoId, 'ph-new');
+      expect(
+        (await controller().linkContinuityPhoto(
+          shoot: _shoot('ssh-1'),
+          photoId: photoId,
+        )).isRight(),
+        isTrue,
+      );
+      expect(repo.linkCalls, 1);
+      await controller().refresh();
+    });
+  });
+
   group('Continuity AUTHZ-GATE (1.1 zero-call proof)', () {
     test('viewer denial: 403 narrative, zero link/list/unlink calls', () async {
       await setupContainer(
@@ -612,6 +721,13 @@ void main() {
       expect(find.byKey(const Key('scene-shoot-start-ssh-1')), findsOneWidget);
       expect(find.byKey(const Key('scene-shoot-finish-ssh-2')), findsOneWidget);
       expect(find.byKey(const Key('scene-shoots-wrap')), findsOneWidget);
+      // Continuity strip renders against the (empty) costume projection:
+      // no linked ids, capture disabled until a costume is picked.
+      expect(find.byKey(const Key('continuity-strip-ssh-1')), findsOneWidget);
+      expect(
+        find.byKey(const Key('continuity-costume-hint-ssh-1')),
+        findsOneWidget,
+      );
     });
 
     testWidgets('wrapped day: read-only, finality banner, no actions', (

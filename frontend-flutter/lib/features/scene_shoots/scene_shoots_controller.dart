@@ -3,6 +3,7 @@
 // Co-authored-by: muse-spark (pi)
 
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:fpdart/fpdart.dart';
@@ -19,6 +20,7 @@ import '../../data/cache/seasons_cache_providers.dart';
 import '../../data/scene_shoot_repository.dart';
 import '../../domain/reconciliation/reconcile_coordinator.dart';
 import '../../domain/reconciliation/reconciliation_scheduler.dart';
+import '../costumes/costumes_controller.dart';
 import 'scene_shoots_state.dart';
 
 part 'scene_shoots_controller.g.dart';
@@ -632,6 +634,38 @@ class SceneShootsController extends _$SceneShootsController {
         ref.read(sceneShootsCommandErrorProvider(scope).notifier).clear();
         unawaited(refresh());
         return Right<ProblemError, int>(version);
+      },
+    );
+  }
+
+  /// Uploads prepared continuity bytes to a season costume (raw bytes,
+  /// content-type header) and returns the acknowledged photo for linking.
+  /// The photo lives on the costume (bytes are costume-scoped); the
+  /// caller binds it to the shoot via [linkContinuityPhoto]. The board
+  /// reconciles through the link's refresh.
+  ///
+  /// // AUTHZ-GATE: `upload_continuity_photos` capability checked before
+  /// the call — same gate as link/list/unlink.
+  Future<Result<PhotoView>> uploadContinuityBytes({
+    required String costumeId,
+    required Uint8List bytes,
+    required String contentType,
+  }) async {
+    // AUTHZ-GATE: continuity capability checked before any network call.
+    final gate = await _continuityGate();
+    if (_deny(gate) != null) {
+      return Left(ProblemError(code: (gate as GateDeny).code, status: 403));
+    }
+    final repo = ref.read(costumePhotoRepositoryProvider);
+    final res = await repo.upload(costumeId, bytes, contentType);
+    return res.match(
+      (err) {
+        ref.read(sceneShootsCommandErrorProvider(scope).notifier).set(err);
+        return Left<ProblemError, PhotoView>(err);
+      },
+      (view) {
+        ref.read(sceneShootsCommandErrorProvider(scope).notifier).clear();
+        return Right<ProblemError, PhotoView>(view);
       },
     );
   }

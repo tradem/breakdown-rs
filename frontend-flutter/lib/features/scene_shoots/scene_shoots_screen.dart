@@ -10,6 +10,7 @@ import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
 import 'scene_shoots_controller.dart';
 import 'scene_shoots_state.dart';
+import 'widgets/continuity_strip.dart';
 
 /// `SceneShootsScreen` — the shooting day's scene shoots in server order
 /// (`COALESCE(actual_order, planned_order) ASC` — the client never
@@ -308,6 +309,7 @@ class _ShootCard extends StatelessWidget {
               style: theme.textTheme.bodySmall,
             ),
             _ShootNotes(shoot: shoot, scope: scope, enabled: !wrapped),
+            ContinuityStrip(shoot: shoot, scope: scope, enabled: !wrapped),
             if (!wrapped)
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
