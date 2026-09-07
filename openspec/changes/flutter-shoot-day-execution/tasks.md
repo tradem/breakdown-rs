@@ -24,7 +24,7 @@
        echoes, `// AUTHZ-GATE:` on ALL continuity calls (upload,
        list, unlink) with the local-denial zero-call tests
 - [x] 1.2 Drift table(s) for the day-board projection + migration
-- [ ] 1.3 Unit tests: every command Ok/Err; optimistic-edit
+- [x] 1.3 Unit tests: every command Ok/Err; optimistic-edit
        reducers; Ist-state renderer purity (flags/finality from read
        model only)
 
