@@ -32,7 +32,7 @@
 - [x] 2.1 `features/scene_shoots/scene_shoots_screen.dart` — day
        board (planned sequence, Ist strip, per-shoot actions, wrap),
        controllers on the shared reconciliation module
-- [ ] 2.2 Notes widget on the shoot cards; wrap confirm dialog with
+- [x] 2.2 Notes widget on the shoot cards; wrap confirm dialog with
        finality copy
 - [ ] 2.3 Continuity strip reusing the Phase 2 capture pipeline
        (scene-shoot context, optional costume link)

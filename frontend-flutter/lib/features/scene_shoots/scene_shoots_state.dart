@@ -13,11 +13,15 @@ export '../../domain/reconciliation/overlay_store.dart' show OverlayStatus;
 export '../../data/scene_shoot_repository.dart'
     show
         applyActualOrderOptimistic,
+        applyAddNoteOptimistic,
         applyFinishOptimistic,
+        applyRemoveNoteOptimistic,
         applyReplanOptimistic,
         applySkipOptimistic,
         applyStartOptimistic,
+        applyUpdateNoteOptimistic,
         mergeSceneShootOverlays,
+        optimisticNotePlaceholder,
         shouldClearSceneShootOverlay;
 
 /// Day-board scope: the shooting day whose shoots render, the scene in

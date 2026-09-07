@@ -123,6 +123,7 @@ class SceneShootsScreen extends ConsumerWidget {
                                     ProjectedSceneShootRow(:final shoot) =>
                                       _ShootCard(
                                         shoot: shoot,
+                                        scope: scope,
                                         wrapped: wrapped,
                                         onStart: _canStart(shoot) && !wrapped
                                             ? () =>
@@ -141,6 +142,7 @@ class SceneShootsScreen extends ConsumerWidget {
                                     OptimisticSceneShootRow(:final overlay) =>
                                       _ShootCard(
                                         shoot: overlay.overlay,
+                                        scope: scope,
                                         wrapped: wrapped,
                                         pending: true,
                                         onStart: null,
@@ -241,6 +243,7 @@ String _appendOrderKey(List<SceneShootRow> rows) {
 class _ShootCard extends StatelessWidget {
   const _ShootCard({
     required this.shoot,
+    required this.scope,
     required this.wrapped,
     this.pending = false,
     this.onStart,
@@ -249,6 +252,7 @@ class _ShootCard extends StatelessWidget {
   });
 
   final SceneShootView shoot;
+  final SceneShootDayScope scope;
   final bool wrapped;
   final bool pending;
   final VoidCallback? onStart;
@@ -303,6 +307,7 @@ class _ShootCard extends StatelessWidget {
               '${shoot.continuityPhotoIds.length} continuity photos',
               style: theme.textTheme.bodySmall,
             ),
+            _ShootNotes(shoot: shoot, scope: scope, enabled: !wrapped),
             if (!wrapped)
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
@@ -332,6 +337,174 @@ class _ShootCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Notes on the shoot card: free-text list with add/edit/remove,
+/// dispatching through the controller with the acted-on row's version.
+/// `SerializedNote` carries `{id, body}` only — the backend resolves
+/// audit metadata server-side, so no author line renders (the design
+/// prose predates the landed contract; the contract wins).
+class _ShootNotes extends ConsumerWidget {
+  const _ShootNotes({
+    required this.shoot,
+    required this.scope,
+    required this.enabled,
+  });
+
+  final SceneShootView shoot;
+  final SceneShootDayScope scope;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final controller = ref.read(sceneShootsControllerProvider(scope).notifier);
+    return ExpansionTile(
+      key: Key('scene-shoot-notes-${shoot.id}'),
+      title: Text('Notes (${shoot.notes.length})'),
+      children: [
+        for (final note in shoot.notes)
+          ListTile(
+            key: Key('scene-shoot-note-${note.id}'),
+            title: Text(note.body),
+            trailing: enabled
+                ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        key: Key('scene-shoot-note-edit-${note.id}'),
+                        icon: const Icon(Icons.edit),
+                        tooltip: 'Edit note',
+                        onPressed: () => _editNote(context, controller, note),
+                      ),
+                      IconButton(
+                        key: Key('scene-shoot-note-delete-${note.id}'),
+                        icon: const Icon(Icons.delete),
+                        tooltip: 'Delete note',
+                        onPressed: () =>
+                            _confirmDelete(context, controller, note),
+                      ),
+                    ],
+                  )
+                : null,
+          ),
+        if (enabled)
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              key: Key('scene-shoot-note-add-${shoot.id}'),
+              icon: const Icon(Icons.add),
+              label: const Text('Add note'),
+              onPressed: () => _addNote(context, controller),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _addNote(
+    BuildContext context,
+    SceneShootsController controller,
+  ) async {
+    final body = await _NoteEditorDialog.show(context);
+    if (body != null && body.isNotEmpty) {
+      await controller.addNote(shoot: shoot, body: body);
+    }
+  }
+
+  Future<void> _editNote(
+    BuildContext context,
+    SceneShootsController controller,
+    SerializedNote note,
+  ) async {
+    final body = await _NoteEditorDialog.show(context, initial: note.body);
+    if (body != null && body.isNotEmpty && body != note.body) {
+      await controller.updateNote(shoot: shoot, noteId: note.id, body: body);
+    }
+  }
+
+  Future<void> _confirmDelete(
+    BuildContext context,
+    SceneShootsController controller,
+    SerializedNote note,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        key: const Key('note-delete-confirm-dialog'),
+        title: const Text('Delete this note?'),
+        content: Text('“${note.body}” will be removed from the shoot.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('note-delete-confirm-button'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await controller.removeNote(shoot: shoot, noteId: note.id);
+    }
+  }
+}
+
+/// Free-text note editor (add + edit share the dialog; edit prefills).
+class _NoteEditorDialog extends StatefulWidget {
+  const _NoteEditorDialog({this.initial});
+
+  final String? initial;
+
+  static Future<String?> show(BuildContext context, {String? initial}) =>
+      showDialog<String>(
+        context: context,
+        builder: (context) => _NoteEditorDialog(initial: initial),
+      );
+
+  @override
+  State<_NoteEditorDialog> createState() => _NoteEditorDialogState();
+}
+
+class _NoteEditorDialogState extends State<_NoteEditorDialog> {
+  late final TextEditingController _field = TextEditingController(
+    text: widget.initial ?? '',
+  );
+
+  @override
+  void dispose() {
+    _field.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    key: const Key('note-editor-dialog'),
+    title: Text(widget.initial == null ? 'Add note' : 'Edit note'),
+    content: TextField(
+      key: const Key('note-editor-field'),
+      controller: _field,
+      autofocus: true,
+      maxLines: 4,
+      decoration: const InputDecoration(hintText: 'Note text'),
+      onChanged: (_) => setState(() {}),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        key: const Key('note-editor-save'),
+        onPressed: _field.text.trim().isEmpty
+            ? null
+            : () => Navigator.of(context).pop(_field.text.trim()),
+        child: const Text('Save'),
+      ),
+    ],
+  );
 }
 
 /// Status chip rendering the projection's status verbatim (D2 — the client

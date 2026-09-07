@@ -509,6 +509,17 @@ void main() {
       expect(withNote.notes.map((n) => n.body), ['body-ssh-1', 'b']);
     });
 
+    test('note update swaps the body; remove drops by id', () {
+      final row = _shoot('ssh-1', version: 2);
+      final edited = applyUpdateNoteOptimistic(row, 'n-ssh-1', 'edited');
+      expect(edited.notes.single.body, 'edited');
+      expect(edited.status, row.status);
+      expect(edited.version, 2);
+      final removed = applyRemoveNoteOptimistic(edited, 'n-ssh-1');
+      expect(removed.notes, isEmpty);
+      expect(removed.continuityPhotoIds, row.continuityPhotoIds);
+    });
+
     test('the fence clears only on version >= acknowledgedVersion', () {
       final projection = _shoot('ssh-1', version: 5);
       expect(

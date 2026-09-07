@@ -379,6 +379,96 @@ class SceneShootsController extends _$SceneShootsController {
     optimistic: (row) => applyReplanOptimistic(row, plannedOrder),
   );
 
+  /// Adds a free-text note to the shoot. The request carries no client id
+  /// (the backend assigns a UUIDv7 when `note_id` is absent); the
+  /// optimistic placeholder rides a pending id until the projection
+  /// reconciles the server id.
+  ///
+  /// // AUTHZ-GATE: authenticated session required before the call.
+  Future<Result<int>> addNote({
+    required SceneShootView shoot,
+    required String body,
+  }) async {
+    // AUTHZ-GATE: authenticated session required before any network call.
+    if (await _resolveSession() == null) {
+      return _denySession();
+    }
+    final repo = ref.read(sceneShootRepositoryProvider);
+    final res = await repo.addNote(
+      scope.dayId,
+      scope.sceneId,
+      shoot.id,
+      buildAddSceneShootNoteRequest(body: body),
+    );
+    return res.match(
+      (err) {
+        ref.read(sceneShootsCommandErrorProvider(scope).notifier).set(err);
+        return Left<ProblemError, int>(err);
+      },
+      (version) {
+        ref.read(sceneShootsCommandErrorProvider(scope).notifier).clear();
+        ref
+            .read(sceneShootsOverlaysProvider(scope).notifier)
+            .add(
+              SceneShootRowOverlay(
+                id: shoot.id,
+                overlay: applyAddNoteOptimistic(
+                  shoot,
+                  optimisticNotePlaceholder(
+                    pendingId: 'pending-note-$version',
+                    body: body,
+                  ),
+                ).rebuild((b) => b..version = version),
+                acknowledgedVersion: version,
+                status: OverlayStatus.acknowledged,
+              ),
+            );
+        _reconcile.ackReceived();
+        unawaited(reconcile());
+        return Right<ProblemError, int>(version);
+      },
+    );
+  }
+
+  /// Updates a note's body (note id + aggregate version echo). Mirrors
+  /// [addNote] with an in-place optimistic body swap.
+  ///
+  /// // AUTHZ-GATE: authenticated session required before the call.
+  Future<Result<int>> updateNote({
+    required SceneShootView shoot,
+    required String noteId,
+    required String body,
+  }) => _execute(
+    shoot: shoot,
+    call: (repo) => repo.updateNote(
+      scope.dayId,
+      scope.sceneId,
+      shoot.id,
+      noteId,
+      buildUpdateSceneShootNoteRequest(body: body, version: shoot.version),
+    ),
+    optimistic: (row) => applyUpdateNoteOptimistic(row, noteId, body),
+  );
+
+  /// Removes a note (note id in path, version echo in query). Mirrors
+  /// [addNote] with an optimistic removal (the UI confirms first).
+  ///
+  /// // AUTHZ-GATE: authenticated session required before the call.
+  Future<Result<int>> removeNote({
+    required SceneShootView shoot,
+    required String noteId,
+  }) => _execute(
+    shoot: shoot,
+    call: (repo) => repo.removeNote(
+      scope.dayId,
+      scope.sceneId,
+      shoot.id,
+      noteId,
+      buildSceneShootNoteRemoveRequest(version: shoot.version),
+    ),
+    optimistic: (row) => applyRemoveNoteOptimistic(row, noteId),
+  );
+
   /// Shared execution-command runner: session gate → version-echoed call →
   /// optimistic-after-2xx overlay (ack version) + bounded reconciliation.
   Future<Result<int>> _execute({

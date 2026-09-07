@@ -542,6 +542,33 @@ SceneShootView applyAddNoteOptimistic(
   SerializedNote note,
 ) => row.rebuild((b) => b..notes.add(note));
 
+/// Optimistic overlay edit for update-note: replaces the note body,
+/// preserving every other row field.
+SceneShootView applyUpdateNoteOptimistic(
+  SceneShootView row,
+  String noteId,
+  String body,
+) => row.rebuild(
+  (b) => b
+    ..notes.replace(
+      row.notes.map(
+        (n) => n.id == noteId
+            ? SerializedNote(
+                (nb) => nb
+                  ..id = n.id
+                  ..body = body,
+              )
+            : n,
+      ),
+    ),
+);
+
+/// Optimistic overlay edit for remove-note: drops the note by id.
+SceneShootView applyRemoveNoteOptimistic(SceneShootView row, String noteId) =>
+    row.rebuild(
+      (b) => b..notes.replace(row.notes.where((n) => n.id != noteId)),
+    );
+
 /// Builds an optimistic note placeholder (server id arrives via reconcile).
 SerializedNote optimisticNotePlaceholder({
   required String pendingId,

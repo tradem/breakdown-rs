@@ -101,6 +101,12 @@ class _FakeSceneShootRepository extends SceneShootRepository {
   int unlinkCalls = 0;
   int? lastVersion;
   int? lastWrapVersion;
+  int addNoteCalls = 0;
+  int updateNoteCalls = 0;
+  int removeNoteCalls = 0;
+  String? lastNoteBody;
+  String? lastNoteId;
+  int? lastNoteVersion;
 
   @override
   Future<Result<int>> start(
@@ -177,6 +183,53 @@ class _FakeSceneShootRepository extends SceneShootRepository {
   }
 
   @override
+  Future<Result<int>> addNote(
+    String dayId,
+    String sceneId,
+    String shootId,
+    AddNoteRequest request,
+  ) {
+    addNoteCalls++;
+    lastNoteBody = request.body;
+    final scripted = nextWrite;
+    if (scripted != null) return Future.value(scripted);
+    return Future.value(const Right<ProblemError, int>(3));
+  }
+
+  @override
+  Future<Result<int>> updateNote(
+    String dayId,
+    String sceneId,
+    String shootId,
+    String noteId,
+    UpdateNoteRequest request,
+  ) {
+    updateNoteCalls++;
+    lastNoteId = noteId;
+    lastNoteBody = request.body;
+    lastNoteVersion = request.version;
+    final scripted = nextWrite;
+    if (scripted != null) return Future.value(scripted);
+    return Future.value(const Right<ProblemError, int>(4));
+  }
+
+  @override
+  Future<Result<int>> removeNote(
+    String dayId,
+    String sceneId,
+    String shootId,
+    String noteId,
+    VersionRequest request,
+  ) {
+    removeNoteCalls++;
+    lastNoteId = noteId;
+    lastNoteVersion = request.version;
+    final scripted = nextWrite;
+    if (scripted != null) return Future.value(scripted);
+    return Future.value(const Right<ProblemError, int>(5));
+  }
+
+  @override
   Future<Result<int>> unlinkContinuityPhoto(
     String dayId,
     String sceneId,
@@ -243,27 +296,20 @@ void main() {
       container.read(sceneShootsControllerProvider(_scope).notifier);
 
   /// Drains the command-triggered reconciliation pass deterministically
-  /// (no wall-clock): waits until the pass parks on its backoff tick,
-  /// publishes [ackedRows] as the fresh projection, advances the manual
-  /// scheduler, and joins the pass via [refresh]. Afterwards no DB access
-  /// is in flight, so teardown cannot race the closed database. Passes
-  /// with no overlays (wrap/refresh-only) do a single refetch without
-  /// ticks — the joined [refresh] awaits exactly that.
+  /// (no wall-clock): publishes [ackedRows] as the fresh projection, then
+  /// repeatedly advances the manual scheduler and flushes the event loop
+  /// until the version fence clears every overlay (bounded loop — never
+  /// joins a parked pass future, so no hang). Afterwards no DB access is
+  /// in flight, so teardown cannot race the closed database.
   Future<void> settleReconcile(List<SceneShootView> ackedRows) async {
-    final ticksBefore = scheduler.ticks;
-    for (
-      var i = 0;
-      i < 10000 &&
-          scheduler.ticks == ticksBefore &&
-          container.read(sceneShootsOverlaysProvider(_scope)).isNotEmpty;
-      i++
-    ) {
-      await Future<void>.delayed(Duration.zero);
-    }
     holder.value = Right(ackedRows);
-    scheduler.advanceAll();
-    await controller().refresh();
-    scheduler.advanceAll();
+    for (var i = 0; i < 10; i++) {
+      scheduler.advanceAll();
+      for (var j = 0; j < 50; j++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      if (container.read(sceneShootsOverlaysProvider(_scope)).isEmpty) break;
+    }
   }
 
   group('SceneShootsController execution', () {
@@ -332,6 +378,131 @@ void main() {
       expect(
         sceneShootErrorCopy(const ProblemError(code: 'concurrency.conflict')),
         contains('Changed elsewhere'),
+      );
+    });
+  });
+
+  group('SceneShootsController notes (2.2)', () {
+    SceneShootView notedShoot() => SceneShootView(
+      (b) => b
+        ..id = 'ssh-1'
+        ..shootingDayId = 'day-1'
+        ..sceneId = 'scene-1'
+        ..plannedOrder = 'a0'
+        ..status = SceneShootStatus.planned
+        ..notes.replace(
+          BuiltList<SerializedNote>([
+            SerializedNote(
+              (n) => n
+                ..id = 'n-1'
+                ..body = 'first',
+            ),
+          ]),
+        )
+        ..continuityPhotoIds.replace(BuiltList<String>())
+        ..updatedAt = DateTime.utc(2026, 5, 1)
+        ..version = 3,
+    );
+
+    test(
+      'add dispatches the body; optimistic placeholder rides a pending id',
+      () async {
+        await setupContainer(initialRows: [notedShoot()]);
+        final res = await controller().addNote(
+          shoot: notedShoot(),
+          body: 'second',
+        );
+        expect(res.isRight(), isTrue);
+        expect(repo.addNoteCalls, 1);
+        expect(repo.lastNoteBody, 'second');
+        final overlays = container.read(sceneShootsOverlaysProvider(_scope));
+        expect(overlays.single.overlay.notes.map((n) => n.body), [
+          'first',
+          'second',
+        ]);
+        await settleReconcile([
+          SceneShootView(
+            (b) => b
+              ..id = 'ssh-1'
+              ..shootingDayId = 'day-1'
+              ..sceneId = 'scene-1'
+              ..plannedOrder = 'a0'
+              ..status = SceneShootStatus.planned
+              ..notes.replace(
+                BuiltList<SerializedNote>([
+                  SerializedNote(
+                    (n) => n
+                      ..id = 'n-1'
+                      ..body = 'first',
+                  ),
+                  SerializedNote(
+                    (n) => n
+                      ..id = 'n-2'
+                      ..body = 'second',
+                  ),
+                ]),
+              )
+              ..continuityPhotoIds.replace(BuiltList<String>())
+              ..updatedAt = DateTime.utc(2026, 5, 1)
+              ..version = 4,
+          ),
+        ]);
+        expect(container.read(sceneShootsOverlaysProvider(_scope)), isEmpty);
+      },
+    );
+
+    test('update echoes note id + version; remove echoes both', () async {
+      await setupContainer(initialRows: [notedShoot()]);
+      expect(
+        (await controller().updateNote(
+          shoot: notedShoot(),
+          noteId: 'n-1',
+          body: 'edited',
+        )).isRight(),
+        isTrue,
+      );
+      expect(repo.updateNoteCalls, 1);
+      expect(repo.lastNoteId, 'n-1');
+      expect(repo.lastNoteBody, 'edited');
+      expect(repo.lastNoteVersion, 3);
+      expect(
+        container
+            .read(sceneShootsOverlaysProvider(_scope))
+            .single
+            .overlay
+            .notes
+            .single
+            .body,
+        'edited',
+      );
+      expect(
+        (await controller().removeNote(
+          shoot: notedShoot(),
+          noteId: 'n-1',
+        )).isRight(),
+        isTrue,
+      );
+      expect(repo.removeNoteCalls, 1);
+      expect(repo.lastNoteId, 'n-1');
+      expect(repo.lastNoteVersion, 3);
+      await settleReconcile([notedShoot()]);
+    });
+
+    test('note 409 sets the keyed error and adds no overlay', () async {
+      await setupContainer(initialRows: [notedShoot()]);
+      repo.nextWrite = const Left(
+        ProblemError(code: 'scene_shoot.version_conflict'),
+      );
+      final res = await controller().addNote(
+        shoot: notedShoot(),
+        body: 'second',
+      );
+      expect(res.isLeft(), isTrue);
+      expect(repo.addNoteCalls, 1);
+      expect(container.read(sceneShootsOverlaysProvider(_scope)), isEmpty);
+      expect(
+        container.read(sceneShootsCommandErrorProvider(_scope))?.code,
+        'scene_shoot.version_conflict',
       );
     });
   });
@@ -459,6 +630,23 @@ void main() {
       expect(find.byKey(const Key('scene-shoot-finish-ssh-1')), findsNothing);
       expect(find.byKey(const Key('scene-shoot-skip-ssh-1')), findsNothing);
       expect(find.byKey(const Key('scene-shoots-wrap')), findsNothing);
+    });
+
+    testWidgets('notes: expand shows notes and add affordance', (tester) async {
+      await setupContainer(initialRows: [_shoot('ssh-1')]);
+      await pumpScreen(tester, day: _day());
+      await tester.tap(find.byKey(const Key('scene-shoot-notes-ssh-1')));
+      // Fixed pumps only: 5x100ms covers the 200ms expansion with margin.
+      for (var i = 0; i < 5; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      final addButton = find.byKey(const Key('scene-shoot-note-add-ssh-1'));
+      expect(addButton, findsOneWidget);
+      // The button exists in the tree even while collapsed (zero height)
+      // — it laid out only once the tile expanded.
+      expect(tester.getSize(addButton).height, greaterThan(0));
+      // The dialog + save dispatch path is covered at controller level
+      // (notes 2.2 group); full dialog flows land with the 2.4 widget set.
     });
   });
 }
