@@ -116,7 +116,10 @@ class _FakeSceneShootRepository extends SceneShootRepository {
   int addNoteCalls = 0;
   int updateNoteCalls = 0;
   int removeNoteCalls = 0;
+  int actualOrderCalls = 0;
+  int replanCalls = 0;
   String? lastNoteBody;
+  String? lastOrderKey;
 
   Future<Result<int>> _ack() async {
     final scripted = nextWrite;
@@ -220,6 +223,30 @@ class _FakeSceneShootRepository extends SceneShootRepository {
     VersionRequest r,
   ) {
     removeNoteCalls++;
+    return _ack();
+  }
+
+  @override
+  Future<Result<int>> setActualOrder(
+    String a,
+    String b,
+    String c,
+    SetActualOrderRequest request,
+  ) {
+    actualOrderCalls++;
+    lastOrderKey = request.actualOrder;
+    return _ack();
+  }
+
+  @override
+  Future<Result<int>> replan(
+    String a,
+    String b,
+    String c,
+    ReplanSceneShootRequest request,
+  ) {
+    replanCalls++;
+    lastOrderKey = request.plannedOrder;
     return _ack();
   }
 }
@@ -521,6 +548,40 @@ void main() {
       await tester.tap(find.byKey(const Key('wrap-confirm-button')));
       await _pumpFrames(tester, n: 10);
       expect(repo.wrapCalls, 1);
+    });
+  });
+
+  group('SceneShootsScreen order menu (3.2 affordance)', () {
+    testWidgets('actual-order dialog dispatches the typed key', (tester) async {
+      await setupContainer(initialRows: [_shoot('ssh-1'), _shoot('ssh-2')]);
+      await pumpScreen(tester);
+      await tester.tap(find.byKey(const Key('scene-shoot-menu-ssh-2')));
+      await _pumpFrames(tester, n: 30);
+      await tester.tap(find.byKey(const Key('scene-shoot-actual-order-ssh-2')));
+      await _pumpFrames(tester, n: 30);
+      expect(find.byKey(const Key('order-key-dialog')), findsOneWidget);
+      await tester.enterText(find.byKey(const Key('order-key-field')), 'a0!');
+      await _pumpFrames(tester);
+      await tester.tap(find.byKey(const Key('order-key-save')));
+      await _pumpFrames(tester, n: 10);
+      expect(repo.actualOrderCalls, 1);
+      expect(repo.lastOrderKey, 'a0!');
+    });
+
+    testWidgets('replan dialog dispatches the typed key', (tester) async {
+      await setupContainer(initialRows: [_shoot('ssh-1')]);
+      await pumpScreen(tester);
+      await tester.tap(find.byKey(const Key('scene-shoot-menu-ssh-1')));
+      await _pumpFrames(tester, n: 30);
+      await tester.tap(find.byKey(const Key('scene-shoot-replan-ssh-1')));
+      await _pumpFrames(tester, n: 30);
+      expect(find.byKey(const Key('order-key-dialog')), findsOneWidget);
+      await tester.enterText(find.byKey(const Key('order-key-field')), 'a9');
+      await _pumpFrames(tester);
+      await tester.tap(find.byKey(const Key('order-key-save')));
+      await _pumpFrames(tester, n: 10);
+      expect(repo.replanCalls, 1);
+      expect(repo.lastOrderKey, 'a9');
     });
   });
 

@@ -11,6 +11,7 @@ import 'hooks/app_hook.dart';
 import 'steps/common_steps.dart';
 import 'steps/continuity_photo_steps.dart';
 import 'steps/costume_assignment_steps.dart';
+import 'steps/soll_ist_execution_steps.dart';
 import 'steps/soll_ist_report_steps.dart';
 import 'world/app_world.dart';
 
@@ -38,6 +39,7 @@ Future<FlutterTestConfiguration> buildGherkinConfig() async {
     whenOpenSollIstReport(),
     whenOpenCostumeAssignment(),
     ...sollIstReportSteps(),
+    ...sollIstExecutionSteps(),
     ...continuityPhotoSteps(),
     ...costumeAssignmentSteps(),
   ];

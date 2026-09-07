@@ -314,6 +314,7 @@ class _ShootCard extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
+                  _ShootOrderMenu(shoot: shoot, scope: scope),
                   if (onStart != null)
                     TextButton(
                       key: Key('scene-shoot-start-${shoot.id}'),
@@ -339,6 +340,155 @@ class _ShootCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Per-shoot order menu: explicit actual/planned key editing (the keys
+/// are opaque lexicographic sort keys — the dialog edits them verbatim
+/// rather than hiding reorder magic; the server validates the alphabet).
+/// Gherkin contract keys for the Soll-Ist execution critical scenario.
+class _ShootOrderMenu extends ConsumerWidget {
+  const _ShootOrderMenu({required this.shoot, required this.scope});
+
+  final SceneShootView shoot;
+  final SceneShootDayScope scope;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final controller = ref.read(sceneShootsControllerProvider(scope).notifier);
+    return PopupMenuButton<String>(
+      key: Key('scene-shoot-menu-${shoot.id}'),
+      icon: const Icon(Icons.unfold_more),
+      tooltip: 'Order',
+      onSelected: (value) {
+        if (value == 'actual') {
+          _editActualOrder(context, controller);
+        } else if (value == 'replan') {
+          _editPlannedOrder(context, controller);
+        }
+      },
+      itemBuilder: (context) => [
+        PopupMenuItem(
+          key: Key('scene-shoot-actual-order-${shoot.id}'),
+          value: 'actual',
+          child: const Text('Set actual order…'),
+        ),
+        PopupMenuItem(
+          key: Key('scene-shoot-replan-${shoot.id}'),
+          value: 'replan',
+          child: const Text('Change planned position…'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _editActualOrder(
+    BuildContext context,
+    SceneShootsController controller,
+  ) async {
+    final key = await _OrderKeyDialog.show(
+      context,
+      title: 'Set actual order',
+      explanation:
+          'The Ist execution key — sorts this shoot in the actual sequence.',
+      initial: shoot.actualOrder ?? shoot.plannedOrder,
+    );
+    if (key != null && key.isNotEmpty && key != shoot.actualOrder) {
+      await controller.setActualOrder(shoot: shoot, actualOrder: key);
+    }
+  }
+
+  Future<void> _editPlannedOrder(
+    BuildContext context,
+    SceneShootsController controller,
+  ) async {
+    final key = await _OrderKeyDialog.show(
+      context,
+      title: 'Change planned position',
+      explanation: 'The Soll position key for this shoot.',
+      initial: shoot.plannedOrder,
+    );
+    if (key != null && key.isNotEmpty && key != shoot.plannedOrder) {
+      await controller.replan(shoot: shoot, plannedOrder: key);
+    }
+  }
+}
+
+/// Opaque order-key editor (actual + replan share the dialog).
+class _OrderKeyDialog extends StatefulWidget {
+  const _OrderKeyDialog({
+    required this.title,
+    required this.explanation,
+    required this.initial,
+  });
+
+  final String title;
+  final String explanation;
+  final String initial;
+
+  static Future<String?> show(
+    BuildContext context, {
+    required String title,
+    required String explanation,
+    required String initial,
+  }) => showDialog<String>(
+    context: context,
+    builder: (context) => _OrderKeyDialog(
+      title: title,
+      explanation: explanation,
+      initial: initial,
+    ),
+  );
+
+  @override
+  State<_OrderKeyDialog> createState() => _OrderKeyDialogState();
+}
+
+class _OrderKeyDialogState extends State<_OrderKeyDialog> {
+  late final TextEditingController _field = TextEditingController(
+    text: widget.initial,
+  );
+
+  @override
+  void dispose() {
+    _field.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    key: const Key('order-key-dialog'),
+    title: Text(widget.title),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(widget.explanation),
+        const SizedBox(height: 12),
+        TextField(
+          key: const Key('order-key-field'),
+          controller: _field,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: 'Order key (printable ASCII)',
+          ),
+          onChanged: (_) => setState(() {}),
+        ),
+      ],
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        key: const Key('order-key-save'),
+        onPressed: _field.text.trim().isEmpty
+            ? null
+            : () => Navigator.of(context).pop(_field.text.trim()),
+        child: const Text('Save'),
+      ),
+    ],
+  );
 }
 
 /// Notes on the shoot card: free-text list with add/edit/remove,

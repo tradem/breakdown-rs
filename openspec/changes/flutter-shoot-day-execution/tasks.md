@@ -45,7 +45,7 @@
        capture → upload → variant Ready → thumb appears; plus the
        watch-expired case (variant still `Processing` at the deadline
        → polling stops + recovery affordance)
-- [ ] 3.2 `features-spec/soll_ist_execution.feature` — plan → start
+- [x] 3.2 `features-spec/soll_ist_execution.feature` — plan → start
        → actual-order → finish; skip; wrap finality
 - [ ] 3.3 Wire into the flutter_gherkin CI manifest
 
