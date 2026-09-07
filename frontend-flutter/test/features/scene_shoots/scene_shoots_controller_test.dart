@@ -36,6 +36,7 @@ import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.
 import 'package:frontend_flutter/features/scene_shoots/scene_shoots_controller.dart';
 import 'package:frontend_flutter/features/scene_shoots/scene_shoots_screen.dart';
 import 'package:frontend_flutter/features/scene_shoots/scene_shoots_state.dart';
+import 'package:frontend_flutter/features/shooting_days/shooting_days_controller.dart';
 
 import '../seasons/seasons_test_fakes.dart';
 
@@ -326,6 +327,11 @@ void main() {
         cacheDatabaseProvider.overrideWithValue(db),
         sceneShootRepositoryProvider.overrideWithValue(repo),
         costumePhotoRepositoryProvider.overrideWithValue(photoRepo),
+        // The board derives finality from the live day projection;
+        // widget tests run with an empty day projection (entry DTO wins).
+        shootingDaysViewProvider(
+          'episode-1',
+        ).overrideWithValue(const ShootingDaysView(rows: [], isStale: false)),
         costumeRepositoryProvider.overrideWithValue(
           CostumeRepository(BreakdownApi(), CostumeCacheDao(db)),
         ),

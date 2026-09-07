@@ -54,6 +54,20 @@ Iterable<StepDefinitionGeneric> sollIstExecutionSteps() => [
       await FlutterDriverUtils.tap(driver, find.byValueKey('order-key-save'));
     },
   ),
+  then1<String, FlutterWorld>('the board settles for scene shoot {string}', (
+    String sceneShootId,
+    context,
+  ) async {
+    // Projection boundary: the optimistic overlay (pending spinner)
+    // clears only once the read model carries the acknowledged
+    // version — later assertions observe the projection, never the
+    // overlay. Rejected commands add no overlay, so they cannot
+    // satisfy the status assertions that follow.
+    await context.world.driver!.waitForAbsent(
+      find.byValueKey('scene-shoot-pending-$sceneShootId'),
+      timeout: const Duration(seconds: 30),
+    );
+  }),
   then2<String, String, FlutterWorld>(
     'the order of scene shoot {string} reads {string}',
     (String sceneShootId, String order, context) async {
@@ -99,11 +113,20 @@ Iterable<StepDefinitionGeneric> sollIstExecutionSteps() => [
     String sceneShootId,
     context,
   ) async {
-    // Wrapped days are immutable for execution: the per-shoot action
-    // buttons are absent (not merely disabled).
-    await context.world.driver!.waitForAbsent(
-      find.byValueKey('scene-shoot-start-$sceneShootId'),
-      timeout: const Duration(seconds: 10),
-    );
+    // Wrapped days are immutable for execution: every mutable control
+    // is absent (not merely disabled) — start, finish, skip, and the
+    // order menu alike.
+    final driver = context.world.driver!;
+    for (final key in [
+      'scene-shoot-start-$sceneShootId',
+      'scene-shoot-finish-$sceneShootId',
+      'scene-shoot-skip-$sceneShootId',
+      'scene-shoot-menu-$sceneShootId',
+    ]) {
+      await driver.waitForAbsent(
+        find.byValueKey(key),
+        timeout: const Duration(seconds: 10),
+      );
+    }
   }),
 ];

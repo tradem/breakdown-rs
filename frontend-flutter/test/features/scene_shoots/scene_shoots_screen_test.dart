@@ -36,6 +36,7 @@ import 'package:frontend_flutter/features/costumes/costumes_controller.dart';
 import 'package:frontend_flutter/features/scene_shoots/scene_shoots_controller.dart';
 import 'package:frontend_flutter/features/scene_shoots/scene_shoots_screen.dart';
 import 'package:frontend_flutter/features/scene_shoots/scene_shoots_state.dart';
+import 'package:frontend_flutter/features/shooting_days/shooting_days_controller.dart';
 
 import '../seasons/seasons_test_fakes.dart';
 
@@ -264,6 +265,7 @@ void main() {
   late _FakeSceneShootRepository repo;
   late ValueNotifier<Result<List<SceneShootView>>> holder;
   late ValueNotifier<Result<SeasonMembershipDto>> membershipHolder;
+  late ValueNotifier<ShootingDaysView> daysHolder;
   late ManualReconciliationScheduler scheduler;
   late ProviderContainer container;
 
@@ -281,12 +283,20 @@ void main() {
     membershipHolder = ValueNotifier<Result<SeasonMembershipDto>>(
       Right(_membership(capabilities)),
     );
+    daysHolder = ValueNotifier<ShootingDaysView>(
+      const ShootingDaysView(rows: [], isStale: false),
+    );
     scheduler = ManualReconciliationScheduler();
     container = ProviderContainer(
       overrides: [
         appConfigProvider.overrideWithValue(devAuthConfig),
         cacheDatabaseProvider.overrideWithValue(db),
         sceneShootRepositoryProvider.overrideWithValue(repo),
+        // The board derives finality from the live day projection;
+        // tests drive it through daysHolder (empty by default, so the
+        // entry DTO wins) and invalidate to publish updates.
+        shootingDaysViewProvider('episode-1')
+            .overrideWith((ref) => daysHolder.value),
         // The continuity strip reads bytes through this provider; the
         // board tests link no resolvable photos, so it is never called.
         costumePhotoRepositoryProvider.overrideWithValue(
@@ -456,6 +466,29 @@ void main() {
       expect(find.byKey(const Key('scene-shoots-wrap')), findsNothing);
     });
 
+    testWidgets('in-session wrap updates banner, actions and version', (
+      tester,
+    ) async {
+      // The entry DTO is unwrapped, but the live day projection carries
+      // the wrap: the board flips to read-only without re-entry (the
+      // wrap button dispatches with the projected version, never stale).
+      await setupContainer(initialRows: [_shoot('ssh-1')]);
+      await pumpScreen(tester);
+      expect(find.byKey(const Key('scene-shoots-wrap')), findsOneWidget);
+      daysHolder.value = ShootingDaysView(
+        rows: [_day(wrappedAt: DateTime.utc(2026, 5, 2), version: 6)],
+        isStale: false,
+      );
+      container.invalidate(shootingDaysViewProvider('episode-1'));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(
+        find.byKey(const Key('scene-shoots-wrapped-banner')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('scene-shoot-start-ssh-1')), findsNothing);
+      expect(find.byKey(const Key('scene-shoots-wrap')), findsNothing);
+    });
+
     testWidgets('denial: viewer sees the 403 narrative, no capture', (
       tester,
     ) async {
@@ -606,6 +639,11 @@ void main() {
         find.byKey(const Key('continuity-unlink-confirm-ph-orphan')),
         findsOneWidget,
       );
+      await tester.tap(
+        find.byKey(const Key('continuity-unlink-confirm-ph-orphan')),
+      );
+      // Double-tap guard: the second tap lands on the disabled button
+      // (no second command with the same shoot version).
       await tester.tap(
         find.byKey(const Key('continuity-unlink-confirm-ph-orphan')),
       );

@@ -40,11 +40,14 @@ Feature: Soll-Ist execution (plan to wrap)
     And I open the day board for shooting day "day-1"
     And I start scene shoot "ssh-1"
     Then the board shows a "In progress" shoot
+    And the board settles for scene shoot "ssh-1"
     When I set the actual order of scene shoot "ssh-2" to "a0!"
     Then the order of scene shoot "ssh-2" reads "Actual a0! (planned a1)"
     When I finish scene shoot "ssh-1"
     And I skip scene shoot "ssh-2"
-    Then the board shows a "Shot" shoot
+    Then the board settles for scene shoot "ssh-1"
+    And the board settles for scene shoot "ssh-2"
+    And the board shows a "Shot" shoot
     And the board shows a "Skipped" shoot
 
   Scenario: Wrap makes the day final and read-only

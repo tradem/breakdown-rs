@@ -121,7 +121,8 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
                     onDelete: widget.enabled
                         ? () => _confirmUnlink(photo.id)
                         : null,
-                    onRetryCapture: widget.enabled && canManage
+                    onRetryCapture:
+                        widget.enabled && canManage && _costumeId != null
                         ? () => _capture(ImageSource.camera)
                         : null,
                   ),
@@ -337,32 +338,52 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
   }
 
   Future<void> _confirmUnlink(String photoId) {
+    // Double-tap guard: the confirm button disables itself on first tap
+    // so a second command with the same shoot version cannot dispatch
+    // (the server would reject it as a conflict for a successful action).
+    var tapped = false;
     return showDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Unlink continuity photo?'),
-        content: const Text(
-          'The photo stays on its costume — only the link to this shoot '
-          'is removed.',
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Unlink continuity photo?'),
+          content: const Text(
+            'The photo stays on its costume — only the link to this shoot '
+            'is removed.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: tapped
+                  ? null
+                  : () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: Key('continuity-unlink-confirm-$photoId'),
+              onPressed: tapped
+                  ? null
+                  : () async {
+                      setDialogState(() => tapped = true);
+                      // Handled: failures surface via the command-error
+                      // provider.
+                      final res = await ref
+                          .read(
+                            sceneShootsControllerProvider(widget.scope)
+                                .notifier,
+                          )
+                          .unlinkContinuityPhoto(
+                            shoot: widget.shoot,
+                            photoId: photoId,
+                          );
+                      res.match<void>((_) {}, (_) {});
+                      if (dialogContext.mounted) {
+                        Navigator.of(dialogContext).pop();
+                      }
+                    },
+              child: const Text('Unlink'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            key: Key('continuity-unlink-confirm-$photoId'),
-            onPressed: () async {
-              // Handled: failures surface via the command-error provider.
-              final res = await ref
-                  .read(sceneShootsControllerProvider(widget.scope).notifier)
-                  .unlinkContinuityPhoto(shoot: widget.shoot, photoId: photoId);
-              res.match<void>((_) {}, (_) {});
-              if (dialogContext.mounted) Navigator.of(dialogContext).pop();
-            },
-            child: const Text('Unlink'),
-          ),
-        ],
       ),
     );
   }

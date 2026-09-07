@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
+import '../shooting_days/shooting_days_controller.dart';
 import 'scene_shoots_controller.dart';
 import 'scene_shoots_state.dart';
 import 'widgets/continuity_strip.dart';
@@ -57,10 +58,19 @@ class SceneShootsScreen extends ConsumerWidget {
     final controller = ref.read(sceneShootsControllerProvider(scope).notifier);
     final rows = state.rows;
     final notFound = state.notFound;
-    final wrapped = day.wrappedAt != null;
+    // The acted-on day DTO seeds entry, but finality and the wrap version
+    // must follow the live projection: after an in-session wrap the
+    // banner, actions, and retry versions update without re-entry (D2).
+    // Falls back to the entry DTO while the projection has no row yet.
+    final daysView = ref.watch(shootingDaysViewProvider(scene.episodeId));
+    var dayNow = day;
+    for (final d in daysView.rows) {
+      if (d.id == day.id) dayNow = d;
+    }
+    final wrapped = dayNow.wrappedAt != null;
 
     return Scaffold(
-      appBar: AppBar(title: Text(day.label ?? 'Shooting day')),
+      appBar: AppBar(title: Text(dayNow.label ?? 'Shooting day')),
       body: Column(
         children: [
           if (state.commandError case final error?)
@@ -162,7 +172,8 @@ class SceneShootsScreen extends ConsumerWidget {
                 padding: const EdgeInsets.all(16),
                 child: FilledButton(
                   key: const Key('scene-shoots-wrap'),
-                  onPressed: () => _confirmWrap(context, ref, scope),
+                  onPressed: () =>
+                      _confirmWrap(context, ref, scope, dayNow.version),
                   child: const Text('Wrap shooting day'),
                 ),
               ),
@@ -176,6 +187,7 @@ class SceneShootsScreen extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
     SceneShootDayScope scope,
+    int dayVersion,
   ) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -203,9 +215,11 @@ class SceneShootsScreen extends ConsumerWidget {
     );
     if (confirmed == true && context.mounted) {
       // Handled: failures surface via the command-error provider.
+      // The version echoes the live projection (never the entry DTO),
+      // so a retry after a conflict carries the current version.
       final wrapResult = await ref
           .read(sceneShootsControllerProvider(scope).notifier)
-          .wrap(dayVersion: day.version);
+          .wrap(dayVersion: dayVersion);
       wrapResult.match<void>((_) {}, (_) {});
     }
   }
@@ -287,12 +301,15 @@ class _ShootCard extends StatelessWidget {
                 ),
                 _StatusChip(status: shoot.status),
                 if (pending)
-                  const Padding(
-                    padding: EdgeInsets.only(left: 8),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8),
                     child: SizedBox(
                       width: 16,
                       height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                      child: CircularProgressIndicator(
+                        key: Key('scene-shoot-pending-${shoot.id}'),
+                        strokeWidth: 2,
+                      ),
                     ),
                   ),
               ],

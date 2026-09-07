@@ -83,9 +83,13 @@ Iterable<StepDefinitionGeneric> continuityPhotoSteps() => [
     'the continuity count for {string} becomes {string}',
     (String sceneShootId, String count, context) async {
       // The linked projection reconciled: the strip header carries the
-      // count from the read model (e.g. `Continuity (1)`).
+      // count from the read model (e.g. `Continuity (1)`), scoped to the
+      // requested shoot so a sibling strip cannot satisfy the step.
       await context.world.driver!.waitFor(
-        find.text(count),
+        find.descendant(
+          of: find.byValueKey('continuity-strip-$sceneShootId'),
+          matching: find.text(count),
+        ),
         timeout: const Duration(seconds: 30),
       );
     },

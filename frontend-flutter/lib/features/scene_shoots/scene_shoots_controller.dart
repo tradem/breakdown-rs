@@ -706,7 +706,7 @@ class SceneShootsController extends _$SceneShootsController {
   Left<ProblemError, T> _denySession<T>() {
     const error = ProblemError(code: 'auth.session_required', status: 403);
     ref.read(sceneShootsCommandErrorProvider(scope).notifier).set(error);
-    return const Left(error);
+    return Left<ProblemError, T>(error);
   }
 
   Future<AuthSession?> _resolveSession() async {
