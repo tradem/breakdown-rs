@@ -19,9 +19,10 @@ import 'world/app_world.dart';
 ///
 /// The runner launches the instrumented app (`app.dart`) in **dev-auth mode**
 /// (`DEV_AUTH_SUB=dev-e2e`, `API_BASE=http://10.0.2.2:3000`) on a connected
-/// device/emulator. The three critical flows (`@critical`) are tagged
-/// `@pending` because their screens are not yet landed; `tagExpression` is
-/// `not @pending`, so the default on-device pass runs only `smoke.feature`.
+/// device/emulator. Critical flows (`@critical`) still tagged `@pending`
+/// (Soll-Ist report, continuity photo capture — own changes) are excluded
+/// via `tagExpression: not @pending`; promoted scenarios (costume
+/// assignment, shipped with `flutter-costume-domains`) run on device.
 /// Removing `@pending` from a scenario promotes it into the on-device pass
 /// (the CI gate in `.github/workflows/flutter-ci.yml`).
 Future<FlutterTestConfiguration> buildGherkinConfig() async {

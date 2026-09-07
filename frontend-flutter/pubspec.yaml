@@ -45,6 +45,11 @@ dependencies:
   flutter_secure_storage: ^11.0.0
   fpdart: ^1.2.0
   freezed_annotation: ^3.1.0
+  # Phase 2 photo pipeline (flutter-costume-domains D4): `image` is pure-Dart
+  # decode/encode for background-isolate resizing; `image_picker` captures
+  # via the system camera/gallery at point of use only (both FOSS).
+  image: ^4.2.0
+  image_picker: ^1.1.2
   json_annotation: ^4.12.0
   riverpod_annotation: ^4.0.6
 
@@ -66,9 +71,15 @@ dependencies:
     path: vendor/breakdown_api
   built_value: ^8.9.0
   built_collection: ^5.1.1
+  # Direct use in hand-written code (ShootingDaySource construction,
+  # repository helpers): declared directly per depend_on_referenced_packages.
+  one_of: ^1.5.0
   package_info_plus: ^10.2.1
   url_launcher: ^6.3.2
   app_links: ^7.2.1
+  # "Open settings" affordance for denied camera/photo-library permission
+  # (real Android+iOS handlers; FOSS).
+  app_settings: ^9.0.0
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.

@@ -13,6 +13,8 @@ import '../app_info/settings_dialog.dart';
 import '../auth/sign_out.dart';
 import '../blocks/blocks_screen.dart';
 import '../costume_categories/costume_categories_screen.dart';
+import '../characters/characters_screen.dart';
+import '../costumes/costumes_screen.dart';
 import 'create_season_sheet.dart';
 import 'seasons_controller.dart';
 import 'seasons_state.dart';
@@ -104,6 +106,24 @@ class SeasonsScreen extends ConsumerWidget {
                                   ),
                                 )
                               : null,
+                          // Season context entries (design §4): the costume
+                          // department's day-to-day work lives here.
+                          onOpenCostumes: row is ProjectedSeasonRow
+                              ? () => Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) =>
+                                        CostumesScreen(season: row.season),
+                                  ),
+                                )
+                              : null,
+                          onOpenCharacters: row is ProjectedSeasonRow
+                              ? () => Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) =>
+                                        CharactersScreen(season: row.season),
+                                  ),
+                                )
+                              : null,
                         );
                       },
                     ),
@@ -139,6 +159,8 @@ class _SeasonTile extends StatelessWidget {
     required this.row,
     this.onOpenBlocks,
     this.onOpenCategories,
+    this.onOpenCostumes,
+    this.onOpenCharacters,
   });
 
   final SeasonRow row;
@@ -150,6 +172,12 @@ class _SeasonTile extends StatelessWidget {
   /// categories screen of the selected season).
   final VoidCallback? onOpenCategories;
 
+  /// Pushes the season's `CostumesScreen` (Phase 2 core user value).
+  final VoidCallback? onOpenCostumes;
+
+  /// Pushes the season's `CharactersScreen` (Phase 2 core user value).
+  final VoidCallback? onOpenCharacters;
+
   @override
   Widget build(BuildContext context) => switch (row) {
     ProjectedSeasonRow(:final season) => ListTile(
@@ -158,11 +186,30 @@ class _SeasonTile extends StatelessWidget {
       subtitle: Text('Number ${season.number}'),
       trailing: onOpenCategories == null
           ? const Icon(Icons.chevron_right)
-          : IconButton(
-              key: Key('season-categories-${season.id}'),
-              icon: const Icon(Icons.style_outlined),
-              tooltip: 'Costume categories',
-              onPressed: onOpenCategories,
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  // Gherkin contract key (`open-costume-assignment-<season>`)
+                  // for the costume-assignment critical scenario.
+                  key: Key('open-costume-assignment-${season.id}'),
+                  icon: const Icon(Icons.checkroom_outlined),
+                  tooltip: 'Costumes',
+                  onPressed: onOpenCostumes,
+                ),
+                IconButton(
+                  key: Key('season-characters-${season.id}'),
+                  icon: const Icon(Icons.person_outline),
+                  tooltip: 'Characters',
+                  onPressed: onOpenCharacters,
+                ),
+                IconButton(
+                  key: Key('season-categories-${season.id}'),
+                  icon: const Icon(Icons.style_outlined),
+                  tooltip: 'Costume categories',
+                  onPressed: onOpenCategories,
+                ),
+              ],
             ),
       onTap: onOpenBlocks,
     ),

@@ -9,7 +9,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
 import 'create_scene_sheet.dart';
+import 'scene_detail_screen.dart';
 import 'scenes_controller.dart';
+import 'scenes_state.dart';
 import 'widgets/scenes_widgets.dart';
 
 /// Localized client-side copy for a create-scene failure, keyed on the
@@ -29,9 +31,17 @@ String sceneCreateErrorCopy(ProblemError error) => switch (error.code) {
 /// Pushed with the parent [EpisodeView] as navigation context (leaf screen
 /// of the Phase-1b spine).
 class ScenesScreen extends ConsumerWidget {
-  const ScenesScreen({super.key, required this.episode});
+  const ScenesScreen({
+    super.key,
+    required this.episode,
+    required this.seasonId,
+  });
 
   final EpisodeView episode;
+
+  /// Season scope for the scene detail's character binding (read-DTO join
+  /// via the characters projection — threaded from the navigation stack).
+  final String seasonId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -105,8 +115,23 @@ class ScenesScreen extends ConsumerWidget {
                                 key: const Key('scenes-list'),
                                 physics: const AlwaysScrollableScrollPhysics(),
                                 itemCount: rows.length,
-                                itemBuilder: (context, i) =>
-                                    SceneTile(row: rows[i]),
+                                itemBuilder: (context, i) => SceneTile(
+                                  row: rows[i],
+                                  onTap: rows[i] is ProjectedSceneRow
+                                      ? () => Navigator.of(context).push(
+                                          MaterialPageRoute<void>(
+                                            builder: (_) => SceneDetailScreen(
+                                              seasonId: seasonId,
+                                              episodeId: episode.id,
+                                              sceneId:
+                                                  (rows[i] as ProjectedSceneRow)
+                                                      .scene
+                                                      .id,
+                                            ),
+                                          ),
+                                        )
+                                      : null,
+                                ),
                               ),
                     },
                   ),

@@ -15,10 +15,15 @@ import '../../data/settings/api_base_override_store.dart';
 import '../../data/settings/api_base_validation.dart';
 import '../../auth/season_membership_provider.dart';
 import '../blocks/blocks_controller.dart';
+import '../characters/characters_controller.dart';
 import '../costume_categories/costume_categories_controller.dart';
+import '../costumes/costumes_controller.dart';
 import '../episodes/episodes_controller.dart';
 import '../scenes/scenes_controller.dart';
 import '../seasons/seasons_controller.dart';
+import '../photos/capture.dart';
+import '../photos/widgets/photo_gallery.dart';
+import '../shooting_days/shooting_days_controller.dart';
 import 'login_screen.dart';
 
 /// Session-reset coordinator (tasks 4.2/6.3): the single ordered path for
@@ -61,6 +66,9 @@ class SessionReset extends Notifier<void> {
           .read(authSessionControllerProvider.notifier)
           .failSession(emptyError);
     }
+    // Decoded photo bytes are sensitive (CWE-524): drop the in-memory LRU
+    // before the next session starts (Drift never persisted them).
+    ref.read(photoBytesLruProvider).clear();
     _invalidateSessionScope();
   }
 
@@ -126,7 +134,11 @@ class SessionReset extends Notifier<void> {
   /// nothing from the previous session may survive — including the
   /// retained snapshot rows). The hierarchy families
   /// (`flutter-hierarchy-navigation`) reset alongside the seasons scope so
-  /// no cross-identity rows, overlays, or membership reads survive.
+  /// no cross-identity rows, overlays, or membership reads survive. The
+  /// costume-domain families (`flutter-costume-domains`: costumes,
+  /// characters, shooting days) reset for the same reason — their keepAlive
+  /// `*PrevRows` would otherwise serve the previous session's rows after a
+  /// failed refetch (the empty-cache branch preserves nonempty state).
   void _invalidateSessionScope() {
     ref
       ..invalidate(seasonOverlaysProvider)
@@ -161,7 +173,28 @@ class SessionReset extends Notifier<void> {
       ..invalidate(costumeCategoriesPrevRowsProvider)
       ..invalidate(costumeCategoriesOverlaysProvider)
       ..invalidate(costumeCategoriesCommandErrorProvider)
-      ..invalidate(costumeCategoriesShowArchivedProvider);
+      ..invalidate(costumeCategoriesShowArchivedProvider)
+      ..invalidate(costumesControllerProvider)
+      ..invalidate(costumesViewControllerProvider)
+      ..invalidate(costumesListFetchProvider)
+      ..invalidate(costumesPrevRowsProvider)
+      ..invalidate(costumesOverlaysProvider)
+      ..invalidate(costumesCommandErrorProvider)
+      ..invalidate(charactersControllerProvider)
+      ..invalidate(charactersViewControllerProvider)
+      ..invalidate(charactersListFetchProvider)
+      ..invalidate(charactersPrevRowsProvider)
+      ..invalidate(charactersOverlaysProvider)
+      ..invalidate(charactersCommandErrorProvider)
+      ..invalidate(shootingDaysControllerProvider)
+      ..invalidate(shootingDaysViewControllerProvider)
+      ..invalidate(shootingDaysListFetchProvider)
+      ..invalidate(shootingDaysPrevRowsProvider)
+      ..invalidate(shootingDaysOverlaysProvider)
+      ..invalidate(shootingDaysCommandErrorProvider)
+      // Session-scoped photo rationale: the next user must see the
+      // pre-permission rationale instead of inheriting `seen`.
+      ..invalidate(photoRationaleSeenProvider);
   }
 
   /// Resets read state after a backend switch (session kept): like
