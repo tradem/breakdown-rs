@@ -411,11 +411,8 @@ class _SceneShootingDaysSection extends ConsumerWidget {
   void _openBoard(BuildContext context, ShootingDayView day) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => SceneShootsScreen(
-          day: day,
-          scene: scene,
-          seasonId: seasonId,
-        ),
+        builder: (_) =>
+            SceneShootsScreen(day: day, scene: scene, seasonId: seasonId),
       ),
     );
   }

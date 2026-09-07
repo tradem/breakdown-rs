@@ -52,6 +52,12 @@
 ## 4. Integration + housekeeping
 - [ ] 4.1 On-emulator smoke: plan two shoots → start/finish/skip →
        wrap → assert read-only finality
-- [ ] 4.2 SPDX headers; lint/coverage/gitleaks gates clean
-- [ ] 4.3 `openspec` coverage audit for
+       (Status Sep 2026: attempted on local emulator — environment proven
+       end-to-end, API-level sequence green (plan/start/finish/skip/wrap/
+       finality/immutability), but the on-device flow is blocked by #377
+       (no GET /v1/seasons → board unreachable) and #378 (client never
+       sends X-Active-Block → board fetch 400s). Backend projector
+       instability observed, see #37.)
+- [x] 4.2 SPDX headers; lint/coverage/gitleaks gates clean
+- [x] 4.3 `openspec` coverage audit for
        `flutter-scene-shoots-screen`
