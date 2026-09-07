@@ -19,9 +19,24 @@ import 'package:test/test.dart';
 
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
 
 /// Minimal opener marking the file as a v3 install (schema marker only;
 /// the v3 table shape is created with raw SQL afterwards).
+/// Minimal opener marking the file as a v2 install (schema marker only;
+/// v2 tables are created with raw SQL afterwards; the v3/v4 tables are
+/// created by the migration itself).
+class _V2Install implements QueryExecutorUser {
+  @override
+  int get schemaVersion => 2;
+
+  @override
+  Future<void> beforeOpen(
+    QueryExecutor executor,
+    OpeningDetails details,
+  ) async {}
+}
+
 class _V3Install implements QueryExecutorUser {
   @override
   int get schemaVersion => 3;
@@ -74,4 +89,43 @@ void main() {
     await dao.applySnapshotForSeason('s-1', rows, DateTime.utc(2026, 1, 2));
     expect((await dao.readBySeason('s-1')).map((c) => c.id), ['c-1']);
   });
+
+  test(
+    'populated v2 to v4 keeps season rows and creates costume tables',
+    () async {
+      final dir = await Directory.systemTemp.createTemp('costume-migration-v2');
+      addTearDown(() => dir.delete(recursive: true));
+      final file = File('${dir.path}/cache.db');
+
+      // A v2 install: only the v2 tables exist (seasons populated here; the
+      // hierarchy tables are created empty by the migration itself, which is
+      // exactly what the from < 2 / from < 3 branches cover).
+      final setup = NativeDatabase(file);
+      await setup.ensureOpen(_V2Install());
+      await setup.runCustom(
+        'CREATE TABLE season_cache_rows ('
+        'id TEXT NOT NULL PRIMARY KEY, '
+        'number INTEGER NOT NULL, '
+        'series_id TEXT NOT NULL, '
+        'title TEXT NULL, '
+        'updated_at INTEGER NOT NULL, '
+        'version INTEGER NOT NULL, '
+        'cached_at INTEGER NOT NULL)',
+      );
+      await setup.runCustom(
+        "INSERT INTO season_cache_rows VALUES "
+        "('s-1', 1, 'series-1', NULL, 1767225600, 1, 1767225600)",
+      );
+      await setup.close();
+
+      // Upgrade v2 → v4: hierarchy + costume tables are created from the
+      // current definitions (already carrying snapshot_index), so the ALTER
+      // must NOT run again (duplicate column). The season row survives.
+      final db = CacheDatabase(NativeDatabase(file));
+      addTearDown(db.close);
+      expect((await SeasonCacheDao(db).readAll()).map((s) => s.id), ['s-1']);
+      final dao = CostumeCacheDao(db);
+      expect(await dao.readBySeason('s-1'), isEmpty);
+    },
+  );
 }

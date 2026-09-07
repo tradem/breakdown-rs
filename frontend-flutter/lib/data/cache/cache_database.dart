@@ -73,7 +73,12 @@ class CacheDatabase extends _$CacheDatabase {
         await m.createTable(characterCacheRows);
         await m.createTable(shootingDayCacheRows);
       }
-      if (from < 4) {
+      // Guarded by `from == 3` (not `< 4`): older databases enter the
+      // `from < 3` branch above, which creates the costume table from the
+      // CURRENT definition — already including the column — so a second
+      // ADD COLUMN would fail with `duplicate column name`. Only a real
+      // v3 database (table exists, column missing) needs the ALTER.
+      if (from == 3) {
         // CodeRabbit review follow-up: snapshot ordinal on the costume rows
         // so `readBySeason` reproduces the server `ORDER BY updated_at
         // DESC` exactly. Plain `m.addColumn` emits `ADD COLUMN ... NOT
