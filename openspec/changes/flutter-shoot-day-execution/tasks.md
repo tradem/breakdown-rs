@@ -8,11 +8,11 @@
 - [x] 0.1 Backend re-export landed the scene-shoot / continuity-photo /
        wrap routes in `backend/openapi.yaml` (GitHub issue #333,
        PR #344)
-- [ ] 0.2 `bash scripts/regen-client.sh`; commit the regenerated
+- [x] 0.2 `bash scripts/regen-client.sh`; commit the regenerated
        `vendor/breakdown_api/` tree; confirm the new DTOs — incl. the
        slimmed `PlanSceneShootRequest { planned_order }` (path ids
        only, backend issue #346, PR #359)
-- [ ] 0.3 Verify the intended routes in the generated client match
+- [x] 0.3 Verify the intended routes in the generated client match
        the router-served family from design.md §1 (no improvisation)
 
 ## 1. Data layer
