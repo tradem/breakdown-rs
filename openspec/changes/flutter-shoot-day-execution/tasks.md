@@ -16,7 +16,7 @@
        the router-served family from design.md §1 (no improvisation)
 
 ## 1. Data layer
-- [ ] 1.1 Extend `data/scene_shoot_repository.dart` with the
+- [x] 1.1 Extend `data/scene_shoot_repository.dart` with the
        generated execution calls against the **`/v1`-prefixed**
        externally reachable paths (plan/replan/get, start,
        actual-order, finish, skip, notes add/update/remove,
@@ -29,7 +29,7 @@
        model only)
 
 ## 2. Day board
-- [ ] 2.1 `features/scene_shoots/scene_shoots_screen.dart` — day
+- [x] 2.1 `features/scene_shoots/scene_shoots_screen.dart` — day
        board (planned sequence, Ist strip, per-shoot actions, wrap),
        controllers on the shared reconciliation module
 - [ ] 2.2 Notes widget on the shoot cards; wrap confirm dialog with
