@@ -1078,7 +1078,11 @@ impl AuditRepository for FakeAuditRepo {
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-pub struct FakeShootingDayCommands;
+pub struct FakeShootingDayCommands {
+    pub last_reschedule: Arc<Mutex<Option<RescheduleShootingDay>>>,
+    pub last_rename: Arc<Mutex<Option<RenameShootingDay>>>,
+    pub last_reorder: Arc<Mutex<Option<ReorderShootingDay>>>,
+}
 
 impl ShootingDayCommands for FakeShootingDayCommands {
     async fn create(
@@ -1091,22 +1095,25 @@ impl ShootingDayCommands for FakeShootingDayCommands {
     async fn rename(
         &self,
         _actor: UserId,
-        _cmd: RenameShootingDay,
+        cmd: RenameShootingDay,
     ) -> Result<AggregateVersion, DomainError> {
+        *self.last_rename.lock().await = Some(cmd);
         Ok(AggregateVersion::INITIAL.next())
     }
     async fn reschedule(
         &self,
         _actor: UserId,
-        _cmd: RescheduleShootingDay,
+        cmd: RescheduleShootingDay,
     ) -> Result<AggregateVersion, DomainError> {
+        *self.last_reschedule.lock().await = Some(cmd);
         Ok(AggregateVersion::INITIAL.next())
     }
     async fn reorder(
         &self,
         _actor: UserId,
-        _cmd: ReorderShootingDay,
+        cmd: ReorderShootingDay,
     ) -> Result<AggregateVersion, DomainError> {
+        *self.last_reorder.lock().await = Some(cmd);
         Ok(AggregateVersion::INITIAL.next())
     }
     async fn archive(

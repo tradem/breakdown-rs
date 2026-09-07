@@ -306,16 +306,36 @@ pub struct CreateShootingDayRequest {
     pub source: ShootingDaySource,
 }
 
+/// Deserialize a presence-tracked nullable field (`Option<Option<T>>`).
+///
+/// With plain `Option<T>`, serde maps an explicit JSON `null` and an absent
+/// field identically to `None`, so "clear this value" is inexpressible.
+/// Combined with `#[serde(default)]`, this helper preserves the distinction:
+/// absent → `None` (no update), explicit `null` → `Some(None)` (clear),
+/// value → `Some(Some(v))` (set). Used by `UpdateShootingDayRequest`
+/// for `date` (unschedule) and `label` (rename-to-null) — see issue #372.
+fn deserialize_optional_nullable<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    Ok(Some(Option::<T>::deserialize(deserializer)?))
+}
+
 /// Request body for mutating a `ShootingDay`.
 ///
 /// Exactly one of `order_key` / `date` / `label` should be set; the handler
 /// dispatches the matching command (reorder > reschedule > rename). `date`
-/// being `Some(None)` is the explicit "unschedule" (clear the calendar date).
+/// and `label` are presence-tracked (`Option<Option<..>>`): an absent field
+/// means "no update", an explicit JSON `null` (`Some(None)`) clears the
+/// value (unschedule / rename-to-null), and a value (`Some(Some(v))`) sets it.
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct UpdateShootingDayRequest {
     pub version: AggregateVersion,
-    pub label: Option<String>,
-    pub date: Option<chrono::NaiveDate>,
+    #[serde(default, deserialize_with = "deserialize_optional_nullable")]
+    pub label: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_optional_nullable")]
+    pub date: Option<Option<chrono::NaiveDate>>,
     pub order_key: Option<LexicalSortKey>,
 }
 
@@ -1254,13 +1274,13 @@ pub async fn update_shooting_day<P: Ports>(
             .await?;
         return Ok((StatusCode::OK, Json(version)));
     }
-    if req.date.is_some() {
+    if let Some(date) = req.date {
         let version = cmds
             .reschedule(
                 actor.clone(),
                 RescheduleShootingDay {
                     id,
-                    date: req.date,
+                    date,
                     series_id,
                     version: req.version,
                 },
@@ -1268,13 +1288,13 @@ pub async fn update_shooting_day<P: Ports>(
             .await?;
         return Ok((StatusCode::OK, Json(version)));
     }
-    if req.label.is_some() {
+    if let Some(label) = req.label {
         let version = cmds
             .rename(
                 actor,
                 RenameShootingDay {
                     id,
-                    label: req.label,
+                    label,
                     series_id,
                     version: req.version,
                 },

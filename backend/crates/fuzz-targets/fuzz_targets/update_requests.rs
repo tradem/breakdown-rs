@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
 //! Fuzz target for all `Update*` request bodies and `VersionRequest`.
 //!
@@ -86,12 +87,15 @@ struct UpdateBlockTimeSpanRequest {
 
 // ── Shooting Day updates ─────────────────────────────────────────────────────
 
-/// Mirrors `breakdown_api::handlers::UpdateShootingDayRequest`.
+/// Mirrors `breakdown_api::handlers::UpdateShootingDayRequest` (issue #372:
+/// `date` / `label` are presence-tracked `Option<Option<..>>`).
 #[derive(Debug, Deserialize)]
 struct UpdateShootingDayRequest {
     pub version: AggregateVersion,
-    pub label: Option<String>,
-    pub date: Option<chrono::NaiveDate>,
+    #[serde(default)]
+    pub label: Option<Option<String>>,
+    #[serde(default)]
+    pub date: Option<Option<chrono::NaiveDate>>,
     pub order_key: Option<LexicalSortKey>,
 }
 
@@ -186,8 +190,8 @@ fuzz_target!(|data: &[u8]| {
 
     // ShootingDay
     if let Ok(req) = serde_json::from_slice::<UpdateShootingDayRequest>(data) {
-        let _ = req.label.as_deref();
-        let _ = req.date;
+        let _ = req.label.flatten().as_deref();
+        let _ = req.date.flatten();
         let _ = req.order_key.map(|k| k.0.len());
         let _ = req.version.0;
     }
