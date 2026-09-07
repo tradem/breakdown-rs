@@ -5149,6 +5149,873 @@ class ShootingDayCacheRowsCompanion
   }
 }
 
+class $SceneShootCacheRowsTable extends SceneShootCacheRows
+    with TableInfo<$SceneShootCacheRowsTable, SceneShootCacheRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SceneShootCacheRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _shootingDayIdMeta = const VerificationMeta(
+    'shootingDayId',
+  );
+  @override
+  late final GeneratedColumn<String> shootingDayId = GeneratedColumn<String>(
+    'shooting_day_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sceneIdMeta = const VerificationMeta(
+    'sceneId',
+  );
+  @override
+  late final GeneratedColumn<String> sceneId = GeneratedColumn<String>(
+    'scene_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _plannedOrderMeta = const VerificationMeta(
+    'plannedOrder',
+  );
+  @override
+  late final GeneratedColumn<String> plannedOrder = GeneratedColumn<String>(
+    'planned_order',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _actualOrderMeta = const VerificationMeta(
+    'actualOrder',
+  );
+  @override
+  late final GeneratedColumn<String> actualOrder = GeneratedColumn<String>(
+    'actual_order',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+    'status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _startDtMeta = const VerificationMeta(
+    'startDt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> startDt = GeneratedColumn<DateTime>(
+    'start_dt',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _endDtMeta = const VerificationMeta('endDt');
+  @override
+  late final GeneratedColumn<DateTime> endDt = GeneratedColumn<DateTime>(
+    'end_dt',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _notesJsonMeta = const VerificationMeta(
+    'notesJson',
+  );
+  @override
+  late final GeneratedColumn<String> notesJson = GeneratedColumn<String>(
+    'notes_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _continuityPhotoIdsJsonMeta =
+      const VerificationMeta('continuityPhotoIdsJson');
+  @override
+  late final GeneratedColumn<String> continuityPhotoIdsJson =
+      GeneratedColumn<String>(
+        'continuity_photo_ids_json',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+      );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _versionMeta = const VerificationMeta(
+    'version',
+  );
+  @override
+  late final GeneratedColumn<int> version = GeneratedColumn<int>(
+    'version',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _cachedAtMeta = const VerificationMeta(
+    'cachedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> cachedAt = GeneratedColumn<DateTime>(
+    'cached_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _snapshotIndexMeta = const VerificationMeta(
+    'snapshotIndex',
+  );
+  @override
+  late final GeneratedColumn<int> snapshotIndex = GeneratedColumn<int>(
+    'snapshot_index',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    shootingDayId,
+    sceneId,
+    plannedOrder,
+    actualOrder,
+    status,
+    startDt,
+    endDt,
+    notesJson,
+    continuityPhotoIdsJson,
+    updatedAt,
+    version,
+    cachedAt,
+    snapshotIndex,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'scene_shoot_cache_rows';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<SceneShootCacheRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('shooting_day_id')) {
+      context.handle(
+        _shootingDayIdMeta,
+        shootingDayId.isAcceptableOrUnknown(
+          data['shooting_day_id']!,
+          _shootingDayIdMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_shootingDayIdMeta);
+    }
+    if (data.containsKey('scene_id')) {
+      context.handle(
+        _sceneIdMeta,
+        sceneId.isAcceptableOrUnknown(data['scene_id']!, _sceneIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sceneIdMeta);
+    }
+    if (data.containsKey('planned_order')) {
+      context.handle(
+        _plannedOrderMeta,
+        plannedOrder.isAcceptableOrUnknown(
+          data['planned_order']!,
+          _plannedOrderMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_plannedOrderMeta);
+    }
+    if (data.containsKey('actual_order')) {
+      context.handle(
+        _actualOrderMeta,
+        actualOrder.isAcceptableOrUnknown(
+          data['actual_order']!,
+          _actualOrderMeta,
+        ),
+      );
+    }
+    if (data.containsKey('status')) {
+      context.handle(
+        _statusMeta,
+        status.isAcceptableOrUnknown(data['status']!, _statusMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_statusMeta);
+    }
+    if (data.containsKey('start_dt')) {
+      context.handle(
+        _startDtMeta,
+        startDt.isAcceptableOrUnknown(data['start_dt']!, _startDtMeta),
+      );
+    }
+    if (data.containsKey('end_dt')) {
+      context.handle(
+        _endDtMeta,
+        endDt.isAcceptableOrUnknown(data['end_dt']!, _endDtMeta),
+      );
+    }
+    if (data.containsKey('notes_json')) {
+      context.handle(
+        _notesJsonMeta,
+        notesJson.isAcceptableOrUnknown(data['notes_json']!, _notesJsonMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_notesJsonMeta);
+    }
+    if (data.containsKey('continuity_photo_ids_json')) {
+      context.handle(
+        _continuityPhotoIdsJsonMeta,
+        continuityPhotoIdsJson.isAcceptableOrUnknown(
+          data['continuity_photo_ids_json']!,
+          _continuityPhotoIdsJsonMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_continuityPhotoIdsJsonMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    if (data.containsKey('version')) {
+      context.handle(
+        _versionMeta,
+        version.isAcceptableOrUnknown(data['version']!, _versionMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_versionMeta);
+    }
+    if (data.containsKey('cached_at')) {
+      context.handle(
+        _cachedAtMeta,
+        cachedAt.isAcceptableOrUnknown(data['cached_at']!, _cachedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_cachedAtMeta);
+    }
+    if (data.containsKey('snapshot_index')) {
+      context.handle(
+        _snapshotIndexMeta,
+        snapshotIndex.isAcceptableOrUnknown(
+          data['snapshot_index']!,
+          _snapshotIndexMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_snapshotIndexMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  SceneShootCacheRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SceneShootCacheRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      shootingDayId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}shooting_day_id'],
+      )!,
+      sceneId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}scene_id'],
+      )!,
+      plannedOrder: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}planned_order'],
+      )!,
+      actualOrder: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}actual_order'],
+      ),
+      status: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status'],
+      )!,
+      startDt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}start_dt'],
+      ),
+      endDt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}end_dt'],
+      ),
+      notesJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}notes_json'],
+      )!,
+      continuityPhotoIdsJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}continuity_photo_ids_json'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+      version: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}version'],
+      )!,
+      cachedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}cached_at'],
+      )!,
+      snapshotIndex: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}snapshot_index'],
+      )!,
+    );
+  }
+
+  @override
+  $SceneShootCacheRowsTable createAlias(String alias) {
+    return $SceneShootCacheRowsTable(attachedDatabase, alias);
+  }
+}
+
+class SceneShootCacheRow extends DataClass
+    implements Insertable<SceneShootCacheRow> {
+  /// Mirrors `SceneShootView.id`.
+  final String id;
+
+  /// Fetch scope: the shooting day (`list_by_shooting_day`, natively on
+  /// the DTO as `shootingDayId`).
+  final String shootingDayId;
+
+  /// Mirrors `SceneShootView.sceneId` (the pair's scene side).
+  final String sceneId;
+
+  /// Mirrors `SceneShootView.plannedOrder` (Soll position key).
+  final String plannedOrder;
+
+  /// Mirrors `SceneShootView.actualOrder` (Ist position key, nullable —
+  /// `null` means execution has not rearranged this shoot).
+  final String? actualOrder;
+
+  /// Mirrors `SceneShootView.status` as the wire string
+  /// (`Planned|Scheduled|InProgress|Shot|Skipped`; unknown variants
+  /// strictly reject at parse time, never guessed).
+  final String status;
+
+  /// Mirrors `SceneShootView.startDt` (nullable — `null` means not started).
+  final DateTime? startDt;
+
+  /// Mirrors `SceneShootView.endDt` (nullable — `null` means not finished).
+  final DateTime? endDt;
+
+  /// JSON snapshot of `SceneShootView.notes` (list of `SerializedNote`
+  /// wire maps, serialized via the generated `breakdown_api` serializers).
+  final String notesJson;
+
+  /// JSON snapshot of `SceneShootView.continuityPhotoIds` (plain id list).
+  final String continuityPhotoIdsJson;
+
+  /// Mirrors `SceneShootView.updatedAt` — server timestamp, preserved unchanged.
+  final DateTime updatedAt;
+
+  /// Mirrors `SceneShootView.version` (optimistic-locking round-trips).
+  final int version;
+
+  /// Client-only cache-write time. TTL is computed from this column only.
+  final DateTime cachedAt;
+
+  /// Snapshot ordinal: position in the last `listShoots` response
+  /// (server `ORDER BY COALESCE(actual_order, planned_order) ASC`).
+  final int snapshotIndex;
+  const SceneShootCacheRow({
+    required this.id,
+    required this.shootingDayId,
+    required this.sceneId,
+    required this.plannedOrder,
+    this.actualOrder,
+    required this.status,
+    this.startDt,
+    this.endDt,
+    required this.notesJson,
+    required this.continuityPhotoIdsJson,
+    required this.updatedAt,
+    required this.version,
+    required this.cachedAt,
+    required this.snapshotIndex,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['shooting_day_id'] = Variable<String>(shootingDayId);
+    map['scene_id'] = Variable<String>(sceneId);
+    map['planned_order'] = Variable<String>(plannedOrder);
+    if (!nullToAbsent || actualOrder != null) {
+      map['actual_order'] = Variable<String>(actualOrder);
+    }
+    map['status'] = Variable<String>(status);
+    if (!nullToAbsent || startDt != null) {
+      map['start_dt'] = Variable<DateTime>(startDt);
+    }
+    if (!nullToAbsent || endDt != null) {
+      map['end_dt'] = Variable<DateTime>(endDt);
+    }
+    map['notes_json'] = Variable<String>(notesJson);
+    map['continuity_photo_ids_json'] = Variable<String>(continuityPhotoIdsJson);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    map['version'] = Variable<int>(version);
+    map['cached_at'] = Variable<DateTime>(cachedAt);
+    map['snapshot_index'] = Variable<int>(snapshotIndex);
+    return map;
+  }
+
+  SceneShootCacheRowsCompanion toCompanion(bool nullToAbsent) {
+    return SceneShootCacheRowsCompanion(
+      id: Value(id),
+      shootingDayId: Value(shootingDayId),
+      sceneId: Value(sceneId),
+      plannedOrder: Value(plannedOrder),
+      actualOrder: actualOrder == null && nullToAbsent
+          ? const Value.absent()
+          : Value(actualOrder),
+      status: Value(status),
+      startDt: startDt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(startDt),
+      endDt: endDt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(endDt),
+      notesJson: Value(notesJson),
+      continuityPhotoIdsJson: Value(continuityPhotoIdsJson),
+      updatedAt: Value(updatedAt),
+      version: Value(version),
+      cachedAt: Value(cachedAt),
+      snapshotIndex: Value(snapshotIndex),
+    );
+  }
+
+  factory SceneShootCacheRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SceneShootCacheRow(
+      id: serializer.fromJson<String>(json['id']),
+      shootingDayId: serializer.fromJson<String>(json['shootingDayId']),
+      sceneId: serializer.fromJson<String>(json['sceneId']),
+      plannedOrder: serializer.fromJson<String>(json['plannedOrder']),
+      actualOrder: serializer.fromJson<String?>(json['actualOrder']),
+      status: serializer.fromJson<String>(json['status']),
+      startDt: serializer.fromJson<DateTime?>(json['startDt']),
+      endDt: serializer.fromJson<DateTime?>(json['endDt']),
+      notesJson: serializer.fromJson<String>(json['notesJson']),
+      continuityPhotoIdsJson: serializer.fromJson<String>(
+        json['continuityPhotoIdsJson'],
+      ),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+      version: serializer.fromJson<int>(json['version']),
+      cachedAt: serializer.fromJson<DateTime>(json['cachedAt']),
+      snapshotIndex: serializer.fromJson<int>(json['snapshotIndex']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'shootingDayId': serializer.toJson<String>(shootingDayId),
+      'sceneId': serializer.toJson<String>(sceneId),
+      'plannedOrder': serializer.toJson<String>(plannedOrder),
+      'actualOrder': serializer.toJson<String?>(actualOrder),
+      'status': serializer.toJson<String>(status),
+      'startDt': serializer.toJson<DateTime?>(startDt),
+      'endDt': serializer.toJson<DateTime?>(endDt),
+      'notesJson': serializer.toJson<String>(notesJson),
+      'continuityPhotoIdsJson': serializer.toJson<String>(
+        continuityPhotoIdsJson,
+      ),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+      'version': serializer.toJson<int>(version),
+      'cachedAt': serializer.toJson<DateTime>(cachedAt),
+      'snapshotIndex': serializer.toJson<int>(snapshotIndex),
+    };
+  }
+
+  SceneShootCacheRow copyWith({
+    String? id,
+    String? shootingDayId,
+    String? sceneId,
+    String? plannedOrder,
+    Value<String?> actualOrder = const Value.absent(),
+    String? status,
+    Value<DateTime?> startDt = const Value.absent(),
+    Value<DateTime?> endDt = const Value.absent(),
+    String? notesJson,
+    String? continuityPhotoIdsJson,
+    DateTime? updatedAt,
+    int? version,
+    DateTime? cachedAt,
+    int? snapshotIndex,
+  }) => SceneShootCacheRow(
+    id: id ?? this.id,
+    shootingDayId: shootingDayId ?? this.shootingDayId,
+    sceneId: sceneId ?? this.sceneId,
+    plannedOrder: plannedOrder ?? this.plannedOrder,
+    actualOrder: actualOrder.present ? actualOrder.value : this.actualOrder,
+    status: status ?? this.status,
+    startDt: startDt.present ? startDt.value : this.startDt,
+    endDt: endDt.present ? endDt.value : this.endDt,
+    notesJson: notesJson ?? this.notesJson,
+    continuityPhotoIdsJson:
+        continuityPhotoIdsJson ?? this.continuityPhotoIdsJson,
+    updatedAt: updatedAt ?? this.updatedAt,
+    version: version ?? this.version,
+    cachedAt: cachedAt ?? this.cachedAt,
+    snapshotIndex: snapshotIndex ?? this.snapshotIndex,
+  );
+  SceneShootCacheRow copyWithCompanion(SceneShootCacheRowsCompanion data) {
+    return SceneShootCacheRow(
+      id: data.id.present ? data.id.value : this.id,
+      shootingDayId: data.shootingDayId.present
+          ? data.shootingDayId.value
+          : this.shootingDayId,
+      sceneId: data.sceneId.present ? data.sceneId.value : this.sceneId,
+      plannedOrder: data.plannedOrder.present
+          ? data.plannedOrder.value
+          : this.plannedOrder,
+      actualOrder: data.actualOrder.present
+          ? data.actualOrder.value
+          : this.actualOrder,
+      status: data.status.present ? data.status.value : this.status,
+      startDt: data.startDt.present ? data.startDt.value : this.startDt,
+      endDt: data.endDt.present ? data.endDt.value : this.endDt,
+      notesJson: data.notesJson.present ? data.notesJson.value : this.notesJson,
+      continuityPhotoIdsJson: data.continuityPhotoIdsJson.present
+          ? data.continuityPhotoIdsJson.value
+          : this.continuityPhotoIdsJson,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      version: data.version.present ? data.version.value : this.version,
+      cachedAt: data.cachedAt.present ? data.cachedAt.value : this.cachedAt,
+      snapshotIndex: data.snapshotIndex.present
+          ? data.snapshotIndex.value
+          : this.snapshotIndex,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SceneShootCacheRow(')
+          ..write('id: $id, ')
+          ..write('shootingDayId: $shootingDayId, ')
+          ..write('sceneId: $sceneId, ')
+          ..write('plannedOrder: $plannedOrder, ')
+          ..write('actualOrder: $actualOrder, ')
+          ..write('status: $status, ')
+          ..write('startDt: $startDt, ')
+          ..write('endDt: $endDt, ')
+          ..write('notesJson: $notesJson, ')
+          ..write('continuityPhotoIdsJson: $continuityPhotoIdsJson, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('version: $version, ')
+          ..write('cachedAt: $cachedAt, ')
+          ..write('snapshotIndex: $snapshotIndex')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    shootingDayId,
+    sceneId,
+    plannedOrder,
+    actualOrder,
+    status,
+    startDt,
+    endDt,
+    notesJson,
+    continuityPhotoIdsJson,
+    updatedAt,
+    version,
+    cachedAt,
+    snapshotIndex,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SceneShootCacheRow &&
+          other.id == this.id &&
+          other.shootingDayId == this.shootingDayId &&
+          other.sceneId == this.sceneId &&
+          other.plannedOrder == this.plannedOrder &&
+          other.actualOrder == this.actualOrder &&
+          other.status == this.status &&
+          other.startDt == this.startDt &&
+          other.endDt == this.endDt &&
+          other.notesJson == this.notesJson &&
+          other.continuityPhotoIdsJson == this.continuityPhotoIdsJson &&
+          other.updatedAt == this.updatedAt &&
+          other.version == this.version &&
+          other.cachedAt == this.cachedAt &&
+          other.snapshotIndex == this.snapshotIndex);
+}
+
+class SceneShootCacheRowsCompanion extends UpdateCompanion<SceneShootCacheRow> {
+  final Value<String> id;
+  final Value<String> shootingDayId;
+  final Value<String> sceneId;
+  final Value<String> plannedOrder;
+  final Value<String?> actualOrder;
+  final Value<String> status;
+  final Value<DateTime?> startDt;
+  final Value<DateTime?> endDt;
+  final Value<String> notesJson;
+  final Value<String> continuityPhotoIdsJson;
+  final Value<DateTime> updatedAt;
+  final Value<int> version;
+  final Value<DateTime> cachedAt;
+  final Value<int> snapshotIndex;
+  final Value<int> rowid;
+  const SceneShootCacheRowsCompanion({
+    this.id = const Value.absent(),
+    this.shootingDayId = const Value.absent(),
+    this.sceneId = const Value.absent(),
+    this.plannedOrder = const Value.absent(),
+    this.actualOrder = const Value.absent(),
+    this.status = const Value.absent(),
+    this.startDt = const Value.absent(),
+    this.endDt = const Value.absent(),
+    this.notesJson = const Value.absent(),
+    this.continuityPhotoIdsJson = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.version = const Value.absent(),
+    this.cachedAt = const Value.absent(),
+    this.snapshotIndex = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SceneShootCacheRowsCompanion.insert({
+    required String id,
+    required String shootingDayId,
+    required String sceneId,
+    required String plannedOrder,
+    this.actualOrder = const Value.absent(),
+    required String status,
+    this.startDt = const Value.absent(),
+    this.endDt = const Value.absent(),
+    required String notesJson,
+    required String continuityPhotoIdsJson,
+    required DateTime updatedAt,
+    required int version,
+    required DateTime cachedAt,
+    required int snapshotIndex,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       shootingDayId = Value(shootingDayId),
+       sceneId = Value(sceneId),
+       plannedOrder = Value(plannedOrder),
+       status = Value(status),
+       notesJson = Value(notesJson),
+       continuityPhotoIdsJson = Value(continuityPhotoIdsJson),
+       updatedAt = Value(updatedAt),
+       version = Value(version),
+       cachedAt = Value(cachedAt),
+       snapshotIndex = Value(snapshotIndex);
+  static Insertable<SceneShootCacheRow> custom({
+    Expression<String>? id,
+    Expression<String>? shootingDayId,
+    Expression<String>? sceneId,
+    Expression<String>? plannedOrder,
+    Expression<String>? actualOrder,
+    Expression<String>? status,
+    Expression<DateTime>? startDt,
+    Expression<DateTime>? endDt,
+    Expression<String>? notesJson,
+    Expression<String>? continuityPhotoIdsJson,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? version,
+    Expression<DateTime>? cachedAt,
+    Expression<int>? snapshotIndex,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (shootingDayId != null) 'shooting_day_id': shootingDayId,
+      if (sceneId != null) 'scene_id': sceneId,
+      if (plannedOrder != null) 'planned_order': plannedOrder,
+      if (actualOrder != null) 'actual_order': actualOrder,
+      if (status != null) 'status': status,
+      if (startDt != null) 'start_dt': startDt,
+      if (endDt != null) 'end_dt': endDt,
+      if (notesJson != null) 'notes_json': notesJson,
+      if (continuityPhotoIdsJson != null)
+        'continuity_photo_ids_json': continuityPhotoIdsJson,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (version != null) 'version': version,
+      if (cachedAt != null) 'cached_at': cachedAt,
+      if (snapshotIndex != null) 'snapshot_index': snapshotIndex,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SceneShootCacheRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? shootingDayId,
+    Value<String>? sceneId,
+    Value<String>? plannedOrder,
+    Value<String?>? actualOrder,
+    Value<String>? status,
+    Value<DateTime?>? startDt,
+    Value<DateTime?>? endDt,
+    Value<String>? notesJson,
+    Value<String>? continuityPhotoIdsJson,
+    Value<DateTime>? updatedAt,
+    Value<int>? version,
+    Value<DateTime>? cachedAt,
+    Value<int>? snapshotIndex,
+    Value<int>? rowid,
+  }) {
+    return SceneShootCacheRowsCompanion(
+      id: id ?? this.id,
+      shootingDayId: shootingDayId ?? this.shootingDayId,
+      sceneId: sceneId ?? this.sceneId,
+      plannedOrder: plannedOrder ?? this.plannedOrder,
+      actualOrder: actualOrder ?? this.actualOrder,
+      status: status ?? this.status,
+      startDt: startDt ?? this.startDt,
+      endDt: endDt ?? this.endDt,
+      notesJson: notesJson ?? this.notesJson,
+      continuityPhotoIdsJson:
+          continuityPhotoIdsJson ?? this.continuityPhotoIdsJson,
+      updatedAt: updatedAt ?? this.updatedAt,
+      version: version ?? this.version,
+      cachedAt: cachedAt ?? this.cachedAt,
+      snapshotIndex: snapshotIndex ?? this.snapshotIndex,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (shootingDayId.present) {
+      map['shooting_day_id'] = Variable<String>(shootingDayId.value);
+    }
+    if (sceneId.present) {
+      map['scene_id'] = Variable<String>(sceneId.value);
+    }
+    if (plannedOrder.present) {
+      map['planned_order'] = Variable<String>(plannedOrder.value);
+    }
+    if (actualOrder.present) {
+      map['actual_order'] = Variable<String>(actualOrder.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (startDt.present) {
+      map['start_dt'] = Variable<DateTime>(startDt.value);
+    }
+    if (endDt.present) {
+      map['end_dt'] = Variable<DateTime>(endDt.value);
+    }
+    if (notesJson.present) {
+      map['notes_json'] = Variable<String>(notesJson.value);
+    }
+    if (continuityPhotoIdsJson.present) {
+      map['continuity_photo_ids_json'] = Variable<String>(
+        continuityPhotoIdsJson.value,
+      );
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (version.present) {
+      map['version'] = Variable<int>(version.value);
+    }
+    if (cachedAt.present) {
+      map['cached_at'] = Variable<DateTime>(cachedAt.value);
+    }
+    if (snapshotIndex.present) {
+      map['snapshot_index'] = Variable<int>(snapshotIndex.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SceneShootCacheRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('shootingDayId: $shootingDayId, ')
+          ..write('sceneId: $sceneId, ')
+          ..write('plannedOrder: $plannedOrder, ')
+          ..write('actualOrder: $actualOrder, ')
+          ..write('status: $status, ')
+          ..write('startDt: $startDt, ')
+          ..write('endDt: $endDt, ')
+          ..write('notesJson: $notesJson, ')
+          ..write('continuityPhotoIdsJson: $continuityPhotoIdsJson, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('version: $version, ')
+          ..write('cachedAt: $cachedAt, ')
+          ..write('snapshotIndex: $snapshotIndex, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$CacheDatabase extends GeneratedDatabase {
   _$CacheDatabase(QueryExecutor e) : super(e);
   $CacheDatabaseManager get managers => $CacheDatabaseManager(this);
@@ -5169,6 +6036,8 @@ abstract class _$CacheDatabase extends GeneratedDatabase {
       $CharacterCacheRowsTable(this);
   late final $ShootingDayCacheRowsTable shootingDayCacheRows =
       $ShootingDayCacheRowsTable(this);
+  late final $SceneShootCacheRowsTable sceneShootCacheRows =
+      $SceneShootCacheRowsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -5182,6 +6051,7 @@ abstract class _$CacheDatabase extends GeneratedDatabase {
     costumeCacheRows,
     characterCacheRows,
     shootingDayCacheRows,
+    sceneShootCacheRows,
   ];
 }
 
@@ -7687,6 +8557,403 @@ typedef $$ShootingDayCacheRowsTableProcessedTableManager =
       ShootingDayCacheRow,
       PrefetchHooks Function()
     >;
+typedef $$SceneShootCacheRowsTableCreateCompanionBuilder =
+    SceneShootCacheRowsCompanion Function({
+      required String id,
+      required String shootingDayId,
+      required String sceneId,
+      required String plannedOrder,
+      Value<String?> actualOrder,
+      required String status,
+      Value<DateTime?> startDt,
+      Value<DateTime?> endDt,
+      required String notesJson,
+      required String continuityPhotoIdsJson,
+      required DateTime updatedAt,
+      required int version,
+      required DateTime cachedAt,
+      required int snapshotIndex,
+      Value<int> rowid,
+    });
+typedef $$SceneShootCacheRowsTableUpdateCompanionBuilder =
+    SceneShootCacheRowsCompanion Function({
+      Value<String> id,
+      Value<String> shootingDayId,
+      Value<String> sceneId,
+      Value<String> plannedOrder,
+      Value<String?> actualOrder,
+      Value<String> status,
+      Value<DateTime?> startDt,
+      Value<DateTime?> endDt,
+      Value<String> notesJson,
+      Value<String> continuityPhotoIdsJson,
+      Value<DateTime> updatedAt,
+      Value<int> version,
+      Value<DateTime> cachedAt,
+      Value<int> snapshotIndex,
+      Value<int> rowid,
+    });
+
+class $$SceneShootCacheRowsTableFilterComposer
+    extends Composer<_$CacheDatabase, $SceneShootCacheRowsTable> {
+  $$SceneShootCacheRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get shootingDayId => $composableBuilder(
+    column: $table.shootingDayId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sceneId => $composableBuilder(
+    column: $table.sceneId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get plannedOrder => $composableBuilder(
+    column: $table.plannedOrder,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get actualOrder => $composableBuilder(
+    column: $table.actualOrder,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get startDt => $composableBuilder(
+    column: $table.startDt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get endDt => $composableBuilder(
+    column: $table.endDt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get notesJson => $composableBuilder(
+    column: $table.notesJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get continuityPhotoIdsJson => $composableBuilder(
+    column: $table.continuityPhotoIdsJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get version => $composableBuilder(
+    column: $table.version,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get cachedAt => $composableBuilder(
+    column: $table.cachedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get snapshotIndex => $composableBuilder(
+    column: $table.snapshotIndex,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$SceneShootCacheRowsTableOrderingComposer
+    extends Composer<_$CacheDatabase, $SceneShootCacheRowsTable> {
+  $$SceneShootCacheRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get shootingDayId => $composableBuilder(
+    column: $table.shootingDayId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sceneId => $composableBuilder(
+    column: $table.sceneId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get plannedOrder => $composableBuilder(
+    column: $table.plannedOrder,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get actualOrder => $composableBuilder(
+    column: $table.actualOrder,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get startDt => $composableBuilder(
+    column: $table.startDt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get endDt => $composableBuilder(
+    column: $table.endDt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get notesJson => $composableBuilder(
+    column: $table.notesJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get continuityPhotoIdsJson => $composableBuilder(
+    column: $table.continuityPhotoIdsJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get version => $composableBuilder(
+    column: $table.version,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get cachedAt => $composableBuilder(
+    column: $table.cachedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get snapshotIndex => $composableBuilder(
+    column: $table.snapshotIndex,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$SceneShootCacheRowsTableAnnotationComposer
+    extends Composer<_$CacheDatabase, $SceneShootCacheRowsTable> {
+  $$SceneShootCacheRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get shootingDayId => $composableBuilder(
+    column: $table.shootingDayId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get sceneId =>
+      $composableBuilder(column: $table.sceneId, builder: (column) => column);
+
+  GeneratedColumn<String> get plannedOrder => $composableBuilder(
+    column: $table.plannedOrder,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get actualOrder => $composableBuilder(
+    column: $table.actualOrder,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get startDt =>
+      $composableBuilder(column: $table.startDt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get endDt =>
+      $composableBuilder(column: $table.endDt, builder: (column) => column);
+
+  GeneratedColumn<String> get notesJson =>
+      $composableBuilder(column: $table.notesJson, builder: (column) => column);
+
+  GeneratedColumn<String> get continuityPhotoIdsJson => $composableBuilder(
+    column: $table.continuityPhotoIdsJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<int> get version =>
+      $composableBuilder(column: $table.version, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get cachedAt =>
+      $composableBuilder(column: $table.cachedAt, builder: (column) => column);
+
+  GeneratedColumn<int> get snapshotIndex => $composableBuilder(
+    column: $table.snapshotIndex,
+    builder: (column) => column,
+  );
+}
+
+class $$SceneShootCacheRowsTableTableManager
+    extends
+        RootTableManager<
+          _$CacheDatabase,
+          $SceneShootCacheRowsTable,
+          SceneShootCacheRow,
+          $$SceneShootCacheRowsTableFilterComposer,
+          $$SceneShootCacheRowsTableOrderingComposer,
+          $$SceneShootCacheRowsTableAnnotationComposer,
+          $$SceneShootCacheRowsTableCreateCompanionBuilder,
+          $$SceneShootCacheRowsTableUpdateCompanionBuilder,
+          (
+            SceneShootCacheRow,
+            BaseReferences<
+              _$CacheDatabase,
+              $SceneShootCacheRowsTable,
+              SceneShootCacheRow
+            >,
+          ),
+          SceneShootCacheRow,
+          PrefetchHooks Function()
+        > {
+  $$SceneShootCacheRowsTableTableManager(
+    _$CacheDatabase db,
+    $SceneShootCacheRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SceneShootCacheRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SceneShootCacheRowsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$SceneShootCacheRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> shootingDayId = const Value.absent(),
+                Value<String> sceneId = const Value.absent(),
+                Value<String> plannedOrder = const Value.absent(),
+                Value<String?> actualOrder = const Value.absent(),
+                Value<String> status = const Value.absent(),
+                Value<DateTime?> startDt = const Value.absent(),
+                Value<DateTime?> endDt = const Value.absent(),
+                Value<String> notesJson = const Value.absent(),
+                Value<String> continuityPhotoIdsJson = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<int> version = const Value.absent(),
+                Value<DateTime> cachedAt = const Value.absent(),
+                Value<int> snapshotIndex = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => SceneShootCacheRowsCompanion(
+                id: id,
+                shootingDayId: shootingDayId,
+                sceneId: sceneId,
+                plannedOrder: plannedOrder,
+                actualOrder: actualOrder,
+                status: status,
+                startDt: startDt,
+                endDt: endDt,
+                notesJson: notesJson,
+                continuityPhotoIdsJson: continuityPhotoIdsJson,
+                updatedAt: updatedAt,
+                version: version,
+                cachedAt: cachedAt,
+                snapshotIndex: snapshotIndex,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String shootingDayId,
+                required String sceneId,
+                required String plannedOrder,
+                Value<String?> actualOrder = const Value.absent(),
+                required String status,
+                Value<DateTime?> startDt = const Value.absent(),
+                Value<DateTime?> endDt = const Value.absent(),
+                required String notesJson,
+                required String continuityPhotoIdsJson,
+                required DateTime updatedAt,
+                required int version,
+                required DateTime cachedAt,
+                required int snapshotIndex,
+                Value<int> rowid = const Value.absent(),
+              }) => SceneShootCacheRowsCompanion.insert(
+                id: id,
+                shootingDayId: shootingDayId,
+                sceneId: sceneId,
+                plannedOrder: plannedOrder,
+                actualOrder: actualOrder,
+                status: status,
+                startDt: startDt,
+                endDt: endDt,
+                notesJson: notesJson,
+                continuityPhotoIdsJson: continuityPhotoIdsJson,
+                updatedAt: updatedAt,
+                version: version,
+                cachedAt: cachedAt,
+                snapshotIndex: snapshotIndex,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$SceneShootCacheRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$CacheDatabase,
+      $SceneShootCacheRowsTable,
+      SceneShootCacheRow,
+      $$SceneShootCacheRowsTableFilterComposer,
+      $$SceneShootCacheRowsTableOrderingComposer,
+      $$SceneShootCacheRowsTableAnnotationComposer,
+      $$SceneShootCacheRowsTableCreateCompanionBuilder,
+      $$SceneShootCacheRowsTableUpdateCompanionBuilder,
+      (
+        SceneShootCacheRow,
+        BaseReferences<
+          _$CacheDatabase,
+          $SceneShootCacheRowsTable,
+          SceneShootCacheRow
+        >,
+      ),
+      SceneShootCacheRow,
+      PrefetchHooks Function()
+    >;
 
 class $CacheDatabaseManager {
   final _$CacheDatabase _db;
@@ -7710,4 +8977,6 @@ class $CacheDatabaseManager {
       $$CharacterCacheRowsTableTableManager(_db, _db.characterCacheRows);
   $$ShootingDayCacheRowsTableTableManager get shootingDayCacheRows =>
       $$ShootingDayCacheRowsTableTableManager(_db, _db.shootingDayCacheRows);
+  $$SceneShootCacheRowsTableTableManager get sceneShootCacheRows =>
+      $$SceneShootCacheRowsTableTableManager(_db, _db.sceneShootCacheRows);
 }

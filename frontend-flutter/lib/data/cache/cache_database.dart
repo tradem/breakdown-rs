@@ -8,6 +8,7 @@ import 'package:drift/native.dart';
 
 import 'costume_domains_cache.dart';
 import 'hierarchy_cache.dart';
+import 'scene_shoot_cache.dart';
 import 'season_cache.dart';
 
 part 'cache_database.g.dart';
@@ -28,6 +29,7 @@ part 'cache_database.g.dart';
     CostumeCacheRows,
     CharacterCacheRows,
     ShootingDayCacheRows,
+    SceneShootCacheRows,
   ],
 )
 class CacheDatabase extends _$CacheDatabase {
@@ -41,7 +43,7 @@ class CacheDatabase extends _$CacheDatabase {
   CacheDatabase.connect(super.executor);
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -78,6 +80,13 @@ class CacheDatabase extends _$CacheDatabase {
       // CURRENT definition — already including the column — so a second
       // ADD COLUMN would fail with `duplicate column name`. Only a real
       // v3 database (table exists, column missing) needs the ALTER.
+      if (from < 5) {
+        // `flutter-shoot-day-execution` 1.2: day-board projection table
+        // (scene shoots mirroring `SceneShootView`). Fresh table for
+        // existing installs — no data to migrate. Photo bytes stay
+        // memory-cached only, never persisted (design §3).
+        await m.createTable(sceneShootCacheRows);
+      }
       if (from == 3) {
         // CodeRabbit review follow-up: snapshot ordinal on the costume rows
         // so `readBySeason` reproduces the server `ORDER BY updated_at

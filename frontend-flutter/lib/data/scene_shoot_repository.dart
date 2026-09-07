@@ -4,9 +4,15 @@
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:built_collection/built_collection.dart';
+import 'package:fpdart/fpdart.dart';
 
+import '../core/problem_error.dart';
 import '../core/result.dart';
 import 'base_repository.dart';
+import 'cache/cache_generation.dart';
+import 'cache/cache_ttl.dart';
+import 'cache/clock.dart';
+import 'cache/scene_shoot_cache_dao.dart';
 
 /// Repository for the `SceneShoot` aggregate boundary — Soll/Ist execution
 /// (plan/replan/get/list, start, actual-order, finish, skip, notes,
@@ -31,13 +37,99 @@ import 'base_repository.dart';
 /// [linkContinuityPhoto], [listContinuityPhotos], or
 /// [unlinkContinuityPhoto]; a local denial issues zero network calls.
 class SceneShootRepository extends BaseRepository {
-  const SceneShootRepository(super.api);
+  const SceneShootRepository(super.api, this.cache);
+
+  final SceneShootCacheDao cache;
 
   // -- Day board projection -------------------------------------------------
 
-  /// Day-board projection refetch
-  /// (`GET /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots`,
-  /// server order — the client never re-sorts).
+  /// Day-board fetch + snapshot-replace (`GET
+  /// /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots`).
+  ///
+  /// The route carries `{scene_id}` but the backend lists by day
+  /// (`list_by_shooting_day`, `ORDER BY COALESCE(actual_order,
+  /// planned_order) ASC` — the Ist-aware board sequence), so the snapshot
+  /// replaces per [dayId] and reads reproduce the server order via the
+  /// persisted snapshot ordinal (the client never re-sorts).
+  ///
+  /// On [Right] applies the day-scoped snapshot and returns the rows. On
+  /// [Left] returns the error without touching the cache. Honors [fence]
+  /// like every other collection fetch.
+  Future<Result<List<SceneShootView>>> listByDay(
+    String dayId,
+    String sceneId, {
+    Clock clock = Clock.system,
+    CacheWriteFence? fence,
+  }) async {
+    final Result<List<SceneShootView>> fetched = await runList(
+      () =>
+          api.getHandlersApi().listSceneShoots(dayId: dayId, sceneId: sceneId),
+      dtoInvalidCode: 'scene_shoot.dto_invalid',
+    );
+    return fetched.match(
+      (err) async => Left<ProblemError, List<SceneShootView>>(err),
+      (rows) async {
+        if (fence != null && !fence.isCurrentGeneration(fence.generation)) {
+          return Right(rows);
+        }
+        try {
+          await cache.applySnapshotForDay(dayId, rows, clock.now());
+        } on Object {
+          return const Left(ProblemError(code: 'cache.write_failed'));
+        }
+        return Right(rows);
+      },
+    );
+  }
+
+  /// Pure Drift read (no network) of the day's cached shoots in server
+  /// order (`snapshotIndex` ASC).
+  Future<Result<List<SceneShootView>>> readCached(String dayId) async {
+    try {
+      return Right(await cache.readByDayOrdered(dayId));
+    } on Object {
+      return const Left(ProblemError(code: 'cache.read_failed'));
+    }
+  }
+
+  /// Returns `true` when any cached row of the day is older than [ttl].
+  Future<bool> isCacheStale(
+    String dayId, {
+    Clock clock = Clock.system,
+    Duration ttl = kCacheTtl,
+  }) => cache.isDayExpired(dayId, ttl, clock: clock);
+
+  /// Single-shoot fetch + cache: GET shoot, upsert on success (scoped to
+  /// [dayId]), no mutation on failure.
+  Future<Result<SceneShootView>> getAndCache(
+    String dayId,
+    String sceneId,
+    String shootId, {
+    Clock clock = Clock.system,
+  }) async {
+    final fetched = await run(
+      () => api.getHandlersApi().getSceneShoot(
+        dayId: dayId,
+        sceneId: sceneId,
+        shootId: shootId,
+      ),
+      dtoInvalidCode: 'scene_shoot.dto_invalid',
+    );
+    return fetched.match(
+      (err) async => Left<ProblemError, SceneShootView>(err),
+      (view) async {
+        try {
+          await cache.upsert(view, clock.now());
+        } on Object {
+          return const Left(ProblemError(code: 'cache.write_failed'));
+        }
+        return Right(view);
+      },
+    );
+  }
+
+  /// Day-board projection refetch without cache write (transport-only;
+  /// prefer [listByDay] for screen state).
   Future<Result<List<SceneShootView>>> listShoots(
     String dayId,
     String sceneId,
@@ -274,6 +366,16 @@ class SceneShootRepository extends BaseRepository {
       wrapShootingDayRequest: request,
     ),
   );
+
+  /// Empties the day's shoot rows (sign-out / backend-switch resets).
+  Future<Result<void>> clearCache(String dayId) async {
+    try {
+      await cache.clearDay(dayId);
+      return const Right<ProblemError, void>(null);
+    } on Object {
+      return const Left(ProblemError(code: 'cache.clear_failed'));
+    }
+  }
 
   // -- Legacy: schedule + reports -------------------------------------------
 
