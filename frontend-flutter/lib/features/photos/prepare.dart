@@ -132,8 +132,8 @@ PrepareResult prepareImageCore(PrepareInput input) {
   while (true) {
     final resized = _downscaleToCap(decoded, cap);
     final encoded = _encode(resized, input.contentType);
-    if (encoded.lengthInBytes <= budget) {
-      return PrepareReady(encoded, input.contentType);
+    if (encoded.bytes.lengthInBytes <= budget) {
+      return PrepareReady(encoded.bytes, encoded.contentType);
     }
     final next = (cap * kPrepareReductionFactor).floor();
     if (next < kPrepareMinLongestSide) {
@@ -172,11 +172,19 @@ img.Image _downscaleToCap(img.Image src, int cap) {
   );
 }
 
-Uint8List _encode(img.Image image, String contentType) {
+/// Encoded bytes plus the truthful content type for the upload header.
+///
+/// The `image` package has no WebP *encoder* (decode-only), so WebP input
+/// is transcoded to JPEG and the effective type is `image/jpeg` — the
+/// header always matches the bytes (never JPEG bytes labeled `image/webp`).
+({Uint8List bytes, String contentType}) _encode(
+  img.Image image,
+  String contentType,
+) {
   final bytes = switch (contentType) {
     'image/png' => img.encodePng(image),
-    'image/webp' => img.encodeJpg(image, quality: kPrepareJpegQuality),
     _ => img.encodeJpg(image, quality: kPrepareJpegQuality),
   };
-  return Uint8List.fromList(bytes);
+  final effectiveType = contentType == 'image/png' ? 'image/png' : 'image/jpeg';
+  return (bytes: Uint8List.fromList(bytes), contentType: effectiveType);
 }

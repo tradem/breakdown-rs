@@ -24,8 +24,10 @@ import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
+import 'package:frontend_flutter/data/character_repository.dart';
 import 'package:frontend_flutter/data/costume_repository.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
+import 'package:frontend_flutter/features/characters/characters_controller.dart';
 import 'package:frontend_flutter/features/costumes/costumes_controller.dart';
 import 'package:frontend_flutter/features/costumes/costumes_screen.dart';
 
@@ -48,6 +50,32 @@ CostumeView _costume(
     ..photos.replace(BuiltList<CostumePhotoView>())
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = version,
+);
+
+CharacterView _character(String id, {String name = 'Bea'}) => CharacterView(
+  (b) => b
+    ..id = id
+    ..seasonId = 'season-1'
+    ..name = name
+    ..category = serializers.deserializeWith(
+      CharacterCategory.serializer,
+      'main_cast',
+    )!
+    ..measurements.replace(
+      CharacterMeasurements(
+        (m) => m
+          ..height = 'h'
+          ..weight = 'w'
+          ..chest = 'c'
+          ..waist = 'wa'
+          ..hips = 'hi'
+          ..shoeSize = 's'
+          ..hatSize = 'ha',
+      ),
+    )
+    ..contact.replace(ContactInfo((c) => c..email = 'a@b.c'))
+    ..updatedAt = DateTime.utc(2026, 1, 1)
+    ..version = 1,
 );
 
 SeasonView _season() => SeasonView(
@@ -77,6 +105,8 @@ class _FakeCostumeRepository extends CostumeRepository {
   int assignCalls = 0;
   int unassignCalls = 0;
   String? lastAssignCharacter;
+  int? lastAssignVersion;
+  int? lastNotesVersion;
 
   @override
   Future<Result<IdVersionResponse>> createEmpty() {
@@ -98,6 +128,7 @@ class _FakeCostumeRepository extends CostumeRepository {
   Future<Result<int>> assign(String id, AssignCostumeRequest request) {
     assignCalls++;
     lastAssignCharacter = request.characterId;
+    lastAssignVersion = request.version;
     final scripted = nextWrite;
     if (scripted != null) return Future.value(scripted);
     return Future.value(const Right<ProblemError, int>(2));
@@ -112,17 +143,18 @@ class _FakeCostumeRepository extends CostumeRepository {
   }
 
   @override
-  Future<Result<int>> addDetail(String id, AddCostumeDetailRequest request) {
+  Future<Result<int>> updateNotes(
+    String id,
+    UpdateCostumeNotesRequest request,
+  ) {
+    lastNotesVersion = request.version;
     final scripted = nextWrite;
     if (scripted != null) return Future.value(scripted);
     return Future.value(const Right<ProblemError, int>(2));
   }
 
   @override
-  Future<Result<int>> updateNotes(
-    String id,
-    UpdateCostumeNotesRequest request,
-  ) {
+  Future<Result<int>> addDetail(String id, AddCostumeDetailRequest request) {
     final scripted = nextWrite;
     if (scripted != null) return Future.value(scripted);
     return Future.value(const Right<ProblemError, int>(2));
@@ -149,6 +181,7 @@ void main() {
     List<CostumeView> initialRows = const [],
     Result<List<CostumeView>>? initialFetch,
     List<String> capabilities = const ['assign_costumes'],
+    List<CharacterView> characters = const [],
   }) async {
     db = CacheDatabase(NativeDatabase.memory());
     addTearDown(db.close);
@@ -168,6 +201,11 @@ void main() {
         reconciliationSchedulerProvider.overrideWith((ref) => scheduler),
         membershipFetchProvider('season-1')
             .overrideWith((ref) async => membershipHolder.value),
+        characterRepositoryProvider.overrideWithValue(
+          CharacterRepository(BreakdownApi(), CharacterCacheDao(db)),
+        ),
+        charactersListFetchProvider('season-1')
+            .overrideWith((ref) async => Right(characters)),
         costumesListFetchProvider('season-1').overrideWith((ref) async {
           final dao = CostumeCacheDao(ref.watch(cacheDatabaseProvider));
           return holder.value.match(
@@ -459,6 +497,46 @@ void main() {
       final state = container.read(costumesControllerProvider('season-1'));
       expect(state.overlays, hasLength(1));
       expect(find.byKey(const Key('overlay-warning')), findsOneWidget);
+    });
+
+    testWidgets('overlay version advances: follow-up echoes the ack', (
+      tester,
+    ) async {
+      final row = _costume('c-7');
+      await setupContainer(initialRows: [row]);
+      await pumpScreen(tester);
+      final controller = container.read(
+        costumesControllerProvider('season-1').notifier,
+      );
+      expect(
+        (await controller.assign(costume: row, characterId: 'ch-3')).isRight(),
+        isTrue,
+      );
+      expect(repo.lastAssignVersion, 1);
+      // The fence-held overlay carries the ack version, so the follow-up
+      // notes command echoes 2 instead of the stale pre-command 1.
+      final overlay = container
+          .read(costumesControllerProvider('season-1'))
+          .overlays
+          .single
+          .overlay;
+      expect(overlay.version, 2);
+      expect(
+        (await controller.updateNotes(costume: overlay, notes: 'n')).isRight(),
+        isTrue,
+      );
+      expect(repo.lastNotesVersion, 2);
+    });
+
+    testWidgets('list resolves assigned names via characters join', (
+      tester,
+    ) async {
+      await setupContainer(
+        initialRows: [_costume('c-7', characterId: 'ch-3')],
+        characters: [_character('ch-3')],
+      );
+      await pumpScreen(tester);
+      expect(find.textContaining('Worn by Bea'), findsOneWidget);
     });
   });
 }

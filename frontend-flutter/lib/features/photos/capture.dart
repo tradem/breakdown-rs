@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
+import 'package:app_settings/app_settings.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -48,11 +49,14 @@ class PhotoRationaleSeen extends _$PhotoRationaleSeen {
 /// the platform channel. Returns `true` when the settings UI opened.
 typedef OpenAppSettings = Future<bool> Function();
 
-/// Default opener (best-effort platform channel; returns `false` when the
-/// platform cannot open settings — the dialog copy still guides the user).
+/// Default opener via the `app_settings` package (real Android +
+/// iOS handlers — `SystemChannels.platform` defines no `openAppSettings`
+/// method, so a raw platform-channel call always fails closed). Returns
+/// `false` when the platform cannot open settings — the dialog copy still
+/// guides the user.
 Future<bool> defaultOpenAppSettings() async {
   try {
-    await SystemChannels.platform.invokeMethod<void>('openAppSettings');
+    await AppSettings.openAppSettings();
     return true;
   } on Object {
     return false;
@@ -92,9 +96,12 @@ class CaptureCancelled extends CaptureOutcome {
 }
 
 /// The system permission was denied at the prompt → re-rationale with the
-/// "open settings" affordance (`camera.denied` copy).
+/// "open settings" affordance. Source-aware: the copy and dialog title
+/// adapt to camera vs photo-library denial.
 class CaptureDenied extends CaptureOutcome {
-  const CaptureDenied();
+  const CaptureDenied(this.source);
+
+  final ImageSource source;
 }
 
 /// The camera is unavailable (revoked between sessions, no camera hardware,
@@ -125,11 +132,17 @@ Future<CaptureOutcome> runCaptureIntent({
     if (file == null) return const CaptureCancelled();
     return CapturePicked(file);
   } on PlatformException catch (e) {
-    // `image_picker` surfaces a denied camera permission as a
-    // `PlatformException(code: 'camera_access_denied', …)`. Anything else
-    // (no camera, revoked mid-flight, platform failure) is unavailable —
-    // never assumed from the previous session.
-    if (e.code == 'camera_access_denied') return const CaptureDenied();
+    // Denial codes are source-aware: the camera prompt denies with
+    // `camera_access_denied`, the photo-library prompt with
+    // `photo_access_denied`. Anything else (no camera, revoked
+    // mid-flight, platform failure) is unavailable — never assumed from
+    // the previous session.
+    if (e.code == kCameraAccessDeniedCode) {
+      return CaptureDenied(source);
+    }
+    if (e.code == kPhotoAccessDeniedCode) {
+      return CaptureDenied(source);
+    }
     return const CaptureUnavailable();
   } on Object {
     return const CaptureUnavailable();
@@ -139,14 +152,29 @@ Future<CaptureOutcome> runCaptureIntent({
 /// Localized client-side copy for capture outcomes, keyed on stable codes
 /// (never server `detail` text — these are client-side codes).
 String captureOutcomeCopy(CaptureOutcome outcome) => switch (outcome) {
-  CaptureDenied() =>
-    'Camera access is disabled. Enable camera access in settings to '
-        'document costumes.',
+  CaptureDenied(:final source) => switch (source) {
+    ImageSource.camera =>
+      'Camera access is disabled. Enable camera access in settings to '
+          'document costumes.',
+    _ =>
+      'Photo library access is disabled. Enable photo access in settings '
+          'to document costumes.',
+  },
   CaptureUnavailable() =>
     'The camera is currently unavailable. Check settings and try again.',
   CapturePicked() || CaptureCancelled() => '',
 };
 
-/// Debug helper: the platform exception code the denied branch keys on.
+/// Dialog title matching [captureOutcomeCopy] (camera vs photo-library).
+String captureDeniedTitle(CaptureOutcome outcome) => switch (outcome) {
+  CaptureDenied(source: ImageSource.camera) => 'Camera access disabled',
+  _ => 'Photo library access disabled',
+};
+
+/// Debug helper: the platform exception codes the denied branch keys on.
 @visibleForTesting
 const String kCameraAccessDeniedCode = 'camera_access_denied';
+
+/// Debug helper: the photo-library denial code (gallery source).
+@visibleForTesting
+const String kPhotoAccessDeniedCode = 'photo_access_denied';

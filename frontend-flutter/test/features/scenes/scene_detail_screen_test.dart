@@ -184,6 +184,7 @@ void main() {
     SceneView? scene,
     List<CharacterView> characterRows = const [],
     List<ShootingDayView> dayRows = const [],
+    List<int>? scenesFetchLog,
   }) async {
     db = CacheDatabase(NativeDatabase.memory());
     addTearDown(db.close);
@@ -206,8 +207,10 @@ void main() {
         ),
         membershipFetchProvider('season-1')
             .overrideWith((ref) async => Right(_membership())),
-        scenesListFetchProvider('episode-1')
-            .overrideWith((ref) async => Right(scene == null ? [] : [scene])),
+        scenesListFetchProvider('episode-1').overrideWith((ref) async {
+          scenesFetchLog?.add(1);
+          return Right(scene == null ? [] : [scene]);
+        }),
         charactersListFetchProvider('season-1')
             .overrideWith((ref) async => Right(characterRows)),
         shootingDaysListFetchProvider('episode-1')
@@ -282,6 +285,8 @@ void main() {
       characters.nextWrite = const Left(_conflict);
       await tester.tap(find.byKey(const Key('scene-character-remove-ch-1')));
       await tester.pumpAndSettle();
+      // Confirm-first: no dispatch before confirmation.
+      expect(characters.sceneUnassignCalls, 0);
       await tester.tap(
         find.byKey(const Key('scene-character-remove-confirm-ch-1')),
       );
@@ -293,6 +298,52 @@ void main() {
         find.text('Changed elsewhere — refresh and try again.'),
         findsOneWidget,
       );
+    });
+  });
+
+  group('SceneDetailScreen terminal states + refresh (review)', () {
+    testWidgets('settled-missing scene renders gone view', (tester) async {
+      await setupContainer(scene: null, characterRows: const []);
+      await pumpDetail(tester);
+      expect(find.byKey(const Key('scene-detail-gone')), findsOneWidget);
+      expect(find.byKey(const Key('scene-detail-loading')), findsNothing);
+    });
+
+    testWidgets('409 conflict refreshes the scene projection', (tester) async {
+      final fetchLog = <int>[];
+      await setupContainer(
+        scene: _scene(characters: ['ch-1']),
+        characterRows: [_character('ch-1')],
+        scenesFetchLog: fetchLog,
+      );
+      await pumpDetail(tester);
+      final baseline = fetchLog.length;
+      characters.nextWrite = const Left(_conflict);
+      await tester.tap(find.byKey(const Key('scene-character-remove-ch-1')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('scene-character-remove-confirm-ch-1')),
+      );
+      await _pumpFrames(tester);
+      // Conflict copy renders AND the projection refetches for the next
+      // action (never an automatic re-dispatch).
+      expect(
+        find.text('Changed elsewhere — refresh and try again.'),
+        findsOneWidget,
+      );
+      expect(fetchLog.length, greaterThan(baseline));
+    });
+
+    testWidgets('assign disabled when everybody is assigned', (tester) async {
+      await setupContainer(
+        scene: _scene(characters: ['ch-1']),
+        characterRows: [_character('ch-1')],
+      );
+      await pumpDetail(tester);
+      final button = tester.widget<FilledButton>(
+        find.byKey(const Key('scene-character-assign-scene-1')),
+      );
+      expect(button.onPressed, isNull);
     });
   });
 

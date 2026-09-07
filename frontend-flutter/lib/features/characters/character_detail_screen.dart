@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/auth_providers.dart';
+import '../../core/problem_error.dart';
 import 'characters_controller.dart';
 import 'characters_state.dart';
 
@@ -45,30 +46,43 @@ class CharacterDetailScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: Text(character?.name ?? 'Character')),
-      body: character == null
-          ? const Center(
-              child: CircularProgressIndicator(key: Key('character-loading')),
-            )
-          : RefreshIndicator(
-              onRefresh: controller.refresh,
-              child: ListView(
-                key: Key('character-detail-$characterId'),
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(16),
-                children: [
-                  if (state.commandError case final error?)
-                    _InlineError(
-                      text: characterErrorCopy(error),
-                      onDismiss: controller.dismissCommandError,
-                    ),
-                  _CategoryRow(character: character),
-                  const SizedBox(height: 16),
-                  _ContactSection(season: season, character: character),
-                  const Divider(height: 32),
-                  _MeasurementsSection(season: season, character: character),
-                ],
-              ),
-            ),
+      body: switch ((character, state.projected)) {
+        // Resolved row: editors render (prefilled from the read DTO).
+        (final c?, _) => RefreshIndicator(
+          onRefresh: controller.refresh,
+          child: ListView(
+            key: Key('character-detail-$characterId'),
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(16),
+            children: [
+              if (state.commandError case final error?)
+                _InlineError(
+                  text: characterErrorCopy(error),
+                  onDismiss: controller.dismissCommandError,
+                ),
+              _CategoryRow(character: c),
+              const SizedBox(height: 16),
+              _ContactSection(season: season, character: c),
+              const Divider(height: 32),
+              _MeasurementsSection(season: season, character: c),
+            ],
+          ),
+        ),
+        // First snapshot still in flight.
+        (null, AsyncLoading()) => const Center(
+          child: CircularProgressIndicator(key: Key('character-loading')),
+        ),
+        // Settled with an error and no retained row: retry affordance.
+        (null, AsyncError(:final error)) => _DetailErrorView(
+          code: error is ProblemError ? error.code : 'unknown',
+          onRetry: controller.refresh,
+        ),
+        // Settled without the row (deleted character): not-found view
+        // instead of an endless spinner.
+        (null, _) => _DetailNotFoundView(
+          onBack: () => Navigator.of(context).pop(),
+        ),
+      },
     );
   }
 
@@ -325,5 +339,52 @@ class _MeasurementsSectionState extends ConsumerState<_MeasurementsSection> {
         ),
       ),
     ],
+  );
+}
+
+class _DetailErrorView extends StatelessWidget {
+  const _DetailErrorView({required this.code, this.onRetry});
+
+  final String code;
+  final VoidCallback? onRetry;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          'Could not load the character ($code).',
+          key: const Key('character-detail-error'),
+        ),
+        const SizedBox(height: 8),
+        FilledButton.tonal(
+          key: const Key('character-detail-retry'),
+          onPressed: onRetry,
+          child: const Text('Retry'),
+        ),
+      ],
+    ),
+  );
+}
+
+class _DetailNotFoundView extends StatelessWidget {
+  const _DetailNotFoundView({this.onBack});
+
+  final VoidCallback? onBack;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text(
+          'This character no longer exists.',
+          key: Key('character-detail-gone'),
+        ),
+        if (onBack != null)
+          FilledButton.tonal(onPressed: onBack, child: const Text('Back')),
+      ],
+    ),
   );
 }

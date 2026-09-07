@@ -217,6 +217,28 @@ void main() {
       },
     );
 
+    test(
+      'gallery denial carries photo-library copy + settings title',
+      () async {
+        final outcome = await runCaptureIntent(
+          source: ImageSource.gallery,
+          picker: _ScriptedPicker(
+            exception: PlatformException(code: 'photo_access_denied'),
+          ),
+          rationaleSeen: true,
+          markRationaleSeen: () {},
+          showRationale: () async => true,
+        );
+        expect(outcome, isA<CaptureDenied>());
+        expect(captureOutcomeCopy(outcome), contains('Photo library access'));
+        expect(captureDeniedTitle(outcome), 'Photo library access disabled');
+        expect(
+          captureDeniedTitle(const CaptureDenied(ImageSource.camera)),
+          'Camera access disabled',
+        );
+      },
+    );
+
     test('revoked between sessions → CaptureUnavailable', () async {
       final outcome = await runCaptureIntent(
         source: ImageSource.camera,
@@ -310,6 +332,22 @@ void main() {
       expect(find.byKey(const Key('photo-tile-p-1')), findsOneWidget);
       expect(find.byKey(const Key('photo-pending-spinner')), findsOneWidget);
       expect(find.byKey(const Key('photo-status-p-1')), findsOneWidget);
+    });
+
+    testWidgets('empty variants: pending spinner (watch continues)', (
+      tester,
+    ) async {
+      final photo = CostumePhotoView(
+        (b) => b
+          ..id = 'p-empty'
+          ..contentType = 'image/jpeg'
+          ..sizeBytes = 10
+          ..variants.replace(BuiltList<PhotoVariantView>()),
+      );
+      expect(photoRowStatus(photo), PhotoRowStatus.pending);
+      await pumpGallery(tester, _costume([photo]));
+      expect(find.byKey(const Key('photo-tile-p-empty')), findsOneWidget);
+      expect(find.byKey(const Key('photo-pending-spinner')), findsOneWidget);
     });
 
     testWidgets('failed: explanation + capture-again', (tester) async {

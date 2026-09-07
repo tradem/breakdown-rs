@@ -3,6 +3,7 @@
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -103,12 +104,16 @@ class CostumeDetailScreen extends ConsumerWidget {
     );
   }
 
+  /// Resolves the effective row: the fence-held overlay first (its notes,
+  /// details and assignment are newer than the cached projection), then
+  /// the cached row. The overlay version already advanced to the ack, so
+  /// follow-up commands echo it instead of the pre-command version.
   CostumeView? _resolveCostume(CostumesScreenState state) {
-    for (final c in state.cachedRows) {
-      if (c.id == costumeId) return c;
-    }
     for (final o in state.overlays) {
       if (o.id == costumeId) return o.overlay;
+    }
+    for (final c in state.cachedRows) {
+      if (c.id == costumeId) return c;
     }
     return null;
   }
@@ -421,77 +426,118 @@ class _DetailsSection extends ConsumerWidget {
     WidgetRef ref,
     List<CostumeCategoryView> categories,
   ) {
-    final subject = TextEditingController();
-    final text = TextEditingController();
-    String? categoryId;
-    final formKey = GlobalKey<FormState>();
     return showDialog<void>(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setSheetState) => AlertDialog(
-          title: const Text('Add detail'),
-          content: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextFormField(
-                  key: const Key('add-detail-subject'),
-                  controller: subject,
-                  decoration: const InputDecoration(labelText: 'Subject'),
-                ),
-                TextFormField(
-                  key: const Key('add-detail-text'),
-                  controller: text,
-                  decoration: const InputDecoration(labelText: 'Text'),
-                  validator: (v) => (v == null || v.trim().isEmpty)
-                      ? 'Text is required'
-                      : null,
-                ),
-                DropdownButtonFormField<String>(
-                  key: const Key('add-detail-category'),
-                  decoration: const InputDecoration(labelText: 'Category'),
-                  items: [
-                    for (final c in categories)
-                      DropdownMenuItem(value: c.id, child: Text(c.name)),
-                  ],
-                  onChanged: (v) => setSheetState(() => categoryId = v),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              key: const Key('add-detail-submit'),
-              onPressed: () async {
-                if (!(formKey.currentState?.validate() ?? false)) return;
-                // Handled: failures surface via the command-error provider.
-                final detailResult = await ref
-                    .read(costumesControllerProvider(season.id).notifier)
-                    .addDetail(
-                      costume: costume,
-                      text: text.text.trim(),
-                      subject: subject.text.trim().isEmpty
-                          ? null
-                          : subject.text.trim(),
-                      categoryId: categoryId,
-                    );
-                detailResult.match<void>((_) {}, (_) {});
-                if (dialogContext.mounted) {
-                  Navigator.of(dialogContext).pop();
-                }
-              },
-              child: const Text('Add'),
-            ),
-          ],
-        ),
+      builder: (dialogContext) => _AddDetailForm(
+        season: season,
+        costume: costume,
+        categories: categories,
       ),
     );
   }
+}
+
+/// Add-detail dialog content: owns its `TextEditingController`s in widget
+/// state so they dispose exactly when the dialog route unmounts (after the
+/// exit transition) — never while the exit animation still rebuilds, which a
+/// `whenComplete` on the dialog future cannot guarantee.
+class _AddDetailForm extends ConsumerStatefulWidget {
+  const _AddDetailForm({
+    required this.season,
+    required this.costume,
+    required this.categories,
+  });
+
+  final SeasonView season;
+  final CostumeView costume;
+  final List<CostumeCategoryView> categories;
+
+  @override
+  ConsumerState<_AddDetailForm> createState() => _AddDetailFormState();
+}
+
+class _AddDetailFormState extends ConsumerState<_AddDetailForm> {
+  late final TextEditingController _subject;
+  late final TextEditingController _text;
+  late final GlobalKey<FormState> _formKey;
+  String? _categoryId;
+
+  @override
+  void initState() {
+    super.initState();
+    _subject = TextEditingController();
+    _text = TextEditingController();
+    _formKey = GlobalKey<FormState>();
+  }
+
+  @override
+  void dispose() {
+    _subject.dispose();
+    _text.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Add detail'),
+    content: Form(
+      key: _formKey,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextFormField(
+            key: const Key('add-detail-subject'),
+            controller: _subject,
+            decoration: const InputDecoration(labelText: 'Subject'),
+          ),
+          TextFormField(
+            key: const Key('add-detail-text'),
+            controller: _text,
+            decoration: const InputDecoration(labelText: 'Text'),
+            validator: (v) =>
+                (v == null || v.trim().isEmpty) ? 'Text is required' : null,
+          ),
+          DropdownButtonFormField<String>(
+            key: const Key('add-detail-category'),
+            decoration: const InputDecoration(labelText: 'Category'),
+            items: [
+              for (final c in widget.categories)
+                DropdownMenuItem(value: c.id, child: Text(c.name)),
+            ],
+            onChanged: (v) => setState(() => _categoryId = v),
+          ),
+        ],
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        key: const Key('add-detail-submit'),
+        onPressed: () async {
+          if (!(_formKey.currentState?.validate() ?? false)) return;
+          // Handled: failures surface via the command-error provider.
+          final detailResult = await ref
+              .read(costumesControllerProvider(widget.season.id).notifier)
+              .addDetail(
+                costume: widget.costume,
+                text: _text.text.trim(),
+                subject: _subject.text.trim().isEmpty
+                    ? null
+                    : _subject.text.trim(),
+                categoryId: _categoryId,
+              );
+          detailResult.match<void>((_) {}, (_) {});
+          if (context.mounted) {
+            Navigator.of(context).pop();
+          }
+        },
+        child: const Text('Add'),
+      ),
+    ],
+  );
 }
 
 /// Photos section: gallery (from `CostumeView.photos`), capture affordance
@@ -603,8 +649,8 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
       switch (outcome) {
         case CapturePicked(:final file):
           await _prepareAndUpload(file);
-        case CaptureDenied():
-          await _showDenied();
+        case CaptureDenied(:final source):
+          await _showDenied(source);
         case CaptureUnavailable():
           _showUnavailable();
         case CaptureCancelled():
@@ -641,12 +687,13 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
     return accepted ?? false;
   }
 
-  Future<void> _showDenied() {
+  Future<void> _showDenied(ImageSource source) {
+    final denied = CaptureDenied(source);
     return showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Camera access disabled'),
-        content: Text(captureOutcomeCopy(const CaptureDenied())),
+        title: Text(captureDeniedTitle(denied)),
+        content: Text(captureOutcomeCopy(denied)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
@@ -674,7 +721,23 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
   }
 
   Future<void> _prepareAndUpload(XFile file) async {
-    final bytes = await file.readAsBytes();
+    Uint8List bytes;
+    try {
+      bytes = await file.readAsBytes();
+    } on Object {
+      // The picked file can vanish or be unreadable after the picker
+      // returns; surface it like any other prepare failure instead of
+      // escaping the press handler silently.
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            photoErrorCopy(const ProblemError(code: 'photo.read_failed')),
+          ),
+        ),
+      );
+      return;
+    }
     final contentType =
         contentTypeForExtension(file.name.split('.').lastOrNull ?? '') ??
         'image/jpeg';

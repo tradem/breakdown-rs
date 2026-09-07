@@ -35,6 +35,14 @@ const Set<String> kPhotoContentTypes = {
   'image/webp',
 };
 
+/// Default bounded backoff between watch refetches (production path —
+/// tests inject a fake `delay`). Exponential 2s/4s/8s capped at 10s:
+/// foreground-only polling stays gentle on radio and battery instead of
+/// bursting all attempts back-to-back.
+Future<void> _defaultWatchDelay(int attempt) => Future<void>.delayed(
+  Duration(seconds: [2, 4, 8, 10][attempt.clamp(1, 4) - 1]),
+);
+
 /// Read/write repository for the `Costume | Continuity` photo bounded context
 /// (capture/upload, byte fetch, delete — all AUTHZ-GATE'd server-side).
 ///
@@ -64,7 +72,11 @@ class PhotoRepository extends BaseRepository {
     try {
       final response = await api.dio.post<Object>(
         '/v1/costumes/$costumeId/photos',
-        data: Stream.fromIterable([bytes]),
+        // Pass the bytes directly (not a Stream): Dio sets the content
+        // length automatically, so `onSendProgress` receives a valid
+        // total (a Stream payload leaves the length unset and progress
+        // reports -1/null). The endpoint consumes raw `Bytes` either way.
+        data: bytes,
         options: Options(
           contentType: contentType,
           responseType: ResponseType.json,
@@ -170,8 +182,8 @@ class PhotoRepository extends BaseRepository {
         );
         return;
       }
-      if (attempts > 0 && delay != null) {
-        await delay(attempts);
+      if (attempts > 0) {
+        await (delay ?? _defaultWatchDelay)(attempts);
       }
       attempts++;
       final result = await fetchCostume();
@@ -239,6 +251,9 @@ class PhotoWatchEvent {
 bool isPhotoWatchTerminal(CostumeView view) {
   if (view.photos.isEmpty) return true;
   for (final photo in view.photos) {
+    // A photo with no variants yet (upload ack racing the variant saga)
+    // is not terminal: keep polling until variants appear and settle.
+    if (photo.variants.isEmpty) return false;
     for (final variant in photo.variants) {
       final status = serializers.serializeWith(
         VariantStatus.serializer,

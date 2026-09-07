@@ -85,9 +85,14 @@ class _FakeShootingDayRepository extends ShootingDayRepository {
     );
   }
 
+  String? lastUpdateId;
+  UpdateShootingDayRequest? lastUpdate;
+
   @override
   Future<Result<int>> update(String id, UpdateShootingDayRequest request) {
     updateCalls++;
+    lastUpdateId = id;
+    lastUpdate = request;
     return Future.value(const Right(2));
   }
 
@@ -182,6 +187,8 @@ void main() {
     testWidgets('rename sheet dispatches single-intent rename', (tester) async {
       await setupContainer(initialRows: [_day('d-1', label: 'Old')]);
       await pumpScreen(tester);
+      await tester.tap(find.byKey(const Key('shooting-day-menu-d-1')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('shooting-day-rename-d-1')));
       await tester.pumpAndSettle();
       await tester.enterText(
@@ -196,6 +203,8 @@ void main() {
     testWidgets('reschedule via Material date picker', (tester) async {
       await setupContainer(initialRows: [_day('d-1', label: 'Day')]);
       await pumpScreen(tester);
+      await tester.tap(find.byKey(const Key('shooting-day-menu-d-1')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('shooting-day-reschedule-d-1')));
       await tester.pumpAndSettle();
       // The Material date dialog renders; confirm the default month.
@@ -208,6 +217,8 @@ void main() {
     testWidgets('archive confirm-first, then dispatch', (tester) async {
       await setupContainer(initialRows: [_day('d-1', label: 'Day')]);
       await pumpScreen(tester);
+      await tester.tap(find.byKey(const Key('shooting-day-menu-d-1')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('shooting-day-archive-d-1')));
       await tester.pumpAndSettle();
       expect(repo.archiveCalls, 0);
@@ -226,14 +237,100 @@ void main() {
         ],
       );
       await pumpScreen(tester);
+      await tester.tap(find.byKey(const Key('shooting-day-menu-d-1')));
+      await tester.pumpAndSettle();
       expect(find.byKey(const Key('shooting-day-down-d-1')), findsOneWidget);
-      expect(find.byKey(const Key('shooting-day-up-d-2')), findsOneWidget);
       await tester.tap(find.byKey(const Key('shooting-day-down-d-1')));
       await _pumpFrames(tester);
       expect(repo.updateCalls, 1);
+      // Append edge past 'b': the shared append rule (unique, ordered).
+      expect(repo.lastUpdateId, 'd-1');
+      expect(repo.lastUpdate!.orderKey, 'c');
+      await tester.tap(find.byKey(const Key('shooting-day-menu-d-2')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('shooting-day-up-d-2')));
       await _pumpFrames(tester);
       expect(repo.updateCalls, 2);
+      // Prepend edge below 'a': midpoint('', 'a') == 'A' (unique, ordered).
+      expect(repo.lastUpdateId, 'd-2');
+      expect(repo.lastUpdate!.orderKey, 'A');
+    });
+
+    testWidgets('midpoint reorder lands strictly between neighbors', (
+      tester,
+    ) async {
+      await setupContainer(
+        initialRows: [
+          _day('d-1', orderKey: 'a', label: 'First'),
+          _day('d-2', orderKey: 'c', label: 'Second'),
+          _day('d-3', orderKey: 'e', label: 'Third'),
+        ],
+      );
+      await pumpScreen(tester);
+      // Move d-3 (e) above d-2 (c): strictly between 'a' and 'c' → 'b'.
+      await tester.tap(find.byKey(const Key('shooting-day-menu-d-3')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('shooting-day-up-d-3')));
+      await _pumpFrames(tester);
+      expect(repo.lastUpdateId, 'd-3');
+      expect(repo.lastUpdate!.orderKey, 'b');
+    });
+
+    testWidgets('dense floor move issues no duplicate key', (tester) async {
+      await setupContainer(
+        initialRows: [
+          _day('d-1', orderKey: '!', label: 'First'),
+          _day('d-2', orderKey: '"', label: 'Second'),
+        ],
+      );
+      await pumpScreen(tester);
+      // Prepend below '!' is inexpressible: no command, explanatory copy.
+      await tester.tap(find.byKey(const Key('shooting-day-menu-d-2')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('shooting-day-up-d-2')));
+      await _pumpFrames(tester);
+      expect(repo.updateCalls, 0);
+      expect(find.textContaining('leave no room'), findsOneWidget);
+    });
+
+    testWidgets('320px tile: title stays usable, actions behind menu', (
+      tester,
+    ) async {
+      await setupContainer(
+        initialRows: [
+          _day('d-1', orderKey: 'a', label: 'First'),
+          // Dated, unarchived middle row: all six actions available.
+          _day('d-2', orderKey: 'b', label: 'Second', date: Date(2026, 5, 1)),
+          _day('d-3', orderKey: 'c', label: 'Third'),
+        ],
+      );
+      tester.view.physicalSize = const Size(320, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(home: ShootingDaysScreen(episode: _episode())),
+        ),
+      );
+      await tester.pumpAndSettle();
+      // Title space survives: exactly one overflow control per row.
+      expect(find.text('Second'), findsOneWidget);
+      expect(find.byKey(const Key('shooting-day-menu-d-2')), findsOneWidget);
+      expect(find.byKey(const Key('shooting-day-rename-d-2')), findsNothing);
+      await tester.tap(find.byKey(const Key('shooting-day-menu-d-2')));
+      await tester.pumpAndSettle();
+      // All six actions reachable through the menu.
+      for (final key in [
+        'shooting-day-up-d-2',
+        'shooting-day-down-d-2',
+        'shooting-day-rename-d-2',
+        'shooting-day-reschedule-d-2',
+        'shooting-day-unschedule-d-2',
+        'shooting-day-archive-d-2',
+      ]) {
+        expect(find.byKey(Key(key)), findsOneWidget);
+      }
     });
 
     testWidgets('command error dismisses', (tester) async {

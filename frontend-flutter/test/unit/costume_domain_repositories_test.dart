@@ -142,6 +142,7 @@ void main() {
       'listBySeason Ok writes the snapshot; Err leaves cache untouched',
       () async {
         final db = CacheDatabase();
+        addTearDown(db.close);
         final dao = CostumeCacheDao(db);
         final ok = _ScriptInterceptor(
           respond: (_) => _wireList([_costume('c-1')], CostumeView.serializer),
@@ -166,6 +167,7 @@ void main() {
 
     test('getAndCache Ok upserts; Err touches nothing', () async {
       final db = CacheDatabase();
+      addTearDown(db.close);
       final dao = CostumeCacheDao(db);
       final ok = _ScriptInterceptor(
         respond: (_) => _wire(_costume('c-9'), CostumeView.serializer),
@@ -189,6 +191,7 @@ void main() {
 
     test('create/assign/unassign/addDetail/updateNotes Ok and Err', () async {
       final db = CacheDatabase();
+      addTearDown(db.close);
       final dao = CostumeCacheDao(db);
       Object okFor(String path) {
         if (path == '/v1/costumes') {
@@ -277,6 +280,7 @@ void main() {
   group('CharacterRepository Ok/Err', () {
     test('listBySeason/create/updateContact/updateMeasurements', () async {
       final db = CacheDatabase();
+      addTearDown(db.close);
       final dao = CharacterCacheDao(db);
       final ok = _ScriptInterceptor(
         respond: (o) {
@@ -356,6 +360,7 @@ void main() {
   group('ShootingDayRepository Ok/Err', () {
     test('listByEpisode/create/update/archive', () async {
       final db = CacheDatabase();
+      addTearDown(db.close);
       final dao = ShootingDayCacheDao(db);
       final ok = _ScriptInterceptor(
         respond: (o) {

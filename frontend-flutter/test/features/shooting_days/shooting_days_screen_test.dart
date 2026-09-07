@@ -219,6 +219,8 @@ void main() {
       final day = _day('d-1', date: Date(2026, 5, 1));
       await setupContainer(initialRows: [day]);
       await pumpScreen(tester);
+      await tester.tap(find.byKey(const Key('shooting-day-menu-d-1')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('shooting-day-unschedule-d-1')));
       await tester.pumpAndSettle();
       await tester.tap(

@@ -457,6 +457,48 @@ void main() {
       );
     });
 
+    testWidgets('detail settled-missing renders not-found, not spinner', (
+      tester,
+    ) async {
+      await setupContainer(initialRows: []);
+      tester.view.physicalSize = const Size(800, 1200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            home: CharacterDetailScreen(
+              season: _season(),
+              characterId: 'ch-gone',
+            ),
+          ),
+        ),
+      );
+      await _pumpFrames(tester, n: 20);
+      expect(find.byKey(const Key('character-detail-gone')), findsOneWidget);
+      expect(find.byKey(const Key('character-loading')), findsNothing);
+    });
+
+    testWidgets('detail fetch error renders retry view', (tester) async {
+      await setupContainer(initialFetch: const Left(_networkDown));
+      tester.view.physicalSize = const Size(800, 1200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            home: CharacterDetailScreen(season: _season(), characterId: 'ch-1'),
+          ),
+        ),
+      );
+      await _pumpFrames(tester, n: 20);
+      expect(find.byKey(const Key('character-detail-error')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('character-detail-retry')));
+      await _pumpFrames(tester);
+    });
+
     testWidgets('controller refresh clears and reconciles', (tester) async {
       await setupContainer(initialRows: [_character('ch-1')]);
       await pumpScreen(tester);

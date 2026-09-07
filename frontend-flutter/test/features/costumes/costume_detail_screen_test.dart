@@ -297,6 +297,12 @@ void main() {
         ),
         membershipFetchProvider('season-1')
             .overrideWith((ref) async => membershipHolder.value),
+        // The variant watch is irrelevant to these assertions; stub
+        // it closed so no backoff timers outlive the widget tree.
+        costumePhotoWatchProvider(
+          'season-1',
+          'c-1',
+        ).overrideWith((ref) => const Stream<PhotoWatchEvent>.empty()),
         costumesListFetchProvider('season-1').overrideWith((ref) async {
           final dao = CostumeCacheDao(ref.watch(cacheDatabaseProvider));
           return holder.value.match((err) => Left(err), (rows) async {
@@ -514,6 +520,12 @@ void main() {
             settingsOpened++;
             return true;
           }),
+          // The variant watch is irrelevant to these assertions; stub
+          // it closed so no backoff timers outlive the widget tree.
+          costumePhotoWatchProvider(
+            'season-1',
+            'c-1',
+          ).overrideWith((ref) => const Stream<PhotoWatchEvent>.empty()),
           costumesListFetchProvider('season-1').overrideWith((ref) async {
             final dao = CostumeCacheDao(ref.watch(cacheDatabaseProvider));
             return holder.value.match((err) => Left(err), (rows) async {
@@ -602,6 +614,7 @@ void main() {
       await pumpDetail(tester, 'c-1');
       await tester.tap(find.byKey(const Key('photo-capture-camera-c-1')));
       await _pumpFrames(tester, n: 30);
+      expect(find.textContaining('unavailable'), findsOneWidget);
       expect(photos.uploadCalls, 0);
     });
 

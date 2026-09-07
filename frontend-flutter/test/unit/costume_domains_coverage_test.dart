@@ -10,6 +10,7 @@
 // merging, error-copy branches, overlay-store bookkeeping. No Flutter
 // imports; deterministic (fake clocks, no wall-clock).
 
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:breakdown_api/breakdown_api.dart';
@@ -37,6 +38,7 @@ import 'package:frontend_flutter/features/costumes/costumes_state.dart';
 import 'package:frontend_flutter/features/photos/capture.dart';
 import 'package:frontend_flutter/features/photos/prepare.dart';
 import 'package:frontend_flutter/features/photos/widgets/photo_gallery.dart';
+import 'package:frontend_flutter/features/shooting_days/order_keys.dart';
 import 'package:frontend_flutter/features/shooting_days/shooting_days_controller.dart';
 import 'package:frontend_flutter/features/shooting_days/shooting_days_state.dart';
 
@@ -126,6 +128,39 @@ class _Overlay implements ReconciliationOverlay {
     String? warning,
     bool clearWarning = false,
   }) => _Overlay(id, status ?? this.status);
+}
+
+/// Dio adapter stub capturing dispatch-level headers (interceptors run
+/// before Dio computes the content length, so only the adapter observes
+/// the final `Content-Length` Dio derives from a Uint8List body).
+class _RecordingAdapter implements HttpClientAdapter {
+  _RecordingAdapter(this.payload);
+
+  final Object? payload;
+
+  String? sentContentType;
+  String? sentContentLength;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    sentContentType = options.contentType;
+    sentContentLength = options.headers[Headers.contentLengthHeader]
+        ?.toString();
+    return ResponseBody.fromString(
+      jsonEncode(payload),
+      201,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
 }
 
 void main() {
@@ -306,17 +341,10 @@ void main() {
           ..variants.replace(BuiltList<PhotoVariantView>()),
       );
       final dio = Dio();
-      dio.interceptors.add(
-        InterceptorsWrapper(
-          onRequest: (options, handler) => handler.resolve(
-            Response(
-              requestOptions: options,
-              statusCode: 201,
-              data: serializers.serializeWith(PhotoView.serializer, view),
-            ),
-          ),
-        ),
+      final adapter = _RecordingAdapter(
+        serializers.serializeWith(PhotoView.serializer, view),
       );
+      dio.httpClientAdapter = adapter;
       final repo = PhotoRepository(BreakdownApi(dio: dio));
       final result = await repo.upload(
         'c-1',
@@ -325,6 +353,11 @@ void main() {
       );
       expect(result.isRight(), isTrue);
       expect(result.match((_) => '', (v) => v.id), 'p-1');
+      // Dispatch-level headers: Dio derives the content length from a
+      // Uint8List body automatically (a Stream body would leave it unset
+      // and onSendProgress totals broken) with the matching content type.
+      expect(adapter.sentContentType, 'image/jpeg');
+      expect(adapter.sentContentLength, '3');
     });
   });
 
@@ -477,6 +510,39 @@ void main() {
         (checkPhotoCapability(null) as GateDeny).code,
         'membership.pending',
       );
+    });
+  });
+
+  group('midpointKey (pure)', () {
+    void expectBetween(String lo, String hi, String? mid) {
+      final result = midpointKey(lo, hi);
+      expect(result, mid);
+      if (mid != null) {
+        expect(lo.compareTo(mid) < 0, isTrue, reason: '$lo < $mid');
+        expect(mid.compareTo(hi) < 0, isTrue, reason: '$mid < $hi');
+      }
+    }
+
+    test('roomy pairs split in both directions', () {
+      expectBetween('a', 'c', 'b');
+      expectBetween('a', 'b', 'a!');
+      expectBetween('m5', 'm6', 'm5!');
+      expectBetween('V', 'Vn', 'VG');
+    });
+
+    test('prepend below the first key', () {
+      expectBetween('', 'a', 'A');
+      expectBetween('', '!', null);
+    });
+
+    test('invalid order returns null', () {
+      expect(midpointKey('b', 'a'), isNull);
+      expect(midpointKey('a', 'a'), isNull);
+    });
+
+    test('impossible dense floor returns null', () {
+      // Nothing over the alphabet fits strictly inside ('a', 'a!').
+      expect(midpointKey('a', 'a!'), isNull);
     });
   });
 

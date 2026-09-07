@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/auth_providers.dart';
+import '../../core/problem_error.dart';
 import '../characters/characters_controller.dart';
 import '../costumes/widgets/costumes_widgets.dart';
 import '../shooting_days/shooting_days_controller.dart';
@@ -68,37 +69,47 @@ class SceneDetailScreen extends ConsumerWidget {
                     : 'Scene ${scene.sceneNumber ?? ''}'),
         ),
       ),
-      body: scene == null
-          ? const Center(
-              child: CircularProgressIndicator(
-                key: Key('scene-detail-loading'),
+      body: switch ((scene, scenesState.projected)) {
+        // Resolved scene with its collapsible sections.
+        (final s?, _) => RefreshIndicator(
+          onRefresh: () =>
+              ref.read(scenesControllerProvider(episodeId).notifier).refresh(),
+          child: ListView(
+            key: Key('scene-detail-$sceneId'),
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(16),
+            children: [
+              _SceneSummary(scene: s),
+              const SizedBox(height: 8),
+              _SceneCharactersSection(
+                seasonId: seasonId,
+                episodeId: episodeId,
+                scene: s,
               ),
-            )
-          : RefreshIndicator(
-              onRefresh: () => ref
-                  .read(scenesControllerProvider(episodeId).notifier)
-                  .refresh(),
-              child: ListView(
-                key: Key('scene-detail-$sceneId'),
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(16),
-                children: [
-                  _SceneSummary(scene: scene),
-                  const SizedBox(height: 8),
-                  _SceneCharactersSection(
-                    seasonId: seasonId,
-                    episodeId: episodeId,
-                    scene: scene,
-                  ),
-                  const SizedBox(height: 8),
-                  _SceneShootingDaysSection(
-                    seasonId: seasonId,
-                    episodeId: episodeId,
-                    scene: scene,
-                  ),
-                ],
+              const SizedBox(height: 8),
+              _SceneShootingDaysSection(
+                seasonId: seasonId,
+                episodeId: episodeId,
+                scene: s,
               ),
-            ),
+            ],
+          ),
+        ),
+        // First snapshot still in flight.
+        (null, AsyncLoading()) => const Center(
+          child: CircularProgressIndicator(key: Key('scene-detail-loading')),
+        ),
+        // Settled with an error and no retained row: retry affordance.
+        (null, AsyncError(:final error)) => _SceneDetailErrorView(
+          code: error is ProblemError ? error.code : 'unknown',
+          onRetry: () =>
+              ref.read(scenesControllerProvider(episodeId).notifier).refresh(),
+        ),
+        // Settled without the scene (deleted): unavailable, not a spinner.
+        (null, _) => _SceneDetailGoneView(
+          onBack: () => Navigator.of(context).pop(),
+        ),
+      },
     );
   }
 
@@ -155,6 +166,12 @@ class _SceneCharactersSection extends ConsumerWidget {
     final characters = ref.watch(charactersViewProvider(seasonId));
     final names = {for (final c in characters.rows) c.id: c.name};
     final assigned = scene.assignedCharacters.toList();
+    // Eligible picker candidates (mirrors `_pickCharacter`): the action
+    // disables when everybody is already assigned.
+    final assignable = assigned.toSet();
+    final hasCandidates = characters.rows.any(
+      (c) => !assignable.contains(c.id),
+    );
 
     return ExpansionTile(
       key: Key('scene-characters-${scene.id}'),
@@ -183,9 +200,9 @@ class _SceneCharactersSection extends ConsumerWidget {
           alignment: Alignment.centerRight,
           child: FilledButton.tonal(
             key: Key('scene-character-assign-${scene.id}'),
-            onPressed: characters.rows.isEmpty
-                ? null
-                : () => _pickCharacter(context, ref, characters.rows),
+            onPressed: hasCandidates
+                ? () => _pickCharacter(context, ref, characters.rows)
+                : null,
             child: const Text('Assign character'),
           ),
         ),
@@ -198,11 +215,20 @@ class _SceneCharactersSection extends ConsumerWidget {
     WidgetRef ref,
     List<CharacterView> characters,
   ) async {
+    // Only unassigned characters are eligible: re-picking an assigned one
+    // would 409 (`CharacterAlreadyAssigned`) on a request the client can
+    // see coming.
+    final assigned = scene.assignedCharacters.toSet();
+    final candidates = [
+      for (final c in characters)
+        if (!assigned.contains(c.id)) c,
+    ];
+    if (candidates.isEmpty) return;
     final picked = await showModalBottomSheet<String>(
       context: context,
       builder: (_) => AssignCharacterSheet(
         characters: [
-          for (final c in characters)
+          for (final c in candidates)
             (
               id: c.id,
               name: c.name,
@@ -227,6 +253,10 @@ class _SceneCharactersSection extends ConsumerWidget {
       // scene projection so the assigned list reconciles.
       await ref.read(scenesControllerProvider(episodeId).notifier).refresh();
     } else if (context.mounted) {
+      // Reconcile the version even on conflict: the next action must echo
+      // the current projection version, not the rejected one. The command
+      // itself is never re-dispatched automatically.
+      await ref.read(scenesControllerProvider(episodeId).notifier).refresh();
       result.match(
         (err) =>
             ScaffoldMessenger.of(context)
@@ -272,6 +302,9 @@ class _SceneCharactersSection extends ConsumerWidget {
                     .read(scenesControllerProvider(episodeId).notifier)
                     .refresh();
               } else if (dialogContext.mounted) {
+                await ref
+                    .read(scenesControllerProvider(episodeId).notifier)
+                    .refresh();
                 result.match(
                   (err) => ScaffoldMessenger.of(dialogContext).showSnackBar(
                     SnackBar(content: Text(characterErrorCopy(err))),
@@ -402,6 +435,8 @@ class _SceneShootingDaysSection extends ConsumerWidget {
       // Optimistic-after-2xx on the scene row's id list.
       await ref.read(scenesControllerProvider(episodeId).notifier).refresh();
     } else if (context.mounted) {
+      // Reconcile the version even on conflict (never re-dispatch).
+      await ref.read(scenesControllerProvider(episodeId).notifier).refresh();
       result.match(
         (err) => ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(shootingDayErrorCopy(err)))),
@@ -426,8 +461,10 @@ class _SceneShootingDaysSection extends ConsumerWidget {
       await ref.read(scenesControllerProvider(episodeId).notifier).refresh();
     } else if (context.mounted) {
       // 409 (scene changed elsewhere): the local edit rolls back (nothing
-      // was applied before the ack), conflict copy renders keyed on `code`;
-      // no automatic version-bump re-dispatch.
+      // was applied before the ack), the projection refreshes so the next
+      // action echoes the current version, and conflict copy renders keyed
+      // on `code`; no automatic version bump re-dispatch.
+      await ref.read(scenesControllerProvider(episodeId).notifier).refresh();
       result.match(
         (err) => ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(shootingDayErrorCopy(err)))),
@@ -435,4 +472,51 @@ class _SceneShootingDaysSection extends ConsumerWidget {
       );
     }
   }
+}
+
+class _SceneDetailErrorView extends StatelessWidget {
+  const _SceneDetailErrorView({required this.code, this.onRetry});
+
+  final String code;
+  final VoidCallback? onRetry;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          'Could not load the scene ($code).',
+          key: const Key('scene-detail-error'),
+        ),
+        const SizedBox(height: 8),
+        FilledButton.tonal(
+          key: const Key('scene-detail-retry'),
+          onPressed: onRetry,
+          child: const Text('Retry'),
+        ),
+      ],
+    ),
+  );
+}
+
+class _SceneDetailGoneView extends StatelessWidget {
+  const _SceneDetailGoneView({this.onBack});
+
+  final VoidCallback? onBack;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text(
+          'This scene is no longer available.',
+          key: Key('scene-detail-gone'),
+        ),
+        if (onBack != null)
+          FilledButton.tonal(onPressed: onBack, child: const Text('Back')),
+      ],
+    ),
+  );
 }

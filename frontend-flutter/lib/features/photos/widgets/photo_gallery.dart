@@ -161,6 +161,10 @@ int photoGridColumns(double width) {
 enum PhotoRowStatus { ready, pending, failed }
 
 PhotoRowStatus photoRowStatus(CostumePhotoView photo) {
+  // No variants yet (upload ack racing the saga): still processing, like
+  // Pending — consistent with `isPhotoWatchTerminal`, which only ends
+  // the pass once every variant is terminal.
+  if (photo.variants.isEmpty) return PhotoRowStatus.pending;
   var pending = false;
   for (final v in photo.variants) {
     final status = serializers.serializeWith(

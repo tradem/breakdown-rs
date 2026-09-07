@@ -8,6 +8,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
+import '../costume_categories/next_order_key.dart';
+import 'order_keys.dart';
 import 'shooting_days_controller.dart';
 import 'shooting_days_state.dart';
 import 'widgets/shooting_days_widgets.dart';
@@ -380,8 +382,11 @@ class ShootingDaysScreen extends ConsumerWidget {
     );
   }
 
-  /// Reorder: issues a single new key derived from the read model's neighbor
-  /// keys (append rule over the visible order — the server owns the order).
+  /// Reorder: issues a single new key strictly between the target
+  /// neighbors (midpoint rule — never an append that duplicates or skips
+  /// keys). When no valid key fits (dense floor, see `midpointKey`), no
+  /// command issues and an explanatory copy renders instead of corrupting
+  /// the total order.
   Future<void> _move(
     BuildContext context,
     WidgetRef ref,
@@ -394,45 +399,56 @@ class ShootingDaysScreen extends ConsumerWidget {
         if (r is ProjectedShootingDayRow) r.day,
     ];
     final day = (rows[index] as ProjectedShootingDayRow).day;
-    final neighborKeys = [for (final d in days) d.orderKey];
-    // Neighbor-key reorder: derive an append-after-neighbor key with the
-    // shared rule over the keys up to the target position.
-    final target = (index + delta).clamp(0, neighborKeys.length - 1);
-    final prefix = target < index
-        ? neighborKeys.sublist(0, target + 1)
-        : neighborKeys.sublist(0, target + 1);
-    final orderKey = _reorderKey(prefix, day.orderKey);
+    final from = days.indexWhere((d) => d.id == day.id);
+    if (from < 0) return;
+    final to = (from + delta).clamp(0, days.length - 1);
+    if (to == from) return;
+    final others = [...days]..removeAt(from);
+    final insertAt = to.clamp(0, others.length);
+    final lo = insertAt > 0 ? others[insertAt - 1].orderKey : null;
+    final hi = insertAt < others.length ? others[insertAt].orderKey : null;
+    final String orderKey;
+    if (lo != null && hi != null) {
+      final mid = midpointKey(lo, hi);
+      if (mid == null) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Cannot move here — the neighboring order keys leave no '
+              'room. Archive or recreate days to rebalance.',
+            ),
+          ),
+        );
+        return;
+      }
+      orderKey = mid;
+    } else if (hi != null) {
+      // Prepend edge: midpoint below the first key (null only when the
+      // first key sits at the alphabet floor — then the same copy).
+      final mid = midpointKey('', hi);
+      if (mid == null) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Cannot move here — the neighboring order keys leave no '
+              'room. Archive or recreate days to rebalance.',
+            ),
+          ),
+        );
+        return;
+      }
+      orderKey = mid;
+    } else {
+      // Append edge: the shared append rule always has room.
+      orderKey = nextOrderKey([lo!]);
+    }
     // Handled: failures surface via the command-error provider.
     final reorderResult = await ref
         .read(shootingDaysControllerProvider(episode.id).notifier)
         .reorder(day: day, orderKey: orderKey);
     reorderResult.match<void>((_) {}, (_) {});
-  }
-
-  /// Derives a single new key strictly inside the neighbor prefix (append
-  /// rule — insertion is append-only by construction).
-  String _reorderKey(List<String> prefix, String current) {
-    final without = prefix.where((k) => k != current).toList();
-    return _nextKey(without);
-  }
-
-  String _nextKey(List<String> keys) {
-    var greatest = '';
-    var found = false;
-    for (final key in keys) {
-      if (!found || key.compareTo(greatest) > 0) {
-        greatest = key;
-        found = true;
-      }
-    }
-    if (!found) return '!';
-    final units = greatest.codeUnits;
-    final last = units.last;
-    if (last >= 0x7E) return '$greatest!';
-    return String.fromCharCodes([
-      ...units.sublist(0, units.length - 1),
-      last + 1,
-    ]);
   }
 }
 

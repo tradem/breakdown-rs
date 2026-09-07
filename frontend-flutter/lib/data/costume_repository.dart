@@ -225,16 +225,21 @@ List<CostumeView> mergeCostumeOverlays({
 }
 
 /// Builds an empty optimistic detail view for the add-detail overlay.
-/// The server id arrives via reconciliation; the caller passes a local
-/// placeholder that the fence replaces.
+///
+/// [pendingId] MUST be unique per command (e.g. derived from the
+/// acknowledged aggregate version): detail cards key on
+/// `costume-detail-<id>`, and repeated additions with a constant id would
+/// render duplicate keys. The server id arrives via reconciliation and
+/// replaces the placeholder.
 CostumeDetailView optimisticDetailPlaceholder({
-  required String subject,
+  required String pendingId,
+  required String? subject,
   required String text,
   String? categoryId,
   String? categoryName,
 }) => CostumeDetailView(
   (b) => b
-    ..id = 'pending-detail'
+    ..id = pendingId
     ..subject = subject
     ..text = text
     ..categoryId = categoryId

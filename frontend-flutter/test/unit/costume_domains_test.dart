@@ -299,6 +299,29 @@ void main() {
     });
   });
 
+  group('optimisticDetailPlaceholder (unique per command)', () {
+    test('distinct pending ids preserve subject/text/category', () {
+      final first = optimisticDetailPlaceholder(
+        pendingId: 'pending-detail-2',
+        subject: 'Jacket',
+        text: 'Red leather',
+        categoryId: 'cat-1',
+        categoryName: 'Outerwear',
+      );
+      final second = optimisticDetailPlaceholder(
+        pendingId: 'pending-detail-3',
+        subject: 'Jacket',
+        text: 'Red leather',
+        categoryId: 'cat-1',
+        categoryName: 'Outerwear',
+      );
+      // Detail cards key on the id: distinct ids never collide.
+      expect(first.id, isNot(second.id));
+      expect(first.text, second.text);
+      expect(first.categoryName, 'Outerwear');
+    });
+  });
+
   group('ShootingDay request builders (single-intent)', () {
     test('unschedule uses date:null (explicit clear, not absent)', () {
       final req = buildUnscheduleRequest(version: 4);
@@ -415,6 +438,26 @@ void main() {
         // Returning re-arms a fresh bounded pass (caller re-subscribes).
       },
     );
+
+    test('photo with empty variants keeps polling (not terminal)', () async {
+      final emptyPhoto = CostumePhotoView(
+        (b) => b
+          ..id = 'photo-1'
+          ..contentType = 'image/jpeg'
+          ..sizeBytes = 10
+          ..variants.replace(BuiltList<PhotoVariantView>()),
+      );
+      final view = CostumeView(
+        (b) => b
+          ..id = 'c-1'
+          ..notes = 'n'
+          ..details.replace(BuiltList<CostumeDetailView>())
+          ..photos.replace(BuiltList<CostumePhotoView>([emptyPhoto]))
+          ..updatedAt = DateTime.utc(2026, 1, 1)
+          ..version = 2,
+      );
+      expect(isPhotoWatchTerminal(view), isFalse);
+    });
 
     test(
       'watch expires with watch_expired and stops (no further calls)',

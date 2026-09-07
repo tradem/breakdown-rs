@@ -50,50 +50,51 @@ class ShootingDayTile extends StatelessWidget {
             if (day.wrappedAt != null) 'Wrapped',
           ].join(' · '),
         ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
+        // Overflow menu (not six inline buttons): six 48×48 targets
+        // consume the full 288 px content width of a 320 px tile, leaving
+        // no title space. One menu button keeps the calendar row compact;
+        // Escape closes the menu (macOS). Item keys stay stable for tests.
+        trailing: PopupMenuButton<VoidCallback>(
+          key: Key('shooting-day-menu-${day.id}'),
+          tooltip: 'Day actions',
+          icon: const Icon(Icons.more_vert),
+          onSelected: (action) => action(),
+          itemBuilder: (_) => [
             if (onMoveUp != null)
-              IconButton(
+              PopupMenuItem(
                 key: Key('shooting-day-up-${day.id}'),
-                icon: const Icon(Icons.arrow_upward),
-                tooltip: 'Move earlier',
-                onPressed: onMoveUp,
+                value: onMoveUp,
+                child: const Text('Move earlier'),
               ),
             if (onMoveDown != null)
-              IconButton(
+              PopupMenuItem(
                 key: Key('shooting-day-down-${day.id}'),
-                icon: const Icon(Icons.arrow_downward),
-                tooltip: 'Move later',
-                onPressed: onMoveDown,
+                value: onMoveDown,
+                child: const Text('Move later'),
               ),
             if (onRename != null)
-              IconButton(
+              PopupMenuItem(
                 key: Key('shooting-day-rename-${day.id}'),
-                icon: const Icon(Icons.edit),
-                tooltip: 'Rename',
-                onPressed: onRename,
+                value: onRename,
+                child: const Text('Rename'),
               ),
             if (onReschedule != null)
-              IconButton(
+              PopupMenuItem(
                 key: Key('shooting-day-reschedule-${day.id}'),
-                icon: const Icon(Icons.calendar_month),
-                tooltip: 'Reschedule',
-                onPressed: onReschedule,
+                value: onReschedule,
+                child: const Text('Reschedule'),
               ),
             if (onUnschedule != null && day.date != null)
-              IconButton(
+              PopupMenuItem(
                 key: Key('shooting-day-unschedule-${day.id}'),
-                icon: const Icon(Icons.event_busy),
-                tooltip: 'Unschedule',
-                onPressed: onUnschedule,
+                value: onUnschedule,
+                child: const Text('Unschedule date'),
               ),
             if (onArchive != null && !day.archived)
-              IconButton(
+              PopupMenuItem(
                 key: Key('shooting-day-archive-${day.id}'),
-                icon: const Icon(Icons.archive_outlined),
-                tooltip: 'Archive',
-                onPressed: onArchive,
+                value: onArchive,
+                child: const Text('Archive'),
               ),
           ],
         ),

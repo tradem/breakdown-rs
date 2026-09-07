@@ -20,6 +20,7 @@ import '../../data/cache/seasons_cache_providers.dart';
 import '../../data/costume_repository.dart';
 import '../../data/photo_repository.dart';
 import '../../domain/reconciliation/reconcile_coordinator.dart';
+import '../characters/characters_controller.dart';
 import '../../domain/reconciliation/reconciliation_scheduler.dart';
 import 'costumes_state.dart';
 
@@ -261,7 +262,12 @@ class CostumesController extends _$CostumesController {
       cachedRows: view.rows,
       isStale: view.isStale,
       overlays: ref.watch(costumesOverlaysProvider(seasonId)),
-      characterNames: const {},
+      // Read-DTO join for the assignment display names (never aggregate
+      // reconstruction): the characters projection maps ids to names.
+      characterNames: {
+        for (final c in ref.watch(charactersViewProvider(seasonId)).rows)
+          c.id: c.name,
+      },
       commandError: ref.watch(costumesCommandErrorProvider(seasonId)),
     );
   }
@@ -392,7 +398,13 @@ class CostumesController extends _$CostumesController {
             .add(
               CostumeRowOverlay(
                 id: costume.id,
-                overlay: applyAssignOptimistic(costume, characterId),
+                // The overlay version advances to the ack: a follow-up
+                // command echoes it instead of the pre-command version
+                // (which the server would reject as a version conflict).
+                overlay: applyAssignOptimistic(
+                  costume,
+                  characterId,
+                ).rebuild((b) => b..version = version),
                 acknowledgedVersion: version,
                 status: OverlayStatus.acknowledged,
               ),
@@ -431,7 +443,8 @@ class CostumesController extends _$CostumesController {
             .add(
               CostumeRowOverlay(
                 id: costume.id,
-                overlay: applyUnassignOptimistic(costume),
+                overlay: applyUnassignOptimistic(costume)
+                    .rebuild((b) => b..version = version),
                 acknowledgedVersion: version,
                 status: OverlayStatus.acknowledged,
               ),
@@ -475,19 +488,23 @@ class CostumesController extends _$CostumesController {
       },
       (version) {
         ref.read(costumesCommandErrorProvider(seasonId).notifier).clear();
-        final detail = CostumeDetailView(
-          (b) => b
-            ..id = 'pending-detail'
-            ..subject = subject
-            ..text = text
-            ..categoryId = categoryId,
+        // Unique placeholder id per command (detail cards key on it);
+        // the overlay version advances to the ack (see assign).
+        final detail = optimisticDetailPlaceholder(
+          pendingId: 'pending-detail-$version',
+          subject: subject,
+          text: text,
+          categoryId: categoryId,
         );
         ref
             .read(costumesOverlaysProvider(seasonId).notifier)
             .add(
               CostumeRowOverlay(
                 id: costume.id,
-                overlay: applyAddDetailOptimistic(costume, detail),
+                overlay: applyAddDetailOptimistic(
+                  costume,
+                  detail,
+                ).rebuild((b) => b..version = version),
                 acknowledgedVersion: version,
                 status: OverlayStatus.acknowledged,
               ),
@@ -530,7 +547,10 @@ class CostumesController extends _$CostumesController {
             .add(
               CostumeRowOverlay(
                 id: costume.id,
-                overlay: applyNotesOptimistic(costume, notes),
+                overlay: applyNotesOptimistic(
+                  costume,
+                  notes,
+                ).rebuild((b) => b..version = version),
                 acknowledgedVersion: version,
                 status: OverlayStatus.acknowledged,
               ),
