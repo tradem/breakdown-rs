@@ -35,6 +35,7 @@ use utoipa::OpenApi;
     ),
     paths(
         handlers::create_season,
+        handlers::list_seasons,
         handlers::get_season,
         handlers::get_season_membership,
         handlers::rename_season,

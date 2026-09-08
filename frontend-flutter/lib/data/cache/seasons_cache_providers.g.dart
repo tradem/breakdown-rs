@@ -211,24 +211,20 @@ final class SeasonRepositoryProvider
 
 String _$seasonRepositoryHash() => r'07c267b177eeccbb0d406f6af4f8d763d32bb362';
 
-/// The injected list-fetch seam (Design Decision D3).
-///
-/// The generated client has no seasons list endpoint yet (tracked separately),
-/// so the default surfaces a `not_implemented` error; production wiring
-/// replaces the body with `repo.fetchAndCacheList(() => repo.fetchSeasonsList())`
-/// once `GET /v1/seasons` lands. Tests override this provider with a fake that
-/// writes the cache via `repo.fetchAndCacheList(...)`.
+/// The read-projection list fetch (Design Decision D3): `GET /v1/seasons`
+/// via [SeasonRepository.fetchSeasonsList], snapshot-reconciled into Drift
+/// by [SeasonRepository.fetchAndCacheList] (writes on success only, D1).
+/// Tests override this provider with a fake that writes the cache via
+/// `repo.fetchAndCacheList(...)`.
 
 @ProviderFor(seasonsListFetch)
 final seasonsListFetchProvider = SeasonsListFetchProvider._();
 
-/// The injected list-fetch seam (Design Decision D3).
-///
-/// The generated client has no seasons list endpoint yet (tracked separately),
-/// so the default surfaces a `not_implemented` error; production wiring
-/// replaces the body with `repo.fetchAndCacheList(() => repo.fetchSeasonsList())`
-/// once `GET /v1/seasons` lands. Tests override this provider with a fake that
-/// writes the cache via `repo.fetchAndCacheList(...)`.
+/// The read-projection list fetch (Design Decision D3): `GET /v1/seasons`
+/// via [SeasonRepository.fetchSeasonsList], snapshot-reconciled into Drift
+/// by [SeasonRepository.fetchAndCacheList] (writes on success only, D1).
+/// Tests override this provider with a fake that writes the cache via
+/// `repo.fetchAndCacheList(...)`.
 
 final class SeasonsListFetchProvider
     extends
@@ -240,13 +236,11 @@ final class SeasonsListFetchProvider
     with
         $FutureModifier<Result<List<SeasonView>>>,
         $FutureProvider<Result<List<SeasonView>>> {
-  /// The injected list-fetch seam (Design Decision D3).
-  ///
-  /// The generated client has no seasons list endpoint yet (tracked separately),
-  /// so the default surfaces a `not_implemented` error; production wiring
-  /// replaces the body with `repo.fetchAndCacheList(() => repo.fetchSeasonsList())`
-  /// once `GET /v1/seasons` lands. Tests override this provider with a fake that
-  /// writes the cache via `repo.fetchAndCacheList(...)`.
+  /// The read-projection list fetch (Design Decision D3): `GET /v1/seasons`
+  /// via [SeasonRepository.fetchSeasonsList], snapshot-reconciled into Drift
+  /// by [SeasonRepository.fetchAndCacheList] (writes on success only, D1).
+  /// Tests override this provider with a fake that writes the cache via
+  /// `repo.fetchAndCacheList(...)`.
   SeasonsListFetchProvider._()
     : super(
         from: null,
@@ -273,7 +267,7 @@ final class SeasonsListFetchProvider
   }
 }
 
-String _$seasonsListFetchHash() => r'f3fd1c3dfda29cb0092af5ef2e415cfbe915f553';
+String _$seasonsListFetchHash() => r'925a9dd528cfc026e17474f91693aebe93ab22f8';
 
 /// Read-projection controller (Design Decisions D1–D4).
 ///

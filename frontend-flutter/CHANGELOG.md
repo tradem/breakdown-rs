@@ -42,3 +42,15 @@ releases are cut as `flutter-vX.Y.Z` tags.
   (validates the injected `APP_VERSION` in release builds).
 - `version-drift` CI job: enforces the `X.Y.Z+N` pubspec format on every run
   and the tag == build-name agreement on `flutter-v*` tags.
+
+### Fixed
+
+- Seasons list fetch wired to the backend (issue #377): `seasonsListFetch`
+  calls `GET /v1/seasons` via `SeasonRepository.fetchSeasonsList` (regenerated
+  `vendor/breakdown_api`) instead of short-circuiting with
+  `transport.seasons_list_unavailable`. The projection now confirms a created
+  id, so the "Created — catching up" overlay clears and blocks → … → day
+  board become reachable. The fetch is unscoped (no `series_id`), confirming
+  ids from any series and keeping the full-snapshot cache write coherent.
+- **Version bump:** `0.1.0+3 → 0.1.0+4` (monotonic Play `versionCode`; no
+  release tag cut — the client stays on the `0.1.x+N` pre-release line).

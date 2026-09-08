@@ -133,7 +133,8 @@ pub struct IdVersionResponse {
 /// Query parameters for paginated list endpoints.
 ///
 /// `episode_id` scopes Scene lists; `season_id` scopes Character/Block/Episode/Costume lists;
-/// `series_id` scopes Season/Episode lists.
+/// `series_id` scopes Episode lists (seasons take the dedicated
+/// `SeasonListParams` below, issue #377 review).
 #[derive(Debug, Clone, Deserialize, IntoParams)]
 pub struct ListParams {
     #[param(default = 50)]
@@ -142,6 +143,21 @@ pub struct ListParams {
     pub offset: Option<i64>,
     pub episode_id: Option<EpisodeId>,
     pub season_id: Option<SeasonId>,
+    pub series_id: Option<SeriesId>,
+}
+
+/// Query parameters for the seasons list (issue #377 review).
+///
+/// Dedicated type (like `EpisodeListParams`, issue #335) so the contract
+/// advertises only the filter the handler honors: the sibling scopes
+/// (`episode_id`, `season_id`) are silently ignored by `list_seasons` and
+/// must not appear in its parameters.
+#[derive(Debug, Clone, Deserialize, IntoParams)]
+pub struct SeasonListParams {
+    #[param(default = 50, minimum = 0)]
+    pub limit: Option<i64>,
+    #[param(default = 0, minimum = 0)]
+    pub offset: Option<i64>,
     pub series_id: Option<SeriesId>,
 }
 
@@ -591,6 +607,41 @@ pub async fn get_season<P: Ports>(
 ) -> ApiResult<SeasonView> {
     let view = state.ports.season_repo().find_by_id(id).await?;
     Ok((StatusCode::OK, Json(view)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/seasons",
+    description = "Lists seasons, optionally narrowed to one series via series_id. The table stays small, so — unlike the episode/scene lists — no scope parameter is required.",
+    params(SeasonListParams),
+    responses(
+        (status = 200, body = Vec<SeasonView>),
+        (status = 400, body = ProblemDetails, description = "Negative limit or offset"),
+        (status = 409, body = ProblemDetails, description = "Projection store failure"),
+    ),
+)]
+pub async fn list_seasons<P: Ports>(
+    State(state): State<AppState<P>>,
+    Query(params): Query<SeasonListParams>,
+) -> ApiResult<Vec<SeasonView>> {
+    let limit = params.limit.unwrap_or(50);
+    let offset = params.offset.unwrap_or(0);
+    if limit < 0 || offset < 0 {
+        return Err(ApiError::BadQueryParam(
+            "limit and offset must be non-negative",
+        ));
+    }
+    let views = match params.series_id {
+        Some(series_id) => {
+            state
+                .ports
+                .season_repo()
+                .list_by_series(series_id, limit, offset)
+                .await?
+        }
+        None => state.ports.season_repo().list_all(limit, offset).await?,
+    };
+    Ok((StatusCode::OK, Json(views)))
 }
 
 /// Season membership DTO — the single source of truth for the client-side
@@ -4929,7 +4980,11 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
             "/settings/{id}",
             routing::get(get_settings::<ProductionPorts>).delete(revoke_settings::<ProductionPorts>),
         )
-        .route("/seasons", routing::post(create_season::<ProductionPorts>))
+        .route(
+            "/seasons",
+            routing::post(create_season::<ProductionPorts>)
+                .get(list_seasons::<ProductionPorts>),
+        )
         .route("/seasons/{id}", routing::get(get_season::<ProductionPorts>))
         .route(
             "/seasons/{id}/membership",

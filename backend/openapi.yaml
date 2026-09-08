@@ -4513,6 +4513,60 @@ paths:
       tags:
       - handlers
   /v1/seasons:
+    get:
+      description: Lists seasons, optionally narrowed to one series via series_id. The table stays small, so — unlike the episode/scene lists — no scope parameter is required.
+      operationId: list_seasons
+      parameters:
+      - in: query
+        name: limit
+        required: false
+        schema:
+          default: 50
+          format: int64
+          minimum: 0
+          type:
+          - integer
+          - 'null'
+      - in: query
+        name: offset
+        required: false
+        schema:
+          default: 0
+          format: int64
+          minimum: 0
+          type:
+          - integer
+          - 'null'
+      - in: query
+        name: series_id
+        required: false
+        schema:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SeriesId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/SeasonView'
+                type: array
+          description: ''
+        '400':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Negative limit or offset
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Projection store failure
+      tags:
+      - handlers
     post:
       operationId: create_season
       requestBody:

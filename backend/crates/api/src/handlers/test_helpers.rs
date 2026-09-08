@@ -637,6 +637,9 @@ impl SeasonRepository for FakeSeasonRepo {
     async fn find_by_id(&self, id: Uuid) -> Result<SeasonView, DomainError> {
         Err(DomainError::not_found("season"))
     }
+    async fn list_all(&self, _limit: i64, _offset: i64) -> Result<Vec<SeasonView>, DomainError> {
+        Ok(Vec::new())
+    }
     async fn list_by_series(
         &self,
         _series_id: SeriesId,

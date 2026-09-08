@@ -7,7 +7,6 @@ import 'dart:async' show unawaited;
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:fpdart/fpdart.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../core/problem_error.dart';
@@ -46,13 +45,11 @@ SeasonRepository seasonRepository(Ref ref) => SeasonRepository(
   SeasonCacheDao(ref.watch(cacheDatabaseProvider)),
 );
 
-/// The injected list-fetch seam (Design Decision D3).
-///
-/// The generated client has no seasons list endpoint yet (tracked separately),
-/// so the default surfaces a `not_implemented` error; production wiring
-/// replaces the body with `repo.fetchAndCacheList(() => repo.fetchSeasonsList())`
-/// once `GET /v1/seasons` lands. Tests override this provider with a fake that
-/// writes the cache via `repo.fetchAndCacheList(...)`.
+/// The read-projection list fetch (Design Decision D3): `GET /v1/seasons`
+/// via [SeasonRepository.fetchSeasonsList], snapshot-reconciled into Drift
+/// by [SeasonRepository.fetchAndCacheList] (writes on success only, D1).
+/// Tests override this provider with a fake that writes the cache via
+/// `repo.fetchAndCacheList(...)`.
 @riverpod
 Future<Result<List<SeasonView>>> seasonsListFetch(Ref ref) {
   final repo = ref.watch(seasonRepositoryProvider);
@@ -63,8 +60,7 @@ Future<Result<List<SeasonView>>> seasonsListFetch(Ref ref) {
   // persist.
   final generation = ref.watch(cacheGenerationProvider);
   return repo.fetchAndCacheList(
-    () async =>
-        const Left(ProblemError(code: 'transport.seasons_list_unavailable')),
+    () => repo.fetchSeasonsList(),
     clock: clock,
     fence: CacheWriteFence(
       generation: generation,

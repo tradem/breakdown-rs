@@ -831,14 +831,35 @@ pub struct FakeSeasonRepo {
     /// `season.not-found` problem). Lets handler tests cover the 404 path
     /// without a real projection. Defaults to `true` (season exists).
     pub season_exists: bool,
+    pub seasons: Arc<Mutex<HashMap<Uuid, SeasonView>>>,
 }
 
 impl Default for FakeSeasonRepo {
     fn default() -> Self {
         Self {
             season_exists: true,
+            seasons: Arc::new(Mutex::new(HashMap::new())),
         }
     }
+}
+
+/// Materialize and sort seasons like the production repository (`ORDER BY
+/// number`, `id` as deterministic tiebreak): `HashMap::values()` has no
+/// stable order, so paginating the raw iterator would return different
+/// seasons for the same scope, offset, and limit.
+#[allow(dead_code)]
+fn sort_paginate_seasons(
+    rows: impl Iterator<Item = SeasonView>,
+    limit: i64,
+    offset: i64,
+) -> Vec<SeasonView> {
+    let mut views: Vec<SeasonView> = rows.collect();
+    views.sort_by(|a, b| a.number.cmp(&b.number).then(a.id.cmp(&b.id)));
+    views
+        .into_iter()
+        .skip(offset.max(0) as usize)
+        .take(limit.max(0) as usize)
+        .collect()
 }
 
 impl SeasonRepository for FakeSeasonRepo {
@@ -862,13 +883,22 @@ impl SeasonRepository for FakeSeasonRepo {
             })
         }
     }
+    async fn list_all(&self, limit: i64, offset: i64) -> Result<Vec<SeasonView>, DomainError> {
+        let all = self.seasons.lock().await;
+        Ok(sort_paginate_seasons(all.values().cloned(), limit, offset))
+    }
     async fn list_by_series(
         &self,
-        _series_id: SeriesId,
-        _limit: i64,
-        _offset: i64,
+        series_id: SeriesId,
+        limit: i64,
+        offset: i64,
     ) -> Result<Vec<SeasonView>, DomainError> {
-        Ok(Vec::new())
+        let all = self.seasons.lock().await;
+        Ok(sort_paginate_seasons(
+            all.values().filter(|s| s.series_id == series_id).cloned(),
+            limit,
+            offset,
+        ))
     }
     async fn find_by_series_and_number(
         &self,
