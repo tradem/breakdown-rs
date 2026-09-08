@@ -15,6 +15,7 @@ import 'package:frontend_flutter/data/block_repository.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/clock.dart';
 import 'package:frontend_flutter/data/cache/hierarchy_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/scene_shoot_cache_dao.dart';
 import 'package:frontend_flutter/data/costume_category_repository.dart';
 import 'package:frontend_flutter/data/episode_repository.dart';
 import 'package:frontend_flutter/data/scene_repository.dart';
@@ -222,13 +223,15 @@ class FakeCostumeCategoryRepository extends CostumeCategoryRepository {
 
 void main() {
   group('hierarchy cache schema (2.1)', () {
-    test('schema version is 4 with all projection tables', () async {
+    test('schema version is 5 with all projection tables', () async {
       final db = CacheDatabase(NativeDatabase.memory());
       addTearDown(db.close);
       // `flutter-costume-domains` 1.1 adds the costumes/characters/
       // shooting_days tables (migration v2 → v3); the review follow-up
-      // adds the costume snapshot ordinal (migration v3 → v4).
-      expect(db.schemaVersion, 4);
+      // adds the costume snapshot ordinal (migration v3 → v4);
+      // `flutter-shoot-day-execution` 1.2 adds the day-board scene-shoot
+      // table (migration v4 → v5).
+      expect(db.schemaVersion, 5);
       // Every table round-trips (migration created them).
       await BlockCacheDao(db).applySnapshotForSeason('s', [
         _block('b', seasonId: 's'),
@@ -254,6 +257,25 @@ void main() {
       final catRows = await CostumeCategoryCacheDao(db)
           .readBySeasonOrdered('s');
       expect(catRows.map((v) => v.id), ['c']);
+      // The day-board table round-trips (migration created it).
+      await SceneShootCacheDao(db).applySnapshotForDay('d', [
+        SceneShootView(
+          (b) => b
+            ..id = 'ssh-1'
+            ..shootingDayId = 'd'
+            ..sceneId = 'scene-1'
+            ..plannedOrder = 'a0'
+            ..status = SceneShootStatus.planned
+            ..notes.replace(BuiltList<SerializedNote>())
+            ..continuityPhotoIds.replace(BuiltList<String>())
+            ..updatedAt = DateTime.utc(2026, 5, 1)
+            ..version = 1,
+        ),
+      ], DateTime.utc(2026, 5, 2));
+      expect(
+        (await SceneShootCacheDao(db).readByDayOrdered('d')).map((v) => v.id),
+        ['ssh-1'],
+      );
     });
   });
 

@@ -5,7 +5,9 @@
 #
 # Static CI gate for the Gherkin critical-scenario discipline
 # (features-spec/README.md, tasks 5.1/5.2). Enforces:
-#   1. The three designated critical .feature files exist.
+#   1. The designated critical .feature files exist (the three AGENTS.md §6
+#      minimum scopes plus the shoot-day execution scope shipped with
+#      `flutter-shoot-day-execution`).
 #   2. Each critical scope is tagged @critical (as an actual Gherkin tag,
 #      not prose) and contains at least one Scenario. A critical scope may be
 #      either still @pending (screen not landed, excluded by the runner's
@@ -32,6 +34,7 @@ fail() {
 
 critical_files=(
   "soll_ist_report.feature"
+  "soll_ist_execution.feature"
   "continuity_photo_capture.feature"
   "costume_assignment.feature"
 )

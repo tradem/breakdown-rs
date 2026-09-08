@@ -19,6 +19,7 @@ import 'package:test/test.dart';
 
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/scene_shoot_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
 
 /// Minimal opener marking the file as a v3 install (schema marker only;
@@ -40,6 +41,20 @@ class _V2Install implements QueryExecutorUser {
 class _V3Install implements QueryExecutorUser {
   @override
   int get schemaVersion => 3;
+
+  @override
+  Future<void> beforeOpen(
+    QueryExecutor executor,
+    OpeningDetails details,
+  ) async {}
+}
+
+/// Minimal opener marking the file as a v4 install (schema marker only;
+/// the v4 table shapes are created with raw SQL afterwards; the v5
+/// day-board table is created by the migration itself).
+class _V4Install implements QueryExecutorUser {
+  @override
+  int get schemaVersion => 4;
 
   @override
   Future<void> beforeOpen(
@@ -128,4 +143,37 @@ void main() {
       expect(await dao.readBySeason('s-1'), isEmpty);
     },
   );
+
+  test('v4 to v5 creates the day-board table, season rows survive', () async {
+    final dir = await Directory.systemTemp.createTemp('sceneshoot-migration');
+    addTearDown(() => dir.delete(recursive: true));
+    final file = File('${dir.path}/cache.db');
+
+    // A v4 install: seasons populated, no scene-shoot table yet.
+    final setup = NativeDatabase(file);
+    await setup.ensureOpen(_V4Install());
+    await setup.runCustom(
+      'CREATE TABLE season_cache_rows ('
+      'id TEXT NOT NULL PRIMARY KEY, '
+      'number INTEGER NOT NULL, '
+      'series_id TEXT NOT NULL, '
+      'title TEXT NULL, '
+      'updated_at INTEGER NOT NULL, '
+      'version INTEGER NOT NULL, '
+      'cached_at INTEGER NOT NULL)',
+    );
+    await setup.runCustom(
+      "INSERT INTO season_cache_rows VALUES "
+      "('s-1', 1, 'series-1', NULL, 1767225600, 1, 1767225600)",
+    );
+    await setup.close();
+
+    // Upgrade v4 → v5: the day-board table is created from the current
+    // definition; the season row survives; snapshots apply cleanly.
+    final db = CacheDatabase(NativeDatabase(file));
+    addTearDown(db.close);
+    expect((await SeasonCacheDao(db).readAll()).map((s) => s.id), ['s-1']);
+    final dao = SceneShootCacheDao(db);
+    expect(await dao.readByDayOrdered('day-1'), isEmpty);
+  });
 }

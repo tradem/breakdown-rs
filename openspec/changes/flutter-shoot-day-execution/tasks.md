@@ -8,50 +8,56 @@
 - [x] 0.1 Backend re-export landed the scene-shoot / continuity-photo /
        wrap routes in `backend/openapi.yaml` (GitHub issue #333,
        PR #344)
-- [ ] 0.2 `bash scripts/regen-client.sh`; commit the regenerated
+- [x] 0.2 `bash scripts/regen-client.sh`; commit the regenerated
        `vendor/breakdown_api/` tree; confirm the new DTOs — incl. the
        slimmed `PlanSceneShootRequest { planned_order }` (path ids
        only, backend issue #346, PR #359)
-- [ ] 0.3 Verify the intended routes in the generated client match
+- [x] 0.3 Verify the intended routes in the generated client match
        the router-served family from design.md §1 (no improvisation)
 
 ## 1. Data layer
-- [ ] 1.1 Extend `data/scene_shoot_repository.dart` with the
+- [x] 1.1 Extend `data/scene_shoot_repository.dart` with the
        generated execution calls against the **`/v1`-prefixed**
        externally reachable paths (plan/replan/get, start,
        actual-order, finish, skip, notes add/update/remove,
        continuity upload/list/unlink, wrap) — Result-typed, version
        echoes, `// AUTHZ-GATE:` on ALL continuity calls (upload,
        list, unlink) with the local-denial zero-call tests
-- [ ] 1.2 Drift table(s) for the day-board projection + migration
-- [ ] 1.3 Unit tests: every command Ok/Err; optimistic-edit
+- [x] 1.2 Drift table(s) for the day-board projection + migration
+- [x] 1.3 Unit tests: every command Ok/Err; optimistic-edit
        reducers; Ist-state renderer purity (flags/finality from read
        model only)
 
 ## 2. Day board
-- [ ] 2.1 `features/scene_shoots/scene_shoots_screen.dart` — day
+- [x] 2.1 `features/scene_shoots/scene_shoots_screen.dart` — day
        board (planned sequence, Ist strip, per-shoot actions, wrap),
        controllers on the shared reconciliation module
-- [ ] 2.2 Notes widget on the shoot cards; wrap confirm dialog with
+- [x] 2.2 Notes widget on the shoot cards; wrap confirm dialog with
        finality copy
-- [ ] 2.3 Continuity strip reusing the Phase 2 capture pipeline
+- [x] 2.3 Continuity strip reusing the Phase 2 capture pipeline
        (scene-shoot context, optional costume link)
-- [ ] 2.4 Widget tests + goldens ({light,dark} × {android,macos});
+- [x] 2.4 Widget tests + goldens ({light,dark} × {android,macos});
        statuses, wrapped-day read-only state, 409 conflicts, denial
        narratives
 
 ## 3. Gherkin (designated critical scenarios)
-- [ ] 3.1 `features-spec/continuity_photo_capture.feature` — gate →
+- [x] 3.1 `features-spec/continuity_photo_capture.feature` — gate →
        capture → upload → variant Ready → thumb appears; plus the
        watch-expired case (variant still `Processing` at the deadline
        → polling stops + recovery affordance)
-- [ ] 3.2 `features-spec/soll_ist_execution.feature` — plan → start
+- [x] 3.2 `features-spec/soll_ist_execution.feature` — plan → start
        → actual-order → finish; skip; wrap finality
-- [ ] 3.3 Wire into the flutter_gherkin CI manifest
+- [x] 3.3 Wire into the flutter_gherkin CI manifest
 
 ## 4. Integration + housekeeping
 - [ ] 4.1 On-emulator smoke: plan two shoots → start/finish/skip →
        wrap → assert read-only finality
-- [ ] 4.2 SPDX headers; lint/coverage/gitleaks gates clean
-- [ ] 4.3 `openspec` coverage audit for
+       (Status Sep 2026: attempted on local emulator — environment proven
+       end-to-end, API-level sequence green (plan/start/finish/skip/wrap/
+       finality/immutability), but the on-device flow is blocked by #377
+       (no GET /v1/seasons → board unreachable) and #378 (client never
+       sends X-Active-Block → board fetch 400s). Backend projector
+       instability observed, see #37.)
+- [x] 4.2 SPDX headers; lint/coverage/gitleaks gates clean
+- [x] 4.3 `openspec` coverage audit for
        `flutter-scene-shoots-screen`

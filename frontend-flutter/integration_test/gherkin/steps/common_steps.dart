@@ -44,12 +44,48 @@ StepDefinitionGeneric whenOpenSollIstReport() => when1<String, FlutterWorld>(
   },
 );
 
-/// Opens continuity photo capture for a scene shoot (forward-looking).
-StepDefinitionGeneric whenOpenContinuityPhoto() => when1<String, FlutterWorld>(
-  'I open the continuity photo capture for scene shoot {string}',
-  (String sceneShootId, context) async {
-    // TODO(screen): tap the capture affordance once the photo screen ships.
-    final locator = find.byValueKey('open-continuity-photo-$sceneShootId');
+/// Opens a season from the seasons list (`season-<id>` tile).
+StepDefinitionGeneric whenOpenSeason() => when1<String, FlutterWorld>(
+  'I open season {string}',
+  (String seasonId, context) async {
+    final locator = find.byValueKey('season-$seasonId');
+    await FlutterDriverUtils.tap(context.world.driver!, locator);
+  },
+);
+
+/// Opens a block from the blocks list (`block-<id>` tile).
+StepDefinitionGeneric whenOpenBlock() => when1<String, FlutterWorld>(
+  'I open block {string}',
+  (String blockId, context) async {
+    final locator = find.byValueKey('block-$blockId');
+    await FlutterDriverUtils.tap(context.world.driver!, locator);
+  },
+);
+
+/// Opens an episode from the episodes list (`episode-<id>` tile).
+StepDefinitionGeneric whenOpenEpisode() => when1<String, FlutterWorld>(
+  'I open episode {string}',
+  (String episodeId, context) async {
+    final locator = find.byValueKey('episode-$episodeId');
+    await FlutterDriverUtils.tap(context.world.driver!, locator);
+  },
+);
+
+/// Opens a scene from the scenes list (`scene-<id>` tile → detail).
+StepDefinitionGeneric whenOpenScene() => when1<String, FlutterWorld>(
+  'I open scene {string}',
+  (String sceneId, context) async {
+    final locator = find.byValueKey('scene-$sceneId');
+    await FlutterDriverUtils.tap(context.world.driver!, locator);
+  },
+);
+
+/// Opens the shoot-day execution board from the scene detail's
+/// shooting-days section (`open-day-board-<day>`).
+StepDefinitionGeneric whenOpenDayBoard() => when1<String, FlutterWorld>(
+  'I open the day board for shooting day {string}',
+  (String dayId, context) async {
+    final locator = find.byValueKey('open-day-board-$dayId');
     await FlutterDriverUtils.tap(context.world.driver!, locator);
   },
 );
