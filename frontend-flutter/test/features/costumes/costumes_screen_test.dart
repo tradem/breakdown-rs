@@ -27,6 +27,7 @@ import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/data/character_repository.dart';
 import 'package:frontend_flutter/data/costume_repository.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
+import 'package:frontend_flutter/features/blocks/blocks_controller.dart';
 import 'package:frontend_flutter/features/characters/characters_controller.dart';
 import 'package:frontend_flutter/features/costumes/costumes_controller.dart';
 import 'package:frontend_flutter/features/costumes/costumes_screen.dart';
@@ -84,6 +85,20 @@ SeasonView _season() => SeasonView(
     ..number = 1
     ..seriesId = 'series-1'
     ..title = 'Season One'
+    ..updatedAt = DateTime.utc(2026, 1, 1)
+    ..version = 1,
+);
+
+/// Single-block season for the active-block gate (issue #378): the gate
+/// auto-resolves silently, so these tests exercise content, not scoping.
+BlockView _block() => BlockView(
+  (b) => b
+    ..id = 'block-1'
+    ..number = 1
+    ..seasonId = 'season-1'
+    ..seriesId = 'series-1'
+    ..startDate = '2026-01-01'
+    ..endDate = '2026-01-31'
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = 1,
 );
@@ -199,6 +214,11 @@ void main() {
         cacheDatabaseProvider.overrideWithValue(db),
         costumeRepositoryProvider.overrideWithValue(repo),
         reconciliationSchedulerProvider.overrideWith((ref) => scheduler),
+        // Issue #378: season-direct entry resolves its block scope through
+        // the blocks seam (single block → silent auto-pick).
+        blocksListFetchProvider('season-1').overrideWith(
+          (ref) async => Right<ProblemError, List<BlockView>>([_block()]),
+        ),
         membershipFetchProvider('season-1')
             .overrideWith((ref) async => membershipHolder.value),
         characterRepositoryProvider.overrideWithValue(

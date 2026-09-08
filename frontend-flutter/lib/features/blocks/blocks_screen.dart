@@ -2,10 +2,13 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
+import 'dart:async' show unawaited;
+
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../auth/active_block.dart';
 import '../../auth/auth_providers.dart';
 import '../../auth/season_membership_provider.dart';
 import '../../core/problem_error.dart';
@@ -117,15 +120,40 @@ class BlocksScreen extends ConsumerWidget {
                                 itemBuilder: (context, i) => BlockTile(
                                   row: rows[i],
                                   onTap: rows[i] is ProjectedBlockRow
-                                      ? () => Navigator.of(context).push(
-                                          MaterialPageRoute<void>(
-                                            builder: (_) => EpisodesScreen(
-                                              block:
-                                                  (rows[i] as ProjectedBlockRow)
-                                                      .block,
+                                      ? () {
+                                          // Issue #378: entering block
+                                          // context sets the sticky
+                                          // active-block scope (from the
+                                          // DTO acted on — CQRS boundary)
+                                          // so every block-scoped request
+                                          // below carries X-Active-Block.
+                                          final block =
+                                              (rows[i] as ProjectedBlockRow)
+                                                  .block;
+                                          ref
+                                              .read(
+                                                activeBlockProvider.notifier,
+                                              )
+                                              .set(
+                                                seasonId: block.seasonId,
+                                                blockId: block.id,
+                                              );
+                                          // Scope first (synchronous — the
+                                          // pushed screen's fetches must see
+                                          // it), then navigate. The push
+                                          // future is intentionally
+                                          // unawaited (fire-and-forget
+                                          // navigation, no result consumed).
+                                          unawaited(
+                                            Navigator.of(context).push(
+                                              MaterialPageRoute<void>(
+                                                builder: (_) => EpisodesScreen(
+                                                  block: block,
+                                                ),
+                                              ),
                                             ),
-                                          ),
-                                        )
+                                          );
+                                        }
                                       : null,
                                 ),
                               ),

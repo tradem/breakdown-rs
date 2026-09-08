@@ -5,6 +5,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fpdart/fpdart.dart';
 
+import '../../auth/active_block.dart';
 import '../../auth/auth_providers.dart';
 import '../../auth/membership/membership_providers.dart';
 import '../../core/problem_error.dart';
@@ -194,7 +195,11 @@ class SessionReset extends Notifier<void> {
       ..invalidate(shootingDaysCommandErrorProvider)
       // Session-scoped photo rationale: the next user must see the
       // pre-permission rationale instead of inheriting `seen`.
-      ..invalidate(photoRationaleSeenProvider);
+      ..invalidate(photoRationaleSeenProvider)
+      // Active-block scope (issue #378): identity-scoped — the next
+      // session must never inherit the previous user's block, so reset
+      // to the unset (`null`) scope rather than merely clearing rows.
+      ..invalidate(activeBlockProvider);
   }
 
   /// Resets read state after a backend switch (session kept): like
@@ -207,7 +212,10 @@ class SessionReset extends Notifier<void> {
       ..invalidate(seasonCommandErrorProvider)
       ..invalidate(seasonsControllerProvider)
       ..invalidate(membershipFetchProvider)
-      ..invalidate(currentMembershipProvider);
+      ..invalidate(currentMembershipProvider)
+      // Block ids are backend-scoped: a scope set against the old base
+      // is meaningless on the new one (issue #378).
+      ..invalidate(activeBlockProvider);
   }
 }
 
