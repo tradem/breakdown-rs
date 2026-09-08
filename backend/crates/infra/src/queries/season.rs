@@ -46,6 +46,24 @@ impl SeasonRepository for SeasonRepositoryImpl {
         map_season_row(row)
     }
 
+    async fn list_all(&self, limit: i64, offset: i64) -> Result<Vec<SeasonView>, DomainError> {
+        let rows = sqlx::query(
+            r#"
+            SELECT id, series_id, number, title, version, updated_at
+            FROM projection_season
+            ORDER BY number, id
+            LIMIT $1 OFFSET $2
+            "#,
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DomainError::conflict(e.to_string()))?;
+
+        rows.into_iter().map(map_season_row).collect()
+    }
+
     async fn list_by_series(
         &self,
         series_id: SeriesId,

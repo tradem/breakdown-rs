@@ -32,6 +32,12 @@ pub trait SeasonCommands: Send + Sync {
 #[allow(async_fn_in_trait)]
 pub trait SeasonRepository: Send + Sync {
     async fn find_by_id(&self, id: Uuid) -> Result<SeasonView, DomainError>;
+    /// List all seasons, ordered by number (deterministic `id` tiebreak).
+    ///
+    /// The table stays small (a handful of rows per series), so — unlike the
+    /// episode/scene lists — no scope parameter is required; callers narrow
+    /// with [`SeasonRepository::list_by_series`] when they hold a series.
+    async fn list_all(&self, limit: i64, offset: i64) -> Result<Vec<SeasonView>, DomainError>;
     /// List seasons of a series, ordered by number.
     async fn list_by_series(
         &self,

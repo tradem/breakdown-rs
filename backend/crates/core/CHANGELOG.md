@@ -3,6 +3,7 @@
 <!-- Co-authored-by: deepseek-v4-flash (opencode-go) -->
 <!-- Co-authored-by: longcat-2.0-free (opencode) -->
 <!-- Co-authored-by: hy4-preview (opencode-go) -->
+<!-- Co-authored-by: muse-spark-1.3-contributor (opencode-go) -->
 
 # Changelog
 
@@ -12,6 +13,13 @@ crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
 ## [0.11.0] - Unreleased
+
+### Added — `SeasonRepository::list_all` (issue #377)
+
+- Unscoped season list (`ORDER BY number, id`, `LIMIT`/`OFFSET`), backing
+  `GET /v1/seasons` without `series_id`. The table stays small, so no scope
+  parameter is required; `list_by_series` keeps serving the narrowed read.
+- Rides with the open 0.11.0 MINOR; no additional bump.
 
 ### Added — AI import discovery lists + typed preview envelope (issue #337)
 

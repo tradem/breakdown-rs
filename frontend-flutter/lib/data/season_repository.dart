@@ -86,11 +86,17 @@ class SeasonRepository extends BaseRepository {
     return Right(view);
   });
 
+  /// Collection fetch: `GET /v1/seasons` (unscoped — every season, so the
+  /// reconciliation seam confirms a created id regardless of the series it
+  /// was filed under). Never throws, returns [Result] (AGENTS.md §5).
+  Future<Result<List<SeasonView>>> fetchSeasonsList() => runList(
+    () => api.getHandlersApi().listSeasons(),
+    dtoInvalidCode: 'season.dto_invalid',
+  );
+
   /// Collection fetch + snapshot-replace reconciliation (Design Decision D3).
   ///
-  /// [fetch] is injected because the generated client has no seasons list
-  /// endpoint yet (tracked separately); production passes the future list
-  /// call, tests pass a fake. On [Right] it applies the snapshot (upsert-all +
+  /// [fetch] is injected for tests; production passes [fetchSeasonsList]. On [Right] it applies the snapshot (upsert-all +
   /// delete missing ids, one transaction) and returns the rows. On [Left] it
   /// returns the error **without touching the cache** (D1).
   ///

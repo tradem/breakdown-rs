@@ -3,6 +3,7 @@
 // Co-authored-by: hy3 (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
+import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
@@ -100,6 +101,67 @@ void main() {
     );
   });
 
+  group('SeasonRepository.fetchSeasonsList (issue #377)', () {
+    late CacheDatabase db;
+
+    setUp(() {
+      db = CacheDatabase(NativeDatabase.memory());
+    });
+
+    tearDown(() => db.close());
+
+    SeasonRepository repoWith(_ListSeasonsInterceptor interceptor) =>
+        SeasonRepository(
+          BreakdownApi(dio: Dio(), interceptors: [interceptor]),
+          SeasonCacheDao(db),
+        );
+
+    // The wired list fetch decodes every season (unscoped — the
+    // reconciliation seam confirms a created id whatever its series).
+    test('returns decoded rows on success without touching the cache', () async {
+      final repo = repoWith(
+        _ListSeasonsInterceptor(
+          rows: [_season('a'), _season('b', title: 'Autumn')],
+        ),
+      );
+
+      final res = await repo.fetchSeasonsList();
+      expect(res, isA<Right>());
+      final rows = (res as Right).value as List<SeasonView>;
+      expect(rows.map((v) => v.id), ['a', 'b']);
+      expect(rows[1].title, 'Autumn');
+
+      // Pure fetch (D1 split): persistence is fetchAndCacheList's job.
+      final cached = await repo.readCached();
+      expect((cached as Right).value, isEmpty);
+    });
+
+    // A server rejection is a value (AGENTS.md §5: no throw in `data/`).
+    test('maps a server rejection to a Left(ProblemError)', () async {
+      final repo = repoWith(
+        _ListSeasonsInterceptor(
+          exception: DioException(
+            requestOptions: RequestOptions(path: '/v1/seasons'),
+            response: Response(
+              requestOptions: RequestOptions(path: '/v1/seasons'),
+              statusCode: 400,
+              data: {
+                'code': 'http.bad-query-param',
+                'title': 'Bad query parameter',
+                'status': 400,
+              },
+            ),
+            type: DioExceptionType.badResponse,
+          ),
+        ),
+      );
+
+      final res = await repo.fetchSeasonsList();
+      expect(res, isA<Left>());
+      expect((res as Left).value, isA<ProblemError>());
+    });
+  });
+
   group('SeasonRepository.list (first-screen-seasons Task 2.2)', () {
     late CacheDatabase db;
     late SeasonRepository repo;
@@ -149,4 +211,34 @@ class _ThrowingCacheDao extends SeasonCacheDao {
   @override
   Future<List<SeasonView>> readAll() async =>
       throw StateError('simulated executor failure');
+}
+
+/// Interceptor that short-circuits `GET /v1/seasons` without any real
+/// network call, resolving with serialized [rows] or rejecting with
+/// [exception].
+class _ListSeasonsInterceptor extends Interceptor {
+  _ListSeasonsInterceptor({this.rows, this.exception})
+    : assert(rows != null || exception != null);
+
+  final List<SeasonView>? rows;
+  final DioException? exception;
+
+  @override
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+    if (exception != null) {
+      handler.reject(exception!);
+      return;
+    }
+    handler.resolve(
+      Response(
+        requestOptions: options,
+        statusCode: 200,
+        data: rows!
+            .map(
+              (v) => serializers.serializeWith(SeasonView.serializer, v),
+            )
+            .toList(),
+      ),
+    );
+  }
 }

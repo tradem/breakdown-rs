@@ -3,6 +3,7 @@
 <!-- Co-authored-by: deepseek-v4-flash (opencode-go) -->
 <!-- Co-authored-by: longcat-2.0-free (opencode) -->
 <!-- Co-authored-by: hy4-preview (opencode-go) -->
+<!-- Co-authored-by: muse-spark-1.3-contributor (opencode-go) -->
 
 # Changelog
 
@@ -12,6 +13,13 @@ crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
 ## [0.16.0] - Unreleased
+
+### Added — season list-all projection query (issue #377)
+
+- `SeasonRepositoryImpl::list_all`: every row of `projection_season`
+  (`ORDER BY number, id`, `LIMIT`/`OFFSET` bound, static SQL) reusing
+  `map_season_row`.
+- Rides with the open 0.16.0 MINOR; no additional bump.
 
 ### Added — AI import discovery list queries (issue #337)
 

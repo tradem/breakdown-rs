@@ -22,6 +22,29 @@ commits (ADR-020 D5).
 > original reasoning. Issue #337 below adds new public routes on top, moving
 > the release to **0.10.0**.
 
+### Added — `GET /v1/seasons` series-scoped seasons list (issue #377)
+
+- `list_seasons` serves `SeasonRepository::list_by_series` when `series_id`
+  is given and the new `SeasonRepository::list_all` port otherwise, over the
+  shared `ListParams` (`limit`/`offset`). No scope parameter is required —
+  unlike the episode/scene lists — so the client's parameterless
+  `fetchSeasonsList()` reconciliation confirms a created id regardless of
+  the series it was filed under, and the full-snapshot cache write
+  (`applySnapshot`, which deletes missing ids) stays coherent. The route
+  keeps the `Authenticated`-only requirement (`/seasons` prefix already
+  classifies that way); no handler-internal auth gate applies, matching the
+  sibling collection lists.
+- `backend/openapi.yaml` regenerated (`operationId: list_seasons`). The
+  wire contract is additive, so the `/v1` path version stays (ADR-021 D1).
+  The generated Dart client regenerates Flutter-side (unblocks the client's
+  `seasonsListFetch` seam and the 4.1 on-device smoke below seasons).
+- New `crates/api/tests/handler_season_list.rs`: unscoped list returns every
+  series, `series_id` narrows + number ordering, and an `api_doc()`
+  assertion that `GET /v1/seasons` exposes `series_id`. `FakeSeasonRepo`
+  gains a map-backed `seasons` store so `list_all`/`list_by_series`
+  filter/sort/paginate like the production projector queries.
+- Rides with the open 0.10.0 MINOR; no additional bump.
+
 ### Fixed — `PATCH /v1/shooting-days/{id}` explicit date/label clear (issue #372)
 
 - `UpdateShootingDayRequest.date` / `.label` are presence-tracked

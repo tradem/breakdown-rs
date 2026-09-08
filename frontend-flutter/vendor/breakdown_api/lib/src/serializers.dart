@@ -268,6 +268,10 @@ Serializers serializers = (_$serializers.toBuilder()
         () => ListBuilder<SerializedNote>(),
       )
       ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(SeasonView)]),
+        () => ListBuilder<SeasonView>(),
+      )
+      ..addBuilderFactory(
         const FullType(BuiltList, [FullType(CharacterView)]),
         () => ListBuilder<CharacterView>(),
       )

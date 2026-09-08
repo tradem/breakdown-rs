@@ -34,6 +34,7 @@ async fn get_season_membership_returns_404_for_missing_season() {
     let ports = FakePorts {
         season_repo: FakeSeasonRepo {
             season_exists: false,
+            ..Default::default()
         },
         ..Default::default()
     };
@@ -54,6 +55,7 @@ async fn get_season_membership_returns_capabilities_for_active_member() {
     let ports = FakePorts {
         season_repo: FakeSeasonRepo {
             season_exists: true,
+            ..Default::default()
         },
         ..Default::default()
     };
@@ -93,6 +95,7 @@ async fn get_season_membership_returns_empty_capabilities_for_non_member() {
     let ports = FakePorts {
         season_repo: FakeSeasonRepo {
             season_exists: true,
+            ..Default::default()
         },
         membership_repo: FakeMembershipRepo {
             members: Default::default(),

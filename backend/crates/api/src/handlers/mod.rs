@@ -593,6 +593,35 @@ pub async fn get_season<P: Ports>(
     Ok((StatusCode::OK, Json(view)))
 }
 
+#[utoipa::path(
+    get,
+    path = "/seasons",
+    description = "Lists seasons, optionally narrowed to one series via series_id. The table stays small, so — unlike the episode/scene lists — no scope parameter is required.",
+    params(ListParams),
+    responses(
+        (status = 200, body = Vec<SeasonView>),
+        (status = 409, body = ProblemDetails, description = "Projection store failure"),
+    ),
+)]
+pub async fn list_seasons<P: Ports>(
+    State(state): State<AppState<P>>,
+    Query(params): Query<ListParams>,
+) -> ApiResult<Vec<SeasonView>> {
+    let limit = params.limit.unwrap_or(50);
+    let offset = params.offset.unwrap_or(0);
+    let views = match params.series_id {
+        Some(series_id) => {
+            state
+                .ports
+                .season_repo()
+                .list_by_series(series_id, limit, offset)
+                .await?
+        }
+        None => state.ports.season_repo().list_all(limit, offset).await?,
+    };
+    Ok((StatusCode::OK, Json(views)))
+}
+
 /// Season membership DTO — the single source of truth for the client-side
 /// AUTHZ-GATE (D2 of the `wire-flutter-oidc-auth` change).
 ///
@@ -4929,7 +4958,11 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
             "/settings/{id}",
             routing::get(get_settings::<ProductionPorts>).delete(revoke_settings::<ProductionPorts>),
         )
-        .route("/seasons", routing::post(create_season::<ProductionPorts>))
+        .route(
+            "/seasons",
+            routing::post(create_season::<ProductionPorts>)
+                .get(list_seasons::<ProductionPorts>),
+        )
         .route("/seasons/{id}", routing::get(get_season::<ProductionPorts>))
         .route(
             "/seasons/{id}/membership",
