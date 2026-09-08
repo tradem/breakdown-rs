@@ -11,6 +11,8 @@ import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
 
+import 'package:frontend_flutter/auth/active_block.dart';
+import 'package:frontend_flutter/auth/active_block_store.dart';
 import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/auth/token_store.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
@@ -42,7 +44,14 @@ void main() {
 
   /// Signed-in container (seeded store → restored session, seeded cache row):
   /// no network, no IdP — `signOut` never needs the OIDC client.
+  /// Installs the in-memory secure-storage double: `SessionReset.signOut`
+  /// (issue #382) wipes the persisted active-block scopes alongside the
+  /// tokens, so the real method channel must never be touched here.
   void setupContainer({bool devAuth = false}) {
+    final securePlatform = _OverridePlatform();
+    final previous = FlutterSecureStoragePlatform.instance;
+    FlutterSecureStoragePlatform.instance = securePlatform;
+    addTearDown(() => FlutterSecureStoragePlatform.instance = previous);
     db = CacheDatabase(NativeDatabase.memory());
     addTearDown(db.close);
     repo = FakeSeasonRepository(BreakdownApi(), SeasonCacheDao(db));
@@ -145,6 +154,28 @@ void main() {
       expect(container.read(seasonsControllerProvider).overlays, isEmpty);
       expect(container.read(signInErrorProvider), isNull);
     });
+
+    test(
+      'clears the persisted active-block scopes (no cross-identity leak)',
+      () async {
+        setupContainer();
+        expect(await session(), isNotNull);
+        final store = ActiveBlockStore.secure();
+        expect(
+          (await store.saveScope(seasonId: 's1', blockId: 'b1')).isRight(),
+          isTrue,
+        );
+        container
+            .read(activeBlockProvider.notifier)
+            .set(seasonId: 's1', blockId: 'b1');
+
+        await container.read(sessionResetProvider.notifier).signOut();
+
+        expect(await session(), isNull);
+        expect(container.read(activeBlockProvider), isNull);
+        expect((await store.readScopes()).getRight().toNullable(), isEmpty);
+      },
+    );
 
     test('token wipe Err: gate fails closed, cache still emptied', () async {
       setupContainer();
