@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fpdart/fpdart.dart';
 
 import '../../auth/active_block.dart';
+import '../../auth/active_block_store.dart';
 import '../../auth/auth_providers.dart';
 import '../../auth/membership/membership_providers.dart';
 import '../../core/problem_error.dart';
@@ -70,6 +71,17 @@ class SessionReset extends Notifier<void> {
     // Decoded photo bytes are sensitive (CWE-524): drop the in-memory LRU
     // before the next session starts (Drift never persisted them).
     ref.read(photoBytesLruProvider).clear();
+    // Active-block scopes are identity-scoped (issue #382): wipe the
+    // persisted per-season map so the next session never inherits it. A
+    // clear failure fails the session closed, like the cache-clear failure
+    // above — stale identity state must never survive sign-out.
+    final scopesCleared = await ref.read(activeBlockStoreProvider).clear();
+    final scopesError = scopesCleared.getLeft().toNullable();
+    if (scopesError != null) {
+      await ref
+          .read(authSessionControllerProvider.notifier)
+          .failSession(scopesError);
+    }
     _invalidateSessionScope();
   }
 
@@ -122,6 +134,20 @@ class SessionReset extends Notifier<void> {
     // The second invalidation in `_invalidateReadScope` below is kept:
     // it clears a scope set mid-switch (fail-closed).
     ref.invalidate(activeBlockProvider);
+    // Block ids are backend-scoped (issue #382): wipe the persisted
+    // per-season map BEFORE switching the base — otherwise the gate would
+    // restore the old backend's block id against the new backend (403).
+    // A clear failure fails the session closed AND returns `Err`, like the
+    // cache failure below.
+    final scopesCleared = await ref.read(activeBlockStoreProvider).clear();
+    final scopesError = scopesCleared.getLeft().toNullable();
+    if (scopesError != null) {
+      await ref
+          .read(authSessionControllerProvider.notifier)
+          .failSession(scopesError);
+      return Left(scopesError);
+    }
+    ref.invalidate(activeBlockPersistedProvider);
     ref.read(runtimeApiBaseProvider.notifier).set(base);
     final emptied = await ref.read(seasonRepositoryProvider).clearCache();
     final emptyError = emptied.getLeft().toNullable();
@@ -205,7 +231,10 @@ class SessionReset extends Notifier<void> {
       // Active-block scope (issue #378): identity-scoped — the next
       // session must never inherit the previous user's block, so reset
       // to the unset (`null`) scope rather than merely clearing rows.
-      ..invalidate(activeBlockProvider);
+      // The persisted per-season map (issue #382) was already wiped by
+      // the caller; this drops the provider's cached read alongside it.
+      ..invalidate(activeBlockProvider)
+      ..invalidate(activeBlockPersistedProvider);
   }
 
   /// Resets read state after a backend switch (session kept): like
@@ -222,8 +251,10 @@ class SessionReset extends Notifier<void> {
       // Block ids are backend-scoped (issue #378): clears a scope set
       // mid-switch; the pre-switch scope was already cleared in
       // `_applyNewBase` before `set(base)` so no request ever pairs the
-      // new base with the old backend's block id.
-      ..invalidate(activeBlockProvider);
+      // new base with the old backend's block id. The persisted map
+      // (issue #382) was wiped there too; this drops its cached read.
+      ..invalidate(activeBlockProvider)
+      ..invalidate(activeBlockPersistedProvider);
   }
 }
 

@@ -20,7 +20,6 @@ import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/features/seasons/seasons_controller.dart';
 import 'package:frontend_flutter/features/seasons/seasons_screen.dart';
-import 'package:frontend_flutter/features/seasons/seasons_state.dart';
 
 import 'seasons_test_fakes.dart';
 
