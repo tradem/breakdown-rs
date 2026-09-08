@@ -119,6 +119,7 @@ class _FakeSceneShootRepository extends SceneShootRepository {
   int removeNoteCalls = 0;
   int actualOrderCalls = 0;
   int replanCalls = 0;
+  int? lastWrapVersion;
   String? lastNoteBody;
   String? lastOrderKey;
 
@@ -164,6 +165,7 @@ class _FakeSceneShootRepository extends SceneShootRepository {
   @override
   Future<Result<int>> wrap(String a, WrapShootingDayRequest r) {
     wrapCalls++;
+    lastWrapVersion = r.version;
     return _ack();
   }
 
@@ -470,8 +472,7 @@ void main() {
       tester,
     ) async {
       // The entry DTO is unwrapped, but the live day projection carries
-      // the wrap: the board flips to read-only without re-entry (the
-      // wrap button dispatches with the projected version, never stale).
+      // the wrap: the board flips to read-only without re-entry.
       await setupContainer(initialRows: [_shoot('ssh-1')]);
       await pumpScreen(tester);
       expect(find.byKey(const Key('scene-shoots-wrap')), findsOneWidget);
@@ -487,6 +488,29 @@ void main() {
       );
       expect(find.byKey(const Key('scene-shoot-start-ssh-1')), findsNothing);
       expect(find.byKey(const Key('scene-shoots-wrap')), findsNothing);
+    });
+
+    testWidgets('wrap dispatches the live version, never the entry DTO', (
+      tester,
+    ) async {
+      // Entry DTO at version 1, live projection at version 6 unwrapped:
+      // the confirmed wrap must echo 6. A regression to the entry
+      // version would pass every read-only assertion above.
+      await setupContainer(initialRows: [_shoot('ssh-1')]);
+      await pumpScreen(tester);
+      // Publish the unwrapped live day at version 6 (entry DTO is v1).
+      daysHolder.value = ShootingDaysView(
+        rows: [_day(version: 6)],
+        isStale: false,
+      );
+      container.invalidate(shootingDaysViewProvider('episode-1'));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(find.byKey(const Key('scene-shoots-wrap')));
+      await _pumpFrames(tester, n: 30);
+      await tester.tap(find.byKey(const Key('wrap-confirm-button')));
+      await _pumpFrames(tester, n: 10);
+      expect(repo.wrapCalls, 1);
+      expect(repo.lastWrapVersion, 6);
     });
 
     testWidgets('denial: viewer sees the 403 narrative, no capture', (

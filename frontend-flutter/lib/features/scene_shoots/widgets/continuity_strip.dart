@@ -122,7 +122,10 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
                         ? () => _confirmUnlink(photo.id)
                         : null,
                     onRetryCapture:
-                        widget.enabled && canManage && _costumeId != null
+                        widget.enabled &&
+                            canManage &&
+                            !_busy &&
+                            _costumeId != null
                         ? () => _capture(ImageSource.camera)
                         : null,
                   ),
