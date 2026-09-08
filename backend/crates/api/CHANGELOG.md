@@ -25,8 +25,9 @@ commits (ADR-020 D5).
 ### Added — `GET /v1/seasons` series-scoped seasons list (issue #377)
 
 - `list_seasons` serves `SeasonRepository::list_by_series` when `series_id`
-  is given and the new `SeasonRepository::list_all` port otherwise, over the
-  shared `ListParams` (`limit`/`offset`). No scope parameter is required —
+  is given and the new `SeasonRepository::list_all` port otherwise, over a
+  dedicated `SeasonListParams` (`limit`/`offset` + optional `series_id`;
+  sibling scopes stay out of the contract, issue #377 review). No scope parameter is required —
   unlike the episode/scene lists — so the client's parameterless
   `fetchSeasonsList()` reconciliation confirms a created id regardless of
   the series it was filed under, and the full-snapshot cache write

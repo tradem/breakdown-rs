@@ -5189,8 +5189,6 @@ class HandlersApi {
   /// Parameters:
   /// * [limit]
   /// * [offset]
-  /// * [episodeId]
-  /// * [seasonId]
   /// * [seriesId]
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
@@ -5204,8 +5202,6 @@ class HandlersApi {
   Future<Response<BuiltList<SeasonView>>> listSeasons({
     int? limit = 50,
     int? offset = 0,
-    String? episodeId,
-    String? seasonId,
     String? seriesId,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
@@ -5234,12 +5230,6 @@ class HandlersApi {
       if (offset != null)
         r'offset':
             encodeQueryParameter(_serializers, offset, const FullType(int)),
-      if (episodeId != null)
-        r'episode_id': encodeQueryParameter(
-            _serializers, episodeId, const FullType(String)),
-      if (seasonId != null)
-        r'season_id': encodeQueryParameter(
-            _serializers, seasonId, const FullType(String)),
       if (seriesId != null)
         r'series_id': encodeQueryParameter(
             _serializers, seriesId, const FullType(String)),

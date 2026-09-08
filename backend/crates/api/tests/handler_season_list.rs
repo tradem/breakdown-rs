@@ -24,7 +24,7 @@ use breakdown_core::shared::{AggregateVersion, SeriesId};
 use chrono::Utc;
 use uuid::Uuid;
 
-use api::handlers::{ListParams, list_seasons};
+use api::handlers::{SeasonListParams, list_seasons};
 use api::state::AppState;
 
 mod common;
@@ -40,12 +40,10 @@ fn season_view(id: Uuid, series_id: SeriesId, number: i32) -> SeasonView {
     }
 }
 
-fn list_params() -> ListParams {
-    ListParams {
+fn list_params() -> SeasonListParams {
+    SeasonListParams {
         limit: Some(50),
         offset: Some(0),
-        episode_id: None,
-        season_id: None,
         series_id: None,
     }
 }
@@ -118,4 +116,10 @@ fn openapi_doc_exposes_seasons_list() {
         names.contains(&"series_id"),
         "GET /v1/seasons must expose series_id (issue #377), got {names:?}"
     );
+    for ignored in ["episode_id", "season_id", "block_id"] {
+        assert!(
+            !names.contains(&ignored),
+            "GET /v1/seasons must not advertise {ignored} (silently ignored, issue #377 review), got {names:?}"
+        );
+    }
 }
