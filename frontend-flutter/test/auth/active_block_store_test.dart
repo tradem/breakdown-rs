@@ -118,6 +118,74 @@ void main() {
       expect((await store.readScopes()).getRight().toNullable(), isEmpty);
     });
 
+    test('overlapping saves do not lose seasons (serialized)', () async {
+      final store = ActiveBlockStore.secure();
+      // Fire-and-forget like `ActiveBlock.set`: without serialization both
+      // reads would observe the same map and the last write would discard
+      // the other season. No `await` between the invocations on purpose.
+      final first = store.saveScope(seasonId: 's-1', blockId: 'b-1');
+      final second = store.saveScope(seasonId: 's-2', blockId: 'b-2');
+      await Future.wait([first, second]);
+      expect((await store.readScopes()).getRight().toNullable(), {
+        's-1': 'b-1',
+        's-2': 'b-2',
+      });
+    });
+
+    test('stale eviction never deletes a fresh pick (conditional)', () async {
+      final store = ActiveBlockStore.secure();
+      expect(
+        (await store.saveScope(seasonId: 's-1', blockId: 'b-fresh')).isRight(),
+        isTrue,
+      );
+      // The eviction names the id the gate saw as stale; the stored id has
+      // moved on, so this is a no-op — in either scheduling order.
+      final evict = store.removeScopeIfMatch(
+        seasonId: 's-1',
+        blockId: 'b-stale',
+      );
+      final save = store.saveScope(seasonId: 's-1', blockId: 'b-fresh');
+      await Future.wait([evict, save]);
+      expect((await store.readScopes()).getRight().toNullable(), {
+        's-1': 'b-fresh',
+      });
+    });
+
+    test('stale eviction removes the matching entry', () async {
+      final store = ActiveBlockStore.secure();
+      expect(
+        (await store.saveScope(seasonId: 's-1', blockId: 'b-stale')).isRight(),
+        isTrue,
+      );
+      expect(
+        (await store.removeScopeIfMatch(
+          seasonId: 's-1',
+          blockId: 'b-stale',
+        )).isRight(),
+        isTrue,
+      );
+      expect((await store.readScopes()).getRight().toNullable(), isEmpty);
+    });
+
+    test('clear settles after in-flight saves (fenced sign-out)', () async {
+      final store = ActiveBlockStore.secure();
+      // Scheduled before the clear, like a tap racing sign-out: the
+      // awaited clear runs after it, so nothing resurrects afterwards.
+      final save = store.saveScope(seasonId: 's-1', blockId: 'b-1');
+      final cleared = store.clear();
+      await Future.wait([save, cleared]);
+      expect((await store.readScopes()).getRight().toNullable(), isEmpty);
+    });
+
+    test('save scheduled after clear wins (new session scope)', () async {
+      final store = ActiveBlockStore.secure();
+      expect((await store.clear()).isRight(), isTrue);
+      await store.saveScope(seasonId: 's-1', blockId: 'b-1');
+      expect((await store.readScopes()).getRight().toNullable(), {
+        's-1': 'b-1',
+      });
+    });
+
     test('uses the scoped key, not a plaintext preference', () async {
       expect(ActiveBlockStore.key, 'breakdown.active_block_scopes');
       final store = ActiveBlockStore.secure();

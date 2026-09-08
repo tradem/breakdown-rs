@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark (opencode-go)
 
+import 'dart:async' show Completer;
 import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -26,17 +27,27 @@ import '../core/result.dart';
 /// throws (AGENTS.md §5). A corrupt payload self-heals to `{}` (best-effort
 /// wipe) rather than failing resolution — persistence problems must never
 /// break the re-resolution path.
+///
+/// Mutations ([saveScope], [removeScope], [removeScopeIfMatch], [clear]) run
+/// serialized through [_mutex] in invocation order (CodeRabbit review on PR
+/// #383): the single-key read-modify-write would otherwise lose updates when
+/// two rapid `set` calls interleave, let a stale eviction land after a fresh
+/// pick, or let an in-flight write complete after `SessionReset` clears the
+/// map and resurrect a previous identity's scope. Reads stay unfenced — a
+/// torn read is impossible on one key and either side of a write is a valid
+/// map.
 class ActiveBlockStore {
-  const ActiveBlockStore(this._storage);
+  ActiveBlockStore(this._storage);
 
   /// Production store backed by the platform secure enclave.
   factory ActiveBlockStore.secure() =>
-      const ActiveBlockStore(FlutterSecureStorage());
+      ActiveBlockStore(const FlutterSecureStorage());
 
   /// Secure-storage key for the per-season scope map.
   static const String key = 'breakdown.active_block_scopes';
 
   final FlutterSecureStorage _storage;
+  final _WriteMutex _mutex = _WriteMutex();
 
   /// Reads the persisted scopes, or `{}` when none is stored.
   Future<Result<Map<String, String>>> readScopes() async {
@@ -68,7 +79,7 @@ class ActiveBlockStore {
   Future<Result<void>> saveScope({
     required String seasonId,
     required String blockId,
-  }) async {
+  }) => _mutex.run(() async {
     final current = await readScopes();
     final scopes = current.getRight().toNullable();
     if (scopes == null) {
@@ -76,11 +87,11 @@ class ActiveBlockStore {
     }
     scopes[seasonId] = blockId;
     return _writeAll(scopes, 'active_block.scopes_write_failed');
-  }
+  });
 
   /// Evicts the persisted scope for [seasonId] (stale-block cleanup).
   /// A no-op when nothing is stored for the season.
-  Future<Result<void>> removeScope(String seasonId) async {
+  Future<Result<void>> removeScope(String seasonId) => _mutex.run(() async {
     final current = await readScopes();
     final scopes = current.getRight().toNullable();
     if (scopes == null) {
@@ -89,10 +100,29 @@ class ActiveBlockStore {
     if (!scopes.containsKey(seasonId)) return const Right(null);
     scopes.remove(seasonId);
     return _writeAll(scopes, 'active_block.scopes_write_failed');
-  }
+  });
 
-  /// Removes every persisted scope (sign-out / backend switch).
-  Future<Result<void>> clear() async {
+  /// Evicts the persisted scope for [seasonId] only when it still equals
+  /// [blockId] (stale-block cleanup, issue #382): a fresh pick that landed
+  /// after the stale read is never deleted, regardless of scheduling order.
+  Future<Result<void>> removeScopeIfMatch({
+    required String seasonId,
+    required String blockId,
+  }) => _mutex.run(() async {
+    final current = await readScopes();
+    final scopes = current.getRight().toNullable();
+    if (scopes == null) {
+      return Left(current.getLeft().toNullable()!);
+    }
+    if (scopes[seasonId] != blockId) return const Right(null);
+    scopes.remove(seasonId);
+    return _writeAll(scopes, 'active_block.scopes_write_failed');
+  });
+
+  /// Removes every persisted scope (sign-out / backend switch). Awaited by
+  /// `SessionReset`, so every previously scheduled write settles first and
+  /// nothing in flight can resurrect a cleared identity's scope afterwards.
+  Future<Result<void>> clear() => _mutex.run(() async {
     try {
       await _storage.delete(key: key);
       return const Right<ProblemError, void>(null);
@@ -101,7 +131,7 @@ class ActiveBlockStore {
         ProblemError(code: 'active_block.scopes_clear_failed', detail: '$e'),
       );
     }
-  }
+  });
 
   Future<Result<void>> _writeAll(
     Map<String, String> scopes,
@@ -128,6 +158,25 @@ class ActiveBlockStore {
 
 /// The [ActiveBlockStore] seam (manual provider — no codegen — so tests can
 /// override with an in-memory double via `overrideWithValue`).
+
+/// FIFO async mutex serializing the store's mutations (same pattern as the
+/// session-state mutex in `auth_providers.dart`): every guarded body runs to
+/// completion before the next invocation's body starts, so overlapping
+/// read-modify-write cycles execute in invocation order instead of
+/// interleaving. Bodies never throw (every store method returns a `Result`),
+/// so the chain is deadlock-free by construction and an unawaited caller can
+/// never produce an unhandled async error from the coordinator itself.
+class _WriteMutex {
+  Future<void> _tail = Future.value();
+
+  Future<T> run<T>(Future<T> Function() body) {
+    final previous = _tail;
+    final gate = Completer<void>();
+    _tail = gate.future;
+    return previous.then((_) => body()).whenComplete(gate.complete);
+  }
+}
+
 final activeBlockStoreProvider = Provider<ActiveBlockStore>(
   (ref) => ActiveBlockStore.secure(),
   name: 'activeBlockStore',

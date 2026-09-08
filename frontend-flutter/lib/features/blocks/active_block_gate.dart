@@ -129,14 +129,19 @@ AsyncValue<BlockScopeResolution> blockScopeResolution(
             }
             return const AsyncValue<BlockScopeResolution>.loading();
           }
-          // Stale: the block is gone server-side. Evict the entry, then
-          // fall through to the live re-resolution (never a hard failure).
+          // Stale: the block is gone server-side. Evict the entry —
+          // conditional on the stale id, so a fresh pick that landed after
+          // this read is never deleted — then fall through to the live
+          // re-resolution (never a hard failure).
           unawaited(
-            ref.read(activeBlockStoreProvider).removeScope(seasonId).then((r) {
-              r.fold((_) {}, (_) {});
-              if (!ref.mounted) return;
-              ref.invalidate(activeBlockPersistedProvider);
-            }),
+            ref
+                .read(activeBlockStoreProvider)
+                .removeScopeIfMatch(seasonId: seasonId, blockId: remembered)
+                .then((r) {
+                  r.fold((_) {}, (_) {});
+                  if (!ref.mounted) return;
+                  ref.invalidate(activeBlockPersistedProvider);
+                }),
           );
         }
         if (rows.length == 1) {

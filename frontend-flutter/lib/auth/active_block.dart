@@ -69,6 +69,8 @@ class ActiveBlock extends _$ActiveBlock {
   /// `BlocksScreen` tap — must observe it before navigating); the
   /// per-season persistence follows fire-and-forget and refreshes
   /// [activeBlockPersistedProvider] once settled so the gate converges.
+  /// The refresh is `mounted`-guarded: the write may settle after the
+  /// provider was invalidated or disposed (sign-out, test teardown).
   void set({required String seasonId, required String blockId}) {
     state = ActiveScope(seasonId: seasonId, blockId: blockId);
     unawaited(
@@ -77,6 +79,7 @@ class ActiveBlock extends _$ActiveBlock {
           .saveScope(seasonId: seasonId, blockId: blockId)
           .then((r) {
             r.fold((_) {}, (_) {});
+            if (!ref.mounted) return;
             ref.invalidate(activeBlockPersistedProvider);
           }),
     );
@@ -89,6 +92,7 @@ class ActiveBlock extends _$ActiveBlock {
     unawaited(
       ref.read(activeBlockStoreProvider).clear().then((r) {
         r.fold((_) {}, (_) {});
+        if (!ref.mounted) return;
         ref.invalidate(activeBlockPersistedProvider);
       }),
     );
