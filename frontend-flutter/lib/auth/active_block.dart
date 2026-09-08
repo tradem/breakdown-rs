@@ -2,7 +2,11 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
+import 'dart:async' show unawaited;
+
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+
+import 'active_block_store.dart';
 
 part 'active_block.g.dart';
 
@@ -22,6 +26,13 @@ part 'active_block.g.dart';
 /// A's block. Set implicitly from the DTO the user acted on (CQRS boundary
 /// — never a second projection lookup); cleared on sign-out so a new
 /// session never inherits the previous user's scope.
+///
+/// The scope is additionally persisted per season via [ActiveBlockStore]
+/// (issue #382): every [set] writes through to secure storage, so a cold
+/// start restores the remembered pick lazily through `blockScopeResolution`
+/// instead of re-showing the picker. Persistence is best-effort — a store
+/// failure never breaks the in-memory scope; resolution degrades to the
+/// existing re-resolution path.
 class ActiveScope {
   const ActiveScope({required this.seasonId, required this.blockId});
 
@@ -53,12 +64,33 @@ class ActiveBlock extends _$ActiveBlock {
   ActiveScope? build() => null;
 
   /// Sets the scope from the block DTO the user acted on.
+  ///
+  /// The in-memory state updates synchronously (call sites — e.g. the
+  /// `BlocksScreen` tap — must observe it before navigating); the
+  /// per-season persistence follows fire-and-forget and refreshes
+  /// [activeBlockPersistedProvider] once settled so the gate converges.
   void set({required String seasonId, required String blockId}) {
     state = ActiveScope(seasonId: seasonId, blockId: blockId);
+    unawaited(
+      ref
+          .read(activeBlockStoreProvider)
+          .saveScope(seasonId: seasonId, blockId: blockId)
+          .then((r) {
+            r.fold((_) {}, (_) {});
+            ref.invalidate(activeBlockPersistedProvider);
+          }),
+    );
   }
 
-  /// Clears the scope (sign-out / session teardown).
+  /// Clears the scope (sign-out / session teardown) including its
+  /// persisted entry, so a new session never inherits it.
   void clear() {
     state = null;
+    unawaited(
+      ref.read(activeBlockStoreProvider).clear().then((r) {
+        r.fold((_) {}, (_) {});
+        ref.invalidate(activeBlockPersistedProvider);
+      }),
+    );
   }
 }

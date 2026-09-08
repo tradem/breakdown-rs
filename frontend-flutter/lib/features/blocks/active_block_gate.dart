@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../auth/active_block.dart';
+import '../../auth/active_block_store.dart';
 import '../../core/problem_error.dart';
 import 'blocks_controller.dart';
 
@@ -50,6 +51,13 @@ class BlockScopeResolution {
 /// Resolves the active-block scope for a season-direct entry.
 ///
 /// - Sticky scope matches `seasonId` → ready immediately (zero taps).
+/// - Otherwise consults the persisted per-season scope (issue #382) once
+///   the blocks fetch yields rows: a remembered block id that still exists
+///   is restored silently (zero taps for returning users); a stale entry
+///   (block deleted on the backend) is evicted and falls through below —
+///   never a hard failure. The persisted provider degrades a store failure
+///   to "nothing remembered", so this path runs as if nothing were
+///   stored (the `AsyncError` tolerance below is defensive only).
 /// - Otherwise consults the existing `blocksListFetchProvider` seam
 ///   (`GET /v1/blocks?season_id=…` is `Authenticated` — works headerless):
 ///   - exactly one block → sets the sticky scope and yields one loading
@@ -70,6 +78,9 @@ AsyncValue<BlockScopeResolution> blockScopeResolution(
   if (scope != null && scope.seasonId == seasonId) {
     return AsyncValue.data(BlockScopeResolution.ready(scope));
   }
+  // Hoisted (unconditional): `ref.watch` must run on every build, never
+  // inside the fetch-match closure below.
+  final persisted = ref.watch(activeBlockPersistedProvider);
   final fetch = ref.watch(blocksListFetchProvider(seasonId));
   return switch (fetch) {
     AsyncLoading() => const AsyncValue.loading(),
@@ -82,6 +93,51 @@ AsyncValue<BlockScopeResolution> blockScopeResolution(
       (rows) {
         if (rows.isEmpty) {
           return AsyncValue.data(const BlockScopeResolution.empty());
+        }
+        // Persisted restore (issue #382): withhold the picker while the
+        // FIRST load is in flight; a remembered id that still exists is
+        // adopted silently, a stale one is evicted with fall-through to
+        // the existing path. A load failure (`AsyncError` — or the
+        // `AsyncLoading`-with-error seeded while a Riverpod 3 auto-retry
+        // is pending) behaves as if nothing were remembered, so a broken
+        // store can never withhold content behind a spinner.
+        if (persisted is AsyncLoading && !persisted.hasError) {
+          return const AsyncValue<BlockScopeResolution>.loading();
+        }
+        final remembered = switch (persisted) {
+          AsyncData(:final value) => value[seasonId],
+          _ => null,
+        };
+        if (remembered != null) {
+          if (rows.any((b) => b.id == remembered)) {
+            final restored = ActiveScope(
+              seasonId: seasonId,
+              blockId: remembered,
+            );
+            if (ref.read(activeBlockProvider) != restored) {
+              // Same deferred-set pattern as the single-block path below.
+              unawaited(
+                Future.microtask(() {
+                  if (!ref.mounted) return;
+                  if (ref.read(activeBlockProvider) != restored) {
+                    ref
+                        .read(activeBlockProvider.notifier)
+                        .set(seasonId: seasonId, blockId: remembered);
+                  }
+                }),
+              );
+            }
+            return const AsyncValue<BlockScopeResolution>.loading();
+          }
+          // Stale: the block is gone server-side. Evict the entry, then
+          // fall through to the live re-resolution (never a hard failure).
+          unawaited(
+            ref.read(activeBlockStoreProvider).removeScope(seasonId).then((r) {
+              r.fold((_) {}, (_) {});
+              if (!ref.mounted) return;
+              ref.invalidate(activeBlockPersistedProvider);
+            }),
+          );
         }
         if (rows.length == 1) {
           final picked = ActiveScope(

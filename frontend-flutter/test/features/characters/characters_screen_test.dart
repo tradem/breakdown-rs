@@ -15,6 +15,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
 
+import 'package:frontend_flutter/auth/active_block_store.dart';
 import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
@@ -176,6 +177,13 @@ void main() {
         // the blocks seam (single block → silent auto-pick).
         blocksListFetchProvider('season-1').overrideWith(
           (ref) async => Right<ProblemError, List<BlockView>>([_block()]),
+        ),
+        // Issue #382: the persisted per-season scopes live in secure
+        // storage, whose real method channel never settles under
+        // `testWidgets` — pin the seam to "nothing remembered" (the
+        // restore/stale paths are covered in `active_block_gate_test`).
+        activeBlockPersistedProvider.overrideWith(
+          (ref) async => <String, String>{},
         ),
         charactersListFetchProvider('season-1').overrideWith((ref) async {
           final dao = CharacterCacheDao(ref.watch(cacheDatabaseProvider));
