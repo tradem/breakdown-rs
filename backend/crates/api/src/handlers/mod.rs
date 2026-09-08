@@ -616,6 +616,7 @@ pub async fn get_season<P: Ports>(
     params(SeasonListParams),
     responses(
         (status = 200, body = Vec<SeasonView>),
+        (status = 400, body = ProblemDetails, description = "Negative limit or offset"),
         (status = 409, body = ProblemDetails, description = "Projection store failure"),
     ),
 )]

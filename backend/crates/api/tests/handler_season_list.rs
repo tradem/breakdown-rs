@@ -147,4 +147,12 @@ fn openapi_doc_exposes_seasons_list() {
             "GET /v1/seasons must not advertise {ignored} (silently ignored, issue #377 review), got {names:?}"
         );
     }
+    let responses = &get["responses"];
+    for status in ["400", "409"] {
+        assert_eq!(
+            responses[status]["content"]["application/problem+json"]["schema"]["$ref"].as_str(),
+            Some("#/components/schemas/ProblemDetails"),
+            "GET /v1/seasons must document {status} as ProblemDetails (issue #377 review)"
+        );
+    }
 }
