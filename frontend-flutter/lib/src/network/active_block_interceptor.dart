@@ -39,7 +39,7 @@ class ActiveBlockInterceptor extends Interceptor {
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
     final blockId = _activeBlockId;
     if (blockId != null &&
-        blockId.isNotEmpty &&
+        blockId.trim().isNotEmpty &&
         !options.headers.containsKey(headerName)) {
       options.headers[headerName] = blockId;
     }

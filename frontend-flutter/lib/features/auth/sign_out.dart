@@ -116,6 +116,12 @@ class SessionReset extends Notifier<void> {
     // Fence before rebuild: reads in flight against the old base discard
     // their writes; the Dio rebuild follows from the notifier set below.
     ref.read(cacheGenerationProvider.notifier).bump();
+    // Issue #378 (review): clear the active-block scope BEFORE switching
+    // the base — the Dio rebuild triggered by `set(base)` would otherwise
+    // issue requests to the new backend with the old backend's block id.
+    // The second invalidation in `_invalidateReadScope` below is kept:
+    // it clears a scope set mid-switch (fail-closed).
+    ref.invalidate(activeBlockProvider);
     ref.read(runtimeApiBaseProvider.notifier).set(base);
     final emptied = await ref.read(seasonRepositoryProvider).clearCache();
     final emptyError = emptied.getLeft().toNullable();
@@ -213,8 +219,10 @@ class SessionReset extends Notifier<void> {
       ..invalidate(seasonsControllerProvider)
       ..invalidate(membershipFetchProvider)
       ..invalidate(currentMembershipProvider)
-      // Block ids are backend-scoped: a scope set against the old base
-      // is meaningless on the new one (issue #378).
+      // Block ids are backend-scoped (issue #378): clears a scope set
+      // mid-switch; the pre-switch scope was already cleared in
+      // `_applyNewBase` before `set(base)` so no request ever pairs the
+      // new base with the old backend's block id.
       ..invalidate(activeBlockProvider);
   }
 }

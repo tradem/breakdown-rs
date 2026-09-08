@@ -56,6 +56,14 @@ void main() {
       },
     );
 
+    test('treats a whitespace-only id as unset (review)', () async {
+      final headers = await headersThrough(
+        const ActiveBlockInterceptor('   '),
+        'https://api.example.com/v1/episodes?block_id=block-1',
+      );
+      expect(headers.containsKey('X-Active-Block'), isFalse);
+    });
+
     test('never overwrites a caller-set header', () async {
       Map<String, dynamic>? captured;
       final dio = Dio()
