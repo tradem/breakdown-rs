@@ -4523,6 +4523,7 @@ paths:
         schema:
           default: 50
           format: int64
+          minimum: 0
           type:
           - integer
           - 'null'
@@ -4532,6 +4533,7 @@ paths:
         schema:
           default: 0
           format: int64
+          minimum: 0
           type:
           - integer
           - 'null'

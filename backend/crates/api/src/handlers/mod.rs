@@ -154,9 +154,9 @@ pub struct ListParams {
 /// must not appear in its parameters.
 #[derive(Debug, Clone, Deserialize, IntoParams)]
 pub struct SeasonListParams {
-    #[param(default = 50)]
+    #[param(default = 50, minimum = 0)]
     pub limit: Option<i64>,
-    #[param(default = 0)]
+    #[param(default = 0, minimum = 0)]
     pub offset: Option<i64>,
     pub series_id: Option<SeriesId>,
 }
@@ -625,6 +625,11 @@ pub async fn list_seasons<P: Ports>(
 ) -> ApiResult<Vec<SeasonView>> {
     let limit = params.limit.unwrap_or(50);
     let offset = params.offset.unwrap_or(0);
+    if limit < 0 || offset < 0 {
+        return Err(ApiError::BadQueryParam(
+            "limit and offset must be non-negative",
+        ));
+    }
     let views = match params.series_id {
         Some(series_id) => {
             state

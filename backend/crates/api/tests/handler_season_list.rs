@@ -97,6 +97,31 @@ async fn list_seasons_without_series_id_returns_all_series() {
     assert_eq!(views.len(), 2);
 }
 
+#[tokio::test]
+async fn list_seasons_rejects_negative_pagination() {
+    for params in [
+        SeasonListParams {
+            limit: Some(-1),
+            offset: Some(0),
+            series_id: None,
+        },
+        SeasonListParams {
+            limit: Some(50),
+            offset: Some(-5),
+            series_id: None,
+        },
+    ] {
+        let state = AppState::new(common::FakePorts::default());
+        let problem = list_seasons(State(state), Query(params))
+            .await
+            .expect_err("negative pagination must get an error")
+            .into_problem();
+        assert_eq!(problem.status, 400);
+        assert_eq!(problem.code, "http.bad-query-param");
+        assert!(!problem.detail.is_empty());
+    }
+}
+
 #[test]
 fn openapi_doc_exposes_seasons_list() {
     let json = serde_json::to_value(api::api_doc()).expect("ApiDoc serializes to JSON");
