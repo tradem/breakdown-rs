@@ -37,9 +37,19 @@ import 'cache/scene_shoot_cache_dao.dart';
 /// [linkContinuityPhoto], [listContinuityPhotos], or
 /// [unlinkContinuityPhoto]; a local denial issues zero network calls.
 class SceneShootRepository extends BaseRepository {
-  const SceneShootRepository(super.api, this.cache);
+  SceneShootRepository(super.api, this.cache);
 
   final SceneShootCacheDao cache;
+
+  /// Per-day fetch sequence: every [listByDay] call takes the next number
+  /// and only the latest call may write its snapshot. The initial load
+  /// (view-controller build) runs outside the shared reconciliation
+  /// coordinator, so it can complete AFTER a command-triggered refetch;
+  /// without sequencing, the older snapshot would replace newer rows and
+  /// delete rows the newer snapshot added. Superseded calls still return
+  /// their rows (callers render) but never touch the cache.
+
+  final Map<String, int> _daySeq = {};
 
   // -- Day board projection -------------------------------------------------
 
@@ -54,13 +64,17 @@ class SceneShootRepository extends BaseRepository {
   ///
   /// On [Right] applies the day-scoped snapshot and returns the rows. On
   /// [Left] returns the error without touching the cache. Honors [fence]
-  /// like every other collection fetch.
+  /// like every other collection fetch, plus the per-day sequence: a
+  /// response superseded by a newer [listByDay] call returns its rows
+  /// without writing (stale snapshots never replace or delete).
   Future<Result<List<SceneShootView>>> listByDay(
     String dayId,
     String sceneId, {
     Clock clock = Clock.system,
     CacheWriteFence? fence,
   }) async {
+    final seq = (_daySeq[dayId] ?? 0) + 1;
+    _daySeq[dayId] = seq;
     final Result<List<SceneShootView>> fetched = await runList(
       () =>
           api.getHandlersApi().listSceneShoots(dayId: dayId, sceneId: sceneId),
@@ -70,6 +84,11 @@ class SceneShootRepository extends BaseRepository {
       (err) async => Left<ProblemError, List<SceneShootView>>(err),
       (rows) async {
         if (fence != null && !fence.isCurrentGeneration(fence.generation)) {
+          return Right(rows);
+        }
+        if (_daySeq[dayId] != seq) {
+          // Superseded by a newer fetch: rows still flow to the caller,
+          // but the cache keeps the newer snapshot.
           return Right(rows);
         }
         try {
@@ -369,6 +388,9 @@ class SceneShootRepository extends BaseRepository {
 
   /// Empties the day's shoot rows (sign-out / backend-switch resets).
   Future<Result<void>> clearCache(String dayId) async {
+    // Invalidate the fetch sequence first: an in-flight older snapshot
+    // completing after the clear must not resurrect deleted rows.
+    _daySeq[dayId] = (_daySeq[dayId] ?? 0) + 1;
     try {
       await cache.clearDay(dayId);
       return const Right<ProblemError, void>(null);

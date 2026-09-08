@@ -10,6 +10,8 @@
 // derives them). Fake Dio interceptors resolve with wire-serialized DTOs or
 // reject with RFC 9457 problem+json DioExceptions. No Flutter imports.
 
+import 'dart:async';
+
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:built_value/serializer.dart';
@@ -123,6 +125,47 @@ class _ScriptInterceptor extends Interceptor {
 
 BreakdownApi _api(_ScriptInterceptor i) =>
     BreakdownApi(dio: Dio(), interceptors: [i]);
+
+BreakdownApi _apiFrom(Interceptor i) =>
+    BreakdownApi(dio: Dio(), interceptors: [i]);
+
+/// Scriptable interceptor with an optional per-call parking gate: when
+/// [gate] returns a future, the response waits for it (old request parks
+/// until the newer one wrote). Used only by the superseded-snapshot test.
+class _GatedInterceptor extends Interceptor {
+  _GatedInterceptor({required this.gate, required this.respond});
+
+  final Future<void>? Function() gate;
+  final Object? Function(bool first) respond;
+
+  @override
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+    final first = !_seen;
+    _seen = true;
+    final wait = gate();
+    if (wait == null) {
+      handler.resolve(
+        Response(
+          requestOptions: options,
+          statusCode: 200,
+          data: respond(first),
+        ),
+      );
+      return;
+    }
+    wait.then(
+      (_) => handler.resolve(
+        Response(
+          requestOptions: options,
+          statusCode: 200,
+          data: respond(first),
+        ),
+      ),
+    );
+  }
+
+  bool _seen = false;
+}
 
 void _expectLeftCode(Result<Object?> result, String code) {
   expect(result.isLeft(), isTrue, reason: 'expected Left($code)');
@@ -397,6 +440,54 @@ void main() {
         // Cache untouched on failure: the earlier row survives.
         expect((await dao.readByDayOrdered('day-1')).map((v) => v.id), [
           'ssh-1',
+        ]);
+        await db.close();
+      },
+    );
+
+    test(
+      'superseded listByDay returns rows but never writes the snapshot',
+      () async {
+        // The initial load (outside the coordinator) completes AFTER a
+        // command-triggered refetch: the older snapshot must not replace
+        // newer rows nor delete rows the newer snapshot added.
+        final db = CacheDatabase();
+        addTearDown(db.close);
+        final dao = SceneShootCacheDao(db);
+        final releaseOld = Completer<void>();
+        var parked = false;
+        final gate = _GatedInterceptor(
+          // The first (older) request parks until the newer one wrote;
+          // later requests resolve immediately.
+          gate: () {
+            if (parked) return null;
+            parked = true;
+            return releaseOld.future;
+          },
+          respond: (first) => first
+              ? _wireList([_shoot('ssh-old')], SceneShootView.serializer)
+              : _wireList([
+                  _shoot('ssh-old'),
+                  _shoot('ssh-new', version: 2),
+                ], SceneShootView.serializer),
+        );
+        final repo = SceneShootRepository(_apiFrom(gate), dao);
+        final old = repo.listByDay('day-1', 'scene-1');
+        final fresh = await repo.listByDay('day-1', 'scene-1');
+        expect(fresh.isRight(), isTrue);
+        expect((await dao.readByDayOrdered('day-1')).map((v) => v.id), [
+          'ssh-old',
+          'ssh-new',
+        ]);
+        releaseOld.complete();
+        final stale = await old;
+        // The superseded call still delivers its rows to the caller…
+        expect(stale.isRight(), isTrue);
+        // …but the cache keeps the newer snapshot (no replace, no
+        // delete-missing of ssh-new).
+        expect((await dao.readByDayOrdered('day-1')).map((v) => v.id), [
+          'ssh-old',
+          'ssh-new',
         ]);
         await db.close();
       },
