@@ -118,23 +118,29 @@ void main() {
 
     // The wired list fetch decodes every season (unscoped — the
     // reconciliation seam confirms a created id whatever its series).
-    test('returns decoded rows on success without touching the cache', () async {
-      final repo = repoWith(
-        _ListSeasonsInterceptor(
-          rows: [_season('a'), _season('b', title: 'Autumn')],
-        ),
-      );
+    test(
+      'returns decoded rows on success without touching the cache',
+      () async {
+        final repo = repoWith(
+          _ListSeasonsInterceptor(
+            rows: [
+              _season('a'),
+              _season('b', title: 'Autumn'),
+            ],
+          ),
+        );
 
-      final res = await repo.fetchSeasonsList();
-      expect(res, isA<Right>());
-      final rows = (res as Right).value as List<SeasonView>;
-      expect(rows.map((v) => v.id), ['a', 'b']);
-      expect(rows[1].title, 'Autumn');
+        final res = await repo.fetchSeasonsList();
+        expect(res, isA<Right>());
+        final rows = (res as Right).value as List<SeasonView>;
+        expect(rows.map((v) => v.id), ['a', 'b']);
+        expect(rows[1].title, 'Autumn');
 
-      // Pure fetch (D1 split): persistence is fetchAndCacheList's job.
-      final cached = await repo.readCached();
-      expect((cached as Right).value, isEmpty);
-    });
+        // Pure fetch (D1 split): persistence is fetchAndCacheList's job.
+        final cached = await repo.readCached();
+        expect((cached as Right).value, isEmpty);
+      },
+    );
 
     // A server rejection is a value (AGENTS.md §5: no throw in `data/`).
     test('maps a server rejection to a Left(ProblemError)', () async {
@@ -234,9 +240,7 @@ class _ListSeasonsInterceptor extends Interceptor {
         requestOptions: options,
         statusCode: 200,
         data: rows!
-            .map(
-              (v) => serializers.serializeWith(SeasonView.serializer, v),
-            )
+            .map((v) => serializers.serializeWith(SeasonView.serializer, v))
             .toList(),
       ),
     );
