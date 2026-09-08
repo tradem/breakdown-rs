@@ -19,29 +19,6 @@ class _ProbeRepository extends BaseRepository {
 Future<Response<T>> _nullBody<T>() async =>
     Response<T>(data: null, requestOptions: RequestOptions(path: '/x'));
 
-/// Probe repository whose [runList] is scripted per page, so the
-/// pagination loop can be tested without any network or generated client.
-/// [pages] is a map of `offset` → rows; any offset not present yields an
-/// empty page (last page).
-class _PaginatingProbe extends BaseRepository {
-  _PaginatingProbe(this.pages) : super(BreakdownApi());
-
-  final Map<int, List<BlockView>> pages;
-  final List<int> requestedOffsets = [];
-  int _nextOffset = 0;
-
-  @override
-  Future<Result<List<T>>> runList<T>(
-    Future<Response<BuiltList<T>>> Function() call, {
-    String dtoInvalidCode = 'dto.invalid',
-  }) async {
-    requestedOffsets.add(_nextOffset);
-    _nextOffset += 100;
-    final page = pages[requestedOffsets.last] ?? const [];
-    return Right(List<T>.from(page as List));
-  }
-}
-
 /// Probe repository that returns one full page then errors on the second
 /// call, verifying that [fetchAllPages] short-circuits on a mid-stream
 /// failure instead of returning a partial snapshot.
@@ -117,21 +94,26 @@ void main() {
     test(
       'combines every page until a partial page terminates the loop',
       () async {
-        final repo = _PaginatingProbe({
+        final repo = _ProbeRepository();
+        final pages = {
           0: List.generate(100, (i) => _block('a$i')),
           100: List.generate(100, (i) => _block('b$i')),
           200: List.generate(17, (i) => _block('c$i')),
-        });
+        };
+        // Record the actual limit/offset args the loop sends.
+        final requestedArgs = <({int limit, int offset})>[];
 
-        final res = await repo.fetchAllPages<BlockView>(
-          ({required limit, required offset}) async => Response(
-            // The closure receives limit/offset; the probe ignores them and
-            // serves scripted pages by call order.
-            data: BuiltList<BlockView>([]),
+        final res = await repo.fetchAllPages<BlockView>(({
+          required limit,
+          required offset,
+        }) async {
+          requestedArgs.add((limit: limit, offset: offset));
+          final page = pages[offset] ?? const [];
+          return Response(
+            data: BuiltList<BlockView>(page),
             requestOptions: RequestOptions(path: '/x'),
-          ),
-          pageSize: 100,
-        );
+          );
+        }, pageSize: 100);
 
         expect(res.isRight(), isTrue);
         final rows = res.getOrElse((_) => const []);
@@ -139,46 +121,63 @@ void main() {
         expect(rows.take(100).map((r) => r.id).first, 'a0');
         expect(rows.skip(100).take(100).map((r) => r.id).first, 'b0');
         expect(rows.skip(200).map((r) => r.id).first, 'c0');
-        // Three pages requested (offsets 0, 100, 200).
-        expect(repo.requestedOffsets, [0, 100, 200]);
+        // Assert the loop paged with the correct offsets.
+        expect(requestedArgs, [
+          (limit: 100, offset: 0),
+          (limit: 100, offset: 100),
+          (limit: 100, offset: 200),
+        ]);
       },
     );
 
     test('a single full page followed by an empty page terminates', () async {
-      final repo = _PaginatingProbe({
+      final repo = _ProbeRepository();
+      final pages = {
         0: List.generate(100, (i) => _block('a$i')),
-        100: const [],
-      });
+        100: const <BlockView>[],
+      };
+      final requestedArgs = <({int limit, int offset})>[];
 
-      final res = await repo.fetchAllPages<BlockView>(
-        ({required limit, required offset}) async => Response(
-          data: BuiltList<BlockView>([]),
+      final res = await repo.fetchAllPages<BlockView>(({
+        required limit,
+        required offset,
+      }) async {
+        requestedArgs.add((limit: limit, offset: offset));
+        final page = pages[offset] ?? const [];
+        return Response(
+          data: BuiltList<BlockView>(page),
           requestOptions: RequestOptions(path: '/x'),
-        ),
-        pageSize: 100,
-      );
+        );
+      }, pageSize: 100);
 
       expect(res.isRight(), isTrue);
       expect(res.getOrElse((_) => const []).length, 100);
-      expect(repo.requestedOffsets, [0, 100]);
+      expect(requestedArgs, [
+        (limit: 100, offset: 0),
+        (limit: 100, offset: 100),
+      ]);
     });
 
     test('returns the first page only when it is already partial', () async {
-      final repo = _PaginatingProbe({
-        0: List.generate(30, (i) => _block('a$i')),
-      });
+      final repo = _ProbeRepository();
+      final pages = {0: List.generate(30, (i) => _block('a$i'))};
+      final requestedArgs = <({int limit, int offset})>[];
 
-      final res = await repo.fetchAllPages<BlockView>(
-        ({required limit, required offset}) async => Response(
-          data: BuiltList<BlockView>([]),
+      final res = await repo.fetchAllPages<BlockView>(({
+        required limit,
+        required offset,
+      }) async {
+        requestedArgs.add((limit: limit, offset: offset));
+        final page = pages[offset] ?? const [];
+        return Response(
+          data: BuiltList<BlockView>(page),
           requestOptions: RequestOptions(path: '/x'),
-        ),
-        pageSize: 100,
-      );
+        );
+      }, pageSize: 100);
 
       expect(res.isRight(), isTrue);
       expect(res.getOrElse((_) => const []).length, 30);
-      expect(repo.requestedOffsets, [0]);
+      expect(requestedArgs, [(limit: 100, offset: 0)]);
     });
 
     test(
@@ -198,5 +197,23 @@ void main() {
         expect(res.fold((e) => e.code, (_) => ''), 'transport.connectionError');
       },
     );
+
+    test('rejects non-positive pageSize with a ProblemError', () async {
+      final repo = _ProbeRepository();
+
+      final res = await repo.fetchAllPages<BlockView>(
+        ({required limit, required offset}) async => Response(
+          data: BuiltList<BlockView>([]),
+          requestOptions: RequestOptions(path: '/x'),
+        ),
+        pageSize: 0,
+      );
+
+      expect(res.isLeft(), isTrue);
+      expect(
+        res.fold((e) => e.code, (_) => ''),
+        'pagination.invalid_page_size',
+      );
+    });
   });
 }

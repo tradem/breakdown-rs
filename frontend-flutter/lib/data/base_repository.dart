@@ -92,6 +92,9 @@ abstract class BaseRepository {
     String dtoInvalidCode = 'dto.invalid',
     int pageSize = 100,
   }) async {
+    if (pageSize <= 0) {
+      return const Left(ProblemError(code: 'pagination.invalid_page_size'));
+    }
     final allRows = <T>[];
     var offset = 0;
     while (true) {
