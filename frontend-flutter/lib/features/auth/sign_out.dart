@@ -5,6 +5,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fpdart/fpdart.dart';
 
+import '../../auth/active_block.dart';
 import '../../auth/auth_providers.dart';
 import '../../auth/membership/membership_providers.dart';
 import '../../core/problem_error.dart';
@@ -115,6 +116,12 @@ class SessionReset extends Notifier<void> {
     // Fence before rebuild: reads in flight against the old base discard
     // their writes; the Dio rebuild follows from the notifier set below.
     ref.read(cacheGenerationProvider.notifier).bump();
+    // Issue #378 (review): clear the active-block scope BEFORE switching
+    // the base — the Dio rebuild triggered by `set(base)` would otherwise
+    // issue requests to the new backend with the old backend's block id.
+    // The second invalidation in `_invalidateReadScope` below is kept:
+    // it clears a scope set mid-switch (fail-closed).
+    ref.invalidate(activeBlockProvider);
     ref.read(runtimeApiBaseProvider.notifier).set(base);
     final emptied = await ref.read(seasonRepositoryProvider).clearCache();
     final emptyError = emptied.getLeft().toNullable();
@@ -194,7 +201,11 @@ class SessionReset extends Notifier<void> {
       ..invalidate(shootingDaysCommandErrorProvider)
       // Session-scoped photo rationale: the next user must see the
       // pre-permission rationale instead of inheriting `seen`.
-      ..invalidate(photoRationaleSeenProvider);
+      ..invalidate(photoRationaleSeenProvider)
+      // Active-block scope (issue #378): identity-scoped — the next
+      // session must never inherit the previous user's block, so reset
+      // to the unset (`null`) scope rather than merely clearing rows.
+      ..invalidate(activeBlockProvider);
   }
 
   /// Resets read state after a backend switch (session kept): like
@@ -207,7 +218,12 @@ class SessionReset extends Notifier<void> {
       ..invalidate(seasonCommandErrorProvider)
       ..invalidate(seasonsControllerProvider)
       ..invalidate(membershipFetchProvider)
-      ..invalidate(currentMembershipProvider);
+      ..invalidate(currentMembershipProvider)
+      // Block ids are backend-scoped (issue #378): clears a scope set
+      // mid-switch; the pre-switch scope was already cleared in
+      // `_applyNewBase` before `set(base)` so no request ever pairs the
+      // new base with the old backend's block id.
+      ..invalidate(activeBlockProvider);
   }
 }
 

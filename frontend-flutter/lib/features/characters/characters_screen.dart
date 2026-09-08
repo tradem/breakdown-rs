@@ -8,6 +8,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
+import '../blocks/active_block_gate.dart';
+import '../blocks/blocks_controller.dart';
 import 'character_detail_screen.dart';
 import 'characters_controller.dart';
 import 'characters_state.dart';
@@ -34,6 +36,33 @@ class CharactersScreen extends ConsumerWidget {
         Navigator.of(context).popUntil((route) => route.isFirst);
       }
     });
+    final resolution = ref.watch(blockScopeResolutionProvider(season.id));
+    switch (resolution) {
+      case AsyncLoading():
+        return const BlockScopeLoadingScaffold(title: 'Characters');
+      case AsyncError(:final error):
+        return BlockScopeErrorScaffold(
+          title: 'Characters',
+          code: blockScopeErrorCode(error),
+          onRetry: () => ref.refresh(blocksListFetchProvider(season.id)),
+        );
+      case AsyncData(:final value):
+        // Issue #378: season-direct entry has no block in context —
+        // resolve the sticky scope before any block-scoped fetch fires.
+        // Ready scope falls through to the content below; otherwise a
+        // placeholder is returned (no headerless request ever fires).
+        if (value.scope == null) {
+          final candidates = value.candidates;
+          if (candidates != null) {
+            return BlockScopePickerScaffold(
+              title: 'Characters',
+              seasonId: season.id,
+              candidates: candidates,
+            );
+          }
+          return const NoBlocksHintScaffold(title: 'Characters');
+        }
+    }
     final state = ref.watch(charactersControllerProvider(season.id));
     final controller = ref.read(
       charactersControllerProvider(season.id).notifier,

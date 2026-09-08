@@ -14,9 +14,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app_config.dart';
+import '../../auth/active_block.dart';
 import '../../auth/auth_providers.dart';
 import '../../auth/token_store.dart';
 import '../../data/settings/api_base_override_store.dart';
+import 'active_block_interceptor.dart';
 import 'auth_token_interceptor.dart';
 
 /// Pinned-CA [SecurityContext] loaded once at bootstrap and reused across
@@ -33,13 +35,17 @@ final pinnedSecurityContextProvider = Provider<SecurityContext>(
 /// override when set, else the (possibly override-merged) `AppConfig.apiBase`
 /// from bootstrap. Built over the reused pinned context with the
 /// bearer-attaching interceptor; every dependent client/repository rebuilds
-/// when the base changes.
+/// when the base changes. Also watches the active-block scope (issue #378)
+/// so every request carries `X-Active-Block` whenever a scope is set —
+/// Dio (and every dependent client/repository) rebuilds on scope change,
+/// the same pattern as the runtime base-URL rebuild.
 final apiDioProvider = Provider<Dio>((ref) {
   final config = ref.watch(appConfigProvider);
   return buildPinnedDio(
     baseUrl: ref.watch(runtimeApiBaseProvider) ?? config.apiBase,
     context: ref.watch(pinnedSecurityContextProvider),
     tokenStore: ref.watch(tokenStoreProvider),
+    activeBlockId: ref.watch(activeBlockProvider)?.blockId,
   );
 });
 
@@ -130,17 +136,22 @@ Future<SecurityContext> loadPinnedSecurityContext(
 /// across base-URL rebuilds, task 6.3).
 ///
 /// Attaches [AuthTokenInterceptor] (bearer over HTTPS only, withheld on
-/// cleartext) backed by [tokenStore].
+/// cleartext) backed by [tokenStore], and [ActiveBlockInterceptor] carrying
+/// `X-Active-Block` when [activeBlockId] is set (issue #378 — the backend
+/// authorization middleware 400s block-scoped routes without it; `null`
+/// sends requests headerless for the `Authenticated`-only routes).
 Dio buildPinnedDio({
   required String baseUrl,
   required SecurityContext context,
   required TokenStore tokenStore,
+  String? activeBlockId,
 }) {
   final dio = Dio(BaseOptions(baseUrl: baseUrl));
   dio.httpClientAdapter = IOHttpClientAdapter(
     createHttpClient: () => HttpClient(context: context),
   );
   dio.interceptors.add(AuthTokenInterceptor(tokenStore));
+  dio.interceptors.add(ActiveBlockInterceptor(activeBlockId));
   return dio;
 }
 
