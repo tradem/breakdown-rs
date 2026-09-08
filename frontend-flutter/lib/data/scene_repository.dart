@@ -41,13 +41,18 @@ class SceneRepository extends BaseRepository {
   /// On [Right] applies the episode-scoped snapshot and returns the rows. On
   /// [Left] returns the error without touching the cache. Honors [fence]
   /// like every other collection fetch.
+  ///
+  /// Paginates through every page (issue #385) so the snapshot is never
+  /// truncated to a single page.
   Future<Result<List<SceneView>>> listByEpisode(
     String episodeId, {
     Clock clock = Clock.system,
     CacheWriteFence? fence,
   }) async {
-    final Result<List<SceneView>> fetched = await runList(
-      () => api.getHandlersApi().listScenes(episodeId: episodeId),
+    final Result<List<SceneView>> fetched = await fetchAllPages<SceneView>(
+      ({required int limit, required int offset}) => api
+          .getHandlersApi()
+          .listScenes(episodeId: episodeId, limit: limit, offset: offset),
       dtoInvalidCode: 'scene.dto_invalid',
     );
     return fetched.match(

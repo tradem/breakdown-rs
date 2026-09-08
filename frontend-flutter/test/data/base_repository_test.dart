@@ -6,7 +6,10 @@ import 'package:breakdown_api/breakdown_api.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fpdart/fpdart.dart';
 
+import 'package:frontend_flutter/core/problem_error.dart';
+import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/base_repository.dart';
 
 class _ProbeRepository extends BaseRepository {
@@ -15,6 +18,62 @@ class _ProbeRepository extends BaseRepository {
 
 Future<Response<T>> _nullBody<T>() async =>
     Response<T>(data: null, requestOptions: RequestOptions(path: '/x'));
+
+/// Probe repository whose [runList] is scripted per page, so the
+/// pagination loop can be tested without any network or generated client.
+/// [pages] is a map of `offset` → rows; any offset not present yields an
+/// empty page (last page).
+class _PaginatingProbe extends BaseRepository {
+  _PaginatingProbe(this.pages) : super(BreakdownApi());
+
+  final Map<int, List<BlockView>> pages;
+  final List<int> requestedOffsets = [];
+  int _nextOffset = 0;
+
+  @override
+  Future<Result<List<T>>> runList<T>(
+    Future<Response<BuiltList<T>>> Function() call, {
+    String dtoInvalidCode = 'dto.invalid',
+  }) async {
+    requestedOffsets.add(_nextOffset);
+    _nextOffset += 100;
+    final page = pages[requestedOffsets.last] ?? const [];
+    return Right(List<T>.from(page as List));
+  }
+}
+
+/// Probe repository that returns one full page then errors on the second
+/// call, verifying that [fetchAllPages] short-circuits on a mid-stream
+/// failure instead of returning a partial snapshot.
+class _FailingAfterOnePage extends BaseRepository {
+  _FailingAfterOnePage() : super(BreakdownApi());
+
+  int _calls = 0;
+
+  @override
+  Future<Result<List<T>>> runList<T>(
+    Future<Response<BuiltList<T>>> Function() call, {
+    String dtoInvalidCode = 'dto.invalid',
+  }) async {
+    _calls++;
+    if (_calls == 1) {
+      return Right(List<T>.from(List.generate(100, (i) => _block('a$i'))));
+    }
+    return const Left(ProblemError(code: 'transport.connectionError'));
+  }
+}
+
+BlockView _block(String id) => BlockView(
+  (b) => b
+    ..id = id
+    ..number = 1
+    ..seasonId = 's'
+    ..seriesId = 'series-1'
+    ..startDate = '2026-01-01'
+    ..endDate = '2026-01-31'
+    ..updatedAt = DateTime.utc(2026, 1, 1)
+    ..version = 1,
+);
 
 void main() {
   group('BaseRepository null-body discipline (no-throw rule)', () {
@@ -52,5 +111,92 @@ void main() {
       expect(res.isLeft(), isTrue);
       expect(res.fold((e) => e.code, (_) => 'right'), 'block.dto_invalid');
     });
+  });
+
+  group('BaseRepository.fetchAllPages (issue #385)', () {
+    test(
+      'combines every page until a partial page terminates the loop',
+      () async {
+        final repo = _PaginatingProbe({
+          0: List.generate(100, (i) => _block('a$i')),
+          100: List.generate(100, (i) => _block('b$i')),
+          200: List.generate(17, (i) => _block('c$i')),
+        });
+
+        final res = await repo.fetchAllPages<BlockView>(
+          ({required limit, required offset}) async => Response(
+            // The closure receives limit/offset; the probe ignores them and
+            // serves scripted pages by call order.
+            data: BuiltList<BlockView>([]),
+            requestOptions: RequestOptions(path: '/x'),
+          ),
+          pageSize: 100,
+        );
+
+        expect(res.isRight(), isTrue);
+        final rows = res.getOrElse((_) => const []);
+        expect(rows.length, 217); // 100 + 100 + 17
+        expect(rows.take(100).map((r) => r.id).first, 'a0');
+        expect(rows.skip(100).take(100).map((r) => r.id).first, 'b0');
+        expect(rows.skip(200).map((r) => r.id).first, 'c0');
+        // Three pages requested (offsets 0, 100, 200).
+        expect(repo.requestedOffsets, [0, 100, 200]);
+      },
+    );
+
+    test('a single full page followed by an empty page terminates', () async {
+      final repo = _PaginatingProbe({
+        0: List.generate(100, (i) => _block('a$i')),
+        100: const [],
+      });
+
+      final res = await repo.fetchAllPages<BlockView>(
+        ({required limit, required offset}) async => Response(
+          data: BuiltList<BlockView>([]),
+          requestOptions: RequestOptions(path: '/x'),
+        ),
+        pageSize: 100,
+      );
+
+      expect(res.isRight(), isTrue);
+      expect(res.getOrElse((_) => const []).length, 100);
+      expect(repo.requestedOffsets, [0, 100]);
+    });
+
+    test('returns the first page only when it is already partial', () async {
+      final repo = _PaginatingProbe({
+        0: List.generate(30, (i) => _block('a$i')),
+      });
+
+      final res = await repo.fetchAllPages<BlockView>(
+        ({required limit, required offset}) async => Response(
+          data: BuiltList<BlockView>([]),
+          requestOptions: RequestOptions(path: '/x'),
+        ),
+        pageSize: 100,
+      );
+
+      expect(res.isRight(), isTrue);
+      expect(res.getOrElse((_) => const []).length, 30);
+      expect(repo.requestedOffsets, [0]);
+    });
+
+    test(
+      'short-circuits on a mid-stream error, returning no partial rows',
+      () async {
+        final repo = _FailingAfterOnePage();
+
+        final res = await repo.fetchAllPages<BlockView>(
+          ({required limit, required offset}) async => Response(
+            data: BuiltList<BlockView>([]),
+            requestOptions: RequestOptions(path: '/x'),
+          ),
+          pageSize: 100,
+        );
+
+        expect(res.isLeft(), isTrue);
+        expect(res.fold((e) => e.code, (_) => ''), 'transport.connectionError');
+      },
+    );
   });
 }

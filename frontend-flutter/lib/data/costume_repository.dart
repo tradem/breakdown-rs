@@ -40,13 +40,18 @@ class CostumeRepository extends BaseRepository {
   /// On [Right] applies the season-scoped snapshot and returns the rows. On
   /// [Left] returns the error without touching the cache. Honors [fence]
   /// like every other collection fetch.
+  ///
+  /// Paginates through every page (issue #385) so the snapshot is never
+  /// truncated to a single page.
   Future<Result<List<CostumeView>>> listBySeason(
     String seasonId, {
     Clock clock = Clock.system,
     CacheWriteFence? fence,
   }) async {
-    final Result<List<CostumeView>> fetched = await runList(
-      () => api.getHandlersApi().listCostumes(seasonId: seasonId),
+    final Result<List<CostumeView>> fetched = await fetchAllPages<CostumeView>(
+      ({required int limit, required int offset}) => api
+          .getHandlersApi()
+          .listCostumes(seasonId: seasonId, limit: limit, offset: offset),
       dtoInvalidCode: 'costume.dto_invalid',
     );
     return fetched.match(

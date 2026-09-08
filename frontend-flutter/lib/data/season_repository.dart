@@ -89,10 +89,16 @@ class SeasonRepository extends BaseRepository {
   /// Collection fetch: `GET /v1/seasons` (unscoped — every season, so the
   /// reconciliation seam confirms a created id regardless of the series it
   /// was filed under). Never throws, returns [Result] (AGENTS.md §5).
-  Future<Result<List<SeasonView>>> fetchSeasonsList() => runList(
-    () => api.getHandlersApi().listSeasons(),
-    dtoInvalidCode: 'season.dto_invalid',
-  );
+  ///
+  /// Paginates through every page (issue #385): the backend defaults to 50
+  /// rows per page, and an unpaginated fetch would feed a partial page into
+  /// the snapshot-replace, evicting valid cached rows past the first page.
+  Future<Result<List<SeasonView>>> fetchSeasonsList() =>
+      fetchAllPages<SeasonView>(
+        ({required int limit, required int offset}) =>
+            api.getHandlersApi().listSeasons(limit: limit, offset: offset),
+        dtoInvalidCode: 'season.dto_invalid',
+      );
 
   /// Collection fetch + snapshot-replace reconciliation (Design Decision D3).
   ///

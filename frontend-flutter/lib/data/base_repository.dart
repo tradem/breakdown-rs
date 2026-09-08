@@ -68,4 +68,43 @@ abstract class BaseRepository {
       return Left(problemErrorFromDio(e));
     }
   }
+
+  /// Fetches every page from a paginated list endpoint, combining rows.
+  ///
+  /// The backend defaults list endpoints to 50 rows per page. Without
+  /// pagination, a >50-row scope would lose rows on snapshot-replace
+  /// (issue #385): the partial page is treated as a complete snapshot,
+  /// deleting every cached id outside the page. This helper iterates
+  /// pages until one returns fewer than [pageSize] rows (last page) or a
+  /// page errors, so the combined rows are a complete snapshot.
+  ///
+  /// [fetchPage] is called with [limit] and [offset] for each page; it
+  /// MUST forward those to the generated client so the backend pages
+  /// correctly. Returns the combined rows of all pages, or the first
+  /// error — a mid-stream error short-circuits (no partial snapshot is
+  /// returned, so callers never apply an incomplete page).
+  Future<Result<List<T>>> fetchAllPages<T>(
+    Future<Response<BuiltList<T>>> Function({
+      required int limit,
+      required int offset,
+    })
+    fetchPage, {
+    String dtoInvalidCode = 'dto.invalid',
+    int pageSize = 100,
+  }) async {
+    final allRows = <T>[];
+    var offset = 0;
+    while (true) {
+      final result = await runList(
+        () => fetchPage(limit: pageSize, offset: offset),
+        dtoInvalidCode: dtoInvalidCode,
+      );
+      if (result.isLeft()) return result;
+      final rows = result.getOrElse((_) => <T>[]);
+      allRows.addAll(rows);
+      if (rows.length < pageSize) break;
+      offset += pageSize;
+    }
+    return Right(allRows);
+  }
 }

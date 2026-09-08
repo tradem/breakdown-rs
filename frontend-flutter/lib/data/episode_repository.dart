@@ -42,13 +42,18 @@ class EpisodeRepository extends BaseRepository {
   /// On [Right] applies the block-scoped snapshot and returns the rows. On
   /// [Left] returns the error without touching the cache. Honors [fence]
   /// like every other collection fetch.
+  ///
+  /// Paginates through every page (issue #385) so the snapshot is never
+  /// truncated to a single page.
   Future<Result<List<EpisodeView>>> listByBlock(
     String blockId, {
     Clock clock = Clock.system,
     CacheWriteFence? fence,
   }) async {
-    final Result<List<EpisodeView>> fetched = await runList(
-      () => api.getHandlersApi().listEpisodes(blockId: blockId),
+    final Result<List<EpisodeView>> fetched = await fetchAllPages<EpisodeView>(
+      ({required int limit, required int offset}) => api
+          .getHandlersApi()
+          .listEpisodes(blockId: blockId, limit: limit, offset: offset),
       dtoInvalidCode: 'episode.dto_invalid',
     );
     return fetched.match(

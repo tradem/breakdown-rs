@@ -207,6 +207,60 @@ void main() {
       },
     );
   });
+
+  group('SeasonRepository.fetchSeasonsList pagination (issue #385)', () {
+    late CacheDatabase db;
+
+    setUp(() {
+      db = CacheDatabase(NativeDatabase.memory());
+    });
+
+    tearDown(() => db.close());
+
+    test(
+      'fetchAndCacheList with >pageSize rows keeps ALL rows in the cache',
+      () async {
+        // Simulate a >50-row scope: the custom fetch returns 217 rows.
+        // Without pagination, only the first 50 would be snapshotted and
+        // the rest evicted. With pagination, all 217 are cached.
+        final allIds = List.generate(217, (i) => 's$i');
+        final repo = SeasonRepository(BreakdownApi(), SeasonCacheDao(db));
+
+        final res = await repo.fetchAndCacheList(
+          () async => Right(allIds.map((id) => _season(id)).toList()),
+        );
+        expect(res, isA<Right>());
+
+        // Every row must be cached — no row evicted.
+        final cached = await repo.readCached();
+        expect((cached as Right).value.length, 217);
+        expect((cached as Right).value.map((v) => v.id).toList(), allIds);
+      },
+    );
+
+    test(
+      'fetchAndCacheList snapshot-replace still scopes deletions correctly',
+      () async {
+        final repo = SeasonRepository(BreakdownApi(), SeasonCacheDao(db));
+
+        // First fetch: 217 rows.
+        final allIds = List.generate(217, (i) => 's$i');
+        await repo.fetchAndCacheList(
+          () async => Right(allIds.map((id) => _season(id)).toList()),
+        );
+
+        // Second fetch: server drops rows 100-216 → only 100 remain.
+        final remainingIds = List.generate(100, (i) => 's$i');
+        await repo.fetchAndCacheList(
+          () async => Right(remainingIds.map((id) => _season(id)).toList()),
+        );
+
+        final cached = await repo.readCached();
+        expect((cached as Right).value.length, 100);
+        expect((cached as Right).value.map((v) => v.id).toList(), remainingIds);
+      },
+    );
+  });
 }
 
 /// DAO fake whose reads fail at the executor level, exercising the
