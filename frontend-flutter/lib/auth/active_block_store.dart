@@ -167,13 +167,23 @@ class ActiveBlockStore {
 /// so the chain is deadlock-free by construction and an unawaited caller can
 /// never produce an unhandled async error from the coordinator itself.
 class _WriteMutex {
-  Future<void> _tail = Future.value();
+  /// Pending tails, newest last. A list (rather than a single field) so
+  /// chaining is a `void` add-statement — a bare `Future`-typed assignment
+  /// would trip the discard_result rule (same pattern as the session-state
+  /// mutex in `auth_providers.dart`).
+  final List<Future<void>> _tails = [Future.value()];
 
-  Future<T> run<T>(Future<T> Function() body) {
-    final previous = _tail;
+  Future<T> run<T>(Future<T> Function() body) async {
+    final previous = _tails.last;
     final gate = Completer<void>();
-    _tail = gate.future;
-    return previous.then((_) => body()).whenComplete(gate.complete);
+    _tails.add(gate.future);
+    await previous;
+    try {
+      return await body();
+    } finally {
+      _tails.remove(previous);
+      gate.complete();
+    }
   }
 }
 
