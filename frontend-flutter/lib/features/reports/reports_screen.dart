@@ -117,7 +117,7 @@ class ReportsScreen extends ConsumerWidget {
       MaterialPageRoute(
         builder: (context) => ReportPreviewScreen(
           filePath: card.file.path,
-          title: reportShareFileName(dayLabel: day.id, kind: kind),
+          title: reportShareFileName(dayLabel: day.label ?? day.id, kind: kind),
         ),
       ),
     );

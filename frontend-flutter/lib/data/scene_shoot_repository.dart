@@ -500,7 +500,6 @@ class SceneShootRepository extends BaseRepository {
     dayId: id,
     tempDir: tempDir,
     cancelToken: cancelToken,
-    onReceiveProgress: onReceiveProgress,
     call: (token) => api.getHandlersApi().dispoReportPdf(
       id: id,
       cancelToken: token,
@@ -523,7 +522,6 @@ class SceneShootRepository extends BaseRepository {
     dayId: id,
     tempDir: tempDir,
     cancelToken: cancelToken,
-    onReceiveProgress: onReceiveProgress,
     call: (token) => api.getHandlersApi().shootDayReportPdf(
       id: id,
       cancelToken: token,
@@ -546,7 +544,6 @@ class SceneShootRepository extends BaseRepository {
     dayId: id,
     tempDir: tempDir,
     cancelToken: cancelToken,
-    onReceiveProgress: onReceiveProgress,
     call: (token) => api.getHandlersApi().plannedVsActualReportPdf(
       id: id,
       cancelToken: token,
@@ -557,14 +554,14 @@ class SceneShootRepository extends BaseRepository {
   /// Shared streaming executor for the three per-day PDF fetches: runs the
   /// generated call with an explicit [CancelToken] (so the transfer is
   /// cancellable at any point), extracts the streaming payload, and writes
-  /// it to the temp file under the byte-cap contract. Never throws.
+  /// it to the temp file under the byte-cap contract. Never throws: every
+  /// failure maps to a `Left(ProblemError)` (`data/` no-throw rule).
   Future<Result<File>> _fetchReportPdf({
     required ReportPdfKind kind,
     required String dayId,
     required Directory tempDir,
     required Future<Response<void>> Function(CancelToken token) call,
     CancelToken? cancelToken,
-    ProgressCallback? onReceiveProgress,
   }) async {
     final token = cancelToken ?? CancelToken();
     try {
@@ -581,7 +578,17 @@ class SceneShootRepository extends BaseRepository {
         cancelToken: token,
       );
     } on DioException catch (e) {
+      // A user cancel surfaces as DioExceptionType.cancel (request phase) or
+      // as a stream error inside the writer (transfer phase) — both map to
+      // the documented `transport.cancelled` code.
+      if (e.type == DioExceptionType.cancel || token.isCancelled) {
+        return const Left(ProblemError(code: 'transport.cancelled'));
+      }
       return Left(normalizeReportError(e));
+    } on Object catch (e) {
+      // The generated client / interceptor chain can throw beyond Dio
+      // (e.g. a deserialization TypeError): never let it escape `data/`.
+      return Left(strictParseError(e));
     }
   }
 

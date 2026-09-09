@@ -110,6 +110,124 @@ final class ReportShareServiceProvider
 String _$reportShareServiceHash() =>
     r'288a7028dd81e5b9eca722c9ba509ba54534c746';
 
+/// The transport registry provider. KeepAlive and — deliberately — watches
+/// NOTHING: Riverpod fires `ref.onDispose` on dependency-driven rebuilds
+/// too, so a cleanup hooked into a watching provider (or into the
+/// controller's `build()`, which watches the membership) would cancel
+/// in-flight user fetches on every rebuild. Watching nothing confines the
+/// dispose to actual provider-container destruction.
+
+@ProviderFor(reportsPdfTransport)
+final reportsPdfTransportProvider = ReportsPdfTransportFamily._();
+
+/// The transport registry provider. KeepAlive and — deliberately — watches
+/// NOTHING: Riverpod fires `ref.onDispose` on dependency-driven rebuilds
+/// too, so a cleanup hooked into a watching provider (or into the
+/// controller's `build()`, which watches the membership) would cancel
+/// in-flight user fetches on every rebuild. Watching nothing confines the
+/// dispose to actual provider-container destruction.
+
+final class ReportsPdfTransportProvider
+    extends
+        $FunctionalProvider<
+          ReportsPdfTransport,
+          ReportsPdfTransport,
+          ReportsPdfTransport
+        >
+    with $Provider<ReportsPdfTransport> {
+  /// The transport registry provider. KeepAlive and — deliberately — watches
+  /// NOTHING: Riverpod fires `ref.onDispose` on dependency-driven rebuilds
+  /// too, so a cleanup hooked into a watching provider (or into the
+  /// controller's `build()`, which watches the membership) would cancel
+  /// in-flight user fetches on every rebuild. Watching nothing confines the
+  /// dispose to actual provider-container destruction.
+  ReportsPdfTransportProvider._({
+    required ReportsPdfTransportFamily super.from,
+    required ReportDayScope super.argument,
+  }) : super(
+         retry: null,
+         name: r'reportsPdfTransportProvider',
+         isAutoDispose: false,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$reportsPdfTransportHash();
+
+  @override
+  String toString() {
+    return r'reportsPdfTransportProvider'
+        ''
+        '($argument)';
+  }
+
+  @$internal
+  @override
+  $ProviderElement<ReportsPdfTransport> $createElement(
+    $ProviderPointer pointer,
+  ) => $ProviderElement(pointer);
+
+  @override
+  ReportsPdfTransport create(Ref ref) {
+    final argument = this.argument as ReportDayScope;
+    return reportsPdfTransport(ref, argument);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(ReportsPdfTransport value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<ReportsPdfTransport>(value),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is ReportsPdfTransportProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$reportsPdfTransportHash() =>
+    r'd5d4a9f6046960c83c4df8d993536baa22b4935c';
+
+/// The transport registry provider. KeepAlive and — deliberately — watches
+/// NOTHING: Riverpod fires `ref.onDispose` on dependency-driven rebuilds
+/// too, so a cleanup hooked into a watching provider (or into the
+/// controller's `build()`, which watches the membership) would cancel
+/// in-flight user fetches on every rebuild. Watching nothing confines the
+/// dispose to actual provider-container destruction.
+
+final class ReportsPdfTransportFamily extends $Family
+    with $FunctionalFamilyOverride<ReportsPdfTransport, ReportDayScope> {
+  ReportsPdfTransportFamily._()
+    : super(
+        retry: null,
+        name: r'reportsPdfTransportProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: false,
+      );
+
+  /// The transport registry provider. KeepAlive and — deliberately — watches
+  /// NOTHING: Riverpod fires `ref.onDispose` on dependency-driven rebuilds
+  /// too, so a cleanup hooked into a watching provider (or into the
+  /// controller's `build()`, which watches the membership) would cancel
+  /// in-flight user fetches on every rebuild. Watching nothing confines the
+  /// dispose to actual provider-container destruction.
+
+  ReportsPdfTransportProvider call(ReportDayScope scope) =>
+      ReportsPdfTransportProvider._(argument: scope, from: this);
+
+  @override
+  String toString() => r'reportsPdfTransportProvider';
+}
+
 /// The injected Soll-Ist fetch seam
 /// (`GET /v1/shooting-days/{id}/report/soll-ist`). Tests override this
 /// provider with a fake.
@@ -179,7 +297,7 @@ final class ReportsSollIstFetchProvider
 }
 
 String _$reportsSollIstFetchHash() =>
-    r'd7eb6631a036e502881e846c0548f899d51956a6';
+    r'4df4cc1b1d3bdaf178c39b6c6a75073670c4ae50';
 
 /// The injected Soll-Ist fetch seam
 /// (`GET /v1/shooting-days/{id}/report/soll-ist`). Tests override this
@@ -273,7 +391,7 @@ final class ReportsDispoFetchProvider
   }
 }
 
-String _$reportsDispoFetchHash() => r'41f20adb6f052a0e4e0994528186bad7b3b4d86b';
+String _$reportsDispoFetchHash() => r'80edfe1f60b481a7be02d92882b1232454c7ce0a';
 
 /// The injected dispo fetch seam (planned-count input only).
 
@@ -364,7 +482,7 @@ final class ReportsShootDayFetchProvider
 }
 
 String _$reportsShootDayFetchHash() =>
-    r'b050b53c89701a44f43ff5fd2d867fbe1fcf6287';
+    r'f83e3ab374eaa1d9d0a7d815dc74907180c72ba7';
 
 /// The injected shoot-day fetch seam (actual-count input only).
 
@@ -687,7 +805,7 @@ final class ReportsControllerProvider
   }
 }
 
-String _$reportsControllerHash() => r'18e28d8596bb9a12d4b31042625e56f737f29a93';
+String _$reportsControllerHash() => r'8cf8ee3a42b7c66d2399b2b6f86b555b463cf5ed';
 
 /// Reports controller (seasons reference pattern): read-model fetches for
 /// the on-screen Soll-Ist report plus user-initiated PDF fetch/preview/

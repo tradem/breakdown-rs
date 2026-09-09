@@ -365,6 +365,61 @@ void main() {
       expect(find.byKey(const Key('report-pdf-fetch-dispo')), findsOneWidget);
     });
 
+    testWidgets(
+      'superseded fetch: late completion of a cancelled request never '
+      'resets the newer card',
+      (tester) async {
+        await setupContainer();
+        final first = Completer<Result<File>>();
+        final second = Completer<Result<File>>();
+        await pumpScreen(tester);
+
+        // 1. First fetch, gated.
+        repo.pdfGate = first;
+        await tester.tap(find.byKey(const Key('report-pdf-fetch-dispo')));
+        await _pumpFrames(tester, n: 3);
+        expect(repo.dispoPdfCalls, 1);
+
+        // 2. Cancel → idle.
+        await tester.tap(find.byKey(const Key('report-pdf-cancel-dispo')));
+        await _pumpFrames(tester);
+        expect(find.byKey(const Key('report-pdf-fetch-dispo')), findsOneWidget);
+
+        // 3. Refetch (a NEW token owns the card now).
+        repo.pdfGate = second;
+        await tester.tap(find.byKey(const Key('report-pdf-fetch-dispo')));
+        await _pumpFrames(tester, n: 3);
+        expect(repo.dispoPdfCalls, 2);
+        expect(
+          find.byKey(const Key('report-pdf-progress-dispo')),
+          findsOneWidget,
+        );
+
+        // 4. The CANCELLED first request completes late with a staged file:
+        // the superseded branch must delete the file silently and leave the
+        // newer fetch's card untouched.
+        final stale = File('${tempDir.path}/day-1-dispo.pdf')
+          ..writeAsBytesSync([37, 80, 68, 70]);
+        first.complete(Right(stale));
+        await _pumpFrames(tester);
+        expect(stale.existsSync(), isFalse);
+        expect(
+          find.byKey(const Key('report-pdf-progress-dispo')),
+          findsOneWidget,
+        );
+
+        // 5. The CURRENT fetch completes → ready card with its own file.
+        final current = File('${tempDir.path}/day-1-dispo.pdf')
+          ..writeAsBytesSync([37, 80, 68, 70, 1]);
+        second.complete(Right(current));
+        await _pumpFrames(tester);
+        expect(
+          find.byKey(const Key('report-pdf-preview-dispo')),
+          findsOneWidget,
+        );
+      },
+    );
+
     testWidgets('error: code-keyed copy with retry', (tester) async {
       await setupContainer();
       repo.nextPdf = const Left(ProblemError(code: 'http.404'));

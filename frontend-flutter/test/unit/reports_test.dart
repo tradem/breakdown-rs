@@ -127,6 +127,31 @@ void main() {
       );
       expect(normalizeReportError(err).code, 'transport.connectionError');
     });
+
+    test(
+      'malformed problem body falls back to code + status (never throws)',
+      () {
+        const path = '/v1/shooting-days/d/report/soll-ist';
+        final err = DioException(
+          requestOptions: opts(path),
+          response: Response(
+            requestOptions: opts(path),
+            statusCode: 403,
+            // `status` carries a string — ProblemError.fromJson would throw
+            // a TypeError on `as int?`.
+            data: {
+              'code': 'authz.denied',
+              'title': 't',
+              'status': 'four-oh-three',
+            },
+          ),
+          type: DioExceptionType.badResponse,
+        );
+        final normalized = normalizeReportError(err);
+        expect(normalized.code, 'authz.denied');
+        expect(normalized.status, 403);
+      },
+    );
   });
 
   group('PDF byte cap + share naming + temp cleanup', () {
@@ -187,6 +212,36 @@ void main() {
       );
       expect(await temp.list().toList(), isEmpty);
     });
+
+    test(
+      'cancel while the stream is idle maps to transport.cancelled',
+      () async {
+        final temp = await Directory.systemTemp.createTemp('reports-cancel-');
+        addTearDown(() async {
+          if (await temp.exists()) await temp.delete(recursive: true);
+        });
+        // Dio terminates the stream when the caller cancels while idle: the
+        // error surfaces in the catch block, not through the per-chunk check.
+        final token = CancelToken();
+        const path = '/v1/shooting-days/day-1/report/dispo.pdf';
+        final res = await writePdfStreamToTemp(
+          stream: Stream<List<int>>.error(
+            DioException(
+              requestOptions: RequestOptions(path: path),
+              type: DioExceptionType.cancel,
+            ),
+          ),
+          tempDir: temp,
+          fileName: 'day-1-dispo.pdf',
+          cancelToken: token,
+        );
+        expect(
+          res.match((err) => err.code, (_) => 'unexpected-right'),
+          'transport.cancelled',
+        );
+        expect(await temp.list().toList(), isEmpty);
+      },
+    );
 
     test('temp cleanup removes the file on every non-save exit', () async {
       final temp = await Directory.systemTemp.createTemp('reports-clean-');

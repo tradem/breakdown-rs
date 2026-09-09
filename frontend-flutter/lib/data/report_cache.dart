@@ -10,35 +10,11 @@ import 'package:fpdart/fpdart.dart';
 
 import '../core/problem_error.dart';
 import '../core/result.dart';
+import '../src/network/pdf_streaming_interceptor.dart';
 import 'report_models.dart';
 
-/// Matches the three per-day PDF report paths
-/// (`/v1/shooting-days/{id}/report/*.pdf`).
-bool isPdfReportPath(String path) =>
-    RegExp(r'/v1/shooting-days/[^/]+/report/[^/]+\.pdf').hasMatch(path);
-
-/// Path-keyed interceptor that switches the PDF report routes to streaming.
-///
-/// The generated PDF methods (`dispoReportPdf`, `shootDayReportPdf`,
-/// `plannedVsActualReportPdf`) accept no `Options` parameter, so
-/// `ResponseType.stream` cannot be passed per call. This interceptor — wired
-/// into the pinned-CA Dio in `buildPinnedDio` — sets
-/// `responseType = ResponseType.stream` for the PDF routes so the repository
-/// can consume `response.data` as a Dio `ResponseBody` stream and write each
-/// chunk straight to the cache/temp file while counting bytes.
-///
-/// Installed unconditionally: it only touches PDF report paths and leaves
-/// every other request (JSON report routes included) on the default JSON
-/// response type.
-class PdfStreamingInterceptor extends Interceptor {
-  @override
-  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
-    if (isPdfReportPath(options.path)) {
-      options.responseType = ResponseType.stream;
-    }
-    handler.next(options);
-  }
-}
+export '../src/network/pdf_streaming_interceptor.dart'
+    show PdfStreamingInterceptor, isPdfReportPath;
 
 /// Streams a PDF byte stream to a temp file with a bounded byte cap.
 ///
@@ -91,14 +67,24 @@ Future<Result<File>> writePdfStreamToTemp({
     }
     await sink.close();
     return Right(file);
-  } on Object {
+  } on Object catch (e) {
     try {
       await sink.close();
     } on Object {
       // Ignore close failures — the delete below is what matters.
     }
     await _deleteQuietly(file);
-    return const Left(ProblemError(code: 'transport.network'));
+    // A cancel while the stream is idle surfaces as a stream error, not
+    // through the per-chunk check above: map it to the documented
+    // `transport.cancelled` code instead of `transport.network`.
+    final cancelled =
+        (cancelToken?.isCancelled ?? false) ||
+        (e is DioException && e.type == DioExceptionType.cancel);
+    return Left(
+      ProblemError(
+        code: cancelled ? 'transport.cancelled' : 'transport.network',
+      ),
+    );
   }
 }
 

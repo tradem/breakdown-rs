@@ -19,7 +19,7 @@ import '../../app_config.dart';
 import '../../auth/active_block.dart';
 import '../../auth/auth_providers.dart';
 import '../../auth/token_store.dart';
-import '../../data/report_cache.dart';
+import 'pdf_streaming_interceptor.dart';
 import '../../data/settings/api_base_override_store.dart';
 import 'active_block_interceptor.dart';
 import 'auth_token_interceptor.dart';

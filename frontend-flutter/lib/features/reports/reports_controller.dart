@@ -34,6 +34,53 @@ Future<Directory> reportsTempDir(Ref ref) => getTemporaryDirectory();
 @riverpod
 ReportShareService reportShareService(Ref ref) => SharePlusReportShare();
 
+/// Container-scoped PDF transport state for one [ReportDayScope]: the active
+/// [CancelToken]s and staged temp files.
+///
+/// On [dispose] every in-flight transfer is cancelled and every staged file
+/// is deleted — so a container teardown never leaves a pending transfer or a
+/// leaked partial file behind.
+class ReportsPdfTransport {
+  final Map<ReportPdfKind, CancelToken> _tokens = {};
+  final Map<ReportPdfKind, File> _staged = {};
+
+  void registerToken(ReportPdfKind kind, CancelToken token) =>
+      _tokens[kind] = token;
+
+  void stage(ReportPdfKind kind, File file) => _staged[kind] = file;
+
+  void unstage(ReportPdfKind kind) => _staged.remove(kind);
+
+  /// Cancels in-flight transfers and deletes staged temp files. Best-effort
+  /// by contract (`deleteReportTemp` never throws).
+  Future<void> dispose() async {
+    for (final token in _tokens.values) {
+      token.cancel();
+    }
+    _tokens.clear();
+    final staged = Map.of(_staged);
+    _staged.clear();
+    for (final file in staged.values) {
+      await deleteReportTemp(file);
+    }
+  }
+}
+
+/// The transport registry provider. KeepAlive and — deliberately — watches
+/// NOTHING: Riverpod fires `ref.onDispose` on dependency-driven rebuilds
+/// too, so a cleanup hooked into a watching provider (or into the
+/// controller's `build()`, which watches the membership) would cancel
+/// in-flight user fetches on every rebuild. Watching nothing confines the
+/// dispose to actual provider-container destruction.
+@Riverpod(keepAlive: true)
+ReportsPdfTransport reportsPdfTransport(Ref ref, ReportDayScope scope) {
+  final transport = ReportsPdfTransport();
+  ref.onDispose(() {
+    unawaited(transport.dispose());
+  });
+  return transport;
+}
+
 /// Local AUTHZ-GATE decision for [scope]: the resolved membership DTO when
 /// the gate may pass, or the local denial code when the action must be
 /// refused with zero report requests.
@@ -146,6 +193,15 @@ class ReportsCommandError extends _$ReportsCommandError {
 class ReportsController extends _$ReportsController {
   final Map<ReportPdfKind, CancelToken> _pdfTokens = {};
 
+  /// The container-scoped transport registry for this scope (cancel tokens +
+  /// staged temp files). Registered through the watch-free
+  /// [reportsPdfTransportProvider] so its `ref.onDispose` fires ONLY on
+  /// actual provider-container destruction — a `build()`-scoped onDispose
+  /// would fire on every membership-driven rebuild and cancel in-flight
+  /// user fetches.
+  ReportsPdfTransport get _transport =>
+      ref.read(reportsPdfTransportProvider(scope));
+
   @override
   ReportsScreenState build(ReportDayScope scope) {
     final membership = ref.watch(currentMembershipProvider(scope.seasonId));
@@ -205,6 +261,7 @@ class ReportsController extends _$ReportsController {
     _pdfTokens[kind]?.cancel();
     final token = CancelToken();
     _pdfTokens[kind] = token;
+    _transport.registerToken(kind, token);
     _cards(kind, const PdfFetching());
     ref.read(reportsCommandErrorProvider(scope).notifier).clear();
 
@@ -247,18 +304,21 @@ class ReportsController extends _$ReportsController {
       if (staged != null) await deleteReportTemp(staged);
       return;
     }
-    // A user cancel always lands back on idle (partial temp already
-    // deleted by the cache layer) — never on an error card.
-    if (token.isCancelled) {
+    // Superseded (a newer fetch took over the card): clean up silently —
+    // never touch the newer fetch's card state. A user cancel (token still
+    // the current one) lands back on idle (partial temp already deleted by
+    // the cache layer) — never on an error card.
+    final superseded = !identical(_pdfTokens[kind], token);
+    if (superseded || token.isCancelled) {
       final File? staged = res.fold((_) => null, (f) => f);
       if (staged != null) await deleteReportTemp(staged);
-      _cards(kind, const PdfIdle());
+      if (!superseded) _cards(kind, const PdfIdle());
       return;
     }
-    res.match(
-      (err) => _cards(kind, PdfError(err)),
-      (file) => _cards(kind, PdfReady(file)),
-    );
+    res.match((err) => _cards(kind, PdfError(err)), (file) {
+      _transport.stage(kind, file);
+      _cards(kind, PdfReady(file));
+    });
   }
 
   /// Cancels an in-flight PDF fetch; the card returns to idle and no
@@ -283,6 +343,7 @@ class ReportsController extends _$ReportsController {
       fileName: reportShareFileName(dayLabel: scope.dayId, kind: kind),
     );
     await deleteReportTemp(card.file);
+    _transport.unstage(kind);
     if (!ref.mounted) return;
     _cards(kind, const PdfIdle());
     res.match(
@@ -295,17 +356,27 @@ class ReportsController extends _$ReportsController {
   /// temp copy and returns the card to idle.
   Future<void> dismissPdf(ReportPdfKind kind) async {
     final card = ref.read(reportsPdfCardsProvider(scope))[kind];
-    if (card is PdfReady) await deleteReportTemp(card.file);
+    if (card is PdfReady) {
+      await deleteReportTemp(card.file);
+      _transport.unstage(kind);
+    }
     if (!ref.mounted) return;
     _cards(kind, const PdfIdle());
   }
 
-  /// Pull-to-refresh: refetches the three JSON read models.
+  /// Pull-to-refresh: refetches the three JSON read models. Awaits the
+  /// rebuilt futures so the `RefreshIndicator` spinner tracks the actual
+  /// requests (ref.invalidate alone returns before recomputation settles).
   Future<void> refresh() async {
     ref.read(reportsCommandErrorProvider(scope).notifier).clear();
     ref.invalidate(reportsSollIstFetchProvider(scope));
     ref.invalidate(reportsDispoFetchProvider(scope));
     ref.invalidate(reportsShootDayFetchProvider(scope));
+    await Future.wait([
+      ref.read(reportsSollIstFetchProvider(scope).future),
+      ref.read(reportsDispoFetchProvider(scope).future),
+      ref.read(reportsShootDayFetchProvider(scope).future),
+    ]);
   }
 
   /// Retry affordance for the `membership.unavailable` denial.

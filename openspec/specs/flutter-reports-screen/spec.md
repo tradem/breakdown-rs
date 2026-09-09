@@ -1,7 +1,14 @@
 # flutter-reports-screen Specification
 
 ## Purpose
-TBD - created by archiving change flutter-reports. Update Purpose after archive.
+Defines the day-context reporting surface of the Flutter client: the
+on-screen Soll-Ist report (planned vs actual scene shoots with
+moved/missing/skipped/reshot flags and the day's finality from
+`wrapped_at`) rendered exclusively from the JSON report read DTOs, and
+the three per-day PDF reports (dispo, shoot-day, planned-vs-actual)
+fetched through the pinned-CA generated client, streamed to a temp
+file, previewed in-app (FOSS renderer) and shared via the platform
+sheet — all locally pre-gated by the client-side AUTHZ-GATE.
 ## Requirements
 ### Requirement: Contract-Gated Reporting Surface
 The reports feature SHALL be implemented only against routes the
@@ -58,25 +65,24 @@ progress affordance while running; the document SHALL preview in-app
 (FOSS viewer) and be shareable/saveable via the platform sheet to a
 user-visible file name. PDF bytes SHALL never persist into Drift.
 
-- **One bounded streaming model (verified against the generated
-  client):** the generated PDF methods are
-  `Future<Response<void>> dispoReportPdf({cancelToken, headers, extra,
-  validateStatus, onSendProgress, onReceiveProgress})` — they accept no
-  `Options` parameter, so `ResponseType.stream` cannot be passed per
-  call, and the current repository discards the body entirely
-  (`Result<void>`). The contract is therefore: a **path-keyed
-  interceptor** on the pinned-CA Dio sets `responseType =
-  ResponseType.stream` for `/v1/shooting-days/*/report/*.pdf`; the
-  repository consumes `response.data` as a dio `ResponseBody` stream and
-  writes each chunk straight to the cache/temp file while counting
-  bytes; the call carries an explicit `CancelToken` so the transfer is
-  cancellable at any point. `PDF_MAX_BYTES` (default 25 MB) is enforced
-  **during** streaming — the moment the counter exceeds the cap the
-  token is cancelled, the partial temp file is deleted, and the card
-  returns to idle with the localized `pdf.too_large` copy. No full
-  document is ever resident in memory and no unbounded buffering occurs
-  — asserted by a unit test that streams an oversized body and expects
-  the abort plus zero file writes.
+- **One bounded streaming model (landed):** the generated PDF methods
+  (`dispoReportPdf({id, cancelToken, headers, extra, validateStatus,
+  onSendProgress, onReceiveProgress})` — `Future<Response<void>>`) accept no
+  `Options` parameter, so `ResponseType.stream` cannot be passed per call.
+  The contract is: a **path-keyed interceptor** on the pinned-CA Dio (`lib/src
+  /network/pdf_streaming_interceptor.dart`) sets `responseType =
+  ResponseType.stream` for `/v1/shooting-days/*/report/*.pdf`; the repository
+  consumes `response.data` as a dio `ResponseBody` stream and writes each
+  chunk straight to the cache/temp file while counting bytes; the call
+  carries an explicit `CancelToken` so the transfer is cancellable at any
+  point. `PDF_MAX_BYTES` (default 25 MB) is enforced **during** streaming —
+  the moment the counter exceeds the cap the token is cancelled and the
+  partial temp file is deleted, so **no partial file remains after the
+  failure** (earlier chunks may have been written before the abort; the
+  deleted file is the requirement, not zero writes). No full document is
+  ever resident in memory and no unbounded buffering occurs — asserted by a
+  unit test that streams an oversized body and expects the abort plus an
+  empty temp directory.
 - A role-gated user denial SHALL be pre-empted client-side with
   `// AUTHZ-GATE:`-annotated capability checks and the localized 403
   narrative before any network call. The pre-check is **local and

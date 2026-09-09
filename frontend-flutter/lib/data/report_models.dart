@@ -73,7 +73,16 @@ String reportShareFileName({
 ProblemError normalizeReportError(DioException e) {
   final data = e.response?.data;
   if (data is Map<String, dynamic> && data['code'] is String) {
-    return ProblemError.fromJson(data);
+    try {
+      return ProblemError.fromJson(data);
+    } on Object {
+      // A malformed problem body (e.g. `status` carries a string) must not
+      // escape the handler: fall back to the stable code + HTTP status.
+      return ProblemError(
+        code: data['code'] as String,
+        status: e.response?.statusCode,
+      );
+    }
   }
   final status = e.response?.statusCode;
   if (status != null) {
