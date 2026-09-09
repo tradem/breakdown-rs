@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: muse-spark (pi)
+# Co-authored-by: omen-alpha (opencode-go)
 
 @critical
 Feature: Continuity photo capture (AUTHZ-GATE to thumb)
@@ -75,4 +76,5 @@ Feature: Continuity photo capture (AUTHZ-GATE to thumb)
     Then the continuity strip for "ssh-1" shows processing
     When 75 seconds pass so the watch budget expires
     Then the continuity strip for "ssh-1" still shows processing
+    And no further network requests leave the device
     And the capture affordance for "ssh-1" remains
