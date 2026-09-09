@@ -53,8 +53,6 @@ handler (`driver.requestData`), so both assertion kinds observe real traffic:
 - No `backend/openapi.yaml` change, no client regeneration.
 - No changes to production `lib/` behavior other than the (empty-by-default)
   interceptor seam and the exported backoff-cap constant.
-- The D1 dev-IdP HTTP exception transport is not recorded (dev-only, unused
-  in the gherkin dev-auth mode).
 
 ## Tasks
 
@@ -62,7 +60,9 @@ handler (`driver.requestData`), so both assertion kinds observe real traffic:
    `RequestRecorderInterceptor` (records total + photo-pipeline counts).
 2. `lib/src/network/api_client.dart`: `@visibleForTesting
    debugDioInterceptors` seam appended in `buildPinnedDio` (and the dev IdP
-   HTTP branch); export `kPhotoWatchMaxDelay` from `photo_repository.dart`.
+   HTTP branch of `buildIdpDio` — the D1 exception transport is recorded
+   like every other transport; it is simply unused in the gherkin dev-auth
+   mode); export `kPhotoWatchMaxDelay` from `photo_repository.dart`.
 3. `integration_test/gherkin/app.dart`: register the interceptor + driver
    data handler (`request-recorder:snapshot` / `:reset`).
 4. Steps: populate `AppWorld.requestsLeftDevice` from the recorder; add the
