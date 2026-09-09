@@ -11,6 +11,13 @@ part of 'active_block_gate.dart';
 /// Resolves the active-block scope for a season-direct entry.
 ///
 /// - Sticky scope matches `seasonId` → ready immediately (zero taps).
+/// - Otherwise consults the persisted per-season scope (issue #382) once
+///   the blocks fetch yields rows: a remembered block id that still exists
+///   is restored silently (zero taps for returning users); a stale entry
+///   (block deleted on the backend) is evicted and falls through below —
+///   never a hard failure. The persisted provider degrades a store failure
+///   to "nothing remembered", so this path runs as if nothing were
+///   stored (the `AsyncError` tolerance below is defensive only).
 /// - Otherwise consults the existing `blocksListFetchProvider` seam
 ///   (`GET /v1/blocks?season_id=…` is `Authenticated` — works headerless):
 ///   - exactly one block → sets the sticky scope and yields one loading
@@ -29,6 +36,13 @@ final blockScopeResolutionProvider = BlockScopeResolutionFamily._();
 /// Resolves the active-block scope for a season-direct entry.
 ///
 /// - Sticky scope matches `seasonId` → ready immediately (zero taps).
+/// - Otherwise consults the persisted per-season scope (issue #382) once
+///   the blocks fetch yields rows: a remembered block id that still exists
+///   is restored silently (zero taps for returning users); a stale entry
+///   (block deleted on the backend) is evicted and falls through below —
+///   never a hard failure. The persisted provider degrades a store failure
+///   to "nothing remembered", so this path runs as if nothing were
+///   stored (the `AsyncError` tolerance below is defensive only).
 /// - Otherwise consults the existing `blocksListFetchProvider` seam
 ///   (`GET /v1/blocks?season_id=…` is `Authenticated` — works headerless):
 ///   - exactly one block → sets the sticky scope and yields one loading
@@ -52,6 +66,13 @@ final class BlockScopeResolutionProvider
   /// Resolves the active-block scope for a season-direct entry.
   ///
   /// - Sticky scope matches `seasonId` → ready immediately (zero taps).
+  /// - Otherwise consults the persisted per-season scope (issue #382) once
+  ///   the blocks fetch yields rows: a remembered block id that still exists
+  ///   is restored silently (zero taps for returning users); a stale entry
+  ///   (block deleted on the backend) is evicted and falls through below —
+  ///   never a hard failure. The persisted provider degrades a store failure
+  ///   to "nothing remembered", so this path runs as if nothing were
+  ///   stored (the `AsyncError` tolerance below is defensive only).
   /// - Otherwise consults the existing `blocksListFetchProvider` seam
   ///   (`GET /v1/blocks?season_id=…` is `Authenticated` — works headerless):
   ///   - exactly one block → sets the sticky scope and yields one loading
@@ -118,11 +139,18 @@ final class BlockScopeResolutionProvider
 }
 
 String _$blockScopeResolutionHash() =>
-    r'88641b9bb7f50938313cf339c7265d8b0e072872';
+    r'983807c4e774aeca44d9664b097f6c0b155544a8';
 
 /// Resolves the active-block scope for a season-direct entry.
 ///
 /// - Sticky scope matches `seasonId` → ready immediately (zero taps).
+/// - Otherwise consults the persisted per-season scope (issue #382) once
+///   the blocks fetch yields rows: a remembered block id that still exists
+///   is restored silently (zero taps for returning users); a stale entry
+///   (block deleted on the backend) is evicted and falls through below —
+///   never a hard failure. The persisted provider degrades a store failure
+///   to "nothing remembered", so this path runs as if nothing were
+///   stored (the `AsyncError` tolerance below is defensive only).
 /// - Otherwise consults the existing `blocksListFetchProvider` seam
 ///   (`GET /v1/blocks?season_id=…` is `Authenticated` — works headerless):
 ///   - exactly one block → sets the sticky scope and yields one loading
@@ -149,6 +177,13 @@ final class BlockScopeResolutionFamily extends $Family
   /// Resolves the active-block scope for a season-direct entry.
   ///
   /// - Sticky scope matches `seasonId` → ready immediately (zero taps).
+  /// - Otherwise consults the persisted per-season scope (issue #382) once
+  ///   the blocks fetch yields rows: a remembered block id that still exists
+  ///   is restored silently (zero taps for returning users); a stale entry
+  ///   (block deleted on the backend) is evicted and falls through below —
+  ///   never a hard failure. The persisted provider degrades a store failure
+  ///   to "nothing remembered", so this path runs as if nothing were
+  ///   stored (the `AsyncError` tolerance below is defensive only).
   /// - Otherwise consults the existing `blocksListFetchProvider` seam
   ///   (`GET /v1/blocks?season_id=…` is `Authenticated` — works headerless):
   ///   - exactly one block → sets the sticky scope and yields one loading

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: muse-spark (pi)
+// Co-authored-by: muse-spark-1.3 (opencode)
 
 // Controller tests (`flutter-shoot-day-execution` 2.1, closing the 1.1
 // local-denial proof): execution commands dispatch with version echoes +

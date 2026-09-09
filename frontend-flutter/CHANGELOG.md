@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: muse-spark-1.3-contributor (opencode-go) -->
+<!-- Co-authored-by: omen-alpha (opencode-go) -->
 
 # Changelog
 
@@ -15,11 +16,27 @@ releases are cut as `flutter-vX.Y.Z` tags.
 
 ### Added
 
-- Pre-release version line: the client versions as `0.1.x+N` until the
+- Reports screen (`flutter-reports`): day-context Soll-Ist on-screen report
+  (planned/actual counts, moved/missing/skipped/reshot flag chips, finality
+  banner — all verbatim from the JSON report read DTOs, no client-side
+  recomputation) plus the three per-day PDF report cards (dispo, shoot-day,
+  planned-vs-actual): user-initiated streamed fetch through the pinned-CA
+  generated client (path-keyed interceptor, 25 MB byte cap with CancelToken
+  abort and temp cleanup), in-app FOSS preview (pdfrx) and platform-sheet
+  share under `<day>-<report>.pdf`; PDF bytes never persist into Drift.
+  Local non-fetching AUTHZ-GATE (`canViewReports` via
+  `currentMembershipProvider`) refuses with zero report requests.
+- **Version bump:** `0.1.0+7 → 0.2.0+8` (MINOR per ADR-033 D2 — additive
+  feature surface; `+N` monotonic for the Play `versionCode`; no
+  `flutter-v*` tag cut).
+- Pre-release version line: the client versions as `0.x+N` until the
   first store submission, which will cut `1.0.0` (the `1.0.0+1` in
   `pubspec.yaml` was the untouched `flutter create` scaffold default, not
   a maturity claim; backend components version 0.x likewise). Build
   number `+N` keeps increasing monotonically for the Play `versionCode`.
+  MINOR bumps carry additive features per ADR-033 D2 even before the
+  first tag (D3/D7: tags snapshot the pubspec surface at release time; no
+  flutter tag exists yet).
 - Login & app shell (`flutter-login-and-app-shell`): auth gate (splash →
   login → seasons), OIDC platform leg (Custom Tabs + deep-link capture),
   light/dark Material 3 design tokens, app-shell overflow menu (identity,

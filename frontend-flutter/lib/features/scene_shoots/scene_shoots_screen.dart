@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: muse-spark (pi)
+// Co-authored-by: muse-spark-1.3 (opencode)
+// Co-authored-by: omen-alpha (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
+import '../reports/reports_screen.dart';
 import '../shooting_days/shooting_days_controller.dart';
 import 'scene_shoots_controller.dart';
 import 'scene_shoots_state.dart';
@@ -70,7 +72,22 @@ class SceneShootsScreen extends ConsumerWidget {
     final wrapped = dayNow.wrappedAt != null;
 
     return Scaffold(
-      appBar: AppBar(title: Text(dayNow.label ?? 'Shooting day')),
+      appBar: AppBar(
+        title: Text(dayNow.label ?? 'Shooting day'),
+        actions: [
+          IconButton(
+            key: const Key('reports-open'),
+            icon: const Icon(Icons.summarize_outlined),
+            tooltip: 'Reports',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) =>
+                    ReportsScreen(day: dayNow, seasonId: seasonId),
+              ),
+            ),
+          ),
+        ],
+      ),
       body: Column(
         children: [
           if (state.commandError case final error?)

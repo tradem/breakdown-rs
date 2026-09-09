@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
-# Co-authored-by: muse-spark (pi)
+# Co-authored-by: muse-spark-1.3 (opencode)
 
 @critical
 Feature: Soll-Ist execution (plan to wrap)
