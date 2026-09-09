@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: longcat-2.0 (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:fpdart/fpdart.dart';
