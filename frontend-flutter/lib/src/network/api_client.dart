@@ -19,6 +19,7 @@ import '../../app_config.dart';
 import '../../auth/active_block.dart';
 import '../../auth/auth_providers.dart';
 import '../../auth/token_store.dart';
+import '../../data/report_cache.dart';
 import '../../data/settings/api_base_override_store.dart';
 import 'active_block_interceptor.dart';
 import 'auth_token_interceptor.dart';
@@ -164,6 +165,12 @@ Dio buildPinnedDio({
   dio.httpClientAdapter = IOHttpClientAdapter(
     createHttpClient: () => HttpClient(context: context),
   );
+  // Report PDFs stream through the generated client, whose PDF methods take
+  // no `Options`: this path-keyed interceptor switches the three per-day
+  // PDF routes to `ResponseType.stream` so the repository can write each
+  // chunk straight to the cache/temp file under the byte-cap contract
+  // (flutter-reports 1.2 — never an in-memory buffer, never Drift).
+  dio.interceptors.add(PdfStreamingInterceptor());
   dio.interceptors.add(AuthTokenInterceptor(tokenStore));
   dio.interceptors.add(ActiveBlockInterceptor(activeBlockId));
   dio.interceptors.addAll(debugDioInterceptors);

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: muse-spark (pi)
+// Co-authored-by: muse-spark-1.3 (opencode)
+// Co-authored-by: omen-alpha (opencode-go)
 
 // Tier-1 unit tests (`flutter-shoot-day-execution` 1.3): every
 // `SceneShootRepository` execution command Ok AND Err, the pure
@@ -11,6 +12,7 @@
 // reject with RFC 9457 problem+json DioExceptions. No Flutter imports.
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:built_collection/built_collection.dart';
@@ -405,7 +407,7 @@ void main() {
         );
         // Legacy report/archive endpoints share the same error surface.
         _expectLeftCode(
-          await repo.dispoReportPdf('day-1'),
+          await repo.dispoReportPdf('day-1', tempDir: Directory.systemTemp),
           'scene_shoot.forbidden',
         );
         await db.close();

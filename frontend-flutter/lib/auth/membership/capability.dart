@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 
@@ -51,4 +52,16 @@ extension SeasonMembershipDtoGate on SeasonMembershipDto {
   /// True when the server-derived capability list includes `assign_costumes`.
   bool get canAssignCostumes =>
       capabilities.contains(Capability.assignCostumes.wireName);
+
+  /// True when the member may view day reports (Soll-Ist on-screen report
+  /// and the three per-day PDFs).
+  ///
+  /// The report handlers gate on the same backend predicate as the
+  /// capability set (`has_active_costume_role_in_season` — any active
+  /// costume-dept role in the season), so the client-side AUTHZ-GATE for
+  /// `flutter-reports-screen` checks the backend-computed flag directly
+  /// rather than a dedicated capability string. Unknown capability strings
+  /// never enable this gate (server remains authoritative and re-checks on
+  /// every handler).
+  bool get canViewReports => hasActiveCostumeRoleInSeason;
 }

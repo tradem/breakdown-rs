@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: muse-spark (pi)
+// Co-authored-by: muse-spark-1.3 (opencode)
+// Co-authored-by: omen-alpha (opencode-go)
+
+import 'dart:io';
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:built_collection/built_collection.dart';
+import 'package:dio/dio.dart';
 import 'package:fpdart/fpdart.dart';
 
 import '../core/problem_error.dart';
@@ -13,6 +17,8 @@ import 'cache/cache_generation.dart';
 import 'cache/cache_ttl.dart';
 import 'cache/clock.dart';
 import 'cache/scene_shoot_cache_dao.dart';
+import 'report_cache.dart';
+import 'report_models.dart';
 
 /// Repository for the `SceneShoot` aggregate boundary — Soll/Ist execution
 /// (plan/replan/get/list, start, actual-order, finish, skip, notes,
@@ -399,7 +405,198 @@ class SceneShootRepository extends BaseRepository {
     }
   }
 
-  // -- Legacy: schedule + reports -------------------------------------------
+  // -- Reports: JSON read-model fetches ------------------------------------
+
+  /// Dispo (planned / Soll) rows for the day
+  /// (`GET /v1/shooting-days/{id}/report/dispo`, server `planned_order ASC`).
+  ///
+  /// Pure read-model render input (D2): the client renders rows verbatim and
+  /// never recomputes flags or finality. A deserialization failure inside
+  /// the generated client (e.g. an unknown enum string from a future
+  /// backend) strict-rejects to `report.unknown_status` / `report.unknown_shape`
+  /// — never throws (AGENTS.md §5: no throw in `data/`).
+  Future<Result<List<DispoRow>>> fetchDispoReport(String id) async {
+    try {
+      final response = await api.getHandlersApi().dispoReport(id: id);
+      final data = response.data;
+      if (data == null) {
+        return const Left(ProblemError(code: 'report.unknown_shape'));
+      }
+      return Right(data.toList());
+    } on DioException catch (e) {
+      return Left(_reportDioError(e));
+    } on Object catch (e) {
+      return Left(strictParseError(e));
+    }
+  }
+
+  /// Shoot-day (execution / Ist) rows for the day
+  /// (`GET /v1/shooting-days/{id}/report/shoot-day`,
+  /// server `actual_order ASC NULLS LAST`). Same strict contract as
+  /// [fetchDispoReport].
+  Future<Result<List<ShootDayRow>>> fetchShootDayReport(String id) async {
+    try {
+      final response = await api.getHandlersApi().shootDayReport(id: id);
+      final data = response.data;
+      if (data == null) {
+        return const Left(ProblemError(code: 'report.unknown_shape'));
+      }
+      return Right(data.toList());
+    } on DioException catch (e) {
+      return Left(_reportDioError(e));
+    } on Object catch (e) {
+      return Left(strictParseError(e));
+    }
+  }
+
+  /// Soll-Ist-Vergleich diff report for the day
+  /// (`GET /v1/shooting-days/{id}/report/soll-ist`): planned vs actual rows
+  /// with moved/missing/skipped/reshot flags and finality from `wrapped_at`.
+  ///
+  /// The generated client deserializes the DTO; unknown status/flag strings
+  /// from a future backend surface as deserialization failures and are
+  /// normalized to `report.unknown_status` here so the screen can render
+  /// the standard strict-reject error state instead of guessing a meaning.
+  Future<Result<SollIstReport>> fetchSollIstReport(String id) async {
+    try {
+      final response = await api.getHandlersApi().sollIstReport(id: id);
+      final data = response.data;
+      if (data == null) {
+        return const Left(ProblemError(code: 'report.unknown_shape'));
+      }
+      return Right(data);
+    } on DioException catch (e) {
+      return Left(_reportDioError(e));
+    } on Object catch (e) {
+      // A deserialization failure inside the generated client also arrives
+      // here: strict-reject unknown statuses, shape-reject the rest.
+      return Left(strictParseError(e));
+    }
+  }
+
+  // -- Reports: per-day PDF fetch (stream-to-temp-file) ----------------------
+
+  /// Fetches the dispo PDF for the day, streaming bytes straight to a temp
+  /// file (`Result<File>` on success — never an in-memory buffer, never
+  /// Drift, never the persistent documents directory).
+  ///
+  /// Dispatches via the generated per-day client method only (D1 — never a
+  /// hand-built `Dio.get` URL). The path-keyed [PdfStreamingInterceptor] on
+  /// the pinned-CA Dio sets `ResponseType.stream` (the generated methods
+  /// take no `Options`); each chunk is written to the cache/temporary file
+  /// while counting bytes, and [PDF_MAX_BYTES] aborts the transfer via
+  /// [cancelToken] the moment it is exceeded (partial file deleted, card
+  /// back to idle with `pdf.too_large`).
+  ///
+  /// // AUTHZ-GATE: callers check `canViewReports` via
+  /// // `currentMembershipProvider` BEFORE invoking; denial issues zero calls.
+  Future<Result<File>> dispoReportPdf(
+    String id, {
+    required Directory tempDir,
+    CancelToken? cancelToken,
+    ProgressCallback? onReceiveProgress,
+  }) => _fetchReportPdf(
+    kind: ReportPdfKind.dispo,
+    dayId: id,
+    tempDir: tempDir,
+    cancelToken: cancelToken,
+    onReceiveProgress: onReceiveProgress,
+    call: (token) => api.getHandlersApi().dispoReportPdf(
+      id: id,
+      cancelToken: token,
+      onReceiveProgress: onReceiveProgress,
+    ),
+  );
+
+  /// Fetches the shoot-day PDF for the day (same streaming contract as
+  /// [dispoReportPdf]).
+  ///
+  /// // AUTHZ-GATE: callers check `canViewReports` via
+  /// // `currentMembershipProvider` BEFORE invoking; denial issues zero calls.
+  Future<Result<File>> shootDayReportPdf(
+    String id, {
+    required Directory tempDir,
+    CancelToken? cancelToken,
+    ProgressCallback? onReceiveProgress,
+  }) => _fetchReportPdf(
+    kind: ReportPdfKind.shootDay,
+    dayId: id,
+    tempDir: tempDir,
+    cancelToken: cancelToken,
+    onReceiveProgress: onReceiveProgress,
+    call: (token) => api.getHandlersApi().shootDayReportPdf(
+      id: id,
+      cancelToken: token,
+      onReceiveProgress: onReceiveProgress,
+    ),
+  );
+
+  /// Fetches the planned-vs-actual PDF for the day (same streaming contract
+  /// as [dispoReportPdf]).
+  ///
+  /// // AUTHZ-GATE: callers check `canViewReports` via
+  /// // `currentMembershipProvider` BEFORE invoking; denial issues zero calls.
+  Future<Result<File>> plannedVsActualReportPdf(
+    String id, {
+    required Directory tempDir,
+    CancelToken? cancelToken,
+    ProgressCallback? onReceiveProgress,
+  }) => _fetchReportPdf(
+    kind: ReportPdfKind.plannedVsActual,
+    dayId: id,
+    tempDir: tempDir,
+    cancelToken: cancelToken,
+    onReceiveProgress: onReceiveProgress,
+    call: (token) => api.getHandlersApi().plannedVsActualReportPdf(
+      id: id,
+      cancelToken: token,
+      onReceiveProgress: onReceiveProgress,
+    ),
+  );
+
+  /// Shared streaming executor for the three per-day PDF fetches: runs the
+  /// generated call with an explicit [CancelToken] (so the transfer is
+  /// cancellable at any point), extracts the streaming payload, and writes
+  /// it to the temp file under the byte-cap contract. Never throws.
+  Future<Result<File>> _fetchReportPdf({
+    required ReportPdfKind kind,
+    required String dayId,
+    required Directory tempDir,
+    required Future<Response<void>> Function(CancelToken token) call,
+    CancelToken? cancelToken,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final token = cancelToken ?? CancelToken();
+    try {
+      final response = await call(token);
+      // The generated methods return `Response<void>` (static `data` is
+      // `void`), but at runtime the interceptor-switched streaming shape
+      // carries a Dio `ResponseBody`. Extract via `dynamic` — the cast is
+      // the documented cost of the no-`Options` generated surface (spec).
+      final Object? raw = (response as dynamic).data as Object?;
+      return await writePdfResponseDataToTemp(
+        data: raw,
+        tempDir: tempDir,
+        fileName: reportShareFileName(dayLabel: dayId, kind: kind),
+        cancelToken: token,
+      );
+    } on DioException catch (e) {
+      return Left(normalizeReportError(e));
+    }
+  }
+
+  /// Maps a report-route [DioException] to its stable code: an RFC 9457
+  /// problem body keeps its `code`, anything else normalizes to
+  /// `transport.*` / `http.<status>` (never `detail`).
+  ProblemError _reportDioError(DioException e) {
+    final data = e.response?.data;
+    if (data is Map<String, dynamic> && data['code'] is String) {
+      return ProblemError.fromJson(data);
+    }
+    return normalizeReportError(e);
+  }
+
+  // -- Legacy: schedule + archive -------------------------------------------
 
   Future<Result<int>> schedule(String id, ScheduleSceneRequest request) => run(
     () => api.getHandlersApi().scheduleSceneOnShootingDay(
@@ -419,15 +616,6 @@ class SceneShootRepository extends BaseRepository {
       version: version,
     ),
   );
-
-  Future<Result<void>> dispoReportPdf(String id) =>
-      run(() => api.getHandlersApi().dispoReportPdf(id: id));
-
-  Future<Result<void>> plannedVsActualReportPdf(String id) =>
-      run(() => api.getHandlersApi().plannedVsActualReportPdf(id: id));
-
-  Future<Result<void>> shootDayReportPdf(String id) =>
-      run(() => api.getHandlersApi().shootDayReportPdf(id: id));
 
   Future<Result<void>> manualArchiveReports(String id) =>
       run(() => api.getHandlersApi().manualArchiveReports(id: id));

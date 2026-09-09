@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 import 'package:flutter_driver/flutter_driver.dart';
 import 'package:flutter_gherkin/flutter_gherkin.dart';
@@ -32,8 +33,20 @@ StepDefinitionGeneric givenAuthenticatedAs() => given1<String, FlutterWorld>(
   },
 );
 
-/// Opens the Soll-Ist report for a season (forward-looking — the screen is not
-/// yet landed; the key convention follows the seasons reference pattern).
+/// Opens the day-context reports from the day board's "Reports" action
+/// (`reports-open` on `SceneShootsScreen`, `flutter-reports` 2.1). Runs on
+/// device, does not call a pure function.
+StepDefinitionGeneric whenOpenReports() => when1<String, FlutterWorld>(
+  'I open the reports for shooting day {string}',
+  (String dayId, context) async {
+    final locator = find.byValueKey('reports-open');
+    await FlutterDriverUtils.tap(context.world.driver!, locator);
+  },
+);
+
+/// Legacy season-level entry (kept for step-registry completeness; the
+/// `soll_ist_report.feature` scenarios use the day-context entry above
+/// since `flutter-reports` 2.1).
 StepDefinitionGeneric whenOpenSollIstReport() => when1<String, FlutterWorld>(
   'I open the Soll-Ist report for season {string}',
   (String seasonId, context) async {
