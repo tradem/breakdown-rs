@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: longcat-2.0 (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:fpdart/fpdart.dart';
@@ -38,6 +39,9 @@ class BlockRepository extends BaseRepository {
   /// missing ids of this season, one transaction) and returns the rows. On
   /// [Left] returns the error without touching the cache.
   ///
+  /// Paginates through every page (issue #385) so the snapshot is never
+  /// truncated to a single page.
+  ///
   /// When [fence] is given, a write whose generation went stale while the
   /// fetch was in flight is discarded: rows are still returned, never
   /// persisted.
@@ -46,8 +50,10 @@ class BlockRepository extends BaseRepository {
     Clock clock = Clock.system,
     CacheWriteFence? fence,
   }) async {
-    final Result<List<BlockView>> fetched = await runList(
-      () => api.getHandlersApi().listBlocks(seasonId: seasonId),
+    final Result<List<BlockView>> fetched = await fetchAllPages<BlockView>(
+      ({required int limit, required int offset}) => api
+          .getHandlersApi()
+          .listBlocks(seasonId: seasonId, limit: limit, offset: offset),
       dtoInvalidCode: 'block.dto_invalid',
     );
     return fetched.match(

@@ -34,15 +34,21 @@ class CharacterRepository extends BaseRepository {
 
   /// Season-scoped fetch + snapshot-replace
   /// (`GET /v1/characters?season_id=…`).
+  ///
+  /// Paginates through every page (issue #385) so the snapshot is never
+  /// truncated to a single page.
   Future<Result<List<CharacterView>>> listBySeason(
     String seasonId, {
     Clock clock = Clock.system,
     CacheWriteFence? fence,
   }) async {
-    final Result<List<CharacterView>> fetched = await runList(
-      () => api.getHandlersApi().listCharacters(seasonId: seasonId),
-      dtoInvalidCode: 'character.dto_invalid',
-    );
+    final Result<List<CharacterView>> fetched =
+        await fetchAllPages<CharacterView>(
+          ({required int limit, required int offset}) => api
+              .getHandlersApi()
+              .listCharacters(seasonId: seasonId, limit: limit, offset: offset),
+          dtoInvalidCode: 'character.dto_invalid',
+        );
     return fetched.match(
       (err) async => Left<ProblemError, List<CharacterView>>(err),
       (rows) async {

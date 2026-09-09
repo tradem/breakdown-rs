@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: longcat-2.0 (opencode-go)
+
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:dio/dio.dart';
@@ -207,6 +211,128 @@ void main() {
       },
     );
   });
+
+  group('SeasonRepository.fetchSeasonsList pagination (issue #385)', () {
+    late CacheDatabase db;
+
+    setUp(() {
+      db = CacheDatabase(NativeDatabase.memory());
+    });
+
+    tearDown(() => db.close());
+
+    test(
+      'fetchAndCacheList with >pageSize rows keeps ALL rows in the cache',
+      () async {
+        // Simulate a >50-row scope: the custom fetch returns 217 rows.
+        // Without pagination, only the first 50 would be snapshotted and
+        // the rest evicted. With pagination, all 217 are cached.
+        final allIds = List.generate(217, (i) => 's$i');
+        final repo = SeasonRepository(BreakdownApi(), SeasonCacheDao(db));
+
+        final res = await repo.fetchAndCacheList(
+          () async => Right(allIds.map((id) => _season(id)).toList()),
+        );
+        expect(res, isA<Right>());
+
+        // Every row must be cached — no row evicted.
+        final cached = await repo.readCached();
+        expect((cached as Right).value.length, 217);
+        expect((cached as Right).value.map((v) => v.id).toList(), allIds);
+      },
+    );
+
+    test(
+      'fetchAndCacheList snapshot-replace still scopes deletions correctly',
+      () async {
+        final repo = SeasonRepository(BreakdownApi(), SeasonCacheDao(db));
+
+        // First fetch: 217 rows.
+        final allIds = List.generate(217, (i) => 's$i');
+        await repo.fetchAndCacheList(
+          () async => Right(allIds.map((id) => _season(id)).toList()),
+        );
+
+        // Second fetch: server drops rows 100-216 → only 100 remain.
+        final remainingIds = List.generate(100, (i) => 's$i');
+        await repo.fetchAndCacheList(
+          () async => Right(remainingIds.map((id) => _season(id)).toList()),
+        );
+
+        final cached = await repo.readCached();
+        expect((cached as Right).value.length, 100);
+        expect((cached as Right).value.map((v) => v.id).toList(), remainingIds);
+      },
+    );
+
+    test(
+      'fetchSeasonsList paginates through all pages (custom adapter)',
+      () async {
+        final allIds = List.generate(217, (i) => 's$i');
+        final allSeasons = allIds.map((id) => _season(id)).toList();
+        final adapter = _PaginatedSeasonsAdapter(allSeasons: allSeasons);
+        final dio = Dio()..httpClientAdapter = adapter;
+        final repo = SeasonRepository(
+          BreakdownApi(dio: dio),
+          SeasonCacheDao(db),
+        );
+
+        final res = await repo.fetchAndCacheList(() => repo.fetchSeasonsList());
+        expect(res, isA<Right>());
+
+        // Every row across all pages must be cached — no row evicted.
+        final cached = await repo.readCached();
+        expect((cached as Right).value.length, 217);
+        expect((cached as Right).value.map((v) => v.id).toList(), allIds);
+        // Assert the loop paged with the correct offsets.
+        expect(adapter.requestedOffsets, [0, 100, 200]);
+        // Assert the loop sent the correct limits.
+        expect(adapter.requestedLimits, [100, 100, 100]);
+      },
+    );
+  });
+}
+
+/// Custom HttpClientAdapter that paginates `GET /v1/seasons` by the
+/// `offset` query parameter, using the requested `limit` as page length.
+/// Records every requested offset and limit so tests can assert the loop
+/// pages correctly.
+class _PaginatedSeasonsAdapter implements HttpClientAdapter {
+  _PaginatedSeasonsAdapter({required this.allSeasons});
+
+  final List<SeasonView> allSeasons;
+  final List<int> requestedOffsets = [];
+  final List<int> requestedLimits = [];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    final uri = options.uri;
+    final offset = int.tryParse(uri.queryParameters['offset'] ?? '0') ?? 0;
+    final limit = int.tryParse(uri.queryParameters['limit'] ?? '50') ?? 50;
+    requestedOffsets.add(offset);
+    requestedLimits.add(limit);
+
+    final page = allSeasons.skip(offset).take(limit).toList();
+    final data = page
+        .map((v) => serializers.serializeWith(SeasonView.serializer, v))
+        .toList();
+    final jsonString = jsonEncode(data);
+
+    return ResponseBody.fromString(
+      jsonString,
+      200,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
 }
 
 /// DAO fake whose reads fail at the executor level, exercising the
