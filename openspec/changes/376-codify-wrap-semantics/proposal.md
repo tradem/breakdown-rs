@@ -33,13 +33,17 @@ would have codified a false contract (option rejected by the user).
      authoritative write-side state, never a read-model projection (CQRS
      boundary hard rule). The SceneShoot aggregate additionally rejects a
      `shooting_day_id` that does not match its own association.
+  3. **Serialization:** the wrap transition and the frozen SceneShoot
+     mutations are serialized per day via a PostgreSQL advisory lock
+     (`pg_advisory_xact_lock`, cross-instance safe, key derived from the day
+     id) held across the wrap append and across each frozen mutation's
+     [probe → append] critical section — no execution mutation can commit
+     after `wrap` completes (closes the residual check-then-act interleave
+     window between the two event-store appends).
   2. **API edge (fast path):** the handler gate reads the shooting-day
      projection (the only CQRS-legal read-model consumer) for an immediate
      409 without the extra stream replay.
-  A residual ms-scale interleave window between the wrap append and the
-  SceneShoot append remains (different SierraDB partitions cannot be
-  serialized atomically); the previous unbounded projector-lag window is
-  closed. The client's D3 finality copy keeps wrapped boards read-only.
+  The client's D3 finality copy keeps wrapped boards read-only.
 - **Document** the split via utoipa descriptions on the wrap/plan/execution
   handlers (flows into `backend/openapi.yaml` on regen).
 - New problem code in the `problem_codes!` registry: `scene-shoot.shooting-day-wrapped`

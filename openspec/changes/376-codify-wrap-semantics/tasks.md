@@ -25,6 +25,13 @@
       every frozen command; the SceneShoot aggregate rejects a mismatched
       `shooting_day_id`. Route `day_id` is validated against the scene shoot's
       association at the API edge (404 on mismatch, before the wrap gate).
+- [x] 2.5 Atomic serialization (PR #389 review follow-up): `WrapFinalityGate`
+      takes a per-day PostgreSQL advisory lock (`pg_advisory_xact_lock`) held
+      across `ShootingDayCommandsImpl::wrap`'s append and across each frozen
+      SceneShoot mutation's [probe → append] critical section — closing the
+      residual check-then-act interleave window between the two event-store
+      appends (cross-instance safe; lock key XOR-mixed from both UUIDv7
+      halves because the high 64 bits collide for same-millisecond ids).
 
 ## 3. Documentation
 

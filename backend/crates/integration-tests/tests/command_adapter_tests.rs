@@ -905,7 +905,10 @@ async fn scene_shoot_start_rejected_on_wrapped_day_write_side() -> Result<()> {
         .await?;
 
     // Open shooting day.
-    let day_cmd = infra::event_store::ShootingDayCommandsImpl::new(cmd_svc.clone());
+    let day_cmd = infra::event_store::ShootingDayCommandsImpl::new(
+        cmd_svc.clone(),
+        infra::event_store::WrapFinalityGate::new(pool.clone()),
+    );
     let day_id = ShootingDayId::new();
     let (_, day_version) = day_cmd
         .create(
@@ -923,7 +926,10 @@ async fn scene_shoot_start_rejected_on_wrapped_day_write_side() -> Result<()> {
         .await?;
 
     // Plan the scene shoot onto the open day.
-    let shoot_cmd = infra::event_store::SceneShootCommandsImpl::new(cmd_svc.clone());
+    let shoot_cmd = infra::event_store::SceneShootCommandsImpl::new(
+        cmd_svc.clone(),
+        infra::event_store::WrapFinalityGate::new(pool.clone()),
+    );
     let shoot_id = SceneShootId::new();
     let (_, shoot_version) = shoot_cmd
         .plan(
@@ -969,5 +975,55 @@ async fn scene_shoot_start_rejected_on_wrapped_day_write_side() -> Result<()> {
         matches!(err, DomainError::ShootingDayWrapped { .. }),
         "unexpected error: {err:?}"
     );
+    Ok(())
+}
+
+/// The wrap-finality gate serializes per day: a second acquisition of the
+/// same day's advisory lock blocks until the first guard drops, while a
+/// different day's lock is independent. Handshake-based — no wall-clock
+/// assertions (yield-bounded scheduling check instead).
+#[tokio::test]
+async fn wrap_finality_gate_serializes_per_day() -> Result<()> {
+    let (pool, _cmd_svc, _pg, _sierra) = init().await?;
+    let gate = infra::event_store::WrapFinalityGate::new(pool);
+    let day_a = ShootingDayId::new();
+    let day_b = ShootingDayId::new();
+
+    let first = gate.lock_day(day_a).await?;
+
+    // A different day's lock is independent of day_a's.
+    let other_day = gate.lock_day(day_b).await?;
+    drop(other_day);
+
+    // Same-day acquisition blocks until `first` drops: signal handshake.
+    let gate_for_task = gate.clone();
+    let (acquired_tx, mut acquired_rx) = tokio::sync::mpsc::unbounded_channel();
+    let holder = tokio::spawn(async move {
+        let guard = gate_for_task
+            .lock_day(day_a)
+            .await
+            .expect("same-day lock must be acquirable after release");
+        acquired_tx
+            .send(())
+            .expect("receiver alive (held by main task)");
+        guard // hold the lock until the task is dropped
+    });
+
+    // The blocked task must not have signalled while the first guard is
+    // held. Bounded cooperative yields instead of wall-clock waits.
+    for _ in 0..200 {
+        tokio::task::yield_now().await;
+        assert!(
+            acquired_rx.try_recv().is_err(),
+            "same-day lock must stay blocked while the first guard is held"
+        );
+    }
+
+    drop(first);
+    holder.await.expect("lock task must not panic");
+    acquired_rx
+        .recv()
+        .await
+        .expect("lock must be acquirable after release");
     Ok(())
 }

@@ -37,7 +37,7 @@ use infra::event_store::{
     AiConfigCommandsImpl, BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl,
     CostumeCommandsImpl, EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl,
     SceneCommandsImpl, SceneShootCommandsImpl, SeasonCommandsImpl, SettingsCommandsImpl,
-    ShootingDayCommandsImpl,
+    ShootingDayCommandsImpl, WrapFinalityGate,
 };
 use infra::photo::{
     gc::spawn_gc_scheduler, repository::PhotoRepositoryImpl, storage::OpenDalPhotoStorage,
@@ -400,7 +400,11 @@ async fn main() -> Result<()> {
 
     // Create command adapters with repository dependencies
     let photo_commands = PhotoCommandsImpl::new(cmd_service.clone());
-    let scene_shoot_commands = SceneShootCommandsImpl::new(cmd_service.clone());
+    // Per-day wrap-finality advisory lock shared by the wrap transition and
+    // the frozen SceneShoot mutations (PR #389 review follow-up).
+    let wrap_finality_gate = WrapFinalityGate::new(pool.clone());
+    let scene_shoot_commands =
+        SceneShootCommandsImpl::new(cmd_service.clone(), wrap_finality_gate.clone());
     let scene_shoot_report_repo = SceneShootReportRepositoryImpl::new(pool.clone());
 
     // --- Spawn photo sagas (thumbnail, deletion, bytes-cleanup) ---
@@ -561,7 +565,7 @@ async fn main() -> Result<()> {
     let ports = ProductionPorts::new(
         SceneCommandsImpl::new(cmd_service.clone()),
         scene_repo,
-        ShootingDayCommandsImpl::new(cmd_service.clone()),
+        ShootingDayCommandsImpl::new(cmd_service.clone(), wrap_finality_gate.clone()),
         shooting_day_repo,
         CharacterCommandsImpl::new(cmd_service.clone()),
         character_repo.clone(),
