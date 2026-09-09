@@ -223,15 +223,16 @@ class FakeCostumeCategoryRepository extends CostumeCategoryRepository {
 
 void main() {
   group('hierarchy cache schema (2.1)', () {
-    test('schema version is 5 with all projection tables', () async {
+    test('schema version is 6 with all projection tables', () async {
       final db = CacheDatabase(NativeDatabase.memory());
       addTearDown(db.close);
       // `flutter-costume-domains` 1.1 adds the costumes/characters/
       // shooting_days tables (migration v2 → v3); the review follow-up
       // adds the costume snapshot ordinal (migration v3 → v4);
       // `flutter-shoot-day-execution` 1.2 adds the day-board scene-shoot
-      // table (migration v4 → v5).
-      expect(db.schemaVersion, 5);
+      // table (migration v4 → v5); `flutter-ai-import` 1.4 adds the
+      // AI-import job table (migration v5 → v6).
+      expect(db.schemaVersion, 6);
       // Every table round-trips (migration created them).
       await BlockCacheDao(db).applySnapshotForSeason('s', [
         _block('b', seasonId: 's'),

@@ -10,6 +10,7 @@ import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
 import '../app_info/info_dialog.dart';
 import '../app_info/settings_dialog.dart';
+import '../ai_import/import_jobs/import_submit_screen.dart';
 import '../auth/sign_out.dart';
 import '../blocks/blocks_screen.dart';
 import '../costume_categories/costume_categories_screen.dart';
@@ -51,7 +52,11 @@ class SeasonsScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Seasons'),
-        actions: const [_ShellMenu()],
+        // AUTHZ-GATE: the AI-import upload routes are gated by the season
+        // costume-dept membership; the gate runs inside the submit
+        // controller BEFORE any network call (the entry action itself is
+        // auth-only — the screens render the denial narratives).
+        actions: const [_AiImportEntry(), _ShellMenu()],
       ),
       body: Column(
         children: [
@@ -306,6 +311,23 @@ class _ShellMenu extends ConsumerWidget {
       ],
     );
   }
+}
+
+/// The seasons toolbar "AI import" entry (`flutter-ai-import` task 6.2):
+/// opens the submission flow; the configuration flow is reachable from
+/// the submit screen's app bar.
+class _AiImportEntry extends StatelessWidget {
+  const _AiImportEntry();
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+    key: const Key('seasons-ai-import'),
+    icon: const Icon(Icons.auto_awesome),
+    tooltip: 'AI import',
+    onPressed: () => Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const AiImportSubmitScreen()),
+    ),
+  );
 }
 
 enum _ShellMenuItem { about, settings, signOut }

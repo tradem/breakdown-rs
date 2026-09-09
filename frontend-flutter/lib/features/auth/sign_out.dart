@@ -11,6 +11,11 @@ import '../../auth/auth_providers.dart';
 import '../../auth/membership/membership_providers.dart';
 import '../../core/problem_error.dart';
 import '../../core/result.dart';
+import '../../data/ai_import_providers.dart';
+import '../../features/ai_import/ai_config/ai_config_controller.dart'
+    show aiImportHandoffProvider;
+import '../../features/ai_import/import_jobs/job_status_controller.dart';
+import '../../data/cache/ai_import_jobs_cache_dao.dart';
 import '../../data/cache/cache_generation.dart';
 import '../../data/cache/seasons_cache_providers.dart';
 import '../../data/settings/api_base_override_store.dart';
@@ -82,6 +87,36 @@ class SessionReset extends Notifier<void> {
           .read(authSessionControllerProvider.notifier)
           .failSession(scopesError);
     }
+    // AI-import state is identity-scoped (`flutter-ai-import` design §3):
+    // the secure-storage hand-off (config id + remembered job ids, keyed
+    // by the authenticated `sub`) and the Drift job rows are wiped so the
+    // next session never reads the previous user's ids. Failures fail the
+    // session closed (same discipline as the scope clear above).
+    final handoffCleared = await ref.read(aiImportHandoffStoreProvider).clear();
+    final handoffError = handoffCleared.getLeft().toNullable();
+    if (handoffError != null) {
+      await ref
+          .read(authSessionControllerProvider.notifier)
+          .failSession(handoffError);
+    }
+    // The Drift job rows clear goes through the DAO directly (no API
+    // client needed — a network dependency in the sign-out path would
+    // couple identity teardown to transport availability).
+    String? jobsError;
+    try {
+      await AiImportJobsCacheDao(ref.read(cacheDatabaseProvider)).clear();
+    } on Object catch (e) {
+      jobsError = '$e';
+    }
+    if (jobsError != null) {
+      await ref
+          .read(authSessionControllerProvider.notifier)
+          .failSession(
+            ProblemError(code: 'cache.clear_failed', detail: jobsError),
+          );
+    }
+    ref.invalidate(aiJobStatusControllerProvider);
+    ref.invalidate(aiImportHandoffProvider);
     _invalidateSessionScope();
   }
 
@@ -148,6 +183,35 @@ class SessionReset extends Notifier<void> {
       return Left(scopesError);
     }
     ref.invalidate(activeBlockPersistedProvider);
+    // AI-import ids are backend-scoped (`flutter-ai-import` design §3):
+    // the hand-off store and the Drift job rows are wiped BEFORE the
+    // switch (a remembered id from the old backend must never be sent to
+    // the new one). A failure fails the session closed AND returns Err.
+    final handoffCleared = await ref.read(aiImportHandoffStoreProvider).clear();
+    final handoffError = handoffCleared.getLeft().toNullable();
+    if (handoffError != null) {
+      await ref
+          .read(authSessionControllerProvider.notifier)
+          .failSession(handoffError);
+      return Left(handoffError);
+    }
+    String? jobsError;
+    try {
+      await AiImportJobsCacheDao(ref.read(cacheDatabaseProvider)).clear();
+    } on Object catch (e) {
+      jobsError = '$e';
+    }
+    if (jobsError != null) {
+      final problem = ProblemError(
+        code: 'cache.clear_failed',
+        detail: jobsError,
+      );
+      await ref
+          .read(authSessionControllerProvider.notifier)
+          .failSession(problem);
+      return Left(problem);
+    }
+    ref.invalidate(aiImportHandoffProvider);
     ref.read(runtimeApiBaseProvider.notifier).set(base);
     final emptied = await ref.read(seasonRepositoryProvider).clearCache();
     final emptyError = emptied.getLeft().toNullable();

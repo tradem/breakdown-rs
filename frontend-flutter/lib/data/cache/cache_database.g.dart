@@ -6016,6 +6016,1046 @@ class SceneShootCacheRowsCompanion extends UpdateCompanion<SceneShootCacheRow> {
   }
 }
 
+class $AiImportJobCacheRowsTable extends AiImportJobCacheRows
+    with TableInfo<$AiImportJobCacheRowsTable, AiImportJobCacheRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $AiImportJobCacheRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _userIdMeta = const VerificationMeta('userId');
+  @override
+  late final GeneratedColumn<String> userId = GeneratedColumn<String>(
+    'user_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+    'status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _documentKindMeta = const VerificationMeta(
+    'documentKind',
+  );
+  @override
+  late final GeneratedColumn<String> documentKind = GeneratedColumn<String>(
+    'document_kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sourceFormatMeta = const VerificationMeta(
+    'sourceFormat',
+  );
+  @override
+  late final GeneratedColumn<String> sourceFormat = GeneratedColumn<String>(
+    'source_format',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _blockIdMeta = const VerificationMeta(
+    'blockId',
+  );
+  @override
+  late final GeneratedColumn<String> blockId = GeneratedColumn<String>(
+    'block_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _episodeIdMeta = const VerificationMeta(
+    'episodeId',
+  );
+  @override
+  late final GeneratedColumn<String> episodeId = GeneratedColumn<String>(
+    'episode_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _seriesIdMeta = const VerificationMeta(
+    'seriesId',
+  );
+  @override
+  late final GeneratedColumn<String> seriesId = GeneratedColumn<String>(
+    'series_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _dedupKeyMeta = const VerificationMeta(
+    'dedupKey',
+  );
+  @override
+  late final GeneratedColumn<String> dedupKey = GeneratedColumn<String>(
+    'dedup_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _documentDigestMeta = const VerificationMeta(
+    'documentDigest',
+  );
+  @override
+  late final GeneratedColumn<String> documentDigest = GeneratedColumn<String>(
+    'document_digest',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sourceHandleMeta = const VerificationMeta(
+    'sourceHandle',
+  );
+  @override
+  late final GeneratedColumn<String> sourceHandle = GeneratedColumn<String>(
+    'source_handle',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _lastErrorMeta = const VerificationMeta(
+    'lastError',
+  );
+  @override
+  late final GeneratedColumn<String> lastError = GeneratedColumn<String>(
+    'last_error',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _previewHandleMeta = const VerificationMeta(
+    'previewHandle',
+  );
+  @override
+  late final GeneratedColumn<String> previewHandle = GeneratedColumn<String>(
+    'preview_handle',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _retriesMeta = const VerificationMeta(
+    'retries',
+  );
+  @override
+  late final GeneratedColumn<int> retries = GeneratedColumn<int>(
+    'retries',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _maxRetriesMeta = const VerificationMeta(
+    'maxRetries',
+  );
+  @override
+  late final GeneratedColumn<int> maxRetries = GeneratedColumn<int>(
+    'max_retries',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _cachedAtMeta = const VerificationMeta(
+    'cachedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> cachedAt = GeneratedColumn<DateTime>(
+    'cached_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    userId,
+    status,
+    documentKind,
+    sourceFormat,
+    blockId,
+    episodeId,
+    seriesId,
+    dedupKey,
+    documentDigest,
+    sourceHandle,
+    lastError,
+    previewHandle,
+    retries,
+    maxRetries,
+    createdAt,
+    updatedAt,
+    cachedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'ai_import_job_cache_rows';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<AiImportJobCacheRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('user_id')) {
+      context.handle(
+        _userIdMeta,
+        userId.isAcceptableOrUnknown(data['user_id']!, _userIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_userIdMeta);
+    }
+    if (data.containsKey('status')) {
+      context.handle(
+        _statusMeta,
+        status.isAcceptableOrUnknown(data['status']!, _statusMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_statusMeta);
+    }
+    if (data.containsKey('document_kind')) {
+      context.handle(
+        _documentKindMeta,
+        documentKind.isAcceptableOrUnknown(
+          data['document_kind']!,
+          _documentKindMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_documentKindMeta);
+    }
+    if (data.containsKey('source_format')) {
+      context.handle(
+        _sourceFormatMeta,
+        sourceFormat.isAcceptableOrUnknown(
+          data['source_format']!,
+          _sourceFormatMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_sourceFormatMeta);
+    }
+    if (data.containsKey('block_id')) {
+      context.handle(
+        _blockIdMeta,
+        blockId.isAcceptableOrUnknown(data['block_id']!, _blockIdMeta),
+      );
+    }
+    if (data.containsKey('episode_id')) {
+      context.handle(
+        _episodeIdMeta,
+        episodeId.isAcceptableOrUnknown(data['episode_id']!, _episodeIdMeta),
+      );
+    }
+    if (data.containsKey('series_id')) {
+      context.handle(
+        _seriesIdMeta,
+        seriesId.isAcceptableOrUnknown(data['series_id']!, _seriesIdMeta),
+      );
+    }
+    if (data.containsKey('dedup_key')) {
+      context.handle(
+        _dedupKeyMeta,
+        dedupKey.isAcceptableOrUnknown(data['dedup_key']!, _dedupKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_dedupKeyMeta);
+    }
+    if (data.containsKey('document_digest')) {
+      context.handle(
+        _documentDigestMeta,
+        documentDigest.isAcceptableOrUnknown(
+          data['document_digest']!,
+          _documentDigestMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_documentDigestMeta);
+    }
+    if (data.containsKey('source_handle')) {
+      context.handle(
+        _sourceHandleMeta,
+        sourceHandle.isAcceptableOrUnknown(
+          data['source_handle']!,
+          _sourceHandleMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_sourceHandleMeta);
+    }
+    if (data.containsKey('last_error')) {
+      context.handle(
+        _lastErrorMeta,
+        lastError.isAcceptableOrUnknown(data['last_error']!, _lastErrorMeta),
+      );
+    }
+    if (data.containsKey('preview_handle')) {
+      context.handle(
+        _previewHandleMeta,
+        previewHandle.isAcceptableOrUnknown(
+          data['preview_handle']!,
+          _previewHandleMeta,
+        ),
+      );
+    }
+    if (data.containsKey('retries')) {
+      context.handle(
+        _retriesMeta,
+        retries.isAcceptableOrUnknown(data['retries']!, _retriesMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_retriesMeta);
+    }
+    if (data.containsKey('max_retries')) {
+      context.handle(
+        _maxRetriesMeta,
+        maxRetries.isAcceptableOrUnknown(data['max_retries']!, _maxRetriesMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_maxRetriesMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    if (data.containsKey('cached_at')) {
+      context.handle(
+        _cachedAtMeta,
+        cachedAt.isAcceptableOrUnknown(data['cached_at']!, _cachedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_cachedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  AiImportJobCacheRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return AiImportJobCacheRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      userId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}user_id'],
+      )!,
+      status: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status'],
+      )!,
+      documentKind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}document_kind'],
+      )!,
+      sourceFormat: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_format'],
+      )!,
+      blockId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}block_id'],
+      ),
+      episodeId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}episode_id'],
+      ),
+      seriesId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}series_id'],
+      ),
+      dedupKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}dedup_key'],
+      )!,
+      documentDigest: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}document_digest'],
+      )!,
+      sourceHandle: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_handle'],
+      )!,
+      lastError: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}last_error'],
+      ),
+      previewHandle: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}preview_handle'],
+      ),
+      retries: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}retries'],
+      )!,
+      maxRetries: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}max_retries'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+      cachedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}cached_at'],
+      )!,
+    );
+  }
+
+  @override
+  $AiImportJobCacheRowsTable createAlias(String alias) {
+    return $AiImportJobCacheRowsTable(attachedDatabase, alias);
+  }
+}
+
+class AiImportJobCacheRow extends DataClass
+    implements Insertable<AiImportJobCacheRow> {
+  final String id;
+
+  /// Opaque server-side owner (`UserId` — the raw OIDC `sub`).
+  final String userId;
+
+  /// Wire enum value of [JobStatus] (pending/running/succeeded/failed/
+  /// dead_letter/payload_unavailable) — stored as text so an unknown
+  /// future status degrades to a parse failure at read, not a DB fault.
+  final String status;
+
+  /// Wire enum value of [DocumentKind] (script/schedule).
+  final String documentKind;
+
+  /// Wire enum value of [SourceFormat] (csv/pdf/plain_text).
+  final String sourceFormat;
+
+  /// Opaque `Block` aggregate id, when the job is block-scoped.
+  final String? blockId;
+
+  /// Client-local persisted apply context (design §2.3) — see class doc.
+  final String? episodeId;
+  final String? seriesId;
+  final String dedupKey;
+  final String documentDigest;
+  final String sourceHandle;
+  final String? lastError;
+  final String? previewHandle;
+  final int retries;
+  final int maxRetries;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  /// Client-only write time (D2 TTL discipline).
+  final DateTime cachedAt;
+  const AiImportJobCacheRow({
+    required this.id,
+    required this.userId,
+    required this.status,
+    required this.documentKind,
+    required this.sourceFormat,
+    this.blockId,
+    this.episodeId,
+    this.seriesId,
+    required this.dedupKey,
+    required this.documentDigest,
+    required this.sourceHandle,
+    this.lastError,
+    this.previewHandle,
+    required this.retries,
+    required this.maxRetries,
+    required this.createdAt,
+    required this.updatedAt,
+    required this.cachedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['user_id'] = Variable<String>(userId);
+    map['status'] = Variable<String>(status);
+    map['document_kind'] = Variable<String>(documentKind);
+    map['source_format'] = Variable<String>(sourceFormat);
+    if (!nullToAbsent || blockId != null) {
+      map['block_id'] = Variable<String>(blockId);
+    }
+    if (!nullToAbsent || episodeId != null) {
+      map['episode_id'] = Variable<String>(episodeId);
+    }
+    if (!nullToAbsent || seriesId != null) {
+      map['series_id'] = Variable<String>(seriesId);
+    }
+    map['dedup_key'] = Variable<String>(dedupKey);
+    map['document_digest'] = Variable<String>(documentDigest);
+    map['source_handle'] = Variable<String>(sourceHandle);
+    if (!nullToAbsent || lastError != null) {
+      map['last_error'] = Variable<String>(lastError);
+    }
+    if (!nullToAbsent || previewHandle != null) {
+      map['preview_handle'] = Variable<String>(previewHandle);
+    }
+    map['retries'] = Variable<int>(retries);
+    map['max_retries'] = Variable<int>(maxRetries);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    map['cached_at'] = Variable<DateTime>(cachedAt);
+    return map;
+  }
+
+  AiImportJobCacheRowsCompanion toCompanion(bool nullToAbsent) {
+    return AiImportJobCacheRowsCompanion(
+      id: Value(id),
+      userId: Value(userId),
+      status: Value(status),
+      documentKind: Value(documentKind),
+      sourceFormat: Value(sourceFormat),
+      blockId: blockId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(blockId),
+      episodeId: episodeId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(episodeId),
+      seriesId: seriesId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(seriesId),
+      dedupKey: Value(dedupKey),
+      documentDigest: Value(documentDigest),
+      sourceHandle: Value(sourceHandle),
+      lastError: lastError == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastError),
+      previewHandle: previewHandle == null && nullToAbsent
+          ? const Value.absent()
+          : Value(previewHandle),
+      retries: Value(retries),
+      maxRetries: Value(maxRetries),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+      cachedAt: Value(cachedAt),
+    );
+  }
+
+  factory AiImportJobCacheRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return AiImportJobCacheRow(
+      id: serializer.fromJson<String>(json['id']),
+      userId: serializer.fromJson<String>(json['userId']),
+      status: serializer.fromJson<String>(json['status']),
+      documentKind: serializer.fromJson<String>(json['documentKind']),
+      sourceFormat: serializer.fromJson<String>(json['sourceFormat']),
+      blockId: serializer.fromJson<String?>(json['blockId']),
+      episodeId: serializer.fromJson<String?>(json['episodeId']),
+      seriesId: serializer.fromJson<String?>(json['seriesId']),
+      dedupKey: serializer.fromJson<String>(json['dedupKey']),
+      documentDigest: serializer.fromJson<String>(json['documentDigest']),
+      sourceHandle: serializer.fromJson<String>(json['sourceHandle']),
+      lastError: serializer.fromJson<String?>(json['lastError']),
+      previewHandle: serializer.fromJson<String?>(json['previewHandle']),
+      retries: serializer.fromJson<int>(json['retries']),
+      maxRetries: serializer.fromJson<int>(json['maxRetries']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+      cachedAt: serializer.fromJson<DateTime>(json['cachedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'userId': serializer.toJson<String>(userId),
+      'status': serializer.toJson<String>(status),
+      'documentKind': serializer.toJson<String>(documentKind),
+      'sourceFormat': serializer.toJson<String>(sourceFormat),
+      'blockId': serializer.toJson<String?>(blockId),
+      'episodeId': serializer.toJson<String?>(episodeId),
+      'seriesId': serializer.toJson<String?>(seriesId),
+      'dedupKey': serializer.toJson<String>(dedupKey),
+      'documentDigest': serializer.toJson<String>(documentDigest),
+      'sourceHandle': serializer.toJson<String>(sourceHandle),
+      'lastError': serializer.toJson<String?>(lastError),
+      'previewHandle': serializer.toJson<String?>(previewHandle),
+      'retries': serializer.toJson<int>(retries),
+      'maxRetries': serializer.toJson<int>(maxRetries),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+      'cachedAt': serializer.toJson<DateTime>(cachedAt),
+    };
+  }
+
+  AiImportJobCacheRow copyWith({
+    String? id,
+    String? userId,
+    String? status,
+    String? documentKind,
+    String? sourceFormat,
+    Value<String?> blockId = const Value.absent(),
+    Value<String?> episodeId = const Value.absent(),
+    Value<String?> seriesId = const Value.absent(),
+    String? dedupKey,
+    String? documentDigest,
+    String? sourceHandle,
+    Value<String?> lastError = const Value.absent(),
+    Value<String?> previewHandle = const Value.absent(),
+    int? retries,
+    int? maxRetries,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    DateTime? cachedAt,
+  }) => AiImportJobCacheRow(
+    id: id ?? this.id,
+    userId: userId ?? this.userId,
+    status: status ?? this.status,
+    documentKind: documentKind ?? this.documentKind,
+    sourceFormat: sourceFormat ?? this.sourceFormat,
+    blockId: blockId.present ? blockId.value : this.blockId,
+    episodeId: episodeId.present ? episodeId.value : this.episodeId,
+    seriesId: seriesId.present ? seriesId.value : this.seriesId,
+    dedupKey: dedupKey ?? this.dedupKey,
+    documentDigest: documentDigest ?? this.documentDigest,
+    sourceHandle: sourceHandle ?? this.sourceHandle,
+    lastError: lastError.present ? lastError.value : this.lastError,
+    previewHandle: previewHandle.present
+        ? previewHandle.value
+        : this.previewHandle,
+    retries: retries ?? this.retries,
+    maxRetries: maxRetries ?? this.maxRetries,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+    cachedAt: cachedAt ?? this.cachedAt,
+  );
+  AiImportJobCacheRow copyWithCompanion(AiImportJobCacheRowsCompanion data) {
+    return AiImportJobCacheRow(
+      id: data.id.present ? data.id.value : this.id,
+      userId: data.userId.present ? data.userId.value : this.userId,
+      status: data.status.present ? data.status.value : this.status,
+      documentKind: data.documentKind.present
+          ? data.documentKind.value
+          : this.documentKind,
+      sourceFormat: data.sourceFormat.present
+          ? data.sourceFormat.value
+          : this.sourceFormat,
+      blockId: data.blockId.present ? data.blockId.value : this.blockId,
+      episodeId: data.episodeId.present ? data.episodeId.value : this.episodeId,
+      seriesId: data.seriesId.present ? data.seriesId.value : this.seriesId,
+      dedupKey: data.dedupKey.present ? data.dedupKey.value : this.dedupKey,
+      documentDigest: data.documentDigest.present
+          ? data.documentDigest.value
+          : this.documentDigest,
+      sourceHandle: data.sourceHandle.present
+          ? data.sourceHandle.value
+          : this.sourceHandle,
+      lastError: data.lastError.present ? data.lastError.value : this.lastError,
+      previewHandle: data.previewHandle.present
+          ? data.previewHandle.value
+          : this.previewHandle,
+      retries: data.retries.present ? data.retries.value : this.retries,
+      maxRetries: data.maxRetries.present
+          ? data.maxRetries.value
+          : this.maxRetries,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      cachedAt: data.cachedAt.present ? data.cachedAt.value : this.cachedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('AiImportJobCacheRow(')
+          ..write('id: $id, ')
+          ..write('userId: $userId, ')
+          ..write('status: $status, ')
+          ..write('documentKind: $documentKind, ')
+          ..write('sourceFormat: $sourceFormat, ')
+          ..write('blockId: $blockId, ')
+          ..write('episodeId: $episodeId, ')
+          ..write('seriesId: $seriesId, ')
+          ..write('dedupKey: $dedupKey, ')
+          ..write('documentDigest: $documentDigest, ')
+          ..write('sourceHandle: $sourceHandle, ')
+          ..write('lastError: $lastError, ')
+          ..write('previewHandle: $previewHandle, ')
+          ..write('retries: $retries, ')
+          ..write('maxRetries: $maxRetries, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('cachedAt: $cachedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    userId,
+    status,
+    documentKind,
+    sourceFormat,
+    blockId,
+    episodeId,
+    seriesId,
+    dedupKey,
+    documentDigest,
+    sourceHandle,
+    lastError,
+    previewHandle,
+    retries,
+    maxRetries,
+    createdAt,
+    updatedAt,
+    cachedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is AiImportJobCacheRow &&
+          other.id == this.id &&
+          other.userId == this.userId &&
+          other.status == this.status &&
+          other.documentKind == this.documentKind &&
+          other.sourceFormat == this.sourceFormat &&
+          other.blockId == this.blockId &&
+          other.episodeId == this.episodeId &&
+          other.seriesId == this.seriesId &&
+          other.dedupKey == this.dedupKey &&
+          other.documentDigest == this.documentDigest &&
+          other.sourceHandle == this.sourceHandle &&
+          other.lastError == this.lastError &&
+          other.previewHandle == this.previewHandle &&
+          other.retries == this.retries &&
+          other.maxRetries == this.maxRetries &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt &&
+          other.cachedAt == this.cachedAt);
+}
+
+class AiImportJobCacheRowsCompanion
+    extends UpdateCompanion<AiImportJobCacheRow> {
+  final Value<String> id;
+  final Value<String> userId;
+  final Value<String> status;
+  final Value<String> documentKind;
+  final Value<String> sourceFormat;
+  final Value<String?> blockId;
+  final Value<String?> episodeId;
+  final Value<String?> seriesId;
+  final Value<String> dedupKey;
+  final Value<String> documentDigest;
+  final Value<String> sourceHandle;
+  final Value<String?> lastError;
+  final Value<String?> previewHandle;
+  final Value<int> retries;
+  final Value<int> maxRetries;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  final Value<DateTime> cachedAt;
+  final Value<int> rowid;
+  const AiImportJobCacheRowsCompanion({
+    this.id = const Value.absent(),
+    this.userId = const Value.absent(),
+    this.status = const Value.absent(),
+    this.documentKind = const Value.absent(),
+    this.sourceFormat = const Value.absent(),
+    this.blockId = const Value.absent(),
+    this.episodeId = const Value.absent(),
+    this.seriesId = const Value.absent(),
+    this.dedupKey = const Value.absent(),
+    this.documentDigest = const Value.absent(),
+    this.sourceHandle = const Value.absent(),
+    this.lastError = const Value.absent(),
+    this.previewHandle = const Value.absent(),
+    this.retries = const Value.absent(),
+    this.maxRetries = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.cachedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  AiImportJobCacheRowsCompanion.insert({
+    required String id,
+    required String userId,
+    required String status,
+    required String documentKind,
+    required String sourceFormat,
+    this.blockId = const Value.absent(),
+    this.episodeId = const Value.absent(),
+    this.seriesId = const Value.absent(),
+    required String dedupKey,
+    required String documentDigest,
+    required String sourceHandle,
+    this.lastError = const Value.absent(),
+    this.previewHandle = const Value.absent(),
+    required int retries,
+    required int maxRetries,
+    required DateTime createdAt,
+    required DateTime updatedAt,
+    required DateTime cachedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       userId = Value(userId),
+       status = Value(status),
+       documentKind = Value(documentKind),
+       sourceFormat = Value(sourceFormat),
+       dedupKey = Value(dedupKey),
+       documentDigest = Value(documentDigest),
+       sourceHandle = Value(sourceHandle),
+       retries = Value(retries),
+       maxRetries = Value(maxRetries),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt),
+       cachedAt = Value(cachedAt);
+  static Insertable<AiImportJobCacheRow> custom({
+    Expression<String>? id,
+    Expression<String>? userId,
+    Expression<String>? status,
+    Expression<String>? documentKind,
+    Expression<String>? sourceFormat,
+    Expression<String>? blockId,
+    Expression<String>? episodeId,
+    Expression<String>? seriesId,
+    Expression<String>? dedupKey,
+    Expression<String>? documentDigest,
+    Expression<String>? sourceHandle,
+    Expression<String>? lastError,
+    Expression<String>? previewHandle,
+    Expression<int>? retries,
+    Expression<int>? maxRetries,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+    Expression<DateTime>? cachedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (userId != null) 'user_id': userId,
+      if (status != null) 'status': status,
+      if (documentKind != null) 'document_kind': documentKind,
+      if (sourceFormat != null) 'source_format': sourceFormat,
+      if (blockId != null) 'block_id': blockId,
+      if (episodeId != null) 'episode_id': episodeId,
+      if (seriesId != null) 'series_id': seriesId,
+      if (dedupKey != null) 'dedup_key': dedupKey,
+      if (documentDigest != null) 'document_digest': documentDigest,
+      if (sourceHandle != null) 'source_handle': sourceHandle,
+      if (lastError != null) 'last_error': lastError,
+      if (previewHandle != null) 'preview_handle': previewHandle,
+      if (retries != null) 'retries': retries,
+      if (maxRetries != null) 'max_retries': maxRetries,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (cachedAt != null) 'cached_at': cachedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  AiImportJobCacheRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? userId,
+    Value<String>? status,
+    Value<String>? documentKind,
+    Value<String>? sourceFormat,
+    Value<String?>? blockId,
+    Value<String?>? episodeId,
+    Value<String?>? seriesId,
+    Value<String>? dedupKey,
+    Value<String>? documentDigest,
+    Value<String>? sourceHandle,
+    Value<String?>? lastError,
+    Value<String?>? previewHandle,
+    Value<int>? retries,
+    Value<int>? maxRetries,
+    Value<DateTime>? createdAt,
+    Value<DateTime>? updatedAt,
+    Value<DateTime>? cachedAt,
+    Value<int>? rowid,
+  }) {
+    return AiImportJobCacheRowsCompanion(
+      id: id ?? this.id,
+      userId: userId ?? this.userId,
+      status: status ?? this.status,
+      documentKind: documentKind ?? this.documentKind,
+      sourceFormat: sourceFormat ?? this.sourceFormat,
+      blockId: blockId ?? this.blockId,
+      episodeId: episodeId ?? this.episodeId,
+      seriesId: seriesId ?? this.seriesId,
+      dedupKey: dedupKey ?? this.dedupKey,
+      documentDigest: documentDigest ?? this.documentDigest,
+      sourceHandle: sourceHandle ?? this.sourceHandle,
+      lastError: lastError ?? this.lastError,
+      previewHandle: previewHandle ?? this.previewHandle,
+      retries: retries ?? this.retries,
+      maxRetries: maxRetries ?? this.maxRetries,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      cachedAt: cachedAt ?? this.cachedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (userId.present) {
+      map['user_id'] = Variable<String>(userId.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (documentKind.present) {
+      map['document_kind'] = Variable<String>(documentKind.value);
+    }
+    if (sourceFormat.present) {
+      map['source_format'] = Variable<String>(sourceFormat.value);
+    }
+    if (blockId.present) {
+      map['block_id'] = Variable<String>(blockId.value);
+    }
+    if (episodeId.present) {
+      map['episode_id'] = Variable<String>(episodeId.value);
+    }
+    if (seriesId.present) {
+      map['series_id'] = Variable<String>(seriesId.value);
+    }
+    if (dedupKey.present) {
+      map['dedup_key'] = Variable<String>(dedupKey.value);
+    }
+    if (documentDigest.present) {
+      map['document_digest'] = Variable<String>(documentDigest.value);
+    }
+    if (sourceHandle.present) {
+      map['source_handle'] = Variable<String>(sourceHandle.value);
+    }
+    if (lastError.present) {
+      map['last_error'] = Variable<String>(lastError.value);
+    }
+    if (previewHandle.present) {
+      map['preview_handle'] = Variable<String>(previewHandle.value);
+    }
+    if (retries.present) {
+      map['retries'] = Variable<int>(retries.value);
+    }
+    if (maxRetries.present) {
+      map['max_retries'] = Variable<int>(maxRetries.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (cachedAt.present) {
+      map['cached_at'] = Variable<DateTime>(cachedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('AiImportJobCacheRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('userId: $userId, ')
+          ..write('status: $status, ')
+          ..write('documentKind: $documentKind, ')
+          ..write('sourceFormat: $sourceFormat, ')
+          ..write('blockId: $blockId, ')
+          ..write('episodeId: $episodeId, ')
+          ..write('seriesId: $seriesId, ')
+          ..write('dedupKey: $dedupKey, ')
+          ..write('documentDigest: $documentDigest, ')
+          ..write('sourceHandle: $sourceHandle, ')
+          ..write('lastError: $lastError, ')
+          ..write('previewHandle: $previewHandle, ')
+          ..write('retries: $retries, ')
+          ..write('maxRetries: $maxRetries, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('cachedAt: $cachedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$CacheDatabase extends GeneratedDatabase {
   _$CacheDatabase(QueryExecutor e) : super(e);
   $CacheDatabaseManager get managers => $CacheDatabaseManager(this);
@@ -6038,6 +7078,8 @@ abstract class _$CacheDatabase extends GeneratedDatabase {
       $ShootingDayCacheRowsTable(this);
   late final $SceneShootCacheRowsTable sceneShootCacheRows =
       $SceneShootCacheRowsTable(this);
+  late final $AiImportJobCacheRowsTable aiImportJobCacheRows =
+      $AiImportJobCacheRowsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -6052,6 +7094,7 @@ abstract class _$CacheDatabase extends GeneratedDatabase {
     characterCacheRows,
     shootingDayCacheRows,
     sceneShootCacheRows,
+    aiImportJobCacheRows,
   ];
 }
 
@@ -8954,6 +9997,481 @@ typedef $$SceneShootCacheRowsTableProcessedTableManager =
       SceneShootCacheRow,
       PrefetchHooks Function()
     >;
+typedef $$AiImportJobCacheRowsTableCreateCompanionBuilder =
+    AiImportJobCacheRowsCompanion Function({
+      required String id,
+      required String userId,
+      required String status,
+      required String documentKind,
+      required String sourceFormat,
+      Value<String?> blockId,
+      Value<String?> episodeId,
+      Value<String?> seriesId,
+      required String dedupKey,
+      required String documentDigest,
+      required String sourceHandle,
+      Value<String?> lastError,
+      Value<String?> previewHandle,
+      required int retries,
+      required int maxRetries,
+      required DateTime createdAt,
+      required DateTime updatedAt,
+      required DateTime cachedAt,
+      Value<int> rowid,
+    });
+typedef $$AiImportJobCacheRowsTableUpdateCompanionBuilder =
+    AiImportJobCacheRowsCompanion Function({
+      Value<String> id,
+      Value<String> userId,
+      Value<String> status,
+      Value<String> documentKind,
+      Value<String> sourceFormat,
+      Value<String?> blockId,
+      Value<String?> episodeId,
+      Value<String?> seriesId,
+      Value<String> dedupKey,
+      Value<String> documentDigest,
+      Value<String> sourceHandle,
+      Value<String?> lastError,
+      Value<String?> previewHandle,
+      Value<int> retries,
+      Value<int> maxRetries,
+      Value<DateTime> createdAt,
+      Value<DateTime> updatedAt,
+      Value<DateTime> cachedAt,
+      Value<int> rowid,
+    });
+
+class $$AiImportJobCacheRowsTableFilterComposer
+    extends Composer<_$CacheDatabase, $AiImportJobCacheRowsTable> {
+  $$AiImportJobCacheRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get userId => $composableBuilder(
+    column: $table.userId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get documentKind => $composableBuilder(
+    column: $table.documentKind,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sourceFormat => $composableBuilder(
+    column: $table.sourceFormat,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get blockId => $composableBuilder(
+    column: $table.blockId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get episodeId => $composableBuilder(
+    column: $table.episodeId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get seriesId => $composableBuilder(
+    column: $table.seriesId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get dedupKey => $composableBuilder(
+    column: $table.dedupKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get documentDigest => $composableBuilder(
+    column: $table.documentDigest,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sourceHandle => $composableBuilder(
+    column: $table.sourceHandle,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get lastError => $composableBuilder(
+    column: $table.lastError,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get previewHandle => $composableBuilder(
+    column: $table.previewHandle,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get retries => $composableBuilder(
+    column: $table.retries,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get maxRetries => $composableBuilder(
+    column: $table.maxRetries,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get cachedAt => $composableBuilder(
+    column: $table.cachedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$AiImportJobCacheRowsTableOrderingComposer
+    extends Composer<_$CacheDatabase, $AiImportJobCacheRowsTable> {
+  $$AiImportJobCacheRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get userId => $composableBuilder(
+    column: $table.userId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get documentKind => $composableBuilder(
+    column: $table.documentKind,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sourceFormat => $composableBuilder(
+    column: $table.sourceFormat,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get blockId => $composableBuilder(
+    column: $table.blockId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get episodeId => $composableBuilder(
+    column: $table.episodeId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get seriesId => $composableBuilder(
+    column: $table.seriesId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get dedupKey => $composableBuilder(
+    column: $table.dedupKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get documentDigest => $composableBuilder(
+    column: $table.documentDigest,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sourceHandle => $composableBuilder(
+    column: $table.sourceHandle,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get lastError => $composableBuilder(
+    column: $table.lastError,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get previewHandle => $composableBuilder(
+    column: $table.previewHandle,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get retries => $composableBuilder(
+    column: $table.retries,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get maxRetries => $composableBuilder(
+    column: $table.maxRetries,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get cachedAt => $composableBuilder(
+    column: $table.cachedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$AiImportJobCacheRowsTableAnnotationComposer
+    extends Composer<_$CacheDatabase, $AiImportJobCacheRowsTable> {
+  $$AiImportJobCacheRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get userId =>
+      $composableBuilder(column: $table.userId, builder: (column) => column);
+
+  GeneratedColumn<String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<String> get documentKind => $composableBuilder(
+    column: $table.documentKind,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get sourceFormat => $composableBuilder(
+    column: $table.sourceFormat,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get blockId =>
+      $composableBuilder(column: $table.blockId, builder: (column) => column);
+
+  GeneratedColumn<String> get episodeId =>
+      $composableBuilder(column: $table.episodeId, builder: (column) => column);
+
+  GeneratedColumn<String> get seriesId =>
+      $composableBuilder(column: $table.seriesId, builder: (column) => column);
+
+  GeneratedColumn<String> get dedupKey =>
+      $composableBuilder(column: $table.dedupKey, builder: (column) => column);
+
+  GeneratedColumn<String> get documentDigest => $composableBuilder(
+    column: $table.documentDigest,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get sourceHandle => $composableBuilder(
+    column: $table.sourceHandle,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get lastError =>
+      $composableBuilder(column: $table.lastError, builder: (column) => column);
+
+  GeneratedColumn<String> get previewHandle => $composableBuilder(
+    column: $table.previewHandle,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get retries =>
+      $composableBuilder(column: $table.retries, builder: (column) => column);
+
+  GeneratedColumn<int> get maxRetries => $composableBuilder(
+    column: $table.maxRetries,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get cachedAt =>
+      $composableBuilder(column: $table.cachedAt, builder: (column) => column);
+}
+
+class $$AiImportJobCacheRowsTableTableManager
+    extends
+        RootTableManager<
+          _$CacheDatabase,
+          $AiImportJobCacheRowsTable,
+          AiImportJobCacheRow,
+          $$AiImportJobCacheRowsTableFilterComposer,
+          $$AiImportJobCacheRowsTableOrderingComposer,
+          $$AiImportJobCacheRowsTableAnnotationComposer,
+          $$AiImportJobCacheRowsTableCreateCompanionBuilder,
+          $$AiImportJobCacheRowsTableUpdateCompanionBuilder,
+          (
+            AiImportJobCacheRow,
+            BaseReferences<
+              _$CacheDatabase,
+              $AiImportJobCacheRowsTable,
+              AiImportJobCacheRow
+            >,
+          ),
+          AiImportJobCacheRow,
+          PrefetchHooks Function()
+        > {
+  $$AiImportJobCacheRowsTableTableManager(
+    _$CacheDatabase db,
+    $AiImportJobCacheRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$AiImportJobCacheRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$AiImportJobCacheRowsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$AiImportJobCacheRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> userId = const Value.absent(),
+                Value<String> status = const Value.absent(),
+                Value<String> documentKind = const Value.absent(),
+                Value<String> sourceFormat = const Value.absent(),
+                Value<String?> blockId = const Value.absent(),
+                Value<String?> episodeId = const Value.absent(),
+                Value<String?> seriesId = const Value.absent(),
+                Value<String> dedupKey = const Value.absent(),
+                Value<String> documentDigest = const Value.absent(),
+                Value<String> sourceHandle = const Value.absent(),
+                Value<String?> lastError = const Value.absent(),
+                Value<String?> previewHandle = const Value.absent(),
+                Value<int> retries = const Value.absent(),
+                Value<int> maxRetries = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<DateTime> cachedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => AiImportJobCacheRowsCompanion(
+                id: id,
+                userId: userId,
+                status: status,
+                documentKind: documentKind,
+                sourceFormat: sourceFormat,
+                blockId: blockId,
+                episodeId: episodeId,
+                seriesId: seriesId,
+                dedupKey: dedupKey,
+                documentDigest: documentDigest,
+                sourceHandle: sourceHandle,
+                lastError: lastError,
+                previewHandle: previewHandle,
+                retries: retries,
+                maxRetries: maxRetries,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                cachedAt: cachedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String userId,
+                required String status,
+                required String documentKind,
+                required String sourceFormat,
+                Value<String?> blockId = const Value.absent(),
+                Value<String?> episodeId = const Value.absent(),
+                Value<String?> seriesId = const Value.absent(),
+                required String dedupKey,
+                required String documentDigest,
+                required String sourceHandle,
+                Value<String?> lastError = const Value.absent(),
+                Value<String?> previewHandle = const Value.absent(),
+                required int retries,
+                required int maxRetries,
+                required DateTime createdAt,
+                required DateTime updatedAt,
+                required DateTime cachedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => AiImportJobCacheRowsCompanion.insert(
+                id: id,
+                userId: userId,
+                status: status,
+                documentKind: documentKind,
+                sourceFormat: sourceFormat,
+                blockId: blockId,
+                episodeId: episodeId,
+                seriesId: seriesId,
+                dedupKey: dedupKey,
+                documentDigest: documentDigest,
+                sourceHandle: sourceHandle,
+                lastError: lastError,
+                previewHandle: previewHandle,
+                retries: retries,
+                maxRetries: maxRetries,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                cachedAt: cachedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$AiImportJobCacheRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$CacheDatabase,
+      $AiImportJobCacheRowsTable,
+      AiImportJobCacheRow,
+      $$AiImportJobCacheRowsTableFilterComposer,
+      $$AiImportJobCacheRowsTableOrderingComposer,
+      $$AiImportJobCacheRowsTableAnnotationComposer,
+      $$AiImportJobCacheRowsTableCreateCompanionBuilder,
+      $$AiImportJobCacheRowsTableUpdateCompanionBuilder,
+      (
+        AiImportJobCacheRow,
+        BaseReferences<
+          _$CacheDatabase,
+          $AiImportJobCacheRowsTable,
+          AiImportJobCacheRow
+        >,
+      ),
+      AiImportJobCacheRow,
+      PrefetchHooks Function()
+    >;
 
 class $CacheDatabaseManager {
   final _$CacheDatabase _db;
@@ -8979,4 +10497,6 @@ class $CacheDatabaseManager {
       $$ShootingDayCacheRowsTableTableManager(_db, _db.shootingDayCacheRows);
   $$SceneShootCacheRowsTableTableManager get sceneShootCacheRows =>
       $$SceneShootCacheRowsTableTableManager(_db, _db.sceneShootCacheRows);
+  $$AiImportJobCacheRowsTableTableManager get aiImportJobCacheRows =>
+      $$AiImportJobCacheRowsTableTableManager(_db, _db.aiImportJobCacheRows);
 }

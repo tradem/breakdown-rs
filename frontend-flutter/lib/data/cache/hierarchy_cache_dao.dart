@@ -168,6 +168,15 @@ class EpisodeCacheDao {
     return rows.map(_toEpisodeView).toList();
   }
 
+  /// Every cached episode across blocks (the AI-import apply picker's
+  /// source — `flutter-ai-import` task 4.2: the explicit episode picker
+  /// over the season's read DTOs when the job's persisted context is
+  /// missing). A pure read; ordering mirrors the cache insertion order.
+  Future<List<EpisodeView>> readAllEpisodes() async {
+    final rows = await _db.select(_db.episodeCacheRows).get();
+    return rows.map(_toEpisodeView).toList();
+  }
+
   Future<EpisodeView?> readById(String id) async {
     final row = await (_db.select(
       _db.episodeCacheRows,
