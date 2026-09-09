@@ -18,7 +18,10 @@
 //! dedicated transaction: `pg_advisory_xact_lock` is held until the
 //! transaction ends, so dropping the guard always releases the lock —
 //! including on task cancellation or process death (the database reclaims
-//! the lock when the session dies). This matches the established
+//! the lock when the session dies). The wait is bounded with a
+//! transaction-local `lock_timeout` (5s) so lock contention cannot pin
+//! application-pool connections indefinitely; timeout expiry maps to the
+//! retryable `DomainError::ServiceUnavailable`. This matches the established
 //! advisory-lock patterns in this crate (photo GC sweep, AI import permits)
 //! and works across API instances.
 //!
@@ -44,15 +47,30 @@ impl WrapFinalityGate {
         Self { pool }
     }
 
-    /// Acquires the advisory lock for `day_id`, blocking until it is free.
-    /// Hold the returned guard across the critical section; dropping it
-    /// releases the lock (transaction rollback).
+    /// Acquires the advisory lock for `day_id`, blocking until it is free
+    /// (bounded by a 5s transaction-local `lock_timeout` — see the module
+    /// docs). Hold the returned guard across the critical section; dropping
+    /// it releases the lock (transaction rollback).
     pub async fn lock_day(&self, day_id: ShootingDayId) -> Result<WrapDayLockGuard, DomainError> {
         let mut tx = self.pool.begin().await.map_err(|e| {
             DomainError::service_unavailable(format!(
                 "wrap-finality lock: cannot begin transaction: {e}"
             ))
         })?;
+        // Bound the wait: `pg_advisory_xact_lock` blocks indefinitely, and
+        // each waiter holds a connection from the shared application pool —
+        // unbounded waits could exhaust it and stall unrelated requests
+        // (PR #389 review). `SET LOCAL` scopes the timeout to this
+        // transaction; on expiry the advisory-lock statement fails and maps
+        // to the retryable `ServiceUnavailable` below.
+        sqlx::query("SET LOCAL lock_timeout = '5s'")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| {
+                DomainError::service_unavailable(format!(
+                    "wrap-finality lock: cannot set lock_timeout: {e}"
+                ))
+            })?;
         sqlx::query("SELECT pg_advisory_xact_lock($1)")
             .bind(lock_key(day_id))
             .execute(&mut *tx)

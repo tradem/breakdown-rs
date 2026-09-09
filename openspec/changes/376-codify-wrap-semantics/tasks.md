@@ -32,6 +32,9 @@
       residual check-then-act interleave window between the two event-store
       appends (cross-instance safe; lock key XOR-mixed from both UUIDv7
       halves because the high 64 bits collide for same-millisecond ids).
+      The wait is bounded with a transaction-local `lock_timeout` (5s) so
+      lock contention cannot pin application-pool connections; expiry maps
+      to the retryable `ServiceUnavailable`.
 
 ## 3. Documentation
 
