@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! Commands for the `SceneShoot` aggregate.
@@ -50,12 +51,19 @@ pub struct ReplanSceneShoot {
 /// Idempotent: re-dispatching with the same `start_dt` is a no-op.
 /// Rejected with `AlreadyStarted` if already started with a different value.
 ///
+/// This is an **execution transition** (frozen on a wrapped shooting day):
+/// the command adapter enforces wrap finality against the authoritative
+/// write-side day state (PR #389 review), keyed on `shooting_day_id`, and
+/// the aggregate rejects a `shooting_day_id` that does not match its own
+/// association.
+///
 /// `series_id` is carried for the `EventMetadata` audit trail (the audit
 /// projector keys on `series_id`); it is resolved at the API edge from the
 /// scene-shoot projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct StartSceneShoot {
     pub id: SceneShootId,
+    pub shooting_day_id: ShootingDayId,
     pub start_dt: DateTime<Utc>,
     pub series_id: Option<SeriesId>,
     pub version: AggregateVersion,
@@ -66,12 +74,16 @@ pub struct StartSceneShoot {
 /// Setting `actual_order` also freezes `planned_order` and transitions
 /// status to `InProgress` if it was `Planned`/`Scheduled`.
 ///
+/// This is an **execution transition** (frozen on a wrapped shooting day):
+/// see [`StartSceneShoot`] for the write-side enforcement contract.
+///
 /// `series_id` is carried for the `EventMetadata` audit trail (the audit
 /// projector keys on `series_id`); it is resolved at the API edge from the
 /// scene-shoot projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct SetActualOrder {
     pub id: SceneShootId,
+    pub shooting_day_id: ShootingDayId,
     pub actual_order: LexicalSortKey,
     pub series_id: Option<SeriesId>,
     pub version: AggregateVersion,
@@ -79,12 +91,16 @@ pub struct SetActualOrder {
 
 /// Finish this scene shoot. Records the end timestamp and transitions to `Shot`.
 ///
+/// This is an **execution transition** (frozen on a wrapped shooting day):
+/// see [`StartSceneShoot`] for the write-side enforcement contract.
+///
 /// `series_id` is carried for the `EventMetadata` audit trail (the audit
 /// projector keys on `series_id`); it is resolved at the API edge from the
 /// scene-shoot projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct FinishSceneShoot {
     pub id: SceneShootId,
+    pub shooting_day_id: ShootingDayId,
     pub end_dt: DateTime<Utc>,
     pub series_id: Option<SeriesId>,
     pub version: AggregateVersion,
@@ -92,17 +108,24 @@ pub struct FinishSceneShoot {
 
 /// Skip this scene shoot. Transitions to `Skipped`.
 ///
+/// This is an **execution transition** (frozen on a wrapped shooting day):
+/// see [`StartSceneShoot`] for the write-side enforcement contract.
+///
 /// `series_id` is carried for the `EventMetadata` audit trail (the audit
 /// projector keys on `series_id`); it is resolved at the API edge from the
 /// scene-shoot projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct SkipSceneShoot {
     pub id: SceneShootId,
+    pub shooting_day_id: ShootingDayId,
     pub series_id: Option<SeriesId>,
     pub version: AggregateVersion,
 }
 
 /// Add an audited note to this scene shoot.
+///
+/// This is an **execution-context mutation** (frozen on a wrapped shooting
+/// day): see [`StartSceneShoot`] for the write-side enforcement contract.
 ///
 /// `series_id` is carried for the `EventMetadata` audit trail (the audit
 /// projector keys on `series_id`); it is resolved at the API edge from the
@@ -110,6 +133,7 @@ pub struct SkipSceneShoot {
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct AddSceneShootNote {
     pub id: SceneShootId,
+    pub shooting_day_id: ShootingDayId,
     pub note_id: Uuid,
     pub body: String,
     pub series_id: Option<SeriesId>,
@@ -118,12 +142,16 @@ pub struct AddSceneShootNote {
 
 /// Update the body of an existing note on this scene shoot.
 ///
+/// This is an **execution-context mutation** (frozen on a wrapped shooting
+/// day): see [`StartSceneShoot`] for the write-side enforcement contract.
+///
 /// `series_id` is carried for the `EventMetadata` audit trail (the audit
 /// projector keys on `series_id`); it is resolved at the API edge from the
 /// scene-shoot projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct UpdateSceneShootNote {
     pub id: SceneShootId,
+    pub shooting_day_id: ShootingDayId,
     pub note_id: Uuid,
     pub body: String,
     pub series_id: Option<SeriesId>,
@@ -132,12 +160,16 @@ pub struct UpdateSceneShootNote {
 
 /// Remove a note from this scene shoot.
 ///
+/// This is an **execution-context mutation** (frozen on a wrapped shooting
+/// day): see [`StartSceneShoot`] for the write-side enforcement contract.
+///
 /// `series_id` is carried for the `EventMetadata` audit trail (the audit
 /// projector keys on `series_id`); it is resolved at the API edge from the
 /// scene-shoot projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct RemoveSceneShootNote {
     pub id: SceneShootId,
+    pub shooting_day_id: ShootingDayId,
     pub note_id: Uuid,
     pub series_id: Option<SeriesId>,
     pub version: AggregateVersion,

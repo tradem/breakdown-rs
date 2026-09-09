@@ -169,6 +169,9 @@ problem-scene-shoot-pair-already-exists =
 problem-scene-shoot-planned-order-frozen =
     The planned order is frozen once execution data has been recorded.
 
+problem-scene-shoot-shooting-day-wrapped =
+    The shooting day has been wrapped; execution is frozen. Planning remains available.
+
 problem-scene-shoot-terminal-state =
     The scene shoot is in a terminal state.
 

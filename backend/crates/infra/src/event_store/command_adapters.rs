@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
@@ -86,9 +87,10 @@ use breakdown_core::shared::{
 };
 use breakdown_core::shooting_day::aggregate::ShootingDayAggregate;
 use breakdown_core::shooting_day::commands::{
-    ArchiveShootingDay, CreateShootingDay, RenameShootingDay, ReorderShootingDay,
-    RescheduleShootingDay, WrapShootingDay,
+    ArchiveShootingDay, CreateShootingDay, EnsureShootingDayOpen, RenameShootingDay,
+    ReorderShootingDay, RescheduleShootingDay, WrapShootingDay,
 };
+use breakdown_core::shooting_day::error::ShootingDayError;
 use breakdown_core::shooting_day::ports::ShootingDayCommands;
 use kameo_es::command_service::{CommandService, ExecuteExt, ExecuteResult};
 use kameo_es::error::ExecuteError;
@@ -233,11 +235,21 @@ impl SceneCommands for SceneCommandsImpl {
 #[derive(Clone, Debug)]
 pub struct ShootingDayCommandsImpl {
     cmd_service: CommandService,
+    /// Per-day wrap-finality lock (PR #389 review follow-up): the wrap
+    /// transition holds it across its append so no frozen SceneShoot
+    /// mutation can interleave with the wrap on the same day.
+    finality_gate: crate::event_store::WrapFinalityGate,
 }
 
 impl ShootingDayCommandsImpl {
-    pub fn new(cmd_service: CommandService) -> Self {
-        Self { cmd_service }
+    pub fn new(
+        cmd_service: CommandService,
+        finality_gate: crate::event_store::WrapFinalityGate,
+    ) -> Self {
+        Self {
+            cmd_service,
+            finality_gate,
+        }
     }
 }
 
@@ -345,6 +357,11 @@ impl ShootingDayCommands for ShootingDayCommandsImpl {
         actor: UserId,
         cmd: WrapShootingDay,
     ) -> Result<AggregateVersion, DomainError> {
+        // Serialize the wrap append against frozen SceneShoot mutations on
+        // this day (distributed per-day advisory lock, PR #389 review
+        // follow-up): after `wrap` completes, no execution mutation for the
+        // day can still be appended.
+        let _day_lock = self.finality_gate.lock_day(cmd.id).await?;
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
@@ -1149,11 +1166,54 @@ impl PhotoCommands for PhotoCommandsImpl {
 #[derive(Clone, Debug)]
 pub struct SceneShootCommandsImpl {
     cmd_service: CommandService,
+    /// Per-day wrap-finality lock (PR #389 review follow-up): serializes the
+    /// [probe → append] critical section of every frozen command against the
+    /// day's `WrapShootingDay` append.
+    finality_gate: crate::event_store::WrapFinalityGate,
 }
 
 impl SceneShootCommandsImpl {
-    pub fn new(cmd_service: CommandService) -> Self {
-        Self { cmd_service }
+    pub fn new(
+        cmd_service: CommandService,
+        finality_gate: crate::event_store::WrapFinalityGate,
+    ) -> Self {
+        Self {
+            cmd_service,
+            finality_gate,
+        }
+    }
+
+    /// Write-side wrap-finality gate (PR #389 review, issue #376).
+    ///
+    /// Dispatches the zero-event [`EnsureShootingDayOpen`] command against
+    /// the ShootingDay **event stream** — the authoritative write-side
+    /// state — so execution transitions are frozen on wrapped days even
+    /// while the read-model projection still lags. This is a stream replay
+    /// on the command path, **not** a read-model projection query (CQRS
+    /// boundary hard rule).
+    ///
+    /// The check runs **under the per-day wrap-finality advisory lock**, so
+    /// no `WrapShootingDay` append can interleave between this probe and
+    /// the SceneShoot append (see [`crate::event_store::WrapFinalityGate`]).
+    async fn ensure_day_open(&self, day_id: ShootingDayId) -> Result<(), DomainError> {
+        let result = ShootingDayAggregate::execute(
+            &self.cmd_service,
+            day_id,
+            EnsureShootingDayOpen { id: day_id },
+        )
+        .expected_version(ExpectedVersion::Any)
+        .await;
+        match result {
+            // Open day: no events emitted, probe succeeded.
+            Ok(_) => Ok(()),
+            Err(ExecuteError::Handle(ShootingDayError::Wrapped { id })) => {
+                Err(DomainError::ShootingDayWrapped {
+                    shooting_day_id: id.0,
+                })
+            }
+            Err(ExecuteError::Handle(err)) => Err(err.into()),
+            Err(err) => Err(DomainError::conflict(err.to_string())),
+        }
     }
 }
 
@@ -1201,6 +1261,10 @@ impl SceneShootCommands for SceneShootCommandsImpl {
         actor: UserId,
         cmd: StartSceneShoot,
     ) -> Result<AggregateVersion, DomainError> {
+        // Serialize [probe -> append] against the day's wrap transition
+        // (distributed per-day advisory lock, PR #389 review follow-up).
+        let _day_lock = self.finality_gate.lock_day(cmd.shooting_day_id).await?;
+        self.ensure_day_open(cmd.shooting_day_id).await?;
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
@@ -1221,6 +1285,10 @@ impl SceneShootCommands for SceneShootCommandsImpl {
         actor: UserId,
         cmd: SetActualOrder,
     ) -> Result<AggregateVersion, DomainError> {
+        // Serialize [probe -> append] against the day's wrap transition
+        // (distributed per-day advisory lock, PR #389 review follow-up).
+        let _day_lock = self.finality_gate.lock_day(cmd.shooting_day_id).await?;
+        self.ensure_day_open(cmd.shooting_day_id).await?;
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
@@ -1241,6 +1309,10 @@ impl SceneShootCommands for SceneShootCommandsImpl {
         actor: UserId,
         cmd: FinishSceneShoot,
     ) -> Result<AggregateVersion, DomainError> {
+        // Serialize [probe -> append] against the day's wrap transition
+        // (distributed per-day advisory lock, PR #389 review follow-up).
+        let _day_lock = self.finality_gate.lock_day(cmd.shooting_day_id).await?;
+        self.ensure_day_open(cmd.shooting_day_id).await?;
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
@@ -1261,6 +1333,10 @@ impl SceneShootCommands for SceneShootCommandsImpl {
         actor: UserId,
         cmd: SkipSceneShoot,
     ) -> Result<AggregateVersion, DomainError> {
+        // Serialize [probe -> append] against the day's wrap transition
+        // (distributed per-day advisory lock, PR #389 review follow-up).
+        let _day_lock = self.finality_gate.lock_day(cmd.shooting_day_id).await?;
+        self.ensure_day_open(cmd.shooting_day_id).await?;
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
@@ -1281,6 +1357,10 @@ impl SceneShootCommands for SceneShootCommandsImpl {
         actor: UserId,
         cmd: AddSceneShootNote,
     ) -> Result<AggregateVersion, DomainError> {
+        // Serialize [probe -> append] against the day's wrap transition
+        // (distributed per-day advisory lock, PR #389 review follow-up).
+        let _day_lock = self.finality_gate.lock_day(cmd.shooting_day_id).await?;
+        self.ensure_day_open(cmd.shooting_day_id).await?;
         let id = cmd.id;
         let series_id = cmd.series_id;
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
@@ -1299,6 +1379,10 @@ impl SceneShootCommands for SceneShootCommandsImpl {
         actor: UserId,
         cmd: UpdateSceneShootNote,
     ) -> Result<AggregateVersion, DomainError> {
+        // Serialize [probe -> append] against the day's wrap transition
+        // (distributed per-day advisory lock, PR #389 review follow-up).
+        let _day_lock = self.finality_gate.lock_day(cmd.shooting_day_id).await?;
+        self.ensure_day_open(cmd.shooting_day_id).await?;
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
@@ -1319,6 +1403,10 @@ impl SceneShootCommands for SceneShootCommandsImpl {
         actor: UserId,
         cmd: RemoveSceneShootNote,
     ) -> Result<AggregateVersion, DomainError> {
+        // Serialize [probe -> append] against the day's wrap transition
+        // (distributed per-day advisory lock, PR #389 review follow-up).
+        let _day_lock = self.finality_gate.lock_day(cmd.shooting_day_id).await?;
+        self.ensure_day_open(cmd.shooting_day_id).await?;
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;

@@ -4981,6 +4981,11 @@ paths:
       tags:
       - handlers
     post:
+      description: |-
+        Wrap semantics (issue #376): planning stays supported on a **wrapped**
+        day — the wrap freezes only execution transitions (`start`,
+        `actual-order`, `finish`, `skip`, notes), which respond 409
+        `scene-shoot.shooting-day-wrapped` post-wrap.
       operationId: plan_scene_shoot
       parameters:
       - in: path
@@ -5006,7 +5011,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/IdVersionResponse'
-          description: ''
+          description: Planned (also on a wrapped day)
         '404':
           content:
             application/problem+json:
@@ -5025,6 +5030,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Validation error
+      summary: Plans a new scene shoot (Soll) on a shooting day.
       tags:
       - handlers
   /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}:
@@ -5116,6 +5122,9 @@ paths:
       - handlers
   /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/actual-order:
     patch:
+      description: |-
+        Wrap semantics (issue #376): responds 409
+        `scene-shoot.shooting-day-wrapped` when the day is already wrapped.
       operationId: set_actual_order
       parameters:
       - in: path
@@ -5158,13 +5167,14 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
-          description: Conflict
+          description: Conflict (incl. wrapped-day execution freeze)
         '422':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Validation error
+      summary: Sets the actual order (Ist) of a scene shoot (execution transition).
       tags:
       - handlers
   /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/continuity-photos:
@@ -5315,6 +5325,9 @@ paths:
       - handlers
   /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/finish:
     post:
+      description: |-
+        Wrap semantics (issue #376): responds 409
+        `scene-shoot.shooting-day-wrapped` when the day is already wrapped.
       operationId: finish_scene_shoot
       parameters:
       - in: path
@@ -5357,17 +5370,21 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
-          description: Conflict
+          description: Conflict (incl. wrapped-day execution freeze)
         '422':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Validation error
+      summary: Finishes a scene shoot (execution transition).
       tags:
       - handlers
   /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/notes:
     post:
+      description: |-
+        Wrap semantics (issue #376): responds 409
+        `scene-shoot.shooting-day-wrapped` when the day is already wrapped.
       operationId: add_scene_shoot_note
       parameters:
       - in: path
@@ -5410,17 +5427,21 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
-          description: Conflict
+          description: Conflict (incl. wrapped-day execution freeze)
         '422':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Validation error
+      summary: Adds a note to a scene shoot (execution-context mutation).
       tags:
       - handlers
   /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/notes/{note_id}:
     delete:
+      description: |-
+        Wrap semantics (issue #376): responds 409
+        `scene-shoot.shooting-day-wrapped` when the day is already wrapped.
       operationId: remove_scene_shoot_note
       parameters:
       - in: path
@@ -5469,10 +5490,14 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
-          description: Conflict
+          description: Conflict (incl. wrapped-day execution freeze)
+      summary: Removes a scene-shoot note (execution-context mutation).
       tags:
       - handlers
     put:
+      description: |-
+        Wrap semantics (issue #376): responds 409
+        `scene-shoot.shooting-day-wrapped` when the day is already wrapped.
       operationId: update_scene_shoot_note
       parameters:
       - in: path
@@ -5521,17 +5546,21 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
-          description: Conflict
+          description: Conflict (incl. wrapped-day execution freeze)
         '422':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Validation error
+      summary: Updates a scene-shoot note (execution-context mutation).
       tags:
       - handlers
   /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/skip:
     post:
+      description: |-
+        Wrap semantics (issue #376): responds 409
+        `scene-shoot.shooting-day-wrapped` when the day is already wrapped.
       operationId: skip_scene_shoot
       parameters:
       - in: path
@@ -5574,11 +5603,16 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
-          description: Conflict
+          description: Conflict (incl. wrapped-day execution freeze)
+      summary: Skips a scene shoot (execution transition).
       tags:
       - handlers
   /v1/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/start:
     post:
+      description: |-
+        Wrap semantics (issue #376): responds 409
+        `scene-shoot.shooting-day-wrapped` when the day is already wrapped —
+        execution is frozen post-wrap; planning stays supported.
       operationId: start_scene_shoot
       parameters:
       - in: path
@@ -5621,13 +5655,14 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
-          description: Conflict
+          description: Conflict (incl. wrapped-day execution freeze)
         '422':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Validation error
+      summary: Starts a scene shoot (execution transition).
       tags:
       - handlers
   /v1/shooting-days/{id}:
@@ -5935,6 +5970,13 @@ paths:
       - handlers
   /v1/shooting-days/{id}/wrap:
     post:
+      description: |-
+        Wrap semantics (issue #376): the wrap freezes only **execution**
+        transitions on the day — scene-shoot `start`, `actual-order`, `finish`,
+        `skip`, and notes respond 409 `scene-shoot.shooting-day-wrapped` once
+        wrapped. **Planning (Soll) stays supported**: scene shoots can still be
+        planned (201) and replanned on a wrapped day, and continuity photos can
+        still be linked/unlinked.
       operationId: wrap_shooting_day
       parameters:
       - description: Shooting day id
@@ -5968,6 +6010,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Conflict
+      summary: |-
+        Wraps (finalises) a shooting day, setting `wrapped_at`. Idempotent:
+        re-wrapping an already-wrapped day emits no event.
       tags:
       - handlers
 tags:
@@ -6260,6 +6305,12 @@ x-code-registry:
   status: 422
   title: Scene shoot validation failed
   type: https://docs.breakdown.example/problems/scene-shoot.validation
+- code: scene-shoot.shooting-day-wrapped
+  extensions:
+  - shooting_day_id
+  status: 409
+  title: Shooting day is wrapped
+  type: https://docs.breakdown.example/problems/scene-shoot.shooting-day-wrapped
 - code: photo.not-found
   extensions:
   - id

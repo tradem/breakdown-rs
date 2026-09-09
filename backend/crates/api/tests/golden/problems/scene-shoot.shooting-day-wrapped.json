@@ -1,0 +1,10 @@
+{
+  "code": "scene-shoot.shooting-day-wrapped",
+  "detail": "Der Drehtag wurde abgeschlossen; Ausführungen sind eingefroren. Planung bleibt möglich.",
+  "extensions": {
+    "shooting_day_id": "00000000-0000-0000-0000-000000000001"
+  },
+  "status": 409,
+  "title": "Shooting day is wrapped",
+  "type": "https://docs.breakdown.example/problems/scene-shoot.shooting-day-wrapped"
+}

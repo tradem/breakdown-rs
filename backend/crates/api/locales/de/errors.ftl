@@ -169,6 +169,9 @@ problem-scene-shoot-pair-already-exists =
 problem-scene-shoot-planned-order-frozen =
     Die geplante Reihenfolge ist eingefroren, nachdem Ausführungsdaten erfasst wurden.
 
+problem-scene-shoot-shooting-day-wrapped =
+    Der Drehtag wurde abgeschlossen; Ausführungen sind eingefroren. Planung bleibt möglich.
+
 problem-scene-shoot-terminal-state =
     Die Aufnahme befindet sich in einem Endzustand.
 

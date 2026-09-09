@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
 //! The `ShootingDay` event-sourced aggregate.
@@ -10,8 +11,8 @@ use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use crate::shared::{AggregateVersion, EpisodeId, EventMetadata, LexicalSortKey, ShootingDayId};
 
 use super::commands::{
-    ArchiveShootingDay, CreateShootingDay, RenameShootingDay, ReorderShootingDay,
-    RescheduleShootingDay, WrapShootingDay,
+    ArchiveShootingDay, CreateShootingDay, EnsureShootingDayOpen, RenameShootingDay,
+    ReorderShootingDay, RescheduleShootingDay, WrapShootingDay,
 };
 use super::error::ShootingDayError;
 use super::events::{ShootingDayEvent, ShootingDaySource};
@@ -259,5 +260,23 @@ impl Command<WrapShootingDay> for ShootingDayAggregate {
             wrapped_at: Utc::now(),
             version: new_version,
         }])
+    }
+}
+
+impl Command<EnsureShootingDayOpen> for ShootingDayAggregate {
+    type Error = ShootingDayError;
+
+    /// Write-side wrap-finality probe (PR #389 review): succeeds without
+    /// events on an open day, rejects with [`ShootingDayError::Wrapped`] on a
+    /// wrapped day. No version guard — the probe never mutates state.
+    fn handle(
+        &self,
+        cmd: EnsureShootingDayOpen,
+        _ctx: Context<'_, Self>,
+    ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.wrapped_at.is_some() {
+            return Err(ShootingDayError::Wrapped { id: cmd.id });
+        }
+        Ok(vec![])
     }
 }

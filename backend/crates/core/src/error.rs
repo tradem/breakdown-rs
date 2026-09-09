@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: kimi-k3 (neuralwatt)
 
 use thiserror::Error;
@@ -122,6 +123,13 @@ pub enum DomainError {
     /// `scene-shoot.already-linked`). `photo_id` is S1.
     #[error("continuity photo {photo_id} is already linked to this scene shoot")]
     AlreadyLinked { photo_id: Uuid },
+
+    /// Execution transition on a wrapped shooting day (409,
+    /// `scene-shoot.shooting-day-wrapped`). Planning (Soll) stays allowed
+    /// post-wrap; only execution transitions are frozen (issue #376).
+    /// `shooting_day_id` is S0 (client-supplied in the request path).
+    #[error("shooting day {shooting_day_id} is wrapped; execution is frozen")]
+    ShootingDayWrapped { shooting_day_id: Uuid },
 }
 
 impl From<AiConfigError> for DomainError {
@@ -249,6 +257,9 @@ impl From<ShootingDayError> for DomainError {
             ShootingDayError::DuplicateOrderKey(key) => DomainError::Conflict {
                 code: &SHOOTING_DAY_DUPLICATE_ORDER_KEY,
                 reason: format!("order key {key} already exists for this episode"),
+            },
+            ShootingDayError::Wrapped { id } => DomainError::ShootingDayWrapped {
+                shooting_day_id: id.0,
             },
             ShootingDayError::VersionMismatch { expected, actual } => {
                 DomainError::VersionConflict {

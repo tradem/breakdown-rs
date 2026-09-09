@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
@@ -471,12 +472,28 @@ async fn series_id_for_costume_category<P: Ports>(
     Ok(season.series_id)
 }
 
-/// Resolve the `series_id` for a scene shoot (scene_shoot → scene → episode → series).
-async fn series_id_for_scene_shoot<P: Ports>(
+/// Load the scene-shoot projection at the API edge, validate that the route
+/// `day_id` matches the scene shoot's stored `shooting_day_id` association,
+/// and resolve the owning `series_id` (scene_shoot → scene → episode → series).
+///
+/// The association check (PR #389 review): the seven execution handlers gate
+/// the route `day_id`, then dispatch commands by the globally unique
+/// `shoot_id` — without this check a caller could bypass the wrap freeze by
+/// addressing a wrapped-day scene shoot through an unrelated open day (and
+/// receive a spurious 409 the other way around). A mismatched day is a
+/// routing error → 404 `domain.not-found` (deliberately not revealing which
+/// day the shoot actually belongs to).
+async fn scene_shoot_context<P: Ports>(
     state: &AppState<P>,
+    day_id: ShootingDayId,
     shoot_id: SceneShootId,
 ) -> Result<SeriesId, ApiError> {
     let ss = state.ports.scene_shoot_repo().find_by_id(shoot_id).await?;
+    if ss.shooting_day_id != day_id {
+        return Err(ApiError::NotFound(
+            "scene shoot not associated with this shooting day",
+        ));
+    }
     let scene = state.ports.scene_repo().find_by_id(ss.scene_id).await?;
     let episode = state
         .ports
@@ -484,6 +501,32 @@ async fn series_id_for_scene_shoot<P: Ports>(
         .find_by_id(scene.episode_id.0)
         .await?;
     Ok(episode.series_id)
+}
+
+/// Wrap-finality gate (issue #376): execution transitions on a wrapped
+/// shooting day are frozen with 409 `scene-shoot.shooting-day-wrapped`,
+/// while planning (Soll: plan / replan / continuity photos) stays supported.
+///
+/// This projection read at the API edge is the **fast path** only (the API
+/// edge is the legitimate read-model consumer per the CQRS boundary hard
+/// rule). The authoritative enforcement is write-side: the SceneShoot
+/// command adapter dispatches a zero-event probe against the ShootingDay
+/// **event stream** before every frozen command, so a wrapped day is
+/// rejected even while this projection lags (PR #389 review). The edge gate
+/// remains for a fast 409 without the extra stream replay; a residual
+/// ms-scale interleave window between the two event-store appends is
+/// documented on the adapter (`SceneShootCommandsImpl::ensure_day_open`).
+async fn ensure_execution_open<P: Ports>(
+    state: &AppState<P>,
+    day_id: ShootingDayId,
+) -> Result<(), ApiError> {
+    let day = state.ports.shooting_day_repo().find_by_id(day_id).await?;
+    if day.wrapped_at.is_some() {
+        return Err(ApiError::Domain(DomainError::ShootingDayWrapped {
+            shooting_day_id: day_id.0,
+        }));
+    }
+    Ok(())
 }
 
 /// Resolve the (optional) `series_id` for a costume
@@ -2626,12 +2669,18 @@ pub struct WrapShootingDayRequest {
     pub version: AggregateVersion,
 }
 
+/// Plans a new scene shoot (Soll) on a shooting day.
+///
+/// Wrap semantics (issue #376): planning stays supported on a **wrapped**
+/// day — the wrap freezes only execution transitions (`start`,
+/// `actual-order`, `finish`, `skip`, notes), which respond 409
+/// `scene-shoot.shooting-day-wrapped` post-wrap.
 #[utoipa::path(
     post,
     path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots",
     request_body = PlanSceneShootRequest,
     responses(
-        (status = 201, body = IdVersionResponse),
+        (status = 201, body = IdVersionResponse, description = "Planned (also on a wrapped day)"),
         (status = 404, body = ProblemDetails, description = "Scene or shooting day not found"),
         (status = 422, body = ProblemDetails, description = "Validation error"),
         (status = 409, body = ProblemDetails, description = "Conflict"),
@@ -2677,10 +2726,10 @@ pub async fn plan_scene_shoot<P: Ports>(
 pub async fn replan_scene_shoot<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
-    Path((_day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
+    Path((day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<ReplanSceneShootRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(series_id_for_scene_shoot(&state, shoot_id).await?);
+    let series_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
     let cmd = ReplanSceneShoot {
         id: shoot_id,
         planned_order: req.planned_order,
@@ -2695,6 +2744,11 @@ pub async fn replan_scene_shoot<P: Ports>(
     Ok((StatusCode::OK, Json(version)))
 }
 
+/// Starts a scene shoot (execution transition).
+///
+/// Wrap semantics (issue #376): responds 409
+/// `scene-shoot.shooting-day-wrapped` when the day is already wrapped —
+/// execution is frozen post-wrap; planning stays supported.
 #[utoipa::path(
     post,
     path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/start",
@@ -2703,18 +2757,20 @@ pub async fn replan_scene_shoot<P: Ports>(
         (status = 200, body = AggregateVersion),
         (status = 404, body = ProblemDetails, description = "Scene shoot not found"),
         (status = 422, body = ProblemDetails, description = "Validation error"),
-        (status = 409, body = ProblemDetails, description = "Conflict"),
+        (status = 409, body = ProblemDetails, description = "Conflict (incl. wrapped-day execution freeze)"),
     ),
 )]
 pub async fn start_scene_shoot<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
-    Path((_day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
+    Path((day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<StartSceneShootRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(series_id_for_scene_shoot(&state, shoot_id).await?);
+    let series_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
+    ensure_execution_open(&state, day_id).await?;
     let cmd = StartSceneShoot {
         id: shoot_id,
+        shooting_day_id: day_id,
         start_dt: req.resolve_start_dt(),
         series_id,
         version: req.version,
@@ -2727,6 +2783,10 @@ pub async fn start_scene_shoot<P: Ports>(
     Ok((StatusCode::OK, Json(version)))
 }
 
+/// Sets the actual order (Ist) of a scene shoot (execution transition).
+///
+/// Wrap semantics (issue #376): responds 409
+/// `scene-shoot.shooting-day-wrapped` when the day is already wrapped.
 #[utoipa::path(
     patch,
     path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/actual-order",
@@ -2735,18 +2795,20 @@ pub async fn start_scene_shoot<P: Ports>(
         (status = 200, body = AggregateVersion),
         (status = 404, body = ProblemDetails, description = "Scene shoot not found"),
         (status = 422, body = ProblemDetails, description = "Validation error"),
-        (status = 409, body = ProblemDetails, description = "Conflict"),
+        (status = 409, body = ProblemDetails, description = "Conflict (incl. wrapped-day execution freeze)"),
     ),
 )]
 pub async fn set_actual_order<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
-    Path((_day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
+    Path((day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<SetActualOrderRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(series_id_for_scene_shoot(&state, shoot_id).await?);
+    let series_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
+    ensure_execution_open(&state, day_id).await?;
     let cmd = SetActualOrder {
         id: shoot_id,
+        shooting_day_id: day_id,
         actual_order: req.actual_order,
         series_id,
         version: req.version,
@@ -2759,6 +2821,10 @@ pub async fn set_actual_order<P: Ports>(
     Ok((StatusCode::OK, Json(version)))
 }
 
+/// Finishes a scene shoot (execution transition).
+///
+/// Wrap semantics (issue #376): responds 409
+/// `scene-shoot.shooting-day-wrapped` when the day is already wrapped.
 #[utoipa::path(
     post,
     path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/finish",
@@ -2767,18 +2833,20 @@ pub async fn set_actual_order<P: Ports>(
         (status = 200, body = AggregateVersion),
         (status = 404, body = ProblemDetails, description = "Scene shoot not found"),
         (status = 422, body = ProblemDetails, description = "Validation error"),
-        (status = 409, body = ProblemDetails, description = "Conflict"),
+        (status = 409, body = ProblemDetails, description = "Conflict (incl. wrapped-day execution freeze)"),
     ),
 )]
 pub async fn finish_scene_shoot<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
-    Path((_day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
+    Path((day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<FinishSceneShootRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(series_id_for_scene_shoot(&state, shoot_id).await?);
+    let series_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
+    ensure_execution_open(&state, day_id).await?;
     let cmd = FinishSceneShoot {
         id: shoot_id,
+        shooting_day_id: day_id,
         end_dt: req.resolve_end_dt(),
         series_id,
         version: req.version,
@@ -2791,6 +2859,10 @@ pub async fn finish_scene_shoot<P: Ports>(
     Ok((StatusCode::OK, Json(version)))
 }
 
+/// Skips a scene shoot (execution transition).
+///
+/// Wrap semantics (issue #376): responds 409
+/// `scene-shoot.shooting-day-wrapped` when the day is already wrapped.
 #[utoipa::path(
     post,
     path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/skip",
@@ -2798,18 +2870,20 @@ pub async fn finish_scene_shoot<P: Ports>(
     responses(
         (status = 200, body = AggregateVersion),
         (status = 404, body = ProblemDetails, description = "Scene shoot not found"),
-        (status = 409, body = ProblemDetails, description = "Conflict"),
+        (status = 409, body = ProblemDetails, description = "Conflict (incl. wrapped-day execution freeze)"),
     ),
 )]
 pub async fn skip_scene_shoot<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
-    Path((_day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
+    Path((day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<SkipSceneShootRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(series_id_for_scene_shoot(&state, shoot_id).await?);
+    let series_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
+    ensure_execution_open(&state, day_id).await?;
     let cmd = SkipSceneShoot {
         id: shoot_id,
+        shooting_day_id: day_id,
         series_id,
         version: req.version,
     };
@@ -2872,6 +2946,10 @@ pub async fn list_scene_shoots<P: Ports>(
 // SceneShoot Note handlers
 // ---------------------------------------------------------------------------
 
+/// Adds a note to a scene shoot (execution-context mutation).
+///
+/// Wrap semantics (issue #376): responds 409
+/// `scene-shoot.shooting-day-wrapped` when the day is already wrapped.
 #[utoipa::path(
     post,
     path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/notes",
@@ -2880,19 +2958,21 @@ pub async fn list_scene_shoots<P: Ports>(
         (status = 200, body = AggregateVersion),
         (status = 404, body = ProblemDetails, description = "Scene shoot not found"),
         (status = 422, body = ProblemDetails, description = "Validation error"),
-        (status = 409, body = ProblemDetails, description = "Conflict"),
+        (status = 409, body = ProblemDetails, description = "Conflict (incl. wrapped-day execution freeze)"),
     ),
 )]
 pub async fn add_scene_shoot_note<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
-    Path((_day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
+    Path((day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<AddNoteRequest>,
 ) -> ApiResult<AggregateVersion> {
     let note_id = req.note_id.unwrap_or_else(Uuid::now_v7);
-    let series_id = Some(series_id_for_scene_shoot(&state, shoot_id).await?);
+    let series_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
+    ensure_execution_open(&state, day_id).await?;
     let cmd = AddSceneShootNote {
         id: shoot_id,
+        shooting_day_id: day_id,
         note_id,
         body: req.body,
         series_id,
@@ -2906,6 +2986,10 @@ pub async fn add_scene_shoot_note<P: Ports>(
     Ok((StatusCode::OK, Json(version)))
 }
 
+/// Updates a scene-shoot note (execution-context mutation).
+///
+/// Wrap semantics (issue #376): responds 409
+/// `scene-shoot.shooting-day-wrapped` when the day is already wrapped.
 #[utoipa::path(
     put,
     path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/notes/{note_id}",
@@ -2914,18 +2998,20 @@ pub async fn add_scene_shoot_note<P: Ports>(
         (status = 200, body = AggregateVersion),
         (status = 404, body = ProblemDetails, description = "Scene shoot or note not found"),
         (status = 422, body = ProblemDetails, description = "Validation error"),
-        (status = 409, body = ProblemDetails, description = "Conflict"),
+        (status = 409, body = ProblemDetails, description = "Conflict (incl. wrapped-day execution freeze)"),
     ),
 )]
 pub async fn update_scene_shoot_note<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
-    Path((_day_id, _scene_id, shoot_id, note_id)): Path<(ShootingDayId, Uuid, SceneShootId, Uuid)>,
+    Path((day_id, _scene_id, shoot_id, note_id)): Path<(ShootingDayId, Uuid, SceneShootId, Uuid)>,
     Json(req): Json<UpdateNoteRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(series_id_for_scene_shoot(&state, shoot_id).await?);
+    let series_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
+    ensure_execution_open(&state, day_id).await?;
     let cmd = UpdateSceneShootNote {
         id: shoot_id,
+        shooting_day_id: day_id,
         note_id,
         body: req.body,
         series_id,
@@ -2939,24 +3025,30 @@ pub async fn update_scene_shoot_note<P: Ports>(
     Ok((StatusCode::OK, Json(version)))
 }
 
+/// Removes a scene-shoot note (execution-context mutation).
+///
+/// Wrap semantics (issue #376): responds 409
+/// `scene-shoot.shooting-day-wrapped` when the day is already wrapped.
 #[utoipa::path(
     delete,
     path = "/shooting-days/{day_id}/scenes/{scene_id}/scene-shoots/{shoot_id}/notes/{note_id}",
     responses(
         (status = 200, body = AggregateVersion),
         (status = 404, body = ProblemDetails, description = "Scene shoot or note not found"),
-        (status = 409, body = ProblemDetails, description = "Conflict"),
+        (status = 409, body = ProblemDetails, description = "Conflict (incl. wrapped-day execution freeze)"),
     ),
 )]
 pub async fn remove_scene_shoot_note<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
-    Path((_day_id, _scene_id, shoot_id, note_id)): Path<(ShootingDayId, Uuid, SceneShootId, Uuid)>,
+    Path((day_id, _scene_id, shoot_id, note_id)): Path<(ShootingDayId, Uuid, SceneShootId, Uuid)>,
     Json(req): Json<VersionRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(series_id_for_scene_shoot(&state, shoot_id).await?);
+    let series_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
+    ensure_execution_open(&state, day_id).await?;
     let cmd = RemoveSceneShootNote {
         id: shoot_id,
+        shooting_day_id: day_id,
         note_id,
         series_id,
         version: req.version,
@@ -3117,6 +3209,15 @@ pub async fn unlink_continuity_photo<P: Ports>(
 // ShootingDay wrap handler
 // ---------------------------------------------------------------------------
 
+/// Wraps (finalises) a shooting day, setting `wrapped_at`. Idempotent:
+/// re-wrapping an already-wrapped day emits no event.
+///
+/// Wrap semantics (issue #376): the wrap freezes only **execution**
+/// transitions on the day — scene-shoot `start`, `actual-order`, `finish`,
+/// `skip`, and notes respond 409 `scene-shoot.shooting-day-wrapped` once
+/// wrapped. **Planning (Soll) stays supported**: scene shoots can still be
+/// planned (201) and replanned on a wrapped day, and continuity photos can
+/// still be linked/unlinked.
 #[utoipa::path(
     post,
     path = "/shooting-days/{id}/wrap",

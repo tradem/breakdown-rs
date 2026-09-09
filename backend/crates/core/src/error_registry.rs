@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: kimi-k3 (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
@@ -34,7 +35,7 @@ pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
 /// Kept in sync with the `problem_codes!` invocation below by a compile-time
 /// assertion — adding or removing a code without deliberately updating this
 /// count fails the build (issue #232).
-const PROBLEM_CODE_COUNT: usize = 73;
+const PROBLEM_CODE_COUNT: usize = 74;
 
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -570,6 +571,17 @@ problem_codes! {
         status: 422,
         title: "Scene shoot validation failed",
         extensions: &[],
+    },
+
+    /// Conflict: the shooting day is wrapped (`wrapped_at` set) — execution
+    /// transitions (start / actual-order / finish / skip / notes) are frozen,
+    /// while planning (Soll) stays supported (issue #376).
+    /// `shooting_day_id` is S0 (client-supplied in the request path).
+    SCENE_SHOOT_SHOOTING_DAY_WRAPPED {
+        code: "scene-shoot.shooting-day-wrapped",
+        status: 409,
+        title: "Shooting day is wrapped",
+        extensions: &["shooting_day_id"],
     },
 
 

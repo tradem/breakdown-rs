@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
 
@@ -32,12 +33,20 @@ use breakdown_core::costume::events::CostumeDetail;
 use breakdown_core::costume::ports::{CostumeCommands, CostumeRepository};
 use breakdown_core::episode::commands::CreateEpisode;
 use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
-use breakdown_core::scene::commands::AssignCharacter;
+use breakdown_core::error::DomainError;
+use breakdown_core::scene::commands::{AssignCharacter, CreateScene};
 use breakdown_core::scene::events::SceneDetails;
 use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
+use breakdown_core::scene_shoot::commands::{PlanSceneShoot, StartSceneShoot};
+use breakdown_core::scene_shoot::ports::SceneShootCommands;
 use breakdown_core::season::commands::CreateSeason;
 use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
-use breakdown_core::shared::{BlockId, EpisodeId, SeasonId, SeriesId};
+use breakdown_core::shared::{
+    BlockId, EpisodeId, LexicalSortKey, SceneShootId, SeasonId, SeriesId, ShootingDayId,
+};
+use breakdown_core::shooting_day::commands::{CreateShootingDay, WrapShootingDay};
+use breakdown_core::shooting_day::events::ShootingDaySource;
+use breakdown_core::shooting_day::ports::ShootingDayCommands;
 use kameo_es::command_service::CommandService;
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -856,5 +865,166 @@ async fn episode_create() -> Result<()> {
     let v = episode_repo.find_by_id(episode_id).await?;
     assert_eq!(v.number, 7);
     assert_eq!(v.name, Some("Pilot".into()));
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// SceneShoot wrap finality (PR #389 review): write-side enforcement
+// ---------------------------------------------------------------------------
+
+/// The SceneShoot command adapter enforces wrap finality against the
+/// ShootingDay **event stream** (authoritative write-side state): after
+/// `wrap` — independent of the read-model projection catching up — a
+/// `StartSceneShoot` on the wrapped day is rejected with
+/// `ShootingDayWrapped`.
+#[tokio::test]
+async fn scene_shoot_start_rejected_on_wrapped_day_write_side() -> Result<()> {
+    let (pool, cmd_svc, _pg, _sierra) = init().await?;
+    let (_season_id, episode_id) = seed_season_and_episode(&pool, &cmd_svc).await;
+    let episode_id = EpisodeId(episode_id);
+
+    // Open scene.
+    let scene_cmd = infra::event_store::SceneCommandsImpl::new(cmd_svc.clone());
+    let scene_id = Uuid::now_v7();
+    scene_cmd
+        .create(
+            test_user(),
+            CreateScene {
+                id: scene_id,
+                episode_id,
+                series_id: Some(SeriesId::new()),
+                details: SceneDetails {
+                    scene_number: Some(1),
+                    location: None,
+                    mood: None,
+                    is_schedule_set: false,
+                    summary: None,
+                    script_day: None,
+                },
+            },
+        )
+        .await?;
+
+    // Open shooting day.
+    let day_cmd = infra::event_store::ShootingDayCommandsImpl::new(
+        cmd_svc.clone(),
+        infra::event_store::WrapFinalityGate::new(pool.clone()),
+    );
+    let day_id = ShootingDayId::new();
+    let (_, day_version) = day_cmd
+        .create(
+            test_user(),
+            CreateShootingDay {
+                id: day_id,
+                episode_id,
+                series_id: Some(SeriesId::new()),
+                label: Some("Day 1".into()),
+                order_key: LexicalSortKey::new("a")?,
+                date: None,
+                source: ShootingDaySource::Manual,
+            },
+        )
+        .await?;
+
+    // Plan the scene shoot onto the open day.
+    let shoot_cmd = infra::event_store::SceneShootCommandsImpl::new(
+        cmd_svc.clone(),
+        infra::event_store::WrapFinalityGate::new(pool.clone()),
+    );
+    let shoot_id = SceneShootId::new();
+    let (_, shoot_version) = shoot_cmd
+        .plan(
+            test_user(),
+            PlanSceneShoot {
+                id: shoot_id,
+                scene_id,
+                shooting_day_id: day_id,
+                series_id: Some(SeriesId::new()),
+                planned_order: LexicalSortKey::new("a")?,
+            },
+        )
+        .await?;
+
+    // Wrap the day through the write side.
+    day_cmd
+        .wrap(
+            test_user(),
+            WrapShootingDay {
+                id: day_id,
+                series_id: Some(SeriesId::new()),
+                version: day_version,
+            },
+        )
+        .await?;
+
+    // Write-side enforcement: the adapter rejects execution on the wrapped
+    // day from its event stream — no read-model projection consulted.
+    let err = shoot_cmd
+        .start(
+            test_user(),
+            StartSceneShoot {
+                id: shoot_id,
+                shooting_day_id: day_id,
+                start_dt: chrono::Utc::now(),
+                series_id: Some(SeriesId::new()),
+                version: shoot_version,
+            },
+        )
+        .await
+        .expect_err("start must be frozen on a wrapped day (write side)");
+    assert!(
+        matches!(err, DomainError::ShootingDayWrapped { .. }),
+        "unexpected error: {err:?}"
+    );
+    Ok(())
+}
+
+/// The wrap-finality gate serializes per day: a second acquisition of the
+/// same day's advisory lock blocks until the first guard drops, while a
+/// different day's lock is independent. Handshake-based — no wall-clock
+/// assertions (yield-bounded scheduling check instead).
+#[tokio::test]
+async fn wrap_finality_gate_serializes_per_day() -> Result<()> {
+    let (pool, _cmd_svc, _pg, _sierra) = init().await?;
+    let gate = infra::event_store::WrapFinalityGate::new(pool);
+    let day_a = ShootingDayId::new();
+    let day_b = ShootingDayId::new();
+
+    let first = gate.lock_day(day_a).await?;
+
+    // A different day's lock is independent of day_a's.
+    let other_day = gate.lock_day(day_b).await?;
+    drop(other_day);
+
+    // Same-day acquisition blocks until `first` drops: signal handshake.
+    let gate_for_task = gate.clone();
+    let (acquired_tx, mut acquired_rx) = tokio::sync::mpsc::unbounded_channel();
+    let holder = tokio::spawn(async move {
+        let guard = gate_for_task
+            .lock_day(day_a)
+            .await
+            .expect("same-day lock must be acquirable after release");
+        acquired_tx
+            .send(())
+            .expect("receiver alive (held by main task)");
+        guard // hold the lock until the task is dropped
+    });
+
+    // The blocked task must not have signalled while the first guard is
+    // held. Bounded cooperative yields instead of wall-clock waits.
+    for _ in 0..200 {
+        tokio::task::yield_now().await;
+        assert!(
+            acquired_rx.try_recv().is_err(),
+            "same-day lock must stay blocked while the first guard is held"
+        );
+    }
+
+    drop(first);
+    holder.await.expect("lock task must not panic");
+    acquired_rx
+        .recv()
+        .await
+        .expect("lock must be acquirable after release");
     Ok(())
 }

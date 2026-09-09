@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
@@ -1288,19 +1289,22 @@ impl PhotoRepository for FakePhotoRepo {
 pub struct FakeSceneShootCommands;
 
 impl SceneShootCommands for FakeSceneShootCommands {
+    // Planning methods succeed (instead of `unreachable!`) so the
+    // wrap-semantics tests (issue #376) can drive the plan/replan handlers
+    // against a wrapped day — planning (Soll) stays supported post-wrap.
     async fn plan(
         &self,
         _actor: UserId,
-        _cmd: PlanSceneShoot,
+        cmd: PlanSceneShoot,
     ) -> Result<(SceneShootId, AggregateVersion), DomainError> {
-        unreachable!("not used in authz tests")
+        Ok((cmd.id, AggregateVersion::INITIAL.next()))
     }
     async fn replan(
         &self,
         _actor: UserId,
         _cmd: ReplanSceneShoot,
     ) -> Result<AggregateVersion, DomainError> {
-        unreachable!("not used in authz tests")
+        Ok(AggregateVersion::INITIAL.next())
     }
     async fn start(
         &self,
@@ -1369,13 +1373,32 @@ impl SceneShootCommands for FakeSceneShootCommands {
 
 // ─── Fake SceneShootRepository ─────────────────────────────────────
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 #[allow(dead_code)]
-pub struct FakeSceneShootRepo;
+pub struct FakeSceneShootRepo {
+    pub shoots: Arc<Mutex<HashMap<SceneShootId, SceneShootView>>>,
+}
+
+impl Default for FakeSceneShootRepo {
+    fn default() -> Self {
+        Self {
+            shoots: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+}
 
 impl SceneShootRepository for FakeSceneShootRepo {
-    async fn find_by_id(&self, _id: SceneShootId) -> Result<SceneShootView, DomainError> {
-        unreachable!("not used in authz tests")
+    // `find_by_id` returns not-found (instead of `unreachable!`) so handlers
+    // that legitimately look up a scene shoot after an upstream gate (e.g. the
+    // wrap-finality gate, issue #376) fail with a clean 404 rather than
+    // panicking in tests that do not seed the projection.
+    async fn find_by_id(&self, id: SceneShootId) -> Result<SceneShootView, DomainError> {
+        self.shoots
+            .lock()
+            .await
+            .get(&id)
+            .cloned()
+            .ok_or(DomainError::not_found("scene-shoot"))
     }
     async fn list_by_shooting_day(
         &self,

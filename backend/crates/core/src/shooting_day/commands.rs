@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! Commands for the `ShootingDay` aggregate.
@@ -125,5 +126,26 @@ pub struct WrapShootingDay {
 impl kameo_es::CommandName for WrapShootingDay {
     fn command_name() -> &'static str {
         "WrapShootingDay"
+    }
+}
+
+/// Write-side wrap-finality probe (PR #389 review, issue #376).
+///
+/// A zero-event command the SceneShoot command adapter dispatches against the
+/// ShootingDay **event stream** so wrap finality is enforced against
+/// authoritative write-side state — never against a read-model projection
+/// (CQRS boundary hard rule). Rejected with [`ShootingDayError::Wrapped`]
+/// when the day is wrapped; succeeds without emitting events otherwise.
+///
+/// This is an internal dispatch primitive, not an HTTP command: it never
+/// appears in the API surface or the OpenAPI contract.
+#[derive(Debug, Clone)]
+pub struct EnsureShootingDayOpen {
+    pub id: ShootingDayId,
+}
+
+impl kameo_es::CommandName for EnsureShootingDayOpen {
+    fn command_name() -> &'static str {
+        "EnsureShootingDayOpen"
     }
 }
