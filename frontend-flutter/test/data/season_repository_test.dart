@@ -269,10 +269,7 @@ void main() {
       () async {
         final allIds = List.generate(217, (i) => 's$i');
         final allSeasons = allIds.map((id) => _season(id)).toList();
-        final adapter = _PaginatedSeasonsAdapter(
-          allSeasons: allSeasons,
-          pageSize: 100,
-        );
+        final adapter = _PaginatedSeasonsAdapter(allSeasons: allSeasons);
         final dio = Dio()..httpClientAdapter = adapter;
         final repo = SeasonRepository(
           BreakdownApi(dio: dio),
@@ -288,21 +285,23 @@ void main() {
         expect((cached as Right).value.map((v) => v.id).toList(), allIds);
         // Assert the loop paged with the correct offsets.
         expect(adapter.requestedOffsets, [0, 100, 200]);
+        // Assert the loop sent the correct limits.
+        expect(adapter.requestedLimits, [100, 100, 100]);
       },
     );
   });
 }
 
 /// Custom HttpClientAdapter that paginates `GET /v1/seasons` by the
-/// `offset` query parameter, returning [pageSize] rows per page from
-/// [allSeasons]. Records every requested offset so tests can assert the
-/// loop pages correctly.
+/// `offset` query parameter, using the requested `limit` as page length.
+/// Records every requested offset and limit so tests can assert the loop
+/// pages correctly.
 class _PaginatedSeasonsAdapter implements HttpClientAdapter {
-  _PaginatedSeasonsAdapter({required this.allSeasons, this.pageSize = 100});
+  _PaginatedSeasonsAdapter({required this.allSeasons});
 
   final List<SeasonView> allSeasons;
-  final int pageSize;
   final List<int> requestedOffsets = [];
+  final List<int> requestedLimits = [];
 
   @override
   Future<ResponseBody> fetch(
@@ -312,9 +311,11 @@ class _PaginatedSeasonsAdapter implements HttpClientAdapter {
   ) async {
     final uri = options.uri;
     final offset = int.tryParse(uri.queryParameters['offset'] ?? '0') ?? 0;
+    final limit = int.tryParse(uri.queryParameters['limit'] ?? '50') ?? 50;
     requestedOffsets.add(offset);
+    requestedLimits.add(limit);
 
-    final page = allSeasons.skip(offset).take(pageSize).toList();
+    final page = allSeasons.skip(offset).take(limit).toList();
     final data = page
         .map((v) => serializers.serializeWith(SeasonView.serializer, v))
         .toList();
