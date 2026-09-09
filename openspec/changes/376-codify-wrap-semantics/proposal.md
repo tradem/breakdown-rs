@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
-<!-- Co-authored-by: omen-alpha (pi) -->
+<!-- Co-authored-by: omen-alpha (opencode-go) -->
 
 # Codify wrap semantics: planning stays allowed (201), execution frozen (409)
 
