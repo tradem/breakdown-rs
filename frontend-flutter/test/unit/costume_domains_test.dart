@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 // Tier-1 unit tests for the costume-domain data layer (Tasks 1.6, 2.2, 3.1):
 // every repository method Ok AND Err; cache untouched on failure;
@@ -323,14 +324,10 @@ void main() {
   });
 
   group('ShootingDay request builders (single-intent)', () {
-    test('unschedule uses date:null (explicit clear, not absent)', () {
-      final req = buildUnscheduleRequest(version: 4);
-      expect(req.version, 4);
-      // Built_value serializes an absent date as missing; the request type
-      // carries no date field value — the handler interprets Some(None).
-      expect(req.label, isNull);
-    });
-
+    // No typed unschedule builder exists: the explicit `date: null` wire
+    // body cannot be expressed by built_value (present-but-null) and is
+    // covered by the raw-Dio path in shooting_day_explicit_null_test.dart
+    // (issue #374, backend #372 presence semantics).
     test('reorder/reschedule/rename carry version echo', () {
       expect(buildReorderRequest(orderKey: 'b', version: 2).version, 2);
       expect(

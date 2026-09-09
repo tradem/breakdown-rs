@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 // Tier-1 coverage tests (Task 8.3): branches the happy-path suites leave
 // cold — prepare reduction/tooLarge via the injectable budget seam,
@@ -607,12 +608,11 @@ void main() {
   });
 
   group('request builders', () {
-    test('reschedule/unschedule carry version echo', () {
+    test('reschedule carries version echo', () {
       expect(
         buildRescheduleRequest(date: Date(2026, 5, 1), version: 3).version,
         3,
       );
-      expect(buildUnscheduleRequest(version: 3).version, 3);
       expect(
         buildMeasurementsRequest(
           measurements: _character('x').measurements,

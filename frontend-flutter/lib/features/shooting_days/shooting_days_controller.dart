@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 import 'dart:async';
 
@@ -316,47 +317,62 @@ class ShootingDaysController extends _$ShootingDaysController {
   Future<Result<int>> reorder({
     required ShootingDayView day,
     required String orderKey,
-  }) => _singleIntent(
-    day: day,
-    request: buildReorderRequest(orderKey: orderKey, version: day.version),
+  }) => _intent(
+    day,
+    (repo) => repo.update(
+      day.id,
+      buildReorderRequest(orderKey: orderKey, version: day.version),
+    ),
   );
 
   /// Single-intent reschedule (date picker).
   Future<Result<int>> reschedule({
     required ShootingDayView day,
     required Date date,
-  }) => _singleIntent(
-    day: day,
-    request: buildRescheduleRequest(date: date, version: day.version),
+  }) => _intent(
+    day,
+    (repo) => repo.update(
+      day.id,
+      buildRescheduleRequest(date: date, version: day.version),
+    ),
   );
 
-  /// Single-intent unschedule (`date: null` — explicit clear).
+  /// Single-intent unschedule (explicit `date: null` clear — the repository
+  /// sends the raw `{"version": N, "date": null}` body; the typed request
+  /// serializer cannot express present-but-null).
   Future<Result<int>> unschedule({required ShootingDayView day}) =>
-      _singleIntent(
-        day: day,
-        request: buildUnscheduleRequest(version: day.version),
-      );
+      _intent(day, (repo) => repo.unschedule(day.id, version: day.version));
 
-  /// Single-intent rename.
+  /// Single-intent rename. An empty/absent label dispatches the explicit
+  /// rename-to-null (`label: null`) via the repository's raw path.
   Future<Result<int>> rename({
     required ShootingDayView day,
     required String? label,
-  }) => _singleIntent(
-    day: day,
-    request: buildRenameRequest(label: label, version: day.version),
-  );
+  }) => label == null
+      ? _intent(day, (repo) => repo.renameToNull(day.id, version: day.version))
+      : _intent(
+          day,
+          (repo) => repo.update(
+            day.id,
+            buildRenameRequest(label: label, version: day.version),
+          ),
+        );
 
-  Future<Result<int>> _singleIntent({
-    required ShootingDayView day,
-    required UpdateShootingDayRequest request,
-  }) async {
+  /// Single-intent dispatch shared by every day mutation: resolves the
+  /// session (AUTHZ-GATE), runs the repository command, routes the error to
+  /// the command-error provider, and reconciles the projection via a bounded
+  /// refetch on success.
+  Future<Result<int>> _intent(
+    ShootingDayView day,
+    Future<Result<int>> Function(ShootingDayRepository repo) send,
+  ) async {
     if (await _resolveSession() == null) {
       const error = ProblemError(code: 'auth.session_required', status: 403);
       ref.read(shootingDaysCommandErrorProvider(episodeId).notifier).set(error);
       return const Left(error);
     }
     final repo = ref.read(shootingDayRepositoryProvider);
-    final res = await repo.update(day.id, request);
+    final res = await send(repo);
     return res.match(
       (err) {
         ref.read(shootingDaysCommandErrorProvider(episodeId).notifier).set(err);
