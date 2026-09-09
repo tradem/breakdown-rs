@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 // Tier-2 flow tests for `ShootingDaysScreen` (Task 8.3 coverage): create
 // sheet submit (append key + Manual), rename sheet, reschedule via the
@@ -93,6 +94,25 @@ class _FakeShootingDayRepository extends ShootingDayRepository {
     updateCalls++;
     lastUpdateId = id;
     lastUpdate = request;
+    return Future.value(const Right(2));
+  }
+
+  int unscheduleCalls = 0;
+  int renameToNullCalls = 0;
+  String? lastUnscheduleId;
+  String? lastRenameToNullId;
+
+  @override
+  Future<Result<int>> unschedule(String id, {required int version}) {
+    unscheduleCalls++;
+    lastUnscheduleId = id;
+    return Future.value(const Right(2));
+  }
+
+  @override
+  Future<Result<int>> renameToNull(String id, {required int version}) {
+    renameToNullCalls++;
+    lastRenameToNullId = id;
     return Future.value(const Right(2));
   }
 
@@ -198,6 +218,49 @@ void main() {
       await tester.tap(find.byKey(const Key('rename-shooting-day-submit')));
       await _pumpFrames(tester);
       expect(repo.updateCalls, 1);
+    });
+
+    testWidgets('empty rename label routes to explicit rename-to-null', (
+      tester,
+    ) async {
+      await setupContainer(initialRows: [_day('d-1', label: 'Old')]);
+      await pumpScreen(tester);
+      await tester.tap(find.byKey(const Key('shooting-day-menu-d-1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('shooting-day-rename-d-1')));
+      await tester.pumpAndSettle();
+      // Leave the field empty (whitespace-only also clears per the sheet).
+      await tester.enterText(
+        find.byKey(const Key('rename-shooting-day-label')),
+        '   ',
+      );
+      await tester.tap(find.byKey(const Key('rename-shooting-day-submit')));
+      await _pumpFrames(tester);
+      expect(repo.renameToNullCalls, 1);
+      expect(repo.lastRenameToNullId, 'd-1');
+      expect(repo.updateCalls, 0);
+    });
+
+    testWidgets('unschedule confirm dispatches explicit date-null path', (
+      tester,
+    ) async {
+      await setupContainer(
+        initialRows: [_day('d-1', label: 'Day', date: Date(2026, 5, 1))],
+      );
+      await pumpScreen(tester);
+      await tester.tap(find.byKey(const Key('shooting-day-menu-d-1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('shooting-day-unschedule-d-1')));
+      await tester.pumpAndSettle();
+      // Confirm-first: nothing dispatched until the dialog button.
+      expect(repo.unscheduleCalls, 0);
+      await tester.tap(
+        find.byKey(const Key('shooting-day-unschedule-confirm-d-1')),
+      );
+      await _pumpFrames(tester);
+      expect(repo.unscheduleCalls, 1);
+      expect(repo.lastUnscheduleId, 'd-1');
+      expect(repo.updateCalls, 0);
     });
 
     testWidgets('reschedule via Material date picker', (tester) async {

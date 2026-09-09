@@ -2,8 +2,10 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: longcat-2.0 (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
+import 'package:dio/dio.dart';
 import 'package:fpdart/fpdart.dart';
 
 import '../core/problem_error.dart';
@@ -104,6 +106,57 @@ class ShootingDayRepository extends BaseRepository {
     ),
   );
 
+  /// Single-intent unschedule — the explicit `date: null` clear
+  /// (wire body `{"version": N, "date": null}`).
+  ///
+  /// The generated [UpdateShootingDayRequest] serializer omits null fields
+  /// (built_value cannot represent present-but-null), so the typed path
+  /// serializes `date` as *absent* — which the backend rejects with 422
+  /// since #372 made absence mean "no update". The raw [Dio] call bypasses
+  /// the typed serializer (precedent: `PhotoRepository.upload`).
+  Future<Result<int>> unschedule(String id, {required int version}) =>
+      _patchExplicitNull(id, <String, Object?>{
+        'version': version,
+        'date': null,
+      });
+
+  /// Single-intent rename-to-null — the explicit `label: null` clear
+  /// (wire body `{"version": N, "label": null}`), same serializer
+  /// limitation as [unschedule].
+  Future<Result<int>> renameToNull(String id, {required int version}) =>
+      _patchExplicitNull(id, <String, Object?>{
+        'version': version,
+        'label': null,
+      });
+
+  /// Raw `PATCH /v1/shooting-days/{id}` with a literal JSON map, bypassing
+  /// the typed request serializer so present-but-null fields reach the wire.
+  /// Returns the echoed aggregate version from the 200 body. Never throws:
+  /// transport/handler failures map to `Left(ProblemError)` (RFC 9457 `code`,
+  /// never `detail`), a missing or non-int body maps to `shooting_day.dto_invalid`.
+  Future<Result<int>> _patchExplicitNull(
+    String id,
+    Map<String, Object?> body,
+  ) async {
+    try {
+      final response = await api.dio.patch<Object>(
+        '/v1/shooting-days/$id',
+        data: body,
+        options: Options(
+          contentType: 'application/json',
+          responseType: ResponseType.json,
+        ),
+      );
+      final version = response.data;
+      if (version is! int) {
+        return const Left(ProblemError(code: 'shooting_day.dto_invalid'));
+      }
+      return Right(version);
+    } on DioException catch (e) {
+      return Left(problemErrorFromDio(e));
+    }
+  }
+
   /// Scene scheduling from the scene side: schedule (picker over the parent
   /// episode's not-yet-archived days; `ScheduleSceneRequest.version` is the
   /// scene's version from the acted-on `SceneView`).
@@ -162,14 +215,14 @@ UpdateShootingDayRequest buildRescheduleRequest({
     ..version = version,
 );
 
-/// Builds a single-intent unschedule request (`date: null` + version echo).
-/// `date: null` is the explicit unschedule — distinct from absent.
-UpdateShootingDayRequest buildUnscheduleRequest({required int version}) =>
-    UpdateShootingDayRequest((b) => b..version = version);
-
-/// Builds a single-intent rename request (label + version echo).
+/// Builds a single-intent rename request (non-null label + version echo).
+///
+/// A `null` label (rename-to-null) cannot be expressed by the typed request
+/// (built_value omits null fields) — route it to [ShootingDayRepository.renameToNull]
+/// instead, which sends the explicit `{"version": N, "label": null}` body
+/// the backend requires since #372.
 UpdateShootingDayRequest buildRenameRequest({
-  required String? label,
+  required String label,
   required int version,
 }) => UpdateShootingDayRequest(
   (b) => b

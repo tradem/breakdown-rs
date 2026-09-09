@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 // Tier-1 unit tests, part 2 (Task 1.6): every repository method Ok AND Err.
 // Fake Dio interceptors resolve with wire-serialized DTOs (the generated
@@ -429,7 +430,10 @@ void main() {
         'd-1',
       ]);
       _expectLeftCode(
-        await failing.update('d-1', buildUnscheduleRequest(version: 1)),
+        await failing.update(
+          'd-1',
+          buildReorderRequest(orderKey: 'a', version: 1),
+        ),
         'concurrency.conflict',
       );
       await db.close();

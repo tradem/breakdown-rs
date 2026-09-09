@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 import 'package:flutter/material.dart';
 
@@ -90,14 +91,13 @@ class ShootingDayTile extends StatelessWidget {
                   child: const Text('Reschedule'),
                 ),
               if (onUnschedule != null && day.date != null)
-                // Disabled until explicit date clears work end to end: the
-                // backend contract cannot express `date: null` yet (issue
-                // #372), so the PATCH would only 422. The item stays visible
-                // (with its key) so the affordance does not silently vanish.
+                // Ungated (issue #374): the repository now emits the
+                // explicit `{"version": N, "date": null}` body the backend
+                // requires since #372, so the affordance is fully wired.
                 PopupMenuItem(
                   key: Key('shooting-day-unschedule-${day.id}'),
-                  enabled: false,
-                  child: const Text('Unschedule date (unavailable)'),
+                  value: onUnschedule,
+                  child: const Text('Unschedule date'),
                 ),
               if (onArchive != null && !day.archived)
                 PopupMenuItem(

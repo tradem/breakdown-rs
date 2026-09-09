@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 // Tier-2 widget + controller tests for `ShootingDaysScreen` (Task 6.3):
 // order fidelity (no re-sort), date null-vs-absent semantics, conflicts,
@@ -105,6 +106,18 @@ class _FakeShootingDayRepository extends ShootingDayRepository {
   @override
   Future<Result<int>> archive(String id, VersionRequest version) {
     archiveCalls++;
+    return Future.value(const Right(2));
+  }
+
+  int unscheduleCalls = 0;
+  String? lastUnscheduleId;
+
+  @override
+  Future<Result<int>> unschedule(String id, {required int version}) {
+    unscheduleCalls++;
+    lastUnscheduleId = id;
+    final scripted = nextWrite;
+    if (scripted != null) return Future.value(scripted);
     return Future.value(const Right(2));
   }
 }
@@ -215,7 +228,7 @@ void main() {
       expect(find.byKey(const Key('overlay-d-new-1')), findsOneWidget);
     });
 
-    testWidgets('unschedule: disabled until explicit clear works end to end', (
+    testWidgets('unschedule: enabled affordance dispatches explicit clear', (
       tester,
     ) async {
       final day = _day('d-1', date: Date(2026, 5, 1));
@@ -223,18 +236,25 @@ void main() {
       await pumpScreen(tester);
       await tester.tap(find.byKey(const Key('shooting-day-menu-d-1')));
       await tester.pumpAndSettle();
-      // Explicit date clears are inexpressible end to end (backend issue
-      // #372): the item renders disabled with its key so the affordance
-      // does not silently vanish — and dispatches nothing.
+      // Ungated (issue #374): the repository emits the explicit
+      // `{"version": N, "date": null}` body (backend #372), so the item
+      // dispatches the raw unschedule path, not a typed update.
       final item = tester.widget<PopupMenuItem<VoidCallback>>(
         find.byKey(const Key('shooting-day-unschedule-d-1')),
       );
-      expect(item.enabled, isFalse);
+      expect(item.enabled, isTrue);
+      expect(item.value, isNotNull);
       await tester.tap(
         find.byKey(const Key('shooting-day-unschedule-d-1')),
         warnIfMissed: false,
       );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('shooting-day-unschedule-confirm-d-1')),
+      );
       await _pumpFrames(tester);
+      expect(repo.unscheduleCalls, 1);
+      expect(repo.lastUnscheduleId, 'd-1');
       expect(repo.updateCalls, 0);
     });
 
