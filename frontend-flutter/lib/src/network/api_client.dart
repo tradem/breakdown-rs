@@ -3,13 +3,15 @@
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
-import 'package:flutter/foundation.dart' show FlutterError, kReleaseMode;
+import 'package:flutter/foundation.dart'
+    show FlutterError, kReleaseMode, visibleForTesting;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -130,6 +132,18 @@ Future<SecurityContext> loadPinnedSecurityContext(
   }
 }
 
+/// Test-only interceptors appended to EVERY Dio built through
+/// [buildPinnedDio] (and the dev IdP HTTP branch of [buildIdpDio]) — i.e.
+/// the bootstrap client plus every `apiDioProvider` rebuild (runtime base
+/// override, active-block scope change) — so instrumentation observes all
+/// outgoing API traffic regardless of later rebuilds.
+///
+/// Populated ONLY by the instrumented Gherkin app target
+/// (`integration_test/gherkin/app.dart`, issue #380) before `bootstrap`;
+/// empty in production. `@visibleForTesting` flags any production-code use.
+@visibleForTesting
+List<Interceptor> debugDioInterceptors = const [];
+
 /// Builds a pinned-CA [Dio] over an already-resolved [SecurityContext]
 /// (synchronous core shared by [buildApiClient] and the rebuildable
 /// `apiDioProvider` — the context is loaded once at bootstrap and reused
@@ -152,6 +166,7 @@ Dio buildPinnedDio({
   );
   dio.interceptors.add(AuthTokenInterceptor(tokenStore));
   dio.interceptors.add(ActiveBlockInterceptor(activeBlockId));
+  dio.interceptors.addAll(debugDioInterceptors);
   return dio;
 }
 
@@ -214,6 +229,7 @@ Future<Dio> buildIdpDio(AppConfig config) async {
     dio.httpClientAdapter = IOHttpClientAdapter(
       createHttpClient: HttpClient.new,
     );
+    dio.interceptors.addAll(debugDioInterceptors);
     return dio;
   }
   return buildApiClient(config);

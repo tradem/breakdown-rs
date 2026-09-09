@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 import 'package:gherkin/gherkin.dart';
 
@@ -31,8 +32,10 @@ class AppHook extends Hook {
     String scenario,
     Iterable<Tag> tags,
   ) async {
-    // TODO(screen): when a network recorder is injected into the app build,
-    // reset `world.requestsLeftDevice` here so each scenario starts clean.
+    // No reset needed: the app restarts per scenario
+    // (`restartAppBetweenScenarios`), so the in-app request recorder
+    // (issue #380, read via the FlutterDriver data channel) starts at zero
+    // with the fresh app isolate.
   }
 
   @override

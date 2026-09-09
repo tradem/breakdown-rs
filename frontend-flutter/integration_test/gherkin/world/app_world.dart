@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 import 'package:flutter_gherkin/flutter_gherkin.dart';
 
@@ -18,9 +19,14 @@ class AppWorld extends FlutterWorld {
   /// this only records the intent for downstream AUTHZ-GATE assertions.
   String? currentRole;
 
-  /// Count of HTTP requests that left the device during the scenario, recorded
-  /// by a Dio interceptor injected into the running app. Used by the
-  /// `no network request leaves the device` step (AUTHZ-GATE preflight).
+  /// Count of AUTHZ-GATED photo-pipeline HTTP requests (`/photos`,
+  /// `/continuity-photos` — upload, bytes, delete, link) that left the
+  /// device, populated by the `no network request leaves the device` step
+  /// from the in-app Dio recorder (issue #380) over the FlutterDriver data
+  /// channel. The runner and app run in separate processes, so the step
+  /// fetches the count via `driver.requestData` — it is never written
+  /// in-process. Used by the AUTHZ-GATE preflight assertion; navigation
+  /// read-model fetches are legitimate traffic and stay out of this count.
   int requestsLeftDevice = 0;
 
   /// IDs from the most recent assign action, so assertion steps can build the

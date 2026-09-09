@@ -3,6 +3,7 @@
 // Co-authored-by: longcat-2.0 (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 import 'dart:async';
 import 'dart:typed_data';
@@ -35,10 +36,16 @@ const Set<String> kPhotoContentTypes = {
   'image/webp',
 };
 
+/// Upper bound of the default watch backoff (10s cap of the 2s/4s/8s/10s
+/// schedule below). Exported so on-device assertions (issue #380) can derive
+/// a quiescence window analytically instead of guessing a sleep budget: if
+/// the watch had NOT stopped, another refetch would land within this bound.
+const Duration kPhotoWatchMaxDelay = Duration(seconds: 10);
+
 /// Default bounded backoff between watch refetches (production path —
-/// tests inject a fake `delay`). Exponential 2s/4s/8s capped at 10s:
-/// foreground-only polling stays gentle on radio and battery instead of
-/// bursting all attempts back-to-back.
+/// tests inject a fake `delay`). Exponential 2s/4s/8s capped at
+/// [kPhotoWatchMaxDelay]: foreground-only polling stays gentle on radio and
+/// battery instead of bursting all attempts back-to-back.
 Future<void> _defaultWatchDelay(int attempt) => Future<void>.delayed(
   Duration(seconds: [2, 4, 8, 10][attempt.clamp(1, 4) - 1]),
 );

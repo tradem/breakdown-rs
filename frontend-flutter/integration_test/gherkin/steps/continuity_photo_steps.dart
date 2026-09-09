@@ -1,12 +1,41 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark (pi)
+// Co-authored-by: omen-alpha (opencode-go)
 
 import 'package:flutter_driver/flutter_driver.dart';
 import 'package:flutter_gherkin/flutter_gherkin.dart';
+import 'package:frontend_flutter/data/photo_repository.dart'
+    show kPhotoWatchMaxDelay;
 import 'package:gherkin/gherkin.dart';
 
 import '../world/app_world.dart';
+
+/// Reads the in-app request recorder (issue #380) over the FlutterDriver
+/// data channel: the runner and the app run in separate processes, so the
+/// counts travel as a compact `total=N;photo=M` snapshot string instead of
+/// shared memory. The recorder is a `@visibleForTesting` Dio interceptor
+/// registered only by the instrumented app target (`gherkin/app.dart`).
+Future<({int total, int photo})> _requestRecorderSnapshot(
+  FlutterWorld world,
+) async {
+  final raw = await world.driver!.requestData(
+    'request-recorder:snapshot',
+    timeout: const Duration(seconds: 10),
+  );
+  final fields = Map<String, int>.fromEntries(
+    raw
+        .trim()
+        .split(';')
+        .map(
+          (pair) => MapEntry(
+            pair.split('=').first,
+            int.tryParse(pair.split('=').last) ?? -1,
+          ),
+        ),
+  );
+  return (total: fields['total']!, photo: fields['photo']!);
+}
 
 /// Step definitions for the continuity photo capture critical scenarios
 /// (`features-spec/continuity_photo_capture.feature`). Every step drives
@@ -56,16 +85,19 @@ Iterable<StepDefinitionGeneric> continuityPhotoSteps() => [
   }),
   then<FlutterWorld>('no network request leaves the device', (context) async {
     // AUTHZ-GATE preflight: the client refuses the request before any
-    // HTTP is issued. Verified by a Dio interceptor that records every
-    // outgoing request into `world.requestsLeftDevice`.
-    // TODO(screen): inject the recorder into the app build so this is
-    // populated; until then the assertion documents the contract.
+    // HTTP is issued. Verified against the real traffic recorded by the
+    // in-app Dio interceptor (issue #380): the photo-pipeline count MUST
+    // be zero. Navigation read-model fetches are legitimate traffic and
+    // are deliberately NOT counted — the gate prevents capture-pipeline
+    // requests (upload, bytes, delete, link), not page loads.
     final world = context.world as AppWorld;
+    final snapshot = await _requestRecorderSnapshot(context.world);
+    world.requestsLeftDevice = snapshot.photo;
     if (world.requestsLeftDevice != 0) {
       throw Exception(
         'AUTHZ-GATE preflight failed: '
-        '${world.requestsLeftDevice} network request(s) left the device '
-        'before the client-side authorization check.',
+        '${world.requestsLeftDevice} photo-pipeline network request(s) left '
+        'the device before the client-side authorization check.',
       );
     }
   }),
@@ -109,6 +141,29 @@ Iterable<StepDefinitionGeneric> continuityPhotoSteps() => [
       );
     },
   ),
+  then<FlutterWorld>('no further network requests leave the device', (
+    context,
+  ) async {
+    // Post-budget quiescence (issue #380): polling actually STOPPED after
+    // the watch budget expired — observed against the real traffic recorded
+    // by the in-app Dio interceptor, not inferred from the UI.
+    //
+    // The window is analytic, not a jitter budget: the watch's refetch
+    // backoff is capped at kPhotoWatchMaxDelay (10s), so a still-running
+    // watch would issue another refetch within that bound. Two snapshots
+    // `2 × kPhotoWatchMaxDelay` apart with an unchanged total count prove
+    // the poll loop ended (a stopped watch never re-subscribes by itself).
+    final before = await _requestRecorderSnapshot(context.world);
+    await Future<void>.delayed(kPhotoWatchMaxDelay * 2);
+    final after = await _requestRecorderSnapshot(context.world);
+    final delta = after.total - before.total;
+    if (delta != 0) {
+      throw Exception(
+        'post-budget quiescence failed: $delta network request(s) left the '
+        'device after the watch budget expired (polling did not stop).',
+      );
+    }
+  }),
   when<FlutterWorld>('75 seconds pass so the watch budget expires', (
     context,
   ) async {
