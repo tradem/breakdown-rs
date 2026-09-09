@@ -2,6 +2,9 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: hy3 (opencode-go)
 
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
@@ -260,7 +263,74 @@ void main() {
         expect((cached as Right).value.map((v) => v.id).toList(), remainingIds);
       },
     );
+
+    test(
+      'fetchSeasonsList paginates through all pages (custom adapter)',
+      () async {
+        final allIds = List.generate(217, (i) => 's$i');
+        final allSeasons = allIds.map((id) => _season(id)).toList();
+        final adapter = _PaginatedSeasonsAdapter(
+          allSeasons: allSeasons,
+          pageSize: 100,
+        );
+        final dio = Dio()..httpClientAdapter = adapter;
+        final repo = SeasonRepository(
+          BreakdownApi(dio: dio),
+          SeasonCacheDao(db),
+        );
+
+        final res = await repo.fetchAndCacheList(() => repo.fetchSeasonsList());
+        expect(res, isA<Right>());
+
+        // Every row across all pages must be cached — no row evicted.
+        final cached = await repo.readCached();
+        expect((cached as Right).value.length, 217);
+        expect((cached as Right).value.map((v) => v.id).toList(), allIds);
+        // Assert the loop paged with the correct offsets.
+        expect(adapter.requestedOffsets, [0, 100, 200]);
+      },
+    );
   });
+}
+
+/// Custom HttpClientAdapter that paginates `GET /v1/seasons` by the
+/// `offset` query parameter, returning [pageSize] rows per page from
+/// [allSeasons]. Records every requested offset so tests can assert the
+/// loop pages correctly.
+class _PaginatedSeasonsAdapter implements HttpClientAdapter {
+  _PaginatedSeasonsAdapter({required this.allSeasons, this.pageSize = 100});
+
+  final List<SeasonView> allSeasons;
+  final int pageSize;
+  final List<int> requestedOffsets = [];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    final uri = options.uri;
+    final offset = int.tryParse(uri.queryParameters['offset'] ?? '0') ?? 0;
+    requestedOffsets.add(offset);
+
+    final page = allSeasons.skip(offset).take(pageSize).toList();
+    final data = page
+        .map((v) => serializers.serializeWith(SeasonView.serializer, v))
+        .toList();
+    final jsonString = jsonEncode(data);
+
+    return ResponseBody.fromString(
+      jsonString,
+      200,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
 }
 
 /// DAO fake whose reads fail at the executor level, exercising the
