@@ -471,12 +471,28 @@ async fn series_id_for_costume_category<P: Ports>(
     Ok(season.series_id)
 }
 
-/// Resolve the `series_id` for a scene shoot (scene_shoot → scene → episode → series).
-async fn series_id_for_scene_shoot<P: Ports>(
+/// Load the scene-shoot projection at the API edge, validate that the route
+/// `day_id` matches the scene shoot's stored `shooting_day_id` association,
+/// and resolve the owning `series_id` (scene_shoot → scene → episode → series).
+///
+/// The association check (PR #389 review): the seven execution handlers gate
+/// the route `day_id`, then dispatch commands by the globally unique
+/// `shoot_id` — without this check a caller could bypass the wrap freeze by
+/// addressing a wrapped-day scene shoot through an unrelated open day (and
+/// receive a spurious 409 the other way around). A mismatched day is a
+/// routing error → 404 `domain.not-found` (deliberately not revealing which
+/// day the shoot actually belongs to).
+async fn scene_shoot_context<P: Ports>(
     state: &AppState<P>,
+    day_id: ShootingDayId,
     shoot_id: SceneShootId,
 ) -> Result<SeriesId, ApiError> {
     let ss = state.ports.scene_shoot_repo().find_by_id(shoot_id).await?;
+    if ss.shooting_day_id != day_id {
+        return Err(ApiError::NotFound(
+            "scene shoot not associated with this shooting day",
+        ));
+    }
     let scene = state.ports.scene_repo().find_by_id(ss.scene_id).await?;
     let episode = state
         .ports
@@ -490,13 +506,15 @@ async fn series_id_for_scene_shoot<P: Ports>(
 /// shooting day are frozen with 409 `scene-shoot.shooting-day-wrapped`,
 /// while planning (Soll: plan / replan / continuity photos) stays supported.
 ///
-/// The check reads the shooting-day **projection** here at the API edge —
-/// the only legitimate read-model consumer (CQRS boundary hard rule); the
-/// command adapters must never query projections. A projector-lag window
-/// exists between the wrap command's acknowledgement and the projection
-/// update; it is accepted because the wrap route is the sole writer of
-/// `wrapped_at` and clients treat wrapped boards as read-only (client-side
-/// D3 finality copy).
+/// This projection read at the API edge is the **fast path** only (the API
+/// edge is the legitimate read-model consumer per the CQRS boundary hard
+/// rule). The authoritative enforcement is write-side: the SceneShoot
+/// command adapter dispatches a zero-event probe against the ShootingDay
+/// **event stream** before every frozen command, so a wrapped day is
+/// rejected even while this projection lags (PR #389 review). The edge gate
+/// remains for a fast 409 without the extra stream replay; a residual
+/// ms-scale interleave window between the two event-store appends is
+/// documented on the adapter (`SceneShootCommandsImpl::ensure_day_open`).
 async fn ensure_execution_open<P: Ports>(
     state: &AppState<P>,
     day_id: ShootingDayId,
@@ -2707,10 +2725,10 @@ pub async fn plan_scene_shoot<P: Ports>(
 pub async fn replan_scene_shoot<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
-    Path((_day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
+    Path((day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<ReplanSceneShootRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(series_id_for_scene_shoot(&state, shoot_id).await?);
+    let series_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
     let cmd = ReplanSceneShoot {
         id: shoot_id,
         planned_order: req.planned_order,
@@ -2747,10 +2765,11 @@ pub async fn start_scene_shoot<P: Ports>(
     Path((day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<StartSceneShootRequest>,
 ) -> ApiResult<AggregateVersion> {
+    let series_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
     ensure_execution_open(&state, day_id).await?;
-    let series_id = Some(series_id_for_scene_shoot(&state, shoot_id).await?);
     let cmd = StartSceneShoot {
         id: shoot_id,
+        shooting_day_id: day_id,
         start_dt: req.resolve_start_dt(),
         series_id,
         version: req.version,
@@ -2784,10 +2803,11 @@ pub async fn set_actual_order<P: Ports>(
     Path((day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<SetActualOrderRequest>,
 ) -> ApiResult<AggregateVersion> {
+    let series_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
     ensure_execution_open(&state, day_id).await?;
-    let series_id = Some(series_id_for_scene_shoot(&state, shoot_id).await?);
     let cmd = SetActualOrder {
         id: shoot_id,
+        shooting_day_id: day_id,
         actual_order: req.actual_order,
         series_id,
         version: req.version,
@@ -2821,10 +2841,11 @@ pub async fn finish_scene_shoot<P: Ports>(
     Path((day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<FinishSceneShootRequest>,
 ) -> ApiResult<AggregateVersion> {
+    let series_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
     ensure_execution_open(&state, day_id).await?;
-    let series_id = Some(series_id_for_scene_shoot(&state, shoot_id).await?);
     let cmd = FinishSceneShoot {
         id: shoot_id,
+        shooting_day_id: day_id,
         end_dt: req.resolve_end_dt(),
         series_id,
         version: req.version,
@@ -2857,10 +2878,11 @@ pub async fn skip_scene_shoot<P: Ports>(
     Path((day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<SkipSceneShootRequest>,
 ) -> ApiResult<AggregateVersion> {
+    let series_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
     ensure_execution_open(&state, day_id).await?;
-    let series_id = Some(series_id_for_scene_shoot(&state, shoot_id).await?);
     let cmd = SkipSceneShoot {
         id: shoot_id,
+        shooting_day_id: day_id,
         series_id,
         version: req.version,
     };
@@ -2944,11 +2966,12 @@ pub async fn add_scene_shoot_note<P: Ports>(
     Path((day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<AddNoteRequest>,
 ) -> ApiResult<AggregateVersion> {
-    ensure_execution_open(&state, day_id).await?;
     let note_id = req.note_id.unwrap_or_else(Uuid::now_v7);
-    let series_id = Some(series_id_for_scene_shoot(&state, shoot_id).await?);
+    let series_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
+    ensure_execution_open(&state, day_id).await?;
     let cmd = AddSceneShootNote {
         id: shoot_id,
+        shooting_day_id: day_id,
         note_id,
         body: req.body,
         series_id,
@@ -2983,10 +3006,11 @@ pub async fn update_scene_shoot_note<P: Ports>(
     Path((day_id, _scene_id, shoot_id, note_id)): Path<(ShootingDayId, Uuid, SceneShootId, Uuid)>,
     Json(req): Json<UpdateNoteRequest>,
 ) -> ApiResult<AggregateVersion> {
+    let series_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
     ensure_execution_open(&state, day_id).await?;
-    let series_id = Some(series_id_for_scene_shoot(&state, shoot_id).await?);
     let cmd = UpdateSceneShootNote {
         id: shoot_id,
+        shooting_day_id: day_id,
         note_id,
         body: req.body,
         series_id,
@@ -3019,10 +3043,11 @@ pub async fn remove_scene_shoot_note<P: Ports>(
     Path((day_id, _scene_id, shoot_id, note_id)): Path<(ShootingDayId, Uuid, SceneShootId, Uuid)>,
     Json(req): Json<VersionRequest>,
 ) -> ApiResult<AggregateVersion> {
+    let series_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
     ensure_execution_open(&state, day_id).await?;
-    let series_id = Some(series_id_for_scene_shoot(&state, shoot_id).await?);
     let cmd = RemoveSceneShootNote {
         id: shoot_id,
+        shooting_day_id: day_id,
         note_id,
         series_id,
         version: req.version,

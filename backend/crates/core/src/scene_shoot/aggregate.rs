@@ -78,6 +78,21 @@ impl SceneShootAggregate {
         self.actual_order.is_some() || self.start_dt.is_some()
     }
 
+    /// Write-side association guard (PR #389 review): the command's
+    /// `shooting_day_id` must match the aggregate's own association. This
+    /// pins the wrap-finality enforcement to the day the scene shoot is
+    /// actually associated with — the authoritative check, not the
+    /// API-edge projection validation. On a fresh (never-planned) stream the
+    /// state carries the nil day id, so any frozen command is rejected.
+    fn check_day_association(&self, cmd_day: ShootingDayId) -> Result<(), SceneShootError> {
+        if self.shooting_day_id != cmd_day {
+            return Err(SceneShootError::ValidationError(format!(
+                "shooting_day_id {cmd_day} does not match the scene shoot's associated shooting day"
+            )));
+        }
+        Ok(())
+    }
+
     /// Returns `true` if the scene shoot is in a terminal state (Shot or Skipped).
     fn is_terminal(&self) -> bool {
         matches!(
@@ -289,6 +304,7 @@ impl Command<StartSceneShoot> for SceneShootAggregate {
         cmd: StartSceneShoot,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        self.check_day_association(cmd.shooting_day_id)?;
         self.check_not_terminal()?;
         self.check_version(cmd.version)?;
 
@@ -319,6 +335,7 @@ impl Command<SetActualOrder> for SceneShootAggregate {
         cmd: SetActualOrder,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        self.check_day_association(cmd.shooting_day_id)?;
         self.check_not_terminal()?;
         self.check_version(cmd.version)?;
 
@@ -339,6 +356,7 @@ impl Command<FinishSceneShoot> for SceneShootAggregate {
         cmd: FinishSceneShoot,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        self.check_day_association(cmd.shooting_day_id)?;
         self.check_not_terminal()?;
         self.check_version(cmd.version)?;
 
@@ -366,6 +384,7 @@ impl Command<SkipSceneShoot> for SceneShootAggregate {
         cmd: SkipSceneShoot,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        self.check_day_association(cmd.shooting_day_id)?;
         self.check_not_terminal()?;
         self.check_version(cmd.version)?;
 
@@ -385,6 +404,7 @@ impl Command<AddSceneShootNote> for SceneShootAggregate {
         cmd: AddSceneShootNote,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        self.check_day_association(cmd.shooting_day_id)?;
         self.check_not_terminal()?;
 
         let new_version = self.next_version();
@@ -406,6 +426,7 @@ impl Command<UpdateSceneShootNote> for SceneShootAggregate {
         cmd: UpdateSceneShootNote,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        self.check_day_association(cmd.shooting_day_id)?;
         self.check_not_terminal()?;
         self.check_version(cmd.version)?;
 
@@ -433,6 +454,7 @@ impl Command<RemoveSceneShootNote> for SceneShootAggregate {
         cmd: RemoveSceneShootNote,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        self.check_day_association(cmd.shooting_day_id)?;
         self.check_not_terminal()?;
         self.check_version(cmd.version)?;
 

@@ -21,6 +21,9 @@ pub enum ShootingDayError {
     #[error("order key {0} already exists for this episode")]
     DuplicateOrderKey(LexicalSortKey),
 
+    #[error("ShootingDay({id}) is wrapped; execution transitions are frozen")]
+    Wrapped { id: ShootingDayId },
+
     #[error("version mismatch: expected {expected:?}, actual {actual:?}")]
     VersionMismatch {
         expected: AggregateVersion,

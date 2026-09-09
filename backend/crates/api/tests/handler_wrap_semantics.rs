@@ -32,8 +32,9 @@ use api::problems::{Json, Path};
 use api::state::AppState;
 use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::scene::views::SceneView;
+use breakdown_core::scene_shoot::views::SceneShootView;
 use breakdown_core::shared::{
-    AggregateVersion, EpisodeId, LexicalSortKey, SceneShootId, ShootingDayId,
+    AggregateVersion, EpisodeId, LexicalSortKey, SceneShootId, SceneShootStatus, ShootingDayId,
 };
 use breakdown_core::shooting_day::ShootingDayView;
 use breakdown_core::shooting_day::events::ShootingDaySource;
@@ -111,6 +112,33 @@ async fn seed_scene_with_episode(ports: &FakePorts) -> Uuid {
     scene_id
 }
 
+/// Seed a scene-shoot projection associated with the given day (and scene,
+/// so `series_id` resolution at the API edge succeeds).
+async fn seed_scene_shoot(
+    ports: &FakePorts,
+    shoot_id: SceneShootId,
+    scene_id: Uuid,
+    day_id: ShootingDayId,
+) {
+    ports.scene_shoot_repo.shoots.lock().await.insert(
+        shoot_id,
+        SceneShootView {
+            id: shoot_id,
+            scene_id,
+            shooting_day_id: day_id,
+            planned_order: LexicalSortKey::from_static("m"),
+            actual_order: None,
+            status: SceneShootStatus::Planned,
+            start_dt: None,
+            end_dt: None,
+            notes: Vec::new(),
+            continuity_photo_ids: Vec::new(),
+            version: AggregateVersion::INITIAL,
+            updated_at: chrono::Utc::now(),
+        },
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Planning stays supported on a wrapped day
 // ---------------------------------------------------------------------------
@@ -145,12 +173,15 @@ async fn wrap_then_plan_returns_201() {
 async fn wrap_then_start_returns_409_shooting_day_wrapped() {
     let ports = FakePorts::default();
     let day = seed_day(&ports, Some(chrono::Utc::now())).await;
+    let scene = seed_scene_with_episode(&ports).await;
+    let shoot = SceneShootId::new();
+    seed_scene_shoot(&ports, shoot, scene, day).await;
     let state = AppState::new(ports);
 
     let problem = start_scene_shoot::<FakePorts>(
         State(state),
         dummy_user(),
-        Path((day, Uuid::now_v7(), SceneShootId::new())),
+        Path((day, Uuid::now_v7(), shoot)),
         Json(StartSceneShootRequest {
             start_dt: None,
             version: AggregateVersion(1),
@@ -175,12 +206,15 @@ async fn wrap_then_start_returns_409_shooting_day_wrapped() {
 async fn wrap_then_add_note_returns_409_shooting_day_wrapped() {
     let ports = FakePorts::default();
     let day = seed_day(&ports, Some(chrono::Utc::now())).await;
+    let scene = seed_scene_with_episode(&ports).await;
+    let shoot = SceneShootId::new();
+    seed_scene_shoot(&ports, shoot, scene, day).await;
     let state = AppState::new(ports);
 
     let problem = add_scene_shoot_note::<FakePorts>(
         State(state),
         dummy_user(),
-        Path((day, Uuid::now_v7(), SceneShootId::new())),
+        Path((day, Uuid::now_v7(), shoot)),
         Json(AddNoteRequest {
             body: "note".into(),
             note_id: None,
@@ -217,8 +251,71 @@ async fn start_on_open_day_is_not_blocked_by_the_wrap_gate() {
     .expect_err("scene shoot projection is absent → not-found")
     .into_problem();
 
-    // The gate passed (day is open); the failure comes from the missing
-    // scene-shoot projection downstream — NOT the wrapped-day freeze.
+    // The failure comes from the missing scene-shoot projection — NOT the
+    // wrapped-day freeze. (The association load precedes the wrap gate; on
+    // an open day no wrapped problem could have fired anyway.)
     assert_eq!(problem.status, 404);
     assert_ne!(problem.code, "scene-shoot.shooting-day-wrapped");
+}
+
+// ---------------------------------------------------------------------------
+// Route `day_id` must match the SceneShoot association (PR #389 review)
+// ---------------------------------------------------------------------------
+
+/// A wrapped-day scene shoot cannot be mutated through an unrelated **open**
+/// day: the wrap freeze cannot be bypassed by addressing the globally unique
+/// `shoot_id` via a mismatched route `day_id`.
+#[tokio::test]
+async fn execution_via_unrelated_open_day_cannot_bypass_wrap_freeze() {
+    let ports = FakePorts::default();
+    let wrapped_day = seed_day(&ports, Some(chrono::Utc::now())).await;
+    let open_day = seed_day(&ports, None).await;
+    let shoot = SceneShootId::new();
+    seed_scene_shoot(&ports, shoot, Uuid::now_v7(), wrapped_day).await;
+    let state = AppState::new(ports);
+
+    let problem = start_scene_shoot::<FakePorts>(
+        State(state),
+        dummy_user(),
+        Path((open_day, Uuid::now_v7(), shoot)),
+        Json(StartSceneShootRequest {
+            start_dt: None,
+            version: AggregateVersion(1),
+        }),
+    )
+    .await
+    .expect_err("mismatched route day must not bypass the wrap freeze")
+    .into_problem();
+
+    assert_eq!(problem.status, 404);
+    assert_eq!(problem.code, "domain.not-found");
+    assert_ne!(problem.code, "scene-shoot.shooting-day-wrapped");
+}
+
+/// An open-day scene shoot addressed through an unrelated **wrapped** day is
+/// rejected with 404 (route mismatch), not a spurious 409 wrap freeze.
+#[tokio::test]
+async fn execution_via_unrelated_wrapped_day_returns_404_not_spurious_409() {
+    let ports = FakePorts::default();
+    let wrapped_day = seed_day(&ports, Some(chrono::Utc::now())).await;
+    let open_day = seed_day(&ports, None).await;
+    let shoot = SceneShootId::new();
+    seed_scene_shoot(&ports, shoot, Uuid::now_v7(), open_day).await;
+    let state = AppState::new(ports);
+
+    let problem = start_scene_shoot::<FakePorts>(
+        State(state),
+        dummy_user(),
+        Path((wrapped_day, Uuid::now_v7(), shoot)),
+        Json(StartSceneShootRequest {
+            start_dt: None,
+            version: AggregateVersion(1),
+        }),
+    )
+    .await
+    .expect_err("mismatched route day must be rejected as a routing error")
+    .into_problem();
+
+    assert_eq!(problem.status, 404);
+    assert_eq!(problem.code, "domain.not-found");
 }

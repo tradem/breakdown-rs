@@ -19,6 +19,12 @@
       (`ensure_execution_open`, API-edge projection read — CQRS-legal consumer)
       and wire it into start / actual-order / finish / skip / note
       add+update+remove handlers. Plan / replan / continuity-photos stay open.
+- [x] 2.4 Write-side enforcement (PR #389 review): add `shooting_day_id` to the
+      seven frozen commands; `SceneShootCommandsImpl` dispatches the zero-event
+      `EnsureShootingDayOpen` probe against the ShootingDay event stream before
+      every frozen command; the SceneShoot aggregate rejects a mismatched
+      `shooting_day_id`. Route `day_id` is validated against the scene shoot's
+      association at the API edge (404 on mismatch, before the wrap gate).
 
 ## 3. Documentation
 
@@ -36,6 +42,12 @@
       (`scene-shoot.shooting-day-wrapped`); notes 409; replan 200 (planning open).
 - [x] 4.3 Verify: `cargo test -p api -p core`, format, clippy on changed crates,
       OpenAPI drift clean.
+- [x] 4.4 Write-side regression tests: `EnsureShootingDayOpen` probe (open →
+      Ok/no-events, wrapped → `ShootingDayError::Wrapped`); frozen commands
+      reject a mismatched `shooting_day_id`; adapter-level round trip
+      (command → SierraDB) rejects `start` after `wrap` with
+      `DomainError::ShootingDayWrapped`; handler tests for both day_id
+      mismatch directions (404, no wrap bypass / no spurious 409).
 
 ## 5. Client
 

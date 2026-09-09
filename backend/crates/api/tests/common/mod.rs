@@ -1372,17 +1372,32 @@ impl SceneShootCommands for FakeSceneShootCommands {
 
 // ─── Fake SceneShootRepository ─────────────────────────────────────
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 #[allow(dead_code)]
-pub struct FakeSceneShootRepo;
+pub struct FakeSceneShootRepo {
+    pub shoots: Arc<Mutex<HashMap<SceneShootId, SceneShootView>>>,
+}
+
+impl Default for FakeSceneShootRepo {
+    fn default() -> Self {
+        Self {
+            shoots: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+}
 
 impl SceneShootRepository for FakeSceneShootRepo {
     // `find_by_id` returns not-found (instead of `unreachable!`) so handlers
     // that legitimately look up a scene shoot after an upstream gate (e.g. the
     // wrap-finality gate, issue #376) fail with a clean 404 rather than
     // panicking in tests that do not seed the projection.
-    async fn find_by_id(&self, _id: SceneShootId) -> Result<SceneShootView, DomainError> {
-        Err(DomainError::not_found("scene-shoot"))
+    async fn find_by_id(&self, id: SceneShootId) -> Result<SceneShootView, DomainError> {
+        self.shoots
+            .lock()
+            .await
+            .get(&id)
+            .cloned()
+            .ok_or(DomainError::not_found("scene-shoot"))
     }
     async fn list_by_shooting_day(
         &self,

@@ -86,9 +86,10 @@ use breakdown_core::shared::{
 };
 use breakdown_core::shooting_day::aggregate::ShootingDayAggregate;
 use breakdown_core::shooting_day::commands::{
-    ArchiveShootingDay, CreateShootingDay, RenameShootingDay, ReorderShootingDay,
-    RescheduleShootingDay, WrapShootingDay,
+    ArchiveShootingDay, CreateShootingDay, EnsureShootingDayOpen, RenameShootingDay,
+    ReorderShootingDay, RescheduleShootingDay, WrapShootingDay,
 };
+use breakdown_core::shooting_day::error::ShootingDayError;
 use breakdown_core::shooting_day::ports::ShootingDayCommands;
 use kameo_es::command_service::{CommandService, ExecuteExt, ExecuteResult};
 use kameo_es::error::ExecuteError;
@@ -1155,6 +1156,42 @@ impl SceneShootCommandsImpl {
     pub fn new(cmd_service: CommandService) -> Self {
         Self { cmd_service }
     }
+
+    /// Write-side wrap-finality gate (PR #389 review, issue #376).
+    ///
+    /// Dispatches the zero-event [`EnsureShootingDayOpen`] command against
+    /// the ShootingDay **event stream** — the authoritative write-side
+    /// state — so execution transitions are frozen on wrapped days even
+    /// while the read-model projection still lags. This is a stream replay
+    /// on the command path, **not** a read-model projection query (CQRS
+    /// boundary hard rule).
+    ///
+    /// Residual window: a `WrapShootingDay` append committing between this
+    /// stream replay and the SceneShoot append can still interleave; both
+    /// streams live in different partitions, so SierraDB cannot serialize
+    /// the pair. That window is bounded by the event-store round-trip (ms),
+    /// versus the previous unbounded projector-lag window the API-edge
+    /// projection gate (still kept as a fast path) left open.
+    async fn ensure_day_open(&self, day_id: ShootingDayId) -> Result<(), DomainError> {
+        let result = ShootingDayAggregate::execute(
+            &self.cmd_service,
+            day_id,
+            EnsureShootingDayOpen { id: day_id },
+        )
+        .expected_version(ExpectedVersion::Any)
+        .await;
+        match result {
+            // Open day: no events emitted, probe succeeded.
+            Ok(_) => Ok(()),
+            Err(ExecuteError::Handle(ShootingDayError::Wrapped { id })) => {
+                Err(DomainError::ShootingDayWrapped {
+                    shooting_day_id: id.0,
+                })
+            }
+            Err(ExecuteError::Handle(err)) => Err(err.into()),
+            Err(err) => Err(DomainError::conflict(err.to_string())),
+        }
+    }
 }
 
 impl SceneShootCommands for SceneShootCommandsImpl {
@@ -1201,6 +1238,8 @@ impl SceneShootCommands for SceneShootCommandsImpl {
         actor: UserId,
         cmd: StartSceneShoot,
     ) -> Result<AggregateVersion, DomainError> {
+        // Write-side wrap-finality gate (authoritative event-stream check).
+        self.ensure_day_open(cmd.shooting_day_id).await?;
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
@@ -1221,6 +1260,8 @@ impl SceneShootCommands for SceneShootCommandsImpl {
         actor: UserId,
         cmd: SetActualOrder,
     ) -> Result<AggregateVersion, DomainError> {
+        // Write-side wrap-finality gate (authoritative event-stream check).
+        self.ensure_day_open(cmd.shooting_day_id).await?;
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
@@ -1241,6 +1282,8 @@ impl SceneShootCommands for SceneShootCommandsImpl {
         actor: UserId,
         cmd: FinishSceneShoot,
     ) -> Result<AggregateVersion, DomainError> {
+        // Write-side wrap-finality gate (authoritative event-stream check).
+        self.ensure_day_open(cmd.shooting_day_id).await?;
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
@@ -1261,6 +1304,8 @@ impl SceneShootCommands for SceneShootCommandsImpl {
         actor: UserId,
         cmd: SkipSceneShoot,
     ) -> Result<AggregateVersion, DomainError> {
+        // Write-side wrap-finality gate (authoritative event-stream check).
+        self.ensure_day_open(cmd.shooting_day_id).await?;
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
@@ -1281,6 +1326,8 @@ impl SceneShootCommands for SceneShootCommandsImpl {
         actor: UserId,
         cmd: AddSceneShootNote,
     ) -> Result<AggregateVersion, DomainError> {
+        // Write-side wrap-finality gate (authoritative event-stream check).
+        self.ensure_day_open(cmd.shooting_day_id).await?;
         let id = cmd.id;
         let series_id = cmd.series_id;
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
@@ -1299,6 +1346,8 @@ impl SceneShootCommands for SceneShootCommandsImpl {
         actor: UserId,
         cmd: UpdateSceneShootNote,
     ) -> Result<AggregateVersion, DomainError> {
+        // Write-side wrap-finality gate (authoritative event-stream check).
+        self.ensure_day_open(cmd.shooting_day_id).await?;
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
@@ -1319,6 +1368,8 @@ impl SceneShootCommands for SceneShootCommandsImpl {
         actor: UserId,
         cmd: RemoveSceneShootNote,
     ) -> Result<AggregateVersion, DomainError> {
+        // Write-side wrap-finality gate (authoritative event-stream check).
+        self.ensure_day_open(cmd.shooting_day_id).await?;
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;

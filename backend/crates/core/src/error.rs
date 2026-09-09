@@ -257,6 +257,9 @@ impl From<ShootingDayError> for DomainError {
                 code: &SHOOTING_DAY_DUPLICATE_ORDER_KEY,
                 reason: format!("order key {key} already exists for this episode"),
             },
+            ShootingDayError::Wrapped { id } => DomainError::ShootingDayWrapped {
+                shooting_day_id: id.0,
+            },
             ShootingDayError::VersionMismatch { expected, actual } => {
                 DomainError::VersionConflict {
                     expected,

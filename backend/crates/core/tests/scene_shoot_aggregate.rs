@@ -94,6 +94,7 @@ fn start_transitions_to_in_progress_and_records_start_dt() {
         .handle(
             StartSceneShoot {
                 id: state.id,
+                shooting_day_id: state.shooting_day_id,
                 start_dt: now,
                 series_id: Some(series_id()),
                 version: state.version,
@@ -127,6 +128,7 @@ fn setting_actual_order_transitions_to_in_progress() {
         .handle(
             SetActualOrder {
                 id: state.id,
+                shooting_day_id: state.shooting_day_id,
                 actual_order: order.clone(),
                 series_id: Some(series_id()),
                 version: state.version,
@@ -153,6 +155,7 @@ fn finish_transitions_to_shot() {
         .handle(
             StartSceneShoot {
                 id: state.id,
+                shooting_day_id: state.shooting_day_id,
                 start_dt: now,
                 series_id: Some(series_id()),
                 version: state.version,
@@ -167,6 +170,7 @@ fn finish_transitions_to_shot() {
         .handle(
             FinishSceneShoot {
                 id: state.id,
+                shooting_day_id: state.shooting_day_id,
                 end_dt,
                 series_id: Some(series_id()),
                 version: state.version,
@@ -187,6 +191,65 @@ fn finish_transitions_to_shot() {
     }
 }
 
+/// Write-side association guard (PR #389 review): a frozen execution command
+/// whose `shooting_day_id` does not match the aggregate's own association is
+/// rejected with a validation error — the authoritative check that keeps the
+/// wrap-finality gate pinned to the day the shoot actually belongs to.
+#[test]
+fn frozen_commands_reject_mismatched_shooting_day_id() {
+    let scene_id = make_scene_id();
+    let day_id = make_shooting_day_id();
+    let (state, _) = plan_and_apply(make_plan_cmd(scene_id, day_id));
+    let wrong_day = make_shooting_day_id();
+    assert_ne!(wrong_day, day_id);
+    let now = Utc::now();
+
+    // Mismatch is rejected *before* version/state checks fire.
+    let err = state
+        .handle(
+            StartSceneShoot {
+                id: state.id,
+                shooting_day_id: wrong_day,
+                start_dt: now,
+                series_id: Some(series_id()),
+                version: state.version,
+            },
+            make_ctx(),
+        )
+        .unwrap_err();
+    assert!(matches!(err, SceneShootError::ValidationError(_)));
+
+    let err = state
+        .handle(
+            AddSceneShootNote {
+                id: state.id,
+                shooting_day_id: wrong_day,
+                note_id: Uuid::now_v7(),
+                body: "n".into(),
+                series_id: Some(series_id()),
+                author: None,
+            },
+            make_ctx(),
+        )
+        .unwrap_err();
+    assert!(matches!(err, SceneShootError::ValidationError(_)));
+
+    // The matching day still passes the association guard (state unchanged).
+    let ok = state
+        .handle(
+            StartSceneShoot {
+                id: state.id,
+                shooting_day_id: day_id,
+                start_dt: now,
+                series_id: Some(series_id()),
+                version: state.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    assert_eq!(ok.len(), 1);
+}
+
 #[test]
 fn skip_transitions_to_skipped() {
     let scene_id = make_scene_id();
@@ -197,6 +260,7 @@ fn skip_transitions_to_skipped() {
         .handle(
             SkipSceneShoot {
                 id: state.id,
+                shooting_day_id: state.shooting_day_id,
                 series_id: Some(series_id()),
                 version: state.version,
             },
@@ -224,6 +288,7 @@ fn finish_only_allowed_from_in_progress() {
         .handle(
             FinishSceneShoot {
                 id: state.id,
+                shooting_day_id: state.shooting_day_id,
                 end_dt,
                 series_id: Some(series_id()),
                 version: state.version,
@@ -281,6 +346,7 @@ fn planned_order_frozen_after_start_dt_set() {
         .handle(
             StartSceneShoot {
                 id: state.id,
+                shooting_day_id: state.shooting_day_id,
                 start_dt: now,
                 series_id: Some(series_id()),
                 version: state.version,
@@ -318,6 +384,7 @@ fn planned_order_frozen_after_actual_order_set() {
         .handle(
             SetActualOrder {
                 id: state.id,
+                shooting_day_id: state.shooting_day_id,
                 actual_order: LexicalSortKey::from_static("b"),
                 series_id: Some(series_id()),
                 version: state.version,
@@ -358,6 +425,7 @@ fn add_note_appends_to_notes() {
         .handle(
             AddSceneShootNote {
                 id: state.id,
+                shooting_day_id: state.shooting_day_id,
                 note_id,
                 series_id: Some(series_id()),
                 body: "First note".into(),
@@ -384,6 +452,7 @@ fn update_note_body_changes_body() {
         .handle(
             AddSceneShootNote {
                 id: state.id,
+                shooting_day_id: state.shooting_day_id,
                 note_id,
                 series_id: Some(series_id()),
                 body: "Original".into(),
@@ -398,6 +467,7 @@ fn update_note_body_changes_body() {
         .handle(
             UpdateSceneShootNote {
                 id: state.id,
+                shooting_day_id: state.shooting_day_id,
                 note_id,
                 series_id: Some(series_id()),
                 body: "Updated".into(),
@@ -423,6 +493,7 @@ fn remove_note_removes_from_notes() {
         .handle(
             AddSceneShootNote {
                 id: state.id,
+                shooting_day_id: state.shooting_day_id,
                 note_id,
                 series_id: Some(series_id()),
                 body: "To be removed".into(),
@@ -437,6 +508,7 @@ fn remove_note_removes_from_notes() {
         .handle(
             RemoveSceneShootNote {
                 id: state.id,
+                shooting_day_id: state.shooting_day_id,
                 note_id,
                 series_id: Some(series_id()),
                 version: state.version,

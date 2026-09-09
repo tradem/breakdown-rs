@@ -272,6 +272,44 @@ fn test_view_shape_round_trips_source() {
 
 // ─── 3.4: Wrap tests ────────────────────────────────────────────────────────
 
+/// Write-side wrap-finality probe (PR #389 review): succeeds without events
+/// on an open day.
+#[test]
+fn test_ensure_open_succeeds_without_events_on_open_day() {
+    let state = create_day("a");
+
+    let events = state
+        .handle(EnsureShootingDayOpen { id: state.id }, make_ctx())
+        .unwrap();
+
+    assert!(events.is_empty());
+}
+
+/// Write-side wrap-finality probe (PR #389 review): rejects with `Wrapped`
+/// on a wrapped day — this is what freezes execution transitions against
+/// authoritative write-side state (the event stream), not the projection.
+#[test]
+fn test_ensure_open_rejects_wrapped_day() {
+    let mut state = create_day("a");
+    let events = state
+        .handle(
+            WrapShootingDay {
+                id: state.id,
+                series_id: Some(series_id()),
+                version: state.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    test_support::replay_events(&mut state, events);
+    assert!(state.wrapped_at.is_some());
+
+    let err = state
+        .handle(EnsureShootingDayOpen { id: state.id }, make_ctx())
+        .unwrap_err();
+    assert_eq!(err, ShootingDayError::Wrapped { id: state.id });
+}
+
 #[test]
 fn test_wrap_sets_wrapped_at() {
     let mut state = create_day("a");

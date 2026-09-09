@@ -32,12 +32,20 @@ use breakdown_core::costume::events::CostumeDetail;
 use breakdown_core::costume::ports::{CostumeCommands, CostumeRepository};
 use breakdown_core::episode::commands::CreateEpisode;
 use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
-use breakdown_core::scene::commands::AssignCharacter;
+use breakdown_core::error::DomainError;
+use breakdown_core::scene::commands::{AssignCharacter, CreateScene};
 use breakdown_core::scene::events::SceneDetails;
 use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
+use breakdown_core::scene_shoot::commands::{PlanSceneShoot, StartSceneShoot};
+use breakdown_core::scene_shoot::ports::SceneShootCommands;
 use breakdown_core::season::commands::CreateSeason;
 use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
-use breakdown_core::shared::{BlockId, EpisodeId, SeasonId, SeriesId};
+use breakdown_core::shared::{
+    BlockId, EpisodeId, LexicalSortKey, SceneShootId, SeasonId, SeriesId, ShootingDayId,
+};
+use breakdown_core::shooting_day::commands::{CreateShootingDay, WrapShootingDay};
+use breakdown_core::shooting_day::events::ShootingDaySource;
+use breakdown_core::shooting_day::ports::ShootingDayCommands;
 use kameo_es::command_service::CommandService;
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -856,5 +864,110 @@ async fn episode_create() -> Result<()> {
     let v = episode_repo.find_by_id(episode_id).await?;
     assert_eq!(v.number, 7);
     assert_eq!(v.name, Some("Pilot".into()));
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// SceneShoot wrap finality (PR #389 review): write-side enforcement
+// ---------------------------------------------------------------------------
+
+/// The SceneShoot command adapter enforces wrap finality against the
+/// ShootingDay **event stream** (authoritative write-side state): after
+/// `wrap` — independent of the read-model projection catching up — a
+/// `StartSceneShoot` on the wrapped day is rejected with
+/// `ShootingDayWrapped`.
+#[tokio::test]
+async fn scene_shoot_start_rejected_on_wrapped_day_write_side() -> Result<()> {
+    let (pool, cmd_svc, _pg, _sierra) = init().await?;
+    let (_season_id, episode_id) = seed_season_and_episode(&pool, &cmd_svc).await;
+    let episode_id = EpisodeId(episode_id);
+
+    // Open scene.
+    let scene_cmd = infra::event_store::SceneCommandsImpl::new(cmd_svc.clone());
+    let scene_id = Uuid::now_v7();
+    scene_cmd
+        .create(
+            test_user(),
+            CreateScene {
+                id: scene_id,
+                episode_id,
+                series_id: Some(SeriesId::new()),
+                details: SceneDetails {
+                    scene_number: Some(1),
+                    location: None,
+                    mood: None,
+                    is_schedule_set: false,
+                    summary: None,
+                    script_day: None,
+                },
+            },
+        )
+        .await?;
+
+    // Open shooting day.
+    let day_cmd = infra::event_store::ShootingDayCommandsImpl::new(cmd_svc.clone());
+    let day_id = ShootingDayId::new();
+    let (_, day_version) = day_cmd
+        .create(
+            test_user(),
+            CreateShootingDay {
+                id: day_id,
+                episode_id,
+                series_id: Some(SeriesId::new()),
+                label: Some("Day 1".into()),
+                order_key: LexicalSortKey::new("a")?,
+                date: None,
+                source: ShootingDaySource::Manual,
+            },
+        )
+        .await?;
+
+    // Plan the scene shoot onto the open day.
+    let shoot_cmd = infra::event_store::SceneShootCommandsImpl::new(cmd_svc.clone());
+    let shoot_id = SceneShootId::new();
+    let (_, shoot_version) = shoot_cmd
+        .plan(
+            test_user(),
+            PlanSceneShoot {
+                id: shoot_id,
+                scene_id,
+                shooting_day_id: day_id,
+                series_id: Some(SeriesId::new()),
+                planned_order: LexicalSortKey::new("a")?,
+            },
+        )
+        .await?;
+
+    // Wrap the day through the write side.
+    day_cmd
+        .wrap(
+            test_user(),
+            WrapShootingDay {
+                id: day_id,
+                series_id: Some(SeriesId::new()),
+                version: day_version,
+            },
+        )
+        .await?;
+
+    // Write-side enforcement: the adapter rejects execution on the wrapped
+    // day from its event stream — no read-model projection consulted.
+    let err = shoot_cmd
+        .start(
+            test_user(),
+            StartSceneShoot {
+                id: shoot_id,
+                shooting_day_id: day_id,
+                start_dt: chrono::Utc::now(),
+                series_id: Some(SeriesId::new()),
+                version: shoot_version,
+            },
+        )
+        .await
+        .expect_err("start must be frozen on a wrapped day (write side)");
+    assert!(
+        matches!(err, DomainError::ShootingDayWrapped { .. }),
+        "unexpected error: {err:?}"
+    );
     Ok(())
 }

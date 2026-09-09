@@ -18,8 +18,8 @@ pub mod views;
 
 pub use aggregate::ShootingDayAggregate;
 pub use commands::{
-    ArchiveShootingDay, CreateShootingDay, RenameShootingDay, ReorderShootingDay,
-    RescheduleShootingDay, WrapShootingDay,
+    ArchiveShootingDay, CreateShootingDay, EnsureShootingDayOpen, RenameShootingDay,
+    ReorderShootingDay, RescheduleShootingDay, WrapShootingDay,
 };
 pub use error::ShootingDayError;
 pub use events::{ShootingDayEvent, ShootingDaySource};

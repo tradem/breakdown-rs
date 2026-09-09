@@ -127,3 +127,24 @@ impl kameo_es::CommandName for WrapShootingDay {
         "WrapShootingDay"
     }
 }
+
+/// Write-side wrap-finality probe (PR #389 review, issue #376).
+///
+/// A zero-event command the SceneShoot command adapter dispatches against the
+/// ShootingDay **event stream** so wrap finality is enforced against
+/// authoritative write-side state — never against a read-model projection
+/// (CQRS boundary hard rule). Rejected with [`ShootingDayError::Wrapped`]
+/// when the day is wrapped; succeeds without emitting events otherwise.
+///
+/// This is an internal dispatch primitive, not an HTTP command: it never
+/// appears in the API surface or the OpenAPI contract.
+#[derive(Debug, Clone)]
+pub struct EnsureShootingDayOpen {
+    pub id: ShootingDayId,
+}
+
+impl kameo_es::CommandName for EnsureShootingDayOpen {
+    fn command_name() -> &'static str {
+        "EnsureShootingDayOpen"
+    }
+}
