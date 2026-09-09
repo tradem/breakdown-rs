@@ -25,7 +25,7 @@ use breakdown_core::error_registry::{
     HTTP_BAD_PATH_PARAM, HTTP_BAD_QUERY_PARAM, HTTP_BAD_REQUEST, HTTP_INTERNAL_ERROR,
     HTTP_PAYLOAD_TOO_LARGE, HTTP_REQUEST_TIMEOUT, HTTP_ROUTE_NOT_FOUND,
     HTTP_UNSUPPORTED_MEDIA_TYPE, ProblemCode, SCENE_ALREADY_SCHEDULED, SCENE_NOT_SCHEDULED,
-    SCENE_SHOOT_ALREADY_LINKED,
+    SCENE_SHOOT_ALREADY_LINKED, SCENE_SHOOT_SHOOTING_DAY_WRAPPED,
 };
 use serde::Serialize;
 
@@ -254,6 +254,11 @@ fn domain_error_problem(err: DomainError) -> ProblemDetails {
         DomainError::AlreadyLinked { photo_id } => problem(SCENE_SHOOT_ALREADY_LINKED)
             .extension("photo_id", photo_id)
             .build(),
+        DomainError::ShootingDayWrapped { shooting_day_id } => {
+            problem(SCENE_SHOOT_SHOOTING_DAY_WRAPPED)
+                .extension("shooting_day_id", shooting_day_id)
+                .build()
+        }
     }
 }
 

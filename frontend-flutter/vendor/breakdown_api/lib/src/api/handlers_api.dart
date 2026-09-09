@@ -233,8 +233,8 @@ class HandlersApi {
     );
   }
 
-  /// addSceneShootNote
-  ///
+  /// Adds a note to a scene shoot (execution-context mutation).
+  /// Wrap semantics (issue #376): responds 409 &#x60;scene-shoot.shooting-day-wrapped&#x60; when the day is already wrapped.
   ///
   /// Parameters:
   /// * [dayId]
@@ -2079,8 +2079,8 @@ class HandlersApi {
     return _response;
   }
 
-  /// finishSceneShoot
-  ///
+  /// Finishes a scene shoot (execution transition).
+  /// Wrap semantics (issue #376): responds 409 &#x60;scene-shoot.shooting-day-wrapped&#x60; when the day is already wrapped.
   ///
   /// Parameters:
   /// * [dayId]
@@ -5406,8 +5406,8 @@ class HandlersApi {
     return _response;
   }
 
-  /// planSceneShoot
-  ///
+  /// Plans a new scene shoot (Soll) on a shooting day.
+  /// Wrap semantics (issue #376): planning stays supported on a **wrapped** day — the wrap freezes only execution transitions (&#x60;start&#x60;, &#x60;actual-order&#x60;, &#x60;finish&#x60;, &#x60;skip&#x60;, notes), which respond 409 &#x60;scene-shoot.shooting-day-wrapped&#x60; post-wrap.
   ///
   /// Parameters:
   /// * [dayId]
@@ -5712,8 +5712,8 @@ class HandlersApi {
     );
   }
 
-  /// removeSceneShootNote
-  ///
+  /// Removes a scene-shoot note (execution-context mutation).
+  /// Wrap semantics (issue #376): responds 409 &#x60;scene-shoot.shooting-day-wrapped&#x60; when the day is already wrapped.
   ///
   /// Parameters:
   /// * [dayId]
@@ -6524,8 +6524,8 @@ class HandlersApi {
     );
   }
 
-  /// setActualOrder
-  ///
+  /// Sets the actual order (Ist) of a scene shoot (execution transition).
+  /// Wrap semantics (issue #376): responds 409 &#x60;scene-shoot.shooting-day-wrapped&#x60; when the day is already wrapped.
   ///
   /// Parameters:
   /// * [dayId]
@@ -6766,8 +6766,8 @@ class HandlersApi {
     return _response;
   }
 
-  /// skipSceneShoot
-  ///
+  /// Skips a scene shoot (execution transition).
+  /// Wrap semantics (issue #376): responds 409 &#x60;scene-shoot.shooting-day-wrapped&#x60; when the day is already wrapped.
   ///
   /// Parameters:
   /// * [dayId]
@@ -6958,8 +6958,8 @@ class HandlersApi {
     );
   }
 
-  /// startSceneShoot
-  ///
+  /// Starts a scene shoot (execution transition).
+  /// Wrap semantics (issue #376): responds 409 &#x60;scene-shoot.shooting-day-wrapped&#x60; when the day is already wrapped — execution is frozen post-wrap; planning stays supported.
   ///
   /// Parameters:
   /// * [dayId]
@@ -8034,8 +8034,8 @@ class HandlersApi {
     );
   }
 
-  /// updateSceneShootNote
-  ///
+  /// Updates a scene-shoot note (execution-context mutation).
+  /// Wrap semantics (issue #376): responds 409 &#x60;scene-shoot.shooting-day-wrapped&#x60; when the day is already wrapped.
   ///
   /// Parameters:
   /// * [dayId]
@@ -8527,8 +8527,8 @@ class HandlersApi {
     );
   }
 
-  /// wrapShootingDay
-  ///
+  /// Wraps (finalises) a shooting day, setting &#x60;wrapped_at&#x60;. Idempotent: re-wrapping an already-wrapped day emits no event.
+  /// Wrap semantics (issue #376): the wrap freezes only **execution** transitions on the day — scene-shoot &#x60;start&#x60;, &#x60;actual-order&#x60;, &#x60;finish&#x60;, &#x60;skip&#x60;, and notes respond 409 &#x60;scene-shoot.shooting-day-wrapped&#x60; once wrapped. **Planning (Soll) stays supported**: scene shoots can still be planned (201) and replanned on a wrapped day, and continuity photos can still be linked/unlinked.
   ///
   /// Parameters:
   /// * [id] - Shooting day id

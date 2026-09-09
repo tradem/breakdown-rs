@@ -491,6 +491,20 @@ semantics, the S0/S1/S2 privacy policy, and the deprecation rule.
 - **Extensions**: none
 - **`type` anchor**: `https://docs.breakdown.example/problems/scene-shoot.terminal-state`
 
+<a id="scene-shoot.shooting-day-wrapped"></a>
+
+### scene-shoot.shooting-day-wrapped
+
+- **Status**: `409`
+- **Title**: Shooting day is wrapped
+- **Extensions**: `shooting_day_id` (S0)
+- **`type` anchor**: `https://docs.breakdown.example/problems/scene-shoot.shooting-day-wrapped`
+
+Execution transitions (start / actual-order / finish / skip / notes) on a
+wrapped shooting day (`wrapped_at` set) are frozen with this code (issue
+#376). Planning (Soll: plan / replan) and continuity photos stay supported
+post-wrap.
+
 <a id="scene-shoot.validation"></a>
 
 ### scene-shoot.validation
