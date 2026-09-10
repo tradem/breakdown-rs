@@ -25,6 +25,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # Free preinstalled toolchain disk space (~20 GB) before the
+      # `--all-targets` build: the linker mmaps the output file, so a full
+      # disk surfaces as SIGBUS in `ld` (observed 2026-09-10, PR #410) —
+      # not as a plain ENOSPC error. The target dir for this workspace
+      # (typst/image/opendal tree, ~40 test binaries) is multi-GB.
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
+            /usr/lib/jvm /opt/mercurial 2>/dev/null || true
+          df -h /
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
       - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
