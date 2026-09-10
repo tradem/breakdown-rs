@@ -320,25 +320,15 @@ metrics_token = "test_metrics_token"
     let port = container.get_host_port_ipv4(3900).await?;
     let endpoint = format!("http://{host}:{port}");
 
-    // Wait for Garage to be ready by checking the version command.
-    for i in 0..60 {
-        match garage_exec(&container, &["--version"]).await {
-            Ok(v) if !v.is_empty() => break,
-            _ => {
-                if i == 59 {
-                    anyhow::bail!("Garage did not become ready within 60s");
-                }
-                tokio::time::sleep(Duration::from_millis(1000)).await;
-            }
-        }
-    }
-
-    // Retrieve the node ID (Garage v1.0.1 requires the actual node hex ID,
-    // not a container hostname, for layout assignment).
-    let status_out = garage_exec(&container, &["status"]).await?;
-    let node_id = status_out
-        .lines()
-        .find_map(|l| {
+    // Wait for the Garage node to be ready by polling `garage status` until
+    // it lists the node ID. A `garage --version` probe is NOT sufficient: it
+    // succeeds before the server node registers itself, and a one-shot
+    // `status` read then races to empty output in CI ("Could not parse node
+    // ID from garage status:"). Retry until the 16-char hex node ID appears
+    // (Garage v1.0.1 requires the actual node hex ID, not a container
+    // hostname, for layout assignment).
+    let parse_node_id = |status_out: &str| {
+        status_out.lines().find_map(|l| {
             let trimmed = l.trim();
             // Skip header/separator lines; a data line starts with a 16-char hex node ID.
             if trimmed.starts_with("====") || trimmed.starts_with("ID") || trimmed.is_empty() {
@@ -351,7 +341,25 @@ metrics_token = "test_metrics_token"
                 None
             }
         })
-        .ok_or_else(|| anyhow!("Could not parse node ID from garage status:\n{status_out}"))?;
+    };
+    let mut node_id = None;
+    for i in 0..60 {
+        node_id = match garage_exec(&container, &["status"]).await {
+            Ok(status_out) => parse_node_id(&status_out),
+            Err(_) => None,
+        };
+        if node_id.is_some() {
+            break;
+        }
+        if i == 59 {
+            let status_out = garage_exec(&container, &["status"])
+                .await
+                .unwrap_or_else(|_| "<status exec failed>".to_string());
+            anyhow::bail!("Garage node ID not available within 60s, last status:\n{status_out}");
+        }
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+    }
+    let node_id = node_id.expect("node_id is Some after successful wait loop");
 
     // Configure the cluster layout (single node).
     garage_exec(

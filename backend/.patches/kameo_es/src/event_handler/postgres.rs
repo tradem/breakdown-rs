@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: Omen Alpha (pi)
 
 use std::{
     collections::{hash_map::Entry, HashMap},
@@ -65,7 +66,9 @@ where
         let checkpoints_table = checkpoints_table.into();
         let projection_id = projection_id.into();
 
-        let partition_id_sequences: Vec<(i32, i64)> = sqlx::query_as(AssertSqlSafe(format!(
+        // SMALLINT (INT2) column: decode as i16 — i32 fails on the second
+        // startup as soon as at least one checkpoint row exists (issue #392).
+        let partition_id_sequences: Vec<(i16, i64)> = sqlx::query_as(AssertSqlSafe(format!(
             "SELECT partition_id, sequence FROM {checkpoints_table} WHERE projection_id = $1",
         )))
         .bind(projection_id.as_ref())
@@ -76,15 +79,24 @@ where
             info!(gauge.projection_sequence = sequence, %projection_id, partition_id, database = "postgres");
         }
 
+        // Propagate decode failures instead of panicking in a production
+        // startup path (repo no-panic rule, AGENTS.md §3).
         let last_flushed_sequences = partition_id_sequences
             .into_iter()
             .map(|(partition_id, sequence)| {
-                (
-                    partition_id.try_into().unwrap(),
-                    u64::try_from(sequence).unwrap(),
-                )
+                let partition_id =
+                    u16::try_from(partition_id).map_err(|err| sqlx::Error::ColumnDecode {
+                        index: "partition_id".to_string(),
+                        source: Box::new(err),
+                    })?;
+                let sequence =
+                    u64::try_from(sequence).map_err(|err| sqlx::Error::ColumnDecode {
+                        index: "sequence".to_string(),
+                        source: Box::new(err),
+                    })?;
+                Ok((partition_id, sequence))
             })
-            .collect();
+            .collect::<sqlx::Result<HashMap<_, _>>>()?;
 
         Ok(PostgresProcessor {
             pool,
@@ -480,7 +492,10 @@ where
                         self.checkpoints_table
                     )))
                     .bind(self.projection_id.as_ref())
-                    .bind(*partition_id as i32)
+                    .bind(
+                        partition_id_to_smallint(*partition_id)
+                            .map_err(EventHandlerError::Processor)?,
+                    )
                     .bind(*last_handled_sequence as i64)
                     .execute(&mut **tx)
                     .await;
@@ -521,7 +536,10 @@ where
                     )))
                     .bind(*last_handled_sequence as i64)
                     .bind(self.projection_id.as_ref())
-                    .bind(*partition_id as i32)
+                    .bind(
+                        partition_id_to_smallint(*partition_id)
+                            .map_err(EventHandlerError::Processor)?,
+                    )
                     .execute(&mut **tx)
                     .await?;
                     if res.rows_affected() == 0 {
@@ -754,6 +772,17 @@ pub enum PostgresEventProcessorError {
     Postgres(#[from] sqlx::Error),
     #[error("unexpected last event id, expected {expected:?}")]
     UnexpectedLastEventId { expected: Option<u64> },
+    #[error("partition id {0} does not fit the SMALLINT checkpoint column")]
+    InvalidPartitionId(u16),
+}
+
+/// Converts a domain partition id (`u16`) into the `SMALLINT` (`i16`) storage
+/// representation of the checkpoints table. Partition ids are far below
+/// `i16::MAX` in practice; out-of-range values become an explicit error
+/// instead of a wrapping `as i16` cast or a panic (issue #392).
+fn partition_id_to_smallint(partition_id: u16) -> Result<i16, PostgresEventProcessorError> {
+    i16::try_from(partition_id)
+        .map_err(|_| PostgresEventProcessorError::InvalidPartitionId(partition_id))
 }
 
 impl<H> From<sqlx::Error> for EventHandlerError<PostgresEventProcessorError, H> {
