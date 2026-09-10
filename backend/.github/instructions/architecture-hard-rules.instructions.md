@@ -62,9 +62,14 @@ read model (dispo/soll-ist reports) never updates.
    `crates/api/locales/<lang>/errors.ftl`). Pre-checks are advisory; the
    constraint remains authoritative against races.
 3. **Projector failure behavior.** A permanent constraint violation reaching a
-   projector must never panic-kill the worker/coordinator — it is classified,
-   logged, and (with #37 minimal) skipped into the poison/dead-letter table
-   with a health signal.
+   projector must never panic-kill the worker/coordinator. Target state
+   (#37, Launch-Blocker there): the event is classified and skipped into a
+   durable poison/dead-letter table with a health signal. **State shipped
+   with #404 (minimal path): log-only skip — no durable poison tracking and
+   no health signal yet;** the only trace of a skipped violation is the
+   `tracing::warn!` line (`constraint = ...`, issue #404 marker). Anything
+   asserting durable tracking refers to the #37 target, not the shipped
+   behavior.
 
 **Known instances (see #404 — closed by the #404 fix; pre-checks are advisory, the constraints stay authoritative):**
 
@@ -78,14 +83,27 @@ read model (dispo/soll-ist reports) never updates.
 The projector skip lives in `crates/infra/src/projectors/invariant_skip.rs`: a 23505 on
 exactly these constraints is a *permanent* violation, isolated in a SAVEPOINT (a failed
 statement aborts the batch transaction), logged with `tracing::warn!`, and the event is
-acknowledged — the projection keeps the authoritative row. Full DLQ/poison-table mechanics
-remain specced in #37.
+acknowledged — the projection keeps the authoritative row. **The #404 path provides no
+durable poison/dead-letter record and no health signal — that is the #37 scope.**
+
+**Replay of pre-#404 gift events (no manual checkpoint reset needed):** a pre-#404
+coordinator died *at* the poison event, so its `sierradb_event_checkpoints` checkpoint
+never advanced past it. After deploying this fix, a plain **restart** of the API makes the
+projector re-process the stuck event, skip it (warn log), and advance the checkpoint.
+Verify catch-up by (a) the warn backlog draining — each skipped event logs exactly once
+per projector pass, so repeated identical warns across restarts mean the checkpoint is
+still stuck — and (b) the projection containing the authoritative row (first event) for
+the violating pair/number. Later events of a skipped duplicate stream are harmless by
+construction: their handlers are `UPDATE ... WHERE id = $1` statements that affect 0 rows
+and cannot create a projection row (regression test tracked in the #404 follow-up).
 
 **Gift-record cleanup (upgrade path, #404):** deployments that ran a pre-#404 build may
 hold invariant-violating events. **Dev:** volume reset (`docker compose -f
 docker-compose.dev.yml down -v`) is sufficient. **Prod/upgrade:** after deploying this fix
-the projectors skip the violating events on replay (warn log per skipped event — grep for
-"skipped invariant-violating event"). The projection keeps the first (authoritative) row;
+a plain API restart replays the stuck checkpoint and the projectors skip the violating
+events (warn log per skipped event — grep for "skipped invariant-violating event"; see
+`docs/operations/runbooks.md` → "Replaying pre-#404 invariant-violating events" for the
+procedure and the catch-up checks). The projection keeps the first (authoritative) row;
 the duplicate stream sits in the event store unreferenced by the projection and is inert
 for reports. A physical cleanup of duplicate event streams is optional and belongs with
 the #37 DLQ design (do not ad-hoc delete events).

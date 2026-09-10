@@ -31,11 +31,15 @@ pub(crate) const SEASON_NUMBER_CONSTRAINT: &str = "idx_projection_season_series_
 pub(crate) const BLOCK_NUMBER_CONSTRAINT: &str = "idx_projection_block_series_number";
 pub(crate) const EPISODE_NUMBER_CONSTRAINT: &str = "idx_projection_episode_series_number";
 
-/// Returns `true` if `err` is a Postgres unique-violation (23505) on the
-/// named constraint — the signature of a *permanent* invariant violation.
+/// Returns `true` if `err` is a Postgres unique-violation (SQLSTATE 23505) on
+/// the named constraint — the signature of a *permanent* invariant violation.
+/// Both conditions must hold: a matching constraint name alone (e.g. on a
+/// 23502 not-null or 23503 FK violation carrying a constraint name) must NOT
+/// classify as an invariant violation.
 pub(crate) fn is_unique_violation_on(err: &sqlx::Error, constraint: &str) -> bool {
-    err.as_database_error()
-        .is_some_and(|db| db.constraint() == Some(constraint))
+    err.as_database_error().is_some_and(|db| {
+        db.code().as_deref() == Some("23505") && db.constraint() == Some(constraint)
+    })
 }
 
 #[cfg(test)]
@@ -85,8 +89,13 @@ mod tests {
     }
 
     fn unique_violation(constraint: Option<&str>) -> sqlx::Error {
+        db_error("23505", constraint)
+    }
+
+    /// Arbitrary-SQLSTATE database error (code + optional constraint name).
+    fn db_error(code: &str, constraint: Option<&str>) -> sqlx::Error {
         sqlx::Error::Database(Box::new(FakeDbError {
-            code: "23505".into(),
+            code: code.to_owned(),
             constraint: constraint.map(str::to_owned),
         }))
     }
@@ -108,6 +117,22 @@ mod tests {
     fn does_not_classify_other_constraint() {
         assert!(!is_unique_violation_on(
             &unique_violation(Some("idx_projection_season_series_number")),
+            "uq_projection_scene_shoot_pair"
+        ));
+    }
+
+    /// Negative test (CodeRabbit #406 review): the SAME constraint name with
+    /// a different SQLSTATE (e.g. 23502 not-null, which also carries a
+    /// constraint name) must NOT classify as an invariant violation — the
+    /// error must propagate instead of being skipped.
+    #[test]
+    fn does_not_classify_other_sqlstate_with_matching_constraint() {
+        assert!(!is_unique_violation_on(
+            &db_error("23502", Some("uq_projection_scene_shoot_pair")),
+            "uq_projection_scene_shoot_pair"
+        ));
+        assert!(!is_unique_violation_on(
+            &db_error("23000", Some("uq_projection_scene_shoot_pair")),
             "uq_projection_scene_shoot_pair"
         ));
     }

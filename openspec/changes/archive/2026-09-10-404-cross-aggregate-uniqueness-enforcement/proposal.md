@@ -49,11 +49,12 @@ already existed there too). **Scope decision (user): fix all four instances.**
 
 ## Impact
 
-- **core**: 3 new public registry consts (additive) — rides open 0.11.0 MINOR.
+- **core**: 3 new public registry consts (additive) — included in the open
+  0.11.0 MINOR; no additional bump.
 - **api**: new 409 behavior on four POST endpoints (openapi `x-code-registry`
-  extended) — rides open 0.10.0 MINOR.
-- **infra**: projector behavior fix, no public API change — rides open
-  0.16.0 MINOR.
+  extended) — included in the open 0.10.0 MINOR; no additional bump.
+- **infra**: projector behavior fix, no public API change — included in the
+  open 0.16.0 MINOR; no additional bump.
 
 ## Tasks
 
