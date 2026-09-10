@@ -58,6 +58,7 @@ class AiConfigDraftData {
     this.selectedProviderKey,
     this.selectedAssistantModelId,
     this.selectedImageModelId,
+    this.imageModelTouched = false,
     this.scriptPrompt = '',
     this.schedulePrompt = '',
     this.unresolved,
@@ -66,6 +67,11 @@ class AiConfigDraftData {
   String? selectedProviderKey;
   String? selectedAssistantModelId;
   String? selectedImageModelId;
+
+  /// True once the user picked (or cleared) the image model, so an
+  /// explicit `null` is honoured instead of falling back to the config —
+  /// without it the optional image model could never be cleared.
+  bool imageModelTouched;
   String scriptPrompt;
   String schedulePrompt;
   AiConfigUnresolved? unresolved;
@@ -83,6 +89,7 @@ class AiConfigDrafts extends Notifier<AiConfigDraftData> {
       selectedProviderKey: state.selectedProviderKey,
       selectedAssistantModelId: state.selectedAssistantModelId,
       selectedImageModelId: state.selectedImageModelId,
+      imageModelTouched: state.imageModelTouched,
       scriptPrompt: state.scriptPrompt,
       schedulePrompt: state.schedulePrompt,
       unresolved: state.unresolved,
@@ -164,12 +171,15 @@ class AiConfigController extends _$AiConfigController {
     };
     return AiConfigScreenState(
       config: config,
+      discoveryError: discoveryError,
       providers: providersState,
       models: models,
       selectedProviderKey: selectedProviderKey,
       selectedAssistantModelId:
           drafts.selectedAssistantModelId ?? config?.assistantModel,
-      selectedImageModelId: drafts.selectedImageModelId ?? config?.imageModel,
+      selectedImageModelId: drafts.imageModelTouched
+          ? drafts.selectedImageModelId
+          : (config?.imageModel ?? drafts.selectedImageModelId),
       scriptPrompt: drafts.scriptPrompt,
       schedulePrompt: drafts.schedulePrompt,
       unresolved: drafts.unresolved,
@@ -192,7 +202,13 @@ class AiConfigController extends _$AiConfigController {
   }
 
   void selectImageModel(String? id) {
-    _draftsNotifier.mutate((d) => d.selectedImageModelId = id);
+    _draftsNotifier.mutate((d) {
+      d.selectedImageModelId = id;
+      // An explicit pick (or "— none —") is a REAL user intent: without
+      // the touched flag a `null` would fall back to the configured
+      // model and the image model could never be cleared (review #8).
+      d.imageModelTouched = true;
+    });
   }
 
   void setScriptPrompt(String value) {
@@ -265,17 +281,27 @@ class AiConfigController extends _$AiConfigController {
     final repo = ref.read(aiConfigRepositoryProvider);
     final scheduler = ref.read(reconciliationSchedulerProvider);
 
-    // Steps 1–2: the credential hand-off.
-    final handoff = await submitCredentialWithHandoff(
+    // Steps 1–2: the credential hand-off. A failure AFTER the successful
+    // submission carries the created aggregate identity — the caller
+    // (here) decides to roll back rather than leave an unreachable vault
+    // credential (design §2.1 step 6).
+    final outcome = await submitCredentialWithHandoff(
       repo,
       provider: providerKey,
       secret: secret,
     );
-    final credential = handoff.getRight().toNullable();
-    if (credential == null) {
-      final error = handoff.getLeft().toNullable()!;
-      state = state.copyWith(commandError: error);
-      return Left(error);
+    final CredentialHandoff credential;
+    switch (outcome) {
+      case HandoffSucceeded(:final handoff):
+        credential = handoff;
+      case HandoffFailed(:final error, :final created):
+        if (created != null) {
+          unawaited(
+            _rollbackCredentialById(created.id, created.version, scheduler),
+          );
+        }
+        if (ref.mounted) state = state.copyWith(commandError: error);
+        return Left(error);
     }
 
     // Step 3: the config create carrying ONLY the opaque vault key id.
@@ -303,13 +329,16 @@ class AiConfigController extends _$AiConfigController {
         }
         // Step 6: bounded rollback of the just-created credential.
         unawaited(_rollbackCredential(credential, scheduler));
-        state = state.copyWith(commandError: error);
+        if (ref.mounted) state = state.copyWith(commandError: error);
         return Left<ProblemError, IdVersionResponse>(error);
       },
       (idVersion) async {
         // Success: remember the config id (fast-path for the next launch;
         // the list route stays authoritative, D2) and refresh discovery.
         await _rememberConfigId(idVersion.id);
+        if (!ref.mounted) {
+          return Right<ProblemError, IdVersionResponse>(idVersion);
+        }
         ref.invalidate(aiConfigDiscoveryProvider);
         ref.invalidate(aiImportHandoffProvider);
         state = state.copyWith(clearCommandError: true);
@@ -329,16 +358,19 @@ class AiConfigController extends _$AiConfigController {
     res.getLeft().toNullable();
   }
 
-  /// Step 6: the bounded rollback. Never silently dropped — on exhaustion
-  /// the orphaned-credential error surfaces as the command error.
-  Future<void> _rollbackCredential(
-    CredentialHandoff credential,
+  /// The bounded rollback against explicit aggregate identity (the
+  /// hand-off-failure path carries `IdVersionResponse`, not a
+  /// [CredentialHandoff]). Never silently dropped — on exhaustion the
+  /// orphaned-credential error surfaces as the command error.
+  Future<void> _rollbackCredentialById(
+    String settingsId,
+    int version,
     ReconciliationScheduler scheduler,
   ) async {
     final repo = ref.read(aiConfigRepositoryProvider);
     final res = await repo.rollbackCredential(
-      credential.settingsId,
-      credential.settingsVersion,
+      settingsId,
+      version,
       tick: (attempt) => scheduler.tick(attempt),
     );
     final err = res.getLeft().toNullable();
@@ -346,6 +378,17 @@ class AiConfigController extends _$AiConfigController {
       state = state.copyWith(commandError: err);
     }
   }
+
+  /// Step 6: the bounded rollback. Never silently dropped — on exhaustion
+  /// the orphaned-credential error surfaces as the command error.
+  Future<void> _rollbackCredential(
+    CredentialHandoff credential,
+    ReconciliationScheduler scheduler,
+  ) => _rollbackCredentialById(
+    credential.settingsId,
+    credential.settingsVersion,
+    scheduler,
+  );
 
   /// Step 7 (fresh-create variant): reconcile by the credential's vault
   /// key id before any cleanup.
@@ -365,6 +408,7 @@ class AiConfigController extends _$AiConfigController {
       case ConfigCommitted(:final view):
         // Committed — keep the credential, continue to the config screen.
         await _rememberConfigId(view.id);
+        if (!ref.mounted) return;
         ref.invalidate(aiConfigDiscoveryProvider);
         ref.invalidate(aiImportHandoffProvider);
         state = state.copyWith(clearCommandError: true);
@@ -467,11 +511,14 @@ class AiConfigController extends _$AiConfigController {
     );
     return res.match(
       (err) {
-        state = state.copyWith(commandError: err);
+        if (ref.mounted) state = state.copyWith(commandError: err);
         return Left<ProblemError, int>(err);
       },
       (version) async {
         ref.invalidate(aiConfigDiscoveryProvider);
+        if (!ref.mounted) {
+          return Right<ProblemError, int>(version);
+        }
         state = state.copyWith(clearCommandError: true);
         return Right<ProblemError, int>(version);
       },
@@ -489,11 +536,14 @@ class AiConfigController extends _$AiConfigController {
     final res = await repo.revokeConfig(config.id, config.version);
     return res.match(
       (err) {
-        state = state.copyWith(commandError: err);
+        if (ref.mounted) state = state.copyWith(commandError: err);
         return Left<ProblemError, int>(err);
       },
       (version) async {
         ref.invalidate(aiConfigDiscoveryProvider);
+        if (!ref.mounted) {
+          return Right<ProblemError, int>(version);
+        }
         state = state.copyWith(clearCommandError: true);
         return Right<ProblemError, int>(version);
       },
@@ -508,9 +558,24 @@ class AiConfigController extends _$AiConfigController {
 
   /// The remembered-id fallback read (build() stays sync; this runs
   /// fire-and-forget when the list fetch failed but an id is stored).
-  Future<void> _loadRememberedConfigFallback() async {
-    final handoff = ref.read(aiImportHandoffProvider).value;
-    final remembered = handoff?.configId;
+  /// The hand-off provider is a FUTURE provider: a bare `ref.read(...).value`
+  /// starts the fetch and returns `AsyncLoading` — the fallback would
+  /// never run. Await the future instead, and dedupe concurrent/repeated
+  /// restarts (each build while the discovery error persists would
+  /// otherwise re-fire the fetch).
+  Future<void> _loadRememberedConfigFallback() =>
+      _rememberedFallbackRun ??= _runRememberedConfigFallback();
+
+  Future<void> _runRememberedConfigFallback() async {
+    String? remembered;
+    try {
+      final handoff = await ref.read(aiImportHandoffProvider.future);
+      remembered = handoff.configId;
+    } on Object {
+      // The hand-off read failed — no remembered id, no fallback (the
+      // list route stays the authority; the retry affordance covers it).
+      return;
+    }
     if (remembered == null) return;
     final res = await ref
         .read(aiConfigRepositoryProvider)
@@ -521,6 +586,10 @@ class AiConfigController extends _$AiConfigController {
     }
   }
 }
+
+/// Dedupes the fire-and-forget remembered-id fallback across controller
+/// rebuilds: one launch-scoped attempt, never a re-fire per rebuild.
+Future<void>? _rememberedFallbackRun;
 
 /// True when [error] is an ambiguous-timeout transport failure (the
 /// dispatch may or may not have committed server-side). Shared with the

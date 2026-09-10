@@ -17,10 +17,11 @@ AiImportJob _job(
   String id, {
   JobStatus status = JobStatus.pending,
   DateTime? updatedAt,
+  String userId = 'user-a',
 }) => AiImportJob(
   (b) => b
     ..id = id
-    ..userId = 'user-a'
+    ..userId = userId
     ..status = status
     ..documentKind = DocumentKind.schedule
     ..sourceFormat = SourceFormat.csv
@@ -44,6 +45,29 @@ void main() {
 
   tearDown(() => db.close());
 
+  test("reads are IDENTITY-SCOPED: a previous user's rows are invisible "
+      'to the next sub (review: userId filtering at the query)', () async {
+    await dao.upsertAll([
+      _job('j1'),
+      _job('j2', userId: 'user-b'),
+    ], DateTime.utc(2026, 1, 1));
+    // Same table, two identities: each read sees only its own rows — a
+    // failed/missed sign-out clear can never leak dedupKey/digest rows.
+    expect((await dao.readAll('user-a')).map((r) => r.id), ['j1']);
+    expect((await dao.readAll('user-b')).map((r) => r.id), ['j2']);
+    expect(await dao.readById('j2', 'user-a'), isNull);
+    expect((await dao.readById('j2', 'user-b'))!.id, 'j2');
+    // The context merge never bridges identities: stamping j2 under
+    // user-a is a no-op (the row belongs to user-b).
+    await dao.setEpisodeContext(
+      'j2',
+      userId: 'user-a',
+      episodeId: 'ep-x',
+      seriesId: 'series-x',
+    );
+    expect((await dao.readById('j2', 'user-b'))!.episodeId, isNull);
+  });
+
   test('upsertAll inserts rows; a later page MERGES (never deletes)', () async {
     await dao.upsertAll([
       _job('j1'),
@@ -56,7 +80,7 @@ void main() {
       _job('j2', updatedAt: DateTime.utc(2026, 1, 2)),
       _job('j3'),
     ], DateTime.utc(2026, 1, 2));
-    final rows = await dao.readAll();
+    final rows = await dao.readAll('user-a');
     expect(rows.map((r) => r.id), containsAll(['j1', 'j2', 'j3']));
     expect(rows, hasLength(3));
   });
@@ -67,7 +91,7 @@ void main() {
       _job('new', updatedAt: DateTime.utc(2026, 1, 3)),
       _job('mid', updatedAt: DateTime.utc(2026, 1, 2)),
     ], DateTime.utc(2026, 1, 3));
-    final ids = (await dao.readAll()).map((r) => r.id).toList();
+    final ids = (await dao.readAll('user-a')).map((r) => r.id).toList();
     expect(ids, ['new', 'mid', 'old']);
   });
 
@@ -80,7 +104,7 @@ void main() {
         ),
     ];
     await dao.upsertAll(jobs, DateTime.utc(2026, 1, 2));
-    final recent = await dao.readRecent(limit: 3);
+    final recent = await dao.readRecent('user-a', limit: 3);
     expect(recent.map((r) => r.id), ['j9', 'j8', 'j7']);
   });
 
@@ -93,7 +117,7 @@ void main() {
         episodeId: 'ep-1',
         seriesId: 'series-1',
       );
-      final row = (await dao.readById('j1'))!;
+      final row = (await dao.readById('j1', 'user-a'))!;
       expect(row.episodeId, 'ep-1');
       expect(row.seriesId, 'series-1');
       // Round-trips the mirrored DTO fields.
@@ -115,7 +139,7 @@ void main() {
     await dao.upsertAll([
       _job('j1', status: JobStatus.succeeded),
     ], DateTime.utc(2026, 1, 2));
-    final row = (await dao.readById('j1'))!;
+    final row = (await dao.readById('j1', 'user-a'))!;
     expect(row.episodeId, 'ep-1');
     expect(row.seriesId, 'series-1');
     expect(row.status, JobStatus.succeeded.name);
@@ -124,16 +148,22 @@ void main() {
   test('setEpisodeContext backfills a remembered row; a missing row is a '
       'no-op', () async {
     await dao.upsertAll([_job('j1')], DateTime.utc(2026, 1, 1));
-    await dao.setEpisodeContext('j1', episodeId: 'ep-9', seriesId: 'series-9');
-    expect((await dao.readById('j1'))!.episodeId, 'ep-9');
+    await dao.setEpisodeContext(
+      'j1',
+      userId: 'user-a',
+      episodeId: 'ep-9',
+      seriesId: 'series-9',
+    );
+    expect((await dao.readById('j1', 'user-a'))!.episodeId, 'ep-9');
 
     // Missing row: no insert, no throw.
     await dao.setEpisodeContext(
       'ghost',
+      userId: 'user-a',
       episodeId: 'ep-9',
       seriesId: 'series-9',
     );
-    expect(await dao.readById('ghost'), isNull);
+    expect(await dao.readById('ghost', 'user-a'), isNull);
   });
 
   test('strict wire parsers reject unknown future enum values', () {
@@ -148,6 +178,6 @@ void main() {
   test('clear wipes every row (sign-out / backend-switch reset)', () async {
     await dao.upsertAll([_job('j1'), _job('j2')], DateTime.utc(2026, 1, 1));
     await dao.clear();
-    expect(await dao.readAll(), isEmpty);
+    expect(await dao.readAll('user-a'), isEmpty);
   });
 }

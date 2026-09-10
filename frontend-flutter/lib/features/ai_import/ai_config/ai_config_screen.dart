@@ -49,7 +49,33 @@ class AiConfigScreen extends ConsumerWidget {
               text: aiConfigErrorCopy(state.commandError!),
               onDismiss: controller.dismissCommandError,
             ),
-          if (state.isFirstRun)
+          if (state.discoveryError != null && state.config == null)
+            // Failed discovery is NOT "no config exists": rendering the
+            // first-run form here would let the user create a SECOND
+            // credential. The honest state is a retry affordance.
+            Card(
+              key: const Key('ai-config-discovery-error'),
+              color: Theme.of(context).colorScheme.errorContainer,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'The configuration could not be loaded '
+                      '(${state.discoveryError!.code}).',
+                    ),
+                    const SizedBox(height: 8),
+                    OutlinedButton(
+                      key: const Key('ai-config-discovery-retry'),
+                      onPressed: controller.refresh,
+                      child: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else if (state.isFirstRun)
             _FirstRunForm(state: state)
           else
             _ConfiguredForm(state: state),
@@ -325,16 +351,24 @@ class _PromptFieldsState extends ConsumerState<_PromptFields> {
     super.dispose();
   }
 
-  /// (Re)creates the controllers when the seeded drafts change (the
-  /// configured form pre-fills from the fetched view; the first-run form
-  /// starts empty). Rebuilds driven by user input keep the controllers.
+  /// (Re)creates the controllers when the seeded drafts change EXTERNALLY
+  /// (the configured form pre-fills from the fetched view; the first-run
+  /// form starts empty). A rebuild driven by the user's own keystrokes
+  /// MUST keep the controllers: recreating mid-composition resets the
+  /// caret and breaks IME input. Reseed only when the state value differs
+  /// from BOTH the seed marker and the controller's current text (an
+  /// external change the user did not type).
   void _sync(AiConfigScreenState state) {
-    if (_script == null || _seededScript != state.scriptPrompt) {
+    if (_script == null ||
+        (_seededScript != state.scriptPrompt &&
+            _script!.text != state.scriptPrompt)) {
       _script?.dispose();
       _script = TextEditingController(text: state.scriptPrompt);
       _seededScript = state.scriptPrompt;
     }
-    if (_schedule == null || _seededSchedule != state.schedulePrompt) {
+    if (_schedule == null ||
+        (_seededSchedule != state.schedulePrompt &&
+            _schedule!.text != state.schedulePrompt)) {
       _schedule?.dispose();
       _schedule = TextEditingController(text: state.schedulePrompt);
       _seededSchedule = state.schedulePrompt;

@@ -6,67 +6,15 @@
 // bounded/deduplicated job list, per-subject keying (the A → B switch
 // exposes no state of A), clear (sign-out), and corrupt-payload self-heal.
 
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
 
 import 'package:frontend_flutter/data/ai_import_handoff_store.dart';
 
+import '../support/fake_secure_storage.dart';
+
 /// In-memory [FlutterSecureStoragePlatform] double (same pattern as the
 /// token-store and active-block-store tests).
-class FakeSecureStoragePlatform extends FlutterSecureStoragePlatform {
-  final Map<String, String> store = {};
-  bool failAll = false;
-
-  @override
-  Future<bool> containsKey({
-    required String key,
-    required Map<String, String> options,
-  }) async => store.containsKey(key);
-
-  @override
-  Future<void> delete({
-    required String key,
-    required Map<String, String> options,
-  }) async {
-    if (failAll) throw PlatformException(code: 'delete_failed');
-    store.remove(key);
-  }
-
-  @override
-  Future<void> deleteAll({required Map<String, String> options}) async {
-    if (failAll) throw PlatformException(code: 'delete_failed');
-    store.clear();
-  }
-
-  @override
-  Future<String?> read({
-    required String key,
-    required Map<String, String> options,
-  }) async {
-    if (failAll) throw PlatformException(code: 'read_failed');
-    return store[key];
-  }
-
-  @override
-  Future<Map<String, String>> readAll({
-    required Map<String, String> options,
-  }) async {
-    if (failAll) throw PlatformException(code: 'read_failed');
-    return Map.of(store);
-  }
-
-  @override
-  Future<void> write({
-    required String key,
-    required String value,
-    required Map<String, String> options,
-  }) async {
-    if (failAll) throw PlatformException(code: 'write_failed');
-    store[key] = value;
-  }
-}
-
 void main() {
   late FakeSecureStoragePlatform platform;
 

@@ -36,7 +36,9 @@ class AiImportJobsCacheDao {
   Future<void> upsertAll(List<AiImportJob> jobs, DateTime cachedAt) {
     return _db.transaction(() async {
       for (final job in jobs) {
-        final existing = await readById(job.id);
+        // Identity-scoped merge read: the context belongs to the row's
+        // owning user, never to a same-id row of a previous identity.
+        final existing = await readById(job.id, job.userId);
         await _db
             .into(_db.aiImportJobCacheRows)
             .insertOnConflictUpdate(
@@ -65,13 +67,15 @@ class AiImportJobsCacheDao {
       );
 
   /// Updates only the client-local apply context of a cached row (remembered
-  /// backfill). A no-op when the row is absent.
+  /// backfill). Scoped by [userId] — a same-id row of a different identity
+  /// is never touched. A no-op when the row is absent.
   Future<void> setEpisodeContext(
     String jobId, {
+    required String userId,
     required String episodeId,
     required String seriesId,
   }) async {
-    final row = await readById(jobId);
+    final row = await readById(jobId, userId);
     if (row == null) return;
     await (_db.update(
       _db.aiImportJobCacheRows,
@@ -83,24 +87,37 @@ class AiImportJobsCacheDao {
     );
   }
 
-  /// Pure Drift read of every cached job row, newest-first by server
-  /// `updatedAt` (mirrors the list route's ordering).
-  Future<List<AiImportJobCacheRow>> readAll() => (_db.select(
-    _db.aiImportJobCacheRows,
-  )..orderBy([(t) => OrderingTerm.desc(t.updatedAt)])).get();
+  /// Pure Drift read of every cached job row of [userId], newest-first by
+  /// server `updatedAt` (mirrors the list route's ordering).
+  ///
+  /// Identity-scoped (review): `userId` filtering is enforced at the
+  /// query, not by the sign-out reset alone — a failed/missed clear must
+  /// never leak a previous user's job rows (`dedupKey`, `documentDigest`,
+  /// `sourceHandle`).
+  Future<List<AiImportJobCacheRow>> readAll(String userId) =>
+      (_db.select(_db.aiImportJobCacheRows)
+            ..where((t) => t.userId.equals(userId))
+            ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
+          .get();
 
   /// Bounded-recent-window read (merge-cache staleness bound): the newest
-  /// [limit] rows by server `updatedAt`.
-  Future<List<AiImportJobCacheRow>> readRecent({int limit = 50}) =>
+  /// [limit] rows of [userId] by server `updatedAt`.
+  Future<List<AiImportJobCacheRow>> readRecent(
+    String userId, {
+    int limit = 50,
+  }) =>
       (_db.select(_db.aiImportJobCacheRows)
+            ..where((t) => t.userId.equals(userId))
             ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)])
             ..limit(limit))
           .get();
 
-  /// Pure Drift read of a single cached row by id, or `null`.
-  Future<AiImportJobCacheRow?> readById(String id) => (_db.select(
-    _db.aiImportJobCacheRows,
-  )..where((t) => t.id.equals(id))).getSingleOrNull();
+  /// Pure Drift read of a single cached row by id + [userId], or `null`
+  /// (the id alone is not an identity boundary — see [readAll]).
+  Future<AiImportJobCacheRow?> readById(String id, String userId) =>
+      (_db.select(_db.aiImportJobCacheRows)
+            ..where((t) => t.id.equals(id) & t.userId.equals(userId)))
+          .getSingleOrNull();
 
   /// Wipes the table (sign-out / backend-switch resets — identity-scoped).
   Future<void> clear() => _db.delete(_db.aiImportJobCacheRows).go();

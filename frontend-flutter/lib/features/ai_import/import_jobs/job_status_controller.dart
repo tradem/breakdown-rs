@@ -5,6 +5,9 @@
 import 'dart:async';
 
 import 'package:breakdown_api/breakdown_api.dart';
+
+import '../../../auth/auth_providers.dart';
+
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/problem_error.dart';
@@ -31,13 +34,25 @@ class AiJobStatusController extends _$AiJobStatusController {
     final repo = ref.read(aiImportRepositoryProvider);
     // Re-arm on every (re)build; the previous subscription (if any) is
     // cancelled by Riverpod's dispose of the old notifier instance.
-    _sub = repo.watch(jobId).listen((event) {
-      if (!ref.mounted) return;
-      state = event.match(
-        (err) => AsyncValue<AiImportJob>.error(err, StackTrace.current),
-        (job) => AsyncValue<AiImportJob>.data(job),
-      );
-    });
+    // onError maps stream faults (a deserialization failure or an
+    // exception escaping the Result mapping inside the async* watch
+    // generator) into the state — without it the error goes to the zone
+    // unhandled and the screen spins forever with no re-arm affordance.
+    _sub = repo
+        .watch(jobId)
+        .listen(
+          (event) {
+            if (!ref.mounted) return;
+            state = event.match(
+              (err) => AsyncValue<AiImportJob>.error(err, StackTrace.current),
+              (job) => AsyncValue<AiImportJob>.data(job),
+            );
+          },
+          onError: (Object err, StackTrace stack) {
+            if (!ref.mounted) return;
+            state = AsyncValue<AiImportJob>.error(err, stack);
+          },
+        );
     ref.onDispose(() {
       // Unsubscribe stop (D5): the watch ends with the screen; no
       // background polling survives disposal.
@@ -62,7 +77,16 @@ class AiJobStatusController extends _$AiJobStatusController {
 @riverpod
 Future<AiJobContext?> aiJobContext(Ref ref, String jobId) async {
   final repo = ref.read(aiImportRepositoryProvider);
-  final rows = await repo.readCached();
+  // Identity-scoped cache read: the context rows belong to the signed-in
+  // sub — a same-id row of a previous identity is never readable here.
+  String sub;
+  try {
+    final session = await ref.read(authSessionControllerProvider.future);
+    sub = session?.sub ?? '';
+  } on Object {
+    return null;
+  }
+  final rows = await repo.readCached(sub);
   final err = rows.getLeft().toNullable();
   if (err != null) return null;
   for (final row in rows.getRight().toNullable()!) {

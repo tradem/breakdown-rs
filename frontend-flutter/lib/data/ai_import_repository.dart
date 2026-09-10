@@ -205,10 +205,14 @@ class AiImportRepository extends BaseRepository {
     return fetched.match((err) async => Left<ProblemError, AiImportJob>(err), (
       response,
     ) async {
+      // Cache write is best-effort (the cache is a local optimization —
+      // AGENTS.md §8): a locked DB or full disk must NOT discard a
+      // successful network read. The fetched job stays authoritative;
+      // the next refresh rewrites the row.
       try {
         await cache.upsertAll([response.job], clock.now());
       } on Object {
-        return const Left(ProblemError(code: 'cache.write_failed'));
+        // Best-effort: keep the fetched job.
       }
       return Right(response.job);
     });
@@ -230,20 +234,29 @@ class AiImportRepository extends BaseRepository {
       (err) async => Left<ProblemError, List<AiImportJob>>(err),
       (rows) async {
         final jobs = rows.map((r) => r.job).toList();
+        // Best-effort cache write (see getJobAndCache): a local storage
+        // fault never masks a successful list fetch.
         try {
           await cache.upsertAll(jobs, clock.now());
         } on Object {
-          return const Left(ProblemError(code: 'cache.write_failed'));
+          // Best-effort: keep the fetched rows.
         }
         return Right(jobs);
       },
     );
   }
 
-  /// Pure Drift read (no network) of the cached job rows, newest-first.
-  Future<Result<List<AiImportJobCacheRow>>> readCached() async {
+  /// Pure Drift read of the caller's cached job rows, newest-first by
+  /// server `updatedAt` (mirrors the list route's ordering).
+  ///
+  /// Identity-scoped: the read is filtered by the caller's `sub` — a
+  /// failed/missed sign-out reset can never leak a previous user's job
+  /// rows (`dedupKey`, `documentDigest`, `sourceHandle`) into the next
+  /// session. The cache is a local optimization only — it never holds
+  /// state the server does not also hold (AGENTS.md §8).
+  Future<Result<List<AiImportJobCacheRow>>> readCached(String sub) async {
     try {
-      return Right(await cache.readAll());
+      return Right(await cache.readAll(sub));
     } on Object {
       return const Left(ProblemError(code: 'cache.read_failed'));
     }

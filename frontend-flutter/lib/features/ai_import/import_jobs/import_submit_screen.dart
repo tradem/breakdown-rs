@@ -2,6 +2,9 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
 
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -117,21 +120,6 @@ class _PasteFieldState extends ConsumerState<_PasteField> {
   );
 }
 
-/// The submit-time paste text (transient controller state, cleared after
-/// dispatch; it is a document body, not a secret).
-class PendingPaste extends Notifier<String> {
-  @override
-  String build() => '';
-
-  void set(String text) => state = text;
-
-  void clear() => state = '';
-}
-
-final pendingPasteProvider = NotifierProvider<PendingPaste, String>(
-  PendingPaste.new,
-);
-
 /// File picker row: `file_picker` at point of use only (FOSS; the picked
 /// bytes are read immediately into the pending document — nothing is
 /// persisted client-side beyond the in-flight upload).
@@ -161,16 +149,9 @@ class _FilePickRowState extends ConsumerState<_FilePickRow> {
     final bytes = await file.readAsBytes();
     if (bytes.isEmpty) return;
     setState(() => _pickedName = file.name);
-    // CSV → decoded text; PDF → raw bytes (never UTF-8 re-encoded).
-    if (file.extension == 'pdf' || widget.kind == AiImportKind.script) {
-      ref
-          .read(pendingDocumentProvider.notifier)
-          .set(AiImportDocument.pdf(bytes));
-    } else {
-      ref
-          .read(pendingDocumentProvider.notifier)
-          .set(AiImportDocument.csv(String.fromCharCodes(bytes)));
-    }
+    ref
+        .read(pendingDocumentProvider.notifier)
+        .set(documentFromBytes(widget.kind, bytes, file.extension));
   }
 
   @override
@@ -197,16 +178,24 @@ class _FilePickRowState extends ConsumerState<_FilePickRow> {
   );
 }
 
-/// The pending document (picked file). Cleared after every dispatch.
-class PendingDocument extends Notifier<AiImportDocument?> {
-  @override
-  AiImportDocument? build() => null;
-
-  void set(AiImportDocument? document) => state = document;
+/// The pick decision, extracted as a pure function (unit-testable):
+/// CSV → UTF-8-decoded text (NOT `String.fromCharCodes` — that maps each
+/// byte to one code unit and mojibakes every non-ASCII CSV character);
+/// PDF → raw bytes (never UTF-8 re-encoded). The extension comparison is
+/// case-insensitive — `FilePicker` preserves the picked name's case, and
+/// a `board.PDF` under the schedule kind must take the PDF branch, not
+/// be text-decoded.
+AiImportDocument documentFromBytes(
+  AiImportKind kind,
+  Uint8List bytes,
+  String? extension,
+) {
+  final ext = extension?.toLowerCase();
+  if (ext == 'pdf' || kind == AiImportKind.script) {
+    return AiImportDocument.pdf(bytes);
+  }
+  return AiImportDocument.csv(utf8.decode(bytes, allowMalformed: true));
 }
-
-final pendingDocumentProvider =
-    NotifierProvider<PendingDocument, AiImportDocument?>(PendingDocument.new);
 
 /// The submit dispatch: prefers the picked file, falls back to the paste
 /// field. Shows linear progress while the upload is in flight; on a 200
@@ -258,6 +247,21 @@ class _SubmitButtonState extends ConsumerState<_SubmitButton> {
         (ack) {
           ref.read(pendingPasteProvider.notifier).clear();
           ref.read(pendingDocumentProvider.notifier).set(null);
+          // Non-fatal stamp warning (review): the job EXISTS — navigate
+          // regardless; the warning rides on top of the status screen.
+          final stampWarning = ref.read(aiStampWarningProvider);
+          if (stampWarning != null) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                key: const Key('ai-import-stamp-warning'),
+                content: Text(
+                  'Import started — the episode context could not be '
+                  'saved (${stampWarning.code}); pick the episode when '
+                  'applying.',
+                ),
+              ),
+            );
+          }
           Navigator.of(context).push(
             MaterialPageRoute<void>(
               builder: (_) =>

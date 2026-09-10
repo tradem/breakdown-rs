@@ -36,7 +36,16 @@ class AiImportSubmitController extends _$AiImportSubmitController {
   AiImportKind build() => AiImportKind.schedule;
 
   /// Switches the document kind (schedule CSV/PDF/plain, script PDF).
-  void selectKind(AiImportKind kind) => state = kind;
+  /// The pending body is KIND-SPECIFIC: a carried-over paste/CSV would
+  /// be uploaded with the wrong declared content type (e.g. plain text
+  /// declared as `application/pdf`), so the switch clears both pending
+  /// sources — the user re-provides the document for the new kind.
+  void selectKind(AiImportKind kind) {
+    if (state == kind) return;
+    state = kind;
+    ref.read(pendingDocumentProvider.notifier).set(null);
+    ref.read(pendingPasteProvider.notifier).clear();
+  }
 
   /// The submit dispatch. Returns the acknowledgement on success (the
   /// screen navigates to the job status screen); every failure surfaces
@@ -48,6 +57,9 @@ class AiImportSubmitController extends _$AiImportSubmitController {
   /// the capability set). The client mirrors that gate here via
   /// [checkAiImportCapability] BEFORE the call; denial issues zero calls.
   Future<Result<AiUploadAck>> submit(AiImportDocument document) async {
+    // Every dispatch starts clean: a previous dispatch's non-fatal stamp
+    // warning must not leak into this one's outcome.
+    ref.read(aiStampWarningProvider.notifier).set(null);
     // -- AUTHZ-GATE (begin): scope + capability resolution --------------
     final scope = ref.read(activeBlockProvider);
     if (scope == null) {
@@ -108,12 +120,22 @@ class AiImportSubmitController extends _$AiImportSubmitController {
     // -- AUTHZ-GATE (end) ------------------------------------------------
 
     final repo = ref.read(aiImportRepositoryProvider);
+    // Content-type honesty: the script route declares
+    // `application/pdf` — a non-PDF source (pasted text, CSV picked
+    // before a kind switch) is rejected CLIENT-side with the stable
+    // 415 code instead of sending mismatched bytes to the backend.
     final ack = await switch (state) {
       AiImportKind.schedule => repo.uploadSchedule(
         body: document.body,
         source: document.source,
       ),
-      AiImportKind.script => repo.uploadScript(body: document.body),
+      AiImportKind.script when document.source == AiScheduleSource.pdf =>
+        repo.uploadScript(body: document.body),
+      AiImportKind.script => Future<Result<AiUploadAck>>.value(
+        const Left(
+          ProblemError(code: 'ai_import.unsupported_media_type', status: 415),
+        ),
+      ),
     };
 
     return ack.match((err) => Left<ProblemError, AiUploadAck>(err), (
@@ -130,12 +152,14 @@ class AiImportSubmitController extends _$AiImportSubmitController {
       // client-local episode/series columns, then remember the job id.
       final contextStamped = await _stampEpisodeContext(uploaded.jobId);
       final stampError = contextStamped.getLeft().toNullable();
+      // The job EXISTS server-side (the ack carried its id) — a context
+      // stamp failure is NON-FATAL: the acknowledgement is kept so the
+      // screen navigates to the job (a discarded ack would hide a
+      // created job behind a local storage fault). The stamp error is
+      // surfaced as a warning; the apply step requires the explicit
+      // episode pick either way (never a guessed episode_id).
       if (stampError != null) {
-        // The job EXISTS server-side (the ack carried its id) — surface
-        // the context-stamp failure honestly; the job status screen
-        // still opens and the apply step will require the explicit
-        // episode pick (never a guessed episode_id).
-        return Left(stampError);
+        ref.read(aiStampWarningProvider.notifier).set(stampError);
       }
       return Right(uploaded);
     });
@@ -157,8 +181,12 @@ class AiImportSubmitController extends _$AiImportSubmitController {
       return const Right(null);
     }
     try {
+      // Identity-scoped context stamp: the row's own userId (the
+      // server-provided caller identity) scopes the lookup — never a
+      // same-id row of a previous session identity.
       await repo.cache.setEpisodeContext(
         jobId,
+        userId: fetched.userId,
         episodeId: episode.id,
         seriesId: episode.seriesId,
       );
@@ -168,6 +196,52 @@ class AiImportSubmitController extends _$AiImportSubmitController {
     }
   }
 }
+
+/// The submit-time paste text (transient controller state, cleared after
+/// dispatch; it is a document body, not a secret). Lives HERE (the
+/// controller layer) so [selectKind] can clear it — the screen only
+/// binds to it.
+class PendingPaste extends Notifier<String> {
+  @override
+  String build() => '';
+
+  void set(String text) => state = text;
+
+  void clear() => state = '';
+}
+
+final pendingPasteProvider = NotifierProvider<PendingPaste, String>(
+  PendingPaste.new,
+);
+
+/// The pending document (picked file). Cleared after every dispatch —
+/// by [selectKind] (a kind switch invalidates the body) and by the
+/// screen after a successful dispatch.
+class PendingDocument extends Notifier<AiImportDocument?> {
+  @override
+  AiImportDocument? build() => null;
+
+  void set(AiImportDocument? document) => state = document;
+}
+
+final pendingDocumentProvider =
+    NotifierProvider<PendingDocument, AiImportDocument?>(PendingDocument.new);
+
+/// Non-fatal context-stamp warning (design §2.3): the upload ack was
+/// accepted and the job exists server-side, but the client-local
+/// episode/series context could not be persisted. The submit screen
+/// surfaces it as a warning while STILL navigating to the job; cleared
+/// at the start of every dispatch.
+class _StampWarning extends Notifier<ProblemError?> {
+  @override
+  ProblemError? build() => null;
+
+  void set(ProblemError? error) => state = error;
+}
+
+final aiStampWarningProvider = NotifierProvider<_StampWarning, ProblemError?>(
+  _StampWarning.new,
+);
 
 /// The episode the user picked as the apply target for the NEXT import
 /// (submit-time context, design §2.3). Controller state — not navigation

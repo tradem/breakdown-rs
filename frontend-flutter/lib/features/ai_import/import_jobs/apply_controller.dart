@@ -241,6 +241,11 @@ class AiApplyController extends _$AiApplyController {
     );
     switch (outcome) {
       case ApplySucceeded(:final response):
+        // The apply can span seconds (ambiguous-timeout retries): the
+        // autoDispose notifier may have lost its only listener while the
+        // user left the preview — writing `state` on a disposed notifier
+        // throws. The RESULT still returns (the caller is gone anyway).
+        if (!ref.mounted) return Right(response);
         state = AiApplyState(
           rows: state.rows,
           context: context,
@@ -248,6 +253,7 @@ class AiApplyController extends _$AiApplyController {
         );
         return Right(response);
       case ApplyBlocked(:final error):
+        if (!ref.mounted) return Left(error);
         state = AiApplyState(
           rows: state.rows,
           context: context,
@@ -256,6 +262,7 @@ class AiApplyController extends _$AiApplyController {
         );
         return Left(error);
       case ApplyUnresolved(:final error):
+        if (!ref.mounted) return Left(error);
         state = AiApplyState(
           rows: state.rows,
           context: context,

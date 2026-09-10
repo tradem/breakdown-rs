@@ -105,6 +105,10 @@ class AiConfigRepository extends BaseRepository {
   /// failed delete is retried up to [kMaxRollbackAttempts] times with
   /// [tick] between attempts (injectable seam — tests stay deterministic).
   ///
+  /// A 404 is a COMPLETED rollback, not a failure: either the credential
+  /// never existed or a prior attempt destroyed it and the response was
+  /// lost. Neither leaves an orphan — the loop returns success.
+  ///
   /// On exhaustion the error surfaces as
   /// `ai_config.orphaned_credential` (the UI renders the localized
   /// "orphaned credential" notice with a retry affordance — never
@@ -120,9 +124,15 @@ class AiConfigRepository extends BaseRepository {
       if (tickFn != null) await tickFn(attempt);
       final destroyed = await destroyCredential(settingsId, version);
       if (destroyed.isRight()) return const Right(null);
+      final failure = destroyed.getLeft().toNullable();
+      // A 404 proves the aggregate is already gone (a prior attempt
+      // destroyed it server-side while its response was lost, or it
+      // never existed) — the rollback is complete, not orphaned.
+      if (failure is ProblemError && failure.status == 404) {
+        return const Right(null);
+      }
       // The LAST attempt's error is preserved for surfacing; earlier
       // attempts are dropped (bounded retry, single surfaced cause).
-      final failure = destroyed.getLeft().toNullable();
       if (failure != null) lastError = failure;
     }
     final failure = lastError;
@@ -252,12 +262,16 @@ Future<ConfigCreateReconciliation> reconcileConfigCreate(
     if (lastError?.status == 404) {
       final listed = await repo.listConfigs();
       final configs = listed.getRight().toNullable();
-      if (configs != null && configs.every((c) => c.id != configId)) {
+      if (configs != null) {
+        // A list hit IS the commit proof (the doc above promises it) —
+        // the config exists although its get-by-id 404'd (eventual
+        // visibility) — the reconciliation succeeds.
+        for (final c in configs) {
+          if (c.id == configId) return ConfigCommitted(c);
+        }
         return const ConfigNotCommitted();
       }
-      if (configs == null) {
-        lastError = listed.getLeft().toNullable();
-      }
+      lastError = listed.getLeft().toNullable();
     }
   }
   return ConfigUnknown(
@@ -319,12 +333,14 @@ class CredentialHandoff {
 /// `POST /v1/settings/credentials` → `GET /v1/settings/{id}`.
 ///
 /// The [secret] lives only in the first request's payload (D6); the
-/// returned hand-off carries no secret material. Every failure — including
-/// a failed hand-off read AFTER a successful submission — surfaces as
-/// `Left`; the caller decides whether to roll back the created Settings
-/// aggregate ([AiConfigRepository.rollbackCredential]) — the repository
-/// never destroys a credential on its own.
-Future<Result<CredentialHandoff>> submitCredentialWithHandoff(
+/// returned hand-off carries no secret material. A failure AFTER the
+/// successful submission surfaces as [HandoffFailed] with the created
+/// aggregate identity attached — the caller decides whether to roll back
+/// the Settings aggregate ([AiConfigRepository.rollbackCredential]) — the
+/// repository never destroys a credential on its own. Without the
+/// identity the caller could not roll back and the credential would stay
+/// in the vault with no cleanup path.
+Future<CredentialHandoffOutcome> submitCredentialWithHandoff(
   AiConfigRepository repo, {
   required String provider,
   required String secret,
@@ -334,22 +350,58 @@ Future<Result<CredentialHandoff>> submitCredentialWithHandoff(
     secret: secret,
   );
   final idVersion = submitted.getRight().toNullable();
-  if (idVersion == null) return Left(submitted.getLeft().toNullable()!);
+  if (idVersion == null) {
+    // The submission itself failed — nothing was created, no identity
+    // to carry.
+    return HandoffFailed(error: submitted.getLeft().toNullable()!);
+  }
   final view = await repo.getSettings(idVersion.id);
   final settings = view.getRight().toNullable();
-  if (settings == null) return Left(view.getLeft().toNullable()!);
+  if (settings == null) {
+    return HandoffFailed(
+      error: view.getLeft().toNullable()!,
+      created: idVersion,
+    );
+  }
   final vaultKeyId = settings.vaultKeyId;
   if (vaultKeyId.isEmpty) {
     // A committed Settings aggregate with no vault key id is a DTO
     // shape violation — the hand-off is unusable, surface it (no
     // silent retry loop, no destroyed credential).
-    return const Left(ProblemError(code: 'ai_config.vault_key_missing'));
+    return HandoffFailed(
+      error: const ProblemError(code: 'ai_config.vault_key_missing'),
+      created: idVersion,
+    );
   }
-  return Right(
-    CredentialHandoff(
+  return HandoffSucceeded(
+    handoff: CredentialHandoff(
       settingsId: idVersion.id,
       settingsVersion: idVersion.version,
       vaultKeyId: vaultKeyId,
     ),
   );
+}
+
+/// The two-step credential hand-off's outcome (design §2.1 steps 3–4).
+sealed class CredentialHandoffOutcome {
+  const CredentialHandoffOutcome();
+}
+
+/// Both hand-off legs succeeded — the opaque `vault_key_id` is resolved.
+class HandoffSucceeded extends CredentialHandoffOutcome {
+  const HandoffSucceeded({required this.handoff});
+
+  final CredentialHandoff handoff;
+}
+
+/// The hand-off failed. [created] carries the just-created Settings
+/// aggregate identity (`null` when the submission itself failed and
+/// nothing exists server-side) so the caller can roll back with
+/// [AiConfigRepository.rollbackCredential] instead of leaving an
+/// unreachable vault credential.
+class HandoffFailed extends CredentialHandoffOutcome {
+  const HandoffFailed({required this.error, this.created});
+
+  final ProblemError error;
+  final IdVersionResponse? created;
 }

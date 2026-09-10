@@ -30,6 +30,8 @@ import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.
 import 'package:frontend_flutter/features/ai_import/ai_config/ai_config_controller.dart';
 import 'package:frontend_flutter/features/ai_import/ai_config/ai_config_screen.dart';
 
+import '../../support/fake_secure_storage.dart';
+
 // --- Fixtures ---------------------------------------------------------------
 
 const devAuthConfig = AppConfig(
@@ -60,6 +62,7 @@ ModelInfo _model(String id) => ModelInfo(
 AiConfigView _config({
   int version = 1,
   String assistantModel = 'gpt-5.6-luna',
+  String? imageModel,
 }) => AiConfigView(
   (b) => b
     ..id = 'config-1'
@@ -67,6 +70,7 @@ AiConfigView _config({
     ..assistantModel = assistantModel
     ..provider = LlmProvider.openai
     ..vaultKeyId = 'vk-1'
+    ..imageModel = imageModel
     ..promptKinds.replace(
       BuiltList(const [DocumentKind.script, DocumentKind.schedule]),
     )
@@ -216,6 +220,9 @@ void main() {
     tester.view.physicalSize = const Size(800, 1200);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
+    // Restore, don't clear: pumpScreen does not own the platform
+    // override — the golden helpers set it around the capture (review).
+    final previousOverride = debugDefaultTargetPlatformOverride;
     try {
       if (platform != null) {
         debugDefaultTargetPlatformOverride = platform;
@@ -233,7 +240,7 @@ void main() {
       );
       await tester.pumpAndSettle();
     } finally {
-      debugDefaultTargetPlatformOverride = null;
+      debugDefaultTargetPlatformOverride = previousOverride;
     }
   }
 
@@ -284,6 +291,51 @@ void main() {
     );
     // …and it never enters the hand-off document at all.
     expect(secureStorage.store.containsKey(AiImportHandoffStore.key), isFalse);
+  });
+
+  testWidgets('a failed discovery renders the retry state — NEVER the '
+      'first-run form (review: a failed list fetch is not "no config '
+      'exists"; the first-run save button would create a second '
+      'credential)', (tester) async {
+    await setupContainer(
+      discoveryValue: const Left(ProblemError(code: 'transport.down')),
+    );
+    await pumpScreen(tester);
+
+    expect(find.byKey(const Key('ai-config-discovery-error')), findsOneWidget);
+    expect(find.byKey(const Key('ai-config-first-run')), findsNothing);
+    // The retry affordance re-runs the discovery.
+    await tester.tap(find.byKey(const Key('ai-config-discovery-retry')));
+    await tester.pump();
+    discovery.value = Right([_config()]);
+    await refreshDiscovery(tester);
+    expect(find.byKey(const Key('ai-config-configured')), findsOneWidget);
+    await tester.pump();
+  });
+
+  testWidgets('the optional image model can be CLEARED ("none") — the '
+      'explicit null is honoured, not fallen back to the configured value '
+      '(review)', (tester) async {
+    await setupContainer();
+    // Start configured, then edit.
+    discovery.value = Right([_config(imageModel: 'img-1')]);
+    await pumpScreen(tester);
+    expect(find.byKey(const Key('ai-config-configured')), findsOneWidget);
+
+    final controller = container.read(aiConfigControllerProvider.notifier);
+    // The configured state reports the fetched image model.
+    expect(
+      container.read(aiConfigControllerProvider).selectedImageModelId,
+      'img-1',
+    );
+    // Picking "none" is a REAL intent: the state reports null (not the
+    // configured fallback) and the edit carries the clear.
+    controller.selectImageModel(null);
+    expect(
+      container.read(aiConfigControllerProvider).selectedImageModelId,
+      isNull,
+    );
+    await tester.pump();
   });
 
   testWidgets('create submits the credential then the config; the secret '
@@ -414,13 +466,13 @@ void main() {
     repo.createResult = const Left(
       ProblemError(code: 'transport.connectionTimeout'),
     );
-    // Reconciliation: every list read fails (unknown outcome).
+    // Reconciliation: every list read fails (unknown outcome). The
+    // DISCOVERY itself is an empty list — the legitimate first-run state
+    // (a FAILED discovery now renders the retry state instead, review).
     repo.listResult = const Left(
       ProblemError(code: 'server.down', status: 500),
     );
-    discovery.value = const Left(
-      ProblemError(code: 'server.down', status: 500),
-    );
+    discovery.value = const Right(<AiConfigView>[]);
     await pumpScreen(tester);
     await pickProviderAndModel(tester);
     await tester.enterText(find.byKey(const Key('ai-api-key-field')), 'sk-1');
@@ -549,49 +601,6 @@ void main() {
 /// In-memory [FlutterSecureStoragePlatform] double (same pattern as the
 /// token-store and active-block-store tests): the D6 no-persistence
 /// assertions intercept every store write.
-class FakeSecureStoragePlatform extends FlutterSecureStoragePlatform {
-  final Map<String, String> store = {};
-
-  @override
-  Future<bool> containsKey({
-    required String key,
-    required Map<String, String> options,
-  }) async => store.containsKey(key);
-
-  @override
-  Future<void> delete({
-    required String key,
-    required Map<String, String> options,
-  }) async {
-    store.remove(key);
-  }
-
-  @override
-  Future<void> deleteAll({required Map<String, String> options}) async {
-    store.clear();
-  }
-
-  @override
-  Future<String?> read({
-    required String key,
-    required Map<String, String> options,
-  }) async => store[key];
-
-  @override
-  Future<Map<String, String>> readAll({
-    required Map<String, String> options,
-  }) async => Map.of(store);
-
-  @override
-  Future<void> write({
-    required String key,
-    required String value,
-    required Map<String, String> options,
-  }) async {
-    store[key] = value;
-  }
-}
-
 /// Deterministic scheduler: every tick resolves immediately (no
 /// wall-clock, AGENTS.md §6).
 class _ImmediateScheduler extends ReconciliationScheduler {

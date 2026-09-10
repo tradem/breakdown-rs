@@ -29,6 +29,8 @@ import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 
+import '../support/fake_secure_storage.dart';
+
 // --- Fixtures ---------------------------------------------------------------
 
 const _secret = 'sk-super-secret-llm-key-0123456789';
@@ -385,6 +387,17 @@ void main() {
         'ai_config.orphaned_credential',
       );
       expect(_scriptOf(dead).calls, kMaxRollbackAttempts);
+
+      // A 404 IS the completed rollback (review): a prior attempt
+      // destroyed the aggregate server-side while its response was lost
+      // (or it never existed) — neither leaves an orphan. One call, Right.
+      final gone = _api(
+        _ScriptInterceptor(problem: 'settings.not-found', status: 404),
+      );
+      final completed = await AiConfigRepository(gone)
+          .rollbackCredential('s1', 1, tick: (_) async {});
+      expect(completed.isRight(), isTrue);
+      expect(_scriptOf(gone).calls, 1);
     });
 
     test('createConfig Ok (201) / Err (403)', () async {
@@ -522,7 +535,10 @@ void main() {
         provider: 'openai',
         secret: _secret,
       );
-      final handoff = res.getRight().toNullable()!;
+      final handoff = switch (res) {
+        HandoffSucceeded(:final handoff) => handoff,
+        _ => throw StateError('expected HandoffSucceeded'),
+      };
       expect(handoff.settingsId, 'settings-1');
       expect(handoff.settingsVersion, 1);
       expect(handoff.vaultKeyId, 'vk-77');
@@ -576,7 +592,16 @@ void main() {
         provider: 'openai',
         secret: _secret,
       );
-      expect(res.getLeft().toNullable()!.code, 'settings.not-found');
+      final failure = switch (res) {
+        HandoffFailed(:final error, :final created) => (error, created),
+        _ => throw StateError('expected HandoffFailed'),
+      };
+      expect(failure.$1.code, 'settings.not-found');
+      // The created aggregate identity rides WITH the failure so the
+      // caller CAN roll back (review #3): without it the credential
+      // would stay in the vault with no cleanup path.
+      expect(failure.$2?.id, 'settings-1');
+      expect(failure.$2?.version, 1);
       // Exactly two calls: the submit (POST) + the failed hand-off read
       // (GET). NO destroy call followed — the repository never destroys a
       // credential on its own.
@@ -606,7 +631,12 @@ void main() {
         provider: 'openai',
         secret: _secret,
       );
-      expect(res.getLeft().toNullable()!.code, 'ai_config.vault_key_missing');
+      final failure = switch (res) {
+        HandoffFailed(:final error, :final created) => (error, created),
+        _ => throw StateError('expected HandoffFailed'),
+      };
+      expect(failure.$1.code, 'ai_config.vault_key_missing');
+      expect(failure.$2?.id, 'settings-1');
     });
 
     test('SECRET-IN-PAYLOAD-ONLY: no persistent sink holds the secret on '
@@ -638,7 +668,7 @@ void main() {
         provider: 'openai',
         secret: _secret,
       );
-      expect(okHandoff.isRight(), isTrue);
+      expect(okHandoff, isA<HandoffSucceeded>());
 
       // Failure path (submission itself fails).
       final errApi = _api(
@@ -649,14 +679,14 @@ void main() {
         provider: 'openai',
         secret: _secret,
       );
-      expect(failed.isLeft(), isTrue);
+      expect(failed, isA<HandoffFailed>());
 
       // ALL sinks are secret-free:
       // 1. secure storage (intercepted) — the credential flow writes
       //    NOTHING to any store.
       expect(secureStorage.store.values.join(), isNot(contains(_secret)));
       // 2. Drift cache — the AI jobs table holds no row and no secret.
-      expect(await jobsDao.readAll(), isEmpty);
+      expect(await jobsDao.readAll('user-a'), isEmpty);
       // 3. returned values — the error carries the server problem, never
       //    the secret.
       expect('$failed'.contains(_secret), isFalse);
@@ -723,6 +753,53 @@ void main() {
         tick: (_) async {},
       );
       expect(outcome, isA<ConfigNotCommitted>());
+    });
+
+    test('a list hit after a get 404 IS the commit proof (review): the '
+        'reconciliation succeeds instead of degrading to unknown', () async {
+      final listBody = serializers.serialize(
+        BuiltList<AiConfigView>([_config('other'), _config('c1')]),
+        specifiedType: const FullType(BuiltList, [FullType(AiConfigView)]),
+      )!;
+      final dio = Dio(BaseOptions(baseUrl: 'https://api.invalid'));
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            if (options.uri.path.endsWith('/config/c1')) {
+              handler.reject(
+                DioException(
+                  requestOptions: options,
+                  response: Response(
+                    requestOptions: options,
+                    statusCode: 404,
+                    data: {'code': 'ai_config.not-found', 'status': 404},
+                  ),
+                  type: DioExceptionType.badResponse,
+                ),
+              );
+              return;
+            }
+            handler.resolve(
+              Response(
+                requestOptions: options,
+                statusCode: 200,
+                data: listBody,
+              ),
+            );
+          },
+        ),
+      );
+      final outcome = await reconcileConfigCreate(
+        AiConfigRepository(BreakdownApi(dio: dio)),
+        configId: 'c1',
+        tick: (_) async {},
+      );
+      final committed = switch (outcome) {
+        ConfigCommitted(:final view) => view,
+        _ => throw StateError('expected ConfigCommitted'),
+      };
+      // The list hit resolves the reconciliation with the config view.
+      expect(committed.id, 'c1');
     });
 
     test(
@@ -838,7 +915,7 @@ void main() {
         final repo = AiImportRepository(api, dao);
         final res = await repo.getJobAndCache('j1');
         expect(res.getRight().toNullable()!.id, 'j1');
-        expect((await dao.readAll()).single.id, 'j1');
+        expect((await dao.readAll('user-a')).single.id, 'j1');
 
         final errApi = _api(
           _ScriptInterceptor(problem: 'ai_import.not_found', status: 404),
@@ -849,7 +926,7 @@ void main() {
         ).getJobAndCache('j1');
         expect(failed.getLeft().toNullable()!.code, 'ai_import.not_found');
         // Success-only cache writes: the failed refetch kept the good row.
-        expect((await dao.readAll()).single.id, 'j1');
+        expect((await dao.readAll('user-a')).single.id, 'j1');
       },
     );
 
@@ -874,7 +951,7 @@ void main() {
         );
         // A later status refetch (without context) must NOT wipe the context.
         await repo.getJobAndCache('j1');
-        final row = (await dao.readAll()).single;
+        final row = (await dao.readAll('user-a')).single;
         expect(row.episodeId, 'ep-1');
         expect(row.seriesId, 'series-1');
       },
@@ -894,7 +971,7 @@ void main() {
       );
       final jobs = await AiImportRepository(api, dao).listJobsAndCache();
       expect(jobs.getRight().toNullable()!.length, 2);
-      expect((await dao.readAll()).length, 2);
+      expect((await dao.readAll('user-a')).length, 2);
 
       final errApi = _api(
         _ScriptInterceptor(problem: 'ai_config.forbidden', status: 403),
@@ -923,7 +1000,7 @@ void main() {
       expect(variant.kind, AiPreviewPayloadOneOfKindEnum.script);
       expect(variant.data.scenes.first.draftRef, 'draft-1');
       // NEVER cached (design §3).
-      expect(await dao.readAll(), isEmpty);
+      expect(await dao.readAll('user-a'), isEmpty);
     });
 
     test(
@@ -1252,13 +1329,16 @@ void main() {
       await dao.upsertAll([_job('j1')], DateTime.utc(2026, 1, 1));
       final repo = AiImportRepository(_api(_scripted([null])), dao);
       expect((await repo.clearCache()).isRight(), isTrue);
-      expect(await dao.readAll(), isEmpty);
+      expect(await dao.readAll('user-a'), isEmpty);
     });
   });
 }
 
-AiImportJobsCacheDao _dao() =>
-    AiImportJobsCacheDao(CacheDatabase(NativeDatabase.memory()));
+AiImportJobsCacheDao _dao() {
+  final db = CacheDatabase(NativeDatabase.memory());
+  addTearDown(db.close);
+  return AiImportJobsCacheDao(db);
+}
 
 ApplyAiImportRequest _applyRequest() => ApplyAiImportRequest(
   (b) => b
@@ -1281,45 +1361,3 @@ ApplyAiImportRequest _applyRequest() => ApplyAiImportRequest(
 
 // The secure-storage double (same pattern as the token-store tests) lives
 // here because the secret-discipline assertions intercept every store write.
-class FakeSecureStoragePlatform extends FlutterSecureStoragePlatform {
-  final Map<String, String> store = {};
-
-  @override
-  Future<bool> containsKey({
-    required String key,
-    required Map<String, String> options,
-  }) async => store.containsKey(key);
-
-  @override
-  Future<void> delete({
-    required String key,
-    required Map<String, String> options,
-  }) async {
-    store.remove(key);
-  }
-
-  @override
-  Future<void> deleteAll({required Map<String, String> options}) async {
-    store.clear();
-  }
-
-  @override
-  Future<String?> read({
-    required String key,
-    required Map<String, String> options,
-  }) async => store[key];
-
-  @override
-  Future<Map<String, String>> readAll({
-    required Map<String, String> options,
-  }) async => Map.of(store);
-
-  @override
-  Future<void> write({
-    required String key,
-    required String value,
-    required Map<String, String> options,
-  }) async {
-    store[key] = value;
-  }
-}

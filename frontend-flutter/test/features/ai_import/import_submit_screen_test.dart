@@ -31,8 +31,7 @@ import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.
 import 'package:frontend_flutter/features/ai_import/import_jobs/import_submit_screen.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/job_status_screen.dart';
 
-import '../../unit/ai_import_repositories_test.dart'
-    show FakeSecureStoragePlatform;
+import '../../support/fake_secure_storage.dart';
 
 const devAuthConfig = AppConfig(
   flavor: Flavor.dev,

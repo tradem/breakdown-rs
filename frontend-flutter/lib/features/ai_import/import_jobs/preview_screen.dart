@@ -117,20 +117,33 @@ class _TypedPreviewBody extends ConsumerStatefulWidget {
 }
 
 class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
-  bool _seeded = false;
+  /// The payload the apply rows were last seeded from. A provider
+  /// refresh rebuilds this widget with a NEW response while Flutter
+  /// reuses the element — the seed must follow the payload identity,
+  /// otherwise `AiApplySection` builds mappings from stale `draft_ref`s
+  /// and refreshed rows never reach the apply request.
+  AiImportPreviewResponse? _seededResponse;
 
   @override
   Widget build(BuildContext context) {
-    // The generated oneOf carries the variant object; an unknown future
-    // `kind` never reaches here (it fails deserialization upstream and
-    // renders the degraded card instead).
-    final payload = widget.response.preview.oneOf.value as Object;
+    // The generated oneOf carries the variant object; `value` is
+    // NULLABLE — a null means the variant never resolved, which is the
+    // same honest "kind unknown" degradation as an unrecognized kind
+    // (never an `as Object` throw during build).
+    final dynamic value = widget.response.preview.oneOf.value;
+    if (value == null) {
+      return const _DegradedCard(
+        error: ProblemError(code: 'ai_import.preview_kind_unknown'),
+      );
+    }
+    final payload = value;
 
     // Seed the apply controller once per payload (idempotent); the rows
     // carry the payload's verbatim draft_refs and the persisted episode
-    // context (design §2.3).
-    if (!_seeded) {
-      _seeded = true;
+    // context (design §2.3). Re-seeds when the payload changes (a
+    // provider refresh reuses this element — the rows must follow).
+    if (!identical(_seededResponse, widget.response)) {
+      _seededResponse = widget.response;
       unawaited(() async {
         final context = await ref.read(
           aiJobContextProvider(widget.jobId).future,

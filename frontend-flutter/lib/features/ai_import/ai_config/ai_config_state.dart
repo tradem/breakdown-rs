@@ -33,6 +33,7 @@ class AiConfigScreenState {
     this.schedulePrompt = '',
     this.commandError,
     this.unresolved,
+    this.discoveryError,
   });
 
   /// The discovered active config, or `null` for the first-run state.
@@ -68,7 +69,14 @@ class AiConfigScreenState {
   /// offers keep (re-check) and clean-up (rollback) actions.
   final AiConfigUnresolved? unresolved;
 
-  bool get isFirstRun => config == null;
+  /// The list-first discovery failure (`GET /v1/ai-import/config`).
+  /// When set (with `config == null`) the screen renders the retry
+  /// state — NEVER the first-run form, whose save button would create a
+  /// second credential for an account that may already have one (honest
+  /// degradation — a failed discovery is not "no config exists").
+  final ProblemError? discoveryError;
+
+  bool get isFirstRun => config == null && discoveryError == null;
 
   AiConfigScreenState copyWith({
     AiConfigView? config,
@@ -85,6 +93,8 @@ class AiConfigScreenState {
     bool clearCommandError = false,
     AiConfigUnresolved? unresolved,
     bool clearUnresolved = false,
+    ProblemError? discoveryError,
+    bool clearDiscoveryError = false,
   }) => AiConfigScreenState(
     config: clearConfig ? null : (config ?? this.config),
     providers: providers ?? this.providers,
@@ -101,6 +111,9 @@ class AiConfigScreenState {
         ? null
         : (commandError ?? this.commandError),
     unresolved: clearUnresolved ? null : (unresolved ?? this.unresolved),
+    discoveryError: clearDiscoveryError
+        ? null
+        : (discoveryError ?? this.discoveryError),
   );
 }
 

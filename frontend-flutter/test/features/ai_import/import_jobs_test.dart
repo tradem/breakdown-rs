@@ -37,10 +37,10 @@ import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/import_state.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/import_submit_controller.dart';
-import 'package:frontend_flutter/features/ai_import/import_jobs/job_status_controller.dart';
 
-import '../../unit/ai_import_repositories_test.dart'
-    show FakeSecureStoragePlatform;
+import '../../support/fake_secure_storage.dart';
+
+import 'package:frontend_flutter/features/ai_import/import_jobs/job_status_controller.dart';
 
 // --- Fixtures ---------------------------------------------------------------
 
@@ -296,12 +296,86 @@ void main() {
       expect(ack.jobId, 'job-1');
       expect(ack.duplicate, isFalse);
       // The context landed on the cached row (design §2.3).
-      final rows = await repo.readCached();
+      final rows = await repo.readCached('dev-user');
       final row = rows.getRight().toNullable()!.single;
       expect(row.episodeId, 'ep-1');
       expect(row.seriesId, 'series-1');
       container.dispose();
     });
+
+    test('a context-stamp failure keeps the acknowledgement AND surfaces '
+        'the non-fatal warning (review: a created job is never hidden '
+        'behind a local storage fault)', () async {
+      await setupContainer();
+      final controller = container.read(
+        aiImportSubmitControllerProvider.notifier,
+      );
+      container
+          .read(pendingEpisodeProvider.notifier)
+          .set(
+            EpisodeView(
+              (b) => b
+                ..id = 'ep-1'
+                ..number = 1
+                ..blockId = 'block-1'
+                ..seriesId = 'series-1'
+                ..updatedAt = DateTime.utc(2026, 1, 1)
+                ..version = 1,
+            ),
+          );
+      // Deterministic fault lever: the stamp's job re-read fails (a
+      // single failed status read or Drift write fault triggers the
+      // path — review). The job EXISTS server-side (the ack carried
+      // its id): the ack must SURVIVE and the warning must surface.
+      repo.jobResult = const Left(ProblemError(code: 'http.500'));
+      final res = await controller.submit(AiImportDocument.pasted('x'));
+      expect(res.getRight().toNullable()!.jobId, 'job-1');
+      expect(container.read(aiStampWarningProvider)?.code, 'http.500');
+      container.dispose();
+    });
+
+    test('a script dispatch with a non-PDF source is rejected client-side '
+        'with the stable 415 code — no mismatched bytes leave the device '
+        '(review: kind-switch stale document)', () async {
+      await setupContainer();
+      final controller = container.read(
+        aiImportSubmitControllerProvider.notifier,
+      );
+      controller.selectKind(AiImportKind.script);
+      // Pasted text under the script kind: uploadScript declares
+      // application/pdf — the client must refuse BEFORE any call.
+      final res = await controller.submit(AiImportDocument.pasted('not a pdf'));
+      final err = res.getLeft().toNullable()!;
+      expect(err.code, 'ai_import.unsupported_media_type');
+      expect(err.status, 415);
+      expect(repo.uploadCalls, 0);
+      container.dispose();
+    });
+
+    test(
+      'selectKind clears the pending document and paste (review: a '
+      'carried-over body would upload with the wrong content type)',
+      () async {
+        await setupContainer();
+        final controller = container.read(
+          aiImportSubmitControllerProvider.notifier,
+        );
+        // Seed a schedule paste, then switch kinds.
+        container.read(pendingPasteProvider.notifier).set('day,scene');
+        container
+            .read(pendingDocumentProvider.notifier)
+            .set(AiImportDocument.csv('day,scene'));
+        controller.selectKind(AiImportKind.script);
+        expect(container.read(pendingPasteProvider), isEmpty);
+        expect(container.read(pendingDocumentProvider), isNull);
+        // Same-kind selection is a no-op (does not clear an in-progress
+        // document).
+        container.read(pendingPasteProvider.notifier).set('x');
+        controller.selectKind(AiImportKind.script);
+        expect(container.read(pendingPasteProvider), 'x');
+        container.dispose();
+      },
+    );
 
     test('duplicate upload (200) is a first-class ack', () async {
       await setupContainer();

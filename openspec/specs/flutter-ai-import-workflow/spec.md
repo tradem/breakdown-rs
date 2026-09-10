@@ -66,9 +66,11 @@ the user may only close/leave, and the copy SHALL say so.
 The preview screen SHALL render the typed `AiImportPreviewResponse` / `AiPreviewPayload` (`kind`/`data`: `script` → `ScriptContext`, `schedule` → `ShootingSchedule`, `merged` → `MergedPreview`; backend issue #337, PR #357) from the generated client: recognized payloads as cards, an unknown future `kind` as an explicit degraded card with a stable code — never silently coerced data, never retyped DTOs. The apply action SHALL submit `ApplyAiImportRequest`
 with `draft_ref`s taken verbatim from the preview rows the user acted
 on, per-row decisions (Create / Update with the picked aggregate id +
-version from the read DTO / skip), the episode context from the
-navigation stack, and the `accept_as_is` + `edit_distance` values from
-the actual selection state. The 200 response SHALL render the outcome
+version from the read DTO / skip), the job's PERSISTED episode context
+(`episode_id` + `series_id`, stamped onto the cached job row at submit
+time — never read from the navigation stack; a missing context requires
+the explicit episode picker before the apply dispatch), and the
+`accept_as_is` + `edit_distance` values from the actual selection state. The 200 response SHALL render the outcome
 summary (`applied_count`, `created_days`, `planned_scene_shoots`).
 
 #### Scenario: Partial preview results

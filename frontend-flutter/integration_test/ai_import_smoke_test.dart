@@ -260,7 +260,7 @@ void main() {
     expect(find.textContaining('Applied 1 draft(s)'), findsOneWidget);
 
     // 6. The episode context persisted with the job (design §2.3).
-    final rows = await repo.readCached();
+    final rows = await repo.readCached('dev-e2e');
     final row = rows.getRight().toNullable()!.single;
     expect(row.episodeId, 'ep-e2e');
     expect(row.seriesId, 'series-e2e');

@@ -72,7 +72,7 @@ void main() {
     addTearDown(v6.close);
     final dao = AiImportJobsCacheDao(v6);
     await dao.upsertAll([_job('j1')], DateTime.utc(2026, 1, 2));
-    expect((await dao.readAll()).single.id, 'j1');
+    expect((await dao.readAll('user-a')).single.id, 'j1');
 
     // The v5 witness row is still there (nothing was dropped/recreated).
     final seasons = await v6

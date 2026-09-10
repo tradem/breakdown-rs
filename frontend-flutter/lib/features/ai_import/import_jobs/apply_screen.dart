@@ -6,6 +6,7 @@ import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/problem_error.dart';
 import '../../../data/cache/hierarchy_cache_dao.dart';
 import '../../../data/cache/seasons_cache_providers.dart';
 import '../../scenes/scenes_controller.dart';
@@ -163,11 +164,14 @@ class _OutcomeCard extends StatelessWidget {
       OutlinedButton(
         key: const Key('ai-apply-open-episode'),
         onPressed: () {
-          // Deep navigation into the hierarchy screens (design §2.3) —
-          // the applied days/scenes surface in the episode's screens.
+          // The apply flow carries only the episode id (no BlockView
+          // navigation context), so a deep push into the episode's
+          // screens is not available here — the button is honest about
+          // returning to the app start, where the episode is reachable
+          // through the hierarchy navigation.
           Navigator.of(context).popUntil((route) => route.isFirst);
         },
-        child: const Text('Review the affected episode'),
+        child: const Text('Back to start'),
       ),
     ],
   );
@@ -240,10 +244,6 @@ Future<EpisodeView?> showEpisodePicker(BuildContext context, WidgetRef ref) {
     builder: (sheetContext) => Consumer(
       builder: (context, sheetRef, _) {
         final episodes = sheetRef.watch(_cachedEpisodesProvider);
-        final rows = switch (episodes) {
-          AsyncData(:final value) => value,
-          _ => const <EpisodeView>[],
-        };
         return SafeArea(
           child: SizedBox(
             height: 400,
@@ -254,27 +254,45 @@ Future<EpisodeView?> showEpisodePicker(BuildContext context, WidgetRef ref) {
                   child: Text('Pick the target episode'),
                 ),
                 Expanded(
-                  child: rows.isEmpty
-                      ? const ListTile(
-                          key: Key('ai-episode-picker-empty'),
-                          title: Text(
-                            'No cached episodes — open a production '
-                            'block first, then pick.',
-                          ),
-                        )
-                      : ListView(
-                          key: const Key('ai-episode-picker'),
-                          children: [
-                            for (final episode in rows)
-                              ListTile(
-                                key: Key('ai-episode-pick-${episode.id}'),
-                                title: Text('Episode ${episode.number}'),
-                                subtitle: Text(episode.name ?? episode.id),
-                                onTap: () =>
-                                    Navigator.of(sheetContext).pop(episode),
-                              ),
-                          ],
+                  child: switch (episodes) {
+                    // Distinct loading/error branches (review): the
+                    // empty-state copy ("open a production block first")
+                    // is only TRUE for a successfully-loaded empty
+                    // cache — a load failure must render its own state,
+                    // never masquerade as guidance.
+                    AsyncLoading() => const Center(
+                      key: Key('ai-episode-picker-loading'),
+                      child: CircularProgressIndicator(),
+                    ),
+                    AsyncError(:final error) => ListTile(
+                      key: const Key('ai-episode-picker-error'),
+                      title: Text(
+                        'Cached episodes could not be read '
+                        '(${error is ProblemError ? error.code : error}).',
+                      ),
+                    ),
+                    AsyncData(:final value) when value.isEmpty =>
+                      const ListTile(
+                        key: Key('ai-episode-picker-empty'),
+                        title: Text(
+                          'No cached episodes — open a production '
+                          'block first, then pick.',
                         ),
+                      ),
+                    AsyncData(:final value) => ListView(
+                      key: const Key('ai-episode-picker'),
+                      children: [
+                        for (final episode in value)
+                          ListTile(
+                            key: Key('ai-episode-pick-${episode.id}'),
+                            title: Text('Episode ${episode.number}'),
+                            subtitle: Text(episode.name ?? episode.id),
+                            onTap: () =>
+                                Navigator.of(sheetContext).pop(episode),
+                          ),
+                      ],
+                    ),
+                  },
                 ),
               ],
             ),

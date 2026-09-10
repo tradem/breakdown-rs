@@ -356,7 +356,7 @@ void main() {
     late AiImportJobsCacheDao dao;
     late ProviderContainer container;
 
-    setUp(() {
+    setUp(() async {
       db = CacheDatabase(NativeDatabase.memory());
       dao = AiImportJobsCacheDao(db);
       container = ProviderContainer(
@@ -369,6 +369,7 @@ void main() {
       );
       addTearDown(container.dispose);
       addTearDown(db.close);
+      await container.read(authSessionControllerProvider.notifier).signIn();
     });
 
     test('remembered-job entry: the persisted context is read from the '
@@ -536,6 +537,92 @@ void main() {
       );
       await pumpPreview(tester);
       expect(find.byKey(const Key('ai-preview-missing')), findsOneWidget);
+      await tester.pump();
+    });
+
+    testWidgets('a null oneOf value renders the degraded card — never a '
+        'build-time cast throw (review: OneOf.value is nullable)', (
+      tester,
+    ) async {
+      await setupContainer(
+        previewValue: Right(
+          _previewResponse(
+            AiPreviewPayload(
+              (b) => b
+                ..oneOf =
+                    OneOf.fromValue3<
+                      AiPreviewPayloadOneOf,
+                      AiPreviewPayloadOneOf1,
+                      AiPreviewPayloadOneOf2
+                    >(value: null, typeIndex: 0),
+            ),
+          ),
+        ),
+      );
+      await pumpPreview(tester);
+      expect(find.byKey(const Key('ai-preview-kind-unknown')), findsOneWidget);
+      await tester.pump();
+    });
+
+    testWidgets('a refreshed payload RE-SEEDS the apply rows (review: '
+        'stale draft_refs after a provider refresh)', (tester) async {
+      await setupContainer(withPersistedContext: true);
+      await pumpPreview(tester);
+      expect(
+        container.read(aiApplyControllerProvider('job-1')).rows,
+        hasLength(2),
+        reason: 'the script payload seeds two draft rows',
+      );
+
+      // The provider refresh delivers a NEW response at the SAME element
+      // position — the seed must follow the payload identity.
+      preview.value = Right(
+        _previewResponse(
+          AiPreviewPayload(
+            (b) => b
+              ..oneOf =
+                  OneOf.fromValue3<
+                    AiPreviewPayloadOneOf,
+                    AiPreviewPayloadOneOf1,
+                    AiPreviewPayloadOneOf2
+                  >(
+                    value: AiPreviewPayloadOneOf(
+                      (b) => b
+                        ..kind = AiPreviewPayloadOneOfKindEnum.script
+                        ..data.replace(
+                          ScriptContext(
+                            (b) => b
+                              ..title = 'Pilot (refreshed)'
+                              ..scenes.replace([
+                                _draft('draft-1'),
+                                _draft('draft-2'),
+                                _draft('draft-3'),
+                              ])
+                              ..uncertainties.replace([]),
+                          ),
+                        ),
+                    ),
+                  ),
+          ),
+        ),
+      );
+      container.invalidate(aiPreviewProvider);
+      await pumpPreview(tester);
+
+      // The refreshed row renders AND the apply rows followed (3 rows,
+      // incl. the new draft-3) — never the stale 2-row seed.
+      expect(find.byKey(const Key('ai-preview-row-draft-3')), findsOneWidget);
+      expect(
+        container.read(aiApplyControllerProvider('job-1')).rows,
+        hasLength(3),
+      );
+      expect(
+        container
+            .read(aiApplyControllerProvider('job-1'))
+            .rows
+            .map((r) => r.draftRef),
+        contains('draft-3'),
+      );
       await tester.pump();
     });
 

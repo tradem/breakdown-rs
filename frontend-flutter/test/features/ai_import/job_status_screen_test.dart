@@ -107,6 +107,9 @@ void main() {
     tester.view.physicalSize = const Size(800, 1200);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
+    // Restore, don't clear: pumpScreen does not own the platform
+    // override — the golden helpers set it around the capture (review).
+    final previousOverride = debugDefaultTargetPlatformOverride;
     try {
       if (platform != null) {
         debugDefaultTargetPlatformOverride = platform;
@@ -127,7 +130,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 10));
       }
     } finally {
-      debugDefaultTargetPlatformOverride = null;
+      debugDefaultTargetPlatformOverride = previousOverride;
     }
   }
 
@@ -203,6 +206,22 @@ void main() {
     expect(find.textContaining('No second import was created'), findsOneWidget);
     expect(find.byKey(const Key('ai-job-no-cancel')), findsOneWidget);
     expect(find.textContaining('there is no cancel'), findsOneWidget);
+    await tester.pump();
+  });
+
+  testWidgets('a STREAM error from repo.watch maps into the error state — '
+      'the error card renders with the re-arm affordance instead of an '
+      'eternal spinner or an unhandled zone error (review)', (tester) async {
+    await setupContainer(Right(_job(JobStatus.pending)));
+    (container!.read(
+      aiImportRepositoryProvider,
+    ) as _StubRepository).errorToEmit = StateError(
+      'watch generator fault',
+    );
+    await pumpScreen(tester);
+    // The initial delivery lands, then the stream fault (microtask) —
+    // mapped into the state, never left spinning.
+    expect(find.byKey(const Key('ai-job-watch-error')), findsOneWidget);
     await tester.pump();
   });
 
@@ -301,9 +320,19 @@ class _StubRepository extends AiImportRepository {
       onListen: () {
         jobNotifier.addListener(onChange);
         controller.add(jobNotifier.value);
+        // A fault INSIDE the watch generator (deserialization failure,
+        // an exception escaping the Result mapping) surfaces as a stream
+        // error (review: the controller must map it into the state).
+        final err = errorToEmit;
+        if (err != null) {
+          scheduleMicrotask(() => controller.addError(err));
+        }
       },
       onCancel: () => jobNotifier.removeListener(onChange),
     );
     return controller.stream;
   }
+
+  /// When set, the fake watch emits this as a STREAM error on listen.
+  Object? errorToEmit;
 }
