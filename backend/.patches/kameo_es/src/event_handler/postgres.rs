@@ -357,6 +357,27 @@ where
         // subscription point) does not rewind to the dead-lettered message.
         self.last_flushed_sequences.insert(partition_id, sequence);
 
+        // Synchronize the affected worker's flushed-sequences map if it is
+        // already spawned (issue #37 re-review): its stale clone without
+        // this partition would make its first flush take the plain-INSERT
+        // branch, hit the just-written row (23505) and map to
+        // `UnexpectedLastEventId` — a needless epoch restart. The stream is
+        // sequential: this dead-letter happens before any `HandleEvent` for
+        // the partition, so syncing the flushed watermark only is safe.
+        let worker_id = partition_id % self.worker_count;
+        if let Some(worker_ref) = self.workers.get(&worker_id) {
+            if let Err(err) = worker_ref
+                .tell(SyncProcessorCheckpoint {
+                    partition_id,
+                    sequence,
+                })
+                .send()
+                .await
+            {
+                error!("failed to sync processor checkpoint to worker {worker_id}: {err:?}");
+            }
+        }
+
         error!(
             projection_id = %self.projection_id,
             partition_id,
@@ -655,73 +676,121 @@ where
         let sqlstate_log = sqlstate.clone().unwrap_or_else(|| "-".to_string());
         let constraint_log = constraint.clone().unwrap_or_else(|| "-".to_string());
 
-        // Reuse the retained batch transaction (contains the rolled-back
-        // savepoint only — earlier successful events' effects are intact) so
-        // their effects commit atomically with the dead-letter row and the
-        // checkpoint advance. Fall back to a fresh transaction when none is
-        // retained (e.g. the failing event started the batch).
-        let mut tx = match self.transaction.take() {
-            Some(tx) => tx,
-            None => self
-                .pool
-                .begin()
+        // Insert the DLQ row into the RETAINED batch transaction so it
+        // commits atomically with the earlier successful events' effects
+        // (issue #37 review). The commit itself is delegated to the full
+        // flush protocol below — handler.flush + pending checkpoint writes
+        // for ALL partitions + after_commit — because a worker can batch
+        // events for several partitions; committing only the poison
+        // partition's checkpoint would leave the others behind and cause
+        // duplicate application after replay (issue #37 re-review).
+        let retained = self.transaction.is_some();
+        match self.transaction.as_mut() {
+            Some(tx) => {
+                sqlx::query(AssertSqlSafe(format!(
+                    "
+                    INSERT INTO {} (projection_id, partition_id, sequence, stream_id, event_name, sqlstate, constraint_name, error_message, attempts, first_seen_at, last_seen_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, now(), now())
+                    ON CONFLICT (projection_id, partition_id, sequence) DO UPDATE SET
+                        sqlstate = EXCLUDED.sqlstate,
+                        constraint_name = EXCLUDED.constraint_name,
+                        error_message = EXCLUDED.error_message,
+                        attempts = {}.attempts + 1,
+                        last_seen_at = now()
+                    ",
+                    self.dead_letter_table, self.dead_letter_table
+                )))
+                .bind(self.projection_id.as_ref())
+                .bind(smallint_partition)
+                .bind(sequence as i64)
+                .bind(event.stream_id.to_string())
+                .bind(event.name.clone())
+                .bind(sqlstate)
+                .bind(constraint)
+                .bind(error_message)
+                .execute(&mut **tx)
                 .await
-                .map_err(|err| EventHandlerError::Processor(err.into()))?,
-        };
+                .map_err(|err| EventHandlerError::Processor(err.into()))?;
+            }
+            None => {
+                // Standalone batch (the failing event began it): DLQ row +
+                // checkpoint advance in one fresh transaction.
+                let mut tx = self
+                    .pool
+                    .begin()
+                    .await
+                    .map_err(|err| EventHandlerError::Processor(err.into()))?;
 
-        sqlx::query(AssertSqlSafe(format!(
-            "
-            INSERT INTO {} (projection_id, partition_id, sequence, stream_id, event_name, sqlstate, constraint_name, error_message, attempts, first_seen_at, last_seen_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, now(), now())
-            ON CONFLICT (projection_id, partition_id, sequence) DO UPDATE SET
-                sqlstate = EXCLUDED.sqlstate,
-                constraint_name = EXCLUDED.constraint_name,
-                error_message = EXCLUDED.error_message,
-                attempts = {}.attempts + 1,
-                last_seen_at = now()
-            ",
-            self.dead_letter_table, self.dead_letter_table
-        )))
-        .bind(self.projection_id.as_ref())
-        .bind(smallint_partition)
-        .bind(sequence as i64)
-        .bind(event.stream_id.to_string())
-        .bind(event.name.clone())
-        .bind(sqlstate)
-        .bind(constraint)
-        .bind(error_message)
-        .execute(&mut *tx)
-        .await
-        .map_err(|err| EventHandlerError::Processor(err.into()))?;
+                sqlx::query(AssertSqlSafe(format!(
+                    "
+                    INSERT INTO {} (projection_id, partition_id, sequence, stream_id, event_name, sqlstate, constraint_name, error_message, attempts, first_seen_at, last_seen_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, now(), now())
+                    ON CONFLICT (projection_id, partition_id, sequence) DO UPDATE SET
+                        sqlstate = EXCLUDED.sqlstate,
+                        constraint_name = EXCLUDED.constraint_name,
+                        error_message = EXCLUDED.error_message,
+                        attempts = {}.attempts + 1,
+                        last_seen_at = now()
+                    ",
+                    self.dead_letter_table, self.dead_letter_table
+                )))
+                .bind(self.projection_id.as_ref())
+                .bind(smallint_partition)
+                .bind(sequence as i64)
+                .bind(event.stream_id.to_string())
+                .bind(event.name.clone())
+                .bind(sqlstate)
+                .bind(constraint)
+                .bind(error_message)
+                .execute(&mut *tx)
+                .await
+                .map_err(|err| EventHandlerError::Processor(err.into()))?;
 
-        sqlx::query(AssertSqlSafe(format!(
-            "
-            INSERT INTO {} (projection_id, partition_id, sequence)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (projection_id, partition_id) DO UPDATE SET
-                sequence = GREATEST({}.sequence, EXCLUDED.sequence)
-            ",
-            self.checkpoints_table, self.checkpoints_table
-        )))
-        .bind(self.projection_id.as_ref())
-        .bind(smallint_partition)
-        .bind(sequence as i64)
-        .execute(&mut *tx)
-        .await
-        .map_err(|err| EventHandlerError::Processor(err.into()))?;
+                sqlx::query(AssertSqlSafe(format!(
+                    "
+                    INSERT INTO {} (projection_id, partition_id, sequence)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT (projection_id, partition_id) DO UPDATE SET
+                        sequence = GREATEST({}.sequence, EXCLUDED.sequence)
+                    ",
+                    self.checkpoints_table, self.checkpoints_table
+                )))
+                .bind(self.projection_id.as_ref())
+                .bind(smallint_partition)
+                .bind(sequence as i64)
+                .execute(&mut *tx)
+                .await
+                .map_err(|err| EventHandlerError::Processor(err.into()))?;
 
-        tx.commit()
-            .await
-            .map_err(|err| EventHandlerError::Processor(err.into()))?;
+                tx.commit()
+                    .await
+                    .map_err(|err| EventHandlerError::Processor(err.into()))?;
+            }
+        }
 
-        // Keep the in-memory handled/flushed maps consistent so subsequent
-        // flushes skip this partition (both equal) and the subscription does
-        // not rewind to the poison event. The whole batch transaction was
-        // committed above, so the flush counter resets too.
-        self.last_handled_sequences.insert(partition_id, sequence);
-        self.last_flushed_sequences.insert(partition_id, sequence);
-        self.events_since_flush = 0;
-        self.last_flushed = Instant::now();
+        if retained {
+            // Mark the poison event handled, then run the standard flush
+            // protocol: handler.flush + pending checkpoint writes for every
+            // partition (including this one, advanced to the poison
+            // sequence) + commit + after_commit + full map sync.
+            self.last_handled_sequences.insert(partition_id, sequence);
+            flush_retry
+                .retry(ExponentialBuilder::new())
+                .context((self, FlushReason::DeadLetter))
+                .notify(|err, _dur| {
+                    error!("failed to flush events: {err:?}");
+                })
+                .await
+                .1?;
+        } else {
+            // Keep the in-memory handled/flushed maps consistent so
+            // subsequent flushes skip this partition (both equal) and the
+            // subscription does not rewind to the poison event.
+            self.last_handled_sequences.insert(partition_id, sequence);
+            self.last_flushed_sequences.insert(partition_id, sequence);
+            self.events_since_flush = 0;
+            self.last_flushed = Instant::now();
+        }
 
         error!(
             projection_id = %self.projection_id,
@@ -1100,6 +1169,51 @@ where
     }
 }
 
+/// Synchronizes a worker's flushed-sequences map with a checkpoint written
+/// processor-side (`DeadLetterUndecodable`, issue #37 re-review): a worker
+/// spawned before the write holds a stale map clone without that partition,
+/// and its first flush for the partition would take the plain-INSERT branch,
+/// hit the existing row (23505) and map to `UnexpectedLastEventId` — a
+/// needless epoch restart.
+struct SyncProcessorCheckpoint {
+    partition_id: u16,
+    sequence: u64,
+}
+
+impl<E, H> Message<SyncProcessorCheckpoint> for Worker<E, H>
+where
+    E: 'static,
+    H: EventHandler<sqlx::Transaction<'static, Postgres>>
+        + CompositeEventHandler<E, sqlx::Transaction<'static, Postgres>, PostgresEventProcessorError>
+        + Send
+        + 'static,
+    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error:
+        fmt::Debug + Sync + crate::event_handler::EventErrorClassify,
+{
+    type Reply = ();
+
+    async fn handle(
+        &mut self,
+        SyncProcessorCheckpoint {
+            partition_id,
+            sequence,
+        }: SyncProcessorCheckpoint,
+        _ctx: &mut Context<Self, Self::Reply>,
+    ) {
+        // Monotonic watermark update: never regress, and only the flushed
+        // map — the dead-lettered message itself never becomes a
+        // `HandleEvent`, so `last_handled_sequences` stays untouched.
+        self.last_flushed_sequences
+            .entry(partition_id)
+            .and_modify(|flushed| {
+                if sequence > *flushed {
+                    *flushed = sequence;
+                }
+            })
+            .or_insert(sequence);
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum PostgresEventProcessorError {
     #[error(transparent)]
@@ -1134,4 +1248,9 @@ pub enum FlushReason {
     TimeInterval,
     LiveEventsInterval,
     ReplayEventsInterval,
+    /// The flush is triggered by the dead-letter path (issue #37): the
+    /// retained batch transaction is committed with all pending checkpoint
+    /// updates so earlier successful events publish atomically with the
+    /// DLQ row and the poison partition's checkpoint advance.
+    DeadLetter,
 }
