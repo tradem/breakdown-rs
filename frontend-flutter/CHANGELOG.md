@@ -16,6 +16,25 @@ releases are cut as `flutter-vX.Y.Z` tags.
 
 ### Added
 
+- AI document import (`flutter-ai-import`): the user-facing
+  configure → submit → watch → preview → apply pipeline over
+  `/v1/ai-import/*`. Provider/model discovery-driven configuration with
+  the two-step credential hand-off (`POST /v1/settings/credentials` →
+  vault key id — the LLM key never persists on the device), version-echo
+  edits without automatic re-dispatch on 409, credential rollback with
+  orphan cleanup; raw schedule/script submission (paste, CSV, PDF via
+  `file_picker` — PDF bytes uploaded verbatim, no re-encoding), duplicate
+  uploads surfaced honestly (200 → callout, never a fresh import);
+  bounded job watch state machine with an honest no-cancel copy
+  (cancellation is backend-owned); typed preview rendering with strict
+  rejection of unknown future payload kinds; apply into an episode with
+  verbatim `draft_ref`s, edit distances from real selections, and a
+  missing-context picker requirement. Every dispatch is AUTHZ-gated
+  client-side (denial issues zero requests); sign-out and backend-switch
+  wipe the hand-off store and job cache.
+- **Version bump:** `0.2.0+8 → 0.3.0+9` (MINOR per ADR-033 D2 — additive
+  feature surface; `+N` monotonic for the Play `versionCode`; no
+  `flutter-v*` tag cut).
 - Reports screen (`flutter-reports`): day-context Soll-Ist on-screen report
   (planned/actual counts, moved/missing/skipped/reshot flag chips, finality
   banner — all verbatim from the JSON report read DTOs, no client-side

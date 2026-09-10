@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 
@@ -25,7 +26,8 @@ import 'membership/capability.dart';
 ///   photo policy mirror, D3).
 enum GatedCapability {
   assignCostumes('assign_costumes'),
-  uploadPhotos('upload_continuity_photos');
+  uploadPhotos('upload_continuity_photos'),
+  importAiDocuments('import_ai_documents');
 
   const GatedCapability(this.wireName);
 
@@ -71,6 +73,17 @@ GateDecision checkCapability(
       return wire.contains(Capability.uploadContinuityPhotos.wireName)
           ? const GateAllow()
           : GateDeny(denyCode);
+    case GatedCapability.importAiDocuments:
+      // `flutter-ai-import` D4: the backend gates schedule/script uploads
+      // and the apply command on `authorize_season_result(Action::Write)`
+      // in the job's season — the same predicate the capability set derives
+      // from (`has_active_costume_role_in_season`). No dedicated wire
+      // capability string exists, so the gate reads the backend-computed
+      // predicate directly (exactly the `canViewReports` pattern); unknown
+      // capability strings never enable it (server authoritative).
+      return membership.hasActiveCostumeRoleInSeason
+          ? const GateAllow()
+          : GateDeny(denyCode);
   }
 }
 
@@ -88,4 +101,13 @@ GateDecision checkAssignCapability(SeasonMembershipDto? membership) =>
       membership,
       GatedCapability.assignCostumes,
       denyCode: 'costume.forbidden',
+    );
+
+/// Convenience: AI-import upload/apply gate (season costume-dept membership
+/// — the same backend predicate that derives the capability set, D4).
+GateDecision checkAiImportCapability(SeasonMembershipDto? membership) =>
+    checkCapability(
+      membership,
+      GatedCapability.importAiDocuments,
+      denyCode: 'ai_import.forbidden',
     );

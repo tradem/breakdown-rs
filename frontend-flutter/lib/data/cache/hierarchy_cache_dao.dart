@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 import 'dart:convert';
 
@@ -165,6 +166,23 @@ class EpisodeCacheDao {
     final rows = await (_db.select(
       _db.episodeCacheRows,
     )..where((t) => t.blockId.equals(blockId))).get();
+    return rows.map(_toEpisodeView).toList();
+  }
+
+  /// Every cached episode across blocks (the AI-import apply picker's
+  /// source — `flutter-ai-import` task 4.2: the explicit episode picker
+  /// over the season's read DTOs when the job's persisted context is
+  /// missing). A pure read with an EXPLICIT deterministic ordering —
+  /// SQLite guarantees no row order without `ORDER BY`, and the picker
+  /// must render the same list on every open.
+  Future<List<EpisodeView>> readAllEpisodes() async {
+    final rows =
+        await (_db.select(_db.episodeCacheRows)..orderBy([
+              (t) => OrderingTerm.asc(t.blockId),
+              (t) => OrderingTerm.asc(t.number),
+              (t) => OrderingTerm.asc(t.id),
+            ]))
+            .get();
     return rows.map(_toEpisodeView).toList();
   }
 

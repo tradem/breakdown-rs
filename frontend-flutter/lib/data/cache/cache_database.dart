@@ -2,10 +2,12 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 
+import 'ai_import_cache.dart';
 import 'costume_domains_cache.dart';
 import 'hierarchy_cache.dart';
 import 'scene_shoot_cache.dart';
@@ -30,6 +32,7 @@ part 'cache_database.g.dart';
     CharacterCacheRows,
     ShootingDayCacheRows,
     SceneShootCacheRows,
+    AiImportJobCacheRows,
   ],
 )
 class CacheDatabase extends _$CacheDatabase {
@@ -43,7 +46,7 @@ class CacheDatabase extends _$CacheDatabase {
   CacheDatabase.connect(super.executor);
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -86,6 +89,16 @@ class CacheDatabase extends _$CacheDatabase {
         // existing installs — no data to migrate. Photo bytes stay
         // memory-cached only, never persisted (design §3).
         await m.createTable(sceneShootCacheRows);
+      }
+      if (from < 6) {
+        // `flutter-ai-import` 1.4: AI-import job projection table
+        // (mirrors `AiImportJob`; carries the client-local persisted
+        // apply context columns `episode_id`/`series_id`, design §2.3).
+        // Fresh table for existing installs — no data to migrate.
+        // NOTE: the table is defined in `ai_import_cache.dart` (no
+        // `cache_database` import — a cycle would break drift_dev table
+        // discovery); its DAO lives in `ai_import_jobs_cache_dao.dart`.
+        await m.createTable(aiImportJobCacheRows);
       }
       if (from == 3) {
         // CodeRabbit review follow-up: snapshot ordinal on the costume rows
