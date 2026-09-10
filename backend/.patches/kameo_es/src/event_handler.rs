@@ -21,7 +21,11 @@ where
     H: EventHandler<Self::Context>,
 {
     type Context: Send;
-    type Error: Send;
+    /// Processors must be able to surface an undecodable Sierra message as
+    /// their error type (issue #411) — the default `dead_letter_undecodable`
+    /// propagates it, keeping the pre-#411 restart behavior for processors
+    /// without a durable dead-letter surface.
+    type Error: Send + From<TryFromSierraEventError>;
 
     /// Which event to start streaming from.
     fn start_from(&self) -> impl Future<Output = Result<HashMap<u16, u64>, Self::Error>>;
@@ -31,6 +35,24 @@ where
         &mut self,
         event: Event,
     ) -> impl Future<Output = Result<(), EventHandlerError<Self::Error, H::Error>>> + Send;
+
+    /// Dead-letter an event whose Sierra message could not be decoded
+    /// (issue #411): records the raw message durably (stream id, event name,
+    /// partition coordinates, error) and advances the projection checkpoint
+    /// past it, so the subscription moves on instead of restart-looping on
+    /// the same malformed message.
+    ///
+    /// The default keeps the pre-#411 behavior (propagate → epoch restart):
+    /// in-process processors (photo sagas, report triggers) have no durable
+    /// dead-letter surface. The `PostgresProcessor` (all projectors)
+    /// overrides this with the DLQ write + checkpoint advance.
+    fn dead_letter_undecodable(
+        &mut self,
+        _raw_event: sierradb_client::Event,
+        err: TryFromSierraEventError,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
+        async move { Err(Self::Error::from(err)) }
+    }
 }
 
 /// An event handler.
@@ -273,7 +295,41 @@ impl<E> EventHandlerStream<E> {
     {
         match self.next().await? {
             Ok(event) => Some(self.process_event_and_ack(processor, event).await),
-            Err(err) => Some(Err(err.into())),
+            Err(next_err) => Some(self.handle_next_error(processor, next_err).await),
+        }
+    }
+
+    /// Handles a `next()` failure (issue #411): an undecodable Sierra message
+    /// is dead-lettered via the processor and its cursor acknowledged, so the
+    /// subscription moves past the malformed message instead of
+    /// restart-looping. Infrastructure errors (`Sierra`) keep the pre-existing
+    /// propagate-and-restart behavior.
+    async fn handle_next_error<P, H>(
+        &mut self,
+        processor: &mut P,
+        next_err: NextEventError,
+    ) -> Result<(), EventHandlerError<P::Error, H::Error>>
+    where
+        E: 'static,
+        P: EventProcessor<E, H>,
+        H: EventHandler<P::Context>,
+    {
+        match next_err {
+            NextEventError::UndecodableEvent { event, cursor, err } => {
+                processor
+                    .dead_letter_undecodable(*event, err)
+                    .await
+                    .map_err(EventHandlerError::Processor)?;
+                if let Some(ack_cursor) = self.ack.processed(cursor) {
+                    trace!("acknowledging dead-lettered message up to cursor {ack_cursor}");
+                    self.subscription
+                        .acknowledge_up_to_cursor(ack_cursor)
+                        .await
+                        .map_err(EventHandlerError::from)?;
+                }
+                Ok(())
+            }
+            other => Err(other.into()),
         }
     }
 
@@ -286,7 +342,15 @@ impl<E> EventHandlerStream<E> {
         P: EventProcessor<E, H>,
         H: EventHandler<P::Context>,
     {
-        while let Some(unprocessed_event) = self.next().await.transpose()? {
+        loop {
+            let unprocessed_event = match self.next().await {
+                Some(Ok(unprocessed_event)) => unprocessed_event,
+                Some(Err(next_err)) => {
+                    self.handle_next_error(processor, next_err).await?;
+                    continue;
+                }
+                None => break,
+            };
             self.process_event_and_ack(processor, unprocessed_event)
                 .await?;
         }
@@ -303,12 +367,21 @@ impl<E> EventHandlerStream<E> {
     }
 
     pub async fn next(&mut self) -> Option<Result<UnprocessedEvent<E>, NextEventError>> {
-        while let Some(event) = self.subscription.next_message().await {
-            match event {
+        while let Some(message) = self.subscription.next_message().await {
+            match message {
                 SierraMessage::Event { event, cursor } => {
-                    let event = match event_from_sierra(event) {
+                    let event = match event_from_sierra(event.clone()) {
                         Ok(event) => event,
-                        Err(err) => return Some(Err(err.into())),
+                        Err(err) => {
+                            // Issue #411: keep the raw message + cursor so
+                            // the caller can dead-letter it instead of
+                            // restart-looping on the malformed message.
+                            return Some(Err(NextEventError::UndecodableEvent {
+                                event: Box::new(event),
+                                cursor,
+                                err,
+                            }));
+                        }
                     };
                     return Some(Ok(UnprocessedEvent::new(event, cursor)));
                 }
@@ -351,8 +424,17 @@ impl<E> EventHandlerStream<E> {
 pub enum NextEventError {
     #[error(transparent)]
     Sierra(#[from] SierraError),
-    #[error(transparent)]
-    DeserializeEvent(#[from] TryFromSierraEventError),
+    /// A Sierra message whose payload/metadata could not be decoded
+    /// (issue #411): carries the raw message + cursor so the stream can
+    /// dead-letter it via the processor instead of restart-looping.
+    #[error("failed to deserialize Sierra message: {err}")]
+    UndecodableEvent {
+        // Boxed to keep the enum size within clippy's large_enum_variant
+        // budget (issue #411 review).
+        event: Box<sierradb_client::Event>,
+        cursor: u64,
+        err: TryFromSierraEventError,
+    },
 }
 
 impl From<RedisError> for NextEventError {
@@ -365,7 +447,7 @@ impl<P, H> From<NextEventError> for EventHandlerError<P, H> {
     fn from(err: NextEventError) -> Self {
         match err {
             NextEventError::Sierra(err) => EventHandlerError::Sierra(err),
-            NextEventError::DeserializeEvent(err) => EventHandlerError::EventFromSierra(err),
+            NextEventError::UndecodableEvent { err, .. } => EventHandlerError::EventFromSierra(err),
         }
     }
 }

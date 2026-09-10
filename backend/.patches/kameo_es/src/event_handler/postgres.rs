@@ -192,6 +192,30 @@ where
         self.tell(HandleEvent(event)).send().await.unwrap();
         Ok(())
     }
+
+    async fn dead_letter_undecodable(
+        &mut self,
+        raw_event: sierradb_client::Event,
+        err: crate::TryFromSierraEventError,
+    ) -> Result<(), Self::Error> {
+        self.ask(DeadLetterUndecodable {
+            event: raw_event,
+            err,
+        })
+        .send()
+        .await
+        .map_err(|send_err| match send_err.map_msg(|_| ()) {
+            // The actor's handler error is authoritative (DLQ write etc.).
+            SendError::HandlerError(processor_err) => processor_err,
+            // Actor not running/stopped/mailbox full/timeout — an
+            // infrastructure failure surfaced as an IO error so the epoch
+            // restart (transient behavior) kicks in.
+            other => PostgresEventProcessorError::Postgres(sqlx::Error::Io(std::io::Error::other(
+                other.to_string(),
+            ))),
+        })?;
+        Ok(())
+    }
 }
 
 impl<E, H> Actor for PostgresProcessor<E, H>
@@ -258,6 +282,91 @@ where
             .iter()
             .map(|(partition_id, sequence)| (*partition_id, sequence + 1))
             .collect())
+    }
+}
+
+/// Dead-letter an undecodable Sierra message (issue #411): the actor
+/// records the raw message durably and advances the checkpoint past it in
+/// one transaction.
+struct DeadLetterUndecodable {
+    event: sierradb_client::Event,
+    err: crate::TryFromSierraEventError,
+}
+
+impl<E, H> Message<DeadLetterUndecodable> for PostgresProcessor<E, H>
+where
+    E: 'static,
+    H: EventHandler<sqlx::Transaction<'static, Postgres>>
+        + CompositeEventHandler<E, sqlx::Transaction<'static, Postgres>, PostgresEventProcessorError>
+        + Send
+        + 'static,
+    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error:
+        fmt::Debug + Sync + crate::event_handler::EventErrorClassify,
+{
+    type Reply = Result<(), PostgresEventProcessorError>;
+
+    async fn handle(
+        &mut self,
+        DeadLetterUndecodable { event, err }: DeadLetterUndecodable,
+        _ctx: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        let partition_id = event.partition_id;
+        let sequence = event.partition_sequence;
+        let smallint_partition = partition_id_to_smallint(partition_id)?;
+
+        let mut tx = self.pool.begin().await?;
+
+        sqlx::query(AssertSqlSafe(format!(
+            "
+            INSERT INTO {} (projection_id, partition_id, sequence, stream_id, event_name, sqlstate, constraint_name, error_message, attempts, first_seen_at, last_seen_at)
+            VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6, 1, now(), now())
+            ON CONFLICT (projection_id, partition_id, sequence) DO UPDATE SET
+                error_message = EXCLUDED.error_message,
+                attempts = {}.attempts + 1,
+                last_seen_at = now()
+            ",
+            self.dead_letter_table, self.dead_letter_table
+        )))
+        .bind(self.projection_id.as_ref())
+        .bind(smallint_partition)
+        .bind(sequence as i64)
+        .bind(event.stream_id.clone())
+        .bind(event.event_name.clone())
+        .bind(err.to_string())
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(AssertSqlSafe(format!(
+            "
+            INSERT INTO {} (projection_id, partition_id, sequence)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (projection_id, partition_id) DO UPDATE SET
+                sequence = GREATEST({}.sequence, EXCLUDED.sequence)
+            ",
+            self.checkpoints_table, self.checkpoints_table
+        )))
+        .bind(self.projection_id.as_ref())
+        .bind(smallint_partition)
+        .bind(sequence as i64)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+
+        // Keep the in-memory map consistent so `GetStartFrom` (a new epoch's
+        // subscription point) does not rewind to the dead-lettered message.
+        self.last_flushed_sequences.insert(partition_id, sequence);
+
+        error!(
+            projection_id = %self.projection_id,
+            partition_id,
+            sequence,
+            stream_id = %event.stream_id,
+            event_name = %event.event_name,
+            "dead-lettered undecodable Sierra message (issue #37/#411); checkpoint advanced past it, projector continues"
+        );
+
+        Ok(())
     }
 }
 
@@ -995,6 +1104,8 @@ where
 pub enum PostgresEventProcessorError {
     #[error(transparent)]
     GetStartFrom(#[from] SendError<(), sqlx::Error>),
+    #[error(transparent)]
+    UndecodableSierraMessage(#[from] crate::TryFromSierraEventError),
     #[error(transparent)]
     Postgres(#[from] sqlx::Error),
     #[error("unexpected last event id, expected {expected:?}")]

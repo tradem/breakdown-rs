@@ -33,8 +33,13 @@ commits (ADR-020 D5).
   `checkpoint_progress` — the operator-facing health signal; psql variants
   documented in `docs/operations/runbooks.md` → "Projector dead-letter
   health (issue #37)".
-- Tier-4 regression test `projector_dead_letter_tests.rs` (FK-violation
-  repro of the original #37 report).
+- Stream-layer coverage (issue #411): Sierra messages whose payload/metadata
+  cannot be decoded are dead-lettered by the `EventHandlerStream` via the new
+  `EventProcessor::dead_letter_undecodable` (raw coordinates preserved in
+  `TryFromSierraEventError`); processors without a durable DLQ surface (photo
+  sagas, report triggers) keep the restart behavior via the default impl.
+- Tier-4 regression tests `projector_dead_letter_tests.rs` (FK-violation
+  repro of the original #37 report; corrupt-payload stream-layer repro).
 - Rides with the open 0.16.0 MINOR; no additional bump (0.16.0 unreleased).
   The vendored `kameo_es` path patch is bumped `0.1.0` → `0.2.0` (new public
   `EventErrorClassify` trait + dead-letter path; not published to crates.io,

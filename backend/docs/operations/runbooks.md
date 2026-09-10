@@ -424,6 +424,12 @@ restart-looping forever:
 4. Replays of the same event bump the row's `attempts` / `last_seen_at`
    instead of duplicating it.
 
+The same path covers Sierra messages whose payload/metadata cannot be decoded
+at all (corruption): the stream layer dead-letters the raw message (DLQ row
+with `sqlstate`/`constraint_name` NULL, error text from the CBOR decoder) and
+acknowledges the subscription cursor, so a malformed message cannot stall the
+category either.
+
 The #404 savepoint-skip for the four authoritative uniqueness constraints is
 unchanged and takes precedence (it keeps the authoritative projection row and
 never reaches the retry budget / DLQ).

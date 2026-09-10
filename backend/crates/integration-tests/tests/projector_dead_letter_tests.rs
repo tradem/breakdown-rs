@@ -400,3 +400,113 @@ async fn fk_violation_event_is_dead_lettered_and_projector_keeps_advancing() -> 
 
     Ok(())
 }
+
+/// A Sierra message whose payload cannot be decoded (corruption) is
+/// dead-lettered at the *stream* layer (issue #411): the DLQ row carries the
+/// raw message coordinates, the checkpoint advances past it, and the
+/// projector continues with the next event instead of restart-looping on the
+/// malformed message forever.
+#[tokio::test]
+async fn undecodable_sierra_message_is_dead_lettered_and_projector_keeps_advancing() -> Result<()> {
+    init_tracing();
+    let (pool, _pg) = fixtures::spawn_postgres().await?;
+    sqlx::migrate!("../infra/migrations").run(&pool).await?;
+    let (redis_client, _conn, _sierra) = fixtures::spawn_sierradb().await?;
+
+    let _projector = spawn_costume_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
+
+    let health = ProjectorHealthRepository::new(pool.clone());
+
+    let costume_id = Uuid::now_v7();
+    let stream = format!("costume-{costume_id}");
+
+    // 1. Corrupt message: SierraDB stores the payload opaque, so EAPPEND
+    //    accepts bytes that no CBOR decoder can read (break marker at the
+    //    start). The stream's decode fails before any worker involvement —
+    //    pre-#411 this restart-looped the projector forever.
+    eappend(
+        &redis_client,
+        &stream,
+        "CostumeCreated",
+        "EMPTY",
+        b"\xff\xff\xff\xff",
+    )
+    .await?;
+
+    // 2. Trailing valid event on the same stream — only processed after the
+    //    corrupt message was dead-lettered; proves the projector keeps
+    //    advancing.
+    let created = CostumeEvent::CostumeCreated {
+        id: costume_id,
+        character_id: None,
+        notes: String::new(),
+        details: Vec::new(),
+        photos: Vec::new(),
+        version: AggregateVersion(1),
+    };
+    eappend(
+        &redis_client,
+        &stream,
+        "CostumeCreated",
+        "0",
+        &encode_event(&created)?,
+    )
+    .await?;
+    let (v1, _) = await_costume_within(&pool, costume_id, 1, POISON_SETTLE).await?;
+    assert_eq!(
+        v1, 1,
+        "projector alive and advanced past the corrupt message"
+    );
+
+    // 3. Durable DLQ row with the raw message coordinates and error.
+    let deadline = Instant::now() + POISON_SETTLE;
+    let entry = loop {
+        let entries: Vec<DeadLetterEntry> = health.list_dead_letters(100).await?;
+        let matches: Vec<&DeadLetterEntry> = entries
+            .iter()
+            .filter(|e| {
+                e.projection_id == "costume" && e.stream_id.contains(&costume_id.to_string())
+            })
+            .collect();
+        if matches.len() == 1 {
+            break matches[0].clone();
+        }
+        if Instant::now() >= deadline {
+            bail!(
+                "dead-letter lag: expected exactly 1 DLQ row for costume {costume_id}, saw {} entries",
+                entries.len()
+            );
+        }
+        tokio::time::sleep(POLL_INTERVAL).await;
+    };
+    assert_eq!(entry.event_name, "CostumeCreated");
+    assert!(
+        entry.error_message.contains("deserialize"),
+        "decode failure recorded, got: {}",
+        entry.error_message
+    );
+    assert!(
+        entry.sqlstate.is_none(),
+        "a decode failure carries no SQLSTATE"
+    );
+
+    // 4. Checkpoints advanced past the corrupt message's partition position.
+    let deadline = Instant::now() + POISON_SETTLE;
+    loop {
+        let rows = costume_checkpoints(&pool).await?;
+        if rows.iter().any(|(_, seq)| *seq >= 1) {
+            break;
+        }
+        if Instant::now() >= deadline {
+            bail!("projection lag: costume checkpoints {rows:?} never advanced past position 1");
+        }
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
+
+    Ok(())
+}
