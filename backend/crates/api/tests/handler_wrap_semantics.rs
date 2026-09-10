@@ -165,6 +165,35 @@ async fn wrap_then_plan_returns_201() {
     assert_eq!(body.version, AggregateVersion::INITIAL.next());
 }
 
+/// Issue #404: planning a *second* scene shoot for the same
+/// (scene_id, shooting_day_id) pair under a fresh stream id is rejected with
+/// a clean 409 at the API edge — before dispatch — instead of the old 2xx
+/// whose `SceneShootPlanned` event becomes a projector-killing poison event.
+#[tokio::test]
+async fn plan_returns_409_when_pair_already_projected() {
+    let ports = FakePorts::default();
+    let day = seed_day(&ports, None).await;
+    let scene = seed_scene_with_episode(&ports).await;
+    // Existing shoot for the same pair under a *different* stream id.
+    seed_scene_shoot(&ports, SceneShootId::new(), scene, day).await;
+    let state = AppState::new(ports);
+
+    let problem = plan_scene_shoot::<FakePorts>(
+        State(state),
+        dummy_user(),
+        Path((day, scene)),
+        Json(PlanSceneShootRequest {
+            planned_order: LexicalSortKey::from_static("m"),
+        }),
+    )
+    .await
+    .expect_err("a duplicate pair must be rejected at the API edge")
+    .into_problem();
+
+    assert_eq!(problem.status, 409);
+    assert_eq!(problem.code, "scene-shoot.pair-already-exists");
+}
+
 // ---------------------------------------------------------------------------
 // Execution is frozen on a wrapped day
 // ---------------------------------------------------------------------------

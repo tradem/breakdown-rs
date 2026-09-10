@@ -43,6 +43,9 @@ problem-auth-unauthenticated =
 problem-block-not-found =
     Block nicht gefunden.
 
+problem-block-number-already-exists =
+    Für diese Serie existiert bereits ein Block mit dieser Nummer.
+
 problem-block-validation =
     Die Block-Anfrage ist nicht gültig.
 
@@ -90,6 +93,9 @@ problem-domain-validation =
 
 problem-episode-not-found =
     Episode nicht gefunden.
+
+problem-episode-number-already-exists =
+    Für diese Serie existiert bereits eine Episode mit dieser Nummer.
 
 problem-episode-validation =
     Die Episode-Anfrage ist nicht gültig.
@@ -198,6 +204,9 @@ problem-scene-validation =
 
 problem-season-not-found =
     Staffel nicht gefunden.
+
+problem-season-number-already-exists =
+    Für diese Serie existiert bereits eine Staffel mit dieser Nummer.
 
 problem-season-validation =
     Die Staffel-Anfrage ist nicht gültig.

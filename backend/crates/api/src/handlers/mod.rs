@@ -56,7 +56,10 @@ use breakdown_core::episode::commands::{CreateEpisode, RenameEpisode};
 use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::error::DomainError;
-use breakdown_core::error_registry::MEMBERSHIP_NOT_FOUND;
+use breakdown_core::error_registry::{
+    BLOCK_NUMBER_ALREADY_EXISTS, EPISODE_NUMBER_ALREADY_EXISTS, MEMBERSHIP_NOT_FOUND,
+    SCENE_SHOOT_PAIR_ALREADY_EXISTS, SEASON_NUMBER_ALREADY_EXISTS,
+};
 use breakdown_core::membership::policy::{Action, PolicyDecision, SeasonAuthContext};
 use breakdown_core::membership::views::MembershipView;
 use breakdown_core::membership::{
@@ -623,6 +626,23 @@ pub async fn create_season<P: Ports>(
     current_user: CurrentUser,
     Json(req): Json<CreateSeasonRequest>,
 ) -> ApiResult<IdVersionResponse> {
+    // #404 invariant pre-check (advisory): (series_id, number) uniqueness is
+    // enforced authoritatively by idx_projection_season_series_number; this
+    // handler-side read-model lookup — the only legitimate CQRS consumer —
+    // turns a violation into a clean 409 before dispatch instead of a 2xx
+    // plus a poison event for the projector.
+    if state
+        .ports
+        .season_repo()
+        .find_by_series_and_number(req.series_id, req.number)
+        .await?
+        .is_some()
+    {
+        return Err(ApiError::Domain(DomainError::Conflict {
+            code: &SEASON_NUMBER_ALREADY_EXISTS,
+            reason: "season number already taken".into(),
+        }));
+    }
     let id = Uuid::now_v7();
     let cmd = CreateSeason {
         id,
@@ -809,6 +829,23 @@ pub async fn create_block<P: Ports>(
     current_user: CurrentUser,
     Json(req): Json<CreateBlockRequest>,
 ) -> ApiResult<IdVersionResponse> {
+    // #404 invariant pre-check (advisory): (series_id, number) uniqueness is
+    // enforced authoritatively by idx_projection_block_series_number; this
+    // handler-side read-model lookup — the only legitimate CQRS consumer —
+    // turns a violation into a clean 409 before dispatch instead of a 2xx
+    // plus a poison event for the projector.
+    if state
+        .ports
+        .block_repo()
+        .find_by_series_and_number(req.series_id, req.number)
+        .await?
+        .is_some()
+    {
+        return Err(ApiError::Domain(DomainError::Conflict {
+            code: &BLOCK_NUMBER_ALREADY_EXISTS,
+            reason: "block number already taken".into(),
+        }));
+    }
     let id = Uuid::now_v7();
     let cmd = CreateBlock {
         id,
@@ -966,6 +1003,23 @@ pub async fn create_episode<P: Ports>(
     current_user: CurrentUser,
     Json(req): Json<CreateEpisodeRequest>,
 ) -> ApiResult<IdVersionResponse> {
+    // #404 invariant pre-check (advisory): (series_id, number) uniqueness is
+    // enforced authoritatively by idx_projection_episode_series_number; this
+    // handler-side read-model lookup — the only legitimate CQRS consumer —
+    // turns a violation into a clean 409 before dispatch instead of a 2xx
+    // plus a poison event for the projector.
+    if state
+        .ports
+        .episode_repo()
+        .find_by_series_and_number(req.series_id, req.number)
+        .await?
+        .is_some()
+    {
+        return Err(ApiError::Domain(DomainError::Conflict {
+            code: &EPISODE_NUMBER_ALREADY_EXISTS,
+            reason: "episode number already taken".into(),
+        }));
+    }
     let id = Uuid::now_v7();
     let cmd = CreateEpisode {
         id,
@@ -2694,6 +2748,27 @@ pub async fn plan_scene_shoot<P: Ports>(
 ) -> ApiResult<IdVersionResponse> {
     let id = SceneShootId::new();
     let series_id = Some(series_id_for_scene(&state, scene_id).await?);
+    // #404 invariant pre-check (advisory): (scene_id, shooting_day_id) pair
+    // uniqueness is enforced authoritatively by uq_projection_scene_shoot_pair;
+    // this handler-side read-model lookup — the only legitimate CQRS consumer
+    // — turns a violation into a clean 409 before dispatch instead of a 2xx
+    // plus a poison event for the projector.
+    match state
+        .ports
+        .scene_shoot_repo()
+        .find_by_scene_and_day(scene_id, day_id)
+        .await
+    {
+        Ok(_) => {
+            return Err(ApiError::Domain(DomainError::Conflict {
+                code: &SCENE_SHOOT_PAIR_ALREADY_EXISTS,
+                reason: "scene shoot pair already taken".into(),
+            }));
+        }
+        // Not projected (yet) — advisory pre-check passes, dispatch proceeds.
+        Err(DomainError::NotFound { .. }) => {}
+        Err(e) => return Err(e.into()),
+    }
     let cmd = PlanSceneShoot {
         id,
         scene_id,

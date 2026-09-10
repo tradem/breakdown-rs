@@ -17,6 +17,7 @@ mod character;
 mod costume;
 mod costume_category;
 mod episode;
+mod invariant_skip;
 mod membership;
 mod scene;
 mod scene_shoot;

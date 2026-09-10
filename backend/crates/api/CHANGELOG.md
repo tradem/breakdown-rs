@@ -14,6 +14,21 @@ commits (ADR-020 D5).
 
 ## [0.10.0] - Unreleased
 
+### Fixed — 409 pre-checks for cross-aggregate uniqueness invariants (issue #404)
+
+- `POST /shooting-days/{day_id}/scenes/{scene_id}/scene-shoots`,
+  `POST /seasons`, `POST /blocks`, `POST /episodes`: the handlers now check
+  the corresponding read-model lookup **before** dispatch (the only
+  legitimate CQRS consumer — AGENTS.md §1) and answer a violation with a
+  clean 409 (`scene-shoot.pair-already-exists`,
+  `season.number-already-exists`, `block.number-already-exists`,
+  `episode.number-already-exists`) instead of the old 2xx whose
+  `*Created`/`SceneShootPlanned` event became a projector-killing poison
+  event (23505). Pre-checks are advisory — the projection unique
+  constraints remain authoritative against races. Fluent texts in both
+  locales, golden snapshots updated.
+- Rides with the open 0.10.0 MINOR; no additional bump.
+
 > **Note (release owner):** this section bundles the entries that accumulated
 > under `[Unreleased]`. Two of them were written as “no version bump”
 > (#29, test-only) / “PATCH bump” (#270); they ship with the **D3 cascade**

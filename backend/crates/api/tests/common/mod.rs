@@ -903,10 +903,18 @@ impl SeasonRepository for FakeSeasonRepo {
     }
     async fn find_by_series_and_number(
         &self,
-        _series_id: SeriesId,
-        _number: i32,
+        series_id: SeriesId,
+        number: i32,
     ) -> Result<Option<SeasonView>, DomainError> {
-        Ok(None)
+        // Backs the #404 numbering pre-check: scan the fake store like the
+        // production repository would; None = free.
+        Ok(self
+            .seasons
+            .lock()
+            .await
+            .values()
+            .find(|s| s.series_id == series_id && s.number == number)
+            .cloned())
     }
 }
 
@@ -944,10 +952,18 @@ impl BlockRepository for FakeBlockRepo {
     }
     async fn find_by_series_and_number(
         &self,
-        _series_id: SeriesId,
-        _number: i32,
+        series_id: SeriesId,
+        number: i32,
     ) -> Result<Option<BlockView>, DomainError> {
-        Ok(None)
+        // Backs the #404 numbering pre-check: scan the fake store like the
+        // production repository would; None = free.
+        Ok(self
+            .blocks
+            .lock()
+            .await
+            .values()
+            .find(|b| b.series_id == series_id && b.number == number)
+            .cloned())
     }
 }
 
@@ -1032,10 +1048,18 @@ impl EpisodeRepository for FakeEpisodeRepo {
     }
     async fn find_by_series_and_number(
         &self,
-        _series_id: SeriesId,
-        _number: i32,
+        series_id: SeriesId,
+        number: i32,
     ) -> Result<Option<EpisodeView>, DomainError> {
-        Ok(None)
+        // Backs the #404 numbering pre-check: scan the fake store like the
+        // production repository would; None = free.
+        Ok(self
+            .episodes
+            .lock()
+            .await
+            .values()
+            .find(|e| e.series_id == series_id && e.number == number)
+            .cloned())
     }
 }
 
@@ -1408,10 +1432,18 @@ impl SceneShootRepository for FakeSceneShootRepo {
     }
     async fn find_by_scene_and_day(
         &self,
-        _scene_id: Uuid,
-        _shooting_day_id: ShootingDayId,
+        scene_id: Uuid,
+        shooting_day_id: ShootingDayId,
     ) -> Result<SceneShootView, DomainError> {
-        unreachable!("not used in authz tests")
+        // Backs the #404 pair-uniqueness pre-check: scan the fake store for a
+        // matching (scene_id, shooting_day_id) pair; not-found = free.
+        self.shoots
+            .lock()
+            .await
+            .values()
+            .find(|s| s.scene_id == scene_id && s.shooting_day_id == shooting_day_id)
+            .cloned()
+            .ok_or(DomainError::not_found("scene-shoot"))
     }
     async fn list_by_scene(&self, _scene_id: Uuid) -> Result<Vec<SceneShootView>, DomainError> {
         unreachable!("not used in authz tests")

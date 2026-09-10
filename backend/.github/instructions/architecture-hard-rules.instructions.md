@@ -66,12 +66,29 @@ read model (dispo/soll-ist reports) never updates.
    logged, and (with #37 minimal) skipped into the poison/dead-letter table
    with a health signal.
 
-**Known instances (see #404, both Launch-Gate blockers):**
+**Known instances (see #404 — closed by the #404 fix; pre-checks are advisory, the constraints stay authoritative):**
 
 | Invariant | Projection constraint | Status |
 |---|---|---|
-| SceneShoot pair-uniqueness `(scene_id, shooting_day_id)` | `uq_projection_scene_shoot_pair` | 2xx + projector crash — needs API-edge 409 + projector handling |
-| Season numbering `(series_id, number)` | `idx_projection_season_series_number` | same class — `number` arrives from the client, see `season/aggregate.rs` comment |
+| SceneShoot pair-uniqueness `(scene_id, shooting_day_id)` | `uq_projection_scene_shoot_pair` | closed: API-edge 409 (`scene-shoot.pair-already-exists`) + projector savepoint-skip |
+| Season numbering `(series_id, number)` | `idx_projection_season_series_number` | closed: API-edge 409 (`season.number-already-exists`) + projector savepoint-skip |
+| Block numbering `(series_id, number)` | `idx_projection_block_series_number` | closed: API-edge 409 (`block.number-already-exists`) + projector savepoint-skip (same class, fixed with #404) |
+| Episode numbering `(series_id, number)` | `idx_projection_episode_series_number` | closed: API-edge 409 (`episode.number-already-exists`) + projector savepoint-skip (same class, fixed with #404) |
+
+The projector skip lives in `crates/infra/src/projectors/invariant_skip.rs`: a 23505 on
+exactly these constraints is a *permanent* violation, isolated in a SAVEPOINT (a failed
+statement aborts the batch transaction), logged with `tracing::warn!`, and the event is
+acknowledged — the projection keeps the authoritative row. Full DLQ/poison-table mechanics
+remain specced in #37.
+
+**Gift-record cleanup (upgrade path, #404):** deployments that ran a pre-#404 build may
+hold invariant-violating events. **Dev:** volume reset (`docker compose -f
+docker-compose.dev.yml down -v`) is sufficient. **Prod/upgrade:** after deploying this fix
+the projectors skip the violating events on replay (warn log per skipped event — grep for
+"skipped invariant-violating event"). The projection keeps the first (authoritative) row;
+the duplicate stream sits in the event store unreferenced by the projection and is inert
+for reports. A physical cleanup of duplicate event streams is optional and belongs with
+the #37 DLQ design (do not ad-hoc delete events).
 
 **Known non-issues (do not "fix"):** `projection_audit.event_key` dedup
 (`ON CONFLICT (event_key) DO NOTHING` ✓), `dedup_key` job tables (report_ops /
