@@ -260,6 +260,7 @@ Use in PR body to auto-close issues:
 
 - **Always run tests** before creating PR
 - **Use conventional commits** in PR title
+- **Write in English**: PR titles, descriptions, commit messages, issue comments, and review replies are written in English — English is the project language for all persistent artifacts (chat/discussion with the user may stay in their language)
 - **Link all related issues** properly
 - **Track follow-ups** as separate issues
 - **Add co-authored-by** to PR and commits
