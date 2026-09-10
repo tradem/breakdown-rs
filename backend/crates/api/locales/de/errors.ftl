@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: kimi-k3 (neuralwatt)
+# Co-authored-by: omen-alpha (opencode-go)
 
 # Problem-detail messages (ADR-031 D5). One message per registered
 # problem code; the key is derived 1:1 from the code

@@ -4,6 +4,7 @@
 // Co-authored-by: qwen3.6-35b (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 //! Projection actors – one `PostgresProcessor` per aggregate.
 //!
