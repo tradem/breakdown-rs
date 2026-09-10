@@ -41,7 +41,14 @@
       FK-violation repro (assign costume to never-created character) →
       DLQ row (SQLSTATE 23503 + constraint), checkpoint advances past the
       poison event, trailing event on the same stream still processed,
-      health queries surface the poison event.
+      health queries surface the poison event; pre-poison unflushed event
+      (DetailAdded) asserted to survive atomically (review finding).
+- [x] Stream-layer dead-letter for undecodable Sierra messages (issue #411,
+      review follow-up): raw event carried through
+      `TryFromSierraEventError`/`NextEventError::UndecodableEvent`, new
+      `EventProcessor::dead_letter_undecodable` (propagating default for
+      in-process processors; `PostgresProcessor` writes DLQ + checkpoint
+      atomically), corrupt-payload regression test.
 
 ## 4. Docs & governance
 
