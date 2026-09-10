@@ -3245,6 +3245,7 @@ dependencies = [
  "testcontainers",
  "testcontainers-modules",
  "tokio",
+ "tracing",
  "tracing-subscriber",
  "uuid",
 ]
