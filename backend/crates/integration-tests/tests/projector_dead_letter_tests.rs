@@ -32,6 +32,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
+use breakdown_core::costume::events::CostumeDetail;
 use breakdown_core::costume::events::CostumeEvent;
 use breakdown_core::shared::AggregateVersion;
 use chrono::Utc;
@@ -264,42 +265,68 @@ async fn fk_violation_event_is_dead_lettered_and_projector_keeps_advancing() -> 
     // Baseline checkpoint (the created stream's partition sits at 0).
     let baseline = await_checkpoint_exists(&pool).await?;
 
-    // 2. Poison event: assign to a character that was never created — the
+    // 2. Successful event *immediately before* the poison event — both land
+    //    in the same batch transaction (flushes only fire on event-count/time
+    //    checkpoints, and the poison retry loop runs before any flush check).
+    //    Regression guard for the #37 review finding: the dead-letter path
+    //    must commit this event's effect atomically with the DLQ row +
+    //    checkpoint advance, never roll it back and skip it on replay.
+    let detail = CostumeDetail {
+        id: Uuid::now_v7(),
+        text: "pre-poison detail".into(),
+        subject: None,
+        category_id: None,
+    };
+    let detail_added = CostumeEvent::DetailAdded {
+        id: costume_id,
+        detail: detail.clone(),
+        version: AggregateVersion(2),
+    };
+    eappend(
+        &redis_client,
+        &stream,
+        "DetailAdded",
+        "0",
+        &encode_event(&detail_added)?,
+    )
+    .await?;
+
+    // 3. Poison event: assign to a character that was never created — the
     //    projector's UPDATE hits `projection_costume_character_id_fkey`
     //    (23503, permanent). Pre-#37 this stalled the projector forever.
     let ghost_character = Uuid::now_v7();
     let assign = CostumeEvent::CostumeAssignedToCharacter {
         id: costume_id,
         character_id: ghost_character,
-        version: AggregateVersion(2),
-    };
-    eappend(
-        &redis_client,
-        &stream,
-        "CostumeAssignedToCharacter",
-        "0",
-        &encode_event(&assign)?,
-    )
-    .await?;
-
-    // 3. Trailing event on the same stream — in-order delivery means it is
-    //    only processed after the poison event was dead-lettered; proves the
-    //    projector keeps advancing instead of restart-looping.
-    let trailing = CostumeEvent::CostumeNotesUpdated {
-        id: costume_id,
-        notes: "after-poison".into(),
         version: AggregateVersion(3),
     };
     eappend(
         &redis_client,
         &stream,
-        "CostumeNotesUpdated",
+        "CostumeAssignedToCharacter",
         "1",
+        &encode_event(&assign)?,
+    )
+    .await?;
+
+    // 4. Trailing event on the same stream — in-order delivery means it is
+    //    only processed after the poison event was dead-lettered; proves the
+    //    projector keeps advancing instead of restart-looping.
+    let trailing = CostumeEvent::CostumeNotesUpdated {
+        id: costume_id,
+        notes: "after-poison".into(),
+        version: AggregateVersion(4),
+    };
+    eappend(
+        &redis_client,
+        &stream,
+        "CostumeNotesUpdated",
+        "2",
         &encode_event(&trailing)?,
     )
     .await?;
-    let (v3, notes) = await_costume_within(&pool, costume_id, 3, POISON_SETTLE).await?;
-    assert_eq!(v3, 3, "projector alive and advanced past the poison event");
+    let (v4, notes) = await_costume_within(&pool, costume_id, 4, POISON_SETTLE).await?;
+    assert_eq!(v4, 4, "projector alive and advanced past the poison event");
     assert_eq!(notes, "after-poison");
 
     // 4. Durable dead-letter record with full diagnostics.
@@ -320,6 +347,26 @@ async fn fk_violation_event_is_dead_lettered_and_projector_keeps_advancing() -> 
     );
     assert!(entry.error_message.contains("23503"));
     assert!(entry.attempts >= 1);
+
+    // 5b. Regression (issue #37 review): the successful unflushed event
+    //     before the poison event must have been committed atomically with
+    //     the dead-letter row + checkpoint advance — the pre-#37-review
+    //     full-batch rollback would have lost it while the checkpoint jumped
+    //     past it, and replay would never re-apply it.
+    let detail_rows: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*) FROM projection_costume_detail
+        WHERE costume_id = $1 AND detail_id = $2
+        "#,
+    )
+    .bind(costume_id)
+    .bind(detail.id)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(
+        detail_rows, 1,
+        "the pre-poison unflushed event's effect must survive the dead-letter path"
+    );
 
     // 5. Checkpoints advanced strictly past the poison event — without the
     //    dead-letter path the worker would retry forever and never flush.

@@ -29,5 +29,8 @@ CREATE TABLE IF NOT EXISTS projection_dead_letter (
     PRIMARY KEY (projection_id, partition_id, sequence)
 );
 
-CREATE INDEX IF NOT EXISTS idx_projection_dead_letter_projection_id
-    ON projection_dead_letter(projection_id, last_seen_at DESC);
+-- Column order matches ProjectorHealthRepository::list_dead_letters
+-- (`ORDER BY last_seen_at DESC, projection_id, partition_id, sequence LIMIT`)
+-- so the sort+limit is served from the index without a separate sort step.
+CREATE INDEX IF NOT EXISTS idx_projection_dead_letter_recent
+    ON projection_dead_letter(last_seen_at DESC, projection_id, partition_id, sequence);

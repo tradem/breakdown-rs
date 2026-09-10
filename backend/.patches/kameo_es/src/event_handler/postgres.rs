@@ -515,13 +515,16 @@ where
 
     /// Record an unprocessable event durably (issue #37): upsert into the
     /// dead-letter table and advance the projector's checkpoint past the
-    /// event in *one* transaction, so the projector continues with the next
-    /// event instead of restart-looping on the poison event forever.
+    /// event — reusing the worker's retained batch transaction so the
+    /// earlier successful events' effects, the dead-letter row, and the
+    /// checkpoint advance commit **atomically** (issue #37 review: a
+    /// checkpoint jump past unflushed successful events would lose their
+    /// effects on replay). If no transaction is retained, a fresh one is
+    /// begun. On any failure the error propagates and the epoch restarts
+    /// (the pre-#37 behavior), so a broken dead-letter path degrades safely.
     ///
     /// Idempotent: a replay of the same `(projection_id, partition_id,
-    /// sequence)` bumps `attempts` instead of duplicating the row. On any
-    /// failure the error propagates and the epoch restarts (the pre-#37
-    /// behavior), so a broken dead-letter path degrades safely.
+    /// sequence)` bumps `attempts` instead of duplicating the row.
     async fn dead_letter_event(
         &mut self,
         event: &Event,
@@ -543,11 +546,19 @@ where
         let sqlstate_log = sqlstate.clone().unwrap_or_else(|| "-".to_string());
         let constraint_log = constraint.clone().unwrap_or_else(|| "-".to_string());
 
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|err| EventHandlerError::Processor(err.into()))?;
+        // Reuse the retained batch transaction (contains the rolled-back
+        // savepoint only — earlier successful events' effects are intact) so
+        // their effects commit atomically with the dead-letter row and the
+        // checkpoint advance. Fall back to a fresh transaction when none is
+        // retained (e.g. the failing event started the batch).
+        let mut tx = match self.transaction.take() {
+            Some(tx) => tx,
+            None => self
+                .pool
+                .begin()
+                .await
+                .map_err(|err| EventHandlerError::Processor(err.into()))?,
+        };
 
         sqlx::query(AssertSqlSafe(format!(
             "
@@ -596,9 +607,12 @@ where
 
         // Keep the in-memory handled/flushed maps consistent so subsequent
         // flushes skip this partition (both equal) and the subscription does
-        // not rewind to the poison event.
+        // not rewind to the poison event. The whole batch transaction was
+        // committed above, so the flush counter resets too.
         self.last_handled_sequences.insert(partition_id, sequence);
         self.last_flushed_sequences.insert(partition_id, sequence);
+        self.events_since_flush = 0;
+        self.last_flushed = Instant::now();
 
         error!(
             projection_id = %self.projection_id,
@@ -798,11 +812,68 @@ where
         }
     };
 
+    // Issue #37 review: isolate each event in a nested SAVEPOINT so a failing
+    // event never discards the effects of earlier successful events that are
+    // still unflushed in this batch transaction. Without the savepoint the
+    // rollback below would lose those effects while the dead-letter path
+    // advances the checkpoint past them — silent data loss on replay.
+    //
+    // Raw `SAVEPOINT`/`ROLLBACK TO`/`RELEASE` statements are used instead of
+    // sqlx's nested-transaction API because the handler context type is
+    // `Transaction<'static, Postgres>` (a savepoint `Transaction` borrowing
+    // `tx` is not `'static`). The name embeds only numeric coordinates, so
+    // identifier injection is impossible; retries reuse the same name safely
+    // because the previous attempt's savepoint was released or rolled back.
+    let savepoint = format!(
+        "kameo_es_sp_{}_{}",
+        event.partition_id, event.partition_sequence
+    );
+
+    let begin_sp = sqlx::query(AssertSqlSafe(format!("SAVEPOINT {savepoint}")))
+        .execute(&mut *tx)
+        .await;
+    if let Err(err) = begin_sp {
+        error!("failed to start event savepoint: {err:?}");
+        // Likely a broken connection — drop the batch (replay-safe: the
+        // checkpoint never advanced past the earlier events).
+        *transaction = None;
+        return (
+            (pool, transaction, handler, event),
+            Err(EventHandlerError::Processor(err.into())),
+        );
+    }
+
     let res = handler.composite_handle(&mut tx, event.clone()).await;
     if res.is_err() {
-        let _ = tx.rollback().await;
-        *transaction = None;
+        match sqlx::query(AssertSqlSafe(format!("ROLLBACK TO SAVEPOINT {savepoint}")))
+            .execute(&mut *tx)
+            .await
+        {
+            Ok(_) => {
+                // Retain the transaction: it still holds the earlier
+                // successful events' effects. The poison path commits them
+                // atomically with the dead-letter row and the checkpoint
+                // advance; a transient error propagates and the epoch
+                // restart re-processes from the checkpoint.
+                *transaction = Some(tx);
+            }
+            Err(err) => {
+                error!("failed to roll back event savepoint: {err:?}");
+                // The batch transaction is in an unknown state — drop it;
+                // replay from the checkpoint covers the earlier events.
+                *transaction = None;
+            }
+        }
         return ((pool, transaction, handler, event), res);
+    }
+
+    if let Err(err) = sqlx::query(AssertSqlSafe(format!("RELEASE SAVEPOINT {savepoint}")))
+        .execute(&mut *tx)
+        .await
+    {
+        error!("failed to release event savepoint: {err:?}");
+        // If the transaction is unusable the next flush fails and the epoch
+        // restarts — replay-safe either way.
     }
 
     *transaction = Some(tx);

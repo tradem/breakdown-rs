@@ -172,10 +172,16 @@ impl EventErrorClassify for sqlx::Error {
                 .code()
                 .as_deref()
                 .is_some_and(|code| code.starts_with("23") || code.starts_with("22")),
-            // A column decode failure means the persisted payload shape does
-            // not match the projector's expectation — retrying the identical
-            // event reproduces it → permanent.
-            sqlx::Error::ColumnDecode { .. } => true,
+            // NOTE: `ColumnDecode` is deliberately NOT permanent. It is
+            // indistinguishable from a handler-side projection-read decode
+            // failure (e.g. `CostumeProjector::resolve_category_name` uses
+            // `query_scalar`), which is a schema/deploy issue — dead-lettering
+            // every event on such a mismatch would flood the DLQ with
+            // non-poison rows. Event-*payload* deserialization never surfaces
+            // as `sqlx::Error` — it fails in `DeserializeEvent` (ciborium),
+            // which is permanent by construction. Everything else (connection,
+            // pool timeouts, serialization failure, ...) may succeed on retry
+            // → transient.
             _ => false,
         }
     }
@@ -637,9 +643,14 @@ mod classification_tests {
         assert!(!db_error("XX999", None).is_permanent_event_error());
     }
 
+    /// `ColumnDecode` is transient (issue #37 CodeRabbit review): it cannot
+    /// be distinguished from a handler-side projection-read decode failure
+    /// (schema/deploy issue) — and event-*payload* deserialization never
+    /// surfaces as `sqlx::Error` (it is `DeserializeEvent`, permanent by
+    /// construction).
     #[test]
-    fn column_decode_is_permanent_and_non_database_errors_are_transient() {
-        assert!(sqlx::Error::ColumnDecode {
+    fn column_decode_and_non_database_errors_are_transient() {
+        assert!(!sqlx::Error::ColumnDecode {
             index: "partition_id".to_string(),
             source: "bad".into(),
         }

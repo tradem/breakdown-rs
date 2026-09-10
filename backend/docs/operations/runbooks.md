@@ -454,21 +454,45 @@ The same queries are available programmatically via
 ### Reprocessing a dead-lettered event
 
 Dead-lettering is a *skip with a durable trace*: the event stays in SierraDB
-but is not applied to the projection. To re-process after fixing the root
-cause (e.g. after manually creating the missing parent row):
+but is not applied to the projection. **Note that later events of the same
+stream can already have advanced the projection** (e.g. a `CostumeCreated`
+(v1) → poison `CostumeAssignedToCharacter` (v2) → `CostumeNotesUpdated` (v3)
+sequence ends with the row at v3 — the skipped v2 assignment is *not*
+re-applied by later events). Reprocessing is therefore **projector-specific**:
 
-1. Fix the root cause so the event can process (or accept the skip).
-2. Reset the projector's checkpoint to *before* the poison event:
+- Projectors using version guards (`WHERE version < $N`) skip replayed events
+  whose version is not higher than the row's current version — the replayed
+  poison event is a no-op if a later event already advanced the version.
+- Handlers without version guards (e.g. the costume projector's `UPDATE ...
+  WHERE id` statements) re-apply the event on replay. Idempotent upserts
+  converge, but a *skipped* effect (like the dead-lettered assignment) is
+  only re-applied if the replayed event itself succeeds.
+
+Procedure (conservative — works for all projectors):
+
+1. **Stop the projector first** (restart the API down; the projector caches
+   checkpoints in memory, so editing the table under a live projector has no
+   effect and may be overwritten).
+2. Fix the root cause so the event can process (e.g. create the missing
+   parent row), or decide the skip is final.
+3. Reset the projector's checkpoint to *before* the poison event:
    `UPDATE sierradb_event_checkpoints SET sequence = $before
     WHERE projection_id = $cat AND partition_id = $part;`
-3. Restart the API (or wait for a new epoch). The projector re-processes
-   from the reset point; the DLQ row's `attempts` bumps on each pass.
-4. Once the projection is correct, clear the DLQ row (or leave it as audit
+4. Restart the API — the projector reloads the edited checkpoint and
+   re-processes from the reset point (the DLQ row's `attempts` bumps on each
+   pass).
+5. Reconcile projection state the skipped/later events left inconsistent:
+   either emit a **current-version compensating event** through the normal
+   command path (preferred — the projector applies it like any other event),
+   or rebuild the affected projection from before the poison event. Do not
+   assume the replay alone converges the row (see the projector-specific
+   semantics above).
+6. Once the projection is correct, clear the DLQ row (or leave it as audit
    trail):
    `DELETE FROM projection_dead_letter WHERE projection_id = $cat AND
     partition_id = $part AND sequence = $seq;`
 
-**Do not delete events from SierraDB** — dead-lettered streams are inert for
-reports by construction (later events of the stream are `UPDATE ... WHERE
-id` statements that affect 0 rows); physical stream cleanup, if ever needed,
+**Do not delete events from SierraDB** — a dead-lettered event is inert for
+the projection *by the checkpoint skip*, but later events of the same stream
+may still modify the affected row; physical stream cleanup, if ever needed,
 is a separate design decision, not an ad-hoc operation.
