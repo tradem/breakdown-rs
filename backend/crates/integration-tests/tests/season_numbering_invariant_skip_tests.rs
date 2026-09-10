@@ -393,8 +393,18 @@ async fn duplicate_season_number_is_skipped_and_checkpoint_advances() -> Result<
             .filter(|w| w.season_id == season_b)
             .count();
         if count >= 1 {
+            // Let any duplicate warn land before asserting exactly-once —
+            // a second warn emitted right after this read must still be
+            // observed (issue #407 acceptance criterion 4).
+            tokio::time::sleep(POLL_INTERVAL * 4).await;
+            let settled = SKIP_WARNS
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|w| w.season_id == season_b)
+                .count();
             assert_eq!(
-                count, 1,
+                settled, 1,
                 "the skip warn must fire exactly once per skipped event"
             );
             break;

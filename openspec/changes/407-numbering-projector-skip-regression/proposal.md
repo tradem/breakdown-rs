@@ -14,9 +14,9 @@ invariant violations, PR #406).
 the owner pulled it forward into PR #406 (commit b672e94,
 `crates/integration-tests/tests/scene_shoot_invariant_skip_tests.rs`) and
 re-scoped the remainder on the issue: *extend the same coverage to the
-numbering projectors (season/block/episode) and couple the assertions with the
-#37 DLQ semantics if they change the skip behavior.* The remaining scope is
-therefore:
+numbering projectors (season/block/episode) and couple the assertions with
+the `#37` DLQ semantics if they change the skip behavior.* The remaining scope
+is therefore:
 
 1. Analog Tier-4 regression test for one numbering projector. **Season** is
    chosen (AC allows "einen der"): `SeasonCreated` needs no parent rows
@@ -41,8 +41,11 @@ therefore:
     (`UPDATE ... WHERE id = $1` → 0 rows, no new projection row, no error).
   - A trailing `SeasonCreated` (distinct number) on a third stream is
     projected — in-order processing proves the checkpoint advanced past the
-    poison event; additionally the `sierradb_event_checkpoints` sequence for
-    `projection_id = 'season'` strictly increases.
+    poison event; additionally the `sierradb_event_checkpoints` rows for
+    `projection_id = 'season'` show no baseline partition regressing and at
+    least one partition reaching `sequence >= 1` (only the duplicate stream
+    carries a second event, so only after the skip was acknowledged can a
+    partition flush beyond the poison event's position 0).
   - Exactly one warn (constraint + `season_id`) is captured per skipped event.
 - No production code changes. No version bumps (`none`).
 
