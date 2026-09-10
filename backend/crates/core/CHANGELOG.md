@@ -4,6 +4,7 @@
 <!-- Co-authored-by: longcat-2.0-free (opencode) -->
 <!-- Co-authored-by: hy4-preview (opencode-go) -->
 <!-- Co-authored-by: muse-spark-1.3-contributor (opencode-go) -->
+<!-- Co-authored-by: omen-alpha (opencode-go) -->
 
 # Changelog
 
@@ -13,6 +14,15 @@ crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
 ## [0.11.0] - Unreleased
+
+### Added — cross-aggregate uniqueness problem codes (issue #404)
+
+- `season.number-already-exists`, `block.number-already-exists`,
+  `episode.number-already-exists` (409): registered problem codes backing the
+  API-edge pre-checks for the series-numbering invariants (the
+  `scene-shoot.pair-already-exists` code already existed). The projection
+  unique indexes stay authoritative; the pre-checks are advisory.
+- Rides with the open 0.11.0 MINOR; no additional bump.
 
 ### Added — `SeasonRepository::list_all` (issue #377)
 

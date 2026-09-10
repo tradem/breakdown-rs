@@ -1,0 +1,7 @@
+{
+  "code": "episode.number-already-exists",
+  "detail": "Für diese Serie existiert bereits eine Episode mit dieser Nummer.",
+  "status": 409,
+  "title": "Episode number already exists",
+  "type": "https://docs.breakdown.example/problems/episode.number-already-exists"
+}

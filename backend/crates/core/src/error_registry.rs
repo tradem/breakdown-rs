@@ -35,7 +35,7 @@ pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
 /// Kept in sync with the `problem_codes!` invocation below by a compile-time
 /// assertion — adding or removing a code without deliberately updating this
 /// count fails the build (issue #232).
-const PROBLEM_CODE_COUNT: usize = 74;
+const PROBLEM_CODE_COUNT: usize = 77;
 
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -324,6 +324,17 @@ problem_codes! {
         extensions: &["id"],
     },
 
+    /// Conflict: another season of the same series already uses this number
+    /// (issue #404). Backs the API-edge pre-check (advisory); the projection
+    /// unique index `idx_projection_season_series_number` stays authoritative
+    /// against races.
+    SEASON_NUMBER_ALREADY_EXISTS {
+        code: "season.number-already-exists",
+        status: 409,
+        title: "Season number already exists",
+        extensions: &[],
+    },
+
 
     // --- block ---
     BLOCK_VALIDATION {
@@ -340,6 +351,17 @@ problem_codes! {
         extensions: &["id"],
     },
 
+    /// Conflict: another block of the same series already uses this number
+    /// (issue #404). Backs the API-edge pre-check (advisory); the projection
+    /// unique index `idx_projection_block_series_number` stays authoritative
+    /// against races.
+    BLOCK_NUMBER_ALREADY_EXISTS {
+        code: "block.number-already-exists",
+        status: 409,
+        title: "Block number already exists",
+        extensions: &[],
+    },
+
 
     // --- episode ---
     EPISODE_VALIDATION {
@@ -354,6 +376,17 @@ problem_codes! {
         status: 404,
         title: "Episode not found",
         extensions: &["id"],
+    },
+
+    /// Conflict: another episode of the same series already uses this number
+    /// (issue #404). Backs the API-edge pre-check (advisory); the projection
+    /// unique index `idx_projection_episode_series_number` stays authoritative
+    /// against races.
+    EPISODE_NUMBER_ALREADY_EXISTS {
+        code: "episode.number-already-exists",
+        status: 409,
+        title: "Episode number already exists",
+        extensions: &[],
     },
 
 

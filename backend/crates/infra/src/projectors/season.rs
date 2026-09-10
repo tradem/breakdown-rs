@@ -2,16 +2,18 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: qwen3.6-35b (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 //! Season projection handler: `SeasonEvent` -> `projection_season`.
 
 use super::PROJECTOR_VERSION;
+use super::invariant_skip::{SEASON_NUMBER_CONSTRAINT, is_unique_violation_on};
 use breakdown_core::season::aggregate::SeasonAggregate;
 use breakdown_core::season::events::SeasonEvent;
 use breakdown_core::shared::EventMetadata;
 use kameo_es::Event;
 use kameo_es::event_handler::{EntityEventHandler, EventHandler};
-use sqlx::{Postgres, Transaction};
+use sqlx::{Acquire, Postgres, Transaction};
 use uuid::Uuid;
 
 /// Idempotent projector for the `SeasonAggregate`.
@@ -40,7 +42,13 @@ impl<'a> EntityEventHandler<SeasonAggregate, Transaction<'a, Postgres>> for Seas
                 version,
             } => {
                 let version = version.0 as i64;
-                sqlx::query(
+                // #404 projector failure behavior: a permanent 23505 on the
+                // authoritative numbering constraint is a poison event — it
+                // would abort the batch transaction, so the insert is
+                // isolated in a SAVEPOINT and the violating event is skipped
+                // with a warning instead of panic-killing the worker.
+                let mut sp = (&mut *ctx).begin().await?;
+                match sqlx::query(
                     r#"
                     INSERT INTO projection_season
                         (id, series_id, number, title, version, projector_version, updated_at)
@@ -61,8 +69,20 @@ impl<'a> EntityEventHandler<SeasonAggregate, Transaction<'a, Postgres>> for Seas
                 .bind(version)
                 .bind(PROJECTOR_VERSION)
                 .bind(updated_at)
-                .execute(&mut **ctx)
-                .await?;
+                .execute(&mut *sp)
+                .await
+                {
+                    Err(e) if is_unique_violation_on(&e, SEASON_NUMBER_CONSTRAINT) => {
+                        tracing::warn!(
+                            season_id = %id,
+                            constraint = SEASON_NUMBER_CONSTRAINT,
+                            "skipped SeasonCreated with duplicate series number (issue #404); projection keeps the authoritative row"
+                        );
+                        sp.rollback().await?;
+                    }
+                    Ok(_) => sp.commit().await?,
+                    Err(e) => return Err(e),
+                }
             }
             SeasonEvent::SeasonRenamed { id, title, version } => {
                 let version = version.0 as i64;

@@ -1,0 +1,7 @@
+{
+  "code": "block.number-already-exists",
+  "detail": "Für diese Serie existiert bereits ein Block mit dieser Nummer.",
+  "status": 409,
+  "title": "Block number already exists",
+  "type": "https://docs.breakdown.example/problems/block.number-already-exists"
+}

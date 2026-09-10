@@ -4,6 +4,7 @@
 <!-- Co-authored-by: longcat-2.0-free (opencode) -->
 <!-- Co-authored-by: hy4-preview (opencode-go) -->
 <!-- Co-authored-by: muse-spark-1.3-contributor (opencode-go) -->
+<!-- Co-authored-by: omen-alpha (opencode-go) -->
 
 # Changelog
 
@@ -13,6 +14,19 @@ crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
 ## [0.16.0] - Unreleased
+
+### Fixed — projectors skip permanent invariant violations instead of crashing (issue #404)
+
+- `SeasonProjector` / `BlockProjector` / `EpisodeProjector` / `SceneShootProjector`:
+  a permanent 23505 on the authoritative uniqueness constraints
+  (`idx_projection_*_series_number`, `uq_projection_scene_shoot_pair`) is a
+  poison event that previously panic-killed the projector worker/coordinator
+  (batch transaction aborted). The guarded inserts now run inside a
+  SAVEPOINT (`crates/infra/src/projectors/invariant_skip.rs`): the violating
+  event is classified, logged (`tracing::warn!`), rolled back to the
+  savepoint, and acknowledged — the projection keeps the authoritative row.
+  Full DLQ/poison-table mechanics remain in #37.
+- Rides with the open 0.16.0 MINOR; no additional bump.
 
 ### Added — season list-all projection query (issue #377)
 

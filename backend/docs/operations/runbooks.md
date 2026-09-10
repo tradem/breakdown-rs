@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: deepseek-v4-flash (opencode-go)
+# Co-authored-by: omen-alpha (opencode-go)
 
 # Breakdown RS operations runbooks
 
@@ -121,6 +122,33 @@ docker compose -f docker-compose.prod.yml start sierradb
 ```
 Projector idempotency (ADR-015) makes it safe to replay events into a restored
 Postgres projection from a restored/older SierraDB checkpoint.
+
+#### Replaying pre-#404 invariant-violating events
+
+Deployments that ran a build older than the #404 fix may hold gift events that
+violated a cross-aggregate uniqueness invariant (scene-shoot pair,
+series numbering) — the pre-#404 projector crashed on them and its
+`sierradb_event_checkpoints` checkpoint never advanced past the poison event.
+
+Procedure (no manual checkpoint reset required):
+
+1. Deploy the #404 fix (or later).
+2. Restart the API. The projector re-processes the stuck event, classifies the
+   permanent 23505 on the authoritative constraint, skips it with a
+   `tracing::warn!` (message contains `skipped invariant-violating event`),
+   and advances its checkpoint.
+3. Verify catch-up:
+   - Each skipped event is logged exactly once per projector pass. Repeated
+     identical warn lines across restarts mean the checkpoint is still stuck —
+     investigate before assuming catch-up.
+   - The projection must contain the authoritative row (from the *first*
+     event) for the violating pair/number; the duplicate stream's row stays
+     absent. Later events of the duplicate stream are harmless by
+     construction (`UPDATE ... WHERE id` affects 0 rows, cannot create rows).
+
+No durable poison/dead-letter record is written by the #404 path — that is the
+#37 scope. Physically deleting duplicate event streams is not part of this
+procedure (belongs with the #37 DLQ design).
 
 ### Caddy (ACME state)
 `caddy_data` holds the ACME account key and issued certificates. Losing it is

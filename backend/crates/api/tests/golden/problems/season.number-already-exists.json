@@ -1,0 +1,7 @@
+{
+  "code": "season.number-already-exists",
+  "detail": "Für diese Serie existiert bereits eine Staffel mit dieser Nummer.",
+  "status": 409,
+  "title": "Season number already exists",
+  "type": "https://docs.breakdown.example/problems/season.number-already-exists"
+}

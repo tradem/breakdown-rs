@@ -6139,6 +6139,11 @@ x-code-registry:
   status: 404
   title: Season not found
   type: https://docs.breakdown.example/problems/season.not-found
+- code: season.number-already-exists
+  extensions: []
+  status: 409
+  title: Season number already exists
+  type: https://docs.breakdown.example/problems/season.number-already-exists
 - code: block.validation
   extensions: []
   status: 422
@@ -6150,6 +6155,11 @@ x-code-registry:
   status: 404
   title: Block not found
   type: https://docs.breakdown.example/problems/block.not-found
+- code: block.number-already-exists
+  extensions: []
+  status: 409
+  title: Block number already exists
+  type: https://docs.breakdown.example/problems/block.number-already-exists
 - code: episode.validation
   extensions: []
   status: 422
@@ -6161,6 +6171,11 @@ x-code-registry:
   status: 404
   title: Episode not found
   type: https://docs.breakdown.example/problems/episode.not-found
+- code: episode.number-already-exists
+  extensions: []
+  status: 409
+  title: Episode number already exists
+  type: https://docs.breakdown.example/problems/episode.number-already-exists
 - code: scene.not-found
   extensions:
   - id
