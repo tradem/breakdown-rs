@@ -7,6 +7,7 @@ applyTo:
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: glm-5.3 (neuralwatt) -->
+<!-- Co-authored-by: omen-alpha (opencode-go) -->
 
 # Hard-Rules — Langfassung und Begründung
 
@@ -35,6 +36,57 @@ a justification comment above it.
 
 **Audit metadata must never block command processing:** resolve it
 best-effort, returning `None`/default on projection misses.
+
+## Cross-aggregate invariant doctrine (issues #404, #37)
+
+Per-stream optimistic concurrency of the event store **cannot** enforce global
+(cross-aggregate) invariants such as uniqueness — that is inherent to ES+CQRS,
+not a defect. The failure mode observed in #404 arises one step later: an
+invariant was silently delegated to a projection unique constraint **without
+designing its failure path**. Consequence: the write path accepts the violating
+command with **2xx** (the event sits in SierraDB and permanently violates the
+invariant), the event becomes unprocessable for the projector (permanent 23505),
+and — before the #37-minimal fix — panics the projector worker/coordinator.
+From the user's perspective this is silent data loss: the write succeeded, the
+read model (dispo/soll-ist reports) never updates.
+
+**Doctrine — every cross-aggregate invariant must specify three things:**
+
+1. **Authoritative enforcement point.** A projection unique constraint
+   (`uq_projection_*`) is a legitimate backstop and remains the authority
+   against races. It is the *last* line of defense, never the *only* one.
+2. **Client-facing 409 via API-edge pre-check.** The handler (the only
+   legitimate read-model consumer per the CQRS boundary) checks the invariant
+   before dispatching the command and returns a clean 409 with a registered
+   problem code (ADR-031: entry in `problem_codes!`, Fluent text in
+   `crates/api/locales/<lang>/errors.ftl`). Pre-checks are advisory; the
+   constraint remains authoritative against races.
+3. **Projector failure behavior.** A permanent constraint violation reaching a
+   projector must never panic-kill the worker/coordinator — it is classified,
+   logged, and (with #37 minimal) skipped into the poison/dead-letter table
+   with a health signal.
+
+**Known instances (see #404, both Launch-Gate blockers):**
+
+| Invariant | Projection constraint | Status |
+|---|---|---|
+| SceneShoot pair-uniqueness `(scene_id, shooting_day_id)` | `uq_projection_scene_shoot_pair` | 2xx + projector crash — needs API-edge 409 + projector handling |
+| Season numbering `(series_id, number)` | `idx_projection_season_series_number` | same class — `number` arrives from the client, see `season/aggregate.rs` comment |
+
+**Known non-issues (do not "fix"):** `projection_audit.event_key` dedup
+(`ON CONFLICT (event_key) DO NOTHING` ✓), `dedup_key` job tables (report_ops /
+ai_import — job queues are a Postgres strength, not an ES deficiency),
+projector version guards (`WHERE version < $N` — standard at-least-once
+idempotency).
+
+**ES-native alternative (design follow-up, ADR-worthy — do not adopt ad hoc):**
+reservation streams. The command first writes a reservation event to a
+synthetic key stream (`scene_shoot_pair:{hash(scene_id, day_id)}`,
+`season_number:{series_id}:{n}`) with `ExpectedVersion::Empty`; a competing
+command fails the version condition **in the event store** and maps to a clean
+409 *before* touching the aggregate stream. Uses only per-stream concurrency
+(SierraDB-capable). Trade-offs: reservation release/compensation on
+delete/archive, one extra stream per entity.
 
 ## No panics in production code (hard rule)
 
