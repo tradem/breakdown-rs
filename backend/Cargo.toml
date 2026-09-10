@@ -49,7 +49,7 @@ tower-http = { version = "0.7", features = ["trace", "catch-panic"] }
 
 # Event Sourcing (ES)
 kameo = "0.22"      # Das zugrundeliegende Actor-Framework
-kameo_es = { path = ".patches/kameo_es", version = "0.1.0", features = ["postgres"] }
+kameo_es = { path = ".patches/kameo_es", version = "0.2.0", features = ["postgres"] }
 # SierraDB RESP3 client (used by kameo_es). TLS features power the
 # rediss:// link to the stunnel sidecar (ADR-024) with a pinned step-ca
 # root via `Client::build_with_tls` (issue #156).

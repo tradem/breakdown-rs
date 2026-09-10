@@ -65,11 +65,19 @@ read model (dispo/soll-ist reports) never updates.
    projector must never panic-kill the worker/coordinator. Target state
    (#37, Launch-Blocker there): the event is classified and skipped into a
    durable poison/dead-letter table with a health signal. **State shipped
-   with #404 (minimal path): log-only skip — no durable poison tracking and
-   no health signal yet;** the only trace of a skipped violation is the
-   `tracing::warn!` line (`constraint = ...`, issue #404 marker). Anything
-   asserting durable tracking refers to the #37 target, not the shipped
-   behavior.
+   with #404 + #37:** two layers — (a) the #404 savepoint-skip for the four
+   authoritative uniqueness constraints (log-only warn, projection keeps the
+   authoritative row, never reaches the retry budget), and (b) the generic
+   #37 dead-letter path in the kameo_es `PostgresProcessor` for every other
+   permanent error (SQLSTATE class 23/22, event deserialization): after the
+   5× retry budget the event is recorded durably in
+   `projection_dead_letter` (migration `20260815000001`) and the projector
+   checkpoint is advanced past it in one transaction — no restart loop, no
+   stall. The health signal is `infra::projectors::ProjectorHealthRepository`
+   plus the runbook SQL (`docs/operations/runbooks.md` → "Projector
+   dead-letter health (issue #37)"); each dead-letter is `tracing::error!`
+-logged with the `#37` marker. Transient errors (connection, serialization
+   failure 40001, deadlock 40P01) keep the propagate-and-restart behavior.
 
 **Known instances (see #404 — closed by the #404 fix; pre-checks are advisory, the constraints stay authoritative):**
 
@@ -83,8 +91,10 @@ read model (dispo/soll-ist reports) never updates.
 The projector skip lives in `crates/infra/src/projectors/invariant_skip.rs`: a 23505 on
 exactly these constraints is a *permanent* violation, isolated in a SAVEPOINT (a failed
 statement aborts the batch transaction), logged with `tracing::warn!`, and the event is
-acknowledged — the projection keeps the authoritative row. **The #404 path provides no
-durable poison/dead-letter record and no health signal — that is the #37 scope.**
+acknowledged — the projection keeps the authoritative row. These four skips never reach
+the retry budget; every *other* permanent error dead-letters via the generic #37 path
+(`projection_dead_letter` + checkpoint advance, see "Projector failure behavior" above
+and the runbook section "Projector dead-letter health (issue #37)").
 
 **Replay of pre-#404 gift events (no manual checkpoint reset needed):** a pre-#404
 coordinator died *at* the poison event, so its `sierradb_event_checkpoints` checkpoint

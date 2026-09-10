@@ -20,6 +20,7 @@ use sqlx::{AssertSqlSafe, PgPool, Postgres};
 use thiserror::Error;
 use tracing::{debug, error, info};
 
+use crate::event_handler::EventErrorClassify;
 use crate::Event;
 
 use super::{CompositeEventHandler, EventHandler, EventHandlerError, EventProcessor};
@@ -31,11 +32,13 @@ where
         + CompositeEventHandler<E, sqlx::Transaction<'static, Postgres>, PostgresEventProcessorError>
         + Send
         + 'static,
-    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error: fmt::Debug + Sync,
+    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error:
+        fmt::Debug + Sync + crate::event_handler::EventErrorClassify,
 {
     pool: PgPool,
     conn: MultiplexedConnection,
     checkpoints_table: Arc<str>,
+    dead_letter_table: Arc<str>,
     projection_id: Arc<str>,
     handler: H,
     worker_count: u16,
@@ -54,7 +57,8 @@ where
         + CompositeEventHandler<E, sqlx::Transaction<'static, Postgres>, PostgresEventProcessorError>
         + Send
         + 'static,
-    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error: fmt::Debug + Sync,
+    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error:
+        fmt::Debug + Sync + crate::event_handler::EventErrorClassify,
 {
     pub async fn new(
         pool: PgPool,
@@ -102,6 +106,7 @@ where
             pool,
             conn,
             checkpoints_table: checkpoints_table.clone(),
+            dead_letter_table: Arc::from("projection_dead_letter"),
             projection_id: projection_id.clone(),
             handler,
             worker_count: 16,
@@ -117,6 +122,13 @@ where
     /// Number of parallelism.
     pub fn workers(mut self, count: u16) -> Self {
         self.worker_count = count;
+        self
+    }
+
+    /// Override the dead-letter table used by the poison-event path
+    /// (issue #37). Defaults to `projection_dead_letter`.
+    pub fn dead_letter_table(mut self, table: impl Into<Arc<str>>) -> Self {
+        self.dead_letter_table = table.into();
         self
     }
 
@@ -159,7 +171,7 @@ where
         + Send
         + 'static,
     for<'a> <H as EventHandler<sqlx::Transaction<'a, Postgres>>>::Error:
-        fmt::Debug + Unpin + Sync + 'static,
+        fmt::Debug + Unpin + Sync + crate::event_handler::EventErrorClassify + 'static,
 {
     type Context = sqlx::Transaction<'static, Postgres>;
     type Error = PostgresEventProcessorError;
@@ -189,7 +201,8 @@ where
         + CompositeEventHandler<E, sqlx::Transaction<'static, Postgres>, PostgresEventProcessorError>
         + Send
         + 'static,
-    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error: fmt::Debug + Sync,
+    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error:
+        fmt::Debug + Sync + crate::event_handler::EventErrorClassify,
 {
     type Args = Self;
     type Error = anyhow::Error;
@@ -230,7 +243,8 @@ where
         + CompositeEventHandler<E, sqlx::Transaction<'static, Postgres>, PostgresEventProcessorError>
         + Send
         + 'static,
-    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error: fmt::Debug + Sync,
+    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error:
+        fmt::Debug + Sync + crate::event_handler::EventErrorClassify,
 {
     type Reply = Result<HashMap<u16, u64>, sqlx::Error>;
 
@@ -258,7 +272,7 @@ where
         + Send
         + 'static,
     for<'a> <H as EventHandler<sqlx::Transaction<'a, Postgres>>>::Error:
-        fmt::Debug + Unpin + Sync + 'static,
+        fmt::Debug + Unpin + Sync + crate::event_handler::EventErrorClassify + 'static,
 {
     type Reply = ForwardedReply<
         HandleEvent,
@@ -286,6 +300,7 @@ where
                         pool: self.pool.clone(),
                         conn: self.conn.clone(),
                         checkpoints_table: self.checkpoints_table.clone(),
+                        dead_letter_table: self.dead_letter_table.clone(),
                         projection_id: self.projection_id.clone(),
                         handler: self.handler.clone(),
                         transaction: None,
@@ -321,11 +336,13 @@ where
         + CompositeEventHandler<E, sqlx::Transaction<'static, Postgres>, PostgresEventProcessorError>
         + Send
         + 'static,
-    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error: fmt::Debug + Sync,
+    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error:
+        fmt::Debug + Sync + crate::event_handler::EventErrorClassify,
 {
     pool: PgPool,
     conn: MultiplexedConnection,
     checkpoints_table: Arc<str>,
+    dead_letter_table: Arc<str>,
     projection_id: Arc<str>,
     handler: H,
     transaction: Option<sqlx::Transaction<'static, Postgres>>,
@@ -349,7 +366,8 @@ where
         + CompositeEventHandler<E, sqlx::Transaction<'static, Postgres>, PostgresEventProcessorError>
         + Send
         + 'static,
-    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error: fmt::Debug + Sync,
+    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error:
+        fmt::Debug + Sync + crate::event_handler::EventErrorClassify,
 {
     async fn handle_event(
         &mut self,
@@ -388,14 +406,48 @@ where
         let partition_id = event.partition_id;
         let sequence = event.partition_sequence;
 
-        handle_event
+        let result = handle_event
             .retry(ExponentialBuilder::new().with_jitter().with_max_times(5))
             .context((&self.pool, &mut self.transaction, &mut self.handler, &event))
             .notify(|err, _dur| {
                 error!("failed to process event: {err:?}");
             })
             .await
-            .1?;
+            .1;
+
+        // Issue #37: a *permanent* error (constraint violation, event
+        // deserialization, ...) can never succeed on retry — retrying and
+        // restart-looping would stall the projector forever. Dead-letter the
+        // event and advance the checkpoint past it so the projector keeps
+        // progressing. Transient errors keep the previous
+        // propagate-and-restart behavior.
+        //
+        // The error is fully destructured *before* any `await` (into plain
+        // `Send` data) — holding a generic `H::Error` across an await would
+        // make the worker future non-`Send` for handlers whose error type is
+        // only `Sync` for the `'static` instantiation.
+        let poison = match result {
+            Ok(()) => None,
+            Err(err) if err.is_permanent_event_error() => {
+                let (sqlstate, constraint) = match &err {
+                    EventHandlerError::Handler(handler_err) => {
+                        handler_err.permanent_error_details()
+                    }
+                    _ => (None, None),
+                };
+                // `EventHandlerError` only implements `Display` when its
+                // payloads do; use `Debug` (always available here) for the
+                // recorded message.
+                let error_message = format!("{err:?}");
+                Some((sqlstate, constraint, error_message))
+            }
+            Err(err) => return Err(err),
+        };
+
+        if let Some((sqlstate, constraint, error_message)) = poison {
+            self.dead_letter_event(&event, sqlstate, constraint, error_message)
+                .await?;
+        }
 
         self.last_handled_sequences.insert(partition_id, sequence);
         self.events_since_flush += 1;
@@ -457,6 +509,107 @@ where
                 .await
                 .1?;
         }
+
+        Ok(())
+    }
+
+    /// Record an unprocessable event durably (issue #37): upsert into the
+    /// dead-letter table and advance the projector's checkpoint past the
+    /// event in *one* transaction, so the projector continues with the next
+    /// event instead of restart-looping on the poison event forever.
+    ///
+    /// Idempotent: a replay of the same `(projection_id, partition_id,
+    /// sequence)` bumps `attempts` instead of duplicating the row. On any
+    /// failure the error propagates and the epoch restarts (the pre-#37
+    /// behavior), so a broken dead-letter path degrades safely.
+    async fn dead_letter_event(
+        &mut self,
+        event: &Event,
+        sqlstate: Option<String>,
+        constraint: Option<String>,
+        error_message: String,
+    ) -> Result<
+        (),
+        EventHandlerError<
+            PostgresEventProcessorError,
+            <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error,
+        >,
+    > {
+        let partition_id = event.partition_id;
+        let sequence = event.partition_sequence;
+        let smallint_partition =
+            partition_id_to_smallint(partition_id).map_err(EventHandlerError::Processor)?;
+
+        let sqlstate_log = sqlstate.clone().unwrap_or_else(|| "-".to_string());
+        let constraint_log = constraint.clone().unwrap_or_else(|| "-".to_string());
+
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|err| EventHandlerError::Processor(err.into()))?;
+
+        sqlx::query(AssertSqlSafe(format!(
+            "
+            INSERT INTO {} (projection_id, partition_id, sequence, stream_id, event_name, sqlstate, constraint_name, error_message, attempts, first_seen_at, last_seen_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, now(), now())
+            ON CONFLICT (projection_id, partition_id, sequence) DO UPDATE SET
+                sqlstate = EXCLUDED.sqlstate,
+                constraint_name = EXCLUDED.constraint_name,
+                error_message = EXCLUDED.error_message,
+                attempts = {}.attempts + 1,
+                last_seen_at = now()
+            ",
+            self.dead_letter_table, self.dead_letter_table
+        )))
+        .bind(self.projection_id.as_ref())
+        .bind(smallint_partition)
+        .bind(sequence as i64)
+        .bind(event.stream_id.to_string())
+        .bind(event.name.clone())
+        .bind(sqlstate)
+        .bind(constraint)
+        .bind(error_message)
+        .execute(&mut *tx)
+        .await
+        .map_err(|err| EventHandlerError::Processor(err.into()))?;
+
+        sqlx::query(AssertSqlSafe(format!(
+            "
+            INSERT INTO {} (projection_id, partition_id, sequence)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (projection_id, partition_id) DO UPDATE SET
+                sequence = GREATEST({}.sequence, EXCLUDED.sequence)
+            ",
+            self.checkpoints_table, self.checkpoints_table
+        )))
+        .bind(self.projection_id.as_ref())
+        .bind(smallint_partition)
+        .bind(sequence as i64)
+        .execute(&mut *tx)
+        .await
+        .map_err(|err| EventHandlerError::Processor(err.into()))?;
+
+        tx.commit()
+            .await
+            .map_err(|err| EventHandlerError::Processor(err.into()))?;
+
+        // Keep the in-memory handled/flushed maps consistent so subsequent
+        // flushes skip this partition (both equal) and the subscription does
+        // not rewind to the poison event.
+        self.last_handled_sequences.insert(partition_id, sequence);
+        self.last_flushed_sequences.insert(partition_id, sequence);
+
+        error!(
+            projection_id = %self.projection_id,
+            partition_id,
+            sequence,
+            stream_id = %event.stream_id,
+            event_name = %event.name,
+            sqlstate = %sqlstate_log,
+            constraint = %constraint_log,
+            "dead-lettered unprocessable event (issue #37); checkpoint advanced past it, projector continues"
+        );
 
         Ok(())
     }
@@ -674,7 +827,8 @@ where
         + CompositeEventHandler<E, sqlx::Transaction<'static, Postgres>, PostgresEventProcessorError>
         + Send
         + 'static,
-    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error: fmt::Debug + Sync,
+    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error:
+        fmt::Debug + Sync + crate::event_handler::EventErrorClassify,
 {
     let res = worker.flush_checkpoint(reason).await;
     ((worker, reason), res)
@@ -687,7 +841,8 @@ where
         + CompositeEventHandler<E, sqlx::Transaction<'static, Postgres>, PostgresEventProcessorError>
         + Send
         + 'static,
-    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error: fmt::Debug + Sync,
+    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error:
+        fmt::Debug + Sync + crate::event_handler::EventErrorClassify,
 {
     type Args = Self;
     type Error = anyhow::Error;
@@ -745,7 +900,8 @@ where
         + CompositeEventHandler<E, sqlx::Transaction<'static, Postgres>, PostgresEventProcessorError>
         + Send
         + 'static,
-    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error: fmt::Debug + Sync,
+    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error:
+        fmt::Debug + Sync + crate::event_handler::EventErrorClassify,
 {
     type Reply = Result<
         (),
