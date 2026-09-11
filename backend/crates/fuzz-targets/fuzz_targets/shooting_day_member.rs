@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 //! Fuzz target for deserialization of request bodies with complex enums:
 //! `CreateShootingDayRequest` (ShootingDaySource) and `InviteMemberRequest`
@@ -82,7 +83,10 @@ fuzz_target!(|data: &[u8]| {
     if let Ok(req) = serde_json::from_slice::<InviteMemberRequest>(data) {
         let _ = req.user_id.len();
         match req.role {
-            Role::CostumeDesigner | Role::WardrobeSupervisor | Role::CostumeAssistant => {}
+            Role::CostumeDesigner
+            | Role::WardrobeSupervisor
+            | Role::CostumeAssistant
+            | Role::OpsAdmin => {}
         }
 
         let _cmd = breakdown_core::membership::commands::InviteMember {
@@ -96,7 +100,10 @@ fuzz_target!(|data: &[u8]| {
     // ── GrantRole (same Role enum — fuzzes rename_all = "snake_case") ──
     if let Ok(req) = serde_json::from_slice::<GrantRoleRequest>(data) {
         match req.role {
-            Role::CostumeDesigner | Role::WardrobeSupervisor | Role::CostumeAssistant => {}
+            Role::CostumeDesigner
+            | Role::WardrobeSupervisor
+            | Role::CostumeAssistant
+            | Role::OpsAdmin => {}
         }
     }
 });

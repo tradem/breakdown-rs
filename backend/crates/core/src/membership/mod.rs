@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: hy4-preview (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 //! Block-scoped membership Bounded Context.
 //!
@@ -48,6 +49,15 @@ pub use views::{MembershipStateKind, MembershipView};
 /// requiring a separate proposal. Variants are serialized by their stable
 /// `snake_case` name, so events/rows written today stay readable after a
 /// future addition.
+///
+/// `OpsAdmin` (issue #409) is the one deployment-scoped capability: it rides
+/// on block-scoped membership rows like every other role, but the ops
+/// predicates check it across **all** blocks (`has_active_ops_role`) because
+/// projector health is deployment-wide infrastructure state, not production
+/// data. It cannot be granted through the block-scoped membership API by
+/// non-ops callers (API-edge escalation guard in the `invite_member` /
+/// `grant_role` handlers); the first ops holder is bootstrapped via the
+/// `OPS_ADMIN_SUBS` environment allowlist (see the API policy).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Role {
@@ -58,6 +68,10 @@ pub enum Role {
     /// Costume assistant (Kostümassistent*in*) — default role for the block
     /// creator owner bootstrap (see `BootstrapOwner` / Decision A).
     CostumeAssistant,
+    /// Deployment-scoped operator capability (issue #409): grants access to
+    /// the ops surface (`GET /v1/ops/projector-health`) and the right to
+    /// grant further ops roles. Checked across all blocks; see the enum doc.
+    OpsAdmin,
 }
 
 impl Role {
@@ -74,6 +88,7 @@ impl Role {
             Role::CostumeDesigner => "costume_designer",
             Role::WardrobeSupervisor => "wardrobe_supervisor",
             Role::CostumeAssistant => "costume_assistant",
+            Role::OpsAdmin => "ops_admin",
         }
     }
 
@@ -83,6 +98,7 @@ impl Role {
             "costume_designer" => Some(Role::CostumeDesigner),
             "wardrobe_supervisor" => Some(Role::WardrobeSupervisor),
             "costume_assistant" => Some(Role::CostumeAssistant),
+            "ops_admin" => Some(Role::OpsAdmin),
             _ => None,
         }
     }

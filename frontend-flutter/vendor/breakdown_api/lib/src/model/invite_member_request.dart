@@ -22,7 +22,7 @@ abstract class InviteMemberRequest
   /// Proposed role for the invited user (pending until they accept).
   @BuiltValueField(wireName: r'role')
   Role get role;
-  // enum roleEnum {  costume_designer,  wardrobe_supervisor,  costume_assistant,  };
+  // enum roleEnum {  costume_designer,  wardrobe_supervisor,  costume_assistant,  ops_admin,  };
 
   /// OIDC `sub` of the user to invite to the block.
   @BuiltValueField(wireName: r'user_id')
