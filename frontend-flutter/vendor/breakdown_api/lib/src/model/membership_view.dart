@@ -32,7 +32,7 @@ abstract class MembershipView
 
   @BuiltValueField(wireName: r'role')
   Role get role;
-  // enum roleEnum {  costume_designer,  wardrobe_supervisor,  costume_assistant,  };
+  // enum roleEnum {  costume_designer,  wardrobe_supervisor,  costume_assistant,  ops_admin,  };
 
   @BuiltValueField(wireName: r'state')
   MembershipStateKind get state;
