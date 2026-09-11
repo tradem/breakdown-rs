@@ -43,7 +43,7 @@ subtle = "2.6"
 serde_json.workspace = true
 
 # Tests
-rstest = "0.26"
+rstest = "0.27"
 proptest = "1.6"
 
 [dev-dependencies]
