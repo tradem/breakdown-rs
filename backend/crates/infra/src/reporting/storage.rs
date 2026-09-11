@@ -283,9 +283,12 @@ impl ReportArchiveStorage for OpenDalReportArchiveStorage {
             ReportStorageError::provider_failure("read failed")
         })?;
 
+        // opendal 0.59 (RFC-8194): `user_metadata()` returns an owned
+        // `UserMetadata` view whose `get()` yields `Option<&str>` —
+        // clone directly into the validator instead of `.cloned()`.
         let digest = meta
             .user_metadata()
-            .and_then(|m| m.get("content_digest").cloned())
+            .and_then(|m| m.get("content_digest"))
             .and_then(|s| ContentDigest::new(s).ok());
 
         let content_type = meta
