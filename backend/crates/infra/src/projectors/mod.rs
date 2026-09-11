@@ -18,6 +18,7 @@ mod character;
 mod costume;
 mod costume_category;
 mod episode;
+pub mod health;
 mod invariant_skip;
 mod membership;
 mod scene;
@@ -40,6 +41,7 @@ pub use character::CharacterProjector;
 pub use costume::CostumeProjector;
 pub use costume_category::CostumeCategoryProjector;
 pub use episode::EpisodeProjector;
+pub use health::{CheckpointProgress, DeadLetterEntry, ProjectorHealthRepository};
 pub use membership::MembershipProjector;
 pub use scene::SceneProjector;
 pub use scene_shoot::SceneShootProjector;
@@ -64,8 +66,8 @@ use breakdown_core::season::aggregate::SeasonAggregate;
 use breakdown_core::settings::aggregate::SettingsAggregate;
 use breakdown_core::shooting_day::aggregate::ShootingDayAggregate;
 use kameo::actor::{ActorRef, Spawn};
-use kameo_es::event_handler::EventHandlerStreamBuilder;
 use kameo_es::event_handler::postgres::PostgresProcessor;
+use kameo_es::event_handler::{EventErrorClassify, EventHandlerStreamBuilder};
 use redis::Client as RedisClient;
 use sierradb_client::SierraAsyncClientExt;
 use sqlx::PgPool;
@@ -126,7 +128,8 @@ impl ProjectorFlushConfig {
                 PostgresEventProcessorError,
             > + Send
             + 'static,
-        <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error: fmt::Debug + Sync,
+        <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error:
+            fmt::Debug + Sync + EventErrorClassify,
     {
         let mut p = processor;
         if let Some(w) = self.workers {

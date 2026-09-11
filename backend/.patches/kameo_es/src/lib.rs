@@ -26,24 +26,44 @@ pub enum Error<M = (), E = Infallible> {
     SendError(#[from] SendError<M, E>),
 }
 
+/// A failure to convert a raw Sierra message into a typed [`Event`]
+/// (issue #411): the raw message is preserved so the stream layer can
+/// dead-letter it durably (DLQ row + checkpoint advance) instead of
+/// restart-looping the projector on the same malformed message.
 #[derive(Debug, Error)]
 pub enum TryFromSierraEventError {
-    #[error("failed to deserialize event data: {0}")]
-    DeserializeEventData(ciborium::de::Error<io::Error>),
-    #[error("failed to deserialize event metadata: {0}")]
-    DeserializeEventMetadata(ciborium::de::Error<io::Error>),
+    // The raw message is boxed to keep the `Err` size within clippy's
+    // `result_large_err` budget ( EventHandlerError embeds this type).
+    #[error("failed to deserialize event data: {err}")]
+    DeserializeEventData {
+        event: Box<sierradb_client::Event>,
+        err: ciborium::de::Error<io::Error>,
+    },
+    #[error("failed to deserialize event metadata: {err}")]
+    DeserializeEventMetadata {
+        event: Box<sierradb_client::Event>,
+        err: ciborium::de::Error<io::Error>,
+    },
 }
 
 fn event_from_sierra(ev: sierradb_client::Event) -> Result<Event, TryFromSierraEventError> {
     let data = if !ev.payload.is_empty() {
-        ciborium::from_reader(ev.payload.as_slice())
-            .map_err(TryFromSierraEventError::DeserializeEventData)?
+        ciborium::from_reader(ev.payload.as_slice()).map_err(|err| {
+            TryFromSierraEventError::DeserializeEventData {
+                event: Box::new(ev.clone()),
+                err,
+            }
+        })?
     } else {
         GenericValue(ciborium::Value::Null)
     };
     let metadata = if !ev.metadata.is_empty() {
-        ciborium::from_reader(ev.metadata.as_slice())
-            .map_err(TryFromSierraEventError::DeserializeEventMetadata)?
+        ciborium::from_reader(ev.metadata.as_slice()).map_err(|err| {
+            TryFromSierraEventError::DeserializeEventMetadata {
+                event: Box::new(ev.clone()),
+                err,
+            }
+        })?
     } else {
         Metadata::default()
     };

@@ -20,6 +20,7 @@ use sqlx::{AssertSqlSafe, PgPool, Postgres};
 use thiserror::Error;
 use tracing::{debug, error, info};
 
+use crate::event_handler::EventErrorClassify;
 use crate::Event;
 
 use super::{CompositeEventHandler, EventHandler, EventHandlerError, EventProcessor};
@@ -31,11 +32,13 @@ where
         + CompositeEventHandler<E, sqlx::Transaction<'static, Postgres>, PostgresEventProcessorError>
         + Send
         + 'static,
-    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error: fmt::Debug + Sync,
+    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error:
+        fmt::Debug + Sync + crate::event_handler::EventErrorClassify,
 {
     pool: PgPool,
     conn: MultiplexedConnection,
     checkpoints_table: Arc<str>,
+    dead_letter_table: Arc<str>,
     projection_id: Arc<str>,
     handler: H,
     worker_count: u16,
@@ -54,7 +57,8 @@ where
         + CompositeEventHandler<E, sqlx::Transaction<'static, Postgres>, PostgresEventProcessorError>
         + Send
         + 'static,
-    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error: fmt::Debug + Sync,
+    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error:
+        fmt::Debug + Sync + crate::event_handler::EventErrorClassify,
 {
     pub async fn new(
         pool: PgPool,
@@ -102,6 +106,7 @@ where
             pool,
             conn,
             checkpoints_table: checkpoints_table.clone(),
+            dead_letter_table: Arc::from("projection_dead_letter"),
             projection_id: projection_id.clone(),
             handler,
             worker_count: 16,
@@ -117,6 +122,13 @@ where
     /// Number of parallelism.
     pub fn workers(mut self, count: u16) -> Self {
         self.worker_count = count;
+        self
+    }
+
+    /// Override the dead-letter table used by the poison-event path
+    /// (issue #37). Defaults to `projection_dead_letter`.
+    pub fn dead_letter_table(mut self, table: impl Into<Arc<str>>) -> Self {
+        self.dead_letter_table = table.into();
         self
     }
 
@@ -159,7 +171,7 @@ where
         + Send
         + 'static,
     for<'a> <H as EventHandler<sqlx::Transaction<'a, Postgres>>>::Error:
-        fmt::Debug + Unpin + Sync + 'static,
+        fmt::Debug + Unpin + Sync + crate::event_handler::EventErrorClassify + 'static,
 {
     type Context = sqlx::Transaction<'static, Postgres>;
     type Error = PostgresEventProcessorError;
@@ -180,6 +192,30 @@ where
         self.tell(HandleEvent(event)).send().await.unwrap();
         Ok(())
     }
+
+    async fn dead_letter_undecodable(
+        &mut self,
+        raw_event: sierradb_client::Event,
+        err: crate::TryFromSierraEventError,
+    ) -> Result<(), Self::Error> {
+        self.ask(DeadLetterUndecodable {
+            event: raw_event,
+            err,
+        })
+        .send()
+        .await
+        .map_err(|send_err| match send_err.map_msg(|_| ()) {
+            // The actor's handler error is authoritative (DLQ write etc.).
+            SendError::HandlerError(processor_err) => processor_err,
+            // Actor not running/stopped/mailbox full/timeout — an
+            // infrastructure failure surfaced as an IO error so the epoch
+            // restart (transient behavior) kicks in.
+            other => PostgresEventProcessorError::Postgres(sqlx::Error::Io(std::io::Error::other(
+                other.to_string(),
+            ))),
+        })?;
+        Ok(())
+    }
 }
 
 impl<E, H> Actor for PostgresProcessor<E, H>
@@ -189,7 +225,8 @@ where
         + CompositeEventHandler<E, sqlx::Transaction<'static, Postgres>, PostgresEventProcessorError>
         + Send
         + 'static,
-    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error: fmt::Debug + Sync,
+    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error:
+        fmt::Debug + Sync + crate::event_handler::EventErrorClassify,
 {
     type Args = Self;
     type Error = anyhow::Error;
@@ -230,7 +267,8 @@ where
         + CompositeEventHandler<E, sqlx::Transaction<'static, Postgres>, PostgresEventProcessorError>
         + Send
         + 'static,
-    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error: fmt::Debug + Sync,
+    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error:
+        fmt::Debug + Sync + crate::event_handler::EventErrorClassify,
 {
     type Reply = Result<HashMap<u16, u64>, sqlx::Error>;
 
@@ -247,6 +285,112 @@ where
     }
 }
 
+/// Dead-letter an undecodable Sierra message (issue #411): the actor
+/// records the raw message durably and advances the checkpoint past it in
+/// one transaction.
+struct DeadLetterUndecodable {
+    event: sierradb_client::Event,
+    err: crate::TryFromSierraEventError,
+}
+
+impl<E, H> Message<DeadLetterUndecodable> for PostgresProcessor<E, H>
+where
+    E: 'static,
+    H: EventHandler<sqlx::Transaction<'static, Postgres>>
+        + CompositeEventHandler<E, sqlx::Transaction<'static, Postgres>, PostgresEventProcessorError>
+        + Send
+        + 'static,
+    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error:
+        fmt::Debug + Sync + crate::event_handler::EventErrorClassify,
+{
+    type Reply = Result<(), PostgresEventProcessorError>;
+
+    async fn handle(
+        &mut self,
+        DeadLetterUndecodable { event, err }: DeadLetterUndecodable,
+        _ctx: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        let partition_id = event.partition_id;
+        let sequence = event.partition_sequence;
+        let smallint_partition = partition_id_to_smallint(partition_id)?;
+
+        let mut tx = self.pool.begin().await?;
+
+        sqlx::query(AssertSqlSafe(format!(
+            "
+            INSERT INTO {} (projection_id, partition_id, sequence, stream_id, event_name, sqlstate, constraint_name, error_message, attempts, first_seen_at, last_seen_at)
+            VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6, 1, now(), now())
+            ON CONFLICT (projection_id, partition_id, sequence) DO UPDATE SET
+                error_message = EXCLUDED.error_message,
+                attempts = {}.attempts + 1,
+                last_seen_at = now()
+            ",
+            self.dead_letter_table, self.dead_letter_table
+        )))
+        .bind(self.projection_id.as_ref())
+        .bind(smallint_partition)
+        .bind(sequence as i64)
+        .bind(event.stream_id.clone())
+        .bind(event.event_name.clone())
+        .bind(err.to_string())
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(AssertSqlSafe(format!(
+            "
+            INSERT INTO {} (projection_id, partition_id, sequence)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (projection_id, partition_id) DO UPDATE SET
+                sequence = GREATEST({}.sequence, EXCLUDED.sequence)
+            ",
+            self.checkpoints_table, self.checkpoints_table
+        )))
+        .bind(self.projection_id.as_ref())
+        .bind(smallint_partition)
+        .bind(sequence as i64)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+
+        // Keep the in-memory map consistent so `GetStartFrom` (a new epoch's
+        // subscription point) does not rewind to the dead-lettered message.
+        self.last_flushed_sequences.insert(partition_id, sequence);
+
+        // Synchronize the affected worker's flushed-sequences map if it is
+        // already spawned (issue #37 re-review): its stale clone without
+        // this partition would make its first flush take the plain-INSERT
+        // branch, hit the just-written row (23505) and map to
+        // `UnexpectedLastEventId` — a needless epoch restart. The stream is
+        // sequential: this dead-letter happens before any `HandleEvent` for
+        // the partition, so syncing the flushed watermark only is safe.
+        let worker_id = partition_id % self.worker_count;
+        if let Some(worker_ref) = self.workers.get(&worker_id) {
+            if let Err(err) = worker_ref
+                .tell(SyncProcessorCheckpoint {
+                    partition_id,
+                    sequence,
+                })
+                .send()
+                .await
+            {
+                error!("failed to sync processor checkpoint to worker {worker_id}: {err:?}");
+            }
+        }
+
+        error!(
+            projection_id = %self.projection_id,
+            partition_id,
+            sequence,
+            stream_id = %event.stream_id,
+            event_name = %event.event_name,
+            "dead-lettered undecodable Sierra message (issue #37/#411); checkpoint advanced past it, projector continues"
+        );
+
+        Ok(())
+    }
+}
+
 struct HandleEvent(Event);
 
 impl<E, H> Message<HandleEvent> for PostgresProcessor<E, H>
@@ -258,7 +402,7 @@ where
         + Send
         + 'static,
     for<'a> <H as EventHandler<sqlx::Transaction<'a, Postgres>>>::Error:
-        fmt::Debug + Unpin + Sync + 'static,
+        fmt::Debug + Unpin + Sync + crate::event_handler::EventErrorClassify + 'static,
 {
     type Reply = ForwardedReply<
         HandleEvent,
@@ -286,6 +430,7 @@ where
                         pool: self.pool.clone(),
                         conn: self.conn.clone(),
                         checkpoints_table: self.checkpoints_table.clone(),
+                        dead_letter_table: self.dead_letter_table.clone(),
                         projection_id: self.projection_id.clone(),
                         handler: self.handler.clone(),
                         transaction: None,
@@ -321,11 +466,13 @@ where
         + CompositeEventHandler<E, sqlx::Transaction<'static, Postgres>, PostgresEventProcessorError>
         + Send
         + 'static,
-    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error: fmt::Debug + Sync,
+    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error:
+        fmt::Debug + Sync + crate::event_handler::EventErrorClassify,
 {
     pool: PgPool,
     conn: MultiplexedConnection,
     checkpoints_table: Arc<str>,
+    dead_letter_table: Arc<str>,
     projection_id: Arc<str>,
     handler: H,
     transaction: Option<sqlx::Transaction<'static, Postgres>>,
@@ -349,7 +496,8 @@ where
         + CompositeEventHandler<E, sqlx::Transaction<'static, Postgres>, PostgresEventProcessorError>
         + Send
         + 'static,
-    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error: fmt::Debug + Sync,
+    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error:
+        fmt::Debug + Sync + crate::event_handler::EventErrorClassify,
 {
     async fn handle_event(
         &mut self,
@@ -388,14 +536,48 @@ where
         let partition_id = event.partition_id;
         let sequence = event.partition_sequence;
 
-        handle_event
+        let result = handle_event
             .retry(ExponentialBuilder::new().with_jitter().with_max_times(5))
             .context((&self.pool, &mut self.transaction, &mut self.handler, &event))
             .notify(|err, _dur| {
                 error!("failed to process event: {err:?}");
             })
             .await
-            .1?;
+            .1;
+
+        // Issue #37: a *permanent* error (constraint violation, event
+        // deserialization, ...) can never succeed on retry — retrying and
+        // restart-looping would stall the projector forever. Dead-letter the
+        // event and advance the checkpoint past it so the projector keeps
+        // progressing. Transient errors keep the previous
+        // propagate-and-restart behavior.
+        //
+        // The error is fully destructured *before* any `await` (into plain
+        // `Send` data) — holding a generic `H::Error` across an await would
+        // make the worker future non-`Send` for handlers whose error type is
+        // only `Sync` for the `'static` instantiation.
+        let poison = match result {
+            Ok(()) => None,
+            Err(err) if err.is_permanent_event_error() => {
+                let (sqlstate, constraint) = match &err {
+                    EventHandlerError::Handler(handler_err) => {
+                        handler_err.permanent_error_details()
+                    }
+                    _ => (None, None),
+                };
+                // `EventHandlerError` only implements `Display` when its
+                // payloads do; use `Debug` (always available here) for the
+                // recorded message.
+                let error_message = format!("{err:?}");
+                Some((sqlstate, constraint, error_message))
+            }
+            Err(err) => return Err(err),
+        };
+
+        if let Some((sqlstate, constraint, error_message)) = poison {
+            self.dead_letter_event(&event, sqlstate, constraint, error_message)
+                .await?;
+        }
 
         self.last_handled_sequences.insert(partition_id, sequence);
         self.events_since_flush += 1;
@@ -457,6 +639,169 @@ where
                 .await
                 .1?;
         }
+
+        Ok(())
+    }
+
+    /// Record an unprocessable event durably (issue #37): upsert into the
+    /// dead-letter table and advance the projector's checkpoint past the
+    /// event — reusing the worker's retained batch transaction so the
+    /// earlier successful events' effects, the dead-letter row, and the
+    /// checkpoint advance commit **atomically** (issue #37 review: a
+    /// checkpoint jump past unflushed successful events would lose their
+    /// effects on replay). If no transaction is retained, a fresh one is
+    /// begun. On any failure the error propagates and the epoch restarts
+    /// (the pre-#37 behavior), so a broken dead-letter path degrades safely.
+    ///
+    /// Idempotent: a replay of the same `(projection_id, partition_id,
+    /// sequence)` bumps `attempts` instead of duplicating the row.
+    async fn dead_letter_event(
+        &mut self,
+        event: &Event,
+        sqlstate: Option<String>,
+        constraint: Option<String>,
+        error_message: String,
+    ) -> Result<
+        (),
+        EventHandlerError<
+            PostgresEventProcessorError,
+            <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error,
+        >,
+    > {
+        let partition_id = event.partition_id;
+        let sequence = event.partition_sequence;
+        let smallint_partition =
+            partition_id_to_smallint(partition_id).map_err(EventHandlerError::Processor)?;
+
+        let sqlstate_log = sqlstate.clone().unwrap_or_else(|| "-".to_string());
+        let constraint_log = constraint.clone().unwrap_or_else(|| "-".to_string());
+
+        // Insert the DLQ row into the RETAINED batch transaction so it
+        // commits atomically with the earlier successful events' effects
+        // (issue #37 review). The commit itself is delegated to the full
+        // flush protocol below — handler.flush + pending checkpoint writes
+        // for ALL partitions + after_commit — because a worker can batch
+        // events for several partitions; committing only the poison
+        // partition's checkpoint would leave the others behind and cause
+        // duplicate application after replay (issue #37 re-review).
+        let retained = self.transaction.is_some();
+        match self.transaction.as_mut() {
+            Some(tx) => {
+                sqlx::query(AssertSqlSafe(format!(
+                    "
+                    INSERT INTO {} (projection_id, partition_id, sequence, stream_id, event_name, sqlstate, constraint_name, error_message, attempts, first_seen_at, last_seen_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, now(), now())
+                    ON CONFLICT (projection_id, partition_id, sequence) DO UPDATE SET
+                        sqlstate = EXCLUDED.sqlstate,
+                        constraint_name = EXCLUDED.constraint_name,
+                        error_message = EXCLUDED.error_message,
+                        attempts = {}.attempts + 1,
+                        last_seen_at = now()
+                    ",
+                    self.dead_letter_table, self.dead_letter_table
+                )))
+                .bind(self.projection_id.as_ref())
+                .bind(smallint_partition)
+                .bind(sequence as i64)
+                .bind(event.stream_id.to_string())
+                .bind(event.name.clone())
+                .bind(sqlstate)
+                .bind(constraint)
+                .bind(error_message)
+                .execute(&mut **tx)
+                .await
+                .map_err(|err| EventHandlerError::Processor(err.into()))?;
+            }
+            None => {
+                // Standalone batch (the failing event began it): DLQ row +
+                // checkpoint advance in one fresh transaction.
+                let mut tx = self
+                    .pool
+                    .begin()
+                    .await
+                    .map_err(|err| EventHandlerError::Processor(err.into()))?;
+
+                sqlx::query(AssertSqlSafe(format!(
+                    "
+                    INSERT INTO {} (projection_id, partition_id, sequence, stream_id, event_name, sqlstate, constraint_name, error_message, attempts, first_seen_at, last_seen_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, now(), now())
+                    ON CONFLICT (projection_id, partition_id, sequence) DO UPDATE SET
+                        sqlstate = EXCLUDED.sqlstate,
+                        constraint_name = EXCLUDED.constraint_name,
+                        error_message = EXCLUDED.error_message,
+                        attempts = {}.attempts + 1,
+                        last_seen_at = now()
+                    ",
+                    self.dead_letter_table, self.dead_letter_table
+                )))
+                .bind(self.projection_id.as_ref())
+                .bind(smallint_partition)
+                .bind(sequence as i64)
+                .bind(event.stream_id.to_string())
+                .bind(event.name.clone())
+                .bind(sqlstate)
+                .bind(constraint)
+                .bind(error_message)
+                .execute(&mut *tx)
+                .await
+                .map_err(|err| EventHandlerError::Processor(err.into()))?;
+
+                sqlx::query(AssertSqlSafe(format!(
+                    "
+                    INSERT INTO {} (projection_id, partition_id, sequence)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT (projection_id, partition_id) DO UPDATE SET
+                        sequence = GREATEST({}.sequence, EXCLUDED.sequence)
+                    ",
+                    self.checkpoints_table, self.checkpoints_table
+                )))
+                .bind(self.projection_id.as_ref())
+                .bind(smallint_partition)
+                .bind(sequence as i64)
+                .execute(&mut *tx)
+                .await
+                .map_err(|err| EventHandlerError::Processor(err.into()))?;
+
+                tx.commit()
+                    .await
+                    .map_err(|err| EventHandlerError::Processor(err.into()))?;
+            }
+        }
+
+        if retained {
+            // Mark the poison event handled, then run the standard flush
+            // protocol: handler.flush + pending checkpoint writes for every
+            // partition (including this one, advanced to the poison
+            // sequence) + commit + after_commit + full map sync.
+            self.last_handled_sequences.insert(partition_id, sequence);
+            flush_retry
+                .retry(ExponentialBuilder::new())
+                .context((self, FlushReason::DeadLetter))
+                .notify(|err, _dur| {
+                    error!("failed to flush events: {err:?}");
+                })
+                .await
+                .1?;
+        } else {
+            // Keep the in-memory handled/flushed maps consistent so
+            // subsequent flushes skip this partition (both equal) and the
+            // subscription does not rewind to the poison event.
+            self.last_handled_sequences.insert(partition_id, sequence);
+            self.last_flushed_sequences.insert(partition_id, sequence);
+            self.events_since_flush = 0;
+            self.last_flushed = Instant::now();
+        }
+
+        error!(
+            projection_id = %self.projection_id,
+            partition_id,
+            sequence,
+            stream_id = %event.stream_id,
+            event_name = %event.name,
+            sqlstate = %sqlstate_log,
+            constraint = %constraint_log,
+            "dead-lettered unprocessable event (issue #37); checkpoint advanced past it, projector continues"
+        );
 
         Ok(())
     }
@@ -645,11 +990,68 @@ where
         }
     };
 
+    // Issue #37 review: isolate each event in a nested SAVEPOINT so a failing
+    // event never discards the effects of earlier successful events that are
+    // still unflushed in this batch transaction. Without the savepoint the
+    // rollback below would lose those effects while the dead-letter path
+    // advances the checkpoint past them — silent data loss on replay.
+    //
+    // Raw `SAVEPOINT`/`ROLLBACK TO`/`RELEASE` statements are used instead of
+    // sqlx's nested-transaction API because the handler context type is
+    // `Transaction<'static, Postgres>` (a savepoint `Transaction` borrowing
+    // `tx` is not `'static`). The name embeds only numeric coordinates, so
+    // identifier injection is impossible; retries reuse the same name safely
+    // because the previous attempt's savepoint was released or rolled back.
+    let savepoint = format!(
+        "kameo_es_sp_{}_{}",
+        event.partition_id, event.partition_sequence
+    );
+
+    let begin_sp = sqlx::query(AssertSqlSafe(format!("SAVEPOINT {savepoint}")))
+        .execute(&mut *tx)
+        .await;
+    if let Err(err) = begin_sp {
+        error!("failed to start event savepoint: {err:?}");
+        // Likely a broken connection — drop the batch (replay-safe: the
+        // checkpoint never advanced past the earlier events).
+        *transaction = None;
+        return (
+            (pool, transaction, handler, event),
+            Err(EventHandlerError::Processor(err.into())),
+        );
+    }
+
     let res = handler.composite_handle(&mut tx, event.clone()).await;
     if res.is_err() {
-        let _ = tx.rollback().await;
-        *transaction = None;
+        match sqlx::query(AssertSqlSafe(format!("ROLLBACK TO SAVEPOINT {savepoint}")))
+            .execute(&mut *tx)
+            .await
+        {
+            Ok(_) => {
+                // Retain the transaction: it still holds the earlier
+                // successful events' effects. The poison path commits them
+                // atomically with the dead-letter row and the checkpoint
+                // advance; a transient error propagates and the epoch
+                // restart re-processes from the checkpoint.
+                *transaction = Some(tx);
+            }
+            Err(err) => {
+                error!("failed to roll back event savepoint: {err:?}");
+                // The batch transaction is in an unknown state — drop it;
+                // replay from the checkpoint covers the earlier events.
+                *transaction = None;
+            }
+        }
         return ((pool, transaction, handler, event), res);
+    }
+
+    if let Err(err) = sqlx::query(AssertSqlSafe(format!("RELEASE SAVEPOINT {savepoint}")))
+        .execute(&mut *tx)
+        .await
+    {
+        error!("failed to release event savepoint: {err:?}");
+        // If the transaction is unusable the next flush fails and the epoch
+        // restarts — replay-safe either way.
     }
 
     *transaction = Some(tx);
@@ -674,7 +1076,8 @@ where
         + CompositeEventHandler<E, sqlx::Transaction<'static, Postgres>, PostgresEventProcessorError>
         + Send
         + 'static,
-    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error: fmt::Debug + Sync,
+    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error:
+        fmt::Debug + Sync + crate::event_handler::EventErrorClassify,
 {
     let res = worker.flush_checkpoint(reason).await;
     ((worker, reason), res)
@@ -687,7 +1090,8 @@ where
         + CompositeEventHandler<E, sqlx::Transaction<'static, Postgres>, PostgresEventProcessorError>
         + Send
         + 'static,
-    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error: fmt::Debug + Sync,
+    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error:
+        fmt::Debug + Sync + crate::event_handler::EventErrorClassify,
 {
     type Args = Self;
     type Error = anyhow::Error;
@@ -745,7 +1149,8 @@ where
         + CompositeEventHandler<E, sqlx::Transaction<'static, Postgres>, PostgresEventProcessorError>
         + Send
         + 'static,
-    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error: fmt::Debug + Sync,
+    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error:
+        fmt::Debug + Sync + crate::event_handler::EventErrorClassify,
 {
     type Reply = Result<
         (),
@@ -764,10 +1169,57 @@ where
     }
 }
 
+/// Synchronizes a worker's flushed-sequences map with a checkpoint written
+/// processor-side (`DeadLetterUndecodable`, issue #37 re-review): a worker
+/// spawned before the write holds a stale map clone without that partition,
+/// and its first flush for the partition would take the plain-INSERT branch,
+/// hit the existing row (23505) and map to `UnexpectedLastEventId` — a
+/// needless epoch restart.
+struct SyncProcessorCheckpoint {
+    partition_id: u16,
+    sequence: u64,
+}
+
+impl<E, H> Message<SyncProcessorCheckpoint> for Worker<E, H>
+where
+    E: 'static,
+    H: EventHandler<sqlx::Transaction<'static, Postgres>>
+        + CompositeEventHandler<E, sqlx::Transaction<'static, Postgres>, PostgresEventProcessorError>
+        + Send
+        + 'static,
+    <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error:
+        fmt::Debug + Sync + crate::event_handler::EventErrorClassify,
+{
+    type Reply = ();
+
+    async fn handle(
+        &mut self,
+        SyncProcessorCheckpoint {
+            partition_id,
+            sequence,
+        }: SyncProcessorCheckpoint,
+        _ctx: &mut Context<Self, Self::Reply>,
+    ) {
+        // Monotonic watermark update: never regress, and only the flushed
+        // map — the dead-lettered message itself never becomes a
+        // `HandleEvent`, so `last_handled_sequences` stays untouched.
+        self.last_flushed_sequences
+            .entry(partition_id)
+            .and_modify(|flushed| {
+                if sequence > *flushed {
+                    *flushed = sequence;
+                }
+            })
+            .or_insert(sequence);
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum PostgresEventProcessorError {
     #[error(transparent)]
     GetStartFrom(#[from] SendError<(), sqlx::Error>),
+    #[error(transparent)]
+    UndecodableSierraMessage(#[from] crate::TryFromSierraEventError),
     #[error(transparent)]
     Postgres(#[from] sqlx::Error),
     #[error("unexpected last event id, expected {expected:?}")]
@@ -796,4 +1248,9 @@ pub enum FlushReason {
     TimeInterval,
     LiveEventsInterval,
     ReplayEventsInterval,
+    /// The flush is triggered by the dead-letter path (issue #37): the
+    /// retained batch transaction is committed with all pending checkpoint
+    /// updates so earlier successful events publish atomically with the
+    /// DLQ row and the poison partition's checkpoint advance.
+    DeadLetter,
 }

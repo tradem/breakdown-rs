@@ -15,6 +15,36 @@ commits (ADR-020 D5).
 
 ## [0.16.0] - Unreleased
 
+### Added — projector dead-letter + health signal (issue #37)
+
+- New migration `20260815000001_projection_dead_letter`: durable poison-event
+  table (`projection_id, partition_id, sequence` PK, stream id, event name,
+  SQLSTATE, constraint name, error message, `attempts`, timestamps).
+- kameo_es `PostgresProcessor` (vendored path patch): permanent errors
+  (SQLSTATE class 23/22, event deserialization) that survive the 5× retry
+  budget are dead-lettered and the projector checkpoint advances past the
+  event in one transaction — no more infinite supervisor restart loop per
+  stalled category; transient errors keep the restart behavior. New
+  `EventErrorClassify` trait (`is_permanent_event_error`,
+  `permanent_error_details`) implemented for `sqlx::Error`; classification
+  unit tests included.
+- New `infra::projectors::ProjectorHealthRepository` (module
+  `projectors::health`): `list_dead_letters`, `dead_letter_count`,
+  `checkpoint_progress` — the operator-facing health signal; psql variants
+  documented in `docs/operations/runbooks.md` → "Projector dead-letter
+  health (issue #37)".
+- Stream-layer coverage (issue #411): Sierra messages whose payload/metadata
+  cannot be decoded are dead-lettered by the `EventHandlerStream` via the new
+  `EventProcessor::dead_letter_undecodable` (raw coordinates preserved in
+  `TryFromSierraEventError`); processors without a durable DLQ surface (photo
+  sagas, report triggers) keep the restart behavior via the default impl.
+- Tier-4 regression tests `projector_dead_letter_tests.rs` (FK-violation
+  repro of the original #37 report; corrupt-payload stream-layer repro).
+- Rides with the open 0.16.0 MINOR; no additional bump (0.16.0 unreleased).
+  The vendored `kameo_es` path patch is bumped `0.1.0` → `0.2.0` (new public
+  `EventErrorClassify` trait + dead-letter path; not published to crates.io,
+  the bump is for traceability of the vendored patch).
+
 ### Fixed — projectors skip permanent invariant violations instead of crashing (issue #404)
 
 - `SeasonProjector` / `BlockProjector` / `EpisodeProjector` / `SceneShootProjector`:
