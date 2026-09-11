@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: hy4-preview (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 //! `Role` / `MembershipStateKind` carry **two** stable textual
 //! representations, and they must agree on the same `snake_case` token:
@@ -30,6 +31,7 @@ fn role_token_matches_the_serde_wire_form() {
         Role::CostumeDesigner,
         Role::WardrobeSupervisor,
         Role::CostumeAssistant,
+        Role::OpsAdmin,
     ] {
         let wire = serde_json::to_string(&role).expect("Role serializes to JSON");
         assert_eq!(
@@ -61,6 +63,7 @@ fn storage_tokens_are_the_expected_snake_case_literals() {
     assert_eq!(Role::CostumeDesigner.as_str(), "costume_designer");
     assert_eq!(Role::WardrobeSupervisor.as_str(), "wardrobe_supervisor");
     assert_eq!(Role::CostumeAssistant.as_str(), "costume_assistant");
+    assert_eq!(Role::OpsAdmin.as_str(), "ops_admin");
     assert_eq!(MembershipStateKind::Pending.as_str(), "pending");
     assert_eq!(MembershipStateKind::Active.as_str(), "active");
 }
@@ -73,6 +76,7 @@ fn tokens_round_trip_and_unknown_input_is_rejected() {
         Role::CostumeDesigner,
         Role::WardrobeSupervisor,
         Role::CostumeAssistant,
+        Role::OpsAdmin,
     ] {
         assert_eq!(Role::from_token(role.as_str()), Some(role));
     }

@@ -34,9 +34,11 @@ use std::time::{Duration, Instant};
 use anyhow::{Result, bail};
 use breakdown_core::costume::events::CostumeDetail;
 use breakdown_core::costume::events::CostumeEvent;
+use breakdown_core::ops::DeadLetterEntry;
 use breakdown_core::shared::AggregateVersion;
 use chrono::Utc;
-use infra::projectors::health::DeadLetterEntry;
+// Trait method scope for the #37 health adapter (issue #409 port split).
+use breakdown_core::ops::ProjectorHealthRepository as _;
 use infra::projectors::{ProjectorFlushConfig, ProjectorHealthRepository, spawn_costume_projector};
 use sqlx::Row;
 use uuid::Uuid;

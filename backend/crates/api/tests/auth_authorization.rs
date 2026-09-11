@@ -3,6 +3,7 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: hy4-preview (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -221,6 +222,10 @@ fn allowlist_paths_map_to_authenticated_only() {
         "/shooting-days/00000000-0000-7000-8000-000000000000/report/dispo",
         "/shooting-days/00000000-0000-7000-8000-000000000000/report/shoot-day",
         "/shooting-days/00000000-0000-7000-8000-000000000000/report/soll-ist",
+        // Ops surface (issue #409): deployment-scoped, handler-internal ops
+        // gate (`authorize_ops`) inside the handler.
+        "/ops/projector-health",
+        "/v1/ops/projector-health",
     ];
 
     for path in allowlist {
@@ -482,6 +487,12 @@ impl MembershipRepository for MockSeasonMembershipRepo {
     }
 
     async fn has_active_credential_role(&self, user_id: UserId) -> Result<bool, DomainError> {
+        self.has_active_costume_role_in_season(SeasonId::new(), user_id)
+            .await
+    }
+
+    async fn has_active_ops_role(&self, user_id: UserId) -> Result<bool, DomainError> {
+        // Mock reuses the same ok/err switches as the other predicates.
         self.has_active_costume_role_in_season(SeasonId::new(), user_id)
             .await
     }

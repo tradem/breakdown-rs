@@ -3,6 +3,7 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: hy4-preview (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 #![cfg_attr(
@@ -100,6 +101,7 @@ use utoipa::OpenApi;
         handlers::list_ai_configs,
         handlers::update_ai_config,
         handlers::revoke_ai_config,
+        handlers::get_projector_health,
         handlers::upload_ai_script,
         handlers::upload_ai_schedule,
         handlers::list_ai_import_jobs,
@@ -231,6 +233,10 @@ use utoipa::OpenApi;
         breakdown_core::scene_shoot::views::ShootDayRow,
         breakdown_core::scene_shoot::views::SollIstDiffRow,
         breakdown_core::scene_shoot::views::SollIstReport,
+        // Ops surface DTOs (issue #409): projector health snapshot.
+        breakdown_core::ops::DeadLetterEntry,
+        breakdown_core::ops::CheckpointProgress,
+        breakdown_core::ops::ProjectorHealthSnapshot,
     )),
     tags(
         (name = "Seasons", description = "Production hierarchy: Series > Season"),
