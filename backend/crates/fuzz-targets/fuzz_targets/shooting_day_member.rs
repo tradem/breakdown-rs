@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 //! Fuzz target for deserialization of request bodies with complex enums:
 //! `CreateShootingDayRequest` (ShootingDaySource) and `InviteMemberRequest`
