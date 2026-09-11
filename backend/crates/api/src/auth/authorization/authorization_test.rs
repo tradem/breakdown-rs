@@ -3,6 +3,7 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: hy4-preview (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 use std::sync::Arc;
 
@@ -324,6 +325,12 @@ impl MembershipRepository for MockSeasonMembershipRepo {
     }
 
     async fn has_active_credential_role(&self, user_id: UserId) -> Result<bool, DomainError> {
+        self.has_active_costume_role_in_season(SeasonId::new(), user_id)
+            .await
+    }
+
+    async fn has_active_ops_role(&self, user_id: UserId) -> Result<bool, DomainError> {
+        // Mock reuses the same ok/err switches as the other predicates.
         self.has_active_costume_role_in_season(SeasonId::new(), user_id)
             .await
     }

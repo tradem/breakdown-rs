@@ -9,6 +9,7 @@ part of 'role.dart';
 const Role _$costumeDesigner = const Role._('costumeDesigner');
 const Role _$wardrobeSupervisor = const Role._('wardrobeSupervisor');
 const Role _$costumeAssistant = const Role._('costumeAssistant');
+const Role _$opsAdmin = const Role._('opsAdmin');
 
 Role _$valueOf(String name) {
   switch (name) {
@@ -18,6 +19,8 @@ Role _$valueOf(String name) {
       return _$wardrobeSupervisor;
     case 'costumeAssistant':
       return _$costumeAssistant;
+    case 'opsAdmin':
+      return _$opsAdmin;
     default:
       throw ArgumentError(name);
   }
@@ -27,6 +30,7 @@ final BuiltSet<Role> _$values = BuiltSet<Role>(const <Role>[
   _$costumeDesigner,
   _$wardrobeSupervisor,
   _$costumeAssistant,
+  _$opsAdmin,
 ]);
 
 class _$RoleMeta {
@@ -34,6 +38,7 @@ class _$RoleMeta {
   Role get costumeDesigner => _$costumeDesigner;
   Role get wardrobeSupervisor => _$wardrobeSupervisor;
   Role get costumeAssistant => _$costumeAssistant;
+  Role get opsAdmin => _$opsAdmin;
   Role valueOf(String name) => _$valueOf(name);
   BuiltSet<Role> get values => _$values;
 }
@@ -50,11 +55,13 @@ class _$RoleSerializer implements PrimitiveSerializer<Role> {
     'costumeDesigner': 'costume_designer',
     'wardrobeSupervisor': 'wardrobe_supervisor',
     'costumeAssistant': 'costume_assistant',
+    'opsAdmin': 'ops_admin',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'costume_designer': 'costumeDesigner',
     'wardrobe_supervisor': 'wardrobeSupervisor',
     'costume_assistant': 'costumeAssistant',
+    'ops_admin': 'opsAdmin',
   };
 
   @override

@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 //! Integration tests for `GET /seasons/{id}/membership` (issue #311).
 
@@ -102,6 +103,7 @@ async fn get_season_membership_returns_empty_capabilities_for_non_member() {
             detailed: Default::default(),
             scopes: Default::default(),
             credential_role_override: Default::default(),
+            ops_role_override: Default::default(),
             costume_role_override: Arc::new(Mutex::new(Some(Ok(false)))),
             report_archive_role_override: Default::default(),
             series_membership_override: Default::default(),
