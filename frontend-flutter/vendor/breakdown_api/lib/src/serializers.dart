@@ -40,6 +40,7 @@ import 'package:breakdown_api/src/model/block_view.dart';
 import 'package:breakdown_api/src/model/character_category.dart';
 import 'package:breakdown_api/src/model/character_measurements.dart';
 import 'package:breakdown_api/src/model/character_view.dart';
+import 'package:breakdown_api/src/model/checkpoint_progress.dart';
 import 'package:breakdown_api/src/model/contact_info.dart';
 import 'package:breakdown_api/src/model/costume_category_view.dart';
 import 'package:breakdown_api/src/model/costume_detail.dart';
@@ -56,6 +57,7 @@ import 'package:breakdown_api/src/model/create_scene_request.dart';
 import 'package:breakdown_api/src/model/create_season_request.dart';
 import 'package:breakdown_api/src/model/create_shooting_day_request.dart';
 import 'package:breakdown_api/src/model/credential_binding_state.dart';
+import 'package:breakdown_api/src/model/dead_letter_entry.dart';
 import 'package:breakdown_api/src/model/dispo_row.dart';
 import 'package:breakdown_api/src/model/document_kind.dart';
 import 'package:breakdown_api/src/model/draft_scene.dart';
@@ -87,6 +89,7 @@ import 'package:breakdown_api/src/model/photo_variant_view.dart';
 import 'package:breakdown_api/src/model/photo_view.dart';
 import 'package:breakdown_api/src/model/plan_scene_shoot_request.dart';
 import 'package:breakdown_api/src/model/problem_details.dart';
+import 'package:breakdown_api/src/model/projector_health_snapshot.dart';
 import 'package:breakdown_api/src/model/rename_episode_request.dart';
 import 'package:breakdown_api/src/model/rename_season_request.dart';
 import 'package:breakdown_api/src/model/replan_scene_shoot_request.dart';
@@ -156,6 +159,7 @@ part 'serializers.g.dart';
   CharacterCategory,
   CharacterMeasurements,
   CharacterView,
+  CheckpointProgress,
   ContactInfo,
   CostumeCategoryView,
   CostumeDetail,
@@ -172,6 +176,7 @@ part 'serializers.g.dart';
   CreateSeasonRequest,
   CreateShootingDayRequest,
   CredentialBindingState,
+  DeadLetterEntry,
   DispoRow,
   DocumentKind,
   DraftScene,
@@ -204,6 +209,7 @@ part 'serializers.g.dart';
   PhotoView,
   PlanSceneShootRequest,
   ProblemDetails,
+  ProjectorHealthSnapshot,
   RenameEpisodeRequest,
   RenameSeasonRequest,
   ReplanSceneShootRequest,
@@ -308,6 +314,10 @@ Serializers serializers = (_$serializers.toBuilder()
         () => ListBuilder<DraftScene>(),
       )
       ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(CheckpointProgress)]),
+        () => ListBuilder<CheckpointProgress>(),
+      )
+      ..addBuilderFactory(
         const FullType(BuiltList, [FullType(ModelInfo)]),
         () => ListBuilder<ModelInfo>(),
       )
@@ -354,6 +364,10 @@ Serializers serializers = (_$serializers.toBuilder()
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(MergedScene)]),
         () => ListBuilder<MergedScene>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(DeadLetterEntry)]),
+        () => ListBuilder<DeadLetterEntry>(),
       )
       ..addBuilderFactory(
         const FullType(

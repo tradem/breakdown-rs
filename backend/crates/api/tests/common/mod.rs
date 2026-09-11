@@ -423,6 +423,10 @@ pub struct FakeMembershipRepo {
     /// tests exercise the allow/deny/error branches of the AI import
     /// credential gate deterministically. `None` = resolve from seeded data.
     pub credential_role_override: Arc<Mutex<Option<Result<bool, DomainError>>>>,
+    /// Configurable outcome of `has_active_ops_role` — lets tests exercise
+    /// the ops gate (issue #409) deterministically. `None` = resolve from
+    /// seeded data.
+    pub ops_role_override: Arc<Mutex<Option<Result<bool, DomainError>>>>,
     /// Configurable outcome of `has_active_costume_role_in_season` — lets handler
     /// tests exercise the allow/deny branches of handler-internal authz gates.
     /// `None` = resolve from seeded data.
@@ -690,6 +694,17 @@ impl MembershipRepository for FakeMembershipRepo {
                 && matches!(role, Role::CostumeDesigner | Role::CostumeAssistant)
         }))
     }
+
+    async fn has_active_ops_role(&self, user_id: UserId) -> Result<bool, DomainError> {
+        if let Some(result) = self.ops_role_override.lock().await.clone() {
+            return result;
+        }
+        // Deployment-scoped ops capability (issue #409): any active
+        // `ops_admin` row in any block.
+        Ok(self.rows().await.iter().any(|(_, row_user, role, state)| {
+            row_user == &user_id && *state == MembershipStateKind::Active && *role == Role::OpsAdmin
+        }))
+    }
 }
 
 #[derive(Clone)]
@@ -903,10 +918,18 @@ impl SeasonRepository for FakeSeasonRepo {
     }
     async fn find_by_series_and_number(
         &self,
-        _series_id: SeriesId,
-        _number: i32,
+        series_id: SeriesId,
+        number: i32,
     ) -> Result<Option<SeasonView>, DomainError> {
-        Ok(None)
+        // Backs the #404 numbering pre-check: scan the fake store like the
+        // production repository would; None = free.
+        Ok(self
+            .seasons
+            .lock()
+            .await
+            .values()
+            .find(|s| s.series_id == series_id && s.number == number)
+            .cloned())
     }
 }
 
@@ -944,10 +967,18 @@ impl BlockRepository for FakeBlockRepo {
     }
     async fn find_by_series_and_number(
         &self,
-        _series_id: SeriesId,
-        _number: i32,
+        series_id: SeriesId,
+        number: i32,
     ) -> Result<Option<BlockView>, DomainError> {
-        Ok(None)
+        // Backs the #404 numbering pre-check: scan the fake store like the
+        // production repository would; None = free.
+        Ok(self
+            .blocks
+            .lock()
+            .await
+            .values()
+            .find(|b| b.series_id == series_id && b.number == number)
+            .cloned())
     }
 }
 
@@ -1032,10 +1063,18 @@ impl EpisodeRepository for FakeEpisodeRepo {
     }
     async fn find_by_series_and_number(
         &self,
-        _series_id: SeriesId,
-        _number: i32,
+        series_id: SeriesId,
+        number: i32,
     ) -> Result<Option<EpisodeView>, DomainError> {
-        Ok(None)
+        // Backs the #404 numbering pre-check: scan the fake store like the
+        // production repository would; None = free.
+        Ok(self
+            .episodes
+            .lock()
+            .await
+            .values()
+            .find(|e| e.series_id == series_id && e.number == number)
+            .cloned())
     }
 }
 
@@ -1408,10 +1447,18 @@ impl SceneShootRepository for FakeSceneShootRepo {
     }
     async fn find_by_scene_and_day(
         &self,
-        _scene_id: Uuid,
-        _shooting_day_id: ShootingDayId,
+        scene_id: Uuid,
+        shooting_day_id: ShootingDayId,
     ) -> Result<SceneShootView, DomainError> {
-        unreachable!("not used in authz tests")
+        // Backs the #404 pair-uniqueness pre-check: scan the fake store for a
+        // matching (scene_id, shooting_day_id) pair; not-found = free.
+        self.shoots
+            .lock()
+            .await
+            .values()
+            .find(|s| s.scene_id == scene_id && s.shooting_day_id == shooting_day_id)
+            .cloned()
+            .ok_or(DomainError::not_found("scene-shoot"))
     }
     async fn list_by_scene(&self, _scene_id: Uuid) -> Result<Vec<SceneShootView>, DomainError> {
         unreachable!("not used in authz tests")
@@ -1971,6 +2018,62 @@ impl AiImportMappingRepository for FakeAiImportMappingRepo {
     }
 }
 
+/// Fake projector-health adapter (issue #409): returns a configurable
+/// snapshot; defaults to the empty (healthy) signal. `error` simulates a
+/// read-model failure for the 500 branches.
+#[derive(Clone, Default)]
+pub struct FakeProjectorHealthRepo {
+    pub snapshot: Arc<Mutex<Option<breakdown_core::ops::ProjectorHealthSnapshot>>>,
+    pub error: Arc<Mutex<Option<String>>>,
+}
+
+#[async_trait]
+impl breakdown_core::ops::ProjectorHealthRepository for FakeProjectorHealthRepo {
+    async fn list_dead_letters(
+        &self,
+        _limit: i64,
+    ) -> Result<Vec<breakdown_core::ops::DeadLetterEntry>, DomainError> {
+        if let Some(err) = self.error.lock().await.clone() {
+            return Err(DomainError::internal(err));
+        }
+        Ok(self
+            .snapshot
+            .lock()
+            .await
+            .as_ref()
+            .map(|s| s.dead_letters.clone())
+            .unwrap_or_default())
+    }
+
+    async fn dead_letter_count(&self) -> Result<i64, DomainError> {
+        if let Some(err) = self.error.lock().await.clone() {
+            return Err(DomainError::internal(err));
+        }
+        Ok(self
+            .snapshot
+            .lock()
+            .await
+            .as_ref()
+            .map(|s| s.dead_letter_count)
+            .unwrap_or(0))
+    }
+
+    async fn checkpoint_progress(
+        &self,
+    ) -> Result<Vec<breakdown_core::ops::CheckpointProgress>, DomainError> {
+        if let Some(err) = self.error.lock().await.clone() {
+            return Err(DomainError::internal(err));
+        }
+        Ok(self
+            .snapshot
+            .lock()
+            .await
+            .as_ref()
+            .map(|s| s.checkpoints.clone())
+            .unwrap_or_default())
+    }
+}
+
 #[derive(Clone)]
 #[allow(dead_code)]
 pub struct FakePorts {
@@ -2016,6 +2119,7 @@ pub struct FakePorts {
     /// production where a single adapter implements preview + document store
     /// + document source.
     pub ai_payload_store: MemoryAiPreviewStore,
+    pub projector_health_repo: FakeProjectorHealthRepo,
 }
 
 impl Default for FakePorts {
@@ -2056,6 +2160,7 @@ impl Default for FakePorts {
             ai_import_queue: Default::default(),
             ai_import_mapping: Default::default(),
             ai_payload_store: Default::default(),
+            projector_health_repo: Default::default(),
         }
     }
 }
@@ -2098,6 +2203,7 @@ impl Ports for FakePorts {
     type AiPreviewStore = MemoryAiPreviewStore;
     type AiDocumentStore = MemoryAiPreviewStore;
     type AiDocumentSource = MemoryAiPreviewStore;
+    type ProjectorHealthRepo = FakeProjectorHealthRepo;
 
     fn scene_commands(&self) -> &Self::SceneCommands {
         &self.scene_commands
@@ -2212,5 +2318,8 @@ impl Ports for FakePorts {
     }
     fn ai_document_source(&self) -> &Self::AiDocumentSource {
         &self.ai_payload_store
+    }
+    fn projector_health_repo(&self) -> &Self::ProjectorHealthRepo {
+        &self.projector_health_repo
     }
 }

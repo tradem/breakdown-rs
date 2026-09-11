@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: gpt-5.6-luna (opencode-go) -->
+<!-- Co-authored-by: omen-alpha (opencode-go) -->
 
 # Agent Guidelines for breakdown-rs
 
@@ -21,6 +22,7 @@ You are the primary coding agent for `breakdown-rs` – a collaborative costume 
 - **CQRS & Event Sourcing:** All state changes occur via **Commands** sent to **Aggregates** (which validate and emit **Events**; state is rebuilt by replay). **Queries** read from flat PostgreSQL **Projections**; event handlers update projections asynchronously. Never query aggregates directly for views.
 - **CQRS Boundary (hard rule):** Write-side code (Command adapters, Sagas, Aggregates) must **never** query a read-model projection (`*Repository::find_by_id`) to resolve audit/derived context (e.g. `series_id`) — that context comes from **event data** or a **command field** populated at the API edge (the only legitimate read-model consumer). Exceptions only with `// ast-grep-ignore: cqrs-boundary` + justification (rule `backend/rules/cqrs-boundary.yml`, job `cqrs-boundary`). Audit metadata must never block command processing: resolve best-effort, `None`/default on projection misses. → Long form: `.github/instructions/architecture-hard-rules.instructions.md`
 - **kameo_es (Actors):** Event-sourced aggregates are `kameo::Actor`s implementing `kameo_es::Entity`; commands act as `kameo_es::Command` (see §5).
+- **Cross-aggregate invariant doctrine (issues #404/#37):** Global invariants spanning multiple aggregates (e.g. uniqueness) MUST specify three things: (a) an **authoritative enforcement point** (a projection unique constraint as backstop is legitimate), (b) a **client-facing 409** via an API-edge pre-check *before* dispatch (the handler is the only legitimate read-model consumer), (c) **projector failure behavior** — a permanent constraint violation must never panic-kill the projector (shipped: #404 savepoint-skip for the authoritative constraints + #37 generic dead-letter — durable `projection_dead_letter` row + checkpoint advance + health signal). → Long form: `.github/instructions/architecture-hard-rules.instructions.md`
 
 ## 2. Workspace Structure
 - **`crates/core`:** Pure domain logic — Commands, Events, Aggregates, Read-Model DTOs, Port Traits. **No dependencies** on `sqlx`, `axum`, or infrastructure.
@@ -48,6 +50,7 @@ Aggregate details and invariants (`shooting_day`/`wrapped_at`, `scene_shoot` lif
   - [ ] Audit metadata (`series_id`) coupled to projector presence?
   - [ ] Fallible result discarded with `let _ = <call>`?
   - [ ] Test-only helper (`*_for_test`) without `#[cfg(feature = "test-support")]` gating?
+  - [ ] New cross-aggregate invariant (e.g. uniqueness) without API-edge pre-check (409), authoritative backstop, and projector-failure spec? (doctrine, AGENTS.md §1 / issues #404/#37)
 
 ## 4. Testing & Guardrails
 - **Unit/Integration Tests:** Deterministic tests for domain logic in `core`. **Timing-safe:** never gate on wall-clock timing or sleep-with-jitter budgets — compute the worst case analytically.

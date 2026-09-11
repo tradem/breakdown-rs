@@ -50,6 +50,7 @@ import 'package:breakdown_api/src/model/model_info.dart';
 import 'package:breakdown_api/src/model/photo_view.dart';
 import 'package:breakdown_api/src/model/plan_scene_shoot_request.dart';
 import 'package:breakdown_api/src/model/problem_details.dart';
+import 'package:breakdown_api/src/model/projector_health_snapshot.dart';
 import 'package:breakdown_api/src/model/rename_episode_request.dart';
 import 'package:breakdown_api/src/model/rename_season_request.dart';
 import 'package:breakdown_api/src/model/replan_scene_shoot_request.dart';
@@ -3122,6 +3123,89 @@ class HandlersApi {
     }
 
     return Response<MembershipView>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// Deployment-scoped ops surface: projector health over the durable dead-letter and checkpoint tables (issues #37/#409).
+  /// Returns the dead-letter count, the latest dead-letter entries and the per-partition checkpoint progress — the HTTP counterpart of the runbook SQL (&#x60;docs/operations/runbooks.md&#x60; → \&quot;Projector dead-letter health (issue #37)\&quot;).
+  ///
+  /// Parameters:
+  /// * [limit] - Maximum number of dead-letter entries to return (1-500, default 100)
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [ProjectorHealthSnapshot] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<ProjectorHealthSnapshot>> getProjectorHealth({
+    int? limit,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/ops/projector-health';
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _queryParameters = <String, dynamic>{
+      if (limit != null)
+        r'limit':
+            encodeQueryParameter(_serializers, limit, const FullType(int)),
+    };
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      queryParameters: _queryParameters,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    ProjectorHealthSnapshot? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(ProjectorHealthSnapshot),
+            ) as ProjectorHealthSnapshot;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<ProjectorHealthSnapshot>(
       data: _responseData,
       headers: _response.headers,
       isRedirect: _response.isRedirect,

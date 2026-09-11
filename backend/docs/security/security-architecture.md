@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: ox-alpha-free (opencode-go) -->
+<!-- Co-authored-by: omen-alpha (opencode-go) -->
 
 # Backend Security Architecture & Security-Test Pyramid
 
@@ -95,6 +96,7 @@ block-scoped, never open.
 | `/blocks/{id}/members/accept` | `Authenticated` | The invitee is *not yet* a member (that is the point). The domain command `AcceptInvitation` binds `user_id` to the authenticated `sub`, so a caller can only accept their own invitation. |
 | `/ai-import*`, `/report/*.pdf`, `/report/archive` | `Authenticated` + handler gates | Each handler performs season-scoped internal authorization (costume-dept membership / credential role) with `// AUTHZ-GATE:` comments. |
 | `/audit` (series-scoped journal) | `Authenticated` + handler gate | The journal is filtered by the `series_id` **query parameter**, so the caller's active block (`X-Active-Block`) is unrelated to the series being read — a middleware `BlockMember` check would give false assurance. `requirement_for` therefore classifies the route `Authenticated` and `get_audit_history` verifies `MembershipRepository::has_active_membership_in_series` itself, returning `403` on denial (issue #342). Its block-scoped twin `/blocks/{id}/audit` stays `BlockMember`. |
+| `/ops/projector-health` (issue #409) | `Authenticated` + handler gate | Deployment-scoped infrastructure state (DLQ + checkpoint progress) — no block/season scope applies. The handler verifies `AuthorizationPolicy::authorize_ops` (active `ops_admin` membership in any block, or the `OPS_ADMIN_SUBS` bootstrap allowlist) with `// AUTHZ-GATE:`. The ops capability itself is protected in both directions: it can only be granted **and** only be demoted/removed by existing ops holders (`invite_member` / `grant_role` / `remove_member` guards — a regular block member can neither self-escalate nor strip an ops holder). The `OPS_ADMIN_SUBS` bootstrap allowlist is injected once at API start; revoking a bootstrap subject requires an API restart, membership-based grants are revocable immediately via the membership API. |
 
 ### Fail-closed guarantee
 

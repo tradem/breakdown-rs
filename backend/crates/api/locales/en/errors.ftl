@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: kimi-k3 (neuralwatt)
+# Co-authored-by: omen-alpha (opencode-go)
 
 # Problem-detail messages (ADR-031 D5). One message per registered
 # problem code; the key is derived 1:1 from the code
@@ -42,6 +43,9 @@ problem-auth-unauthenticated =
 
 problem-block-not-found =
     Block not found.
+
+problem-block-number-already-exists =
+    A block with this number already exists for this series.
 
 problem-block-validation =
     The block request is not valid.
@@ -90,6 +94,9 @@ problem-domain-validation =
 
 problem-episode-not-found =
     Episode not found.
+
+problem-episode-number-already-exists =
+    An episode with this number already exists for this series.
 
 problem-episode-validation =
     The episode request is not valid.
@@ -198,6 +205,9 @@ problem-scene-validation =
 
 problem-season-not-found =
     Season not found.
+
+problem-season-number-already-exists =
+    A season with this number already exists for this series.
 
 problem-season-validation =
     The season request is not valid.

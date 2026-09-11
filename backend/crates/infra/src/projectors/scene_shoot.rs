@@ -3,16 +3,18 @@
 // Co-authored-by: qwen3.6-35b (neuralwatt)
 // Co-authored-by: moonshotai/kimi-k3 (openrouter)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 //! SceneShoot projection handler: `SceneShootEvent` -> `projection_scene_shoot`.
 
 use super::PROJECTOR_VERSION;
+use super::invariant_skip::{SCENE_SHOOT_PAIR_CONSTRAINT, is_unique_violation_on};
 use breakdown_core::scene_shoot::aggregate::SceneShootAggregate;
 use breakdown_core::scene_shoot::events::SceneShootEvent;
 use breakdown_core::shared::{EventMetadata, SceneShootId};
 use kameo_es::Event;
 use kameo_es::event_handler::{EntityEventHandler, EventHandler};
-use sqlx::{Postgres, Transaction};
+use sqlx::{Acquire, Postgres, Transaction};
 
 /// Idempotent projector for the `SceneShootAggregate`.
 #[derive(Clone, Default, Debug)]
@@ -43,7 +45,13 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                 version,
             } => {
                 let version = version.0 as i64;
-                sqlx::query(
+                // #404 projector failure behavior: a permanent 23505 on the
+                // authoritative pair-uniqueness constraint is a poison event
+                // — it would abort the batch transaction, so the insert is
+                // isolated in a SAVEPOINT and the violating event is skipped
+                // with a warning instead of panic-killing the worker.
+                let mut sp = (&mut *ctx).begin().await?;
+                match sqlx::query(
                     r#"
                     INSERT INTO projection_scene_shoot
                         (id, scene_id, shooting_day_id, planned_order, status, version, projector_version, updated_at)
@@ -67,8 +75,20 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                 .bind(version)
                 .bind(PROJECTOR_VERSION)
                 .bind(updated_at)
-                .execute(&mut **ctx)
-                .await?;
+                .execute(&mut *sp)
+                .await
+                {
+                    Err(e) if is_unique_violation_on(&e, SCENE_SHOOT_PAIR_CONSTRAINT) => {
+                        tracing::warn!(
+                            scene_shoot_id = %id,
+                            constraint = SCENE_SHOOT_PAIR_CONSTRAINT,
+                            "skipped SceneShootPlanned with duplicate scene/shooting-day pair (issue #404); projection keeps the authoritative row"
+                        );
+                        sp.rollback().await?;
+                    }
+                    Ok(_) => sp.commit().await?,
+                    Err(e) => return Err(e),
+                }
             }
             SceneShootEvent::SceneShootReplanned {
                 id,

@@ -7,6 +7,7 @@ applyTo:
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: glm-5.3 (neuralwatt) -->
+<!-- Co-authored-by: omen-alpha (opencode-go) -->
 
 # Hard-Rules — Langfassung und Begründung
 
@@ -35,6 +36,102 @@ a justification comment above it.
 
 **Audit metadata must never block command processing:** resolve it
 best-effort, returning `None`/default on projection misses.
+
+## Cross-aggregate invariant doctrine (issues #404, #37)
+
+Per-stream optimistic concurrency of the event store **cannot** enforce global
+(cross-aggregate) invariants such as uniqueness — that is inherent to ES+CQRS,
+not a defect. The failure mode observed in #404 arises one step later: an
+invariant was silently delegated to a projection unique constraint **without
+designing its failure path**. Consequence: the write path accepts the violating
+command with **2xx** (the event sits in SierraDB and permanently violates the
+invariant), the event becomes unprocessable for the projector (permanent 23505),
+and — before the #37-minimal fix — panics the projector worker/coordinator.
+From the user's perspective this is silent data loss: the write succeeded, the
+read model (dispo/soll-ist reports) never updates.
+
+**Doctrine — every cross-aggregate invariant must specify three things:**
+
+1. **Authoritative enforcement point.** A projection unique constraint
+   (`uq_projection_*`) is a legitimate backstop and remains the authority
+   against races. It is the *last* line of defense, never the *only* one.
+2. **Client-facing 409 via API-edge pre-check.** The handler (the only
+   legitimate read-model consumer per the CQRS boundary) checks the invariant
+   before dispatching the command and returns a clean 409 with a registered
+   problem code (ADR-031: entry in `problem_codes!`, Fluent text in
+   `crates/api/locales/<lang>/errors.ftl`). Pre-checks are advisory; the
+   constraint remains authoritative against races.
+3. **Projector failure behavior.** A permanent constraint violation reaching a
+   projector must never panic-kill the worker/coordinator. Target state
+   (#37, Launch-Blocker there): the event is classified and skipped into a
+   durable poison/dead-letter table with a health signal. **State shipped
+   with #404 + #37:** two layers — (a) the #404 savepoint-skip for the four
+   authoritative uniqueness constraints (log-only warn, projection keeps the
+   authoritative row, never reaches the retry budget), and (b) the generic
+   #37 dead-letter path in the kameo_es `PostgresProcessor` for every other
+   permanent error (SQLSTATE class 23/22, event deserialization): after the
+   5× retry budget the event is recorded durably in
+   `projection_dead_letter` (migration `20260815000001`) and the projector
+   checkpoint is advanced past it in one transaction — no restart loop, no
+   stall. The health signal is `infra::projectors::ProjectorHealthRepository`
+   plus the runbook SQL (`docs/operations/runbooks.md` → "Projector
+   dead-letter health (issue #37)"); each dead-letter is `tracing::error!`
+-logged with the `#37` marker. Transient errors (connection, serialization
+   failure 40001, deadlock 40P01) keep the propagate-and-restart behavior.
+
+**Known instances (see #404 — closed by the #404 fix; pre-checks are advisory, the constraints stay authoritative):**
+
+| Invariant | Projection constraint | Status |
+|---|---|---|
+| SceneShoot pair-uniqueness `(scene_id, shooting_day_id)` | `uq_projection_scene_shoot_pair` | closed: API-edge 409 (`scene-shoot.pair-already-exists`) + projector savepoint-skip |
+| Season numbering `(series_id, number)` | `idx_projection_season_series_number` | closed: API-edge 409 (`season.number-already-exists`) + projector savepoint-skip |
+| Block numbering `(series_id, number)` | `idx_projection_block_series_number` | closed: API-edge 409 (`block.number-already-exists`) + projector savepoint-skip (same class, fixed with #404) |
+| Episode numbering `(series_id, number)` | `idx_projection_episode_series_number` | closed: API-edge 409 (`episode.number-already-exists`) + projector savepoint-skip (same class, fixed with #404) |
+
+The projector skip lives in `crates/infra/src/projectors/invariant_skip.rs`: a 23505 on
+exactly these constraints is a *permanent* violation, isolated in a SAVEPOINT (a failed
+statement aborts the batch transaction), logged with `tracing::warn!`, and the event is
+acknowledged — the projection keeps the authoritative row. These four skips never reach
+the retry budget; every *other* permanent error dead-letters via the generic #37 path
+(`projection_dead_letter` + checkpoint advance, see "Projector failure behavior" above
+and the runbook section "Projector dead-letter health (issue #37)").
+
+**Replay of pre-#404 gift events (no manual checkpoint reset needed):** a pre-#404
+coordinator died *at* the poison event, so its `sierradb_event_checkpoints` checkpoint
+never advanced past it. After deploying this fix, a plain **restart** of the API makes the
+projector re-process the stuck event, skip it (warn log), and advance the checkpoint.
+Verify catch-up by (a) the warn backlog draining — each skipped event logs exactly once
+per projector pass, so repeated identical warns across restarts mean the checkpoint is
+still stuck — and (b) the projection containing the authoritative row (first event) for
+the violating pair/number. Later events of a skipped duplicate stream are harmless by
+construction: their handlers are `UPDATE ... WHERE id = $1` statements that affect 0 rows
+and cannot create a projection row (regression test tracked in the #404 follow-up).
+
+**Gift-record cleanup (upgrade path, #404):** deployments that ran a pre-#404 build may
+hold invariant-violating events. **Dev:** volume reset (`docker compose -f
+docker-compose.dev.yml down -v`) is sufficient. **Prod/upgrade:** after deploying this fix
+a plain API restart replays the stuck checkpoint and the projectors skip the violating
+events (warn log per skipped event — grep for "skipped invariant-violating event"; see
+`docs/operations/runbooks.md` → "Replaying pre-#404 invariant-violating events" for the
+procedure and the catch-up checks). The projection keeps the first (authoritative) row;
+the duplicate stream sits in the event store unreferenced by the projection and is inert
+for reports. A physical cleanup of duplicate event streams is optional and belongs with
+the #37 DLQ design (do not ad-hoc delete events).
+
+**Known non-issues (do not "fix"):** `projection_audit.event_key` dedup
+(`ON CONFLICT (event_key) DO NOTHING` ✓), `dedup_key` job tables (report_ops /
+ai_import — job queues are a Postgres strength, not an ES deficiency),
+projector version guards (`WHERE version < $N` — standard at-least-once
+idempotency).
+
+**ES-native alternative (design follow-up, ADR-worthy — do not adopt ad hoc):**
+reservation streams. The command first writes a reservation event to a
+synthetic key stream (`scene_shoot_pair:{hash(scene_id, day_id)}`,
+`season_number:{series_id}:{n}`) with `ExpectedVersion::Empty`; a competing
+command fails the version condition **in the event store** and maps to a clean
+409 *before* touching the aggregate stream. Uses only per-stream concurrency
+(SierraDB-capable). Trade-offs: reservation release/compensation on
+delete/archive, one extra stream per entity.
 
 ## No panics in production code (hard rule)
 

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: deepseek-v4-flash (opencode-go)
+# Co-authored-by: omen-alpha (opencode-go)
 
 # Breakdown RS operations runbooks
 
@@ -121,6 +122,34 @@ docker compose -f docker-compose.prod.yml start sierradb
 ```
 Projector idempotency (ADR-015) makes it safe to replay events into a restored
 Postgres projection from a restored/older SierraDB checkpoint.
+
+#### Replaying pre-#404 invariant-violating events
+
+Deployments that ran a build older than the #404 fix may hold gift events that
+violated a cross-aggregate uniqueness invariant (scene-shoot pair,
+series numbering) — the pre-#404 projector crashed on them and its
+`sierradb_event_checkpoints` checkpoint never advanced past the poison event.
+
+Procedure (no manual checkpoint reset required):
+
+1. Deploy the #404 fix (or later).
+2. Restart the API. The projector re-processes the stuck event, classifies the
+   permanent 23505 on the authoritative constraint, skips it with a
+   `tracing::warn!` (message contains `skipped invariant-violating event`),
+   and advances its checkpoint.
+3. Verify catch-up:
+   - Each skipped event is logged exactly once per projector pass. Repeated
+     identical warn lines across restarts mean the checkpoint is still stuck —
+     investigate before assuming catch-up.
+   - The projection must contain the authoritative row (from the *first*
+     event) for the violating pair/number; the duplicate stream's row stays
+     absent. Later events of the duplicate stream are harmless by
+     construction (`UPDATE ... WHERE id` affects 0 rows, cannot create rows).
+
+No durable poison/dead-letter record is written by the #404 skip path itself —
+violations *outside* the four authoritative constraints reach the generic #37
+dead-letter path (see "Projector dead-letter health (issue #37)" below).
+Physically deleting duplicate event streams is not part of this procedure.
 
 ### Caddy (ACME state)
 `caddy_data` holds the ACME account key and issued certificates. Losing it is
@@ -374,3 +403,117 @@ vars to export spans/metrics for both tiers' traffic.
 - Connection strings MUST include `?protocol=resp3`
   (e.g. `rediss://stunnel:9091/?protocol=resp3` in production, ADR-024; dev:
   `redis://127.0.0.1:9090/?protocol=resp3`).
+
+## 8. Projector dead-letter health (issue #37)
+
+When a projector cannot process an event *permanently* (Postgres SQLSTATE
+class 23 integrity-constraint or class 22 data-exception errors, or an event
+deserialization failure — e.g. a costume assigned to a never-created
+character violating `projection_costume_character_id_fkey`), the projector
+worker retries it 5× within the epoch, then **dead-letters** it instead of
+restart-looping forever:
+
+1. The event is recorded durably in `projection_dead_letter` (migration
+   `20260815000001_projection_dead_letter`) with stream id, event name,
+   SQLSTATE, constraint name and error message.
+2. In the *same* transaction the projector's checkpoint row in
+   `sierradb_event_checkpoints` is advanced past the poison event.
+3. The projector continues with the next event; each dead-letter is logged
+   with `tracing::error!` (message contains `dead-lettered unprocessable
+   event (issue #37)`).
+4. Replays of the same event bump the row's `attempts` / `last_seen_at`
+   instead of duplicating it.
+
+The same path covers Sierra messages whose payload/metadata cannot be decoded
+at all (corruption): the stream layer dead-letters the raw message (DLQ row
+with `sqlstate`/`constraint_name` NULL, error text from the CBOR decoder) and
+acknowledges the subscription cursor, so a malformed message cannot stall the
+category either.
+
+The #404 savepoint-skip for the four authoritative uniqueness constraints is
+unchanged and takes precedence (it keeps the authoritative projection row and
+never reaches the retry budget / DLQ).
+
+### Inspecting the dead-letter queue (no log grepping)
+
+```sql
+-- Recent poison events, newest first:
+SELECT projection_id, partition_id, sequence, stream_id, event_name,
+       sqlstate, constraint_name, attempts, first_seen_at, last_seen_at
+FROM projection_dead_letter
+ORDER BY last_seen_at DESC
+LIMIT 50;
+
+-- Total count (health signal):
+SELECT count(*) FROM projection_dead_letter;
+
+-- Checkpoint progress per projection/partition ("is the projector advancing?"):
+SELECT projection_id, partition_id, sequence
+FROM sierradb_event_checkpoints
+ORDER BY projection_id, partition_id;
+```
+
+The same queries are available programmatically via
+`infra::projectors::ProjectorHealthRepository` (`list_dead_letters`,
+`dead_letter_count`, `checkpoint_progress`) and over HTTP via
+`GET /v1/ops/projector-health` (issue #409), which returns the DLQ count, the
+latest dead-letter entries (`limit` query param, 1–500, default 100) and the
+per-partition checkpoint progress in one document.
+
+### Who may call `GET /v1/ops/projector-health`
+
+The endpoint is deployment-scoped, not block-scoped: the caller must hold an
+active `ops_admin` membership in **any** block (`Role::OpsAdmin`, issue #409)
+or be listed in the `OPS_ADMIN_SUBS` bootstrap allowlist (comma-separated
+trusted OIDC subs, read once at API start; empty by default). Ops roles can
+only be granted by existing ops holders (the `invite_member` / `grant_role`
+handlers enforce this with an API-edge escalation guard), so the cold-start
+flow is: set `OPS_ADMIN_SUBS=<your sub>`, start the API, grant yourself
+`ops_admin` via the normal membership API (or keep relying on the allowlist),
+then remove the env var.
+
+### Reprocessing a dead-lettered event
+
+Dead-lettering is a *skip with a durable trace*: the event stays in SierraDB
+but is not applied to the projection. **Note that later events of the same
+stream can already have advanced the projection** (e.g. a `CostumeCreated`
+(v1) → poison `CostumeAssignedToCharacter` (v2) → `CostumeNotesUpdated` (v3)
+sequence ends with the row at v3 — the skipped v2 assignment is *not*
+re-applied by later events). Reprocessing is therefore **projector-specific**:
+
+- Projectors using version guards (`WHERE version < $N`) skip replayed events
+  whose version is not higher than the row's current version — the replayed
+  poison event is a no-op if a later event already advanced the version.
+- Handlers without version guards (e.g. the costume projector's `UPDATE ...
+  WHERE id` statements) re-apply the event on replay. Idempotent upserts
+  converge, but a *skipped* effect (like the dead-lettered assignment) is
+  only re-applied if the replayed event itself succeeds.
+
+Procedure (conservative — works for all projectors):
+
+1. **Stop the projector first** (restart the API down; the projector caches
+   checkpoints in memory, so editing the table under a live projector has no
+   effect and may be overwritten).
+2. Fix the root cause so the event can process (e.g. create the missing
+   parent row), or decide the skip is final.
+3. Reset the projector's checkpoint to *before* the poison event:
+   `UPDATE sierradb_event_checkpoints SET sequence = $before
+    WHERE projection_id = $cat AND partition_id = $part;`
+4. Restart the API — the projector reloads the edited checkpoint and
+   re-processes from the reset point (the DLQ row's `attempts` bumps on each
+   pass).
+5. Reconcile projection state the skipped/later events left inconsistent:
+   either emit a **current-version compensating event** through the normal
+   command path (preferred — the projector applies it like any other event),
+   or rebuild the affected projection from before the poison event. Do not
+   assume the replay alone converges the row (see the projector-specific
+   semantics above).
+6. Once the projection is correct, clear the DLQ row (or leave it as audit
+   trail):
+   `DELETE FROM projection_dead_letter WHERE projection_id = $cat AND
+    partition_id = $part AND sequence = $seq;`
+
+**Do not delete events from SierraDB** — a dead-lettered event is inert for
+the projection *by the checkpoint skip*, but later events of the same stream
+may still modify the affected row; physical stream cleanup, if ever needed,
+is a separate design decision, not an ad-hoc operation.

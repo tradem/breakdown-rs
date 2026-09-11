@@ -4,6 +4,7 @@
 <!-- Co-authored-by: longcat-2.0-free (opencode) -->
 <!-- Co-authored-by: hy4-preview (opencode-go) -->
 <!-- Co-authored-by: muse-spark-1.3-contributor (opencode-go) -->
+<!-- Co-authored-by: omen-alpha (opencode-go) -->
 
 # Changelog
 
@@ -13,6 +14,40 @@ crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
 ## [0.10.0] - Unreleased
+
+### Added — `GET /v1/ops/projector-health` ops endpoint (issue #409)
+
+- New deployment-scoped ops surface over the #37 dead-letter + checkpoint
+  tables: returns `ProjectorHealthSnapshot` (`dead_letter_count`,
+  `dead_letters` bounded by `limit` 1–500 default 100, `checkpoints`).
+- Authorization (the #409 decision): handler-internal `// AUTHZ-GATE:` via
+  `AuthorizationPolicy::authorize_ops` — active `ops_admin` membership in any
+  block **or** the `OPS_ADMIN_SUBS` bootstrap allowlist (comma-separated
+  trusted OIDC subs, resolved once at state construction; empty by default).
+  Route classified `Authenticated` (`requirement_for("/ops")`); failures map
+  to existing registered codes (`domain.forbidden`, `http.bad-query-param`,
+  `http.internal-error`) — no new problem codes.
+- Ops escalation guard: `invite_member` / `grant_role` reject
+  `role: ops_admin` from callers without ops access (403) — block-scoped
+  costume roles can never self-escalate into the ops capability.
+- `Ports` gains `ProjectorHealthRepo` (+ accessor); `test-support` fakes
+  updated. utoipa schemas registered; `openapi.yaml` regenerated.
+- Rides with the open 0.10.0 MINOR; no additional bump.
+
+### Fixed — 409 pre-checks for cross-aggregate uniqueness invariants (issue #404)
+
+- `POST /shooting-days/{day_id}/scenes/{scene_id}/scene-shoots`,
+  `POST /seasons`, `POST /blocks`, `POST /episodes`: the handlers now check
+  the corresponding read-model lookup **before** dispatch (the only
+  legitimate CQRS consumer — AGENTS.md §1) and answer a violation with a
+  clean 409 (`scene-shoot.pair-already-exists`,
+  `season.number-already-exists`, `block.number-already-exists`,
+  `episode.number-already-exists`) instead of the old 2xx whose
+  `*Created`/`SceneShootPlanned` event became a projector-killing poison
+  event (23505). Pre-checks are advisory — the projection unique
+  constraints remain authoritative against races. Fluent texts in both
+  locales, golden snapshots updated.
+- Rides with the open 0.10.0 MINOR; no additional bump.
 
 > **Note (release owner):** this section bundles the entries that accumulated
 > under `[Unreleased]`. Two of them were written as “no version bump”

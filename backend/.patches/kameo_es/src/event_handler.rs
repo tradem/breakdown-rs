@@ -21,7 +21,11 @@ where
     H: EventHandler<Self::Context>,
 {
     type Context: Send;
-    type Error: Send;
+    /// Processors must be able to surface an undecodable Sierra message as
+    /// their error type (issue #411) — the default `dead_letter_undecodable`
+    /// propagates it, keeping the pre-#411 restart behavior for processors
+    /// without a durable dead-letter surface.
+    type Error: Send + From<TryFromSierraEventError>;
 
     /// Which event to start streaming from.
     fn start_from(&self) -> impl Future<Output = Result<HashMap<u16, u64>, Self::Error>>;
@@ -31,6 +35,24 @@ where
         &mut self,
         event: Event,
     ) -> impl Future<Output = Result<(), EventHandlerError<Self::Error, H::Error>>> + Send;
+
+    /// Dead-letter an event whose Sierra message could not be decoded
+    /// (issue #411): records the raw message durably (stream id, event name,
+    /// partition coordinates, error) and advances the projection checkpoint
+    /// past it, so the subscription moves on instead of restart-looping on
+    /// the same malformed message.
+    ///
+    /// The default keeps the pre-#411 behavior (propagate → epoch restart):
+    /// in-process processors (photo sagas, report triggers) have no durable
+    /// dead-letter surface. The `PostgresProcessor` (all projectors)
+    /// overrides this with the DLQ write + checkpoint advance.
+    fn dead_letter_undecodable(
+        &mut self,
+        _raw_event: sierradb_client::Event,
+        err: TryFromSierraEventError,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
+        async move { Err(Self::Error::from(err)) }
+    }
 }
 
 /// An event handler.
@@ -128,6 +150,96 @@ pub enum EventHandlerError<P, H> {
     EventFromSierra(#[from] TryFromSierraEventError),
 }
 
+/// Classifies an event-handler error as *permanent* vs *transient* (issue #37).
+///
+/// A **permanent** error is caused by the event data itself (constraint
+/// violations, deserialization/parse failures) — retrying the same event can
+/// never succeed, so the projector dead-letters it and advances the
+/// checkpoint instead of restart-looping forever. A **transient** error
+/// (connection failures, serialization/deadlock, infrastructure) may succeed
+/// on a later retry, so it keeps the existing propagate-and-restart behavior.
+///
+/// Implemented for [`sqlx::Error`] (the handler error type used by all
+/// Postgres projectors). Error types without an implementation are never
+/// classified as permanent unless wrapped in a variant that is permanent by
+/// construction — conservative default `false`, preserving the pre-#37
+/// behavior.
+pub trait EventErrorClassify {
+    /// Returns `true` if retrying this error on the *same* event can never
+    /// succeed.
+    fn is_permanent_event_error(&self) -> bool;
+
+    /// Postgres SQLSTATE and constraint name carried by the error, if any —
+    /// recorded in the dead-letter table for diagnostics (issue #37).
+    fn permanent_error_details(&self) -> (Option<String>, Option<String>) {
+        (None, None)
+    }
+}
+
+#[cfg(feature = "postgres")]
+impl EventErrorClassify for sqlx::Error {
+    fn is_permanent_event_error(&self) -> bool {
+        match self {
+            // Postgres error classes:
+            // - class 23 (integrity constraint violation: 23503 FK, 23505
+            //   unique, 23502 not-null, 23514 check, ...)
+            // - class 22 (data exception: 22P02 invalid input, numeric/
+            //   datetime value out of range, ...)
+            // are caused by the *event data* and fail identically on every
+            // retry → permanent. Everything else (connection 08xxx,
+            // serialization failure 40001, deadlock 40P01, operator
+            // intervention 57xxx, pool timeouts, ...) may succeed on retry
+            // → transient.
+            sqlx::Error::Database(db) => db
+                .code()
+                .as_deref()
+                .is_some_and(|code| code.starts_with("23") || code.starts_with("22")),
+            // NOTE: `ColumnDecode` is deliberately NOT permanent. It is
+            // indistinguishable from a handler-side projection-read decode
+            // failure (e.g. `CostumeProjector::resolve_category_name` uses
+            // `query_scalar`), which is a schema/deploy issue — dead-lettering
+            // every event on such a mismatch would flood the DLQ with
+            // non-poison rows. Event-*payload* deserialization never surfaces
+            // as `sqlx::Error` — it fails in `DeserializeEvent` (ciborium),
+            // which is permanent by construction. Everything else (connection,
+            // pool timeouts, serialization failure, ...) may succeed on retry
+            // → transient.
+            _ => false,
+        }
+    }
+
+    fn permanent_error_details(&self) -> (Option<String>, Option<String>) {
+        match self {
+            sqlx::Error::Database(db) => (
+                db.code().map(|code| code.to_string()),
+                db.constraint().map(|constraint| constraint.to_string()),
+            ),
+            _ => (None, None),
+        }
+    }
+}
+
+impl<P, H> EventHandlerError<P, H>
+where
+    H: EventErrorClassify,
+{
+    /// Classifies whether this error is a *permanent* poison-event error
+    /// (issue #37): the event can never be processed and must be
+    /// dead-lettered instead of restart-looping the projector.
+    ///
+    /// `DeserializeEvent` / `ParseID` are permanent by construction (malformed
+    /// event). `Sierra` / `EventFromSierra` / `Processor` are infrastructure
+    /// errors (subscription, checkpoint bookkeeping) — never dead-lettered;
+    /// a poisoned checkpoint state must be surfaced, not skipped.
+    pub fn is_permanent_event_error(&self) -> bool {
+        match self {
+            Self::DeserializeEvent { .. } | Self::ParseID(_) => true,
+            Self::Sierra(_) | Self::EventFromSierra(_) | Self::Processor(_) => false,
+            Self::Handler(handler_err) => handler_err.is_permanent_event_error(),
+        }
+    }
+}
+
 impl<P, H> From<RedisError> for EventHandlerError<P, H> {
     fn from(err: RedisError) -> Self {
         EventHandlerError::Sierra(err.into())
@@ -183,7 +295,41 @@ impl<E> EventHandlerStream<E> {
     {
         match self.next().await? {
             Ok(event) => Some(self.process_event_and_ack(processor, event).await),
-            Err(err) => Some(Err(err.into())),
+            Err(next_err) => Some(self.handle_next_error(processor, next_err).await),
+        }
+    }
+
+    /// Handles a `next()` failure (issue #411): an undecodable Sierra message
+    /// is dead-lettered via the processor and its cursor acknowledged, so the
+    /// subscription moves past the malformed message instead of
+    /// restart-looping. Infrastructure errors (`Sierra`) keep the pre-existing
+    /// propagate-and-restart behavior.
+    async fn handle_next_error<P, H>(
+        &mut self,
+        processor: &mut P,
+        next_err: NextEventError,
+    ) -> Result<(), EventHandlerError<P::Error, H::Error>>
+    where
+        E: 'static,
+        P: EventProcessor<E, H>,
+        H: EventHandler<P::Context>,
+    {
+        match next_err {
+            NextEventError::UndecodableEvent { event, cursor, err } => {
+                processor
+                    .dead_letter_undecodable(*event, err)
+                    .await
+                    .map_err(EventHandlerError::Processor)?;
+                if let Some(ack_cursor) = self.ack.processed(cursor) {
+                    trace!("acknowledging dead-lettered message up to cursor {ack_cursor}");
+                    self.subscription
+                        .acknowledge_up_to_cursor(ack_cursor)
+                        .await
+                        .map_err(EventHandlerError::from)?;
+                }
+                Ok(())
+            }
+            other => Err(other.into()),
         }
     }
 
@@ -196,7 +342,15 @@ impl<E> EventHandlerStream<E> {
         P: EventProcessor<E, H>,
         H: EventHandler<P::Context>,
     {
-        while let Some(unprocessed_event) = self.next().await.transpose()? {
+        loop {
+            let unprocessed_event = match self.next().await {
+                Some(Ok(unprocessed_event)) => unprocessed_event,
+                Some(Err(next_err)) => {
+                    self.handle_next_error(processor, next_err).await?;
+                    continue;
+                }
+                None => break,
+            };
             self.process_event_and_ack(processor, unprocessed_event)
                 .await?;
         }
@@ -213,12 +367,21 @@ impl<E> EventHandlerStream<E> {
     }
 
     pub async fn next(&mut self) -> Option<Result<UnprocessedEvent<E>, NextEventError>> {
-        while let Some(event) = self.subscription.next_message().await {
-            match event {
+        while let Some(message) = self.subscription.next_message().await {
+            match message {
                 SierraMessage::Event { event, cursor } => {
-                    let event = match event_from_sierra(event) {
+                    let event = match event_from_sierra(event.clone()) {
                         Ok(event) => event,
-                        Err(err) => return Some(Err(err.into())),
+                        Err(err) => {
+                            // Issue #411: keep the raw message + cursor so
+                            // the caller can dead-letter it instead of
+                            // restart-looping on the malformed message.
+                            return Some(Err(NextEventError::UndecodableEvent {
+                                event: Box::new(event),
+                                cursor,
+                                err,
+                            }));
+                        }
                     };
                     return Some(Ok(UnprocessedEvent::new(event, cursor)));
                 }
@@ -261,8 +424,17 @@ impl<E> EventHandlerStream<E> {
 pub enum NextEventError {
     #[error(transparent)]
     Sierra(#[from] SierraError),
-    #[error(transparent)]
-    DeserializeEvent(#[from] TryFromSierraEventError),
+    /// A Sierra message whose payload/metadata could not be decoded
+    /// (issue #411): carries the raw message + cursor so the stream can
+    /// dead-letter it via the processor instead of restart-looping.
+    #[error("failed to deserialize Sierra message: {err}")]
+    UndecodableEvent {
+        // Boxed to keep the enum size within clippy's large_enum_variant
+        // budget (issue #411 review).
+        event: Box<sierradb_client::Event>,
+        cursor: u64,
+        err: TryFromSierraEventError,
+    },
 }
 
 impl From<RedisError> for NextEventError {
@@ -275,7 +447,7 @@ impl<P, H> From<NextEventError> for EventHandlerError<P, H> {
     fn from(err: NextEventError) -> Self {
         match err {
             NextEventError::Sierra(err) => EventHandlerError::Sierra(err),
-            NextEventError::DeserializeEvent(err) => EventHandlerError::EventFromSierra(err),
+            NextEventError::UndecodableEvent { err, .. } => EventHandlerError::EventFromSierra(err),
         }
     }
 }
@@ -454,3 +626,155 @@ impl_composite_event_handler![
     (E1, E2, E3, E4, E5, E6, E7, E8, E9, E10, E11, E12, E13, E14, E15),
     (E1, E2, E3, E4, E5, E6, E7, E8, E9, E10, E11, E12, E13, E14, E15, E16),
 ];
+
+#[cfg(all(test, feature = "postgres"))]
+mod classification_tests {
+    use super::{EventErrorClassify, EventHandlerError};
+
+    /// Minimal stand-in for a Postgres `DatabaseError` so the classification
+    /// matrix can be tested without a live database (mirrors the fixture in
+    /// breakdown-rs `crates/infra/src/projectors/invariant_skip.rs`).
+    #[derive(Debug)]
+    struct FakeDbError {
+        code: String,
+        constraint: Option<String>,
+    }
+
+    impl std::fmt::Display for FakeDbError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "db error {}", self.code)
+        }
+    }
+
+    impl std::error::Error for FakeDbError {}
+
+    impl sqlx::error::DatabaseError for FakeDbError {
+        fn message(&self) -> &str {
+            "database error"
+        }
+        fn code(&self) -> Option<std::borrow::Cow<'_, str>> {
+            Some(std::borrow::Cow::Borrowed(&self.code))
+        }
+        fn constraint(&self) -> Option<&str> {
+            self.constraint.as_deref()
+        }
+        fn table(&self) -> Option<&str> {
+            None
+        }
+        fn kind(&self) -> sqlx::error::ErrorKind {
+            sqlx::error::ErrorKind::UniqueViolation
+        }
+        fn as_error(&self) -> &(dyn std::error::Error + Send + Sync + 'static) {
+            self
+        }
+        fn as_error_mut(&mut self) -> &mut (dyn std::error::Error + Send + Sync + 'static) {
+            self
+        }
+        fn into_error(self: Box<Self>) -> Box<dyn std::error::Error + Send + Sync + 'static> {
+            self
+        }
+        fn is_transient_in_connect_phase(&self) -> bool {
+            false
+        }
+    }
+
+    fn db_error(code: &str, constraint: Option<&str>) -> sqlx::Error {
+        sqlx::Error::Database(Box::new(FakeDbError {
+            code: code.to_string(),
+            constraint: constraint.map(str::to_string),
+        }))
+    }
+
+    /// The #37 repro: FK violation (23503) from referencing a never-created
+    /// character — permanent.
+    #[test]
+    fn fk_violation_is_permanent() {
+        assert!(
+            db_error("23503", Some("projection_costume_character_id_fkey"))
+                .is_permanent_event_error()
+        );
+    }
+
+    #[test]
+    fn constraint_class_is_permanent() {
+        assert!(db_error("23505", None).is_permanent_event_error());
+        assert!(db_error("23502", None).is_permanent_event_error());
+        assert!(db_error("23514", None).is_permanent_event_error());
+    }
+
+    /// Data-exception class (22xxx) is caused by the event data — permanent.
+    #[test]
+    fn data_exception_class_is_permanent() {
+        assert!(db_error("22P02", None).is_permanent_event_error());
+        assert!(db_error("22003", None).is_permanent_event_error());
+    }
+
+    /// Serialization failure / deadlock: retrying the *same* event can
+    /// succeed — transient.
+    #[test]
+    fn serialization_and_deadlock_are_transient() {
+        assert!(!db_error("40001", None).is_permanent_event_error());
+        assert!(!db_error("40P01", None).is_permanent_event_error());
+    }
+
+    /// Connection-class errors and everything else are transient.
+    #[test]
+    fn connection_and_unknown_sqlstates_are_transient() {
+        assert!(!db_error("08003", None).is_permanent_event_error());
+        assert!(!db_error("57014", None).is_permanent_event_error());
+        assert!(!db_error("XX999", None).is_permanent_event_error());
+    }
+
+    /// `ColumnDecode` is transient (issue #37 CodeRabbit review): it cannot
+    /// be distinguished from a handler-side projection-read decode failure
+    /// (schema/deploy issue) — and event-*payload* deserialization never
+    /// surfaces as `sqlx::Error` (it is `DeserializeEvent`, permanent by
+    /// construction).
+    #[test]
+    fn column_decode_and_non_database_errors_are_transient() {
+        assert!(!sqlx::Error::ColumnDecode {
+            index: "partition_id".to_string(),
+            source: "bad".into(),
+        }
+        .is_permanent_event_error());
+        assert!(!sqlx::Error::RowNotFound.is_permanent_event_error());
+        assert!(!sqlx::Error::PoolTimedOut.is_permanent_event_error());
+    }
+
+    /// A handler-level sqlx error keeps its classification through the
+    /// `EventHandlerError::Handler` wrapper.
+    #[test]
+    fn handler_error_keeps_classification() {
+        let err: EventHandlerError<(), sqlx::Error> =
+            EventHandlerError::Handler(db_error("23503", None));
+        assert!(err.is_permanent_event_error());
+
+        let err: EventHandlerError<(), sqlx::Error> =
+            EventHandlerError::Handler(db_error("40001", None));
+        assert!(!err.is_permanent_event_error());
+    }
+
+    /// Deserialize/parse failures are permanent by construction (malformed
+    /// event); infrastructure errors are transient (never dead-lettered).
+    #[test]
+    fn wrapper_variants_are_classified() {
+        let err: EventHandlerError<(), sqlx::Error> = EventHandlerError::ParseID("nope".into());
+        assert!(err.is_permanent_event_error());
+
+        let err: EventHandlerError<(), sqlx::Error> = EventHandlerError::Processor(());
+        assert!(!err.is_permanent_event_error());
+    }
+
+    /// SQLSTATE + constraint are extracted for the dead-letter row.
+    #[test]
+    fn permanent_error_details_are_extracted() {
+        let (sqlstate, constraint) =
+            db_error("23503", Some("costume_fk")).permanent_error_details();
+        assert_eq!(sqlstate.as_deref(), Some("23503"));
+        assert_eq!(constraint.as_deref(), Some("costume_fk"));
+
+        let (sqlstate, constraint) = sqlx::Error::RowNotFound.permanent_error_details();
+        assert_eq!(sqlstate, None);
+        assert_eq!(constraint, None);
+    }
+}

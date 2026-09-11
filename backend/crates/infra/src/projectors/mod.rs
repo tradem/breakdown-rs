@@ -4,6 +4,7 @@
 // Co-authored-by: qwen3.6-35b (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 //! Projection actors – one `PostgresProcessor` per aggregate.
 //!
@@ -17,6 +18,8 @@ mod character;
 mod costume;
 mod costume_category;
 mod episode;
+pub mod health;
+mod invariant_skip;
 mod membership;
 mod scene;
 mod scene_shoot;
@@ -35,9 +38,14 @@ pub use audit::{
 };
 pub use block::BlockProjector;
 pub use character::CharacterProjector;
+// issue #409: the DTOs moved to `core::ops` (the port owner); re-exported for
+// #37 API compatibility. `ProjectorHealthRepository` is the concrete sqlx
+// adapter, distinct from the core port trait of the same name.
+pub use breakdown_core::ops::{CheckpointProgress, DeadLetterEntry};
 pub use costume::CostumeProjector;
 pub use costume_category::CostumeCategoryProjector;
 pub use episode::EpisodeProjector;
+pub use health::ProjectorHealthRepository;
 pub use membership::MembershipProjector;
 pub use scene::SceneProjector;
 pub use scene_shoot::SceneShootProjector;
@@ -62,8 +70,8 @@ use breakdown_core::season::aggregate::SeasonAggregate;
 use breakdown_core::settings::aggregate::SettingsAggregate;
 use breakdown_core::shooting_day::aggregate::ShootingDayAggregate;
 use kameo::actor::{ActorRef, Spawn};
-use kameo_es::event_handler::EventHandlerStreamBuilder;
 use kameo_es::event_handler::postgres::PostgresProcessor;
+use kameo_es::event_handler::{EventErrorClassify, EventHandlerStreamBuilder};
 use redis::Client as RedisClient;
 use sierradb_client::SierraAsyncClientExt;
 use sqlx::PgPool;
@@ -124,7 +132,8 @@ impl ProjectorFlushConfig {
                 PostgresEventProcessorError,
             > + Send
             + 'static,
-        <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error: fmt::Debug + Sync,
+        <H as EventHandler<sqlx::Transaction<'static, Postgres>>>::Error:
+            fmt::Debug + Sync + EventErrorClassify,
     {
         let mut p = processor;
         if let Some(w) = self.workers {
