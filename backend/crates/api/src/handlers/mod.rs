@@ -2160,8 +2160,20 @@ pub async fn grant_role<P: Ports>(
     Path((id, user_id)): Path<(Uuid, String)>,
     Json(req): Json<GrantRoleRequest>,
 ) -> ApiResult<()> {
-    // AUTHZ-GATE: ops escalation guard (issue #409) — see `invite_member`.
-    if req.role == Role::OpsAdmin {
+    // AUTHZ-GATE: ops escalation/demotion guard (issue #409, CodeRabbit
+    // review) — ops access is required BOTH to grant `ops_admin` and to
+    // change the role of a member who currently holds `ops_admin` (a regular
+    // block member must not be able to demote or shadow-replace an ops
+    // holder). The target lookup is the API edge's legitimate read-model
+    // consumption (AGENTS.md §1).
+    let target_role = state
+        .ports
+        .membership_repo()
+        .find(BlockId::from_uuid(id), UserId::from_sub(user_id.clone()))
+        .await?;
+    let touches_ops =
+        req.role == Role::OpsAdmin || target_role.is_some_and(|m| m.role == Role::OpsAdmin);
+    if touches_ops {
         match state
             .authorization_policy
             .authorize_ops(&current_user.sub)
@@ -2169,7 +2181,9 @@ pub async fn grant_role<P: Ports>(
         {
             Ok(PolicyDecision::Allow) => {}
             Ok(PolicyDecision::Deny) | Err(_) => {
-                return Err(ApiError::Forbidden("not authorized to grant the ops role"));
+                return Err(ApiError::Forbidden(
+                    "not authorized to change ops role assignments",
+                ));
             }
         }
     }
@@ -2208,6 +2222,30 @@ pub async fn remove_member<P: Ports>(
     current_user: CurrentUser,
     Path((id, user_id)): Path<(Uuid, String)>,
 ) -> ApiResult<()> {
+    // AUTHZ-GATE: ops protection guard (issue #409, CodeRabbit review) —
+    // removing an `ops_admin` holder requires ops access; a regular block
+    // member must not be able to strip the deployment's ops capability by
+    // deleting the membership row. Read-model lookup at the API edge (the
+    // legitimate CQRS consumer).
+    let target = state
+        .ports
+        .membership_repo()
+        .find(BlockId::from_uuid(id), UserId::from_sub(user_id.clone()))
+        .await?;
+    if target.is_some_and(|m| m.role == Role::OpsAdmin) {
+        match state
+            .authorization_policy
+            .authorize_ops(&current_user.sub)
+            .await
+        {
+            Ok(PolicyDecision::Allow) => {}
+            Ok(PolicyDecision::Deny) | Err(_) => {
+                return Err(ApiError::Forbidden(
+                    "not authorized to remove an ops role holder",
+                ));
+            }
+        }
+    }
     let series_id = state.ports.block_repo().find_by_id(id).await?.series_id;
     let cmd = RemoveMember {
         block_id: BlockId::from_uuid(id),

@@ -25,7 +25,7 @@ use uuid::Uuid;
 use api::auth::CurrentUser;
 use api::handlers::{
     GrantRoleRequest, InviteMemberRequest, ProjectorHealthQuery, get_projector_health, grant_role,
-    invite_member,
+    invite_member, remove_member,
 };
 use api::problems::{Json, Path, Query};
 use api::state::AppState;
@@ -273,6 +273,82 @@ async fn grant_role_allows_ops_role_from_ops_caller() {
         .clone()
         .expect("ops caller must get past the escalation guard");
     assert_eq!(last.1.role, Role::OpsAdmin);
+}
+
+// --- Ops protection guards: demotion + removal (CodeRabbit review) --------
+
+#[tokio::test]
+async fn grant_role_rejects_demoting_ops_holder_from_non_ops_caller() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    seed_ops_member(&ports, block_id, "ops-target").await;
+
+    let problem = grant_role::<FakePorts>(
+        State(AppState::new(ports)),
+        plain_user(),
+        Path((block_id.0, "ops-target".to_string())),
+        Json(GrantRoleRequest {
+            role: Role::CostumeAssistant,
+        }),
+    )
+    .await
+    .expect_err("demoting an ops holder must require ops access")
+    .into_problem();
+    assert_eq!(problem.status, 403);
+    assert_eq!(problem.code, "domain.forbidden");
+}
+
+#[tokio::test]
+async fn grant_role_allows_demoting_ops_holder_from_ops_caller() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    seed_ops_member(&ports, block_id, "ops-target").await;
+    seed_ops_member(&ports, block_id, "ops-user").await;
+
+    let result = grant_role::<FakePorts>(
+        State(AppState::new(ports)),
+        ops_user(),
+        Path((block_id.0, "ops-target".to_string())),
+        Json(GrantRoleRequest {
+            role: Role::CostumeAssistant,
+        }),
+    )
+    .await;
+    assert_eq!(result.unwrap().0, StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn remove_member_rejects_removing_ops_holder_from_non_ops_caller() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    seed_ops_member(&ports, block_id, "ops-target").await;
+
+    let problem = remove_member::<FakePorts>(
+        State(AppState::new(ports)),
+        plain_user(),
+        Path((block_id.0, "ops-target".to_string())),
+    )
+    .await
+    .expect_err("removing an ops holder must require ops access")
+    .into_problem();
+    assert_eq!(problem.status, 403);
+    assert_eq!(problem.code, "domain.forbidden");
+}
+
+#[tokio::test]
+async fn remove_member_allows_removing_ops_holder_from_ops_caller() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    seed_ops_member(&ports, block_id, "ops-target").await;
+    seed_ops_member(&ports, block_id, "ops-user").await;
+
+    let result = remove_member::<FakePorts>(
+        State(AppState::new(ports)),
+        ops_user(),
+        Path((block_id.0, "ops-target".to_string())),
+    )
+    .await;
+    assert_eq!(result.unwrap().0, StatusCode::NO_CONTENT);
 }
 
 #[test]

@@ -4340,6 +4340,58 @@ paths:
           description: Validation error
       tags:
       - handlers
+  /v1/ops/projector-health:
+    get:
+      description: |-
+        Returns the dead-letter count, the latest dead-letter entries and the
+        per-partition checkpoint progress — the HTTP counterpart of the runbook
+        SQL (`docs/operations/runbooks.md` → "Projector dead-letter health
+        (issue #37)").
+      operationId: get_projector_health
+      parameters:
+      - description: Maximum number of dead-letter entries to return (1-500, default 100)
+        in: query
+        name: limit
+        required: false
+        schema:
+          format: int64
+          type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectorHealthSnapshot'
+          description: Projector health snapshot (dead letters + checkpoint progress)
+        '400':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Invalid limit query parameter
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Caller does not hold the ops capability
+        '500':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+        '503':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Read model unavailable
+      summary: |-
+        Deployment-scoped ops surface: projector health over the durable
+        dead-letter and checkpoint tables (issues #37/#409).
+      tags:
+      - handlers
   /v1/scenes:
     get:
       description: Lists the scenes of an episode. Requires the episode_id query parameter (400 otherwise).

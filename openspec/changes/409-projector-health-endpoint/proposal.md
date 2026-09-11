@@ -79,6 +79,9 @@ No new codes: failures map to existing `domain.forbidden` (403),
 - `Role::OpsAdmin` lives on block-scoped membership rows but is checked
   deployment-wide — documented; a future dedicated ops-principal model can
   migrate the predicate without touching the gate call sites.
-- The `OPS_ADMIN_SUBS` allowlist is checked at request time (membership OR
-  config) — removing a sub from env revokes bootstrap access immediately.
+- The `OPS_ADMIN_SUBS` allowlist is injected once at API construction and
+  checked per-request against that frozen copy (membership is always live).
+  **Revocation of bootstrap access therefore requires an API restart** after
+  changing the env var — membership-based grants are revocable immediately
+  via the normal membership API.
 - `Ports` trait change touches all test fakes (mechanical, compiler-driven).

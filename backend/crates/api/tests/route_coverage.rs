@@ -85,7 +85,7 @@ fn api_routes_are_behind_auth_middleware() {
     //  patterns, not method-verb pairs.)
     assert_eq!(
         api.len(),
-        76,
+        77,
         "number of API route path patterns has changed — \
          see doc comment above for update instructions"
     );

@@ -101,6 +101,7 @@ use utoipa::OpenApi;
         handlers::list_ai_configs,
         handlers::update_ai_config,
         handlers::revoke_ai_config,
+        handlers::get_projector_health,
         handlers::upload_ai_script,
         handlers::upload_ai_schedule,
         handlers::list_ai_import_jobs,
