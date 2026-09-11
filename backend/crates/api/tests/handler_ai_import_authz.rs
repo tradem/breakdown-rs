@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 //! Handler-level authorization tests for the AI import gates (issue #175).
 //!
@@ -32,7 +33,10 @@ use common::FakePorts;
 /// credential-role gate is controlled by `credential_role_override`.
 async fn ai_import_state(ports: FakePorts) -> AppState<FakePorts> {
     AppState::with_ai_import(
-        ports, /*ai_import_enabled=*/ true, /*max_document_bytes=*/ 1024,
+        ports,
+        /*ai_import_enabled=*/ true,
+        /*max_document_bytes=*/ 1024,
+        Vec::new(),
     )
 }
 

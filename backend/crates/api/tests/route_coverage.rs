@@ -3,6 +3,7 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: hy4-preview (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -84,7 +85,7 @@ fn api_routes_are_behind_auth_middleware() {
     //  patterns, not method-verb pairs.)
     assert_eq!(
         api.len(),
-        76,
+        77,
         "number of API route path patterns has changed — \
          see doc comment above for update instructions"
     );
@@ -283,6 +284,9 @@ fn api_routes_have_deliberate_authorization_requirement() {
             "/ai-import/providers/{provider}/models",
             Requirement::Authenticated,
         ),
+        // Ops surface (issue #409): deployment-scoped, handler-internal ops
+        // gate (`authorize_ops`) inside the handler.
+        ("/ops/projector-health", Requirement::Authenticated),
     ];
 
     let mut failures: Vec<String> = Vec::new();

@@ -4,6 +4,7 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 //! Handler tests proving the AI import dependencies are reachable through the
 //! generic `Ports` seam (issue #176).
@@ -55,7 +56,10 @@ fn user() -> CurrentUser {
 
 fn state(ports: FakePorts) -> AppState<FakePorts> {
     AppState::with_ai_import(
-        ports, /*ai_import_enabled=*/ true, /*max_document_bytes=*/ 4096,
+        ports,
+        /*ai_import_enabled=*/ true,
+        /*max_document_bytes=*/ 4096,
+        Vec::new(),
     )
 }
 
@@ -767,7 +771,10 @@ async fn ai_upload_is_not_found_when_the_feature_is_disabled() {
     let ports = FakePorts::default();
     let block_id = BlockId::from_uuid(Uuid::now_v7());
     let state = AppState::with_ai_import(
-        ports, /*ai_import_enabled=*/ false, /*max_document_bytes=*/ 4096,
+        ports,
+        /*ai_import_enabled=*/ false,
+        /*max_document_bytes=*/ 4096,
+        Vec::new(),
     );
 
     let problem = upload_ai_script::<FakePorts>(

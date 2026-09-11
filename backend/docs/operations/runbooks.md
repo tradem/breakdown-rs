@@ -455,7 +455,22 @@ ORDER BY projection_id, partition_id;
 
 The same queries are available programmatically via
 `infra::projectors::ProjectorHealthRepository` (`list_dead_letters`,
-`dead_letter_count`, `checkpoint_progress`).
+`dead_letter_count`, `checkpoint_progress`) and over HTTP via
+`GET /v1/ops/projector-health` (issue #409), which returns the DLQ count, the
+latest dead-letter entries (`limit` query param, 1–500, default 100) and the
+per-partition checkpoint progress in one document.
+
+### Who may call `GET /v1/ops/projector-health`
+
+The endpoint is deployment-scoped, not block-scoped: the caller must hold an
+active `ops_admin` membership in **any** block (`Role::OpsAdmin`, issue #409)
+or be listed in the `OPS_ADMIN_SUBS` bootstrap allowlist (comma-separated
+trusted OIDC subs, read once at API start; empty by default). Ops roles can
+only be granted by existing ops holders (the `invite_member` / `grant_role`
+handlers enforce this with an API-edge escalation guard), so the cold-start
+flow is: set `OPS_ADMIN_SUBS=<your sub>`, start the API, grant yourself
+`ops_admin` via the normal membership API (or keep relying on the allowlist),
+then remove the env var.
 
 ### Reprocessing a dead-lettered event
 

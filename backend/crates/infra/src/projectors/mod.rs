@@ -38,10 +38,14 @@ pub use audit::{
 };
 pub use block::BlockProjector;
 pub use character::CharacterProjector;
+// issue #409: the DTOs moved to `core::ops` (the port owner); re-exported for
+// #37 API compatibility. `ProjectorHealthRepository` is the concrete sqlx
+// adapter, distinct from the core port trait of the same name.
+pub use breakdown_core::ops::{CheckpointProgress, DeadLetterEntry};
 pub use costume::CostumeProjector;
 pub use costume_category::CostumeCategoryProjector;
 pub use episode::EpisodeProjector;
-pub use health::{CheckpointProgress, DeadLetterEntry, ProjectorHealthRepository};
+pub use health::ProjectorHealthRepository;
 pub use membership::MembershipProjector;
 pub use scene::SceneProjector;
 pub use scene_shoot::SceneShootProjector;

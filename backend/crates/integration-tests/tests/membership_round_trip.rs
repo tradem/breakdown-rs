@@ -1205,3 +1205,167 @@ async fn credential_role_allowlist_round_trips_through_real_sql() -> Result<()> 
 
     Ok(())
 }
+
+/// `has_active_ops_role` with the `DomainError` mapped into `anyhow`
+/// (test ergonomics).
+async fn ops_role(repo: &MembershipRepositoryImpl, user_id: UserId) -> Result<bool> {
+    repo.has_active_ops_role(user_id)
+        .await
+        .map_err(|e| anyhow!(e.to_string()))
+}
+
+/// Tier-4: `has_active_ops_role` — the deployment-scoped predicate behind the
+/// `GET /v1/ops/projector-health` gate and the ops escalation/demotion/
+/// removal guards (issue #409, CodeRabbit review).
+///
+/// The predicate is global (any block, no season scope): an active
+/// `ops_admin` in *any* block grants access. Deny side pinned against real
+/// SQL per the #348 doctrine (fakes must not mask broken predicates): a
+/// *pending* ops invite, a demoted ops holder, a member who left, every
+/// costume-dept role and a stranger are all denied.
+#[tokio::test]
+async fn ops_role_gate_round_trips_through_real_sql() -> Result<()> {
+    let (pool, cmd_svc, _pg, _sierra) = init_membership().await?;
+    let membership = MembershipCommandsImpl::new(cmd_svc.clone());
+    let blocks = BlockCommandsImpl::new(cmd_svc);
+    let repo = MembershipRepositoryImpl::new(pool.clone());
+
+    let series_id = test_series_id();
+    let season_id = SeasonId::new();
+
+    let ops = UserId::from_sub("ops-holder");
+    let demoted = UserId::from_sub("ops-demoted");
+    let pending = UserId::from_sub("ops-pending");
+    let leaver = UserId::from_sub("ops-leaver");
+    let designer = UserId::from_sub("ops-designer");
+    let stranger = UserId::from_sub("ops-stranger");
+
+    // 1) Active ops_admin in their own block — the grant path (bootstrap with
+    //    the ops role; the membership API grant is covered by the handler
+    //    tests and rides on the same GrantRole event).
+    let ops_block = seed_block_with_owner(
+        &blocks,
+        &membership,
+        &pool,
+        &repo,
+        season_id,
+        series_id,
+        ops.clone(),
+        Role::OpsAdmin,
+        1,
+    )
+    .await?;
+    assert!(
+        ops_role(&repo, ops.clone()).await?,
+        "an active ops_admin in any block must hold the ops role"
+    );
+
+    // 2) Demotion: GrantRole away from ops_admin must revoke the capability
+    //    (the API edge guards this transition; the projection flip is what
+    //    the gate actually reads).
+    let demoted_block = seed_block_with_owner(
+        &blocks,
+        &membership,
+        &pool,
+        &repo,
+        season_id,
+        series_id,
+        demoted.clone(),
+        Role::OpsAdmin,
+        2,
+    )
+    .await?;
+    membership
+        .grant_role(
+            demoted.clone(),
+            GrantRole {
+                block_id: demoted_block,
+                series_id,
+                user_id: demoted.clone(),
+                role: Role::CostumeAssistant,
+            },
+        )
+        .await?;
+    await_member_role(
+        &repo,
+        demoted_block,
+        demoted.clone(),
+        Role::CostumeAssistant,
+    )
+    .await?;
+    assert!(
+        !ops_role(&repo, demoted.clone()).await?,
+        "a demoted ops holder must lose the ops role"
+    );
+
+    // 3) Pending invite with the ops role: not yet active — denied.
+    membership
+        .invite(
+            ops.clone(),
+            InviteMember {
+                block_id: ops_block,
+                series_id,
+                user_id: pending.clone(),
+                role: Role::OpsAdmin,
+            },
+        )
+        .await?;
+    assert!(
+        !ops_role(&repo, pending.clone()).await?,
+        "a pending (not accepted) ops invite must NOT grant the ops role"
+    );
+
+    // 4) A member who leaves their only block loses the ops role.
+    let leaver_block = seed_block_with_owner(
+        &blocks,
+        &membership,
+        &pool,
+        &repo,
+        season_id,
+        series_id,
+        leaver.clone(),
+        Role::OpsAdmin,
+        3,
+    )
+    .await?;
+    membership
+        .leave_block(
+            leaver.clone(),
+            LeaveBlock {
+                block_id: leaver_block,
+                series_id,
+            },
+        )
+        .await?;
+    await_member_absent(&repo, leaver_block, leaver.clone()).await?;
+    assert!(
+        !ops_role(&repo, leaver.clone()).await?,
+        "a member who left their only block must lose the ops role"
+    );
+
+    // 5) The three costume-dept roles do NOT carry the ops capability.
+    seed_block_with_owner(
+        &blocks,
+        &membership,
+        &pool,
+        &repo,
+        season_id,
+        series_id,
+        designer.clone(),
+        Role::CostumeDesigner,
+        4,
+    )
+    .await?;
+    assert!(
+        !ops_role(&repo, designer.clone()).await?,
+        "an active costume_designer must NOT hold the ops role"
+    );
+
+    // 6) Stranger: no membership at all.
+    assert!(
+        !ops_role(&repo, stranger.clone()).await?,
+        "a user without any membership must not hold the ops role"
+    );
+
+    Ok(())
+}
