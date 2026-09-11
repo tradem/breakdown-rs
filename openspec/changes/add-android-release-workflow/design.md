@@ -23,7 +23,9 @@ Play (`add-play-store-release`) are separate changes.
 ## Goals / Non-Goals
 
 **Goals:**
-- One project-owned signing key used by every distribution channel (D9).
+- One project-owned signing key for every self-published binary (D9;
+  scoped to GitHub Releases + developer-signed F-Droid artifacts — F-Droid
+  source builds and Play use their channel's own key, see D9).
 - Tag-triggered, gated release build producing installable APKs (alpha/beta
   testers sideload from GitHub Releases) plus one AAB for the later Play
   change.
@@ -42,14 +44,28 @@ Play (`add-play-store-release`) are separate changes.
 ## Decisions
 
 ### D9 — Developer-signed builds (locked)
-All channels use one project keystore; F-Droid later verifies via
-`AllowedAPKSigningKeys` instead of F-Droid's own key, Play later enrolls the
-same key (Play App Signing "upload key = app signing key" is acceptable; if
-Play generates its own app signing key, the one-key invariant is documented
-as GitHub-Release/F-Droid-only for Play-sourced binaries).
-- *Alternative considered:* F-Droid-signed builds — rejected: migration
-  between channels would force uninstall/reinstall, and the community
-  "developer signature" pattern is the established F-Droid-adjacent practice.
+One project keystore signs every binary this project publishes itself. The
+one-key guarantee is scoped to **developer-published channels**: GitHub
+Release APKs/AABs (this change) and developer-signed F-Droid artifacts (if
+`add-fdroid-inclusion` adopts the fdroiddata `Binaries:` pattern pointing at
+these GitHub Release APKs). It deliberately does NOT extend to:
+- **F-Droid source builds** — the fdroiddata buildbot signs with F-Droid's
+  own key; `AllowedAPKSigningKeys` only *rejects* mismatched
+  developer-provided APKs, it never changes the key of source-built ones.
+  Source-built F-Droid APKs therefore do not carry the project fingerprint:
+  `add-fdroid-inclusion` MUST define a developer-signed artifact path
+  (`Binaries:` or reproducible builds) before any cross-channel
+  no-uninstall claim is made for F-Droid.
+- **Google Play** — Play App Signing controls the key of Play-distributed
+  binaries under every enrollment model. Whether the developer key is
+  enrolled as "upload key = app signing key" or Play generates its own key
+  is decided in `add-play-store-release`; until then no cross-channel
+  update-without-reinstall guarantee is claimed for Play.
+- *Alternative considered:* F-Droid-signed builds for self-published
+  channels — rejected: migration between self-published channels would
+  force uninstall/reinstall, and the community "developer signature"
+  pattern (fdroiddata `Binaries:`) is the established F-Droid-adjacent
+  practice.
 - *Alternative considered:* Play-first (upload key vs. app signing key split)
   — rejected for now: enrollment happens in `add-play-store-release`; this
   change does not want its keystore semantics coupled to Play.
@@ -65,25 +81,42 @@ debug-signed one, so an unsigned APK can never be mistaken for a release.
   invariant.
 
 ### Versioning: pubspec.yaml as single source, tag must match
-`version: <semver>+<versionCode>` in `pubspec.yaml` drives both
-`versionName` and `versionCode` (Flutter's default Gradle wiring). The
+One tag/pubspec format across the release workflow and the CI validator:
+`pubspec.yaml` carries `version: X.Y.Z[-alpha.N|-beta.N]+N` (the optional
+pre-release suffix matches the release channel), the release tag is
+`v<build-name>` (e.g. `v0.3.0`, `v0.3.0-alpha.1`), and the build-name drives
+both `versionName` and `versionCode` (Flutter's default Gradle wiring). The
 workflow gate fails on tag↔pubspec mismatch — this is exactly what F-Droid's
 `UpdateCheckData: pubspec.yaml|version:...` expects later, so the convention
-is established once and reused.
+is established once and reused. Concretely, this change extends the existing
+`flutter-ci.yml` `version-drift` validator: its regex accepts the optional
+pre-release suffix, and its tag comparison applies to `v*` release tags
+(the release-workflow format), superseding the `flutter-v*` prefix before
+any release tag has been cut. `flutter-ci.yml` also gains a `workflow_call`
+trigger in this change — without it the reusable CI gate below could never
+run.
 - *Alternative considered:* tag-driven version injection via
   `--dart-define`/`--build-name` — rejected: diverges from the pubspec
   source-of-truth and complicates the later `UpdateCheckData` regex.
+- *Alternative considered:* strict `X.Y.Z+N` pubspec versions with
+  pre-release info only in the tag — rejected: the tag↔pubspec gate could
+  then never hold for pre-releases, defeating the single-source rule.
 
 ### Pre-release channel: tag suffixes, not branches
 `-alpha.N` / `-beta.N` suffixes map to GitHub pre-releases. No separate
 branch, no separate channel workflow — one workflow, one boolean.
+
+
 - *Alternative considered:* `main`/`beta`/`stable` branch model — rejected:
   overkill for the current team size; suffix tags carry the channel.
 
 ### Gates via reusable workflow call
 The release workflow calls the existing CI workflow as a reusable workflow
 before building, so gates are defined once. Publication happens only after
-gates pass.
+gates pass. This requires the CI workflow to declare a `workflow_call`
+trigger (added by this change together with the version-format alignment
+above), and the reusable call must pass the tag's ref for the
+`version-drift` gate to compare against.
 
 ### Artifact naming: `breakdown-<version>-<abi>.apk` / `breakdown-<version>.aab`
 Explicit, greppable, contains the version — F-Droid's later `Binaries:`
@@ -101,9 +134,11 @@ verification (if ever used) and human testers both benefit; plain
   the correct APK per device ABI (arm64-v8a for virtually all modern
   devices); a universal APK can be added later without spec change if
   testers struggle.
-- **Play App Signing may re-key the app later** → documented in D9; the
-  one-key invariant applies to GitHub Releases + F-Droid; Play uses its
-  enrollment decision from `add-play-store-release`.
+- **Play App Signing re-keys Play-distributed binaries** → documented in
+  D9; the one-key invariant applies to GitHub Releases + developer-signed
+  F-Droid artifacts only. F-Droid source builds (F-Droid's key) and Play
+  (Play App Signing's key, enrollment decided in `add-play-store-release`)
+  are outside the invariant and outside this change's guarantees.
 - **Flutter engine/Gradle version drift breaks the release build** → the
   workflow pins Flutter SDK version the same way CI does (single source in
   the workflow or a committed version file).

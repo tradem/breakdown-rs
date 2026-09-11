@@ -21,18 +21,29 @@ signing, and listing work.
 - Play Console setup: developer account, app entry with the application ID
   from the existing scaffold.
 - Play App Signing decision: enroll with the D9 developer key as upload key
-  (and evaluate whether Play's re-keyed app signing key conflicts with the
-  GitHub-Release/F-Droid one-key invariant — documented per D9's escape
-  hatch).
+  and evaluate whether Play's re-keyed app signing key conflicts with the
+  GitHub-Release one-key invariant — per D9, the one-key guarantee does
+  not extend to Play-distributed binaries, so the enrollment model chosen
+  here defines Play's own update/reinstall behavior.
 - Release-track wiring: internal testing track fed from the release
   workflow's AAB artifact (new publish step or separate workflow job);
   alpha/beta semantics mapped to Play tracks.
-- Data Safety + content rating declarations (app collects nothing; offline
-  cache only; backend is self-hosted).
+- Data Safety + content rating declarations, grounded in an evidence
+  audit: the app is online-first — it sends commands and fetches read
+  projections over the network, and authentication traffic leaves the
+  device — so data IS transmitted off-device; self-hosting the backend
+  does not make that collection local. Audit network requests,
+  third-party SDKs (SDK data collection must be disclosed per Play
+  policy), manifest permissions, and locally stored data, then complete
+  the Data Safety form and privacy policy from the audit findings.
 - Store listing: localized texts, screenshots, feature graphic (reuse
   F-Droid fastlane assets where formats coincide).
-- Any store-specific manifest requirements (e.g., no changes expected given
-  no FCM/Play Services usage — verified in this change).
+- Store-specific manifest/dependency audit (task, not a pre-verified
+  claim): audit `frontend-flutter/android/app/src/main/AndroidManifest.xml`,
+  the Android Gradle files, `frontend-flutter/pubspec.yaml`, and the
+  resolved pub/Gradle dependencies and SDK versions; record the findings
+  (including any store-specific manifest requirements) together with the
+  Data Safety review.
 
 ## Capabilities
 

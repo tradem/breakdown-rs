@@ -14,6 +14,15 @@
 - [ ] 1.3 Extend `.gitignore` (`*.jks`, `*.keystore`, decode dirs) and add
       gitleaks rules covering keystore material in
       `frontend-flutter/**` and `.github/workflows/**`.
+- [ ] 1.4 Provision a protected GitHub `release` environment BEFORE enabling
+      the release workflow (required reviewers, self-review prevention,
+      administrator bypass disabled, deployment restricted to `v*` tags);
+      scope `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`,
+      `KEY_PASSWORD` to the environment and declare `environment: release`
+      in the workflow, so a write-access user cannot exfiltrate the values
+      via a modified workflow run. If the repository plan does not support
+      these environment rules, use a separate protected release repository
+      or signing service instead.
 
 ## 2. Gradle signing configuration
 
@@ -40,10 +49,19 @@
 - [ ] 3.4 Build step: `flutter build apk --release --flavor prod
       --split-per-abi` + `flutter build appbundle --release --flavor prod`;
       rename artifacts to `breakdown-<version>-<abi>.apk` /
-      `breakdown-<version>.aab`.
+      `breakdown-<version>.aab`; verify APKs with `apksigner verify
+      --print-certs` against the recorded fingerprint, verify the AAB with
+      `jarsigner -verify` (same keystore) plus a `bundletool build-apks`
+      round-trip re-verified with `apksigner` (`apksigner` accepts APKs
+      only).
 - [ ] 3.5 Publish step: create/attach GitHub Release; pre-release flag when
       tag has `-alpha.N`/`-beta.N` suffix; release notes list APK per ABI
       with installation hint; idempotent on re-run.
+- [ ] 3.6 Extend `.github/workflows/flutter-ci.yml` with a `workflow_call`
+      trigger so task 3.3's reusable gate can actually run, and align its
+      `version-drift` validator with the unified tag/pubspec format
+      (`v*` release tags; pubspec version `X.Y.Z[-alpha.N|-beta.N]+N`);
+      pass the tag ref into the reusable call for the version comparison.
 
 ## 4. Verification
 

@@ -22,11 +22,15 @@ Each is implemented as project progress allows; this one comes first.
 
 ## What Changes
 
-- **Locked decision D9 — developer-signed builds:** All release binaries are
-  signed with a project-owned keystore (not F-Droid's key, not Play App
-  Signing's final key). One keystore, one key, used by every distribution
-  channel so users can move between GitHub Releases / F-Droid / Play without
-  uninstall/reinstall.
+- **Locked decision D9 — developer-signed builds:** All self-published
+  release binaries are signed with a project-owned keystore (not F-Droid's
+  buildbot key, not Play App Signing's key). One keystore, one key across
+  GitHub Releases and developer-signed F-Droid artifacts, so users can move
+  between those channels without uninstall/reinstall. F-Droid source builds
+  (signed with F-Droid's own key) and Play-distributed binaries (key
+  controlled by Play App Signing) are outside this guarantee — see D9 in
+  design.md; `add-fdroid-inclusion` / `add-play-store-release` define their
+  channels' signing paths.
 - Keystore generation + custody procedure documented (offline backup,
   passphrase in CI secrets only, never in the repo).
 - Gradle release signing config in `frontend-flutter/android/` reading the
@@ -36,9 +40,13 @@ Each is implemented as project progress allows; this one comes first.
   APKs (`--split-per-abi`: arm64-v8a, armeabi-v7a, x86_64) and one `.aab`,
   SHA-pinned actions per the CI-hardening rules, and attaches them to a
   GitHub Release.
-- Versioning convention: `pubspec.yaml` `version: <semver>+<versionCode>` is
-  the single source for `versionName`/`versionCode`; the workflow fails if
-  the tag does not match the pubspec version.
+- Versioning convention: `pubspec.yaml` `version:
+  X.Y.Z[-alpha.N|-beta.N]+N` is the single source for
+  `versionName`/`versionCode`; release tags are `v<build-name>` (e.g.
+  `v0.3.0-alpha.1`) and the workflow fails if the tag does not match the
+  pubspec version. The CI `version-drift` validator is aligned to the same
+  format and `flutter-ci.yml` gains a `workflow_call` trigger so the
+  reusable quality gate runs before the release build.
 - Alpha/beta distribution convention: pre-release versions (`-alpha.N`,
   `-beta.N` suffixes on the tag) are published as GitHub *pre-releases*;
   stable versions as full releases. Testers install APKs directly from
@@ -53,7 +61,8 @@ Each is implemented as project progress allows; this one comes first.
 ### New Capabilities
 - `flutter-release-signing`: project-owned release keystore, Gradle signing
   configuration from CI secrets, key custody rules, and the single-key
-  (D9) signing invariant across all distribution channels.
+  (D9) signing invariant across developer-published channels
+  (GitHub Releases + developer-signed F-Droid artifacts).
 - `flutter-release-artifacts`: tag-triggered release build pipeline,
   APK split-per-abi + AAB artifacts, tag↔pubspec version consistency gate,
   and GitHub Release publication with pre-release (alpha/beta) semantics.
