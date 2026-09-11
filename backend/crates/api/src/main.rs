@@ -603,6 +603,7 @@ async fn main() -> Result<()> {
             document_store: ai_document_store,
             document_source: ai_document_source,
         },
+        infra::projectors::ProjectorHealthRepository::new(pool.clone()),
     );
     let app_state = AppState::new(ports);
 

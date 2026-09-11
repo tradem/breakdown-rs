@@ -66,6 +66,9 @@ use breakdown_core::membership::{
     AcceptInvitation, BootstrapOwner, GrantRole, InviteMember, LeaveBlock, MembershipCommands,
     MembershipRepository, RemoveMember, Role,
 };
+use breakdown_core::ops::ProjectorHealthSnapshot;
+// Trait method scope for the ops handler (`dead_letter_count` etc.).
+use breakdown_core::ops::ProjectorHealthRepository as _;
 use breakdown_core::photo::commands::UploadPhoto as UploadPhotoCmd;
 use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
 use breakdown_core::photo::views::PhotoView;
@@ -2068,6 +2071,22 @@ pub async fn invite_member<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<InviteMemberRequest>,
 ) -> ApiResult<()> {
+    // AUTHZ-GATE: ops escalation guard (issue #409) — the deployment-scoped
+    // `ops_admin` role may only be granted by an existing ops holder (active
+    // ops membership in any block or the OPS_ADMIN_SUBS bootstrap allowlist);
+    // block-scoped costume roles can never self-escalate into ops.
+    if req.role == Role::OpsAdmin {
+        match state
+            .authorization_policy
+            .authorize_ops(&current_user.sub)
+            .await
+        {
+            Ok(PolicyDecision::Allow) => {}
+            Ok(PolicyDecision::Deny) | Err(_) => {
+                return Err(ApiError::Forbidden("not authorized to grant the ops role"));
+            }
+        }
+    }
     let series_id = state.ports.block_repo().find_by_id(id).await?.series_id;
     let cmd = InviteMember {
         block_id: BlockId::from_uuid(id),
@@ -2141,6 +2160,33 @@ pub async fn grant_role<P: Ports>(
     Path((id, user_id)): Path<(Uuid, String)>,
     Json(req): Json<GrantRoleRequest>,
 ) -> ApiResult<()> {
+    // AUTHZ-GATE: ops escalation/demotion guard (issue #409, CodeRabbit
+    // review) — ops access is required BOTH to grant `ops_admin` and to
+    // change the role of a member who currently holds `ops_admin` (a regular
+    // block member must not be able to demote or shadow-replace an ops
+    // holder). The target lookup is the API edge's legitimate read-model
+    // consumption (AGENTS.md §1).
+    let target_role = state
+        .ports
+        .membership_repo()
+        .find(BlockId::from_uuid(id), UserId::from_sub(user_id.clone()))
+        .await?;
+    let touches_ops =
+        req.role == Role::OpsAdmin || target_role.is_some_and(|m| m.role == Role::OpsAdmin);
+    if touches_ops {
+        match state
+            .authorization_policy
+            .authorize_ops(&current_user.sub)
+            .await
+        {
+            Ok(PolicyDecision::Allow) => {}
+            Ok(PolicyDecision::Deny) | Err(_) => {
+                return Err(ApiError::Forbidden(
+                    "not authorized to change ops role assignments",
+                ));
+            }
+        }
+    }
     let series_id = state.ports.block_repo().find_by_id(id).await?.series_id;
     let cmd = GrantRole {
         block_id: BlockId::from_uuid(id),
@@ -2176,6 +2222,30 @@ pub async fn remove_member<P: Ports>(
     current_user: CurrentUser,
     Path((id, user_id)): Path<(Uuid, String)>,
 ) -> ApiResult<()> {
+    // AUTHZ-GATE: ops protection guard (issue #409, CodeRabbit review) —
+    // removing an `ops_admin` holder requires ops access; a regular block
+    // member must not be able to strip the deployment's ops capability by
+    // deleting the membership row. Read-model lookup at the API edge (the
+    // legitimate CQRS consumer).
+    let target = state
+        .ports
+        .membership_repo()
+        .find(BlockId::from_uuid(id), UserId::from_sub(user_id.clone()))
+        .await?;
+    if target.is_some_and(|m| m.role == Role::OpsAdmin) {
+        match state
+            .authorization_policy
+            .authorize_ops(&current_user.sub)
+            .await
+        {
+            Ok(PolicyDecision::Allow) => {}
+            Ok(PolicyDecision::Deny) | Err(_) => {
+                return Err(ApiError::Forbidden(
+                    "not authorized to remove an ops role holder",
+                ));
+            }
+        }
+    }
     let series_id = state.ports.block_repo().find_by_id(id).await?.series_id;
     let cmd = RemoveMember {
         block_id: BlockId::from_uuid(id),
@@ -5086,6 +5156,73 @@ fn parse_ai_provider(value: &str) -> Result<LlmProvider, DomainError> {
 mod ai_import_tests;
 
 /// Build the full Axum router using the concrete `ProductionPorts` bundle.
+/// Query parameters of `GET /ops/projector-health` (issue #409).
+#[derive(Debug, Deserialize)]
+pub struct ProjectorHealthQuery {
+    /// Maximum number of dead-letter entries to return (1–500; default 100).
+    pub limit: Option<i64>,
+}
+
+/// Deployment-scoped ops surface: projector health over the durable
+/// dead-letter and checkpoint tables (issues #37/#409).
+///
+/// Returns the dead-letter count, the latest dead-letter entries and the
+/// per-partition checkpoint progress — the HTTP counterpart of the runbook
+/// SQL (`docs/operations/runbooks.md` → "Projector dead-letter health
+/// (issue #37)").
+#[utoipa::path(
+    get,
+    path = "/ops/projector-health",
+    params(("limit" = Option<i64>, Query, description = "Maximum number of dead-letter entries to return (1-500, default 100)")),
+    responses(
+        (status = 200, description = "Projector health snapshot (dead letters + checkpoint progress)", body = ProjectorHealthSnapshot),
+        (status = 400, description = "Invalid limit query parameter", body = ProblemDetails),
+        (status = 403, description = "Caller does not hold the ops capability", body = ProblemDetails),
+        (status = 500, body = ProblemDetails),
+        (status = 503, description = "Read model unavailable", body = ProblemDetails)
+    )
+)]
+pub async fn get_projector_health<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Query(params): Query<ProjectorHealthQuery>,
+) -> ApiResult<ProjectorHealthSnapshot> {
+    // AUTHZ-GATE: deployment-scoped ops surface (issue #409) — the caller
+    // must hold an active `ops_admin` membership in any block or a place on
+    // the `OPS_ADMIN_SUBS` bootstrap allowlist. The route is classified
+    // `Authenticated` (requirement_for "/ops"), so this handler-internal
+    // gate is the only authorization.
+    match state
+        .authorization_policy
+        .authorize_ops(&current_user.sub)
+        .await
+    {
+        Ok(PolicyDecision::Allow) => {}
+        Ok(PolicyDecision::Deny) | Err(_) => {
+            return Err(ApiError::Forbidden("ops capability required"));
+        }
+    }
+    const DEFAULT_LIMIT: i64 = 100;
+    const MAX_LIMIT: i64 = 500;
+    let limit = match params.limit {
+        None => DEFAULT_LIMIT,
+        Some(n) if (1..=MAX_LIMIT).contains(&n) => n,
+        Some(_) => return Err(ApiError::BadQueryParam("limit must be between 1 and 500")),
+    };
+    let repo = state.ports.projector_health_repo();
+    let dead_letter_count = repo.dead_letter_count().await?;
+    let dead_letters = repo.list_dead_letters(limit).await?;
+    let checkpoints = repo.checkpoint_progress().await?;
+    Ok((
+        StatusCode::OK,
+        Json(ProjectorHealthSnapshot {
+            dead_letter_count,
+            dead_letters,
+            checkpoints,
+        }),
+    ))
+}
+
 pub fn routes() -> Router<AppState<ProductionPorts>> {
     // Axum's `Bytes` extractor enforces a default 2 MB request limit; the AI
     // document bound is 20 MB by default. Raise the extractor limit to the same
@@ -5095,6 +5232,10 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         .bounds
         .max_document_bytes as usize;
     Router::new()
+        .route(
+            "/ops/projector-health",
+            routing::get(get_projector_health::<ProductionPorts>),
+        )
         .route(
             "/ai-import/scripts",
             routing::post(upload_ai_script::<ProductionPorts>),

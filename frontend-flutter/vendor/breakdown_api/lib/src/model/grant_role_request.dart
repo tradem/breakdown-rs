@@ -21,7 +21,7 @@ abstract class GrantRoleRequest
   /// New role for the active member (their prior role is replaced).
   @BuiltValueField(wireName: r'role')
   Role get role;
-  // enum roleEnum {  costume_designer,  wardrobe_supervisor,  costume_assistant,  };
+  // enum roleEnum {  costume_designer,  wardrobe_supervisor,  costume_assistant,  ops_admin,  };
 
   GrantRoleRequest._();
 

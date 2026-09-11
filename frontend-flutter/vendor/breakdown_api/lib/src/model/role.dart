@@ -11,7 +11,7 @@ import 'package:built_value/serializer.dart';
 
 part 'role.g.dart';
 
-/// Block-scoped costume-department role.  Roles are **domain-local** and **block-scoped** (Decision 4): the same `UserId` may hold a different `Role` in two blocks of the same season because staff rotate roles at Block boundaries. The initial v1 set is `CostumeDesigner` + `WardrobeSupervisor`, plus `CostumeAssistant` which is the default role assigned to the block creator during the owner bootstrap (see `BootstrapOwner`).  **Ubiquitous Language is English.** The enum variants and their `snake_case` serde form are the canonical domain vocabulary, so events and projection rows are persisted as English strings (`\"costume_designer\"`, `\"wardrobe_supervisor\"`, `\"costume_assistant\"`).  The enum is **open for additive extension** (see `block-membership` spec, \"Initial role set\"): adding a new variant is a non-breaking change for writers, but renaming or removing an existing variant is a breaking change requiring a separate proposal. Variants are serialized by their stable `snake_case` name, so events/rows written today stay readable after a future addition.
+/// Block-scoped costume-department role.  Roles are **domain-local** and **block-scoped** (Decision 4): the same `UserId` may hold a different `Role` in two blocks of the same season because staff rotate roles at Block boundaries. The initial v1 set is `CostumeDesigner` + `WardrobeSupervisor`, plus `CostumeAssistant` which is the default role assigned to the block creator during the owner bootstrap (see `BootstrapOwner`).  **Ubiquitous Language is English.** The enum variants and their `snake_case` serde form are the canonical domain vocabulary, so events and projection rows are persisted as English strings (`\"costume_designer\"`, `\"wardrobe_supervisor\"`, `\"costume_assistant\"`).  The enum is **open for additive extension** (see `block-membership` spec, \"Initial role set\"): adding a new variant is a non-breaking change for writers, but renaming or removing an existing variant is a breaking change requiring a separate proposal. Variants are serialized by their stable `snake_case` name, so events/rows written today stay readable after a future addition.  `OpsAdmin` (issue #409) is the one deployment-scoped capability: it rides on block-scoped membership rows like every other role, but the ops predicates check it across **all** blocks (`has_active_ops_role`) because projector health is deployment-wide infrastructure state, not production data. It cannot be granted through the block-scoped membership API by non-ops callers (API-edge escalation guard in the `invite_member` / `grant_role` handlers); the first ops holder is bootstrapped via the `OPS_ADMIN_SUBS` environment allowlist (see the API policy).
 class Role extends EnumClass {
   @BuiltValueEnumConst(wireName: r'costume_designer')
   static const Role costumeDesigner = _$costumeDesigner;
@@ -19,6 +19,8 @@ class Role extends EnumClass {
   static const Role wardrobeSupervisor = _$wardrobeSupervisor;
   @BuiltValueEnumConst(wireName: r'costume_assistant')
   static const Role costumeAssistant = _$costumeAssistant;
+  @BuiltValueEnumConst(wireName: r'ops_admin')
+  static const Role opsAdmin = _$opsAdmin;
 
   static Serializer<Role> get serializer => _$roleSerializer;
 

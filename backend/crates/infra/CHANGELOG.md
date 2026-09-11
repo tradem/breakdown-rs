@@ -15,6 +15,17 @@ commits (ADR-020 D5).
 
 ## [0.16.0] - Unreleased
 
+### Added — projector-health port implementation + ops predicate (issue #409)
+
+- `MembershipRepositoryImpl::has_active_ops_role`: static-SQL predicate over
+  `projection_membership` (`role = 'ops_admin' AND state = 'active'`, any
+  block).
+- `projectors::ProjectorHealthRepository` now implements the
+  `breakdown_core::ops::ProjectorHealthRepository` port (row mirrors keep the
+  `sqlx::FromRow` derives infra-side; DTOs moved to `core::ops` and are
+  re-exported unchanged).
+- Rides with the open 0.16.0 MINOR; no additional bump.
+
 ### Added — projector dead-letter + health signal (issue #37)
 
 - New migration `20260815000001_projection_dead_letter`: durable poison-event

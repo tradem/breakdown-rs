@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: hy4-preview (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -515,6 +516,20 @@ impl MembershipRepository for FakeMembershipRepo {
                         role,
                         Role::CostumeDesigner | Role::CostumeAssistant
                     )
+            }))
+    }
+
+    async fn has_active_ops_role(&self, user_id: UserId) -> Result<bool, DomainError> {
+        // Deployment-scoped ops capability (issue #409): any active
+        // `ops_admin` row in any block.
+        Ok(self
+            .rows()
+            .await
+            .iter()
+            .any(|(_, row_user, role, state)| {
+                row_user == &user_id
+                    && *state == MembershipStateKind::Active
+                    && *role == Role::OpsAdmin
             }))
     }
 }

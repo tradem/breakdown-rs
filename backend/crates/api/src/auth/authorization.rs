@@ -4,6 +4,7 @@
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: hy4-preview (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 //! Authorization policy for the API layer (Section 5, Decision D2/D5).
 //!
@@ -35,12 +36,28 @@ use crate::auth::{ActiveBlock, AuthError, CurrentUser};
 /// the dyn-safe [`AuthorizationPolicy`] port.
 pub struct MembershipAuthorizationPolicy<Repo: MembershipRepository> {
     repo: Arc<Repo>,
+    /// Deployment-scoped ops bootstrap allowlist (`OPS_ADMIN_SUBS`, issue
+    /// #409): trusted OIDC subs that hold ops access even before any
+    /// `ops_admin` membership row exists (cold start). Consulted by
+    /// [`Self::authorize_ops`]; the membership predicate stays the durable,
+    /// delegable grant path.
+    ops_admins: Vec<String>,
 }
 
 impl<Repo: MembershipRepository> MembershipAuthorizationPolicy<Repo> {
-    /// Build a policy that consults `repo` for active-membership.
+    /// Build a policy that consults `repo` for active-membership (no ops
+    /// bootstrap allowlist — use [`Self::with_ops_admins`] to add one).
     pub fn new(repo: Arc<Repo>) -> Self {
-        Self { repo }
+        Self {
+            repo,
+            ops_admins: Vec::new(),
+        }
+    }
+
+    /// Attach the `OPS_ADMIN_SUBS` bootstrap allowlist (issue #409).
+    pub fn with_ops_admins(mut self, subs: Vec<String>) -> Self {
+        self.ops_admins = subs;
+        self
     }
 }
 
@@ -82,6 +99,25 @@ impl<Repo: MembershipRepository + 'static> AuthorizationPolicy
     ) -> Result<PolicyDecision, DomainError> {
         self.repo
             .has_active_credential_role(actor.clone())
+            .await
+            .map(|active| {
+                if active {
+                    PolicyDecision::Allow
+                } else {
+                    PolicyDecision::Deny
+                }
+            })
+    }
+
+    async fn authorize_ops(&self, actor: &UserId) -> Result<PolicyDecision, DomainError> {
+        // Bootstrap allowlist first (infallible config): deployment operators
+        // hold ops access even with no `ops_admin` membership row yet
+        // (issue #409 cold start).
+        if self.ops_admins.iter().any(|sub| sub == actor.as_str()) {
+            return Ok(PolicyDecision::Allow);
+        }
+        self.repo
+            .has_active_ops_role(actor.clone())
             .await
             .map(|active| {
                 if active {
@@ -284,6 +320,16 @@ pub fn requirement_for(path: &str) -> Requirement {
     // `// AUTHZ-GATE:`) and returns `403` on denial (issue #342). Classified
     // `Authenticated` like the other handler-gated route families above.
     if path == "/audit" {
+        return Requirement::Authenticated;
+    }
+
+    // Ops endpoints (issue #409) expose deployment-wide infrastructure state,
+    // not block-scoped production data. The handler performs the ops gate
+    // itself (`AuthorizationPolicy::authorize_ops` — active `ops_admin`
+    // membership in any block or the `OPS_ADMIN_SUBS` bootstrap allowlist,
+    // `// AUTHZ-GATE:`) and returns `403` on denial. Classified
+    // `Authenticated` like the other handler-gated route families above.
+    if path.starts_with("/ops") {
         return Requirement::Authenticated;
     }
 

@@ -35,6 +35,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(CharacterCategory.serializer)
       ..add(CharacterMeasurements.serializer)
       ..add(CharacterView.serializer)
+      ..add(CheckpointProgress.serializer)
       ..add(ContactInfo.serializer)
       ..add(CostumeCategoryView.serializer)
       ..add(CostumeDetail.serializer)
@@ -51,6 +52,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(CreateSeasonRequest.serializer)
       ..add(CreateShootingDayRequest.serializer)
       ..add(CredentialBindingState.serializer)
+      ..add(DeadLetterEntry.serializer)
       ..add(DispoRow.serializer)
       ..add(DocumentKind.serializer)
       ..add(DraftScene.serializer)
@@ -81,6 +83,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(PhotoView.serializer)
       ..add(PlanSceneShootRequest.serializer)
       ..add(ProblemDetails.serializer)
+      ..add(ProjectorHealthSnapshot.serializer)
       ..add(RenameEpisodeRequest.serializer)
       ..add(RenameSeasonRequest.serializer)
       ..add(ReplanSceneShootRequest.serializer)
@@ -125,6 +128,12 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(ApplyMapping)]),
           () => ListBuilder<ApplyMapping>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(CheckpointProgress)]),
+          () => ListBuilder<CheckpointProgress>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(DeadLetterEntry)]),
+          () => ListBuilder<DeadLetterEntry>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(CostumeDetailView)]),
           () => ListBuilder<CostumeDetailView>())

@@ -15,6 +15,23 @@ commits (ADR-020 D5).
 
 ## [0.11.0] - Unreleased
 
+### Added — deployment-scoped ops capability (issue #409)
+
+- `membership::Role::OpsAdmin` (additive enum extension, token `ops_admin`):
+  deployment-scoped operator capability riding on block-scoped membership
+  rows but checked across all blocks. Token/wire-form pins extended in
+  `membership_projection_tokens.rs`.
+- `MembershipRepository::has_active_ops_role(user_id)`: active `ops_admin`
+  membership in **any** block (default empty impl not needed — every impl
+  updated).
+- `AuthorizationPolicy::authorize_ops(user_id)`: fallible ops gate (default
+  `Deny`), mirroring `authorize_credential_role`.
+- New `ops` module: `DeadLetterEntry` / `CheckpointProgress` /
+  `ProjectorHealthSnapshot` DTOs (moved from `infra` — which re-exports them
+  for #37 compatibility) plus the `ProjectorHealthRepository` **port**; the
+  sqlx adapter implements the port. Core stays free of `sqlx` (ADR-017).
+- Rides with the open 0.11.0 MINOR; no additional bump.
+
 ### Added — cross-aggregate uniqueness problem codes (issue #404)
 
 - `season.number-already-exists`, `block.number-already-exists`,
