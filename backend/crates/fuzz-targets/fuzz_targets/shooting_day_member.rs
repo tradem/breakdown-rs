@@ -82,7 +82,10 @@ fuzz_target!(|data: &[u8]| {
     if let Ok(req) = serde_json::from_slice::<InviteMemberRequest>(data) {
         let _ = req.user_id.len();
         match req.role {
-            Role::CostumeDesigner | Role::WardrobeSupervisor | Role::CostumeAssistant => {}
+            Role::CostumeDesigner
+            | Role::WardrobeSupervisor
+            | Role::CostumeAssistant
+            | Role::OpsAdmin => {}
         }
 
         let _cmd = breakdown_core::membership::commands::InviteMember {
@@ -96,7 +99,10 @@ fuzz_target!(|data: &[u8]| {
     // ── GrantRole (same Role enum — fuzzes rename_all = "snake_case") ──
     if let Ok(req) = serde_json::from_slice::<GrantRoleRequest>(data) {
         match req.role {
-            Role::CostumeDesigner | Role::WardrobeSupervisor | Role::CostumeAssistant => {}
+            Role::CostumeDesigner
+            | Role::WardrobeSupervisor
+            | Role::CostumeAssistant
+            | Role::OpsAdmin => {}
         }
     }
 });

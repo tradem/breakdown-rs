@@ -283,6 +283,9 @@ fn api_routes_have_deliberate_authorization_requirement() {
             "/ai-import/providers/{provider}/models",
             Requirement::Authenticated,
         ),
+        // Ops surface (issue #409): deployment-scoped, handler-internal ops
+        // gate (`authorize_ops`) inside the handler.
+        ("/ops/projector-health", Requirement::Authenticated),
     ];
 
     let mut failures: Vec<String> = Vec::new();

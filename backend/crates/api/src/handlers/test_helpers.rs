@@ -517,6 +517,20 @@ impl MembershipRepository for FakeMembershipRepo {
                     )
             }))
     }
+
+    async fn has_active_ops_role(&self, user_id: UserId) -> Result<bool, DomainError> {
+        // Deployment-scoped ops capability (issue #409): any active
+        // `ops_admin` row in any block.
+        Ok(self
+            .rows()
+            .await
+            .iter()
+            .any(|(_, row_user, role, state)| {
+                row_user == &user_id
+                    && *state == MembershipStateKind::Active
+                    && *role == Role::OpsAdmin
+            }))
+    }
 }
 
 #[derive(Clone)]

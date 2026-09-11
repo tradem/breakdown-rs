@@ -117,4 +117,19 @@ pub trait AuthorizationPolicy: Send + Sync {
     ) -> Result<PolicyDecision, DomainError> {
         Ok(PolicyDecision::Deny)
     }
+
+    /// *Fallible* deployment-scoped ops authorization with error propagation
+    /// (issue #409).
+    ///
+    /// Grants access when `actor` holds the ops capability — an active
+    /// `Role::OpsAdmin` membership in any block **or** a place on the
+    /// deployment's `OPS_ADMIN_SUBS` bootstrap allowlist (cold start; see the
+    /// concrete policy in `api::auth::authorization`). Fallible for the same
+    /// reason as [`Self::authorize_season_result`].
+    ///
+    /// The default returns `Ok(PolicyDecision::Deny)` so unrelated policy
+    /// implementations keep working unchanged.
+    async fn authorize_ops(&self, _actor: &UserId) -> Result<PolicyDecision, DomainError> {
+        Ok(PolicyDecision::Deny)
+    }
 }

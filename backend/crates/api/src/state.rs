@@ -27,6 +27,7 @@ use breakdown_core::costume_category::{CostumeCategoryCommands, CostumeCategoryR
 use breakdown_core::episode::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::membership::policy::AuthorizationPolicy;
 use breakdown_core::membership::{MembershipCommands, MembershipRepository};
+use breakdown_core::ops::ProjectorHealthRepository as ProjectorHealthRepositoryPort;
 use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
 use breakdown_core::reporting::{ReportArchivalQueue, ReportRenderer};
 use breakdown_core::scene::{SceneCommands, SceneRepository};
@@ -47,6 +48,7 @@ use infra::event_store::{
 };
 use infra::photo::repository::PhotoRepositoryImpl;
 use infra::photo::storage::OpenDalPhotoStorage;
+use infra::projectors::ProjectorHealthRepository as PgProjectorHealthRepository;
 use infra::queries::{
     AiConfigRepositoryImpl, AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl,
     CostumeCategoryRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl,
@@ -109,6 +111,9 @@ pub trait Ports: Clone + Send + Sync + 'static {
     type AiPreviewStore: AiPreviewStore + ?Sized;
     type AiDocumentStore: AiDocumentStore + ?Sized;
     type AiDocumentSource: AiDocumentSource + ?Sized;
+    // --- Ops seam (issue #409) -------------------------------------------
+    // The projector-health read adapter behind `GET /v1/ops/projector-health`.
+    type ProjectorHealthRepo: ProjectorHealthRepositoryPort;
 
     fn scene_commands(&self) -> &Self::SceneCommands;
     fn scene_repo(&self) -> &Self::SceneRepo;
@@ -148,6 +153,7 @@ pub trait Ports: Clone + Send + Sync + 'static {
     fn ai_preview_store(&self) -> &Self::AiPreviewStore;
     fn ai_document_store(&self) -> &Self::AiDocumentStore;
     fn ai_document_source(&self) -> &Self::AiDocumentSource;
+    fn projector_health_repo(&self) -> &Self::ProjectorHealthRepo;
 }
 
 /// Shared state handed to every Axum handler.
@@ -185,24 +191,44 @@ impl<P: Ports> AppState<P>
 where
     P::MembershipRepo: Clone,
 {
-    /// Environment-driven production entry point: reads `AI_IMPORT_ENABLED`
-    /// and the document bound once at construction.
+    /// Environment-driven production entry point: reads `AI_IMPORT_ENABLED`,
+    /// the document bound and the `OPS_ADMIN_SUBS` bootstrap allowlist once
+    /// at construction.
     pub fn new(ports: P) -> Self {
         let feature = infra::ai::AiImportFeature::from_env();
-        Self::with_ai_import(ports, feature.enabled, feature.bounds.max_document_bytes)
+        // Deployment-scoped ops bootstrap allowlist (issue #409): a
+        // comma-separated list of trusted OIDC subs. Empty by default —
+        // operators set it once to delegate the first `ops_admin` and then
+        // remove it. Parsing never fails: empty items are filtered out.
+        let ops_admins: Vec<String> = std::env::var("OPS_ADMIN_SUBS")
+            .unwrap_or_default()
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(ToString::to_string)
+            .collect();
+        Self::with_ai_import(
+            ports,
+            feature.enabled,
+            feature.bounds.max_document_bytes,
+            ops_admins,
+        )
     }
 
     /// Builds state with explicit rollout values, bypassing the process
     /// environment — lets tests exercise both `ai_import_enabled` branches
     /// deterministically (process env is global and `set_var` is unsafe in
-    /// Rust 2024).
+    /// Rust 2024). `ops_admins` is the `OPS_ADMIN_SUBS` bootstrap allowlist
+    /// consumed by the policy's ops gate (issue #409).
     pub fn with_ai_import(
         ports: P,
         ai_import_enabled: bool,
         ai_import_max_document_bytes: u64,
+        ops_admins: Vec<String>,
     ) -> Self {
         let authorization_policy: Arc<dyn AuthorizationPolicy> = Arc::new(
-            MembershipAuthorizationPolicy::new(Arc::new(ports.membership_repo().clone())),
+            MembershipAuthorizationPolicy::new(Arc::new(ports.membership_repo().clone()))
+                .with_ops_admins(ops_admins),
         );
         Self {
             ports,
@@ -267,6 +293,7 @@ pub struct ProductionPorts {
     ai_config_repo: AiConfigRepositoryImpl,
     ai_import_queue: PgAiImportQueue,
     ai_import_mapping: PgAiImportMappingRepository,
+    projector_health_repo: PgProjectorHealthRepository,
     ai_preview_store: Arc<dyn AiPreviewStore + Send + Sync>,
     ai_document_store: Arc<dyn AiDocumentStore + Send + Sync>,
     ai_document_source: Arc<dyn AiDocumentSource + Send + Sync>,
@@ -309,6 +336,7 @@ impl ProductionPorts {
         report_archival_queue: PgReportArchivalQueue,
         report_renderer: Arc<dyn ReportRenderer>,
         ai: AiPorts,
+        projector_health_repo: PgProjectorHealthRepository,
     ) -> Self {
         let AiPorts {
             config_commands: ai_config_commands,
@@ -357,6 +385,7 @@ impl ProductionPorts {
             ai_preview_store,
             ai_document_store,
             ai_document_source,
+            projector_health_repo,
         }
     }
 }
@@ -401,6 +430,7 @@ impl Ports for ProductionPorts {
     type AiPreviewStore = dyn AiPreviewStore + Send + Sync;
     type AiDocumentStore = dyn AiDocumentStore + Send + Sync;
     type AiDocumentSource = dyn AiDocumentSource + Send + Sync;
+    type ProjectorHealthRepo = PgProjectorHealthRepository;
 
     fn scene_commands(&self) -> &Self::SceneCommands {
         &self.scene_commands
@@ -515,5 +545,8 @@ impl Ports for ProductionPorts {
     }
     fn ai_document_source(&self) -> &Self::AiDocumentSource {
         self.ai_document_source.as_ref()
+    }
+    fn projector_health_repo(&self) -> &Self::ProjectorHealthRepo {
+        &self.projector_health_repo
     }
 }

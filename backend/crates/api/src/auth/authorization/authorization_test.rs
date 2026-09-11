@@ -327,6 +327,12 @@ impl MembershipRepository for MockSeasonMembershipRepo {
         self.has_active_costume_role_in_season(SeasonId::new(), user_id)
             .await
     }
+
+    async fn has_active_ops_role(&self, user_id: UserId) -> Result<bool, DomainError> {
+        // Mock reuses the same ok/err switches as the other predicates.
+        self.has_active_costume_role_in_season(SeasonId::new(), user_id)
+            .await
+    }
 }
 
 #[tokio::test]

@@ -18,6 +18,7 @@ pub mod episode;
 pub mod error;
 pub mod error_registry;
 pub mod membership;
+pub mod ops;
 pub mod photo;
 pub mod reporting;
 pub mod scene;

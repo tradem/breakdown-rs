@@ -32,7 +32,10 @@ use common::FakePorts;
 /// credential-role gate is controlled by `credential_role_override`.
 async fn ai_import_state(ports: FakePorts) -> AppState<FakePorts> {
     AppState::with_ai_import(
-        ports, /*ai_import_enabled=*/ true, /*max_document_bytes=*/ 1024,
+        ports,
+        /*ai_import_enabled=*/ true,
+        /*max_document_bytes=*/ 1024,
+        Vec::new(),
     )
 }
 

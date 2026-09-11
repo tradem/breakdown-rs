@@ -55,7 +55,10 @@ fn user() -> CurrentUser {
 
 fn state(ports: FakePorts) -> AppState<FakePorts> {
     AppState::with_ai_import(
-        ports, /*ai_import_enabled=*/ true, /*max_document_bytes=*/ 4096,
+        ports,
+        /*ai_import_enabled=*/ true,
+        /*max_document_bytes=*/ 4096,
+        Vec::new(),
     )
 }
 
@@ -767,7 +770,10 @@ async fn ai_upload_is_not_found_when_the_feature_is_disabled() {
     let ports = FakePorts::default();
     let block_id = BlockId::from_uuid(Uuid::now_v7());
     let state = AppState::with_ai_import(
-        ports, /*ai_import_enabled=*/ false, /*max_document_bytes=*/ 4096,
+        ports,
+        /*ai_import_enabled=*/ false,
+        /*max_document_bytes=*/ 4096,
+        Vec::new(),
     );
 
     let problem = upload_ai_script::<FakePorts>(

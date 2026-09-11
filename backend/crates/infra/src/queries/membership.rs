@@ -191,6 +191,28 @@ impl MembershipRepository for MembershipRepositoryImpl {
         .map_err(|err| DomainError::internal(err.to_string()))?;
         Ok(row.is_some())
     }
+
+    async fn has_active_ops_role(&self, user_id: UserId) -> Result<bool, DomainError> {
+        // Deployment-scoped ops capability (issue #409): any active
+        // `ops_admin` membership in any block grants access — the projection
+        // column stores the plain token (`Role::as_str`), see
+        // `crates/core/tests/membership_projection_tokens.rs`.
+        let row: Option<(String,)> = sqlx::query_as(
+            r#"
+            SELECT role
+            FROM projection_membership
+            WHERE user_id = $1
+              AND role = 'ops_admin'
+              AND state = 'active'
+            LIMIT 1
+            "#,
+        )
+        .bind(user_id.as_str())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|err| DomainError::internal(err.to_string()))?;
+        Ok(row.is_some())
+    }
 }
 
 fn map_membership_row(row: sqlx::postgres::PgRow) -> Result<MembershipView, DomainError> {

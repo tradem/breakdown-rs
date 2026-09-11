@@ -116,4 +116,13 @@ pub trait MembershipRepository: Send + Sync {
     /// CostumeAssistant in any block. This is the settings credential gate;
     /// WardrobeSupervisor is intentionally excluded by ADR-027.
     async fn has_active_credential_role(&self, user_id: UserId) -> Result<bool, DomainError>;
+
+    /// Check whether `user_id` holds the deployment-scoped ops capability
+    /// (`Role::OpsAdmin`) as an **active** member of any block (issue #409).
+    ///
+    /// Unlike the block/season-scoped predicates above this check is
+    /// deliberately role-scoped but *not* block-scoped: projector health is
+    /// deployment-wide infrastructure state, so any active `ops_admin`
+    /// membership grants access regardless of which block carries it.
+    async fn has_active_ops_role(&self, user_id: UserId) -> Result<bool, DomainError>;
 }

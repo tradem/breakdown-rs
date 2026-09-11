@@ -231,6 +231,10 @@ use utoipa::OpenApi;
         breakdown_core::scene_shoot::views::ShootDayRow,
         breakdown_core::scene_shoot::views::SollIstDiffRow,
         breakdown_core::scene_shoot::views::SollIstReport,
+        // Ops surface DTOs (issue #409): projector health snapshot.
+        breakdown_core::ops::DeadLetterEntry,
+        breakdown_core::ops::CheckpointProgress,
+        breakdown_core::ops::ProjectorHealthSnapshot,
     )),
     tags(
         (name = "Seasons", description = "Production hierarchy: Series > Season"),
