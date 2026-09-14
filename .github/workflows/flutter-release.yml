@@ -172,10 +172,17 @@ jobs:
           # Tolerant input handling: strip whitespace/newlines/quotes (CRLF
           # paste artifacts) BEFORE decoding — GNU base64 -d fails on \r and
           # stray quotes with 'invalid input'. Decoding itself stays strict.
-          printf '%s' "$KEYSTORE_BASE64" | tr -d ' \t\r\n"' \
-            | base64 -d > "$RUNNER_TEMP/keystore/release.keystore"
+          cleaned="$(printf '%s' "$KEYSTORE_BASE64" | tr -d ' \t\r\n\"')"
+          # Classify leftover garbage WITHOUT leaking secret values: report
+          # only the count/shape of non-base64 characters.
+          junk="$(printf '%s' "$cleaned" | tr -d 'A-Za-z0-9+/=' | head -c 40)"
+          if [ -n "$junk" ]; then
+            echo "::error::KEYSTORE_BASE64 contains non-base64 characters (count: $(printf '%s' "$junk" | wc -c)); character classes present: $(printf '%s' "$junk" | fold -w1 | sort -u | tr '\n' ' ' | sed 's/ /<sp> /g; s/-/<dash> /g'). The secret must be the PURE output of 'base64 -w0 <keystore-file>' — no PEM headers (-----BEGIN...), no line continuations, no quotes."
+            exit 1
+          fi
+          printf '%s' "$cleaned" | base64 -d > "$RUNNER_TEMP/keystore/release.keystore"
           if [ "$(wc -c < "$RUNNER_TEMP/keystore/release.keystore")" -lt 100 ]; then
-            echo "::error::Decoded keystore is suspiciously small ($(wc -c < "$RUNNER_TEMP/keystore/release.keystore") bytes) — KEYSTORE_BASE64 does not look like a keystore. Re-create the secret with 'base64 -w0 <file>' output only (no headers, no quotes)."
+            echo "::error::Decoded keystore is suspiciously small ($(wc -c < "$RUNNER_TEMP/keystore/release.keystore") bytes) — KEYSTORE_BASE64 does not look like a keystore. Re-create the secret with 'base64 -w0 <file>' output only."
             exit 1
           fi
 
