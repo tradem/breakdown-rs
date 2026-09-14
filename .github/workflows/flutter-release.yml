@@ -169,7 +169,15 @@ jobs:
             exit 1
           fi
           mkdir -p "$RUNNER_TEMP/keystore"
-          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/keystore/release.keystore"
+          # Tolerant input handling: strip whitespace/newlines/quotes (CRLF
+          # paste artifacts) BEFORE decoding — GNU base64 -d fails on \r and
+          # stray quotes with 'invalid input'. Decoding itself stays strict.
+          printf '%s' "$KEYSTORE_BASE64" | tr -d ' \t\r\n"' \
+            | base64 -d > "$RUNNER_TEMP/keystore/release.keystore"
+          if [ "$(wc -c < "$RUNNER_TEMP/keystore/release.keystore")" -lt 100 ]; then
+            echo "::error::Decoded keystore is suspiciously small ($(wc -c < "$RUNNER_TEMP/keystore/release.keystore") bytes) — KEYSTORE_BASE64 does not look like a keystore. Re-create the secret with 'base64 -w0 <file>' output only (no headers, no quotes)."
+            exit 1
+          fi
 
       - name: Build split APKs (prod, release, --split-per-abi)
         env:
