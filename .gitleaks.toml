@@ -54,3 +54,29 @@ keywords = [
     "test",
     "mock",
 ]
+
+# --- Breakdown-specific rules (change add-android-release-workflow, task 1.3) ---
+#
+# The Android release keystore material must never enter the tree (spec
+# flutter-release-signing). gitleaks' default rules catch PEM private keys,
+# but NOT: (a) a base64-wrapped JKS keystore assigned to a signing variable,
+# (b) hardcoded signing credentials in gradle/workflow files, or (c) the
+# base64 CI-secret form. These rules close that gap in BOTH scan configs
+# (this root config scans .github/workflows/**; the scoped
+# frontend-flutter/.gitleaks.toml scans frontend-flutter/** — keep the rules
+# byte-identical in both files). Values interpolated from GitHub secrets
+# (${{ secrets.* }}) do not match (braces/spaces break the character class);
+# env-var READS (System.getenv("KEYSTORE_PASSWORD")) do not match either —
+# no '=' or ':' directly follows the quoted variable name.
+[[rules]]
+id = "breakdown-signing-credential"
+description = "Hardcoded Android release signing credential (keystore/key password, alias, or keystore path/base64 assignment)"
+regex = '''(?i)(keystore[_-]?base64|keystore[_-]?password|key[_-]?password|store[_-]?password|key[_-]?alias)['"]?\s*[:=]\s*['"]?[A-Za-z0-9+/=_-]{8,}'''
+paths = '''(frontend-flutter/.*|.github/workflows/.*)'''
+tags = ["breakdown", "android-signing"]
+
+[[rules]]
+id = "breakdown-keystore-base64-blob"
+description = "Base64-encoded Android keystore blob assigned to a signing variable (JKS material is binary, so only the encoded form is scannable)"
+regex = '''(?i)keystore_base64['"]?\s*[:=]\s*['"]?[A-Za-z0-9+/]{200,}={0,2}'''
+tags = ["breakdown", "android-signing"]

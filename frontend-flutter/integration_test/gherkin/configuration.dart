@@ -52,6 +52,11 @@ Future<FlutterTestConfiguration> buildGherkinConfig() async {
       targetAppPath: 'integration_test/gherkin/app.dart',
     )
     ..targetAppWorkingDirectory = '.'
+    // Gradle dev/prod product flavors (change add-android-release-workflow):
+    // the on-device suite runs the dev variant — the runner must pass
+    // `--flavor dev`, because plain `assembleDebug` no longer exists once
+    // flavorDimensions are declared.
+    ..buildFlavor = 'dev'
     ..hooks = [AppHook()]
     ..tagExpression = 'not @pending'
     ..restartAppBetweenScenarios = true

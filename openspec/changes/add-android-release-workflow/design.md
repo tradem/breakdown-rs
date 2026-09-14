@@ -159,3 +159,5 @@ verification (if ever used) and human testers both benefit; plain
   there.
 - Keystore custody: which two maintainers hold the offline backup
   (decision needed before step 1 of the migration plan).
+  - tradem
+  - imac.ric@gmail.com

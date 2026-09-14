@@ -270,8 +270,9 @@ Future<AppConfig> resolveAppConfig(Flavor flavor) async {
 ///
 /// Flavor-guarded (spec `flutter-app-dialogs`): the override applies ONLY
 /// in `dev`. In `prod` a stored override — e.g. left over from a dev
-/// install over the same application ID (Android ships one ID, no product
-/// flavors) — is ignored AND cleared on boot; the compile-time HTTPS base
+/// install over the same application ID (the dev and prod Gradle flavors
+/// deliberately ship ONE application ID, see `build.gradle.kts`) — is
+/// ignored AND cleared on boot; the compile-time HTTPS base
 /// is always used. An invalid stored value is ignored (the dialog validates
 /// on save; this is the defensive second check). A store read failure falls
 /// back to the compile-time base (secure-storage breakage already surfaces
