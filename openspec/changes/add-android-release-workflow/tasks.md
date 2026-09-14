@@ -90,9 +90,11 @@
       APKs + AAB); apksigner fingerprint == recorded `bfd0184e…`, AAB
       jarsigner ✓, bundletool round-trip 5 APKs ✓ (release URL:
       github.com/tradem/breakdown-rs/releases/tag/v0.3.0-alpha.1)
-- [ ] 4.2 Sideload the arm64 APK on a test device; verify install and that a
+- [x] 4.2 Sideload the arm64 APK on a test device; verify install and that a
       follow-up build with the same key updates in place.
-      *(operator task, on-device — download from the dry-run release)*
+      → v0.3.0-alpha.1 sideloaded and installed ✓; v0.3.0-alpha.2 (versionCode
+      11 > 10, same project key) updated in place WITHOUT uninstall ✓ — the
+      D9 cross-channel update guarantee is empirically verified.
 - [x] 4.3 Negative tests: mismatched tag fails the gate; failing CI gate
       blocks publication; workflow re-run does not duplicate artifacts.
       *(mismatch/format/monotonicity: locally scripted against the gate;
