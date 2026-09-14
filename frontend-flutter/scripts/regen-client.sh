@@ -3,6 +3,7 @@
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: hy3 (opencode-go)
 # Co-authored-by: qwen3.8-flash (opencode-go)
+# Co-authored-by: omen-alpha (opencode-go)
 
 # Regenerate the typed, Dio-based Dart API client (`breakdown_api`) from
 # `backend/openapi.yaml` into `vendor/breakdown_api/`.
@@ -107,6 +108,33 @@ while IFS= read -r -d '' file; do
     sed -i -E 's/\bFullType\(OneOf[0-9]+Enum\)/FullType(String)/g' "${file}"
   fi
 done < <(find "${OUT}" -name '*.dart' -print0)
+
+# Work around an openapi-generator 7.25.0 `dart-dio` template bug: for a
+# request body typed as the inline free-form `type: object` schema (utoipa
+# emits this for an empty-body contract, e.g. `POST /v1/costumes`), the
+# generated handler assigns the raw `JsonObject` wrapper to `_bodyData` and
+# relies on dio's JSON encoder. built_value's `JsonObject` subclasses
+# (`MapJsonObject`, …) carry no `toJson()`, so `jsonEncode` fails with
+# "Converting object to an encodable object failed" and the request never
+# leaves the device (surfaced client-side as `transport.unknown`). The
+# wrapper's whole purpose is the `.value` access, so unwrap it exactly in the
+# handlers whose body parameter is `required JsonObject body`. Scoped to
+# those handlers (String-typed multipart bodies must stay untouched),
+# deterministic and idempotent (a no-op once upstream fixes it).
+OUT="${OUT}" python3 - <<'PY'
+import os, pathlib
+p = pathlib.Path(os.environ["OUT"]) / "lib/src/api/handlers_api.dart"
+lines = p.read_text().splitlines(keepends=True)
+in_json_object_handler = False
+for i, line in enumerate(lines):
+    if line.lstrip().startswith("Future<Response<"):
+        in_json_object_handler = False
+    elif "required JsonObject body," in line:
+        in_json_object_handler = True
+    elif in_json_object_handler and line.strip() == "_bodyData = body;":
+        lines[i] = line.replace("_bodyData = body;", "_bodyData = body.value;")
+p.write_text("".join(lines))
+PY
 
 # Pin build_runner to a deterministic version. The generated pubspec declares
 # `build_runner: any`; pinning keeps the built_value codegen output

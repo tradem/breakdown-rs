@@ -1157,7 +1157,7 @@ class HandlersApi {
     dynamic _bodyData;
 
     try {
-      _bodyData = body;
+      _bodyData = body.value;
     } catch (error, stackTrace) {
       throw DioException(
         requestOptions: _options.compose(
