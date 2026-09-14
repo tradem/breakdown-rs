@@ -29,9 +29,9 @@
       in the workflow, so a write-access user cannot exfiltrate the values
       via a modified workflow run. If the repository plan does not support
       these environment rules, use a separate protected release repository
-      or signing service instead. *(code part done — `environment: release`
-      declared in flutter-release.yml; the environment provisioning itself
-      is an operator task)*
+      or signing service instead. *(done: environment `Release` with `v*`
+      tag policy + all 7 secrets; workflow declares `environment: Release` —
+      REMAINING: set required reviewers in the environment settings)*
 
 ## 2. Gradle signing configuration
 
