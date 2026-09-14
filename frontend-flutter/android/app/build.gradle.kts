@@ -32,6 +32,55 @@ fun oidcRedirectUriFromConfig(): String {
         .ifEmpty { "breakdown://auth/callback" }
 }
 
+// Single build input for the OIDC redirect (issue #419, option 2b):
+// read ONCE at script top level so both `defaultConfig` (validation) and
+// the flavor blocks (per-flavor scheme derivation) consume the SAME value.
+// `oidc-config.json` next to this `android/` dir when present, else the
+// `OIDC_REDIRECT_URI` environment value, else the canonical dev default.
+val oidcRedirectUri = oidcRedirectUriFromConfig()
+val oidcRedirectScheme = oidcRedirectUri
+    .substringBefore("://")
+    .substringBefore(":")
+require(
+    oidcRedirectScheme.isNotBlank() &&
+        !oidcRedirectScheme.contains("/")
+) {
+    "OIDC_REDIRECT_URI has no valid custom scheme: " +
+        "'$oidcRedirectUri' (expected e.g. 'breakdown://auth/callback')"
+}
+// An explicitly passed `-PoidcRedirectScheme=...` must agree with the
+// derived BASE scheme — a mismatch fails the build instead of shipping a
+// native registration the Dart configuration can never reach. The property
+// targets the base (prod) scheme; the dev flavor derives deterministically
+// below, so one agreement proves both flavors.
+val explicitScheme = project.findProperty("oidcRedirectScheme") as String?
+if (explicitScheme != null && explicitScheme != oidcRedirectScheme) {
+    throw GradleException(
+        "oidcRedirectScheme property ('$explicitScheme') does not " +
+            "match the scheme derived from OIDC_REDIRECT_URI " +
+            "('$oidcRedirectScheme'). Pass the same OIDC_REDIRECT_URI " +
+            "to Gradle and --dart-define."
+    )
+}
+// Dev-scheme derivation (issue #419, option 2b): the dev flavor ships a
+// DISTINCT application ID (`applicationIdSuffix = ".dev"` below) so a
+// local dev install coexists with a published prod install (no
+// certificate-mismatch uninstall dance). To keep the browser redirect
+// unambiguous while both are installed, the dev scheme is the base scheme
+// with a `-dev` suffix: `breakdown://` → `breakdown-dev://` — exactly one
+// app ever receives the IdP redirect. http/https schemes are exempt
+// (App-Links-style URIs are host-based, not scheme-ambiguous, and must not
+// be mangled). The Dart side (`deriveOidcRedirectUri` in
+// `lib/app_config.dart`) mirrors this derivation textually.
+fun devRedirectScheme(scheme: String): String {
+    if (scheme.equals("http", true) || scheme.equals("https", true)) return scheme
+    // Idempotent: a scheme already carrying the dev suffix passes through
+    // (must never become `-dev-dev`).
+    if (scheme.lowercase().endsWith("-dev")) return scheme
+    return "${scheme}-dev"
+}
+val oidcDevRedirectScheme = devRedirectScheme(oidcRedirectScheme)
+
 android {
     namespace = "rs.breakdown.frontend_flutter"
     // Pinned above `flutter.compileSdkVersion` (currently 36):
@@ -46,43 +95,18 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
+        // Prod application ID — the published chain (alpha → stable) updates
+        // in place under this ID. The dev flavor derives its own ID via
+        // `applicationIdSuffix` below (issue #419, option 2b) so a local dev
+        // build coexists with a published prod build instead of failing the
+        // install with a certificate mismatch (debug-signed vs project key).
         applicationId = "rs.breakdown.frontend_flutter"
         // OIDC redirect scheme (spec `flutter-auth-shell`, task 3.3): the
-        // `oidcRedirectScheme` manifest placeholder is derived from ONE
-        // build input — `../../oidc-config.json` when present, else the
-        // `OIDC_REDIRECT_URI` environment value, else the canonical
-        // default. CI feeds the same file to Flutter via
-        // `--dart-define-from-file` (an explicit `--dart-define=` wins),
-        // so the native deep-link registration cannot drift from the Dart
-        // configuration. Default is the canonical URI for both flavors
-        // (dev and prod Gradle flavors share ONE application ID — a dev
-        // install over a release install updates in place; the OAuth
-        // redirect scheme therefore never resolves to two installed apps).
-        val oidcRedirectUri = oidcRedirectUriFromConfig()
-        val oidcRedirectScheme = oidcRedirectUri
-            .substringBefore("://")
-            .substringBefore(":")
-        require(
-            oidcRedirectScheme.isNotBlank() &&
-                !oidcRedirectScheme.contains("/")
-        ) {
-            "OIDC_REDIRECT_URI has no valid custom scheme: " +
-                "'$oidcRedirectUri' (expected e.g. 'breakdown://auth/callback')"
-        }
-        // An explicitly passed `-PoidcRedirectScheme=...` must agree with
-        // the derived scheme — a mismatch fails the build instead of
-        // shipping a native registration the IdP redirect can never reach.
-        val explicitScheme = project.findProperty("oidcRedirectScheme") as String?
-        if (explicitScheme != null && explicitScheme != oidcRedirectScheme) {
-            throw GradleException(
-                "oidcRedirectScheme property ('$explicitScheme') does not " +
-                    "match the scheme derived from OIDC_REDIRECT_URI " +
-                    "('$oidcRedirectScheme'). Pass the same OIDC_REDIRECT_URI " +
-                    "to Gradle and --dart-define."
-            )
-        }
-        manifestPlaceholders["oidcRedirectScheme"] = oidcRedirectScheme
+        // BASE scheme is validated and checked against an explicit
+        // `-PoidcRedirectScheme=` at the script top level; the per-flavor
+        // placeholder is set in the flavor blocks (prod = base scheme,
+        // dev = base scheme + `-dev`), so the native deep-link registration
+        // always matches exactly one installed application ID.
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
@@ -97,17 +121,31 @@ android {
 
     // dev/prod Gradle flavors (change add-android-release-workflow; the
     // flutter-scaffold spec scenario requires `flutter build apk --flavor
-    // dev` to succeed). Both flavors share the SAME application ID (see the
-    // OIDC-redirect comment above): the flavor only selects the Gradle
-    // build variant — the Dart flavor is decided by the entrypoint
-    // (`lib/main.dart` = dev, `lib/main_prod.dart` = prod) and the
-    // `--dart-define` set passed alongside it. The release workflow builds
+    // dev` to succeed). Since issue #419 (option 2b) the flavors ship
+    // DISTINCT application IDs (`rs.breakdown.frontend_flutter` vs
+    // `rs.breakdown.frontend_flutter.dev`) AND distinct redirect schemes — a local
+    // dev install coexists with a published prod install, and the OAuth
+    // redirect scheme always resolves to exactly one installed app. The
+    // flavor only selects the Gradle build variant — the Dart flavor is
+    // decided by the entrypoint (`lib/main.dart` = dev,
+    // `lib/main_prod.dart` = prod) and the `--dart-define` set passed
+    // alongside it. The release workflow builds
     // `--flavor prod -t lib/main_prod.dart`; the dev flavor is
     // dev-runtime-only and is never published.
     flavorDimensions += "channel"
     productFlavors {
         create("dev") {
             dimension = "channel"
+            // Distinct application ID (issue #419, option 2b): a local dev
+            // install no longer collides with a published prod install on
+            // signing material (debug key vs project key).
+            applicationIdSuffix = ".dev"
+            // Scoped redirect scheme: `breakdown://` → `breakdown-dev://`
+            // (see the top-level derivation) so the browser redirect can
+            // never resolve to two installed apps. The dev IdP client
+            // registration must allowlist the derived URI
+            // (`docs/self-hosting.md` §4).
+            manifestPlaceholders["oidcRedirectScheme"] = oidcDevRedirectScheme
             // Local dev runtime: without the CI release signing config,
             // the dev-flavor RELEASE build type falls back to debug
             // signing so `flutter run --release --flavor dev` keeps
@@ -124,6 +162,8 @@ android {
             // signing config the prod release build is UNSIGNED — a
             // decisive unsigned artifact that can never be mistaken for
             // a signed release (no debug-keystore fallback, per design D9).
+            // Redirect scheme = the validated BASE scheme.
+            manifestPlaceholders["oidcRedirectScheme"] = oidcRedirectScheme
         }
     }
 

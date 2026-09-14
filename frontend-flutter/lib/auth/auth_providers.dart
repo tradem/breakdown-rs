@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: glm-5.3-flash (opencode-go)
 
 import 'dart:async';
@@ -51,7 +52,9 @@ OidcClientConfig oidcClientConfig(Ref ref) {
   final config = ref.watch(appConfigProvider);
   return OidcClientConfig(
     clientId: config.oidcClientId,
-    redirectUri: config.oidcRedirectUri,
+    // Flavor-effective redirect URI (issue #419, option 2b): the dev
+    // flavor's derived `breakdown-dev://` scheme — never the raw base.
+    redirectUri: config.effectiveOidcRedirectUri,
     audience: config.oidcAudience.isEmpty ? null : config.oidcAudience,
   );
 }
@@ -87,7 +90,11 @@ Future<Result<OidcClient>> oidcClient(Ref ref) async {
 /// fakes via overrides.
 @Riverpod(keepAlive: true)
 AuthorizationUi authorizationUi(Ref ref) {
-  final redirect = Uri.tryParse(ref.watch(appConfigProvider).oidcRedirectUri);
+  // Flavor-effective redirect URI (issue #419, option 2b): matches the
+  // per-flavor scheme the native manifest placeholder registered.
+  final redirect = Uri.tryParse(
+    ref.watch(appConfigProvider).effectiveOidcRedirectUri,
+  );
   if (redirect == null || redirect.scheme.isEmpty) {
     return const NotConfiguredAuthorizationUi();
   }

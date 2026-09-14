@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: muse-spark (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
@@ -12,6 +13,34 @@ import 'package:flutter/foundation.dart' show kReleaseMode;
 /// per AGENTS.md §5). The two supported flavors are `dev` (localhost backend,
 /// optional Logto IdP) and `prod` (deployed edge, Logto/Zitadel cloud).
 enum Flavor { dev, prod }
+
+/// Derives the flavor-effective OIDC redirect URI (issue #419, option 2b).
+///
+/// The dev flavor appends `-dev` to a CUSTOM scheme (`breakdown://` →
+/// `breakdown-dev://`) so a co-installed prod app never competes for the
+/// browser redirect — with distinct per-flavor application IDs, exactly one
+/// installed app can ever receive the IdP redirect. This is the exact
+/// textual mirror of the Gradle derivation (`devRedirectScheme` in
+/// `android/app/build.gradle.kts`): scheme = text before `://` (else
+/// before `:`), then `$scheme-dev` + the remainder. http/https schemes
+/// (App-Links-style, host-based — not scheme-ambiguous) and URIs without
+/// a scheme are returned unchanged; a scheme that already ends in `-dev`
+/// passes through unchanged (idempotent — a URI already carrying the dev
+/// scheme must never become `-dev-dev`). Empty stays empty (the startup
+/// guard owns that rejection).
+String deriveOidcRedirectUri(String uri, Flavor flavor) {
+  if (flavor == Flavor.prod || uri.isEmpty) return uri;
+  final scheme = _substringBefore(_substringBefore(uri, '://'), ':');
+  final lower = scheme.toLowerCase();
+  if (lower.isEmpty || lower == 'http' || lower == 'https') return uri;
+  if (lower.endsWith('-dev')) return uri;
+  return '$scheme-dev${uri.substring(scheme.length)}';
+}
+
+String _substringBefore(String s, String separator) {
+  final index = s.indexOf(separator);
+  return index == -1 ? s : s.substring(0, index);
+}
 
 class AppConfig {
   const AppConfig({
@@ -86,7 +115,21 @@ class AppConfig {
   final String oidcClientId;
 
   /// Deep-link redirect URI the IdP redirects back to after authorization.
+  ///
+  /// RAW `--dart-define` value (the same base URI `oidc-config.json`
+  /// carries — `checkRedirectConsistency` compares the two raw values, and
+  /// the per-flavor derivation is deterministic, so raw agreement implies
+  /// derived agreement). Every consumer that talks to the IdP or matches
+  /// incoming deep links MUST use [effectiveOidcRedirectUri], which scopes
+  /// the scheme per flavor (dev: `breakdown://` → `breakdown-dev://`).
   final String oidcRedirectUri;
+
+  /// The flavor-effective redirect URI: [oidcRedirectUri] run through
+  /// [deriveOidcRedirectUri]. This is the URI the IdP must be registered
+  /// with and the one the native deep-link manifest placeholder registers
+  /// for this flavor.
+  String get effectiveOidcRedirectUri =>
+      deriveOidcRedirectUri(oidcRedirectUri, flavor);
 
   /// Raw `DEV_IDP_INSECURE` dart-define. NEVER consult this directly outside
   /// a dev-flavor, non-release guard; see [devIdpHttpAllowed] and the

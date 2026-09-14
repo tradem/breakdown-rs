@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: muse-spark (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
@@ -31,6 +32,70 @@ AppConfig _config({
 );
 
 void main() {
+  group('deriveOidcRedirectUri (issue #419, option 2b)', () {
+    test('prod returns the URI verbatim', () {
+      expect(
+        deriveOidcRedirectUri('breakdown://auth/callback', Flavor.prod),
+        'breakdown://auth/callback',
+      );
+      expect(deriveOidcRedirectUri('', Flavor.prod), '');
+    });
+
+    test('dev appends -dev to a custom scheme', () {
+      expect(
+        deriveOidcRedirectUri('breakdown://auth/callback', Flavor.dev),
+        'breakdown-dev://auth/callback',
+      );
+      expect(
+        deriveOidcRedirectUri('myapp:callback', Flavor.dev),
+        'myapp-dev:callback',
+      );
+    });
+
+    test('dev derivation is idempotent (already -dev scheme unchanged)', () {
+      expect(
+        deriveOidcRedirectUri('breakdown-dev://auth/callback', Flavor.dev),
+        'breakdown-dev://auth/callback',
+      );
+    });
+
+    test(
+      'http/https schemes are exempt (host-based, not scheme-ambiguous)',
+      () {
+        expect(
+          deriveOidcRedirectUri('https://app.example.org/callback', Flavor.dev),
+          'https://app.example.org/callback',
+        );
+        expect(
+          deriveOidcRedirectUri('http://app.example.org/callback', Flavor.dev),
+          'http://app.example.org/callback',
+        );
+      },
+    );
+
+    test('empty and scheme-less URIs pass through unchanged', () {
+      expect(deriveOidcRedirectUri('', Flavor.dev), '');
+      expect(deriveOidcRedirectUri('not-a-uri', Flavor.dev), 'not-a-uri-dev');
+    });
+
+    test('effectiveOidcRedirectUri getter derives per flavor', () {
+      expect(
+        _config(
+          flavor: Flavor.dev,
+          oidcRedirectUri: 'breakdown://auth/callback',
+        ).effectiveOidcRedirectUri,
+        'breakdown-dev://auth/callback',
+      );
+      expect(
+        _config(
+          flavor: Flavor.prod,
+          oidcRedirectUri: 'breakdown://auth/callback',
+        ).effectiveOidcRedirectUri,
+        'breakdown://auth/callback',
+      );
+    });
+  });
+
   group('AppConfig.devAuthMode (Task 5.1 — backend ADR-018 D6 parity)', () {
     test('true only when dev AND no OIDC_ISS AND DEV_AUTH_SUB set', () {
       const dev = Flavor.dev;
