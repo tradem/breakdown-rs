@@ -62,7 +62,9 @@ control:
    via an Android deep link on a custom scheme. The default URI is
    `breakdown://auth/callback` (from `frontend-flutter/oidc-config.json`);
    register exactly this URI with your client unless you deliberately
-   change it (§4).
+   change it (§4), plus the derived dev URI
+   `breakdown-dev://auth/callback` for local dev-flavor installs
+   (issue #419, option 2b — see §4).
 
 For the backend deployment itself (Postgres, SierraDB, API service,
 release runbook), follow `backend/docs/operations/runbooks.md` and
@@ -128,6 +130,43 @@ So: keep `breakdown://auth/callback` (and register it in your IdP), or
 edit `oidc-config.json` to your own scheme **and keep passing the file
 via `--dart-define-from-file`** — never set `OIDC_REDIRECT_URI` with an
 explicit `--dart-define=` alongside it.
+
+### Per-flavor scheme derivation (issue #419, option 2b)
+
+The dev and prod Gradle flavors ship DISTINCT application IDs
+(`rs.breakdown.frontend_flutter` vs `rs.breakdown.frontend_flutter.dev`)
+so a local dev build coexists with a published/instance prod install.
+To keep the OAuth redirect unambiguous while both are installed, the dev
+flavor derives its scheme deterministically from the same base URI:
+**`breakdown://` → `breakdown-dev://auth/callback`** (a custom scheme gets
+a `-dev` suffix; http/https schemes are exempt). The derivation happens in
+`android/app/build.gradle.kts` (native manifest registration) and is
+mirrored textually by `deriveOidcRedirectUri` (`lib/app_config.dart`) on
+the Dart side — `oidc-config.json` remains the single source for the base
+URI.
+
+Register **both** URIs on your IdP client — using YOUR configured
+production URI and its derived dev URI (the defaults are shown):
+
+- your **production URI** (default `breakdown://auth/callback`) — the
+  prod-flavor install (published releases, instance-built APKs from §5),
+- your **derived dev URI** (default `breakdown-dev://auth/callback`) —
+  local dev-flavor installs (`flutter run --flavor dev`).
+
+If you changed `oidc-config.json` to your own scheme, BOTH entries change
+with it: the production callback becomes your configured scheme, and the
+dev flavor uses `<your-scheme>-dev://…` accordingly — registering only
+the default production URI would make the IdP reject your production
+callback.
+
+**Scheme constraints (build-time enforced):** the base scheme must be a
+lowercase RFC-style scheme (`^[a-z][a-z0-9+.-]*$` — Android intent-filter
+matching is case-sensitive) and must **not** end in `-dev`: that suffix is
+reserved for the dev flavor's derived scheme, and a base scheme ending in
+`-dev` would make both flavors register the same scheme — the Gradle
+validation rejects such a configuration. Scheme-less values (no `://` and
+no `:`) pass through both derivation sites unchanged and can never route
+(the authorization UI fails closed).
 
 ## 5. Build the instance-owned APK
 

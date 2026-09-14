@@ -106,3 +106,16 @@ place, no uninstall.
   `flutter test integration_test/<test>.dart --flavor dev` on a device —
   the gherkin runner config sets `buildFlavor = 'dev'` itself). Plain
   unflavored builds no longer exist (`assembleDebug` → `assembleDevDebug`).
+- **Coexistence (issue #419, option 2b):** the dev and prod flavors ship
+  DISTINCT application IDs (`rs.breakdown.frontend_flutter` vs
+  `rs.breakdown.frontend_flutter.dev`) AND distinct redirect schemes
+  (`breakdown://auth/callback` vs `breakdown-dev://auth/callback`), so a
+  locally debug-signed `devRelease` coexists with a published prod install
+  — no certificate-mismatch uninstall dance, and the OAuth browser
+  redirect always resolves to exactly one installed app. (Historical note:
+  before this change both flavors shared one application ID, so installing
+  a local dev build over a published prod APK failed with a
+  certificate-mismatch error; existing dev installs from before the
+  switch are a separate app now — uninstall the old one once.)
+- The dev IdP client registration must allowlist the derived dev URI
+  `breakdown-dev://auth/callback` — see `self-hosting.md` §4.

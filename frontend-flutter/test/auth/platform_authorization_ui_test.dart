@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 import 'dart:async';
 
@@ -178,8 +179,40 @@ void main() {
 
       final ui = container.read(authorizationUiProvider);
       expect(ui, isA<PlatformAuthorizationUi>());
+      // Flavor-EFFECTIVE redirect URI (issue #419, option 2b): the dev
+      // flavor consumes the derived `breakdown-dev://` scheme, matching
+      // the per-flavor native manifest registration.
       expect(
         (ui as PlatformAuthorizationUi).redirectUri.toString(),
+        'breakdown-dev://redirect',
+      );
+    });
+
+    test('prod consumes the base scheme verbatim (no derivation)', () {
+      final container = ProviderContainer(
+        overrides: [
+          appConfigProvider.overrideWithValue(
+            AppConfig(
+              flavor: Flavor.prod,
+              apiBase: 'https://api.breakdown.rs',
+              oidcIss: 'https://idp.example',
+              devAuthSub: '',
+              oidcAudience: 'breakdown-api',
+              oidcClientId: 'client',
+              oidcRedirectUri: 'breakdown://redirect',
+              devIdpInsecure: '',
+              appVersion: '1.0.0+1',
+              defaultSeriesId: '',
+            ),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      expect(
+        (container.read(authorizationUiProvider) as PlatformAuthorizationUi)
+            .redirectUri
+            .toString(),
         'breakdown://redirect',
       );
     });

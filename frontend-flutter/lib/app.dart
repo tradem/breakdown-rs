@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: glm-5.3-flash (opencode-go)
 
@@ -269,11 +270,12 @@ Future<AppConfig> resolveAppConfig(Flavor flavor) async {
 /// Applies the persisted `api_base_override` (if any) to [config].
 ///
 /// Flavor-guarded (spec `flutter-app-dialogs`): the override applies ONLY
-/// in `dev`. In `prod` a stored override — e.g. left over from a dev
-/// install over the same application ID (the dev and prod Gradle flavors
-/// deliberately ship ONE application ID, see `build.gradle.kts`) — is
-/// ignored AND cleared on boot; the compile-time HTTPS base
-/// is always used. An invalid stored value is ignored (the dialog validates
+/// in `dev`. In `prod` a stored override — e.g. left over from a shared
+/// secure-storage volume or a misflavored install — is ignored AND cleared
+/// on boot; the compile-time HTTPS base is always used. (Since issue #419
+/// the dev and prod flavors ship DISTINCT application IDs, so a prod
+/// install no longer reads a dev install's storage at all — the guard
+/// stays as defense-in-depth.) An invalid stored value is ignored (the dialog validates
 /// on save; this is the defensive second check). A store read failure falls
 /// back to the compile-time base (secure-storage breakage already surfaces
 /// via session restore at the gate).
