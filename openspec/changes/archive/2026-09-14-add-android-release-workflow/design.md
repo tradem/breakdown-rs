@@ -159,3 +159,8 @@ verification (if ever used) and human testers both benefit; plain
   there.
 - Keystore custody: which two maintainers hold the offline backup
   (decision needed before step 1 of the migration plan).
+  - Resolved during implementation: at least two maintainers hold the
+    backup. Custodian identities are intentionally NOT recorded in this
+    public repository — they live in restricted operational documentation
+    (team password-manager vault); see docs/release-signing-key-custody.md
+    §4.

@@ -1,0 +1,189 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: omen-alpha (opencode-go)
+
+#
+# Flutter Release — tag-triggered Android release pipeline
+# (OpenSpec change `add-android-release-workflow`, specs
+# `flutter-release-artifacts` + `flutter-release-signing`).
+#
+# Trigger: a `v<semver>` tag (e.g. `v0.3.0`, `v0.3.0-alpha.1`) where the tag
+# minus the `v` prefix MUST equal the `version:` build-name in
+# `frontend-flutter/pubspec.yaml` (`X.Y.Z[-alpha.N|-beta.N]+N` — the single
+# source of truth; ADR-033 D1/D5). A push without a tag never releases.
+#
+# Pipeline: reusable CI quality gates (`.github/workflows/flutter-ci.yml`,
+# `workflow_call`) → version-consistency gate (tag↔pubspec + monotonic
+# versionCode) → build & publish in the protected `Release` environment
+# (key custodians approve before any signing secret is exposed — task 1.4).
+#
+# Artifacts: three split APKs (`arm64-v8a`, `armeabi-v7a`, `x86_64`) + one
+# `.aab`, all built from the `prod` flavor with the pinned-CA configuration
+# and named `breakdown-<version>-<abi>.apk` / `breakdown-<version>.aab`,
+# attached to a GitHub Release. Alpha/beta tags publish as pre-releases.
+#
+# The gate/build/verify/publish LOGIC lives in versioned, locally runnable
+# shell scripts (maintenance + validation without a GitHub runner — run them
+# with the same env vars against a local build tree):
+#
+#   frontend-flutter/scripts/release/check-build-config.sh
+#   frontend-flutter/scripts/release/decode-keystore.sh
+#   frontend-flutter/scripts/release/build-release.sh
+#   frontend-flutter/scripts/release/version-gate.sh
+#   frontend-flutter/scripts/release/stage-artifacts.sh
+#   frontend-flutter/scripts/release/verify-signatures.sh
+#   frontend-flutter/scripts/release/publish-release.sh      (--dry-run capable)
+#
+# CI hardening:
+#  - Every third-party action is SHA-pinned (40-char SHA + `# vX` comment),
+#    mirroring the backend's CI-hardening rules; Dependabot bumps SHAs.
+#  - NO `${{ github.event.* }}` (or any other expression) is interpolated
+#    into `run:` blocks — expression values flow through `env:` injection
+#    (the scripts themselves contain no GitHub expressions at all).
+#  - The workflow never echoes signing variables; keystore material is
+#    decoded into `$RUNNER_TEMP` and covered by gitleaks rules on the tree.
+#
+# Bootstrap requirement (docs/release-signing-key-custody.md): the
+# `EXPECTED_SHA256_FINGERPRINT` env below and the `Release` environment
+# secrets (KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD,
+# OIDC_ISS, OIDC_CLIENT_ID, OIDC_AUDIENCE) MUST be provisioned (tasks 1.2
+# and 1.4) BEFORE the first tagged release. The signature gate refuses to
+# publish while the fingerprint is unset.
+
+name: Flutter Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flutter-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Reusable CI quality gates — format, analyze, gitleaks, OpenAPI client
+  # drift, version drift, coverage, gherkin harness. Publication never runs
+  # unless these pass on the tagged commit (spec
+  # flutter-release-artifacts "Release Workflow Quality Gates"). Gates are
+  # defined ONCE in the CI workflow; `github` context inside the called
+  # workflow is that of this tag-push run, so its `version-drift` job sees
+  # the release tag via `inputs.release_ref` (task 3.6).
+  quality-gates:
+    name: CI quality gates (reusable)
+    uses: ./.github/workflows/flutter-ci.yml
+    permissions:
+      contents: read
+      # Needed by the gitleaks SARIF upload inside the CI workflow; the
+      # upload itself is a no-op on tag refs (continue-on-error).
+      security-events: write
+    with:
+      release_ref: ${{ github.ref_name }}
+
+  # Version-consistency gate (spec "Version Consistency Gate"): the tag
+  # MUST equal the pubspec build-name, and the pubspec versionCode MUST be
+  # strictly monotonically increasing across all previous `v*` release
+  # tags. Logic in frontend-flutter/scripts/release/version-gate.sh
+  # (locally runnable/testable); pure bash on the tag's git history.
+  version-gate:
+    name: Version gate (tag <-> pubspec, monotonic versionCode)
+    runs-on: ubuntu-latest
+    outputs:
+      version_name: ${{ steps.gate.outputs.version_name }}
+      version_full: ${{ steps.gate.outputs.version_full }}
+    steps:
+      - name: Checkout repository (full history for monotonicity check)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check tag <-> pubspec and versionCode monotonicity
+        id: gate
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: bash frontend-flutter/scripts/release/version-gate.sh
+
+  # Build & publish — the protected `Release` environment gates the run
+  # BEFORE any signing secret is exposed (required reviewers, task 1.4), and
+  # scopes the signing + prod OIDC secrets to this job only.
+  build-and-publish:
+    name: Build & publish (prod flavor)
+    needs: [quality-gates, version-gate]
+    runs-on: ubuntu-latest
+    environment: Release
+    permissions:
+      contents: write
+    defaults:
+      run:
+        # The Flutter project root — keeps every step's cwd unambiguous
+        # (pubspec.yaml, oidc-config.json, scripts/release/ are here).
+        working-directory: frontend-flutter
+    env:
+      VERSION_NAME: ${{ needs.version-gate.outputs.version_name }}
+      VERSION_FULL: ${{ needs.version-gate.outputs.version_full }}
+      # Recorded project fingerprint (docs/release-signing-key-custody.md
+      # §2). Must be updated together with the doc when the key ever
+      # rotates (§6); while it is unset/'TBD' the signature verification
+      # refuses to publish — an unbootstrapped pipeline cannot ship
+      # unverifiable binaries.
+      EXPECTED_SHA256_FINGERPRINT: bfd0184e1de57e33669f8ec19c3b3c1b111332fa4424f1b999b2740bd89fbc8b
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # The tag checkout is all the build needs; do not leave the
+          # GITHUB_TOKEN on disk for Gradle/plugin code to read.
+          persist-credentials: false
+
+      - name: Set up Flutter SDK (same pin as CI)
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Guard prod OIDC build configuration
+        # The prod entrypoint fails closed at startup without OIDC_ISS /
+        # OIDC_CLIENT_ID / OIDC_REDIRECT_URI (lib/app.dart bootstrap
+        # guards). Fail at build time instead of shipping a binary that
+        # dies on its fatal-config screen.
+        env:
+          OIDC_ISS: ${{ secrets.OIDC_ISS }}
+          OIDC_CLIENT_ID: ${{ secrets.OIDC_CLIENT_ID }}
+        run: bash scripts/release/check-build-config.sh
+
+      - name: Decode release keystore into RUNNER_TEMP
+        id: decode
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: bash scripts/release/decode-keystore.sh
+
+      - name: Build split APKs + AAB (prod, release)
+        env:
+          KEYSTORE_FILE: ${{ steps.decode.outputs.keystore_path }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          OIDC_ISS: ${{ secrets.OIDC_ISS }}
+          OIDC_CLIENT_ID: ${{ secrets.OIDC_CLIENT_ID }}
+          OIDC_AUDIENCE: ${{ secrets.OIDC_AUDIENCE }}
+        run: bash scripts/release/build-release.sh
+
+      - name: Stage artifacts with release names
+        run: bash scripts/release/stage-artifacts.sh
+
+      - name: Verify signatures against the recorded fingerprint
+        env:
+          KEYSTORE_FILE: ${{ runner.temp }}/keystore/release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: bash scripts/release/verify-signatures.sh
+
+      - name: Create GitHub Release and attach artifacts (idempotent)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/release/publish-release.sh

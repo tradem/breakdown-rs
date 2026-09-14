@@ -35,7 +35,7 @@
                  default) — the same file CI passes with the dart-define
                  file flag, so the native registration cannot drift from
                  the configured URI. Canonical value for both flavors
-                 (single application ID, no Gradle flavors):
+                 (dev and prod Gradle flavors share ONE application ID):
                  `breakdown://auth/callback` (the IdP client registration
                  must allowlist it server-side). singleTop + empty
                  taskAffinity keep the redirect on the existing activity. -->
