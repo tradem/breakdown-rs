@@ -26,6 +26,9 @@
 # shell scripts (maintenance + validation without a GitHub runner — run them
 # with the same env vars against a local build tree):
 #
+#   frontend-flutter/scripts/release/check-build-config.sh
+#   frontend-flutter/scripts/release/decode-keystore.sh
+#   frontend-flutter/scripts/release/build-release.sh
 #   frontend-flutter/scripts/release/version-gate.sh
 #   frontend-flutter/scripts/release/stage-artifacts.sh
 #   frontend-flutter/scripts/release/verify-signatures.sh
@@ -150,77 +153,24 @@ jobs:
         env:
           OIDC_ISS: ${{ secrets.OIDC_ISS }}
           OIDC_CLIENT_ID: ${{ secrets.OIDC_CLIENT_ID }}
-        run: |
-          set -euo pipefail
-          for var in OIDC_ISS OIDC_CLIENT_ID; do
-            if [ -z "${!var}" ]; then
-              echo "::error::$var is not set on the 'Release' environment — a prod build without it fails closed at startup. Provision the environment secrets (docs/release-signing-key-custody.md)."
-              exit 1
-            fi
-          done
+        run: bash scripts/release/check-build-config.sh
 
       - name: Decode release keystore into RUNNER_TEMP
+        id: decode
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-        run: |
-          set -euo pipefail
-          if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "::error::KEYSTORE_BASE64 is not set on the 'Release' environment — run the keystore bootstrap first (docs/release-signing-key-custody.md, task 1.2)."
-            exit 1
-          fi
-          mkdir -p "$RUNNER_TEMP/keystore"
-          # Tolerant input handling: strip whitespace/newlines/quotes (CRLF
-          # paste artifacts) BEFORE decoding — GNU base64 -d fails on \r and
-          # stray quotes with 'invalid input'. Decoding itself stays strict.
-          cleaned="$(printf '%s' "$KEYSTORE_BASE64" | tr -d ' \t\r\n\"')"
-          # Classify leftover garbage WITHOUT leaking secret values: report
-          # only the count/shape of non-base64 characters.
-          junk="$(printf '%s' "$cleaned" | tr -d 'A-Za-z0-9+/=' | head -c 40)"
-          if [ -n "$junk" ]; then
-            echo "::error::KEYSTORE_BASE64 contains non-base64 characters (count: $(printf '%s' "$junk" | wc -c)); character classes present: $(printf '%s' "$junk" | fold -w1 | sort -u | tr '\n' ' ' | sed 's/ /<sp> /g; s/-/<dash> /g'). The secret must be the PURE output of 'base64 -w0 <keystore-file>' — no PEM headers (-----BEGIN...), no line continuations, no quotes."
-            exit 1
-          fi
-          printf '%s' "$cleaned" | base64 -d > "$RUNNER_TEMP/keystore/release.keystore"
-          if [ "$(wc -c < "$RUNNER_TEMP/keystore/release.keystore")" -lt 100 ]; then
-            echo "::error::Decoded keystore is suspiciously small ($(wc -c < "$RUNNER_TEMP/keystore/release.keystore") bytes) — KEYSTORE_BASE64 does not look like a keystore. Re-create the secret with 'base64 -w0 <file>' output only."
-            exit 1
-          fi
+        run: bash scripts/release/decode-keystore.sh
 
-      - name: Build split APKs (prod, release, --split-per-abi)
+      - name: Build split APKs + AAB (prod, release)
         env:
-          KEYSTORE_FILE: ${{ runner.temp }}/keystore/release.keystore
+          KEYSTORE_FILE: ${{ steps.decode.outputs.keystore_path }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           OIDC_ISS: ${{ secrets.OIDC_ISS }}
           OIDC_CLIENT_ID: ${{ secrets.OIDC_CLIENT_ID }}
           OIDC_AUDIENCE: ${{ secrets.OIDC_AUDIENCE }}
-        run: |
-          set -euo pipefail
-          flutter build apk --release --flavor prod -t lib/main_prod.dart --split-per-abi \
-            --dart-define=APP_VERSION="$VERSION_FULL" \
-            --dart-define=OIDC_ISS="$OIDC_ISS" \
-            --dart-define=OIDC_CLIENT_ID="$OIDC_CLIENT_ID" \
-            --dart-define=OIDC_AUDIENCE="$OIDC_AUDIENCE" \
-            --dart-define-from-file=oidc-config.json
-
-      - name: Build AAB (prod, release)
-        env:
-          KEYSTORE_FILE: ${{ runner.temp }}/keystore/release.keystore
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          OIDC_ISS: ${{ secrets.OIDC_ISS }}
-          OIDC_CLIENT_ID: ${{ secrets.OIDC_CLIENT_ID }}
-          OIDC_AUDIENCE: ${{ secrets.OIDC_AUDIENCE }}
-        run: |
-          set -euo pipefail
-          flutter build appbundle --release --flavor prod -t lib/main_prod.dart \
-            --dart-define=APP_VERSION="$VERSION_FULL" \
-            --dart-define=OIDC_ISS="$OIDC_ISS" \
-            --dart-define=OIDC_CLIENT_ID="$OIDC_CLIENT_ID" \
-            --dart-define=OIDC_AUDIENCE="$OIDC_AUDIENCE" \
-            --dart-define-from-file=oidc-config.json
+        run: bash scripts/release/build-release.sh
 
       - name: Stage artifacts with release names
         run: bash scripts/release/stage-artifacts.sh
