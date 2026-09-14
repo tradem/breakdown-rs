@@ -74,6 +74,14 @@ Requires Docker (or a compatible container runtime); Tier-4 tests additionally
 pull the `tqwewe/sierradb:0.3.1` image. For details on the integration-test
 boundary, CI triggers, and local dev commands, see [`backend/AGENTS.md`](./backend/AGENTS.md).
 
+## Self-hosting
+
+`breakdown-rs` is AGPL-3.0 — you can run your own instance. The officially
+published Android APK is deliberately bound to the project-operated backend
+(one binary = one instance), so self-hosters build an instance-owned APK from
+source with their own backend URL, OIDC registration and pinned CA. See the
+guide: [`frontend-flutter/docs/self-hosting.md`](./frontend-flutter/docs/self-hosting.md).
+
 ## License
 
 This project is licensed under the [AGPL-3.0 License](LICENSE).
