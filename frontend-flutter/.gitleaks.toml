@@ -85,9 +85,16 @@ regexes = [
 # (${{ secrets.* }}) and System.getenv("...") reads do not match.
 [[rules]]
 id = "breakdown-signing-credential"
-description = "Hardcoded Android release signing credential (keystore/key password, alias, or keystore path/base64 assignment)"
-regex = '''(?i)(keystore[_-]?base64|keystore[_-]?password|key[_-]?password|store[_-]?password|key[_-]?alias)['"]?\s*[:=]\s*['"]?[A-Za-z0-9+/=_-]{8,}'''
+description = "Hardcoded Android release signing credential (quoted literal: keystore/key password, alias, or base64 keystore assignment)"
+regex = '''(?i)(keystore[_-]?base64|keystore[_-]?password|key[_-]?password|store[_-]?password|key[_-]?alias)['"]?\s*[:=]\s*['"][A-Za-z0-9+/=_-]{8,}['"]'''
 paths = '''(frontend-flutter/.*|\.github/workflows/.*)'''
+tags = ["breakdown", "android-signing"]
+
+[[rules]]
+id = "breakdown-signing-credential-unquoted-yaml"
+description = "Unquoted hardcoded Android signing credential in YAML/colon style (workflow env blocks, compose)"
+regex = '''(?i)(keystore[_-]?password|key[_-]?password|store[_-]?password|key[_-]?alias)['"]?\s*:\s*[A-Za-z0-9+/=_-]{8,}'''
+paths = '''(frontend-flutter/.*|.github/workflows/.*)'''
 tags = ["breakdown", "android-signing"]
 
 [[rules]]
