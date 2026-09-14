@@ -82,10 +82,27 @@ for apk in dist/breakdown-*.apk; do
 done
 echo "::notice::All split APKs carry the recorded project fingerprint ($want)."
 
-# --- AAB: jarsigner + bundletool round-trip ---------------------------------
-# jarsigner verifies the AAB (apksigner accepts APK files only).
+# --- AAB: certificate fingerprint + jarsigner + bundletool round-trip ------
+# The staged AAB must carry the project key itself: jarsigner -verify only
+# proves a valid signature, not WHO signed. Compare its signer fingerprint
+# (keytool -printcert -jarfile) to the recorded one BEFORE the bundletool
+# round-trip — the round-trip re-signs with KEYSTORE_FILE, so it can never
+# prove the staged AAB's origin.
+aab_cert="$(keytool -printcert -jarfile "dist/breakdown-$VERSION_NAME.aab" 2>/dev/null \
+  | sed -n 's/.*SHA256: //p' | head -n 1)"
+if [ -z "$aab_cert" ]; then
+  echo "::error::staged AAB (dist/breakdown-$VERSION_NAME.aab) could not be verified via keytool -printcert -jarfile (no SHA-256 digest reported)."
+  exit 1
+fi
+got_aab="$(norm "$aab_cert")"
+if [ "$got_aab" != "$want" ]; then
+  echo "::error::staged AAB was signed with fingerprint '$got_aab' — does NOT match the recorded project fingerprint '$want' (D9 one-key invariant)."
+  exit 1
+fi
+# jarsigner verifies the AAB structural integrity (apksigner accepts APK
+# files only).
 jarsigner -verify -verbose:summary "dist/breakdown-$VERSION_NAME.aab" >/dev/null
-echo "::notice::AAB passes jarsigner -verify."
+echo "::notice::AAB signed with the recorded project fingerprint and passes jarsigner -verify."
 
 # bundletool round-trip: build APKs from the AAB with the SAME keystore,
 # then re-verify every generated APK with apksigner. The JAR is

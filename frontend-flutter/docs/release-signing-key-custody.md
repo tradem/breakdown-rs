@@ -114,9 +114,11 @@ stored on encrypted removable media, geographically separated. Verify each
 backup by re-importing it into a throwaway keystore tool and comparing the
 SHA-256 fingerprint from §2. Repeat the verification after every rotation.
 
-Custodians (recorded in the change's design.md "Open Questions"):
-**tradem** and **imac.ric@gmail.com**. This must be resolved before task
-1.2 is executed.
+Custodians: at least two maintainers — the current holder list is recorded
+in the team's RESTRICTED operational documentation (password-manager
+vault / private ops notes), never in this public repository. Verify the
+backup holder list against the CI `Release` environment owner before
+relying on it.
 
 ## 5. Regenerating CI secrets from a backup
 
@@ -180,8 +182,21 @@ yet — as of build-tools 37 / AGP 9), the planned path is:
    file pointing at the NEW certificate (apksigner
    `--rotation-min-sdk`/lineage input; the Gradle signingConfig grows a
    lineage option then).
+   **Platform support — critical:** Android versions BELOW the selected
+   `--rotation-min-sdk` verify against the ORIGINAL signer only. The
+   rotation MUST therefore keep the OLD key as the v1/v2-visible signer
+   for those platforms: the transition release is signed by the old key
+   carrying the lineage (dual scheme), the rotation minimum SDK must be
+   ≤ the app's `minSdkVersion` (otherwise every device below the
+   threshold can never update to the new key), and BOTH signatures must
+   be verified (`apksigner verify --verbose`: v2/v3 from old and new
+   respectively) across the supported device range before publication.
 3. Every later release is signed by the NEW key and installs over existing
-   installs WITHOUT uninstall (Android walks the lineage back to the root).
+   installs WITHOUT uninstall (Android walks the lineage back to the root;
+   devices below `rotation-min-sdk` still require the transition release
+   from step 2 — devices that never installed it keep needing the OLD
+   signature, which is why the old key remains valid and backed up
+   indefinitely, §4).
 4. Update `AllowedAPKSigningKeys` in `add-fdroid-inclusion` to the new
    fingerprint — fdroiddata verification does not walk lineages, so the
    metadata MR must pin the NEW fingerprint.

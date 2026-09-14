@@ -4,7 +4,13 @@
 # flutter-release-signing Specification
 
 ## Purpose
-TBD - created by archiving change add-android-release-workflow. Update Purpose after archive.
+Establish the project-owned Android signing anchor (Decision D9): one
+project keystore and one key for every binary the project publishes
+itself, keystore custody that survives maintainer turnover (offline
+backups, recorded fingerprint), a Gradle signing configuration fed by
+CI secrets with a decisive unsigned fallback, and the fingerprint
+contract that future developer-published channels (F-Droid
+developer-signed artifacts) can build on.
 
 ## Requirements
 

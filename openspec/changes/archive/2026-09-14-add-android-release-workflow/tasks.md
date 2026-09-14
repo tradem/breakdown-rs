@@ -93,8 +93,11 @@
 - [x] 4.2 Sideload the arm64 APK on a test device; verify install and that a
       follow-up build with the same key updates in place.
       → v0.3.0-alpha.1 sideloaded and installed ✓; v0.3.0-alpha.2 (versionCode
-      11 > 10, same project key) updated in place WITHOUT uninstall ✓ — the
-      D9 cross-channel update guarantee is empirically verified.
+      11 > 10, same project key, BOTH published as GitHub Releases) updated
+      in place WITHOUT uninstall ✓. Same-channel (GitHub Releases) update
+      guarantee verified; the D9 CROSS-channel claim (developer-signed
+      F-Droid artifact sharing the fingerprint) remains pending
+      `add-fdroid-inclusion` and is deliberately not claimed here.
 - [x] 4.3 Negative tests: mismatched tag fails the gate; failing CI gate
       blocks publication; workflow re-run does not duplicate artifacts.
       *(mismatch/format/monotonicity: locally scripted against the gate;

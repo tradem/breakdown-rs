@@ -4,15 +4,24 @@
 # flutter-release-artifacts Specification
 
 ## Purpose
-TBD - created by archiving change add-android-release-workflow. Update Purpose after archive.
+Define the project's self-published Android release channel: a
+tag-triggered pipeline that builds versioned, project-signed release
+artifacts (split-per-ABI APKs + AAB from the prod flavor), enforces
+tag/pubspec version consistency and the repository's CI quality gates
+before anything is published, and attaches them to a GitHub Release with
+pre-release (alpha/beta) semantics for direct tester installation.
 
 ## Requirements
 
 ### Requirement: Tag-Triggered Release Build
 A GitHub Actions workflow SHALL build Android release artifacts whenever a
-tag matching `v<semver>` is pushed. The workflow MUST follow the CI-hardening
+tag matching `vX.Y.Z`, `vX.Y.Z-alpha.N`, or `vX.Y.Z-beta.N` is pushed (the
+tag/pubspec formats the version gate accepts; other pre-release
+identifiers such as `rc` are NOT supported). The workflow MUST follow the CI-hardening
 rules: actions pinned by commit SHA, no `${{ github.event.* }}` interpolation
-into `run:` blocks, minimal `permissions:` (contents: write only).
+into `run:` blocks, minimal job-scoped `permissions:` — the publication job
+holds `contents: write`, and the reusable quality-gates call additionally
+holds `security-events: write` solely for the gitleaks SARIF upload.
 
 #### Scenario: Pushing a release tag triggers the build
 - **WHEN** a maintainer pushes the tag `v1.2.0`.
@@ -69,7 +78,9 @@ APK files and installation hint.
 #### Scenario: An alpha tag produces a pre-release
 - **WHEN** tag `v0.3.0-alpha.1` is pushed.
 - **THEN** a GitHub Release marked as pre-release is created containing the
-  three split APKs (and optionally the AAB) built from the same tag.
+  three split APKs and the AAB built from the same tag. (The AAB is
+  mandatory for pre-releases too — same artifact set as stable releases;
+  it feeds the later Play channel and keeps the artifact contract uniform.)
 
 #### Scenario: A tester installs the APK by sideloading
 - **WHEN** a tester downloads `breakdown-0.3.0-alpha.1-arm64-v8a.apk` from

@@ -30,7 +30,9 @@
    [`release-signing-key-custody.md`](release-signing-key-custody.md).
 2. Record the keystore's SHA-256 fingerprint as
    `EXPECTED_SHA256_FINGERPRINT` in `.github/workflows/flutter-release.yml`
-   (currently `TBD` — the workflow refuses to publish until then).
+   (done — `bfd0184e…fbc8b`; update it together with
+   [`release-signing-key-custody.md`](release-signing-key-custody.md) §2
+   if the key ever rotates, §6).
 3. Provision the protected GitHub `release` environment (required
    reviewers, deployment restricted to `v*` tags) and add the prod OIDC
    secrets (`OIDC_ISS`, `OIDC_CLIENT_ID`, `OIDC_AUDIENCE`).

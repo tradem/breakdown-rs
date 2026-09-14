@@ -35,6 +35,13 @@ PUBSPEC="$FLUTTER_DIR/pubspec.yaml"
 TAG="${TAG_NAME:?TAG_NAME is required (e.g. 'v1.2.0-alpha.1')}"
 [ -f "$PUBSPEC" ] || { echo "::error::pubspec.yaml not found at $PUBSPEC"; exit 1; }
 
+# The tag MUST carry the literal 'v' prefix — '${TAG#v}' alone would also
+# accept an unprefixed tag that happens to equal the build-name.
+if ! [[ "$TAG" == v* ]]; then
+  echo "::error::Release tag '$TAG' is missing the required 'v' prefix. Tags are 'v<build-name>'."
+  exit 1
+fi
+
 version="$(sed -n 's/^version: *//p' "$PUBSPEC" | head -n 1 | tr -d '[:space:]')"
 if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta)\.[0-9]+)?\+[0-9]+$ ]]; then
   echo "::error::frontend-flutter/pubspec.yaml version must be 'X.Y.Z[-alpha.N|-beta.N]+N' (ADR-033 D1, unified release format), got '$version'."
@@ -48,15 +55,21 @@ if [ "${TAG#v}" != "$build_name" ]; then
   exit 1
 fi
 
-# Monotonic versionCode across all OTHER release tags: the current build
-# number must be strictly greater than every previous one. Tags without a
-# parsable `+<int>` suffix are skipped (not a failure — they may be legacy).
+# Monotonic versionCode across all OTHER release tags that PRECEDE the
+# current one: the current build number must be strictly greater than every
+# previous one. Tags newer than $TAG (e.g. when re-running an older release
+# after newer ones exist) are EXCLUDED via merge-base ancestry — otherwise
+# an idempotent re-publication of an old tag would fail against newer build
+# numbers. Tags without a parsable `+<int>` suffix are skipped (not a
+# failure — they may be legacy).
 # NOTE: `git show <tag>:<path>` requires a repo-relative path — FLUTTER_DIR
 # (absolute) is stripped of the REPO_ROOT prefix for git.
 rel_pubspec="${PUBSPEC#"$REPO_ROOT"/}"
 prev_max=0
 while IFS= read -r tag; do
   [ "$tag" = "$TAG" ] && continue
+  # only tags on the current tag's ancestry (earlier releases)
+  git merge-base --is-ancestor "$tag" "$TAG" 2>/dev/null || continue
   pv="$(git show "$tag":"$rel_pubspec" 2>/dev/null \
     | sed -n 's/^version: *//p' | head -n 1 | tr -d '[:space:]' \
     | sed -n 's/^.*+\([0-9][0-9]*\)$/\1/p')"

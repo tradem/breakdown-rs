@@ -96,6 +96,20 @@ description = "Unquoted hardcoded Android signing credential in YAML/colon style
 regex = '''(?i)(keystore[_-]?password|key[_-]?password|store[_-]?password|key[_-]?alias)['"]?\s*:\s*[A-Za-z0-9+/=_-]{8,}'''
 paths = '''(frontend-flutter/.*|.github/workflows/.*)'''
 tags = ["breakdown", "android-signing"]
+[[rules]]
+id = "breakdown-signing-key-alias"
+description = "Hardcoded Android signing key alias (any length — aliases can be short)"
+regex = '''(?i)key[_-]?alias['"]?\s*[:=]\s*['"][A-Za-z0-9+/=_-]{1,}['"]'''
+paths = '''(frontend-flutter/.*|.github/workflows/.*)'''
+tags = ["breakdown", "android-signing"]
+
+
+[[rules]]
+id = "breakdown-signing-key-alias-unquoted-yaml"
+description = "Unquoted hardcoded Android signing key alias in YAML/colon style"
+regex = '''(?i)key[_-]?alias['"]?\s*:\s*[A-Za-z0-9+/=_-]{1,}'''
+paths = '''(frontend-flutter/.*|.github/workflows/.*)'''
+tags = ["breakdown", "android-signing"]
 
 [[rules]]
 id = "breakdown-keystore-base64-blob"

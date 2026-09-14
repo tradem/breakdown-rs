@@ -76,9 +76,17 @@ trap 'rm -f "$notes"' EXIT
   echo "Version: \`$VERSION_FULL\` (pubspec.yaml is the single version source; tags are \`v<build-name>\`)."
 } > "$notes"
 
-artifacts=(dist/breakdown-*.apk dist/breakdown-*.aab)
+# Exact artifact contract (stage-artifacts.sh output): the four files are
+# bound to VERSION_NAME so a stale dist/ from another version can never be
+# attached (a broad glob would happily publish foreign/old artifacts).
+artifacts=(
+  "dist/breakdown-$VERSION_NAME-arm64-v8a.apk"
+  "dist/breakdown-$VERSION_NAME-armeabi-v7a.apk"
+  "dist/breakdown-$VERSION_NAME-x86_64.apk"
+  "dist/breakdown-$VERSION_NAME.aab"
+)
 for f in "${artifacts[@]}"; do
-  [ -f "$f" ] || { echo "::error::Expected artifact $f is missing — run stage-artifacts.sh first."; exit 1; }
+  [ -f "$f" ] || { echo "::error::Expected artifact $f is missing — run stage-artifacts.sh for $VERSION_NAME first (stale dist/ from another version is not publishable)."; exit 1; }
 done
 
 if [ "$DRY_RUN" -eq 1 ]; then
