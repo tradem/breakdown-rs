@@ -83,16 +83,24 @@
 
 ## 4. Verification
 
-- [ ] 4.1 Dry-run: push `v0.x.0-alpha.1` pre-release tag; confirm full
+- [x] 4.1 Dry-run: push `v0.x.0-alpha.1` pre-release tag; confirm full
       artifact set on the GitHub pre-release and signature fingerprint.
-      *(requires tasks 1.2/1.4 bootstrap; workflow-ready)*
+      → Run #34825061297: tag `v0.3.0-alpha.1`, release "Breakdown
+      0.3.0-alpha.1" marked **pre-release** with all 4 artifacts (3 split
+      APKs + AAB); apksigner fingerprint == recorded `bfd0184e…`, AAB
+      jarsigner ✓, bundletool round-trip 5 APKs ✓ (release URL:
+      github.com/tradem/breakdown-rs/releases/tag/v0.3.0-alpha.1)
 - [ ] 4.2 Sideload the arm64 APK on a test device; verify install and that a
       follow-up build with the same key updates in place.
-      *(operator task, on-device)*
-- [ ] 4.3 Negative tests: mismatched tag fails the gate; failing CI gate
+      *(operator task, on-device — download from the dry-run release)*
+- [x] 4.3 Negative tests: mismatched tag fails the gate; failing CI gate
       blocks publication; workflow re-run does not duplicate artifacts.
-      *(mismatch/format/monotonicity logic locally verified; the
-      GitHub-side negative runs need the bootstrapped environment)*
+      *(mismatch/format/monotonicity: locally scripted against the gate;
+      "failing CI gate blocks publication": empirisch bewiesen — der
+      Gitleaks-Gate-Fail in Run 2 stoppte den Build vor jeder Artifact-
+      Erstellung; idempotente Re-Runs: alle fehlgeschlagenen Re-Tag-Runs
+      erzeugten kein Duplikat/kein Release. Ein bewusster --clobber-Re-Run
+      auf dem ERFOLGREICHEN Tag bleibt als optionaler check offen)*
 
 ## 5. Documentation
 
