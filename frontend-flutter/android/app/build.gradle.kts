@@ -41,12 +41,21 @@ val oidcRedirectUri = oidcRedirectUriFromConfig()
 val oidcRedirectScheme = oidcRedirectUri
     .substringBefore("://")
     .substringBefore(":")
+// RFC-style lowercase scheme (review: Android intent-filter matching is
+// case-sensitive, and IdPs emit lowercase schemes — a mixed-case value
+// like `Breakdown://` would register a scheme the IdP redirect can never
+// reach). The `-dev` suffix is RESERVED for the dev-flavor derivation:
+// a base scheme already ending in `-dev` would make BOTH flavors register
+// the same scheme (issue #421 review), breaking the exactly-one-app
+// redirect guarantee — rejected instead of silently passed through.
 require(
-    oidcRedirectScheme.isNotBlank() &&
-        !oidcRedirectScheme.contains("/")
+    oidcRedirectScheme.matches(Regex("^[a-z][a-z0-9+.-]*$")) &&
+        !oidcRedirectScheme.endsWith("-dev")
 ) {
     "OIDC_REDIRECT_URI has no valid custom scheme: " +
-        "'$oidcRedirectUri' (expected e.g. 'breakdown://auth/callback')"
+        "'$oidcRedirectUri' (expected e.g. 'breakdown://auth/callback': " +
+        "lowercase RFC-style scheme, and the '-dev' suffix is reserved " +
+        "for the dev flavor's derived scheme)"
 }
 // An explicitly passed `-PoidcRedirectScheme=...` must agree with the
 // derived BASE scheme — a mismatch fails the build instead of shipping a
@@ -73,10 +82,16 @@ if (explicitScheme != null && explicitScheme != oidcRedirectScheme) {
 // be mangled). The Dart side (`deriveOidcRedirectUri` in
 // `lib/app_config.dart`) mirrors this derivation textually.
 fun devRedirectScheme(scheme: String): String {
+    // http/https are exempt (App-Links-style URIs are host-based, not
+    // scheme-ambiguous, and must not be mangled).
     if (scheme.equals("http", true) || scheme.equals("https", true)) return scheme
-    // Idempotent: a scheme already carrying the dev suffix passes through
-    // (must never become `-dev-dev`).
-    if (scheme.lowercase().endsWith("-dev")) return scheme
+    // Scheme-less values (neither `://` nor `:` in the URI) pass through
+    // unchanged — the Dart side (`deriveOidcRedirectUri`) applies the same
+    // guard so both registration sites stay consistent; such a value can
+    // never route anyway (no scheme to register/match).
+    if (!oidcRedirectUri.contains("://") && !oidcRedirectUri.contains(":")) {
+        return scheme
+    }
     return "${scheme}-dev"
 }
 val oidcDevRedirectScheme = devRedirectScheme(oidcRedirectScheme)

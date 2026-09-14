@@ -66,8 +66,10 @@ material to dev machines (3, rejected: contradicts D9 custody).
    published prod; certificate-mismatch note replaced), `docs/self-hosting.md`
    (register both schemes; the `-dev` derivation rule).
 8. **Tests** — unit tests for the derivation (prod identity, dev derive,
-   dev idempotence, empty/invalid unchanged, http/https exempt) +
-   `authorizationUi`/`oidcClientConfig` consume the derived URI.
+   http/https exempt, scheme-less pass-through on both sites; a base
+   scheme ending in the reserved `-dev` suffix is rejected at build time
+   instead of special-cased) + `authorizationUi`/`oidcClientConfig`
+   consume the derived URI.
 
 ## Non-goals
 

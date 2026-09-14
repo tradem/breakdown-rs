@@ -23,17 +23,20 @@ enum Flavor { dev, prod }
 /// textual mirror of the Gradle derivation (`devRedirectScheme` in
 /// `android/app/build.gradle.kts`): scheme = text before `://` (else
 /// before `:`), then `$scheme-dev` + the remainder. http/https schemes
-/// (App-Links-style, host-based — not scheme-ambiguous) and URIs without
-/// a scheme are returned unchanged; a scheme that already ends in `-dev`
-/// passes through unchanged (idempotent — a URI already carrying the dev
-/// scheme must never become `-dev-dev`). Empty stays empty (the startup
-/// guard owns that rejection).
+/// (App-Links-style, host-based — not scheme-ambiguous) and scheme-less
+/// values (neither `://` nor `:` — Gradle applies the same guard, so both
+/// registration sites stay consistent; such a value can never route and
+/// fails closed at the authorization UI) are returned unchanged; empty
+/// stays empty (the startup guard owns that rejection). A base scheme
+/// ending in the reserved `-dev` suffix is rejected at BUILD time by the
+/// Gradle validation (it would make both flavors register the same
+/// scheme), so the derivation here can append `-dev` unconditionally.
 String deriveOidcRedirectUri(String uri, Flavor flavor) {
   if (flavor == Flavor.prod || uri.isEmpty) return uri;
+  if (!uri.contains('://') && !uri.contains(':')) return uri;
   final scheme = _substringBefore(_substringBefore(uri, '://'), ':');
   final lower = scheme.toLowerCase();
-  if (lower.isEmpty || lower == 'http' || lower == 'https') return uri;
-  if (lower.endsWith('-dev')) return uri;
+  if (lower == 'http' || lower == 'https') return uri;
   return '$scheme-dev${uri.substring(scheme.length)}';
 }
 

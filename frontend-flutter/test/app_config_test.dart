@@ -52,12 +52,15 @@ void main() {
       );
     });
 
-    test('dev derivation is idempotent (already -dev scheme unchanged)', () {
-      expect(
-        deriveOidcRedirectUri('breakdown-dev://auth/callback', Flavor.dev),
-        'breakdown-dev://auth/callback',
-      );
-    });
+    test(
+      'scheme-less values pass through unchanged (both derivation sites)',
+      () {
+        expect(deriveOidcRedirectUri('', Flavor.dev), '');
+        // No `://` and no `:` — pass-through mirrors the Gradle guard; the
+        // value can never route (fails closed at the authorization UI).
+        expect(deriveOidcRedirectUri('not-a-uri', Flavor.dev), 'not-a-uri');
+      },
+    );
 
     test(
       'http/https schemes are exempt (host-based, not scheme-ambiguous)',
@@ -75,7 +78,19 @@ void main() {
 
     test('empty and scheme-less URIs pass through unchanged', () {
       expect(deriveOidcRedirectUri('', Flavor.dev), '');
-      expect(deriveOidcRedirectUri('not-a-uri', Flavor.dev), 'not-a-uri-dev');
+      expect(deriveOidcRedirectUri('not-a-uri', Flavor.dev), 'not-a-uri');
+    });
+
+    test('base schemes ending in the reserved -dev suffix are rejected at '
+        'BUILD time (Gradle require) — no Dart-side special case', () {
+      // Gradle rejects a base scheme ending in `-dev` before any APK is
+      // produced, so the derivation mirrors Gradle by appending
+      // unconditionally here; a config that could ever reach this Dart
+      // code with such a scheme cannot exist.
+      expect(
+        deriveOidcRedirectUri('breakdown-dev://auth/callback', Flavor.dev),
+        'breakdown-dev-dev://auth/callback',
+      );
     });
 
     test('effectiveOidcRedirectUri getter derives per flavor', () {
