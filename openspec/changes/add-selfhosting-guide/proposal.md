@@ -10,10 +10,12 @@
 
 `breakdown-rs` is AGPL-3.0, but the officially published Android binaries are
 deliberately bound to the project-operated backend at build time: compile-time
-`API_BASE`, pinned prod CA, baked `OIDC_ISS`/`OIDC_CLIENT_ID`/`OIDC_AUDIENCE`,
-fail-closed bootstrap (ADR-032, spec `flutter-client-authz`, release decision
-D9). A self-hoster running their own instance therefore cannot point the
-official APK at their deployment — by design, not accident.
+`API_BASE`, pinned prod CA, baked `OIDC_ISS`/`OIDC_CLIENT_ID`/
+`OIDC_REDIRECT_URI` (the audience is baked when configured and validated
+by the backend at runtime, not at startup), fail-closed bootstrap (ADR-032,
+spec `flutter-client-authz`, release decision D9). A self-hoster running
+their own instance therefore cannot point the official APK at their
+deployment — by design, not accident.
 
 Self-hosting IS already possible at the **build level**: the app is
 build-time configurable via `--dart-define` (API base, OIDC issuer/client

@@ -20,9 +20,11 @@ project-operated backend at build time**:
   prod flavor defaults to `https://api.breakdown.rs`),
 - the client pins a specific CA (`assets/certs/prod/ca.pem`) and constructs
   its TLS context fail-closed, with **no system roots** (ADR-032),
-- the OIDC issuer, client id, audience and redirect URI are baked in, and
-  the prod bootstrap refuses to start without them (`lib/app.dart`
-  `validateStartupConfig`),
+- the OIDC issuer, client id and redirect URI are baked in, and the prod
+  bootstrap refuses to start without them (`lib/app.dart`
+  `validateStartupConfig`). The audience (`OIDC_AUDIENCE`) is baked in
+  when configured and validated by the backend at runtime — it is **not**
+  a client-side startup requirement,
 - the in-app "Backend URI" override exists in the **dev flavor only**; a
   prod build ignores and clears any stored override on boot (spec
   `flutter-app-dialogs`).
