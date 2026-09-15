@@ -544,9 +544,16 @@ checkout). Behaviour:
 
 - **Probe green** → nothing happens; an *open* rotation reminder issue is
   closed automatically with a confirmation comment.
-- **Probe red (`invalid_grant`)** → an actionable reminder issue
+- **Probe red with `invalid_grant`** → an actionable reminder issue
   ("chore: rotate GDRIVE_REFRESH_TOKEN — Google reports invalid_grant") is
-  created; if one is already open it is left alone (no daily spam).
+  created; if one is already open it is left alone (no daily spam). Only
+  this error kind signals the 7-day Testing-mode expiry — the reminder is
+  **not** created for anything else.
+- **Probe red with any other error** (transient Google 5xx, network
+  failure, `invalid_client` credentials, non-JSON body) → **no reminder**;
+  the workflow run itself fails (red X) so the anomaly is visible without
+  producing a false "rotate the token" signal. Persistent red runs point
+  at the `GDRIVE_*` secrets or Google status, not at token expiry.
 - The probe **never prints token material**: the success response carries a
   fresh access token and is discarded unopened; failures surface only the
   secret-free `error`/`error_description` fields (the same sanitization the
@@ -579,17 +586,37 @@ python3 scripts/gdrive-refresh-token.py --update-secret
   `--client-id`/`--client-secret` explicitly or re-export the env file from
   Console → APIs & Services → Credentials.
 
-### Permanent fix (recommended, removes the 7-day expiry)
+### Non-expiring credentials — options and audience caveat
 
-Publish the OAuth consent screen as **In production**
-(Console → APIs & Services → OAuth consent screen → Publish app):
+Three mutually exclusive paths, depending on whether a public audience is
+acceptable for this client:
 
-- Refresh tokens then no longer auto-expire weekly; no further rotation
-  cadence is needed.
-- The app stays **unverified** — that is fine here: the Drive scope is
-  already granted and only configured test users authorize the app. Google
-  shows an "unverified app" warning during consent, which is acceptable for
-  a test fixture.
-- Caveat: switching the consent screen *back* to Testing **resets the
-  test-users list**, so afterwards the account must be re-added under
-  Test users (otherwise the script fails with `access_denied`).
+1. **Publish as In production** (Console → APIs & Services → OAuth consent
+   screen → Publish app) — refresh tokens then no longer auto-expire
+   weekly; no further rotation cadence is needed. The app stays
+   **unverified**, which is acceptable for a test fixture (Google shows an
+   "unverified app" warning during consent).
+   **Audience caveat (important):** for an *External* project the
+   **Test users** allowlist applies **only while the project is in
+   Testing**. After publishing, **any Google Account can authorize this
+   client** — and the client requests `https://www.googleapis.com/auth/drive`,
+   i.e. a consenting user grants access to *their* Drive data. The
+   unverified-app warning does **not** restore the test-user restriction.
+   Choose this path only if a public audience is acceptable.
+2. **Internal project / separate test project** — if non-expiring
+   credentials are needed *without* a public audience, use an eligible
+   **Internal** project (Google Workspace) or a dedicated test
+   project/client instead of publishing this one.
+3. **Keep Testing + weekly rotation** — for a strictly test-only client
+   this is the safest default: retain the Testing status (and thus the
+   test-user allowlist) and follow the rotation procedure above with the
+   reminder workflow.
+
+Caveats:
+
+- Switching the consent screen *back* to Testing **resets the test-users
+  list**, so afterwards the account must be re-added under Test users
+  (otherwise the script fails with `access_denied`).
+- In production, the client becomes subject to Google verification and
+  Workspace controls; an unverified, published client keeps working for
+  consenting users with the already-granted Drive scope.

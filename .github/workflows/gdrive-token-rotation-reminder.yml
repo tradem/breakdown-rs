@@ -92,15 +92,22 @@ jobs:
             exit 0
           fi
 
-          # Failure: surface only the secret-free error fields.
-          error=$(python3 -c 'import json;d=json.load(open("/tmp/token_response.json"));print(d.get("error",""),d.get("error_description",""))' 2>/dev/null || echo "non-JSON response")
+          # Failure: surface only the secret-free error fields, and classify
+          # the error kind (issue #427 review): only `invalid_grant` means the
+          # refresh token expired and warrants a rotation reminder. Any other
+          # failure (transient Google 5xx, network error, invalid_client
+          # credentials, non-JSON body) must NOT open a reminder — it fails
+          # the job instead so the red run is the signal.
+          error_kind=$(python3 -c 'import json;d=json.load(open("/tmp/token_response.json"));print(d.get("error","unknown"))' 2>/dev/null || echo "unknown")
+          error_text=$(python3 -c 'import json;d=json.load(open("/tmp/token_response.json"));print(d.get("error",""),d.get("error_description",""))' 2>/dev/null || echo "non-JSON response")
           rm -f /tmp/token_response.json
-          echo "Probe FAILED (HTTP $http_code): $error"
+          echo "Probe FAILED (HTTP $http_code, kind=$error_kind): $error_text"
           {
             echo "ok=false"
+            echo "error_kind=$error_kind"
             echo "http_code=$http_code"
             echo "error<<EOF"
-            echo "$error"
+            echo "$error_text"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
@@ -117,8 +124,11 @@ jobs:
             echo "No open rotation reminder — nothing to do."
           fi
 
-      - name: Open the rotation reminder (probe failed)
-        if: steps.probe.outputs.ok == 'false'
+      - name: Open the rotation reminder (refresh token expired)
+        # Only a Google `invalid_grant` rejection means the refresh token is
+        # gone (7-day Testing-mode expiry) — transient/other probe failures
+        # are handled by the following step instead (no false reminder).
+        if: steps.probe.outputs.ok == 'false' && steps.probe.outputs.error_kind == 'invalid_grant'
         env:
           PROBE_HTTP_CODE: ${{ steps.probe.outputs.http_code }}
           PROBE_ERROR: ${{ steps.probe.outputs.error }}
@@ -154,13 +164,25 @@ jobs:
           Full runbook: `backend/docs/operations/runbooks.md` →
           "GDrive test-credential rotation (issue #427)".
 
-          ## Permanent fix (recommended)
+          ## Permanent fix (audience caveat applies)
 
-          Publish the OAuth consent screen as **In production** (Console →
-          APIs & Services → OAuth consent screen → Publish app). Refresh
-          tokens then stop expiring weekly. Unverified apps keep working for
-          the configured test users with the already-granted Drive scope;
-          note that switching back to Testing resets the test-users list.
+          For a **test-only** client like this one, the recommended path is
+          one of:
+
+          - Publish the OAuth consent screen as **In production** (Console →
+            APIs & Services → OAuth consent screen → Publish app): refresh
+            tokens then stop expiring weekly. **Audience caveat:** for an
+            External project, the Test users allowlist applies only in
+            Testing — after publishing, *any* Google Account can authorize
+            this client (which requests the Drive scope, i.e. access to that
+            account's Drive). An unverified-app warning does not restore the
+            restriction. Only do this if a public audience is acceptable.
+          - Prefer an eligible **Internal** project (Google Workspace) or a
+            **separate test project/client** when non-expiring credentials
+            are needed without a public audience.
+          - Otherwise keep the client in **Testing** and rotate weekly (this
+            workflow's reminder + the runbook §9 procedure). Note that
+            switching back to Testing resets the test-users list.
 
           Probe failure detail (secret-free):
           - HTTP status: __PROBE_HTTP_CODE__
@@ -180,3 +202,22 @@ jobs:
           PY
 
           gh issue create --title "$REMINDER_TITLE" --body-file /tmp/issue_body.md
+
+      - name: Fail the job on non-rotation probe failures
+        # Transient Google errors, network failures and invalid client
+        # credentials are NOT rotation signals (issue #427 review): failing
+        # the job makes them visible as a red run without creating a false
+        # "rotate the token" reminder.
+        if: steps.probe.outputs.ok == 'false' && steps.probe.outputs.error_kind != 'invalid_grant'
+        env:
+          PROBE_HTTP_CODE: ${{ steps.probe.outputs.http_code }}
+          PROBE_ERROR_KIND: ${{ steps.probe.outputs.error_kind }}
+          PROBE_ERROR: ${{ steps.probe.outputs.error }}
+        run: |
+          set -euo pipefail
+          echo "Probe failed with a non-rotation error — no rotation reminder created."
+          echo "  HTTP status: $PROBE_HTTP_CODE"
+          echo "  Error kind:  $PROBE_ERROR_KIND"
+          echo "  Detail:      $PROBE_ERROR"
+          echo "If this persists, check the GDRIVE_* secrets and Google status, not the token expiry."
+          exit 1
