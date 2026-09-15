@@ -1,0 +1,223 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: omen-alpha (opencode-go)
+
+# GDrive Token Rotation Reminder (issue #427).
+#
+# The GDRIVE_REFRESH_TOKEN GitHub secret is bound to a Google OAuth client
+# whose consent screen is in "Testing" publishing status — Google expires
+# such refresh tokens 7 days after the (interactive) consent grant, so the
+# AI-import GDrive smoke tests silently start failing with `invalid_grant`
+# roughly weekly. This workflow is a *cheap, build-free* probe: it calls
+# Google's token endpoint directly (grant_type=refresh_token) and turns the
+# first failure into an actionable, self-deduplicating GitHub issue — and it
+# closes that issue automatically once the next probe succeeds after a
+# rotation.
+#
+# Notes:
+# - Requesting an access token with grant_type=refresh_token does NOT extend
+#   the refresh token's life; in Testing mode the expiry is fixed at consent
+#   time. This is purely a liveness probe.
+# - The probe never prints token material: on success the response file is
+#   discarded unopened; on failure only Google's `error`/`error_description`
+#   fields are surfaced (the same secret-free detail the smoke test carries
+#   since PR #426).
+# - Rotation itself cannot be automated headlessly: Google requires one
+#   interactive browser consent per grant lifecycle. See the runbook section
+#   "GDrive test-credential rotation (issue #427)" in
+#   backend/docs/operations/runbooks.md for the procedure and the permanent
+#   fix (publishing the OAuth consent screen as "In production").
+# - Hardening: no third-party actions (no checkout needed), no `${{ }}`
+#   interpolation inside `run:` — all secrets/expressions flow through `env:`.
+
+name: GDrive Token Rotation Reminder
+
+on:
+  schedule:
+    # Daily at 05:00 UTC, right after the 04:00 AI-import nightly — the
+    # reminder is the actionable signal when that nightly's GDrive smoke
+    # starts failing on an expired token.
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: gdrive-token-rotation-reminder
+  cancel-in-progress: false
+
+env:
+  REMINDER_SEARCH: "rotate GDRIVE_REFRESH_TOKEN in:title"
+  REMINDER_TITLE: "chore: rotate GDRIVE_REFRESH_TOKEN — Google reports invalid_grant"
+
+jobs:
+  probe:
+    name: Probe GDrive refresh token / manage rotation issue
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+      GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+      GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Probe the refresh token against Google's token endpoint
+        id: probe
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GDRIVE_REFRESH_TOKEN:-}" ] || [ -z "${GDRIVE_CLIENT_ID:-}" ] || [ -z "${GDRIVE_CLIENT_SECRET:-}" ]; then
+            echo "GDRIVE secrets not configured — probe skipped (fork or not yet bootstrapped)."
+            echo "ok=skip" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          http_code=$(curl -sS -o /tmp/token_response.json -w '%{http_code}' \
+            --max-time 30 --request POST \
+            https://oauth2.googleapis.com/token \
+            --data grant_type=refresh_token \
+            --data-urlencode "client_id=$GDRIVE_CLIENT_ID" \
+            --data-urlencode "client_secret=$GDRIVE_CLIENT_SECRET" \
+            --data-urlencode "refresh_token=$GDRIVE_REFRESH_TOKEN") || http_code="000"
+
+          if [ "$http_code" = "200" ]; then
+            # Success: discard the response (it carries a fresh access_token)
+            # without ever printing it.
+            rm -f /tmp/token_response.json
+            echo "Probe OK: the GDrive refresh token is alive."
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Failure: surface only the secret-free error fields, and classify
+          # the error kind (issue #427 review): only `invalid_grant` means the
+          # refresh token expired and warrants a rotation reminder. Any other
+          # failure (transient Google 5xx, network error, invalid_client
+          # credentials, non-JSON body) must NOT open a reminder — it fails
+          # the job instead so the red run is the signal.
+          error_kind=$(python3 -c 'import json;d=json.load(open("/tmp/token_response.json"));print(d.get("error","unknown"))' 2>/dev/null || echo "unknown")
+          error_text=$(python3 -c 'import json;d=json.load(open("/tmp/token_response.json"));print(d.get("error",""),d.get("error_description",""))' 2>/dev/null || echo "non-JSON response")
+          rm -f /tmp/token_response.json
+          echo "Probe FAILED (HTTP $http_code, kind=$error_kind): $error_text"
+          {
+            echo "ok=false"
+            echo "error_kind=$error_kind"
+            echo "http_code=$http_code"
+            echo "error<<EOF"
+            echo "$error_text"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Close the open rotation reminder (token alive again)
+        if: steps.probe.outputs.ok == 'true'
+        run: |
+          set -euo pipefail
+          open=$(gh issue list --state open --search "$REMINDER_SEARCH" --json number --jq 'length' 2>/dev/null || echo 0)
+          if [ "$open" -gt 0 ]; then
+            for n in $(gh issue list --state open --search "$REMINDER_SEARCH" --json number --jq '.[].number'); do
+              gh issue close "$n" --comment "The daily GDrive probe succeeded — a fresh GDRIVE_REFRESH_TOKEN is in place. Closing this rotation reminder."
+            done
+          else
+            echo "No open rotation reminder — nothing to do."
+          fi
+
+      - name: Open the rotation reminder (refresh token expired)
+        # Only a Google `invalid_grant` rejection means the refresh token is
+        # gone (7-day Testing-mode expiry) — transient/other probe failures
+        # are handled by the following step instead (no false reminder).
+        if: steps.probe.outputs.ok == 'false' && steps.probe.outputs.error_kind == 'invalid_grant'
+        env:
+          PROBE_HTTP_CODE: ${{ steps.probe.outputs.http_code }}
+          PROBE_ERROR: ${{ steps.probe.outputs.error }}
+        run: |
+          set -euo pipefail
+          open=$(gh issue list --state open --search "$REMINDER_SEARCH" --json number --jq 'length' 2>/dev/null || echo 0)
+          if [ "$open" -gt 0 ]; then
+            echo "Rotation reminder issue is already open — leaving it as is."
+            exit 0
+          fi
+
+          cat > /tmp/issue_body.md <<'BODY'
+          ## GDrive refresh token expired (automated reminder — issue #427)
+
+          The daily token probe (`.github/workflows/gdrive-token-rotation-reminder.yml`)
+          received a Google `invalid_grant` rejection: the OAuth consent screen
+          is in **Testing** publishing status, so the refresh token expires
+          7 days after the last interactive consent grant.
+
+          ## What to do (rotation, ~2 minutes, needs one browser consent)
+
+          ```bash
+          cd backend
+          set -a; source .env.gdrive-bootstrap.local; set +a
+          python3 scripts/gdrive-refresh-token.py --update-secret
+          ```
+
+          The script opens the Google consent screen, exchanges the code,
+          prints the fresh refresh token and (with `--update-secret`) updates
+          the `GDRIVE_REFRESH_TOKEN` GitHub secret. Re-run this workflow
+          afterwards — the next green probe closes this issue automatically.
+
+          Full runbook: `backend/docs/operations/runbooks.md` →
+          "GDrive test-credential rotation (issue #427)".
+
+          ## Permanent fix (audience caveat applies)
+
+          For a **test-only** client like this one, the recommended path is
+          one of:
+
+          - Publish the OAuth consent screen as **In production** (Console →
+            APIs & Services → OAuth consent screen → Publish app): refresh
+            tokens then stop expiring weekly. **Audience caveat:** for an
+            External project, the Test users allowlist applies only in
+            Testing — after publishing, *any* Google Account can authorize
+            this client (which requests the Drive scope, i.e. access to that
+            account's Drive). An unverified-app warning does not restore the
+            restriction. Only do this if a public audience is acceptable.
+          - Prefer an eligible **Internal** project (Google Workspace) or a
+            **separate test project/client** when non-expiring credentials
+            are needed without a public audience.
+          - Otherwise keep the client in **Testing** and rotate weekly (this
+            workflow's reminder + the runbook §9 procedure). Note that
+            switching back to Testing resets the test-users list.
+
+          Probe failure detail (secret-free):
+          - HTTP status: __PROBE_HTTP_CODE__
+          - Google error: __PROBE_ERROR__
+          BODY
+
+          # Substitute the probe details outside of any quoting context (the
+          # error text is arbitrary Google output — do not sed it).
+          python3 - <<'PY'
+          import os, pathlib
+
+          path = pathlib.Path("/tmp/issue_body.md")
+          body = path.read_text()
+          body = body.replace("__PROBE_HTTP_CODE__", os.environ["PROBE_HTTP_CODE"])
+          body = body.replace("__PROBE_ERROR__", os.environ["PROBE_ERROR"])
+          path.write_text(body)
+          PY
+
+          gh issue create --title "$REMINDER_TITLE" --body-file /tmp/issue_body.md
+
+      - name: Fail the job on non-rotation probe failures
+        # Transient Google errors, network failures and invalid client
+        # credentials are NOT rotation signals (issue #427 review): failing
+        # the job makes them visible as a red run without creating a false
+        # "rotate the token" reminder.
+        if: steps.probe.outputs.ok == 'false' && steps.probe.outputs.error_kind != 'invalid_grant'
+        env:
+          PROBE_HTTP_CODE: ${{ steps.probe.outputs.http_code }}
+          PROBE_ERROR_KIND: ${{ steps.probe.outputs.error_kind }}
+          PROBE_ERROR: ${{ steps.probe.outputs.error }}
+        run: |
+          set -euo pipefail
+          echo "Probe failed with a non-rotation error — no rotation reminder created."
+          echo "  HTTP status: $PROBE_HTTP_CODE"
+          echo "  Error kind:  $PROBE_ERROR_KIND"
+          echo "  Detail:      $PROBE_ERROR"
+          echo "If this persists, check the GDRIVE_* secrets and Google status, not the token expiry."
+          exit 1

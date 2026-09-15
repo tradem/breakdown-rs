@@ -517,3 +517,106 @@ Procedure (conservative — works for all projectors):
 the projection *by the checkpoint skip*, but later events of the same stream
 may still modify the affected row; physical stream cleanup, if ever needed,
 is a separate design decision, not an ad-hoc operation.
+
+## 9. GDrive test-credential rotation (issue #427)
+
+The `GDRIVE_REFRESH_TOKEN` GitHub secret feeds the live GDrive smoke tests
+(`ai_gdrive_fixture_test` in the trusted-push/PR lane and the nightly AI-import
+ingestion run, plus the `gdrive_contract` archival test). The backing Google
+OAuth client currently has its consent screen in **Testing** publishing
+status — Google expires such refresh tokens **7 days after the last
+interactive consent grant**, so the tests periodically fail with
+`GDrive document operation failed` / `invalid_grant` (observed 2026-09-15,
+token regenerated 2026-09-15; recurrence window ~2026-09-22 and weekly
+thereafter).
+
+**Why rotation cannot be automated end-to-end:** Google requires one
+interactive browser consent per grant lifecycle, so the loopback script
+(`backend/scripts/gdrive-refresh-token.py`) cannot run headless/unattended —
+a human performs the rotation, the tooling does everything else (code
+exchange, CSRF-checked redirect, secret update via `gh secret set`).
+
+### Detection (automated)
+
+`.github/workflows/gdrive-token-rotation-reminder.yml` probes Google's token
+endpoint daily at 05:00 UTC (`grant_type=refresh_token`, no build, no
+checkout). Behaviour:
+
+- **Probe green** → nothing happens; an *open* rotation reminder issue is
+  closed automatically with a confirmation comment.
+- **Probe red with `invalid_grant`** → an actionable reminder issue
+  ("chore: rotate GDRIVE_REFRESH_TOKEN — Google reports invalid_grant") is
+  created; if one is already open it is left alone (no daily spam). Only
+  this error kind signals the 7-day Testing-mode expiry — the reminder is
+  **not** created for anything else.
+- **Probe red with any other error** (transient Google 5xx, network
+  failure, `invalid_client` credentials, non-JSON body) → **no reminder**;
+  the workflow run itself fails (red X) so the anomaly is visible without
+  producing a false "rotate the token" signal. Persistent red runs point
+  at the `GDRIVE_*` secrets or Google status, not at token expiry.
+- The probe **never prints token material**: the success response carries a
+  fresh access token and is discarded unopened; failures surface only the
+  secret-free `error`/`error_description` fields (the same sanitization the
+  smoke-test error path got in PR #426).
+- The probe does **not** extend the token's life — in Testing mode the
+  expiry is fixed at consent time.
+
+The nightly/PR smoke failures carry the `invalid_grant` detail in their logs
+(`gdrive_source::map_opendal_error`, PR #426), so the diagnosis needs no
+secret archaeology.
+
+### Rotation procedure (human, ~2 minutes)
+
+```bash
+cd backend
+set -a; source .env.gdrive-bootstrap.local; set +a   # local-only env file
+python3 scripts/gdrive-refresh-token.py --update-secret
+```
+
+- The script opens the Google consent screen in the default browser (one
+  manual login is unavoidable — Google's anti-bot gate), catches the
+  `http://localhost:8080/` redirect (CSRF-checked via `state`), exchanges the
+  code and prints the fresh refresh token.
+- `--update-secret` writes it to the `GDRIVE_REFRESH_TOKEN` GitHub secret
+  via stdin (never the process list / shell history).
+- Re-run the reminder workflow afterwards — the next green probe closes the
+  open reminder issue. The nightly/PR smoke tests recover on their next run.
+- The client's OAuth client type and credentials live in
+  `.env.gdrive-bootstrap.local` (git-ignored); if they are missing, pass
+  `--client-id`/`--client-secret` explicitly or re-export the env file from
+  Console → APIs & Services → Credentials.
+
+### Non-expiring credentials — options and audience caveat
+
+Three mutually exclusive paths, depending on whether a public audience is
+acceptable for this client:
+
+1. **Publish as In production** (Console → APIs & Services → OAuth consent
+   screen → Publish app) — refresh tokens then no longer auto-expire
+   weekly; no further rotation cadence is needed. The app stays
+   **unverified**, which is acceptable for a test fixture (Google shows an
+   "unverified app" warning during consent).
+   **Audience caveat (important):** for an *External* project the
+   **Test users** allowlist applies **only while the project is in
+   Testing**. After publishing, **any Google Account can authorize this
+   client** — and the client requests `https://www.googleapis.com/auth/drive`,
+   i.e. a consenting user grants access to *their* Drive data. The
+   unverified-app warning does **not** restore the test-user restriction.
+   Choose this path only if a public audience is acceptable.
+2. **Internal project / separate test project** — if non-expiring
+   credentials are needed *without* a public audience, use an eligible
+   **Internal** project (Google Workspace) or a dedicated test
+   project/client instead of publishing this one.
+3. **Keep Testing + weekly rotation** — for a strictly test-only client
+   this is the safest default: retain the Testing status (and thus the
+   test-user allowlist) and follow the rotation procedure above with the
+   reminder workflow.
+
+Caveats:
+
+- Switching the consent screen *back* to Testing **resets the test-users
+  list**, so afterwards the account must be re-added under Test users
+  (otherwise the script fails with `access_denied`).
+- In production, the client becomes subject to Google verification and
+  Workspace controls; an unverified, published client keeps working for
+  consenting users with the already-granted Drive scope.
