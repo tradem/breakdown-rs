@@ -15,6 +15,24 @@ commits (ADR-020 D5).
 
 ## [0.11.0] - Unreleased
 
+### Added — `ai-import.disabled` problem code (issue #422)
+
+- New registered problem code `ai-import.disabled` (status 404,
+  `AI_IMPORT_DISABLED` in the `problem_codes!` registry): the AI import
+  surface refuses calls while `AI_IMPORT_ENABLED` is unset. Previously the
+  three call sites (`POST /ai-import/{scripts,schedules}`, provider/model
+  discovery) overloaded the generic `domain.not-found`, so the client —
+  allowed to branch only on the stable `code`, never `detail` — could not
+  distinguish "feature disabled on this instance" (no retry) from a genuine
+  not-found/transport failure (futile retry card).
+- New `ApiError::FeatureDisabled` variant in the api crate maps to the code
+  (registry-constructed path, no per-handler status mapping).
+- Fluent messages `problem-ai-import-disabled` added (en/de); golden
+  snapshot regenerated; `openapi.yaml` now declares the 404 on the provider
+  and model discovery routes (already declared on the upload routes).
+- **No additional bump:** additive registry/API extension — rides with the
+  open 0.11.0 MINOR (same convention as #409/#423).
+
 ### Fixed — `value_type` overrides drop `Option` nullability (issue #423)
 
 - The bare `#[schema(value_type = String)]` overrides on all seven

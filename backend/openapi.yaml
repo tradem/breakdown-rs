@@ -2701,6 +2701,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
       tags:
       - handlers
   /v1/ai-import/providers/{provider}/models:
@@ -2723,6 +2729,12 @@ paths:
                 type: array
           description: ''
         '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+        '404':
           content:
             application/problem+json:
               schema:
@@ -6614,3 +6626,8 @@ x-code-registry:
   status: 409
   title: AI configuration already revoked
   type: https://docs.breakdown.example/problems/ai-config.already-revoked
+- code: ai-import.disabled
+  extensions: []
+  status: 404
+  title: AI import disabled
+  type: https://docs.breakdown.example/problems/ai-import.disabled

@@ -155,8 +155,20 @@ String aiConfigErrorCopy(ProblemError error) => switch (error.code) {
     'The API key could not be removed from the server vault after the '
         'failed setup. Retry the cleanup from the configuration screen.',
   'provider.unavailable' => 'This provider is unavailable right now.',
-  'ai_config.disabled' => 'AI import is not enabled on this backend.',
+  // Wire code of the backend's `ai-import.disabled` problem (issue #422).
+  // The disabled state is a server configuration, NOT a transient failure —
+  // the UI renders it without a retry affordance.
+  'ai-import.disabled' =>
+    'AI import is not enabled on this instance. This is a server '
+        'configuration — nothing to retry here.',
   _ when error.code.startsWith('transport.') =>
     'Network problem — the change was not applied. Try again.',
   _ => 'The configuration change failed (${error.code}).',
 };
+
+/// True when the backend refused the call because the AI import feature is
+/// disabled on this instance (wire code `ai-import.disabled`, status 404,
+/// issue #422). Distinct from a genuine `domain.not-found`: retrying cannot
+/// fix a feature flag, so the UI must not offer a retry affordance.
+bool isAiImportDisabled(ProblemError error) =>
+    error.code == 'ai-import.disabled';

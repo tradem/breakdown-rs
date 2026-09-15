@@ -767,7 +767,7 @@ async fn ai_config_creation_is_denied_without_the_credential_role() {
 }
 
 #[tokio::test]
-async fn ai_upload_is_not_found_when_the_feature_is_disabled() {
+async fn ai_upload_is_feature_disabled_when_the_feature_is_disabled() {
     let ports = FakePorts::default();
     let block_id = BlockId::from_uuid(Uuid::now_v7());
     let state = AppState::with_ai_import(
@@ -787,7 +787,7 @@ async fn ai_upload_is_not_found_when_the_feature_is_disabled() {
     .expect_err("the disabled feature must hide the route")
     .into_problem();
     assert_eq!(problem.status, StatusCode::NOT_FOUND.as_u16());
-    assert_eq!(problem.code, "domain.not-found");
+    assert_eq!(problem.code, "ai-import.disabled");
     // Detail is localized (ADR-031 D5); the code is the contract.
     assert!(!problem.detail.is_empty());
 }

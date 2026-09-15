@@ -4364,7 +4364,7 @@ async fn enqueue_ai_upload<P: Ports>(
     kind: DocumentKind,
 ) -> ApiResult<AiImportJobId> {
     if !state.ai_import_enabled {
-        return Err(ApiError::NotFound("AI import is disabled"));
+        return Err(ApiError::FeatureDisabled("AI import is disabled"));
     }
     // Capture the declared document format from the upload's Content-Type so
     // the worker can route CSV natively and PDF/plain-text through the LLM
@@ -5082,7 +5082,7 @@ pub struct AiProviderInfo {
 #[utoipa::path(
     get,
     path = "/ai-import/providers",
-    responses((status = 200, body = [AiProviderInfo]), (status = 403, body = ProblemDetails))
+    responses((status = 200, body = [AiProviderInfo]), (status = 404, body = ProblemDetails), (status = 403, body = ProblemDetails))
 )]
 pub async fn list_ai_providers<P: Ports>(
     State(state): State<AppState<P>>,
@@ -5101,7 +5101,7 @@ pub async fn list_ai_providers<P: Ports>(
         ));
     }
     if !state.ai_import_enabled {
-        return Err(ApiError::NotFound("AI import is disabled"));
+        return Err(ApiError::FeatureDisabled("AI import is disabled"));
     }
     Ok((
         StatusCode::OK,
@@ -5122,7 +5122,7 @@ pub async fn list_ai_providers<P: Ports>(
     get,
     path = "/ai-import/providers/{provider}/models",
     params(("provider" = String, Path, description = "Curated provider key")),
-    responses((status = 200, body = [ModelInfo]), (status = 422, body = ProblemDetails), (status = 403, body = ProblemDetails))
+    responses((status = 200, body = [ModelInfo]), (status = 422, body = ProblemDetails), (status = 404, body = ProblemDetails), (status = 403, body = ProblemDetails))
 )]
 pub async fn list_ai_models<P: Ports>(
     State(state): State<AppState<P>>,
@@ -5139,7 +5139,7 @@ pub async fn list_ai_models<P: Ports>(
         return Err(ApiError::Forbidden("not authorized to discover AI models"));
     }
     if !state.ai_import_enabled {
-        return Err(ApiError::NotFound("AI import is disabled"));
+        return Err(ApiError::FeatureDisabled("AI import is disabled"));
     }
     let provider = parse_ai_provider(&provider)?;
     Ok((StatusCode::OK, Json(infra::ai::curated_models(provider))))

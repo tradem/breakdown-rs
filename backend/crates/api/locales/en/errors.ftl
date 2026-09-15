@@ -29,6 +29,9 @@ problem-ai-config-not-found =
 problem-ai-config-provider-mismatch =
     The AI provider cannot be changed.
 
+problem-ai-import-disabled =
+    AI import is not enabled on this instance.
+
 problem-auth-idp-unavailable =
     The identity provider is currently unavailable.
 

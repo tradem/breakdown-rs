@@ -1,0 +1,7 @@
+{
+  "code": "ai-import.disabled",
+  "detail": "Der KI-Import ist auf dieser Instanz nicht aktiviert.",
+  "status": 404,
+  "title": "AI import disabled",
+  "type": "https://docs.breakdown.example/problems/ai-import.disabled"
+}

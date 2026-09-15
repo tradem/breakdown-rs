@@ -21,10 +21,10 @@ use axum::http::{StatusCode, header, request::Parts};
 use axum::response::{IntoResponse, Response};
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::{
-    CONCURRENCY_VERSION_MISMATCH, COSTUME_ALREADY_ASSIGNED, DOMAIN_CONFLICT, DOMAIN_FORBIDDEN,
-    DOMAIN_NOT_FOUND, DOMAIN_SERVICE_UNAVAILABLE, DOMAIN_VALIDATION, HTTP_BAD_JSON_BODY,
-    HTTP_BAD_PATH_PARAM, HTTP_BAD_QUERY_PARAM, HTTP_BAD_REQUEST, HTTP_INTERNAL_ERROR,
-    HTTP_PAYLOAD_TOO_LARGE, HTTP_REQUEST_TIMEOUT, HTTP_ROUTE_NOT_FOUND,
+    AI_IMPORT_DISABLED, CONCURRENCY_VERSION_MISMATCH, COSTUME_ALREADY_ASSIGNED, DOMAIN_CONFLICT,
+    DOMAIN_FORBIDDEN, DOMAIN_NOT_FOUND, DOMAIN_SERVICE_UNAVAILABLE, DOMAIN_VALIDATION,
+    HTTP_BAD_JSON_BODY, HTTP_BAD_PATH_PARAM, HTTP_BAD_QUERY_PARAM, HTTP_BAD_REQUEST,
+    HTTP_INTERNAL_ERROR, HTTP_PAYLOAD_TOO_LARGE, HTTP_REQUEST_TIMEOUT, HTTP_ROUTE_NOT_FOUND,
     HTTP_UNSUPPORTED_MEDIA_TYPE, ProblemCode, SCENE_ALREADY_SCHEDULED, SCENE_NOT_SCHEDULED,
     SCENE_SHOOT_ALREADY_LINKED, SCENE_SHOOT_SHOOTING_DAY_WRAPPED,
 };
@@ -290,6 +290,11 @@ pub enum ApiError {
     BadQueryParam(&'static str),
     /// 404 `domain.not-found` (incl. deliberately hidden per the oracle policy).
     NotFound(&'static str),
+    /// 404 `ai-import.disabled` — a feature surface is disabled on this
+    /// instance by configuration (issue #422). Distinct from `NotFound` so
+    /// the client can render a dedicated "not enabled here" state instead
+    /// of a futile retry affordance.
+    FeatureDisabled(&'static str),
     /// 409 `domain.conflict`.
     Conflict(&'static str),
     /// 503 `domain.service-unavailable`.
@@ -350,6 +355,10 @@ impl ApiError {
             ApiError::NotFound(msg) => {
                 tracing::debug!(reason = msg, "rendering not-found problem");
                 problem(DOMAIN_NOT_FOUND).build()
+            }
+            ApiError::FeatureDisabled(msg) => {
+                tracing::debug!(reason = msg, "rendering feature-disabled problem");
+                problem(AI_IMPORT_DISABLED).build()
             }
             ApiError::Conflict(msg) => {
                 tracing::debug!(reason = msg, "rendering conflict problem");

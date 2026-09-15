@@ -29,6 +29,9 @@ problem-ai-config-not-found =
 problem-ai-config-provider-mismatch =
     Der KI-Anbieter kann nicht geändert werden.
 
+problem-ai-import-disabled =
+    Der KI-Import ist auf dieser Instanz nicht aktiviert.
+
 problem-auth-idp-unavailable =
     Der Identitätsanbieter ist derzeit nicht erreichbar.
 
