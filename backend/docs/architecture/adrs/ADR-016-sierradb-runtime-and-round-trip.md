@@ -96,6 +96,35 @@ change, closing task 4.3 of the original `sierradb-runtime-and-round-trip`
 change. Tier-4 tests
 remain excluded from `cargo-mutants` (`.cargo/mutants.toml`).
 
+### 5. Known deviation — Tier-4 bypasses `CommandService` (issue #25)
+
+**Status update (2026-09-15):** as shipped by PR #24, the Tier-4 tests in
+`crates/integration-tests/tests/sierradb_round_trip.rs` do **not** drive a real
+`CommandService` command. They append events directly to SierraDB via `EAPPEND`
+(cborium-CBOR-encoded `SceneEvent` payloads) and then verify the
+`projector → Postgres projection → read query` segments against the real tiers.
+
+**Reason — upstream SierraDB v0.3.1 single-node bug:** the live write path
+(`CommandService` → `EntityActor` → `resync_with_db`) exercises the SierraDB
+read path (`ESCAN` / `ReadStream`), which fails on single-node v0.3.1 with
+`PartitionUnavailable` / `broken pipe` while the write path (`EAPPEND`) works.
+The `EAPPEND`-based tests are a deliberate, documented workaround for that bug.
+
+**Consequence:** the `command →` segment of the Tier-4 chain is not exercised
+against real tiers yet, and latent bugs in that path (e.g. stream-version
+divergence) are masked. The `sierradb-round-trip-testing` requirement to
+drive a real `CommandService` command is **not yet satisfied**; task 4.2/4.3
+"done" marks are provisional.
+
+**Restore condition (tracked in issue #25):** once SierraDB ships a fix for
+the single-node `ESCAN`/`ReadStream` bug — a new release tag built into
+`tqwewe/sierradb` (v0.3.1 is the latest tag as of 2026-09-15; upstream main
+since the tag contains only dependency bumps and unrelated fixes) — restore a
+Tier-4 variant that drives a real `CreateScene` command through
+`CommandService` and verifies the persisted event via a read/`ESCAN`, and
+bump the pinned tag per the upgrade steps in the Consequences section below.
+Until then this deviation stays open and is tracked in issue #25.
+
 ## Alternatives Considered
 
 - **Build-from-source `Dockerfile` as the default:** rejected — upstream image

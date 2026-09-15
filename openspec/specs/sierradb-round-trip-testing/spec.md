@@ -72,3 +72,19 @@ The `crates/integration-tests` crate SHALL provide a second Tier-4 integration t
 - **WHEN** the projector lags any event append in the idempotency test
 - **THEN** the test retries the projection read for a bounded time before failing
 - **AND** on failure it reports the lag explicitly rather than a bare assertion error
+
+## Deviations
+
+### Known deviation: `CommandService` segment not exercised (issue #25)
+
+As implemented (PR #24), the Tier-4 tests append events directly to SierraDB
+via `EAPPEND` and do **not** drive a real `CommandService` command. This is a
+deliberate workaround for the SierraDB v0.3.1 single-node bug where the read
+path (`ESCAN` / `ReadStream` / `resync_with_db`) fails with
+`PartitionUnavailable` / `broken pipe` while the write path (`EAPPEND`) works.
+Consequently the `command →` segment of the chain above is not yet exercised
+against the real tiers and latent bugs in that path are masked. The
+`CommandService`-driven variant SHALL be restored once SierraDB ships a fix
+for the single-node read-path bug (new `tqwewe/sierradb` release tag; v0.3.1
+remains the latest as of 2026-09-15). Tracked in issue #25 and documented in
+ADR-016 §5 — do not mark this requirement satisfied until then.
