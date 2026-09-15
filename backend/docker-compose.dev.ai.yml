@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: omen-alpha (opencode-go)
+
+# AI-import overlay for the host-run dev API (issue #428).
+#
+# The base dev compose (`docker-compose.dev.yml`) keeps Garage internal-only:
+# no host port mapping, and the API binary inside the compose network is the
+# only client. A host-run `cargo run -p api` with `AI_IMPORT_ENABLED=1`
+# therefore fails closed (#181) until durable payload storage is reachable
+# from the host.
+#
+# This overlay publishes the Garage S3 API (:3900) and admin API (:3902) to
+# the host — dev-only plaintext (`REQUIRE_IN_TRANSIT_TLS` stays unset), never
+# acceptable in production (ADR-024). Bucket + access-key provisioning and
+# the generated `.env.dev-ai.local` for the host-run API are handled by
+# `scripts/enable-dev-ai-import.sh`.
+#
+# Usage (from `backend/`):
+#   ./scripts/enable-dev-ai-import.sh          # boot + provision + env file
+#   set -a; . ./.env.dev-ai.local; set +a      # load the generated env
+#   DATABASE_URL=postgres://postgres:postgres@localhost:5432/breakdown \
+#   SIERRADB_URL=redis://127.0.0.1:9090/?protocol=resp3 \
+#   cargo run -p api
+
+services:
+  garage:
+    # Overlay: expose the S3 + admin APIs to the host (dev only). The config
+    # volume, one-shot renderer and exec-form healthcheck come from the base
+    # dev compose.
+    ports:
+      - "3900:3900"
+      - "3902:3902"

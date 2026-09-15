@@ -74,7 +74,9 @@ All three variables (`AI_PAYLOAD_S3_ENDPOINT`, `AI_PAYLOAD_S3_ACCESS_KEY`, `AI_P
 > API **fails to start** to prevent silent data loss.
 
 > **Boot sequence**: Garage must be up and provisioned (bucket + access key) before the API
-> starts. See `docker-compose.dev.yml` for the internal-only Garage service. During first
+> starts. In dev, `./scripts/enable-dev-ai-import.sh` (issue #428) boots the AI overlay
+> (`docker-compose.dev.ai.yml`), provisions the buckets/key and writes `.env.dev-ai.local` for the
+> host-run API; the base dev Garage stays internal-only without the overlay. During first
 > rollout set `PHOTO_GC_DRY_RUN=true` to observe orphan detection logs before enabling deletion.
 
 #### AI payload GC (periodic cleanup)

@@ -793,30 +793,8 @@ async fn shutdown_ai_import(
     // thus the limiter) via the Arc it was spawned with, so joining drops
     // those clones. Bounded so a worker that does not observe the signal
     // within the budget is aborted rather than blocking exit.
-    for mut handle in worker_handles {
-        match tokio::time::timeout(WORKER_JOIN_TIMEOUT, &mut handle).await {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) => {
-                warn!(error = %error, "AI import worker task panicked");
-            }
-            Err(_) => {
-                // Abort, then *await* the handle: joining is what proves the
-                // task (and the permit it holds) was actually dropped, which is
-                // what lets the reclaimer's channel close (issue #214).
-                warn!("AI import worker did not stop within budget; aborting");
-                handle.abort();
-            }
-        }
-        // Always await the handle — including after abort. `is_finished()` may
-        // still read `false` immediately after cancellation, so gating the
-        // await on it would let a worker retain its permit past this point.
-        if let Err(error) = handle.await {
-            // A `Cancelled` error is expected on the abort path; anything
-            // else is a panic that already logged above.
-            if !error.is_cancelled() {
-                warn!(error = %error, "AI import worker task failed");
-            }
-        }
+    for handle in worker_handles {
+        join_worker_with_budget(handle).await;
     }
 
     drop(limiter_arc);
@@ -839,6 +817,41 @@ async fn shutdown_ai_import(
 /// outlives this is aborted (with a warn!) rather than blocking exit.
 const WORKER_JOIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// Join one AI import worker under [`WORKER_JOIN_TIMEOUT`], aborting it if it
+/// outlives the budget.
+///
+/// Poll discipline matters here: on the paths where the timeout future has
+/// already driven the [`tokio::task::JoinHandle`] to completion (the `Ok`
+/// branches), the handle must **not** be awaited again — re-polling a completed
+/// `JoinHandle` panics with "JoinHandle polled after completion" and took down
+/// the whole API on every graceful shutdown that joined a worker normally
+/// (found via issue #428). Only after an `abort()` (timeout elapsed without the
+/// task completing) is the handle still unpolled, so the follow-up `await` is
+/// both safe and required: joining is what proves the task (and the permit it
+/// holds) was actually dropped, which is what lets the reclaimer's channel
+/// close (issue #214). `is_finished()` may still read `false` immediately after
+/// cancellation, so gating the await on it would let a worker retain its permit
+/// past this point.
+async fn join_worker_with_budget(mut handle: tokio::task::JoinHandle<()>) {
+    match tokio::time::timeout(WORKER_JOIN_TIMEOUT, &mut handle).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            warn!(error = %error, "AI import worker task panicked");
+        }
+        Err(_) => {
+            warn!("AI import worker did not stop within budget; aborting");
+            handle.abort();
+            if let Err(error) = handle.await {
+                // A `Cancelled` error is expected on the abort path; anything
+                // else is a task panic.
+                if !error.is_cancelled() {
+                    warn!(error = %error, "AI import worker task failed");
+                }
+            }
+        }
+    }
+}
+
 /// Bound for draining the permit reclaimer during graceful shutdown. The
 /// reclaimer waits for its channel to close, which can hold open past the
 /// worker join if a permit outlives its task; this bounds that tail so exit
@@ -858,4 +871,46 @@ const RECLAIMER_SHUTDOWN_TIMEOUT: std::time::Duration = std::time::Duration::fro
 /// drained.
 pub fn ai_import_shutdown_max_budget() -> std::time::Duration {
     DRAIN_TIMEOUT + 2 * WORKER_JOIN_TIMEOUT + RECLAIMER_SHUTDOWN_TIMEOUT
+}
+
+#[cfg(test)]
+mod shutdown_tests {
+    use super::join_worker_with_budget;
+
+    /// Regression (issue #428): a worker that completes *while* being polled by
+    /// the join-budget timeout used to be awaited a second time, panicking the
+    /// main task with "JoinHandle polled after completion" on every graceful
+    /// shutdown that joined a worker normally.
+    #[tokio::test]
+    async fn join_completed_worker_does_not_panic() {
+        let handle = tokio::spawn(async {});
+        // Let the task run to completion before the join.
+        tokio::task::yield_now().await;
+        join_worker_with_budget(handle).await;
+    }
+
+    /// Same discipline for a worker that panics: the `Ok(Err(..))` branch
+    /// consumes the JoinError during the bounded poll; a second await would
+    /// panic the same way.
+    #[tokio::test]
+    async fn join_panicked_worker_does_not_panic() {
+        // Test-only panic to exercise the `Ok(Err(..))` join path — the
+        // clippy `panic` deny applies to production paths, not tests.
+        #[allow(clippy::panic)] // test-only: deliberate panic payload, not a production path
+        let handle = tokio::spawn(async { panic!("worker boom") });
+        // Wait until the task has panicked and completed.
+        while !handle.is_finished() {
+            tokio::task::yield_now().await;
+        }
+        join_worker_with_budget(handle).await;
+    }
+
+    /// A worker that outlives the budget is aborted and then awaited (the
+    /// post-abort join proves the permit it held was actually dropped —
+    /// issue #214). Must join cleanly, not panic.
+    #[tokio::test]
+    async fn join_stuck_worker_aborts_and_joins() {
+        let handle = tokio::spawn(tokio::time::sleep(std::time::Duration::from_secs(3600)));
+        join_worker_with_budget(handle).await;
+    }
 }

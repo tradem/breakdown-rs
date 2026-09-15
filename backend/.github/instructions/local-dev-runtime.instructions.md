@@ -120,3 +120,53 @@ After seeding, the `.env.idp` file contains:
 
 **Frontend note:** Local frontend dev should configure the OIDC client to point to `https://localhost:3301` for the issuer. The dev CA (`dev-certs/ca.pem`) replaces the placeholder in `frontend-flutter/assets/certs/dev/ca.pem` — copy it there so the Flutter client trusts the dev IdP + API.
 
+
+### Optional: AI import for the host-run dev API (issue #428)
+
+`AI_IMPORT_ENABLED=1` for a **host-run** `cargo run -p api` fails closed (#181)
+until durable payload storage is configured, and the base dev Garage is
+internal-only (no host ports). One command sets everything up:
+
+```bash
+./scripts/enable-dev-ai-import.sh            # boot + provision + env file
+# or: ./scripts/enable-dev-ai-import.sh --run   (also starts the API afterwards)
+```
+
+The script:
+
+1. Boots `docker-compose.dev.yml` + the AI overlay `docker-compose.dev.ai.yml`,
+   which publishes Garage's S3 API (`localhost:3900`) and admin API
+   (`localhost:3902`) to the host — **dev-only plaintext** (`REQUIRE_IN_TRANSIT_TLS`
+   stays unset; never acceptable in production, ADR-024).
+2. Provisions Garage via `docker compose exec` against the bare-binary image
+   (no shell in the image): single-node layout, `costume-photos` +
+   `ai-import-payloads` buckets, and a fixed dev-only S3 key
+   (`GK…` derived deterministically from a dev-only constant — gitleaks-clean
+   by derivation, never valid outside this local dev Garage).
+3. Verifies both ports are reachable from the host.
+4. Writes `.env.dev-ai.local` (git-ignored via `.env.*.local`, chmod 600) with
+   the full env for the host-run API, including `AI_IMPORT_ENABLED=1` and the
+   `AI_PAYLOAD_S3_*` trio — the #181 fail-closed startup gate is *not* weakened;
+   the one-liner simply satisfies it durably.
+
+Then start the API with the generated env:
+
+```bash
+set -a; . ./.env.dev-ai.local; set +a; cargo run -p api
+```
+
+The script is idempotent (existing buckets/keys are tolerated; the env file is
+rewritten deterministically). To reset everything: `docker compose -f
+docker-compose.dev.yml -f docker-compose.dev.ai.yml down -v` (drops the Garage
+volume including the provisioned layout/keys), then re-run the script.
+
+> **Garage config rendering (issue #428 fix):** the base dev compose now
+> renders the Garage TOML via the same `garage-config` one-shot pattern as
+> prod (`scripts/garage-config.sh` mounted into an alpine one-shot, digest
+> pinned). The dev RPC secret default is derived deterministically inside
+> `garage-config.sh` when `$GARAGE_RPC_SECRET` is unset (Garage validates a
+> 32-byte value; a hex literal default would trip gitleaks). Before this, the
+> dev Garage service crash-looped ("Invalid RPC secret key") and its
+> CMD-SHELL healthcheck could never spawn (no shell in the image) — the
+> exec-form healthcheck fixes that too.
+
