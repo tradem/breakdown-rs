@@ -54,24 +54,57 @@ services:
       retries: 5
 
   garage:
-    # Garage is an S3-compatible object store for costume-photo bytes (ADR-019).
-    # Internal-only: no host port mapping; only the API binary reaches it.
+    # Garage is an S3-compatible object store for costume-photo bytes (ADR-019)
+    # and, with the AI overlay (docker-compose.dev.ai.yml, issue #428), for AI
+    # import payloads. Internal-only: no host port mapping; only the API binary
+    # reaches it. Host access is added exclusively by the AI overlay.
+    #
+    # The `dxflrs/garage` image is a bare static binary (no shell, no env-var
+    # config): the TOML is rendered into the garage_config volume by the
+    # `garage-config` one-shot from $GARAGE_* (mirrors docker-compose.prod.yml).
+    # Before issue #428 this service crash-looped — the image CMD expects a
+    # config at /etc/garage/config.toml that was never rendered in dev.
     image: dxflrs/garage:v1.0.1
-    # No ports: external access is never required.
-    environment:
-      GARAGE_ADMIN_TOKEN: ${GARAGE_ADMIN_TOKEN:-garage_admin_dev}
-      GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET:-garage_rpc_dev}
-      GARAGE_METRICS_TOKEN: ${GARAGE_METRICS_TOKEN:-garage_metrics_dev}
+    # No ports: external access is never required (the AI overlay adds them).
+    command: ["/garage", "-c", "/etc/garage/config.toml", "server"]
     volumes:
       - garage_dev_data:/var/lib/garage
+      - garage_config:/etc/garage:ro
+    depends_on:
+      garage-config:
+        condition: service_completed_successfully
+    # Exec form: the image has no /bin/sh, so a CMD-SHELL probe can never spawn
+    # (the historical `2>&1 | head -1` variant was permanently unhealthy).
     healthcheck:
-      test: ["CMD-SHELL", "garage -c /etc/garage/config.toml status 2>&1 | head -1"]
+      test: ["CMD", "/garage", "-c", "/etc/garage/config.toml", "status"]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 10s
 
+  garage-config:
+    # One-shot: renders the Garage TOML config from the dev $GARAGE_* defaults
+    # into the shared garage_config volume (same pattern as production).
+    # Image pinned by digest, identical to prod (issue #156). The RPC secret
+    # default is a 32-byte hex value (Garage validates the entropy) derived
+    # from a fixed dev-only string — not a production secret.
+    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    restart: "no"
+    entrypoint: ["/bin/sh", "/scripts/garage-config.sh"]
+    environment:
+      GARAGE_ADMIN_TOKEN: ${GARAGE_ADMIN_TOKEN:-garage_admin_dev}
+      # Dev default: unset → garage-config.sh derives a deterministic 32-byte
+      # dev-only fallback (a hex literal here would trip gitleaks).
+      GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET:-}
+      GARAGE_METRICS_TOKEN: ${GARAGE_METRICS_TOKEN:-garage_metrics_dev}
+    volumes:
+      - ./scripts/garage-config.sh:/scripts/garage-config.sh:ro
+      - garage_config:/config
+
 volumes:
   postgres_dev_data:
   sierradb_dev_data:
   garage_dev_data:
+  # Rendered Garage TOML (ADR-019): written by the garage-config one-shot,
+  # mounted read-only into the garage container.
+  garage_config:

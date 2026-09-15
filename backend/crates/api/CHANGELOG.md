@@ -15,6 +15,22 @@ commits (ADR-020 D5).
 
 ## [0.10.0] - Unreleased
 
+### Fixed — graceful shutdown joined AI workers twice (found via issue #428)
+
+- `shutdown_ai_import` re-awaited each worker `JoinHandle` after the bounded
+  join-budget timeout had already polled it to completion — a completed
+  `JoinHandle` re-poll panics the main task ("JoinHandle polled after
+  completion"), so every graceful shutdown that joined a worker normally
+  (Ctrl-C with AI import enabled) crashed the API instead of exiting cleanly.
+  The post-abort join (issue #214 permit-drop proof) is unchanged and still
+  happens — only on the abort path, where the handle is genuinely unpolled.
+- The join loop is extracted into `join_worker_with_budget` with three
+  regression tests (normal completion, worker panic, stuck-worker abort).
+- Found while wiring the dev AI-import one-liner (issue #428), which makes
+  AI import trivially reachable in host-run dev sessions.
+- **No additional bump:** behavior bugfix with no public API change — rides
+  with the open 0.10.0 MINOR.
+
 ### Added — `ApiError::FeatureDisabled` variant + `ai-import.disabled` code (issue #422)
 
 - The AI import endpoints (`POST /ai-import/{scripts,schedules}`, provider

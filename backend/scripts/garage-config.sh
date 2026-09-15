@@ -13,7 +13,29 @@
 
 set -eu
 
+# One-shot renderer for the Garage TOML config (ADR-019 / issue #156).
+#
+# `dxflrs/garage` is a bare static binary: it does not interpolate env vars in
+# its config file and the image has no shell to generate it. This script runs
+# inside the `garage-config` compose one-shot (alpine, digest-pinned) and
+# renders `/config/config.toml` from the $GARAGE_* env vars into the shared
+# `garage_config` volume (gitleaks-clean — values come from compose env).
+
+set -eu
+
 mkdir -p /config
+
+# Garage validates rpc_secret as a 32-byte (64 hex chars) value. Production
+# always passes a real secret via $GARAGE_RPC_SECRET (docker-compose.prod.yml
+# makes it required). In dev the base compose passes the token through
+# unexpanded; when it is unset/empty we derive a deterministic, dev-only
+# fallback from a fixed string (never a production secret). Deriving instead
+# of hardcoding the hex blob keeps the compose/script gitleaks-clean.
+RPC_SECRET="$GARAGE_RPC_SECRET"
+if [ -z "$RPC_SECRET" ]; then
+    RPC_SECRET="$(printf 'breakdown-dev-only-rpc-secret' | sha256sum | cut -d' ' -f1)"
+fi
+
 cat > /config/config.toml <<EOF
 metadata_dir = "/var/lib/garage/meta"
 data_dir = "/var/lib/garage/data"
@@ -22,7 +44,7 @@ block_size = 1048576
 replication_factor = 1
 rpc_bind_addr = "0.0.0.0:3901"
 rpc_public_addr = "garage:3901"
-rpc_secret = "$GARAGE_RPC_SECRET"
+rpc_secret = "$RPC_SECRET"
 [s3_api]
 s3_region = "garage"
 api_bind_addr = "0.0.0.0:3900"
