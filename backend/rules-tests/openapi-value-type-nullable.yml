@@ -43,6 +43,13 @@ valid:
     pub struct Plain {
         pub note: Option<String>,
     }
+  - |
+    // Path-qualified honest form is excluded as well.
+    #[derive(utoipa::ToSchema)]
+    pub struct PathQualified {
+        #[schema(value_type = std::option::Option<String>)]
+        pub a: Option<String>,
+    }
 invalid:
   - |
     // Bare String override on an Option field — the issue-#423 lie.
@@ -75,4 +82,26 @@ invalid:
         pub b: Option<f64>,
         #[schema(value_type = bool)]
         pub c: Option<bool>,
+    }
+  - |
+    // Compound attribute with trailing arguments — value_type not last.
+    #[derive(utoipa::ToSchema)]
+    pub struct LyingCompound {
+        #[schema(value_type = String, example = "x")]
+        pub a: Option<String>,
+    }
+  - |
+    // value_type not the first argument of the schema attribute.
+    #[derive(utoipa::ToSchema)]
+    pub struct LyingReordered {
+        #[schema(example = "x", value_type = NaiveDate)]
+        pub b: Option<NaiveDate>,
+    }
+  - |
+    // Custom (non-primitive, non-allowlist) type override — any override
+    // without `Option` drops nullability.
+    #[derive(utoipa::ToSchema)]
+    pub struct LyingCustomType {
+        #[schema(value_type = MyWireAlias)]
+        pub c: Option<MyCustom>,
     }

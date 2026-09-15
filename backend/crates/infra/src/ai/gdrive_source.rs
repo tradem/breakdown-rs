@@ -133,11 +133,97 @@ fn is_supported_document(path: &str) -> bool {
 }
 
 fn map_opendal_error(error: opendal::Error) -> DomainError {
+    // Diagnostics WITHOUT secrets: opendal's full `Display` embeds the
+    // request context, whose URI carries the OAuth `client_secret` and
+    // `refresh_token` query parameters for the token endpoint — those must
+    // never land in logs or job failure records (monorepo secrets rule).
+    // Only the secret-free parts are carried through: the error kind plus
+    // the sanitized message, which holds the upstream response body (e.g.
+    // Google's `{"error": "invalid_grant"}` from an expired refresh token
+    // — see the GDrive CI red on 2026-09-15). The message is untrusted
+    // upstream content that lands in worker logs and the persisted
+    // `last_error` (surfaced by the AI job API), so it is bounded and
+    // credential-scanned before inclusion, mirroring
+    // `sanitize_error_detail` (core/reporting) and `truncate_error`
+    // (infra/reporting).
+    let detail = sanitize_error_detail(format!("{} — {}", error.kind(), error.message()));
     if error.is_temporary() {
-        DomainError::service_unavailable("temporary GDrive storage failure")
+        DomainError::service_unavailable(format!("temporary GDrive storage failure: {detail}"))
     } else if error.kind() == opendal::ErrorKind::NotFound {
         DomainError::not_found("gdrive-document")
     } else {
-        DomainError::validation("GDrive document operation failed")
+        DomainError::validation(format!("GDrive document operation failed: {detail}"))
+    }
+}
+
+/// Strip credential-ish content and bound length so the upstream error body
+/// stays log-safe and persisted-`last_error`-safe (same discipline as
+/// `sanitize_error_detail` in core/reporting/storage.rs). `char`-based
+/// truncation so the bound never splits a multi-byte UTF-8 boundary.
+fn sanitize_error_detail(mut detail: String) -> String {
+    const MAX_CHARS: usize = 256;
+    if detail.chars().count() > MAX_CHARS {
+        detail = detail.chars().take(MAX_CHARS).collect::<String>();
+        detail.push('…');
+    }
+    // Redact wholesale if a credential-ish token slipped into the message —
+    // covers OpenDAL echoing a URL fragment or a provider body containing
+    // token/secret material (the request context with the actual OAuth
+    // parameters is already excluded in map_opendal_error).
+    let lower = detail.to_ascii_lowercase();
+    for needle in ["secret", "password", "token", "bearer ", "akia"] {
+        if lower.contains(needle) {
+            return "redacted upstream error".into();
+        }
+    }
+    detail
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sanitize_error_detail;
+
+    // White-box tests for the mutation-sensitive sanitizer: bounding is
+    // `char`-based (never splits UTF-8), credential-ish needles redact the
+    // whole detail, and the benign upstream body of the issue-#423-class
+    // failure (`invalid_grant`) survives for diagnosability.
+
+    #[test]
+    fn benign_upstream_body_survives() {
+        let detail = sanitize_error_detail(
+            "Unexpected — {\n  \"error\": \"invalid_grant\",\n  \"error_description\": \"Bad Request\"\n}".to_string(),
+        );
+        assert!(detail.contains("invalid_grant"));
+    }
+
+    #[test]
+    fn long_details_are_char_bounded() {
+        // 200 multi-byte chars (600 bytes) → 256 chars + ellipsis, valid UTF-8.
+        let detail = sanitize_error_detail("é".repeat(300));
+        assert_eq!(detail.chars().count(), 257); // 256 + '…'
+    }
+
+    #[test]
+    fn credential_ish_content_is_redacted_wholesale() {
+        for leaky in [
+            "status 401, client_secret=GOCSPX-abcd",
+            "refresh_token=1//04abc…",
+            "Authorization: Bearer ya29.xyz",
+            "aws access key akia lower-case redaction check",
+            "entered password hunter2",
+        ] {
+            assert_eq!(
+                sanitize_error_detail(leaky.to_string()),
+                "redacted upstream error"
+            );
+        }
+    }
+
+    #[test]
+    fn plain_kind_only_detail_is_kept() {
+        assert_eq!(
+            sanitize_error_detail("Unexpected".to_string()),
+            "Unexpected"
+        );
     }
 }

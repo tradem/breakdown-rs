@@ -43,8 +43,17 @@ severity: error
 language: Rust
 rule:
   all:
+    # Any `schema(...)` attribute that carries a `value_type` override, in
+    # any argument position (compound attributes like
+    # `#[schema(value_type = String, example = "...")]` must match too).
     - kind: attribute_item
-      regex: '#\[\s*schema\s*\(\s*value_type\s*=\s*(Vec<[^)]+>|String|bool|NaiveDate|NaiveDateTime|DateTime<[^)]+>|Decimal|Uuid|NonZero[A-Za-z0-9]+|i8|i16|i32|i64|u8|u16|u32|u64|f32|f64|usize|isize)\s*\)\s*\]'
+      regex: '#\[\s*schema\s*\([^]]*\bvalue_type\s*='
+    # … except overrides whose value is itself `Option<…>` (optionally
+    # path-qualified, e.g. `std::option::Option<String>`) — the honest
+    # forms. (The regex crate has no lookahead, so the exclusion lives in
+    # a `not` clause.)
+    - not:
+        regex: 'value_type\s*=\s*(?:[A-Za-z_][A-Za-z0-9_]*::)*Option\s*<'
     - precedes:
         kind: field_declaration
         stopBy: neighbor

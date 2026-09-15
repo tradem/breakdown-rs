@@ -25,6 +25,55 @@ snapshots:
       start: 153
       end: 183
   ? |
+    // Compound attribute with trailing arguments — value_type not last.
+    #[derive(utoipa::ToSchema)]
+    pub struct LyingCompound {
+        #[schema(value_type = String, example = "x")]
+        pub a: Option<String>,
+    }
+  : labels:
+    - source: '#[schema(value_type = String, example = "x")]'
+      style: primary
+      start: 130
+      end: 175
+    - source: Option
+      style: secondary
+      start: 187
+      end: 193
+    - source: Option<String>
+      style: secondary
+      start: 187
+      end: 201
+    - source: 'pub a: Option<String>'
+      style: secondary
+      start: 180
+      end: 201
+  ? |
+    // Custom (non-primitive, non-allowlist) type override — any override
+    // without `Option` drops nullability.
+    #[derive(utoipa::ToSchema)]
+    pub struct LyingCustomType {
+        #[schema(value_type = MyWireAlias)]
+        pub c: Option<MyCustom>,
+    }
+  : labels:
+    - source: '#[schema(value_type = MyWireAlias)]'
+      style: primary
+      start: 172
+      end: 207
+    - source: Option
+      style: secondary
+      start: 219
+      end: 225
+    - source: Option<MyCustom>
+      style: secondary
+      start: 219
+      end: 235
+    - source: 'pub c: Option<MyCustom>'
+      style: secondary
+      start: 212
+      end: 235
+  ? |
     // Date override on an Option field (BlockView start/end date class).
     #[derive(utoipa::ToSchema)]
     pub struct LyingDate {
@@ -100,3 +149,27 @@ snapshots:
       style: secondary
       start: 138
       end: 167
+  ? |
+    // value_type not the first argument of the schema attribute.
+    #[derive(utoipa::ToSchema)]
+    pub struct LyingReordered {
+        #[schema(example = "x", value_type = NaiveDate)]
+        pub b: Option<NaiveDate>,
+    }
+  : labels:
+    - source: '#[schema(example = "x", value_type = NaiveDate)]'
+      style: primary
+      start: 122
+      end: 170
+    - source: Option
+      style: secondary
+      start: 182
+      end: 188
+    - source: Option<NaiveDate>
+      style: secondary
+      start: 182
+      end: 199
+    - source: 'pub b: Option<NaiveDate>'
+      style: secondary
+      start: 175
+      end: 199
