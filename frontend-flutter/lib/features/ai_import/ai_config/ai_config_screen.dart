@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/problem_error.dart';
+import '../../../design/spacing.dart';
 import 'ai_config_controller.dart';
 import 'ai_config_state.dart';
 
@@ -59,7 +60,7 @@ class AiConfigScreen extends ConsumerWidget {
                 key: const Key('ai-config-disabled'),
                 color: Theme.of(context).colorScheme.errorContainer,
                 child: Padding(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(AppSpacing.space12),
                   child: Text(aiConfigErrorCopy(state.discoveryError!)),
                 ),
               )
@@ -71,7 +72,7 @@ class AiConfigScreen extends ConsumerWidget {
                 key: const Key('ai-config-discovery-error'),
                 color: Theme.of(context).colorScheme.errorContainer,
                 child: Padding(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(AppSpacing.space12),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -571,7 +572,7 @@ class _UnresolvedCard extends StatelessWidget {
     key: const Key('ai-config-unresolved'),
     color: Theme.of(context).colorScheme.errorContainer,
     child: Padding(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(AppSpacing.space12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
