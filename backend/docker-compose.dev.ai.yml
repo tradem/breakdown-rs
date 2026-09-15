@@ -29,5 +29,7 @@ services:
     # volume, one-shot renderer and exec-form healthcheck come from the base
     # dev compose.
     ports:
-      - "3900:3900"
-      - "3902:3902"
+      # Loopback-only: the dev credentials are fixed/predictable, so the S3
+      # and admin APIs must never be reachable from the LAN (CodeRabbit #430).
+      - "127.0.0.1:3900:3900"
+      - "127.0.0.1:3902:3902"

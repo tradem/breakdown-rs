@@ -907,8 +907,10 @@ mod shutdown_tests {
 
     /// A worker that outlives the budget is aborted and then awaited (the
     /// post-abort join proves the permit it held was actually dropped —
-    /// issue #214). Must join cleanly, not panic.
-    #[tokio::test]
+    /// issue #214). Must join cleanly, not panic. Paused Tokio time keeps the
+    /// 10 s join budget virtual — the timeout, abort and join path are all
+    /// still exercised.
+    #[tokio::test(start_paused = true)]
     async fn join_stuck_worker_aborts_and_joins() {
         let handle = tokio::spawn(tokio::time::sleep(std::time::Duration::from_secs(3600)));
         join_worker_with_budget(handle).await;

@@ -43,5 +43,6 @@ env) blocked device-testing sessions (#422 context).
 - No env var *semantics* change; no OpenAPI drift; no crate version bumps
   (behavior bugfix rides with the open unreleased 0.10.0).
 - Security posture unchanged: dev-only plaintext Garage ports are an explicit
-  overlay opt-in; ADR-024 `REQUIRE_IN_TRANSIT_TLS` gate untouched; derived
-  dev-only credentials carry a never-reuse-outside-dev note.
+  overlay opt-in and bound to `127.0.0.1` only (never LAN-reachable); ADR-024
+  `REQUIRE_IN_TRANSIT_TLS` gate untouched; derived dev-only credentials carry
+  a never-reuse-outside-dev note.
