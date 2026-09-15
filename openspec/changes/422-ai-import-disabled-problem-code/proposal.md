@@ -74,4 +74,4 @@ a new version. No crate version changed.
 | `core` | 0.11.0 | 0.11.0 | none (rides with open 0.11.0 MINOR) | Additive `AI_IMPORT_DISABLED` registry const; entry under the open `## [0.11.0] - Unreleased` CHANGELOG section |
 | `api` | 0.10.0 | 0.10.0 | none (rides with open 0.10.0 MINOR) | Additive `ApiError::FeatureDisabled` variant; entry under the open `## [0.10.0] - Unreleased` section |
 | `infra` | 0.16.0 | 0.16.0 | none | No infra change |
-| Flutter client | 0.3.0-alpha.3+12 | unchanged | none | Honest-degradation fix under the open 0.3.0 alpha line (ADR-033); no pubspec change, build number is CI-release-owned |
+| Flutter client | 0.3.0-alpha.3+12 | 0.3.0-alpha.4+13 | pre-release increment (fix) | Per merged-PR practice on the alpha line (even fixes bump `+N`); the `version-gate` ships the committed pubspec values, so `+N` must grow before any next release tag |
