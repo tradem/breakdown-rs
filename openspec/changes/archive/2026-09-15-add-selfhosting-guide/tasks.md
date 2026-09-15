@@ -6,7 +6,7 @@
 
 ## 1. Guide
 
-- [ ] 1.1 Write `frontend-flutter/docs/self-hosting.md` covering:
+- [x] 1.1 Write `frontend-flutter/docs/self-hosting.md` covering:
   backend deployment prerequisites (ADR-025 edge, own domain, own IdP —
   ADR-010 / ADR-018; backend ops runbooks), building an instance-owned prod
   APK (`--flavor prod -t lib/main_prod.dart` + `API_BASE`, `OIDC_ISS`,
@@ -20,15 +20,15 @@
 
 ## 2. Link notes
 
-- [ ] 2.1 Add a short "Self-hosting" note to the monorepo root `README.md`
+- [x] 2.1 Add a short "Self-hosting" note to the monorepo root `README.md`
   linking the guide.
-- [ ] 2.2 Replace the template stub in `frontend-flutter/README.md` with a
+- [x] 2.2 Replace the template stub in `frontend-flutter/README.md` with a
   short project note linking the guide and the release docs.
 
 ## 3. Validation
 
-- [ ] 3.1 Verify every technical claim against the code (bootstrap guards,
+- [x] 3.1 Verify every technical claim against the code (bootstrap guards,
   `loadPinnedSecurityContext`, `checkRedirectConsistency`, Gradle signing
   config, `build-release.sh`) and every referenced ADR/spec path exists.
-- [ ] 3.2 Markdown link check (relative paths resolve); gitleaks clean (no
+- [x] 3.2 Markdown link check (relative paths resolve); gitleaks clean (no
   secrets in the guide); SPDX headers present on all touched files.
