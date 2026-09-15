@@ -8,7 +8,7 @@ part of 'block_view.dart';
 
 class _$BlockView extends BlockView {
   @override
-  final String endDate;
+  final String? endDate;
   @override
   final String id;
   @override
@@ -18,7 +18,7 @@ class _$BlockView extends BlockView {
   @override
   final String seriesId;
   @override
-  final String startDate;
+  final String? startDate;
   @override
   final DateTime updatedAt;
   @override
@@ -28,12 +28,12 @@ class _$BlockView extends BlockView {
       (BlockViewBuilder()..update(updates))._build();
 
   _$BlockView._(
-      {required this.endDate,
+      {this.endDate,
       required this.id,
       required this.number,
       required this.seasonId,
       required this.seriesId,
-      required this.startDate,
+      this.startDate,
       required this.updatedAt,
       required this.version})
       : super._();
@@ -159,8 +159,7 @@ class BlockViewBuilder implements Builder<BlockView, BlockViewBuilder> {
   _$BlockView _build() {
     final _$result = _$v ??
         _$BlockView._(
-          endDate: BuiltValueNullFieldError.checkNotNull(
-              endDate, r'BlockView', 'endDate'),
+          endDate: endDate,
           id: BuiltValueNullFieldError.checkNotNull(id, r'BlockView', 'id'),
           number: BuiltValueNullFieldError.checkNotNull(
               number, r'BlockView', 'number'),
@@ -168,8 +167,7 @@ class BlockViewBuilder implements Builder<BlockView, BlockViewBuilder> {
               seasonId, r'BlockView', 'seasonId'),
           seriesId: BuiltValueNullFieldError.checkNotNull(
               seriesId, r'BlockView', 'seriesId'),
-          startDate: BuiltValueNullFieldError.checkNotNull(
-              startDate, r'BlockView', 'startDate'),
+          startDate: startDate,
           updatedAt: BuiltValueNullFieldError.checkNotNull(
               updatedAt, r'BlockView', 'updatedAt'),
           version: BuiltValueNullFieldError.checkNotNull(

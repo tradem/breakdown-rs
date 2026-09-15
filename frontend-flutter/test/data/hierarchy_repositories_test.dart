@@ -224,7 +224,7 @@ class FakeCostumeCategoryRepository extends CostumeCategoryRepository {
 
 void main() {
   group('hierarchy cache schema (2.1)', () {
-    test('schema version is 6 with all projection tables', () async {
+    test('schema version is 7 with all projection tables', () async {
       final db = CacheDatabase(NativeDatabase.memory());
       addTearDown(db.close);
       // `flutter-costume-domains` 1.1 adds the costumes/characters/
@@ -232,8 +232,10 @@ void main() {
       // adds the costume snapshot ordinal (migration v3 → v4);
       // `flutter-shoot-day-execution` 1.2 adds the day-board scene-shoot
       // table (migration v4 → v5); `flutter-ai-import` 1.4 adds the
-      // AI-import job table (migration v5 → v6).
-      expect(db.schemaVersion, 6);
+      // AI-import job table (migration v5 → v6); issue #423 relaxes the
+      // block-date and character-measurement columns to nullable
+      // (migration v6 → v7, TableMigration rebuilds).
+      expect(db.schemaVersion, 7);
       // Every table round-trips (migration created them).
       await BlockCacheDao(db).applySnapshotForSeason('s', [
         _block('b', seasonId: 's'),

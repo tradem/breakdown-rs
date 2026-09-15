@@ -15,6 +15,22 @@ commits (ADR-020 D5).
 
 ## [0.10.0] - Unreleased
 
+### Fixed — OpenAPI nullability for optional `Decimal` / `NaiveDate` fields (issue #423)
+
+- Regenerated `backend/openapi.yaml` after the core fix (issue #423):
+  `CharacterMeasurements` (all seven properties) and `BlockView` /
+  `CreateBlock` / `UpdateBlockTimeSpan` date fields now render as
+  `type: [string, 'null']` and are no longer listed under `required` —
+  the wire contract now matches the runtime serialization (`None` → JSON
+  `null`). The previously dishonest, non-nullable contract broke the
+  generated Dart client on every character list read with unset
+  measurements.
+- The regenerated `vendor/breakdown_api` Dart client (frontend-flutter)
+  now declares `String?` for all affected fields and omits nulls on
+  serialize.
+- **No additional bump:** artifact + generated-client change only — the
+  public Rust API is unchanged; rides with the open 0.10.0 MINOR.
+
 ### Added — `GET /v1/ops/projector-health` ops endpoint (issue #409)
 
 - New deployment-scoped ops surface over the #37 dead-letter + checkpoint

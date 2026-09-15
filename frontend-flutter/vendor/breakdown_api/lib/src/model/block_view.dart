@@ -24,7 +24,7 @@ part 'block_view.g.dart';
 @BuiltValue()
 abstract class BlockView implements Built<BlockView, BlockViewBuilder> {
   @BuiltValueField(wireName: r'end_date')
-  String get endDate;
+  String? get endDate;
 
   @BuiltValueField(wireName: r'id')
   String get id;
@@ -41,7 +41,7 @@ abstract class BlockView implements Built<BlockView, BlockViewBuilder> {
   String get seriesId;
 
   @BuiltValueField(wireName: r'start_date')
-  String get startDate;
+  String? get startDate;
 
   @BuiltValueField(wireName: r'updated_at')
   DateTime get updatedAt;
@@ -73,11 +73,13 @@ class _$BlockViewSerializer implements PrimitiveSerializer<BlockView> {
     BlockView object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    yield r'end_date';
-    yield serializers.serialize(
-      object.endDate,
-      specifiedType: const FullType(String),
-    );
+    if (object.endDate != null) {
+      yield r'end_date';
+      yield serializers.serialize(
+        object.endDate,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
     yield r'id';
     yield serializers.serialize(
       object.id,
@@ -98,11 +100,13 @@ class _$BlockViewSerializer implements PrimitiveSerializer<BlockView> {
       object.seriesId,
       specifiedType: const FullType(String),
     );
-    yield r'start_date';
-    yield serializers.serialize(
-      object.startDate,
-      specifiedType: const FullType(String),
-    );
+    if (object.startDate != null) {
+      yield r'start_date';
+      yield serializers.serialize(
+        object.startDate,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
     yield r'updated_at';
     yield serializers.serialize(
       object.updatedAt,
@@ -141,8 +145,9 @@ class _$BlockViewSerializer implements PrimitiveSerializer<BlockView> {
         case r'end_date':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(String),
-          ) as String;
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
           result.endDate = valueDes;
           break;
         case r'id':
@@ -176,8 +181,9 @@ class _$BlockViewSerializer implements PrimitiveSerializer<BlockView> {
         case r'start_date':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(String),
-          ) as String;
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
           result.startDate = valueDes;
           break;
         case r'updated_at':

@@ -33,8 +33,11 @@ class BlockCacheDao {
         number: view.number,
         seasonId: view.seasonId,
         seriesId: view.seriesId,
-        startDate: view.startDate,
-        endDate: view.endDate,
+        // Nullable since issue #423 (unset dates serialize as JSON null):
+        // wrapped in `Value` so an explicit null is stored, not the column
+        // default.
+        startDate: Value(view.startDate),
+        endDate: Value(view.endDate),
         updatedAt: view.updatedAt,
         version: view.version,
         cachedAt: cachedAt,

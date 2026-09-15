@@ -379,7 +379,9 @@ components:
         `updated_at` is sourced from the timestamp of the last applied `BlockEvent`.
       properties:
         end_date:
-          type: string
+          type:
+          - string
+          - 'null'
         id:
           format: uuid
           type: string
@@ -391,7 +393,9 @@ components:
         series_id:
           $ref: '#/components/schemas/SeriesId'
         start_date:
-          type: string
+          type:
+          - string
+          - 'null'
         updated_at:
           format: date-time
           type: string
@@ -403,8 +407,6 @@ components:
       - season_id
       - series_id
       - number
-      - start_date
-      - end_date
       - version
       - updated_at
       type: object
@@ -428,27 +430,33 @@ components:
       description: Payload for measurement fields updated as a God-Command.
       properties:
         chest:
-          type: string
+          type:
+          - string
+          - 'null'
         hat_size:
-          type: string
+          type:
+          - string
+          - 'null'
         height:
-          type: string
+          type:
+          - string
+          - 'null'
         hips:
-          type: string
+          type:
+          - string
+          - 'null'
         shoe_size:
-          type: string
+          type:
+          - string
+          - 'null'
         waist:
-          type: string
+          type:
+          - string
+          - 'null'
         weight:
-          type: string
-      required:
-      - shoe_size
-      - hat_size
-      - height
-      - weight
-      - chest
-      - waist
-      - hips
+          type:
+          - string
+          - 'null'
       type: object
     CharacterView:
       description: |-

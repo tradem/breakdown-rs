@@ -86,7 +86,7 @@ final class AiJobStatusControllerProvider
 }
 
 String _$aiJobStatusControllerHash() =>
-    r'130956e28ebd51126fa76a175731c5bf4dd13662';
+    r'd43b6c8d830217b083ea50f9b47da77fe294cac9';
 
 /// The job-status controller (`flutter-ai-import-workflow` task 3.2).
 ///
@@ -235,7 +235,7 @@ final class AiJobContextProvider
   }
 }
 
-String _$aiJobContextHash() => r'834863260818c48cd421a76ae482211fb53df9ea';
+String _$aiJobContextHash() => r'2e2fe5688debb4d6ff20f898c17d547682a7c6b8';
 
 /// The persisted apply context of a cached job row (design §2.3): the
 /// apply navigation reads the episode/series from HERE, never from the

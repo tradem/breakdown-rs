@@ -212,13 +212,16 @@ class CharacterCacheDao {
     category:
         serializers.serializeWith(CharacterCategory.serializer, view.category)!
             as String,
-    height: view.measurements.height,
-    weight: view.measurements.weight,
-    chest: view.measurements.chest,
-    waist: view.measurements.waist,
-    hips: view.measurements.hips,
-    shoeSize: view.measurements.shoeSize,
-    hatSize: view.measurements.hatSize,
+    // Nullable since issue #423 (unset measurements serialize as JSON
+    // null): wrapped in `Value` so an explicit null is stored, not the
+    // column default.
+    height: Value(view.measurements.height),
+    weight: Value(view.measurements.weight),
+    chest: Value(view.measurements.chest),
+    waist: Value(view.measurements.waist),
+    hips: Value(view.measurements.hips),
+    shoeSize: Value(view.measurements.shoeSize),
+    hatSize: Value(view.measurements.hatSize),
     email: Value(view.contact.email),
     phone: Value(view.contact.phone),
     updatedAt: view.updatedAt,

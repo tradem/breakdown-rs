@@ -14,19 +14,24 @@ use crate::shared::{AggregateVersion, SeasonId};
 /// Payload for measurement fields updated as a God-Command.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, ToSchema)]
 pub struct CharacterMeasurements {
-    #[schema(value_type = String)]
+    // value_type must carry `Option` nullability (issue #423): a bare
+    // `value_type = String` override drops `Option`'s nullable flag, so the
+    // generated client declares non-nullable fields while the runtime
+    // serializes `None` as JSON `null` — the deserializer then throws on
+    // every character with unset measurements.
+    #[schema(value_type = Option<String>)]
     pub shoe_size: Option<Decimal>,
-    #[schema(value_type = String)]
+    #[schema(value_type = Option<String>)]
     pub hat_size: Option<Decimal>,
-    #[schema(value_type = String)]
+    #[schema(value_type = Option<String>)]
     pub height: Option<Decimal>,
-    #[schema(value_type = String)]
+    #[schema(value_type = Option<String>)]
     pub weight: Option<Decimal>,
-    #[schema(value_type = String)]
+    #[schema(value_type = Option<String>)]
     pub chest: Option<Decimal>,
-    #[schema(value_type = String)]
+    #[schema(value_type = Option<String>)]
     pub waist: Option<Decimal>,
-    #[schema(value_type = String)]
+    #[schema(value_type = Option<String>)]
     pub hips: Option<Decimal>,
 }
 
