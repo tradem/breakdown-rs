@@ -81,6 +81,18 @@ releases are cut as `flutter-vX.Y.Z` tags.
 
 ### Fixed
 
+- Wrapped-day finality copy on execution 409 (issue #376):
+  `sceneShootErrorCopy` branches on the backend's new wire code
+  `scene-shoot.shooting-day-wrapped` (409) with the same finality narrative
+  as the wrapped-board banner ("This day is wrapped — execution is final and
+  read-only."). The board already gates execution controls proactively when
+  `wrapped_at` is set; this covers the 409 that slips past that gate when
+  the day is wrapped concurrently (other device / projector lag) — copy
+  keyed on `code`, never the server `detail`. Planning (Soll) stays enabled
+  on a wrapped day, matching the contract's plan-201/execution-409 split.
+- **Version bump:** `0.3.0-alpha.4+13 → 0.3.0-alpha.5+14` (pre-release
+  increment per merged-PR practice on the alpha line; `+N` stays strictly
+  monotonic for the Play `versionCode`).
 - AI import disabled state is honest (issue #422): the AI configuration
   screen now branches on the backend's new wire code `ai-import.disabled`
   (status 404, emitted instead of the overloaded generic

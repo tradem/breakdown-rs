@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3 (opencode)
+// Co-authored-by: omen-alpha (opencode-go)
 
 import 'dart:async';
 import 'dart:typed_data';
@@ -211,6 +212,11 @@ class SceneShootsCommandError extends _$SceneShootsCommandError {
 String sceneShootErrorCopy(ProblemError error) => switch (error.code) {
   'concurrency.conflict' || 'scene_shoot.version_conflict' =>
     'Changed elsewhere — refresh and try again.',
+  'scene-shoot.shooting-day-wrapped' =>
+    // Wrap finality (issue #376): a frozen execution command 409ed because
+    // the day was wrapped concurrently (other device / projector lag). Same
+    // narrative as the wrapped board banner.
+    'This day is wrapped — execution is final and read-only.',
   'photo.forbidden' ||
   'authz.denied' => 'You need an active costume role in this season.',
   'membership.pending' =>

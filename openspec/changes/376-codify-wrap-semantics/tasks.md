@@ -63,3 +63,9 @@
 
 - [x] 5.1 Regenerate the Dart client if `scripts/regen-client.sh` output
       differs from the committed tree.
+- [x] 5.2 Client-side keyed copy for the new problem code:
+      `sceneShootErrorCopy` branches on `scene-shoot.shooting-day-wrapped`
+      with the finality narrative (same as the wrapped-board banner), so a
+      409 that slips past the proactive read-only gating (concurrent wrap,
+      projector lag) surfaces the finality copy instead of the generic
+      fallback. Unit + controller tests assert the branch.

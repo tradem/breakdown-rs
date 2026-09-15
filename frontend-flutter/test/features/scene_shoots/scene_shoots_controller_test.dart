@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3 (opencode)
+// Co-authored-by: omen-alpha (opencode-go)
 
 // Controller tests (`flutter-shoot-day-execution` 2.1, closing the 1.1
 // local-denial proof): execution commands dispatch with version echoes +
@@ -449,6 +450,26 @@ void main() {
       expect(
         sceneShootErrorCopy(const ProblemError(code: 'concurrency.conflict')),
         contains('Changed elsewhere'),
+      );
+    });
+
+    test('post-wrap execution 409 surfaces the finality copy', () async {
+      await setupContainer(initialRows: [_shoot('ssh-1')]);
+      repo.nextWrite = const Left(
+        ProblemError(code: 'scene-shoot.shooting-day-wrapped'),
+      );
+      final res = await controller().start(shoot: _shoot('ssh-1'));
+      expect(res.isLeft(), isTrue);
+      expect(
+        container.read(sceneShootsCommandErrorProvider(_scope))?.code,
+        'scene-shoot.shooting-day-wrapped',
+      );
+      expect(container.read(sceneShootsOverlaysProvider(_scope)), isEmpty);
+      expect(
+        sceneShootErrorCopy(
+          const ProblemError(code: 'scene-shoot.shooting-day-wrapped'),
+        ),
+        'This day is wrapped — execution is final and read-only.',
       );
     });
   });
