@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/problem_error.dart';
+import '../../../design/spacing.dart';
 import 'ai_config_controller.dart';
 import 'ai_config_state.dart';
 
@@ -50,31 +51,45 @@ class AiConfigScreen extends ConsumerWidget {
               onDismiss: controller.dismissCommandError,
             ),
           if (state.discoveryError != null && state.config == null)
-            // Failed discovery is NOT "no config exists": rendering the
-            // first-run form here would let the user create a SECOND
-            // credential. The honest state is a retry affordance.
-            Card(
-              key: const Key('ai-config-discovery-error'),
-              color: Theme.of(context).colorScheme.errorContainer,
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'The configuration could not be loaded '
-                      '(${state.discoveryError!.code}).',
-                    ),
-                    const SizedBox(height: 8),
-                    OutlinedButton(
-                      key: const Key('ai-config-discovery-retry'),
-                      onPressed: controller.refresh,
-                      child: const Text('Retry'),
-                    ),
-                  ],
+            if (isAiImportDisabled(state.discoveryError!))
+              // Feature disabled on this instance (wire code
+              // `ai-import.disabled`, issue #422): NOT a load failure —
+              // retrying cannot fix a server configuration flag. Dedicated
+              // honest state WITHOUT a retry affordance.
+              Card(
+                key: const Key('ai-config-disabled'),
+                color: Theme.of(context).colorScheme.errorContainer,
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.space12),
+                  child: Text(aiConfigErrorCopy(state.discoveryError!)),
                 ),
-              ),
-            )
+              )
+            else
+              // Failed discovery is NOT "no config exists": rendering the
+              // first-run form here would let the user create a SECOND
+              // credential. The honest state is a retry affordance.
+              Card(
+                key: const Key('ai-config-discovery-error'),
+                color: Theme.of(context).colorScheme.errorContainer,
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.space12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'The configuration could not be loaded '
+                        '(${state.discoveryError!.code}).',
+                      ),
+                      const SizedBox(height: 8),
+                      OutlinedButton(
+                        key: const Key('ai-config-discovery-retry'),
+                        onPressed: controller.refresh,
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                ),
+              )
           else if (state.isFirstRun)
             _FirstRunForm(state: state)
           else
@@ -231,15 +246,21 @@ class _ProviderPicker extends ConsumerWidget {
         children: [
           Text(
             key: const Key('ai-providers-degraded'),
-            error is ProblemError && error.status == 404
+            error is ProblemError && isAiImportDisabled(error)
+                ? aiConfigErrorCopy(error)
+                : error is ProblemError && error.status == 404
                 ? aiConfigErrorCopy(error)
                 : 'Providers could not be loaded.',
           ),
-          TextButton(
-            key: const Key('ai-providers-retry'),
-            onPressed: controller.refresh,
-            child: const Text('Retry'),
-          ),
+          // The disabled state is a server configuration, not a transient
+          // failure (issue #422): no retry affordance — retrying cannot
+          // flip the backend's feature flag.
+          if (!(error is ProblemError && isAiImportDisabled(error)))
+            TextButton(
+              key: const Key('ai-providers-retry'),
+              onPressed: controller.refresh,
+              child: const Text('Retry'),
+            ),
         ],
       ),
       _ => const SizedBox(
@@ -551,7 +572,7 @@ class _UnresolvedCard extends StatelessWidget {
     key: const Key('ai-config-unresolved'),
     color: Theme.of(context).colorScheme.errorContainer,
     child: Padding(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(AppSpacing.space12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

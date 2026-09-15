@@ -313,6 +313,53 @@ void main() {
     await tester.pump();
   });
 
+  testWidgets('AI import disabled on this instance (wire code '
+      'ai-import.disabled): dedicated state WITHOUT a retry affordance — '
+      'retrying cannot fix a server feature flag (issue #422)', (tester) async {
+    await setupContainer(
+      discoveryValue: const Left(
+        ProblemError(code: 'ai-import.disabled', status: 404),
+      ),
+    );
+    await pumpScreen(tester);
+
+    // The dedicated disabled card renders (not the generic retry card).
+    expect(find.byKey(const Key('ai-config-disabled')), findsOneWidget);
+    expect(find.byKey(const Key('ai-config-discovery-error')), findsNothing);
+    expect(
+      find.byKey(const Key('ai-config-discovery-retry')),
+      findsNothing,
+      reason: 'no retry affordance while the feature flag is off',
+    );
+    expect(find.byKey(const Key('ai-config-first-run')), findsNothing);
+    // Code-keyed copy, never the server detail (AGENTS.md §5).
+    expect(
+      find.textContaining('AI import is not enabled on this instance'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('provider discovery refused with the disabled code: the '
+      'picker degrades to the disabled copy WITHOUT a retry button '
+      '(issue #422)', (tester) async {
+    await setupContainer(
+      providersValue: const Left(
+        ProblemError(code: 'ai-import.disabled', status: 404),
+      ),
+    );
+    await pumpScreen(tester);
+
+    expect(
+      find.textContaining('AI import is not enabled on this instance'),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('ai-providers-retry')),
+      findsNothing,
+      reason: 'retrying cannot flip the backend feature flag',
+    );
+  });
+
   testWidgets('the optional image model can be CLEARED ("none") — the '
       'explicit null is honoured, not fallen back to the configured value '
       '(review)', (tester) async {

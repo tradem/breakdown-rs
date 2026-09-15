@@ -35,7 +35,7 @@ pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
 /// Kept in sync with the `problem_codes!` invocation below by a compile-time
 /// assertion — adding or removing a code without deliberately updating this
 /// count fails the build (issue #232).
-const PROBLEM_CODE_COUNT: usize = 77;
+const PROBLEM_CODE_COUNT: usize = 78;
 
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -780,6 +780,18 @@ problem_codes! {
         code: "ai-config.already-revoked",
         status: 409,
         title: "AI configuration already revoked",
+        extensions: &[],
+    },
+
+    /// 404 — the AI import feature is disabled on this instance
+    /// (`AI_IMPORT_ENABLED` unset). Distinct from `domain.not-found` so the
+    /// client can branch on the stable `code` and render a dedicated
+    /// "not enabled here" state (no retry affordance) instead of the
+    /// futile retry card (issue #422).
+    AI_IMPORT_DISABLED {
+        code: "ai-import.disabled",
+        status: 404,
+        title: "AI import disabled",
         extensions: &[],
     },
 

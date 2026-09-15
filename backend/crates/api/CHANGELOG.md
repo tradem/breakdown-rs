@@ -15,6 +15,21 @@ commits (ADR-020 D5).
 
 ## [0.10.0] - Unreleased
 
+### Added — `ApiError::FeatureDisabled` variant + `ai-import.disabled` code (issue #422)
+
+- The AI import endpoints (`POST /ai-import/{scripts,schedules}`, provider
+  and model discovery) return 404 `ai-import.disabled` instead of the
+  overloaded generic `domain.not-found` when `AI_IMPORT_ENABLED` is unset —
+  the client can now branch on the stable `code` and render a dedicated
+  "not enabled here" state without a futile retry affordance (issue #422).
+- New `ApiError::FeatureDisabled(&'static str)` variant maps to the new
+  registry code through the single problem builder; the three handler call
+  sites switched, the disabled-state test now asserts the code, and
+  `openapi.yaml` declares the 404 on the two discovery routes (regenerated,
+  drift-checked).
+- **No additional bump:** additive public-API extension — rides with the
+  open 0.10.0 MINOR.
+
 ### Fixed — OpenAPI nullability for optional `Decimal` / `NaiveDate` fields (issue #423)
 
 - Regenerated `backend/openapi.yaml` after the core fix (issue #423):

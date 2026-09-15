@@ -81,6 +81,20 @@ releases are cut as `flutter-vX.Y.Z` tags.
 
 ### Fixed
 
+- AI import disabled state is honest (issue #422): the AI configuration
+  screen now branches on the backend's new wire code `ai-import.disabled`
+  (status 404, emitted instead of the overloaded generic
+  `domain.not-found` when `AI_IMPORT_ENABLED` is unset) and renders a
+  dedicated "AI import is not enabled on this instance" card WITHOUT a
+  retry affordance — retrying cannot flip a server feature flag. Genuine
+  discovery/transport failures keep the retry card. Provider-picker
+  degradation shows the disabled copy and hides the retry button on the
+  same code (copy keyed on `code`, never the server `detail`).
+- **Version bump:** `0.3.0-alpha.3+12 → 0.3.0-alpha.4+13` (pre-release
+  increment per merged-PR practice on the alpha line; `+N` stays strictly
+  monotonic for the Play `versionCode` — the `version-gate` ships the
+  committed pubspec values, CI gates format/monotonicity but does not
+  auto-bump).
 - Seasons list fetch wired to the backend (issue #377): `seasonsListFetch`
   calls `GET /v1/seasons` via `SeasonRepository.fetchSeasonsList` (regenerated
   `vendor/breakdown_api`) instead of short-circuiting with
