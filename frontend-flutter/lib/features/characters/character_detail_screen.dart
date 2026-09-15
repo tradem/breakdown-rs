@@ -261,14 +261,16 @@ class _MeasurementsSectionState extends ConsumerState<_MeasurementsSection> {
 
   String _value(String key) {
     final m = widget.character.measurements;
+    // Nullable since issue #423 (backend serializes unset measurements as
+    // JSON null): render null as an empty form field.
     return switch (key) {
-      'height' => m.height,
-      'weight' => m.weight,
-      'chest' => m.chest,
-      'waist' => m.waist,
-      'hips' => m.hips,
-      'shoeSize' => m.shoeSize,
-      'hatSize' => m.hatSize,
+      'height' => m.height ?? '',
+      'weight' => m.weight ?? '',
+      'chest' => m.chest ?? '',
+      'waist' => m.waist ?? '',
+      'hips' => m.hips ?? '',
+      'shoeSize' => m.shoeSize ?? '',
+      'hatSize' => m.hatSize ?? '',
       _ => '',
     };
   }

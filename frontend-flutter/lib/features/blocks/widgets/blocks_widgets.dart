@@ -24,7 +24,9 @@ class BlockTile extends StatelessWidget {
         key: Key('block-${block.id}'),
         minTileHeight: 48,
         title: Text('Block ${block.number}'),
-        subtitle: Text('${block.startDate} – ${block.endDate}'),
+        // Nullable since issue #423 (unset dates arrive as JSON null):
+        // render a placeholder dash instead of the literal 'null'.
+        subtitle: Text('${block.startDate ?? '–'} – ${block.endDate ?? '–'}'),
         trailing: const Icon(Icons.chevron_right),
         onTap: onTap,
       ),

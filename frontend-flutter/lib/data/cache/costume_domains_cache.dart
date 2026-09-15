@@ -84,14 +84,15 @@ class CharacterCacheRows extends Table {
   /// unknown variants strictly reject at parse time, never guessed).
   TextColumn get category => text()();
 
-  /// Flattened `CharacterMeasurements` (all seven required strings).
-  TextColumn get height => text()();
-  TextColumn get weight => text()();
-  TextColumn get chest => text()();
-  TextColumn get waist => text()();
-  TextColumn get hips => text()();
-  TextColumn get shoeSize => text()();
-  TextColumn get hatSize => text()();
+  /// Flattened `CharacterMeasurements` (all seven strings; nullable since
+  /// issue #423 — the backend serializes unset measurements as JSON null).
+  TextColumn get height => text().nullable()();
+  TextColumn get weight => text().nullable()();
+  TextColumn get chest => text().nullable()();
+  TextColumn get waist => text().nullable()();
+  TextColumn get hips => text().nullable()();
+  TextColumn get shoeSize => text().nullable()();
+  TextColumn get hatSize => text().nullable()();
 
   /// Flattened `ContactInfo` (both nullable).
   TextColumn get email => text().nullable()();

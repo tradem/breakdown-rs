@@ -1,0 +1,56 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: omen-alpha (opencode-go)
+
+# OpenAPI `value_type` override must carry `Option` nullability (issue #423).
+#
+# A bare `#[schema(value_type = String)]` (or any non-Option override) on an
+# `Option<T>` field makes utoipa emit a REQUIRED, NON-NULLABLE property even
+# though the runtime serializes `None` as JSON `null`. The generated Dart
+# client (dart-dio/built_value) faithfully declares non-nullable fields and
+# then throws on every response carrying an unset value — the characters list
+# was unusable for every freshly created character because of exactly this
+# lie (`null as String`), and `BlockView.start_date`/`end_date` carried the
+# same pending crash class.
+#
+# The OpenAPI drift check cannot catch this class of bug: both sides of the
+# drift (checked-in schema and runtime serialization) derive from the same
+# Rust attribute. This structural gate is the prevention.
+#
+# Scope: struct fields (`field_declaration`) whose type is `Option<…>` and
+# which carry a `schema(value_type = …)` override that does NOT itself
+# include `Option` (the regex enumerates the override spellings seen in
+# practice; `value_type = Option<String>` / `Option<Vec<String>>` are the
+# honest forms and do not match).
+#
+# A genuine non-nullable contract (e.g. a serialized enum never serializes
+# null) requires no suppression here — just don't write the field as
+# `Option<T>`. If the override must stay non-Option for a documented reason,
+# suppress with an explicit:
+#   // ast-grep-ignore: openapi-value-type-nullable
+# on the field line, carrying a justification comment above it.
+id: openapi-value-type-nullable
+message: >-
+  `schema(value_type = …)` override without `Option` on an `Option<T>` field:
+  the override drops `Option`'s nullability, so openapi.yaml declares the
+  property required and non-nullable while the runtime serializes `None` as
+  JSON `null` — the generated Dart client then throws on every such response
+  (issue #423: characters screen broken for all fresh characters). Use
+  `value_type = Option<String>` (mirroring the field's `Option<…>`), or
+  suppress with `// ast-grep-ignore: openapi-value-type-nullable` plus a
+  justification above the field.
+severity: error
+language: Rust
+rule:
+  all:
+    - kind: attribute_item
+      regex: '#\[\s*schema\s*\(\s*value_type\s*=\s*(Vec<[^)]+>|String|bool|NaiveDate|NaiveDateTime|DateTime<[^)]+>|Decimal|Uuid|NonZero[A-Za-z0-9]+|i8|i16|i32|i64|u8|u16|u32|u64|f32|f64|usize|isize)\s*\)\s*\]'
+    - precedes:
+        kind: field_declaration
+        stopBy: neighbor
+        has:
+          kind: generic_type
+          stopBy: end
+          has:
+            kind: type_identifier
+            regex: '^Option$'

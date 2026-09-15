@@ -15,6 +15,25 @@ commits (ADR-020 D5).
 
 ## [0.11.0] - Unreleased
 
+### Fixed — `value_type` overrides drop `Option` nullability (issue #423)
+
+- The bare `#[schema(value_type = String)]` overrides on all seven
+  `CharacterMeasurements` fields and on the `Option<NaiveDate>` block fields
+  (`BlockView.start_date`/`end_date`, `CreateBlock`, `UpdateBlockTimeSpan`)
+  made utoipa emit **required, non-nullable** properties while the runtime
+  serializes `None` as JSON `null` — the generated Dart client threw
+  `null as String` on every character with unset measurements (the
+  characters list was unusable for all freshly created characters). All 13
+  overrides now carry `value_type = Option<String>` so the rendered schema
+  is nullable and the properties are optional.
+- New guard test `crates/core/tests/schema_nullability_guard.rs` renders the
+  utoipa schemas and asserts nullability/optionality of every affected
+  `Option<…>` property; a new ast-grep rule
+  (`rules/openapi-value-type-nullable.yml`) fails on any recurrence.
+- **No additional bump:** attribute-only change — the public Rust API
+  (types, signatures, serde wire form) is unchanged; rides with the open
+  0.11.0 MINOR.
+
 ### Added — deployment-scoped ops capability (issue #409)
 
 - `membership::Role::OpsAdmin` (additive enum extension, token `ops_admin`):

@@ -19,9 +19,11 @@ pub struct BlockView {
     pub season_id: SeasonId,
     pub series_id: SeriesId,
     pub number: i32,
-    #[schema(value_type = String)]
+    // value_type must carry `Option` nullability (issue #423) — a bare
+    // `value_type = String` override drops `Option`'s nullable flag.
+    #[schema(value_type = Option<String>)]
     pub start_date: Option<NaiveDate>,
-    #[schema(value_type = String)]
+    #[schema(value_type = Option<String>)]
     pub end_date: Option<NaiveDate>,
     /// Aggregate version for optimistic-locking round-trips.
     pub version: AggregateVersion,

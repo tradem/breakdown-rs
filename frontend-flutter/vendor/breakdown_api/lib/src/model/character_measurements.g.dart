@@ -8,32 +8,32 @@ part of 'character_measurements.dart';
 
 class _$CharacterMeasurements extends CharacterMeasurements {
   @override
-  final String chest;
+  final String? chest;
   @override
-  final String hatSize;
+  final String? hatSize;
   @override
-  final String height;
+  final String? height;
   @override
-  final String hips;
+  final String? hips;
   @override
-  final String shoeSize;
+  final String? shoeSize;
   @override
-  final String waist;
+  final String? waist;
   @override
-  final String weight;
+  final String? weight;
 
   factory _$CharacterMeasurements(
           [void Function(CharacterMeasurementsBuilder)? updates]) =>
       (CharacterMeasurementsBuilder()..update(updates))._build();
 
   _$CharacterMeasurements._(
-      {required this.chest,
-      required this.hatSize,
-      required this.height,
-      required this.hips,
-      required this.shoeSize,
-      required this.waist,
-      required this.weight})
+      {this.chest,
+      this.hatSize,
+      this.height,
+      this.hips,
+      this.shoeSize,
+      this.waist,
+      this.weight})
       : super._();
   @override
   CharacterMeasurements rebuild(
@@ -152,20 +152,13 @@ class CharacterMeasurementsBuilder
   _$CharacterMeasurements _build() {
     final _$result = _$v ??
         _$CharacterMeasurements._(
-          chest: BuiltValueNullFieldError.checkNotNull(
-              chest, r'CharacterMeasurements', 'chest'),
-          hatSize: BuiltValueNullFieldError.checkNotNull(
-              hatSize, r'CharacterMeasurements', 'hatSize'),
-          height: BuiltValueNullFieldError.checkNotNull(
-              height, r'CharacterMeasurements', 'height'),
-          hips: BuiltValueNullFieldError.checkNotNull(
-              hips, r'CharacterMeasurements', 'hips'),
-          shoeSize: BuiltValueNullFieldError.checkNotNull(
-              shoeSize, r'CharacterMeasurements', 'shoeSize'),
-          waist: BuiltValueNullFieldError.checkNotNull(
-              waist, r'CharacterMeasurements', 'waist'),
-          weight: BuiltValueNullFieldError.checkNotNull(
-              weight, r'CharacterMeasurements', 'weight'),
+          chest: chest,
+          hatSize: hatSize,
+          height: height,
+          hips: hips,
+          shoeSize: shoeSize,
+          waist: waist,
+          weight: weight,
         );
     replace(_$result);
     return _$result;

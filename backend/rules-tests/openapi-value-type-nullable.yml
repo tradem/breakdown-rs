@@ -1,0 +1,78 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: omen-alpha (opencode-go)
+
+# Rule tests for `openapi-value-type-nullable` (issue #423). Run via
+# `ast-grep test -c sgconfig.yml -t rules-tests`.
+#
+# `valid` cases must NOT match; `invalid` cases MUST match. The dishonest
+# spellings are the ones observed in the codebase (String / Vec<String> /
+# NaiveDate overrides); the honest `Option<…>` spellings and non-Option
+# fields must stay clean.
+id: openapi-value-type-nullable
+language: Rust
+valid:
+  - |
+    // Honest override: mirrors the field's `Option<…>` shape.
+    #[derive(utoipa::ToSchema)]
+    pub struct Honest {
+        #[schema(value_type = Option<String>)]
+        pub shoe_size: Option<Decimal>,
+    }
+  - |
+    // Honest override, nested.
+    #[derive(utoipa::ToSchema)]
+    pub struct HonestNested {
+        #[schema(value_type = Option<Vec<String>>)]
+        pub tags: Option<Vec<String>>,
+    }
+  - |
+    // Non-Option fields are out of scope — a bare override is fine there.
+    #[derive(utoipa::ToSchema)]
+    pub struct NonOption {
+        #[schema(value_type = String)]
+        pub name: String,
+        #[schema(value_type = Vec<String>)]
+        pub capabilities: Vec<String>,
+        #[schema(value_type = NaiveDate)]
+        pub date: NaiveDate,
+    }
+  - |
+    // No value_type at all: plain Option fields render nullable natively.
+    #[derive(utoipa::ToSchema)]
+    pub struct Plain {
+        pub note: Option<String>,
+    }
+invalid:
+  - |
+    // Bare String override on an Option field — the issue-#423 lie.
+    #[derive(utoipa::ToSchema)]
+    pub struct Lying {
+        #[schema(value_type = String)]
+        pub shoe_size: Option<Decimal>,
+    }
+  - |
+    // Vec<String> override on an Option field.
+    #[derive(utoipa::ToSchema)]
+    pub struct LyingVec {
+        #[schema(value_type = Vec<String>)]
+        pub tags: Option<Vec<String>>,
+    }
+  - |
+    // Date override on an Option field (BlockView start/end date class).
+    #[derive(utoipa::ToSchema)]
+    pub struct LyingDate {
+        #[schema(value_type = NaiveDate)]
+        pub start_date: Option<NaiveDate>,
+    }
+  - |
+    // Primitive overrides.
+    #[derive(utoipa::ToSchema)]
+    pub struct LyingPrimitives {
+        #[schema(value_type = i32)]
+        pub a: Option<i32>,
+        #[schema(value_type = f64)]
+        pub b: Option<f64>,
+        #[schema(value_type = bool)]
+        pub c: Option<bool>,
+    }

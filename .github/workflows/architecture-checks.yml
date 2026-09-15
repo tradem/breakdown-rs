@@ -220,6 +220,12 @@ jobs:
           #     `#[allow(...)]` (unwrap_used / expect_used / panic /
           #     unsafe_code / todo / …) must carry a trailing `//` justification
           #     comment (AGENTS.md §3 escape-hatch requirement).
+          #   backend/rules/openapi-value-type-nullable.yml — a
+          #     `schema(value_type = …)` override without `Option` on an
+          #     `Option<…>` field drops Option's nullability from the rendered
+          #     schema; the generated Dart client then throws on every response
+          #     carrying the unset value (issue #423: characters screen broken
+          #     for all freshly created characters).
           # Intentional cases require an explicit
           # `// ast-grep-ignore: <rule-id>` + justification.
           if [ "${#FILES[@]}" -gt 0 ]; then
@@ -227,6 +233,7 @@ jobs:
             ast-grep scan -r rules/test-helper-gate.yml "${FILES[@]}"
             ast-grep scan -r rules/uuid-v7-only.yml "${FILES[@]}"
             ast-grep scan -r rules/allow-panic-lint-justification.yml "${FILES[@]}"
+            ast-grep scan -r rules/openapi-value-type-nullable.yml "${FILES[@]}"
           fi
           # UUIDv7-only rule also applies to test files (AGENTS.md §3 —
           # "Strictly use UUIDv7 ... No UUIDv4" applies everywhere).
@@ -250,7 +257,7 @@ jobs:
           # the S2 enforcement.
           test -d crates/api/src/problems
           ast-grep scan -r rules/s2-extension-ban.yml crates/api/src/problems
-          echo "OK: no discarded results / ungated test helpers / UUIDv4 / bare panic allows / no S2 extensions found"
+          echo "OK: no discarded results / ungated test helpers / UUIDv4 / bare panic allows / no S2 extensions / dishonest value_type overrides found"
 
   problem-code-registry:
     name: Problem-code registry (every code registered via the macro)

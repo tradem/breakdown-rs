@@ -250,7 +250,7 @@ final class OidcClientConfigProvider
   }
 }
 
-String _$oidcClientConfigHash() => r'6e134cc359c8fcad704091ec80e8c4c00ebc4748';
+String _$oidcClientConfigHash() => r'84a200b81fc8554329f54894573474770ac99cf3';
 
 /// Discovers the IdP's OIDC metadata over the IdP transport and validates the
 /// issuer identity (Task 1.2, ADR-010/018). Fails closed as `AsyncError` when
@@ -370,7 +370,7 @@ final class AuthorizationUiProvider
   }
 }
 
-String _$authorizationUiHash() => r'3cd40fcb27a1f5629fe03ce7e9592f9b9a617216';
+String _$authorizationUiHash() => r'59137ed4c326787fbb1661684734c5dcb062ede0';
 
 @ProviderFor(AuthSessionController)
 final authSessionControllerProvider = AuthSessionControllerProvider._();

@@ -24,25 +24,25 @@ part 'character_measurements.g.dart';
 abstract class CharacterMeasurements
     implements Built<CharacterMeasurements, CharacterMeasurementsBuilder> {
   @BuiltValueField(wireName: r'chest')
-  String get chest;
+  String? get chest;
 
   @BuiltValueField(wireName: r'hat_size')
-  String get hatSize;
+  String? get hatSize;
 
   @BuiltValueField(wireName: r'height')
-  String get height;
+  String? get height;
 
   @BuiltValueField(wireName: r'hips')
-  String get hips;
+  String? get hips;
 
   @BuiltValueField(wireName: r'shoe_size')
-  String get shoeSize;
+  String? get shoeSize;
 
   @BuiltValueField(wireName: r'waist')
-  String get waist;
+  String? get waist;
 
   @BuiltValueField(wireName: r'weight')
-  String get weight;
+  String? get weight;
 
   CharacterMeasurements._();
 
@@ -73,41 +73,55 @@ class _$CharacterMeasurementsSerializer
     CharacterMeasurements object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    yield r'chest';
-    yield serializers.serialize(
-      object.chest,
-      specifiedType: const FullType(String),
-    );
-    yield r'hat_size';
-    yield serializers.serialize(
-      object.hatSize,
-      specifiedType: const FullType(String),
-    );
-    yield r'height';
-    yield serializers.serialize(
-      object.height,
-      specifiedType: const FullType(String),
-    );
-    yield r'hips';
-    yield serializers.serialize(
-      object.hips,
-      specifiedType: const FullType(String),
-    );
-    yield r'shoe_size';
-    yield serializers.serialize(
-      object.shoeSize,
-      specifiedType: const FullType(String),
-    );
-    yield r'waist';
-    yield serializers.serialize(
-      object.waist,
-      specifiedType: const FullType(String),
-    );
-    yield r'weight';
-    yield serializers.serialize(
-      object.weight,
-      specifiedType: const FullType(String),
-    );
+    if (object.chest != null) {
+      yield r'chest';
+      yield serializers.serialize(
+        object.chest,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.hatSize != null) {
+      yield r'hat_size';
+      yield serializers.serialize(
+        object.hatSize,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.height != null) {
+      yield r'height';
+      yield serializers.serialize(
+        object.height,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.hips != null) {
+      yield r'hips';
+      yield serializers.serialize(
+        object.hips,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.shoeSize != null) {
+      yield r'shoe_size';
+      yield serializers.serialize(
+        object.shoeSize,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.waist != null) {
+      yield r'waist';
+      yield serializers.serialize(
+        object.waist,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.weight != null) {
+      yield r'weight';
+      yield serializers.serialize(
+        object.weight,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
   }
 
   @override
@@ -136,50 +150,57 @@ class _$CharacterMeasurementsSerializer
         case r'chest':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(String),
-          ) as String;
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
           result.chest = valueDes;
           break;
         case r'hat_size':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(String),
-          ) as String;
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
           result.hatSize = valueDes;
           break;
         case r'height':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(String),
-          ) as String;
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
           result.height = valueDes;
           break;
         case r'hips':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(String),
-          ) as String;
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
           result.hips = valueDes;
           break;
         case r'shoe_size':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(String),
-          ) as String;
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
           result.shoeSize = valueDes;
           break;
         case r'waist':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(String),
-          ) as String;
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
           result.waist = valueDes;
           break;
         case r'weight':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(String),
-          ) as String;
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
           result.weight = valueDes;
           break;
         default:

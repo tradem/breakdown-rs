@@ -29,11 +29,15 @@ class BlockCacheRows extends Table {
   /// `CreateEpisodeRequest` from the read DTO the user acts on).
   TextColumn get seriesId => text()();
 
-  /// Mirrors `BlockView.startDate` (wire string, preserved unchanged).
-  TextColumn get startDate => text()();
+  /// Mirrors `BlockView.startDate` (wire string, preserved unchanged;
+  /// nullable since issue #423 — the backend serializes unset dates as
+  /// JSON null).
+  TextColumn get startDate => text().nullable()();
 
-  /// Mirrors `BlockView.endDate` (wire string, preserved unchanged).
-  TextColumn get endDate => text()();
+  /// Mirrors `BlockView.endDate` (wire string, preserved unchanged;
+  /// nullable since issue #423 — the backend serializes unset dates as
+  /// JSON null).
+  TextColumn get endDate => text().nullable()();
 
   /// Mirrors `BlockView.updatedAt` — server timestamp, preserved unchanged.
   DateTimeColumn get updatedAt => dateTime()();

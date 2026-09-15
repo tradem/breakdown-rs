@@ -66,7 +66,7 @@ fi
 
 # 5. Run ast-grep guardrails on staged files (mirrors the CI jobs)
 if [ -n "$STAGED_RS_FILES" ]; then
-    echo "🛡️  Running ast-grep guardrails (cqrs-boundary / test-shim-leak / discard-result / test-helper-gate / uuid-v7-only / allow-panic-lint-justification / s2-extension-ban / problem-code-registry / reqwest-no-dangerous-tls / reqwest-no-hardcoded-auth)..."
+    echo "🛡️  Running ast-grep guardrails (cqrs-boundary / test-shim-leak / discard-result / test-helper-gate / uuid-v7-only / allow-panic-lint-justification / openapi-value-type-nullable / s2-extension-ban / problem-code-registry / reqwest-no-dangerous-tls / reqwest-no-hardcoded-auth)..."
     if command -v ast-grep &> /dev/null; then
         # Write-side dirs → cqrs-boundary rule (see backend/rules/cqrs-boundary.yml).
         # AI workers are write-side code too and must stay projection-free.
@@ -83,7 +83,10 @@ if [ -n "$STAGED_RS_FILES" ]; then
         # All production source files (tests excluded) → discard-result +
         # test-helper-gate rules (issue #165 review learnings) + uuid-v7-only
         # (AGENTS.md §3 "No UUIDv4") + allow-panic-lint-justification (§3
-        # escape-hatch comment requirement).
+        # escape-hatch comment requirement) + openapi-value-type-nullable
+        # (issue #423: a `schema(value_type = …)` override without `Option`
+        # on an `Option<…>` field drops nullability from the rendered schema
+        # and breaks the generated Dart client).
         PROD_FILES=$(echo "$STAGED_RS_FILES" | grep '^crates/.*/src/' \
             | grep -vE '_tests\.rs$|_test\.rs$|test_helpers\.rs$|/tests/|/test_helpers/' || true)
         if [ -n "$PROD_FILES" ]; then
@@ -91,6 +94,7 @@ if [ -n "$STAGED_RS_FILES" ]; then
             echo "$PROD_FILES" | xargs -r ast-grep scan -r rules/test-helper-gate.yml
             echo "$PROD_FILES" | xargs -r ast-grep scan -r rules/uuid-v7-only.yml
             echo "$PROD_FILES" | xargs -r ast-grep scan -r rules/allow-panic-lint-justification.yml
+            echo "$PROD_FILES" | xargs -r ast-grep scan -r rules/openapi-value-type-nullable.yml
             # Rust security rules (issue #262, vendored from
             # coderabbitai/ast-grep-essentials): no reqwest TLS bypasses, no
             # hardcoded HTTP auth credentials.

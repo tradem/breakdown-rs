@@ -1,0 +1,102 @@
+id: openapi-value-type-nullable
+snapshots:
+  ? |
+    // Bare String override on an Option field — the issue-#423 lie.
+    #[derive(utoipa::ToSchema)]
+    pub struct Lying {
+        #[schema(value_type = String)]
+        pub shoe_size: Option<Decimal>,
+    }
+  : labels:
+    - source: '#[schema(value_type = String)]'
+      style: primary
+      start: 118
+      end: 148
+    - source: Option
+      style: secondary
+      start: 168
+      end: 174
+    - source: Option<Decimal>
+      style: secondary
+      start: 168
+      end: 183
+    - source: 'pub shoe_size: Option<Decimal>'
+      style: secondary
+      start: 153
+      end: 183
+  ? |
+    // Date override on an Option field (BlockView start/end date class).
+    #[derive(utoipa::ToSchema)]
+    pub struct LyingDate {
+        #[schema(value_type = NaiveDate)]
+        pub start_date: Option<NaiveDate>,
+    }
+  : labels:
+    - source: '#[schema(value_type = NaiveDate)]'
+      style: primary
+      start: 125
+      end: 158
+    - source: Option
+      style: secondary
+      start: 179
+      end: 185
+    - source: Option<NaiveDate>
+      style: secondary
+      start: 179
+      end: 196
+    - source: 'pub start_date: Option<NaiveDate>'
+      style: secondary
+      start: 163
+      end: 196
+  ? |
+    // Primitive overrides.
+    #[derive(utoipa::ToSchema)]
+    pub struct LyingPrimitives {
+        #[schema(value_type = i32)]
+        pub a: Option<i32>,
+        #[schema(value_type = f64)]
+        pub b: Option<f64>,
+        #[schema(value_type = bool)]
+        pub c: Option<bool>,
+    }
+  : labels:
+    - source: '#[schema(value_type = i32)]'
+      style: primary
+      start: 85
+      end: 112
+    - source: Option
+      style: secondary
+      start: 124
+      end: 130
+    - source: Option<i32>
+      style: secondary
+      start: 124
+      end: 135
+    - source: 'pub a: Option<i32>'
+      style: secondary
+      start: 117
+      end: 135
+  ? |
+    // Vec<String> override on an Option field.
+    #[derive(utoipa::ToSchema)]
+    pub struct LyingVec {
+        #[schema(value_type = Vec<String>)]
+        pub tags: Option<Vec<String>>,
+    }
+  : labels:
+    - source: '#[schema(value_type = Vec<String>)]'
+      style: primary
+      start: 98
+      end: 133
+    - source: Option
+      style: secondary
+      start: 148
+      end: 154
+    - source: Option<Vec<String>>
+      style: secondary
+      start: 148
+      end: 167
+    - source: 'pub tags: Option<Vec<String>>'
+      style: secondary
+      start: 138
+      end: 167

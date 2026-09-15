@@ -524,9 +524,9 @@ class $BlockCacheRowsTable extends BlockCacheRows
   late final GeneratedColumn<String> startDate = GeneratedColumn<String>(
     'start_date',
     aliasedName,
-    false,
+    true,
     type: DriftSqlType.string,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
   );
   static const VerificationMeta _endDateMeta = const VerificationMeta(
     'endDate',
@@ -535,9 +535,9 @@ class $BlockCacheRowsTable extends BlockCacheRows
   late final GeneratedColumn<String> endDate = GeneratedColumn<String>(
     'end_date',
     aliasedName,
-    false,
+    true,
     type: DriftSqlType.string,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
   );
   static const VerificationMeta _updatedAtMeta = const VerificationMeta(
     'updatedAt',
@@ -630,16 +630,12 @@ class $BlockCacheRowsTable extends BlockCacheRows
         _startDateMeta,
         startDate.isAcceptableOrUnknown(data['start_date']!, _startDateMeta),
       );
-    } else if (isInserting) {
-      context.missing(_startDateMeta);
     }
     if (data.containsKey('end_date')) {
       context.handle(
         _endDateMeta,
         endDate.isAcceptableOrUnknown(data['end_date']!, _endDateMeta),
       );
-    } else if (isInserting) {
-      context.missing(_endDateMeta);
     }
     if (data.containsKey('updated_at')) {
       context.handle(
@@ -693,11 +689,11 @@ class $BlockCacheRowsTable extends BlockCacheRows
       startDate: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}start_date'],
-      )!,
+      ),
       endDate: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}end_date'],
-      )!,
+      ),
       updatedAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}updated_at'],
@@ -733,11 +729,15 @@ class BlockCacheRow extends DataClass implements Insertable<BlockCacheRow> {
   /// `CreateEpisodeRequest` from the read DTO the user acts on).
   final String seriesId;
 
-  /// Mirrors `BlockView.startDate` (wire string, preserved unchanged).
-  final String startDate;
+  /// Mirrors `BlockView.startDate` (wire string, preserved unchanged;
+  /// nullable since issue #423 — the backend serializes unset dates as
+  /// JSON null).
+  final String? startDate;
 
-  /// Mirrors `BlockView.endDate` (wire string, preserved unchanged).
-  final String endDate;
+  /// Mirrors `BlockView.endDate` (wire string, preserved unchanged;
+  /// nullable since issue #423 — the backend serializes unset dates as
+  /// JSON null).
+  final String? endDate;
 
   /// Mirrors `BlockView.updatedAt` — server timestamp, preserved unchanged.
   final DateTime updatedAt;
@@ -752,8 +752,8 @@ class BlockCacheRow extends DataClass implements Insertable<BlockCacheRow> {
     required this.number,
     required this.seasonId,
     required this.seriesId,
-    required this.startDate,
-    required this.endDate,
+    this.startDate,
+    this.endDate,
     required this.updatedAt,
     required this.version,
     required this.cachedAt,
@@ -765,8 +765,12 @@ class BlockCacheRow extends DataClass implements Insertable<BlockCacheRow> {
     map['number'] = Variable<int>(number);
     map['season_id'] = Variable<String>(seasonId);
     map['series_id'] = Variable<String>(seriesId);
-    map['start_date'] = Variable<String>(startDate);
-    map['end_date'] = Variable<String>(endDate);
+    if (!nullToAbsent || startDate != null) {
+      map['start_date'] = Variable<String>(startDate);
+    }
+    if (!nullToAbsent || endDate != null) {
+      map['end_date'] = Variable<String>(endDate);
+    }
     map['updated_at'] = Variable<DateTime>(updatedAt);
     map['version'] = Variable<int>(version);
     map['cached_at'] = Variable<DateTime>(cachedAt);
@@ -779,8 +783,12 @@ class BlockCacheRow extends DataClass implements Insertable<BlockCacheRow> {
       number: Value(number),
       seasonId: Value(seasonId),
       seriesId: Value(seriesId),
-      startDate: Value(startDate),
-      endDate: Value(endDate),
+      startDate: startDate == null && nullToAbsent
+          ? const Value.absent()
+          : Value(startDate),
+      endDate: endDate == null && nullToAbsent
+          ? const Value.absent()
+          : Value(endDate),
       updatedAt: Value(updatedAt),
       version: Value(version),
       cachedAt: Value(cachedAt),
@@ -797,8 +805,8 @@ class BlockCacheRow extends DataClass implements Insertable<BlockCacheRow> {
       number: serializer.fromJson<int>(json['number']),
       seasonId: serializer.fromJson<String>(json['seasonId']),
       seriesId: serializer.fromJson<String>(json['seriesId']),
-      startDate: serializer.fromJson<String>(json['startDate']),
-      endDate: serializer.fromJson<String>(json['endDate']),
+      startDate: serializer.fromJson<String?>(json['startDate']),
+      endDate: serializer.fromJson<String?>(json['endDate']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
       version: serializer.fromJson<int>(json['version']),
       cachedAt: serializer.fromJson<DateTime>(json['cachedAt']),
@@ -812,8 +820,8 @@ class BlockCacheRow extends DataClass implements Insertable<BlockCacheRow> {
       'number': serializer.toJson<int>(number),
       'seasonId': serializer.toJson<String>(seasonId),
       'seriesId': serializer.toJson<String>(seriesId),
-      'startDate': serializer.toJson<String>(startDate),
-      'endDate': serializer.toJson<String>(endDate),
+      'startDate': serializer.toJson<String?>(startDate),
+      'endDate': serializer.toJson<String?>(endDate),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
       'version': serializer.toJson<int>(version),
       'cachedAt': serializer.toJson<DateTime>(cachedAt),
@@ -825,8 +833,8 @@ class BlockCacheRow extends DataClass implements Insertable<BlockCacheRow> {
     int? number,
     String? seasonId,
     String? seriesId,
-    String? startDate,
-    String? endDate,
+    Value<String?> startDate = const Value.absent(),
+    Value<String?> endDate = const Value.absent(),
     DateTime? updatedAt,
     int? version,
     DateTime? cachedAt,
@@ -835,8 +843,8 @@ class BlockCacheRow extends DataClass implements Insertable<BlockCacheRow> {
     number: number ?? this.number,
     seasonId: seasonId ?? this.seasonId,
     seriesId: seriesId ?? this.seriesId,
-    startDate: startDate ?? this.startDate,
-    endDate: endDate ?? this.endDate,
+    startDate: startDate.present ? startDate.value : this.startDate,
+    endDate: endDate.present ? endDate.value : this.endDate,
     updatedAt: updatedAt ?? this.updatedAt,
     version: version ?? this.version,
     cachedAt: cachedAt ?? this.cachedAt,
@@ -903,8 +911,8 @@ class BlockCacheRowsCompanion extends UpdateCompanion<BlockCacheRow> {
   final Value<int> number;
   final Value<String> seasonId;
   final Value<String> seriesId;
-  final Value<String> startDate;
-  final Value<String> endDate;
+  final Value<String?> startDate;
+  final Value<String?> endDate;
   final Value<DateTime> updatedAt;
   final Value<int> version;
   final Value<DateTime> cachedAt;
@@ -926,8 +934,8 @@ class BlockCacheRowsCompanion extends UpdateCompanion<BlockCacheRow> {
     required int number,
     required String seasonId,
     required String seriesId,
-    required String startDate,
-    required String endDate,
+    this.startDate = const Value.absent(),
+    this.endDate = const Value.absent(),
     required DateTime updatedAt,
     required int version,
     required DateTime cachedAt,
@@ -936,8 +944,6 @@ class BlockCacheRowsCompanion extends UpdateCompanion<BlockCacheRow> {
        number = Value(number),
        seasonId = Value(seasonId),
        seriesId = Value(seriesId),
-       startDate = Value(startDate),
-       endDate = Value(endDate),
        updatedAt = Value(updatedAt),
        version = Value(version),
        cachedAt = Value(cachedAt);
@@ -972,8 +978,8 @@ class BlockCacheRowsCompanion extends UpdateCompanion<BlockCacheRow> {
     Value<int>? number,
     Value<String>? seasonId,
     Value<String>? seriesId,
-    Value<String>? startDate,
-    Value<String>? endDate,
+    Value<String?>? startDate,
+    Value<String?>? endDate,
     Value<DateTime>? updatedAt,
     Value<int>? version,
     Value<DateTime>? cachedAt,
@@ -3615,45 +3621,45 @@ class $CharacterCacheRowsTable extends CharacterCacheRows
   late final GeneratedColumn<String> height = GeneratedColumn<String>(
     'height',
     aliasedName,
-    false,
+    true,
     type: DriftSqlType.string,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
   );
   static const VerificationMeta _weightMeta = const VerificationMeta('weight');
   @override
   late final GeneratedColumn<String> weight = GeneratedColumn<String>(
     'weight',
     aliasedName,
-    false,
+    true,
     type: DriftSqlType.string,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
   );
   static const VerificationMeta _chestMeta = const VerificationMeta('chest');
   @override
   late final GeneratedColumn<String> chest = GeneratedColumn<String>(
     'chest',
     aliasedName,
-    false,
+    true,
     type: DriftSqlType.string,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
   );
   static const VerificationMeta _waistMeta = const VerificationMeta('waist');
   @override
   late final GeneratedColumn<String> waist = GeneratedColumn<String>(
     'waist',
     aliasedName,
-    false,
+    true,
     type: DriftSqlType.string,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
   );
   static const VerificationMeta _hipsMeta = const VerificationMeta('hips');
   @override
   late final GeneratedColumn<String> hips = GeneratedColumn<String>(
     'hips',
     aliasedName,
-    false,
+    true,
     type: DriftSqlType.string,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
   );
   static const VerificationMeta _shoeSizeMeta = const VerificationMeta(
     'shoeSize',
@@ -3662,9 +3668,9 @@ class $CharacterCacheRowsTable extends CharacterCacheRows
   late final GeneratedColumn<String> shoeSize = GeneratedColumn<String>(
     'shoe_size',
     aliasedName,
-    false,
+    true,
     type: DriftSqlType.string,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
   );
   static const VerificationMeta _hatSizeMeta = const VerificationMeta(
     'hatSize',
@@ -3673,9 +3679,9 @@ class $CharacterCacheRowsTable extends CharacterCacheRows
   late final GeneratedColumn<String> hatSize = GeneratedColumn<String>(
     'hat_size',
     aliasedName,
-    false,
+    true,
     type: DriftSqlType.string,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
   );
   static const VerificationMeta _emailMeta = const VerificationMeta('email');
   @override
@@ -3793,56 +3799,42 @@ class $CharacterCacheRowsTable extends CharacterCacheRows
         _heightMeta,
         height.isAcceptableOrUnknown(data['height']!, _heightMeta),
       );
-    } else if (isInserting) {
-      context.missing(_heightMeta);
     }
     if (data.containsKey('weight')) {
       context.handle(
         _weightMeta,
         weight.isAcceptableOrUnknown(data['weight']!, _weightMeta),
       );
-    } else if (isInserting) {
-      context.missing(_weightMeta);
     }
     if (data.containsKey('chest')) {
       context.handle(
         _chestMeta,
         chest.isAcceptableOrUnknown(data['chest']!, _chestMeta),
       );
-    } else if (isInserting) {
-      context.missing(_chestMeta);
     }
     if (data.containsKey('waist')) {
       context.handle(
         _waistMeta,
         waist.isAcceptableOrUnknown(data['waist']!, _waistMeta),
       );
-    } else if (isInserting) {
-      context.missing(_waistMeta);
     }
     if (data.containsKey('hips')) {
       context.handle(
         _hipsMeta,
         hips.isAcceptableOrUnknown(data['hips']!, _hipsMeta),
       );
-    } else if (isInserting) {
-      context.missing(_hipsMeta);
     }
     if (data.containsKey('shoe_size')) {
       context.handle(
         _shoeSizeMeta,
         shoeSize.isAcceptableOrUnknown(data['shoe_size']!, _shoeSizeMeta),
       );
-    } else if (isInserting) {
-      context.missing(_shoeSizeMeta);
     }
     if (data.containsKey('hat_size')) {
       context.handle(
         _hatSizeMeta,
         hatSize.isAcceptableOrUnknown(data['hat_size']!, _hatSizeMeta),
       );
-    } else if (isInserting) {
-      context.missing(_hatSizeMeta);
     }
     if (data.containsKey('email')) {
       context.handle(
@@ -3908,31 +3900,31 @@ class $CharacterCacheRowsTable extends CharacterCacheRows
       height: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}height'],
-      )!,
+      ),
       weight: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}weight'],
-      )!,
+      ),
       chest: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}chest'],
-      )!,
+      ),
       waist: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}waist'],
-      )!,
+      ),
       hips: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}hips'],
-      )!,
+      ),
       shoeSize: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}shoe_size'],
-      )!,
+      ),
       hatSize: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}hat_size'],
-      )!,
+      ),
       email: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}email'],
@@ -3977,14 +3969,15 @@ class CharacterCacheRow extends DataClass
   /// unknown variants strictly reject at parse time, never guessed).
   final String category;
 
-  /// Flattened `CharacterMeasurements` (all seven required strings).
-  final String height;
-  final String weight;
-  final String chest;
-  final String waist;
-  final String hips;
-  final String shoeSize;
-  final String hatSize;
+  /// Flattened `CharacterMeasurements` (all seven strings; nullable since
+  /// issue #423 — the backend serializes unset measurements as JSON null).
+  final String? height;
+  final String? weight;
+  final String? chest;
+  final String? waist;
+  final String? hips;
+  final String? shoeSize;
+  final String? hatSize;
 
   /// Flattened `ContactInfo` (both nullable).
   final String? email;
@@ -4003,13 +3996,13 @@ class CharacterCacheRow extends DataClass
     required this.seasonId,
     required this.name,
     required this.category,
-    required this.height,
-    required this.weight,
-    required this.chest,
-    required this.waist,
-    required this.hips,
-    required this.shoeSize,
-    required this.hatSize,
+    this.height,
+    this.weight,
+    this.chest,
+    this.waist,
+    this.hips,
+    this.shoeSize,
+    this.hatSize,
     this.email,
     this.phone,
     required this.updatedAt,
@@ -4023,13 +4016,27 @@ class CharacterCacheRow extends DataClass
     map['season_id'] = Variable<String>(seasonId);
     map['name'] = Variable<String>(name);
     map['category'] = Variable<String>(category);
-    map['height'] = Variable<String>(height);
-    map['weight'] = Variable<String>(weight);
-    map['chest'] = Variable<String>(chest);
-    map['waist'] = Variable<String>(waist);
-    map['hips'] = Variable<String>(hips);
-    map['shoe_size'] = Variable<String>(shoeSize);
-    map['hat_size'] = Variable<String>(hatSize);
+    if (!nullToAbsent || height != null) {
+      map['height'] = Variable<String>(height);
+    }
+    if (!nullToAbsent || weight != null) {
+      map['weight'] = Variable<String>(weight);
+    }
+    if (!nullToAbsent || chest != null) {
+      map['chest'] = Variable<String>(chest);
+    }
+    if (!nullToAbsent || waist != null) {
+      map['waist'] = Variable<String>(waist);
+    }
+    if (!nullToAbsent || hips != null) {
+      map['hips'] = Variable<String>(hips);
+    }
+    if (!nullToAbsent || shoeSize != null) {
+      map['shoe_size'] = Variable<String>(shoeSize);
+    }
+    if (!nullToAbsent || hatSize != null) {
+      map['hat_size'] = Variable<String>(hatSize);
+    }
     if (!nullToAbsent || email != null) {
       map['email'] = Variable<String>(email);
     }
@@ -4048,13 +4055,25 @@ class CharacterCacheRow extends DataClass
       seasonId: Value(seasonId),
       name: Value(name),
       category: Value(category),
-      height: Value(height),
-      weight: Value(weight),
-      chest: Value(chest),
-      waist: Value(waist),
-      hips: Value(hips),
-      shoeSize: Value(shoeSize),
-      hatSize: Value(hatSize),
+      height: height == null && nullToAbsent
+          ? const Value.absent()
+          : Value(height),
+      weight: weight == null && nullToAbsent
+          ? const Value.absent()
+          : Value(weight),
+      chest: chest == null && nullToAbsent
+          ? const Value.absent()
+          : Value(chest),
+      waist: waist == null && nullToAbsent
+          ? const Value.absent()
+          : Value(waist),
+      hips: hips == null && nullToAbsent ? const Value.absent() : Value(hips),
+      shoeSize: shoeSize == null && nullToAbsent
+          ? const Value.absent()
+          : Value(shoeSize),
+      hatSize: hatSize == null && nullToAbsent
+          ? const Value.absent()
+          : Value(hatSize),
       email: email == null && nullToAbsent
           ? const Value.absent()
           : Value(email),
@@ -4077,13 +4096,13 @@ class CharacterCacheRow extends DataClass
       seasonId: serializer.fromJson<String>(json['seasonId']),
       name: serializer.fromJson<String>(json['name']),
       category: serializer.fromJson<String>(json['category']),
-      height: serializer.fromJson<String>(json['height']),
-      weight: serializer.fromJson<String>(json['weight']),
-      chest: serializer.fromJson<String>(json['chest']),
-      waist: serializer.fromJson<String>(json['waist']),
-      hips: serializer.fromJson<String>(json['hips']),
-      shoeSize: serializer.fromJson<String>(json['shoeSize']),
-      hatSize: serializer.fromJson<String>(json['hatSize']),
+      height: serializer.fromJson<String?>(json['height']),
+      weight: serializer.fromJson<String?>(json['weight']),
+      chest: serializer.fromJson<String?>(json['chest']),
+      waist: serializer.fromJson<String?>(json['waist']),
+      hips: serializer.fromJson<String?>(json['hips']),
+      shoeSize: serializer.fromJson<String?>(json['shoeSize']),
+      hatSize: serializer.fromJson<String?>(json['hatSize']),
       email: serializer.fromJson<String?>(json['email']),
       phone: serializer.fromJson<String?>(json['phone']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
@@ -4099,13 +4118,13 @@ class CharacterCacheRow extends DataClass
       'seasonId': serializer.toJson<String>(seasonId),
       'name': serializer.toJson<String>(name),
       'category': serializer.toJson<String>(category),
-      'height': serializer.toJson<String>(height),
-      'weight': serializer.toJson<String>(weight),
-      'chest': serializer.toJson<String>(chest),
-      'waist': serializer.toJson<String>(waist),
-      'hips': serializer.toJson<String>(hips),
-      'shoeSize': serializer.toJson<String>(shoeSize),
-      'hatSize': serializer.toJson<String>(hatSize),
+      'height': serializer.toJson<String?>(height),
+      'weight': serializer.toJson<String?>(weight),
+      'chest': serializer.toJson<String?>(chest),
+      'waist': serializer.toJson<String?>(waist),
+      'hips': serializer.toJson<String?>(hips),
+      'shoeSize': serializer.toJson<String?>(shoeSize),
+      'hatSize': serializer.toJson<String?>(hatSize),
       'email': serializer.toJson<String?>(email),
       'phone': serializer.toJson<String?>(phone),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
@@ -4119,13 +4138,13 @@ class CharacterCacheRow extends DataClass
     String? seasonId,
     String? name,
     String? category,
-    String? height,
-    String? weight,
-    String? chest,
-    String? waist,
-    String? hips,
-    String? shoeSize,
-    String? hatSize,
+    Value<String?> height = const Value.absent(),
+    Value<String?> weight = const Value.absent(),
+    Value<String?> chest = const Value.absent(),
+    Value<String?> waist = const Value.absent(),
+    Value<String?> hips = const Value.absent(),
+    Value<String?> shoeSize = const Value.absent(),
+    Value<String?> hatSize = const Value.absent(),
     Value<String?> email = const Value.absent(),
     Value<String?> phone = const Value.absent(),
     DateTime? updatedAt,
@@ -4136,13 +4155,13 @@ class CharacterCacheRow extends DataClass
     seasonId: seasonId ?? this.seasonId,
     name: name ?? this.name,
     category: category ?? this.category,
-    height: height ?? this.height,
-    weight: weight ?? this.weight,
-    chest: chest ?? this.chest,
-    waist: waist ?? this.waist,
-    hips: hips ?? this.hips,
-    shoeSize: shoeSize ?? this.shoeSize,
-    hatSize: hatSize ?? this.hatSize,
+    height: height.present ? height.value : this.height,
+    weight: weight.present ? weight.value : this.weight,
+    chest: chest.present ? chest.value : this.chest,
+    waist: waist.present ? waist.value : this.waist,
+    hips: hips.present ? hips.value : this.hips,
+    shoeSize: shoeSize.present ? shoeSize.value : this.shoeSize,
+    hatSize: hatSize.present ? hatSize.value : this.hatSize,
     email: email.present ? email.value : this.email,
     phone: phone.present ? phone.value : this.phone,
     updatedAt: updatedAt ?? this.updatedAt,
@@ -4239,13 +4258,13 @@ class CharacterCacheRowsCompanion extends UpdateCompanion<CharacterCacheRow> {
   final Value<String> seasonId;
   final Value<String> name;
   final Value<String> category;
-  final Value<String> height;
-  final Value<String> weight;
-  final Value<String> chest;
-  final Value<String> waist;
-  final Value<String> hips;
-  final Value<String> shoeSize;
-  final Value<String> hatSize;
+  final Value<String?> height;
+  final Value<String?> weight;
+  final Value<String?> chest;
+  final Value<String?> waist;
+  final Value<String?> hips;
+  final Value<String?> shoeSize;
+  final Value<String?> hatSize;
   final Value<String?> email;
   final Value<String?> phone;
   final Value<DateTime> updatedAt;
@@ -4276,13 +4295,13 @@ class CharacterCacheRowsCompanion extends UpdateCompanion<CharacterCacheRow> {
     required String seasonId,
     required String name,
     required String category,
-    required String height,
-    required String weight,
-    required String chest,
-    required String waist,
-    required String hips,
-    required String shoeSize,
-    required String hatSize,
+    this.height = const Value.absent(),
+    this.weight = const Value.absent(),
+    this.chest = const Value.absent(),
+    this.waist = const Value.absent(),
+    this.hips = const Value.absent(),
+    this.shoeSize = const Value.absent(),
+    this.hatSize = const Value.absent(),
     this.email = const Value.absent(),
     this.phone = const Value.absent(),
     required DateTime updatedAt,
@@ -4293,13 +4312,6 @@ class CharacterCacheRowsCompanion extends UpdateCompanion<CharacterCacheRow> {
        seasonId = Value(seasonId),
        name = Value(name),
        category = Value(category),
-       height = Value(height),
-       weight = Value(weight),
-       chest = Value(chest),
-       waist = Value(waist),
-       hips = Value(hips),
-       shoeSize = Value(shoeSize),
-       hatSize = Value(hatSize),
        updatedAt = Value(updatedAt),
        version = Value(version),
        cachedAt = Value(cachedAt);
@@ -4348,13 +4360,13 @@ class CharacterCacheRowsCompanion extends UpdateCompanion<CharacterCacheRow> {
     Value<String>? seasonId,
     Value<String>? name,
     Value<String>? category,
-    Value<String>? height,
-    Value<String>? weight,
-    Value<String>? chest,
-    Value<String>? waist,
-    Value<String>? hips,
-    Value<String>? shoeSize,
-    Value<String>? hatSize,
+    Value<String?>? height,
+    Value<String?>? weight,
+    Value<String?>? chest,
+    Value<String?>? waist,
+    Value<String?>? hips,
+    Value<String?>? shoeSize,
+    Value<String?>? hatSize,
     Value<String?>? email,
     Value<String?>? phone,
     Value<DateTime>? updatedAt,
@@ -7348,8 +7360,8 @@ typedef $$BlockCacheRowsTableCreateCompanionBuilder =
       required int number,
       required String seasonId,
       required String seriesId,
-      required String startDate,
-      required String endDate,
+      Value<String?> startDate,
+      Value<String?> endDate,
       required DateTime updatedAt,
       required int version,
       required DateTime cachedAt,
@@ -7361,8 +7373,8 @@ typedef $$BlockCacheRowsTableUpdateCompanionBuilder =
       Value<int> number,
       Value<String> seasonId,
       Value<String> seriesId,
-      Value<String> startDate,
-      Value<String> endDate,
+      Value<String?> startDate,
+      Value<String?> endDate,
       Value<DateTime> updatedAt,
       Value<int> version,
       Value<DateTime> cachedAt,
@@ -7557,8 +7569,8 @@ class $$BlockCacheRowsTableTableManager
                 Value<int> number = const Value.absent(),
                 Value<String> seasonId = const Value.absent(),
                 Value<String> seriesId = const Value.absent(),
-                Value<String> startDate = const Value.absent(),
-                Value<String> endDate = const Value.absent(),
+                Value<String?> startDate = const Value.absent(),
+                Value<String?> endDate = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<int> version = const Value.absent(),
                 Value<DateTime> cachedAt = const Value.absent(),
@@ -7581,8 +7593,8 @@ class $$BlockCacheRowsTableTableManager
                 required int number,
                 required String seasonId,
                 required String seriesId,
-                required String startDate,
-                required String endDate,
+                Value<String?> startDate = const Value.absent(),
+                Value<String?> endDate = const Value.absent(),
                 required DateTime updatedAt,
                 required int version,
                 required DateTime cachedAt,
@@ -8852,13 +8864,13 @@ typedef $$CharacterCacheRowsTableCreateCompanionBuilder =
       required String seasonId,
       required String name,
       required String category,
-      required String height,
-      required String weight,
-      required String chest,
-      required String waist,
-      required String hips,
-      required String shoeSize,
-      required String hatSize,
+      Value<String?> height,
+      Value<String?> weight,
+      Value<String?> chest,
+      Value<String?> waist,
+      Value<String?> hips,
+      Value<String?> shoeSize,
+      Value<String?> hatSize,
       Value<String?> email,
       Value<String?> phone,
       required DateTime updatedAt,
@@ -8872,13 +8884,13 @@ typedef $$CharacterCacheRowsTableUpdateCompanionBuilder =
       Value<String> seasonId,
       Value<String> name,
       Value<String> category,
-      Value<String> height,
-      Value<String> weight,
-      Value<String> chest,
-      Value<String> waist,
-      Value<String> hips,
-      Value<String> shoeSize,
-      Value<String> hatSize,
+      Value<String?> height,
+      Value<String?> weight,
+      Value<String?> chest,
+      Value<String?> waist,
+      Value<String?> hips,
+      Value<String?> shoeSize,
+      Value<String?> hatSize,
       Value<String?> email,
       Value<String?> phone,
       Value<DateTime> updatedAt,
@@ -9169,13 +9181,13 @@ class $$CharacterCacheRowsTableTableManager
                 Value<String> seasonId = const Value.absent(),
                 Value<String> name = const Value.absent(),
                 Value<String> category = const Value.absent(),
-                Value<String> height = const Value.absent(),
-                Value<String> weight = const Value.absent(),
-                Value<String> chest = const Value.absent(),
-                Value<String> waist = const Value.absent(),
-                Value<String> hips = const Value.absent(),
-                Value<String> shoeSize = const Value.absent(),
-                Value<String> hatSize = const Value.absent(),
+                Value<String?> height = const Value.absent(),
+                Value<String?> weight = const Value.absent(),
+                Value<String?> chest = const Value.absent(),
+                Value<String?> waist = const Value.absent(),
+                Value<String?> hips = const Value.absent(),
+                Value<String?> shoeSize = const Value.absent(),
+                Value<String?> hatSize = const Value.absent(),
                 Value<String?> email = const Value.absent(),
                 Value<String?> phone = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
@@ -9207,13 +9219,13 @@ class $$CharacterCacheRowsTableTableManager
                 required String seasonId,
                 required String name,
                 required String category,
-                required String height,
-                required String weight,
-                required String chest,
-                required String waist,
-                required String hips,
-                required String shoeSize,
-                required String hatSize,
+                Value<String?> height = const Value.absent(),
+                Value<String?> weight = const Value.absent(),
+                Value<String?> chest = const Value.absent(),
+                Value<String?> waist = const Value.absent(),
+                Value<String?> hips = const Value.absent(),
+                Value<String?> shoeSize = const Value.absent(),
+                Value<String?> hatSize = const Value.absent(),
                 Value<String?> email = const Value.absent(),
                 Value<String?> phone = const Value.absent(),
                 required DateTime updatedAt,

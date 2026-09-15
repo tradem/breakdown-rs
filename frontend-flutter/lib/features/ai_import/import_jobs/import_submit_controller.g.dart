@@ -78,7 +78,7 @@ final class AiImportSubmitControllerProvider
 }
 
 String _$aiImportSubmitControllerHash() =>
-    r'3eca7218161a72f9d00a5da6a295091f4fa8e36c';
+    r'6d2f18cb731711377554068561a677a37bf58133';
 
 /// The submission controller (`flutter-ai-import-workflow` task 3.1).
 ///

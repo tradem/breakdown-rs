@@ -46,7 +46,7 @@ class CacheDatabase extends _$CacheDatabase {
   CacheDatabase.connect(super.executor);
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -113,6 +113,41 @@ class CacheDatabase extends _$CacheDatabase {
           'ADD COLUMN snapshot_index INTEGER NOT NULL DEFAULT 0',
         );
       }
+      // Issue #423 (v7): the backend OpenAPI contract relaxed the seven
+      // `CharacterMeasurements` properties and the `BlockView` date fields
+      // from required/non-nullable to nullable (`type: [string, null]`) —
+      // unset values arrive as JSON null. The mirrored cache columns must
+      // accept null, which SQLite cannot express with an in-place ALTER
+      // (NOT NULL cannot be dropped) — drift rebuilds the table via
+      // [TableMigration]. Guarded to (a) tables that actually exist and
+      // (b) installs that may hold the old NOT NULL definitions — fresh
+      // creations (onCreate / the from < 2 / from < 3 branches above) use
+      // the CURRENT definitions, already nullable. The next TTL
+      // snapshot-replace rewrites all rows anyway.
+      if (from < 7) {
+        if (await _tableExists(m.database, 'block_cache_rows')) {
+          await m.alterTable(TableMigration(blockCacheRows));
+        }
+        if (await _tableExists(m.database, 'character_cache_rows')) {
+          await m.alterTable(TableMigration(characterCacheRows));
+        }
+      }
     },
   );
+
+  /// Whether `name` exists as a table in the SQLite master catalog.
+  /// Migration branches must tolerate probe databases (and partial
+  /// installs) that lack a table an earlier version created.
+  static Future<bool> _tableExists(
+    DatabaseConnectionUser db,
+    String name,
+  ) async {
+    final row = await db
+        .customSelect(
+          "SELECT COUNT(*) AS c FROM sqlite_master WHERE type = 'table' AND name = ?",
+          variables: [Variable.withString(name)],
+        )
+        .getSingle();
+    return row.read<int>('c') > 0;
+  }
 }
