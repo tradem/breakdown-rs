@@ -367,13 +367,13 @@ void main() {
         dao,
       ).listBySeason('s-1', clock: _clock);
       dao.phase = _FaultPhase.read;
+      final transport = _ScriptInterceptor();
       _expectLeftCode(
-        await CostumeRepository(
-          _api(_ScriptInterceptor()),
-          dao,
-        ).readCached('s-1'),
+        await CostumeRepository(_api(transport), dao).readCached('s-1'),
         'cache.read_failed',
       );
+      // Pure Drift read: no network call on the faulted path either.
+      expect(transport.calls, 0);
     });
 
     test('getAndCache Ok upserts the row', () async {
@@ -500,13 +500,13 @@ void main() {
         dao,
       ).listBySeason('season-1', clock: _clock);
       dao.phase = _FaultPhase.read;
+      final transport = _ScriptInterceptor();
       _expectLeftCode(
-        await CharacterRepository(
-          _api(_ScriptInterceptor()),
-          dao,
-        ).readCached('season-1'),
+        await CharacterRepository(_api(transport), dao).readCached('season-1'),
         'cache.read_failed',
       );
+      // Pure Drift read: no network call on the faulted path either.
+      expect(transport.calls, 0);
     });
 
     test('clearCache Ok empties the season scope', () async {
@@ -610,13 +610,13 @@ void main() {
         dao,
       ).listByEpisode('ep-1', clock: _clock);
       dao.phase = _FaultPhase.read;
+      final transport = _ScriptInterceptor();
       _expectLeftCode(
-        await ShootingDayRepository(
-          _api(_ScriptInterceptor()),
-          dao,
-        ).readCached('ep-1'),
+        await ShootingDayRepository(_api(transport), dao).readCached('ep-1'),
         'cache.read_failed',
       );
+      // Pure Drift read: no network call on the faulted path either.
+      expect(transport.calls, 0);
     });
 
     test('clearCache Ok empties the episode scope', () async {
