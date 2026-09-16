@@ -236,7 +236,10 @@ class _E2eSceneShootRepository extends SceneShootRepository {
     world.wrapCalls++;
     world.lastWrapVersion = request.version;
     world.wrappedAt = _t;
-    world.dayVersion++;
+    // Production semantics: the aggregate accepts the requested version
+    // and emits request.version + 1 (the projection then carries that
+    // bumped version, not an unrelated one).
+    world.dayVersion = request.version + 1;
     return Right(world.dayVersion);
   }
 
@@ -396,6 +399,11 @@ void main() {
     await tester.scrollUntilVisible(find.text('Skipped'), 200);
     expect(find.text('Skipped'), findsOneWidget);
 
+    // Terminal rows keep their order menu while the day is open (the
+    // menu exposes actual-order/replan mutations) — it must vanish on
+    // finality; asserted after the wrap below.
+    expect(find.byKey(const Key('scene-shoot-menu-ssh-1')), findsOneWidget);
+
     // -- Wrap: guarded day-level action with finality copy (D3). The
     // live day projection is at v3 — the confirmed wrap echoes 3, never
     // the entry DTO's v1.
@@ -439,6 +447,8 @@ void main() {
     expect(find.byKey(const Key('scene-shoot-finish-ssh-1')), findsNothing);
     expect(find.byKey(const Key('scene-shoot-skip-ssh-1')), findsNothing);
     expect(find.byKey(const Key('scene-shoot-skip-ssh-2')), findsNothing);
+    // Finality removes the row order menu too (order mutations are gone).
+    expect(find.byKey(const Key('scene-shoot-menu-ssh-1')), findsNothing);
     await tester.scrollUntilVisible(find.text('Shot'), 200);
     expect(find.text('Shot'), findsOneWidget);
     await tester.scrollUntilVisible(find.text('Skipped'), 200);
