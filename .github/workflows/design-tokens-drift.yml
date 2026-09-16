@@ -1,0 +1,95 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: omen-alpha (opencode-go)
+
+#
+# Design Tokens drift gate — the token-source analog of the OpenAPI-client
+# drift check (openspec change `add-dtcg-design-tokens`, spec
+# `design-tokens`, Decision D5).
+#
+# Triggers on every change to the DTCG token source, the generator config,
+# the build script, or the committed generated artifact. The job regenerates
+# the Flutter artifact into a THROWAWAY directory (never touching the
+# committed tree) and diffs it against
+# `frontend-flutter/lib/design/gen/`; any difference fails the PR with a
+# regenerate instruction.
+#
+# CI hardening (monorepo AGENTS.md §2):
+#  - every action SHA-pinned (no moving version tags)
+#  - Node/npm versions pinned via the committed design/package-lock.json
+#    (npm ci — no 'latest', no unpinned network fetch at build time)
+#  - no `github.event.*` interpolation into `run:`
+#
+# Job runtime: < 1 minute (Node + npm ci only, no Flutter SDK; ~3 s for the
+# pipeline itself after dependency restore; the npm cache keeps the cold
+# path short as well).
+
+name: Design Tokens Drift
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "design/**"
+      - "scripts/build-tokens.sh"
+      - "frontend-flutter/lib/design/gen/**"
+      - ".github/workflows/design-tokens-drift.yml"
+  pull_request:
+    paths:
+      - "design/**"
+      - "scripts/build-tokens.sh"
+      - "frontend-flutter/lib/design/gen/**"
+      - ".github/workflows/design-tokens-drift.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: design-tokens-drift-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tokens-drift:
+    name: Regenerate + diff (design/tokens)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node (pinned via committed lockfile)
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v7.0.0
+        with:
+          node-version: "22"
+
+      - name: Cache npm cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ~/.npm
+          key: design-tokens-npm-${{ runner.os }}-${{ hashFiles('design/package-lock.json') }}
+          restore-keys: |
+            design-tokens-npm-${{ runner.os }}-
+
+      - name: Regenerate tokens into throwaway directory
+        # DESIGN_TOKENS_OUT_DIR redirects the artifact write; the committed
+        # frontend-flutter/lib/design/gen/ tree is NOT modified, so the diff
+        # below is a pure regenerate-and-compare (analog of the OpenAPI
+        # client drift check).
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/tokens-regenerated
+          DESIGN_TOKENS_OUT_DIR=/tmp/tokens-regenerated bash scripts/build-tokens.sh
+
+      - name: Diff regenerated artifact against committed
+        run: |
+          set -euo pipefail
+          if diff -r /tmp/tokens-regenerated frontend-flutter/lib/design/gen; then
+            echo "::notice::Design tokens are in sync with design/tokens/."
+            exit 0
+          fi
+          echo "::error::Design-token drift detected. frontend-flutter/lib/design/gen/ is out of sync with design/tokens/. Regenerate with 'bash scripts/build-tokens.sh' and commit the diff together with the JSON change. (Hand-edits to lib/design/gen/ are forbidden — see design/tokens/README.md.)"
+          # Concise diff for the PR annotation.
+          diff -ruN frontend-flutter/lib/design/gen /tmp/tokens-regenerated || true
+          exit 1

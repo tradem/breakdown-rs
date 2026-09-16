@@ -17,6 +17,11 @@ frontend-flutter/android/key.properties
 # ignored anyway, but keep the decode dir explicitly out of any archive).
 frontend-flutter/android/app/build/keystore/
 
+# Design-token build (design/, scripts/build-tokens.sh): pinned Node
+toolchain + Style Dictionary JSON intermediate (throwaway).
+design/node_modules/
+design/build/
+
 # Rust build artifacts
 target/
 

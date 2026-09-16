@@ -1,0 +1,62 @@
+{
+  "color": {
+    "brand": {
+      "seed": {
+        "$type": "color",
+        "$value": "#009688",
+        "$description": "Brand seed color (Material teal) driving ColorScheme.fromSeed for both the light and the dark M3 scheme. Carried over 1:1 from the hand-written theme.dart seed (spec flutter-design-tokens); the seed IS the token — all other scheme roles stay M3-derived (design.md D4)."
+      }
+    },
+    "semantic": {
+      "$description": "Semantic status colors with explicit light and dark sets. Cross-frontend shared tokens; NOT consumed by Flutter in this change (scheme roles stay seed-derived per design.md D4).",
+      "success": {
+        "light": {
+          "$type": "color",
+          "$value": "#2e7d32",
+          "$description": "Success status color on light surfaces."
+        },
+        "dark": {
+          "$type": "color",
+          "$value": "#81c784",
+          "$description": "Success status color on dark surfaces."
+        }
+      },
+      "warning": {
+        "light": {
+          "$type": "color",
+          "$value": "#f9a825",
+          "$description": "Warning status color on light surfaces."
+        },
+        "dark": {
+          "$type": "color",
+          "$value": "#ffd54f",
+          "$description": "Warning status color on dark surfaces."
+        }
+      },
+      "error": {
+        "light": {
+          "$type": "color",
+          "$value": "#b3261e",
+          "$description": "Error status color on light surfaces (M3 error tone)."
+        },
+        "dark": {
+          "$type": "color",
+          "$value": "#f2b8b5",
+          "$description": "Error status color on dark surfaces (M3 error tone)."
+        }
+      },
+      "info": {
+        "light": {
+          "$type": "color",
+          "$value": "#0277bd",
+          "$description": "Info status color on light surfaces."
+        },
+        "dark": {
+          "$type": "color",
+          "$value": "#81d4fa",
+          "$description": "Info status color on dark surfaces."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "size": {
+    "$description": "Dimension tokens in logical pixels (unitless numbers are consumed 1:1 as Dart doubles). Spacing scale is carried over 1:1 from the hand-written lib/design/spacing.dart (spec flutter-design-tokens).",
+    "space": {
+      "2": {
+        "$type": "dimension",
+        "$value": 2,
+        "$description": "Hairline separation (AppSpacing.space2)."
+      },
+      "4": {
+        "$type": "dimension",
+        "$value": 4,
+        "$description": "Tight inline gap (AppSpacing.space4)."
+      },
+      "8": {
+        "$type": "dimension",
+        "$value": 8,
+        "$description": "Compact gap (AppSpacing.space8)."
+      },
+      "12": {
+        "$type": "dimension",
+        "$value": 12,
+        "$description": "Comfortable gap (AppSpacing.space12)."
+      },
+      "16": {
+        "$type": "dimension",
+        "$value": 16,
+        "$description": "Card-level padding (AppSpacing.space16)."
+      },
+      "24": {
+        "$type": "dimension",
+        "$value": 24,
+        "$description": "Screen-level padding (AppSpacing.space24)."
+      },
+      "32": {
+        "$type": "dimension",
+        "$value": 32,
+        "$description": "Section separation (AppSpacing.space32)."
+      }
+    },
+    "radius": {
+      "$description": "Corner radii aligned with the M3 shape defaults; not consumed by Flutter in this change.",
+      "small": {
+        "$type": "dimension",
+        "$value": 8,
+        "$description": "Small corner radius (M3 extra-small/small components)."
+      },
+      "medium": {
+        "$type": "dimension",
+        "$value": 12,
+        "$description": "Medium corner radius (M3 medium components)."
+      },
+      "large": {
+        "$type": "dimension",
+        "$value": 16,
+        "$description": "Large corner radius (M3 large components)."
+      }
+    }
+  }
+}

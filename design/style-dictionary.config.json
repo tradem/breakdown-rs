@@ -1,0 +1,15 @@
+{
+  "source": ["design/tokens/**/*.json"],
+  "platforms": {
+    "flutter": {
+      "transforms": ["attribute/cti", "name/camel", "color/hex8flutter"],
+      "buildPath": "design/build/",
+      "files": [
+        {
+          "destination": "design_tokens.flat.json",
+          "format": "json/flat"
+        }
+      ]
+    }
+  }
+}
