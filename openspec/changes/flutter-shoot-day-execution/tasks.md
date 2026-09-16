@@ -50,14 +50,17 @@
 - [x] 3.3 Wire into the flutter_gherkin CI manifest
 
 ## 4. Integration + housekeeping
-- [ ] 4.1 On-emulator smoke: plan two shoots → start/finish/skip →
+- [x] 4.1 On-emulator smoke: plan two shoots → start/finish/skip →
        wrap → assert read-only finality
-       (Status Sep 2026: attempted on local emulator — environment proven
-       end-to-end, API-level sequence green (plan/start/finish/skip/wrap/
-       finality/immutability), but the on-device flow is blocked by #377
-       (no GET /v1/seasons → board unreachable) and #378 (client never
-       sends X-Active-Block → board fetch 400s). Backend projector
-       instability observed, see #37.)
+       (Status Sep 2026: first attempt blocked on device by #377/#378 —
+       both since fixed (PRs #384, #381). Landed Sep 2026 as the Tier-4
+       integration smoke `integration_test/scene_shoots_smoke_test.dart`
+       (repo smoke convention: real screen + controller on the emulator,
+       scriptable zero-lag fake projector): plan on the empty board →
+       second shoot via the projection → start/finish/skip with version
+       echoes → wrap dialog (live-version echo) → read-only finality
+       banner, no mutation actions. Green on the pixel_breakdown
+       emulator; format/analyze/breakdown_lints/gitleaks clean.)
 - [x] 4.2 SPDX headers; lint/coverage/gitleaks gates clean
 - [x] 4.3 `openspec` coverage audit for
        `flutter-scene-shoots-screen`
