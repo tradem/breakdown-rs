@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
@@ -32,7 +33,9 @@ import 'package:frontend_flutter/features/episodes/episodes_controller.dart';
 import 'package:frontend_flutter/features/episodes/episodes_screen.dart';
 import 'package:frontend_flutter/features/scenes/scenes_controller.dart';
 import 'package:frontend_flutter/features/scenes/scenes_screen.dart';
-import 'package:frontend_flutter/features/seasons/seasons_screen.dart';
+import 'package:frontend_flutter/features/shell/more_tab_screen.dart';
+import 'package:frontend_flutter/features/shell/planning_tab_screen.dart';
+import 'package:frontend_flutter/features/shell/shell_controller.dart';
 
 SeasonView _season() => SeasonView(
   (b) => b
@@ -238,13 +241,14 @@ void main() {
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
-          child: const MaterialApp(home: SeasonsScreen()),
+          child: const MaterialApp(home: PlanningTabScreen()),
         ),
       );
       await tester.pumpAndSettle();
 
-      // Season → blocks.
-      await tester.tap(find.byKey(const Key('season-season-1')));
+      // Planen: season → blocks (hierarchy spine on the Planen tab's
+      // nested navigator, spec `flutter-hierarchy-navigation`).
+      await tester.tap(find.byKey(const Key('planen-season-season-1')));
       await tester.pumpAndSettle();
       expect(find.byType(BlocksScreen), findsOneWidget);
       expect(find.byKey(const Key('block-block-1')), findsOneWidget);
@@ -272,10 +276,21 @@ void main() {
       expect(find.byKey(const Key('block-block-1')), findsOneWidget);
       await tester.pageBack();
       await tester.pumpAndSettle();
-      expect(find.byType(SeasonsScreen), findsOneWidget);
+      expect(find.byType(PlanningTabScreen), findsOneWidget);
 
-      // Categories from the season context; create appends '!' (empty vocab).
-      await tester.tap(find.byKey(const Key('season-categories-season-1')));
+      // Categories via the Mehr tab (task 4.3): the Planen row set the
+      // active season; the labeled categories entry is season-gated.
+      container
+          .read(shellControllerProvider.notifier)
+          .setActiveSeason(_season());
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(home: MoreTabScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('mehr-categories-entry')));
       await tester.pumpAndSettle();
       expect(find.byType(CostumeCategoriesScreen), findsOneWidget);
       expect(find.byKey(const Key('categories-empty')), findsOneWidget);

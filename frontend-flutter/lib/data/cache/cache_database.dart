@@ -12,6 +12,7 @@ import 'costume_domains_cache.dart';
 import 'hierarchy_cache.dart';
 import 'scene_shoot_cache.dart';
 import 'season_cache.dart';
+import 'shell_state_cache.dart';
 
 part 'cache_database.g.dart';
 
@@ -33,6 +34,7 @@ part 'cache_database.g.dart';
     ShootingDayCacheRows,
     SceneShootCacheRows,
     AiImportJobCacheRows,
+    ShellStateRows,
   ],
 )
 class CacheDatabase extends _$CacheDatabase {
@@ -46,7 +48,7 @@ class CacheDatabase extends _$CacheDatabase {
   CacheDatabase.connect(super.executor);
 
   @override
-  int get schemaVersion => 7;
+  int get schemaVersion => 8;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -131,6 +133,15 @@ class CacheDatabase extends _$CacheDatabase {
         if (await _tableExists(m.database, 'character_cache_rows')) {
           await m.alterTable(TableMigration(characterCacheRows));
         }
+      }
+      if (from < 8) {
+        // `redesign-app-shell-navigation` 2.2: shell-state key-value table
+        // (persisted active-season reference, design D5). Fresh table for
+        // existing installs — no data to migrate. The persisted value is
+        // only a reference; its projection row is re-validated against the
+        // TTL-stamped seasons cache on every boot (TTL-compliant by
+        // construction).
+        await m.createTable(shellStateRows);
       }
     },
   );
