@@ -40,18 +40,8 @@ String tabSemanticLabel(int index, String label) =>
 ///
 /// The shell renders only for a resolved authenticated session (it sits
 /// below `AuthGate`; the gate contract is unchanged).
-class AppShell extends ConsumerWidget {
+class AppShell extends ConsumerStatefulWidget {
   const AppShell({super.key});
-
-  /// Nested-navigator keys, one per tab. Package-private so widget tests
-  /// (same package) can drive drill-down/preservations through the exact
-  /// navigators the shell hosts.
-  static final List<GlobalKey<NavigatorState>> tabNavigatorKeys = [
-    GlobalKey<NavigatorState>(debugLabel: 'shell-tab-0-season'),
-    GlobalKey<NavigatorState>(debugLabel: 'shell-tab-1-planen'),
-    GlobalKey<NavigatorState>(debugLabel: 'shell-tab-2-kleidung'),
-    GlobalKey<NavigatorState>(debugLabel: 'shell-tab-3-mehr'),
-  ];
 
   /// Root screen per tab (design D2/task 3.2): Season = the seasons
   /// overview, Planen = hierarchy entry, Kleidung = costume domains scope,
@@ -64,7 +54,23 @@ class AppShell extends ConsumerWidget {
   ];
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<AppShell> createState() => AppShellState();
+}
+
+class AppShellState extends ConsumerState<AppShell> {
+  /// Nested-navigator keys, one per tab — INSTANCE state (CodeRabbit
+  /// review fix: `static final` keys would throw the duplicate-GlobalKey
+  /// assertion if two shells were ever mounted side by side, e.g. a
+  /// preview or a lingering test tree).
+  final List<GlobalKey<NavigatorState>> tabNavigatorKeys = [
+    GlobalKey<NavigatorState>(debugLabel: 'shell-tab-0-season'),
+    GlobalKey<NavigatorState>(debugLabel: 'shell-tab-1-planen'),
+    GlobalKey<NavigatorState>(debugLabel: 'shell-tab-2-kleidung'),
+    GlobalKey<NavigatorState>(debugLabel: 'shell-tab-3-mehr'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
     final state = ref.watch(shellControllerProvider);
     final controller = ref.read(shellControllerProvider.notifier);
     final widthDp = MediaQuery.sizeOf(context).width;
@@ -90,13 +96,13 @@ class AppShell extends ConsumerWidget {
         key: const Key('shell-tab-stack'),
         index: state.selectedIndex,
         children: [
-          for (var i = 0; i < _tabRoots.length; i++)
+          for (var i = 0; i < AppShell._tabRoots.length; i++)
             Navigator(
               key: tabNavigatorKeys[i],
               restorationScopeId: 'shell-tab-$i',
               onGenerateRoute: (settings) => MaterialPageRoute<void>(
                 settings: settings,
-                builder: (_) => _tabRoots[i],
+                builder: (_) => AppShell._tabRoots[i],
               ),
             ),
         ],
@@ -187,8 +193,12 @@ class ShellDestinations {
           selectedIcon: Icon(d.filledIcon),
           // Explicit "<label>, Tab N of 4" traversal semantics on the
           // label node (excludeSemantics: the bare Text label would
-          // otherwise be announced twice).
+          // otherwise be announced twice). The shared destination key
+          // rides on this wrapper (NavigationRailDestination has no key
+          // parameter) — one key per destination across ALL morphologies
+          // (CodeRabbit review fix).
           label: Semantics(
+            key: Key(d.keySuffix),
             label: d.semanticLabel,
             excludeSemantics: true,
             container: true,
@@ -213,8 +223,10 @@ class ShellDestinations {
         NavigationDrawerDestination(
           icon: Icon(d.outlineIcon),
           selectedIcon: Icon(d.filledIcon),
-          // See the rail destination: explicit traversal semantics.
+          // See the rail destination: explicit traversal semantics + the
+          // shared destination key on the label wrapper.
           label: Semantics(
+            key: Key(d.keySuffix),
             label: d.semanticLabel,
             excludeSemantics: true,
             container: true,

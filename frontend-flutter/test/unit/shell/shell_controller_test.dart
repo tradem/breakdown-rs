@@ -57,14 +57,16 @@ SeasonView _season(String id, {int number = 1, String? title}) => SeasonView(
 /// Container wired to: an in-memory Drift shell-state store, a fixed clock,
 /// a scriptable session (default: signed in), and a controllable
 /// active-season resolution.
-({
-  ProviderContainer container,
-  _ScriptableSessionController session,
-  ShellStateDao dao,
-  CacheDatabase db,
-  SeasonView Function(String id) season,
-})
-_buildFixture({AuthSession? session, SeasonView? resolvedSeason}) {
+Future<
+  ({
+    ProviderContainer container,
+    _ScriptableSessionController session,
+    ShellStateDao dao,
+    CacheDatabase db,
+    SeasonView Function(String id) season,
+  })
+>
+_buildFixture({AuthSession? session, SeasonView? resolvedSeason}) async {
   final db = CacheDatabase();
   final dao = ShellStateDao(db);
   final sessionController = _ScriptableSessionController(
@@ -86,6 +88,10 @@ _buildFixture({AuthSession? session, SeasonView? resolvedSeason}) {
   );
   addTearDown(container.dispose);
   addTearDown(db.close);
+  // Settle the session BEFORE any shell provider is touched: production
+  // sequencing (the auth gate resolves before the shell mounts) and the
+  // deterministic base for the session-scoped persistence key.
+  await container.read(authSessionControllerProvider.future);
   return (
     container: container,
     session: sessionController,
@@ -97,15 +103,15 @@ _buildFixture({AuthSession? session, SeasonView? resolvedSeason}) {
 
 void main() {
   group('ShellController (task 2.1)', () {
-    test('starts on the Season tab without an active season', () {
-      final f = _buildFixture();
+    test('starts on the Season tab without an active season', () async {
+      final f = await _buildFixture();
       final state = f.container.read(shellControllerProvider);
       expect(state.selectedIndex, kSeasonTabIndex);
       expect(state.activeSeason, isNull);
     });
 
-    test('selectTab switches the selected index', () {
-      final f = _buildFixture();
+    test('selectTab switches the selected index', () async {
+      final f = await _buildFixture();
       final c = f.container.read(shellControllerProvider.notifier);
       c.selectTab(kPlanenTabIndex);
       expect(
@@ -119,9 +125,9 @@ void main() {
       );
     });
 
-    test('selectTab keeps the active season', () {
+    test('selectTab keeps the active season', () async {
       final s = _season('season-1');
-      final f = _buildFixture(resolvedSeason: s);
+      final f = await _buildFixture(resolvedSeason: s);
       final container = f.container;
       final notifier = container.read(shellControllerProvider.notifier);
       notifier.setActiveSeason(s);
@@ -131,8 +137,8 @@ void main() {
       expect(state.activeSeason?.id, 'season-1');
     });
 
-    test('out-of-range indices are ignored (no throw)', () {
-      final f = _buildFixture();
+    test('out-of-range indices are ignored (no throw)', () async {
+      final f = await _buildFixture();
       final c = f.container.read(shellControllerProvider.notifier);
       c.selectTab(-1);
       c.selectTab(99);
@@ -145,7 +151,7 @@ void main() {
     test(
       'setActiveSeason sets the season and persists the reference',
       () async {
-        final f = _buildFixture();
+        final f = await _buildFixture();
         final container = f.container;
         final notifier = container.read(shellControllerProvider.notifier);
         notifier.setActiveSeason(_season('season-42'));
@@ -154,7 +160,7 @@ void main() {
           'season-42',
         );
         await _settlePersistence();
-        final persisted = (await f.dao.read(kActiveSeasonKey))
+        final persisted = (await f.dao.read(activeSeasonKeyFor('sub-1')))
             .getRight()
             .toNullable();
         expect(persisted!.value, 'season-42');
@@ -164,13 +170,15 @@ void main() {
     test(
       'clearActiveSeason clears in memory AND the persisted reference',
       () async {
-        final f = _buildFixture();
+        final f = await _buildFixture();
         final container = f.container;
         final notifier = container.read(shellControllerProvider.notifier);
         notifier.setActiveSeason(_season('season-1'));
         await _settlePersistence();
         expect(
-          (await f.dao.read(kActiveSeasonKey)).getRight().toNullable(),
+          (await f.dao.read(activeSeasonKeyFor('sub-1')))
+              .getRight()
+              .toNullable(),
           isNotNull,
         );
 
@@ -179,26 +187,120 @@ void main() {
         final state = container.read(shellControllerProvider);
         expect(state.activeSeason, isNull);
         expect(
-          (await f.dao.read(kActiveSeasonKey)).getRight().toNullable(),
+          (await f.dao.read(activeSeasonKeyFor('sub-1')))
+              .getRight()
+              .toNullable(),
           isNull,
         );
       },
     );
 
-    test('persisted season resolves into the controller state (D5)', () async {
+    test('persisted season hydrates the controller state (D5)', () async {
+      // CodeRabbit review fix: the fixture's resolution override bypasses
+      // the persisted reference, so this test must seed the DAO + the live
+      // projection and exercise the REAL resolution path.
       final s = _season('season-7', number: 7);
-      final f = _buildFixture(resolvedSeason: s);
-      // The resolution is async: let it settle, then re-read the controller
+      final db = CacheDatabase();
+      addTearDown(db.close);
+      final dao = ShellStateDao(db);
+      await dao.upsert(
+        key: activeSeasonKeyFor('sub-1'),
+        value: 'season-7',
+        cachedAt: DateTime.utc(2026, 2, 1),
+      );
+      final container = ProviderContainer(
+        overrides: [
+          authSessionControllerProvider.overrideWith(
+            () => _ScriptableSessionController(AuthSession(sub: 'sub-1')),
+          ),
+          shellStateDaoProvider.overrideWithValue(dao),
+          clockProvider.overrideWith(
+            (ref) => Clock.fixed(DateTime.utc(2026, 2, 1)),
+          ),
+          seasonsView.overrideWithValue(SeasonsView(rows: [s], isStale: false)),
+        ],
+      );
+      addTearDown(container.dispose);
+      // Settle the session FIRST (production sequencing — see _buildFixture).
+      await container.read(authSessionControllerProvider.future);
+      // The resolution is async: let it settle, then read the controller
       // (it rebuilds when the resolution provider completes).
-      await f.container.read(activeSeasonResolutionProvider.future);
-      final state = f.container.read(shellControllerProvider);
+      await container.read(activeSeasonResolutionProvider.future);
+      final state = container.read(shellControllerProvider);
       expect(state.activeSeason?.id, 'season-7');
       expect(state.activeSeason?.number, 7);
     });
 
+    test('direct u1 → u2 session switch never resolves the previous '
+        "session's season (session-scoped persistence)", () async {
+      final db = CacheDatabase();
+      addTearDown(db.close);
+      final dao = ShellStateDao(db);
+      await dao.upsert(
+        key: activeSeasonKeyFor('user-1'),
+        value: 'season-1',
+        cachedAt: DateTime.utc(2026, 2, 1),
+      );
+      final sessionController = _ScriptableSessionController(
+        AuthSession(sub: 'user-1'),
+      );
+      final container = ProviderContainer(
+        overrides: [
+          authSessionControllerProvider.overrideWith(() => sessionController),
+          shellStateDaoProvider.overrideWithValue(dao),
+          clockProvider.overrideWith(
+            (ref) => Clock.fixed(DateTime.utc(2026, 2, 1)),
+          ),
+          // The live projection still carries u1's season — but the
+          // persisted key is u2-scoped, so u2 resolves nothing.
+          seasonsView.overrideWithValue(
+            SeasonsView(rows: [_season('season-1')], isStale: false),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(authSessionControllerProvider.future);
+      await container.read(activeSeasonResolutionProvider.future);
+      // Mount the shell controller while u1 is active (production state:
+      // the shell exists whenever a season can be set).
+      final mounted = container.read(shellControllerProvider);
+      expect(mounted.activeSeason?.id, 'season-1');
+      // u1 resolves its own persisted season…
+      expect(
+        await container.read(activeSeasonResolutionProvider.future),
+        isNotNull,
+      );
+
+      // …then the session switches DIRECTLY to u2 (no signed-out
+      // intermediate): the controller evicts u1's key and re-resolves
+      // against u2's (nonexistent) scope.
+      sessionController.setSession(AuthSession(sub: 'user-2'));
+      container.invalidate(authSessionControllerProvider);
+      await container.read(authSessionControllerProvider.future);
+      container.invalidate(shellControllerProvider);
+      await container.read(activeSeasonResolutionProvider.future);
+      final state = container.read(shellControllerProvider);
+      expect(state.activeSeason, isNull);
+      expect(
+        container.read(shellControllerProvider).selectedIndex,
+        kSeasonTabIndex,
+      );
+      // Flush the fire-and-forget eviction write.
+      await _settlePersistence();
+      // u1's persisted entry is evicted; u2 has none.
+      expect(
+        (await dao.read(activeSeasonKeyFor('user-1'))).getRight().toNullable(),
+        isNull,
+      );
+      expect(
+        (await dao.read(activeSeasonKeyFor('user-2'))).getRight().toNullable(),
+        isNull,
+      );
+    });
+
     test('reset on sign-out: tab index AND active season reset (D7)', () async {
       final s = _season('season-1');
-      final f = _buildFixture(resolvedSeason: s);
+      final f = await _buildFixture(resolvedSeason: s);
       final container = f.container;
       final notifier = container.read(shellControllerProvider.notifier);
       notifier.selectTab(kMehrTabIndex);
@@ -218,7 +320,7 @@ void main() {
 
   group('activeSeasonResolution (task 2.2 TTL discipline)', () {
     test('resolves the injected season without a persisted id', () async {
-      final f = _buildFixture(resolvedSeason: _season('season-1'));
+      final f = await _buildFixture(resolvedSeason: _season('season-1'));
       final res = await f.container.read(activeSeasonResolutionProvider.future);
       expect(res?.id, 'season-1');
     });
@@ -229,7 +331,7 @@ void main() {
       addTearDown(db.close);
       final dao = ShellStateDao(db);
       await dao.upsert(
-        key: kActiveSeasonKey,
+        key: activeSeasonKeyFor(null),
         value: 'season-gone',
         cachedAt: DateTime.utc(2026, 2, 1),
       );
@@ -261,12 +363,16 @@ void main() {
         addTearDown(db.close);
         final dao = ShellStateDao(db);
         await dao.upsert(
-          key: kActiveSeasonKey,
+          key: activeSeasonKeyFor('anon'),
           value: 'season-9',
           cachedAt: DateTime.utc(2026, 2, 1),
         );
+        final sessionController = _ScriptableSessionController(
+          AuthSession(sub: 'anon'),
+        );
         final container = ProviderContainer(
           overrides: [
+            authSessionControllerProvider.overrideWith(() => sessionController),
             shellStateDaoProvider.overrideWithValue(dao),
             clockProvider.overrideWith(
               (ref) => Clock.fixed(DateTime.utc(2026, 2, 1)),
@@ -280,6 +386,7 @@ void main() {
           ],
         );
         addTearDown(container.dispose);
+        await container.read(authSessionControllerProvider.future);
         final res = await container.read(activeSeasonResolutionProvider.future);
         expect(res?.id, 'season-9');
         expect(res?.number, 9);

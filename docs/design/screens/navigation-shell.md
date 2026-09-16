@@ -80,7 +80,7 @@ covered in Interactions and Tests — never in the wireframes.
 |---|---|---|---|
 | Season destination | Navigation destination | Home: seasons overview (Season tab content) | `nav.seasons` |
 | Planen destination | Navigation destination | Hierarchy Season→Block→Episode→Scene | `nav.planen` |
-| Kleidung destination | Navigation destination | Costume domains (Kostüme, Figuren) scoped to the active season | `nav.kleidung` |
+| Kleidung destination | Navigation destination | Costume domains (Kostüme, Figuren) scoped to the active season | `nav.costumes` |
 | Mehr destination | Navigation destination | Import, Kategorien, Über die App, Einstellungen, Abmelden (Berichte bleiben im Day-Board verankert — apply-time decision D8) | `nav.more` |
 | Destination labels | Visible text | Mandatory on every destination in every morphology | — |
 | Tab content | Content pane | The active destination's screen (its own app bars and FABs stay) | — |

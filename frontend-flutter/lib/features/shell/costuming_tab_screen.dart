@@ -2,6 +2,8 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
 
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -17,8 +19,10 @@ import 'shell_controller.dart';
 ///   repositories and AUTHZ-GATE comments are unchanged — only the entry
 ///   point moves, design D4). Both push on this tab's nested navigator.
 /// - Without an active season: a season-selection empty state with a CTA
-///   jumping to the Season tab (spec scenario "No active season" — never
-///   an error).
+///   jumping to the **Planen tab** (spec scenario "No active season" —
+///   never an error). The Planen tab is the surface that SETS the active
+///   season (from the acted-on season row DTO, D5); the Season tab is a
+///   pure overview whose rows do not navigate, so the CTA points there.
 ///
 /// The active season is consumed as plain data from
 /// `ShellState.activeSeason` (D5) — the widgets carry no season-changing
@@ -42,7 +46,8 @@ class CostumingTabScreen extends ConsumerWidget {
                 const SizedBox(height: 16),
                 const Center(
                   child: Text(
-                    'Select a season to see its costumes and figures.',
+                    'Wähle eine Season im Planen-Tab, um Kostüme '
+                    'und Figuren zu sehen.',
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -51,8 +56,8 @@ class CostumingTabScreen extends ConsumerWidget {
                     key: const Key('kleidung-select-season-cta'),
                     onPressed: () => ref
                         .read(shellControllerProvider.notifier)
-                        .selectTab(kSeasonTabIndex),
-                    child: const Text('Season wählen'),
+                        .selectTab(kPlanenTabIndex),
+                    child: const Text('Season im Planen-Tab wählen'),
                   ),
                 ),
               ],
@@ -67,9 +72,12 @@ class CostumingTabScreen extends ConsumerWidget {
                   title: const Text('Kostüme'),
                   subtitle: Text(season.title ?? 'Season ${season.number}'),
                   trailing: const Icon(Icons.chevron_right),
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => CostumesScreen(season: season),
+                  // Fire-and-forget navigation (no result consumed).
+                  onTap: () => unawaited(
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => CostumesScreen(season: season),
+                      ),
                     ),
                   ),
                 ),
@@ -79,9 +87,12 @@ class CostumingTabScreen extends ConsumerWidget {
                   title: const Text('Figuren'),
                   subtitle: Text(season.title ?? 'Season ${season.number}'),
                   trailing: const Icon(Icons.chevron_right),
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => CharactersScreen(season: season),
+                  // Fire-and-forget navigation (no result consumed).
+                  onTap: () => unawaited(
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => CharactersScreen(season: season),
+                      ),
                     ),
                   ),
                 ),

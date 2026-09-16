@@ -2,11 +2,10 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
 
-import 'dart:async' show unawaited;
-
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../../auth/auth_providers.dart';
 import '../../data/cache/shell_state_cache_dao.dart';
 import '../../data/cache/seasons_cache_providers.dart';
 part 'active_season_store.g.dart';
@@ -27,21 +26,35 @@ part 'active_season_store.g.dart';
 /// start simply opens the Season tab without an active season).
 const String kActiveSeasonKey = 'active_season_id';
 
+/// Session-scoped persistence key (CodeRabbit review fix): the reference
+/// is stored under `active_season_id@<sub>` so identity B never resolves
+/// identity A's season — the key space dies with the session, mirroring
+/// the identity-scoped secure-storage seam of `ActiveBlockStore`.
+String activeSeasonKeyFor(String? sub) => '$kActiveSeasonKey@${sub ?? ''}';
+
 /// The [ShellStateDao] seam (auto codegen so tests override with an
 /// in-memory-Drift-backed instance via `overrideWith`).
 @riverpod
 ShellStateDao shellStateDao(Ref ref) =>
     ShellStateDao(ref.watch(cacheDatabaseProvider));
 
-/// The persisted active-season id, loaded once and kept alive.
+/// The persisted active-season id FOR THE CURRENT SESSION, kept alive.
 ///
-/// A store failure degrades to `null` ("nothing persisted") right here —
-/// failing the provider instead would arm the Riverpod auto-retry timers
-/// (never settle under `pumpAndSettle` in widget tests) and buy nothing
-/// in production.
+/// Session-scoped (CodeRabbit review fix): the key carries the
+/// authenticated `sub`, so a cold start only ever hydrates the signed-in
+/// identity's reference. A store failure degrades to `null` ("nothing
+/// persisted") right here — failing the provider instead would arm the
+/// Riverpod auto-retry timers (never settle under `pumpAndSettle` in
+/// widget tests) and buy nothing in production.
 @Riverpod(keepAlive: true)
 Future<String?> activeSeasonPersisted(Ref ref) async {
-  final res = await ref.watch(shellStateDaoProvider).read(kActiveSeasonKey);
+  final sub = switch (ref.watch(authSessionControllerProvider)) {
+    AsyncData(:final value) => value?.sub,
+    _ => null,
+  };
+  final res = await ref
+      .watch(shellStateDaoProvider)
+      .read(activeSeasonKeyFor(sub));
   return res.fold((_) => null, (entry) => entry?.value);
 }
 
@@ -59,26 +72,4 @@ Future<SeasonView?> activeSeasonResolution(Ref ref) async {
     if (season.id == persisted) return season;
   }
   return null;
-}
-
-/// Persists the active-season reference (best-effort write-through) and
-/// refreshes the persisted-id provider once settled so the resolution
-/// converges. `mounted`-guarded: the write may settle after the provider
-/// was disposed (sign-out, test teardown).
-void persistActiveSeasonId(Ref ref, String? seasonId) {
-  final dao = ref.read(shellStateDaoProvider);
-  unawaited(
-    (seasonId == null
-            ? dao.delete(kActiveSeasonKey)
-            : dao.upsert(
-                key: kActiveSeasonKey,
-                value: seasonId,
-                cachedAt: ref.read(clockProvider).now(),
-              ))
-        .then((r) {
-          r.fold((_) {}, (_) {});
-          if (!ref.mounted) return;
-          ref.invalidate(activeSeasonPersistedProvider);
-        }),
-  );
 }

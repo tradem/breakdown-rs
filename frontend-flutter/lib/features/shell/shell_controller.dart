@@ -71,13 +71,19 @@ class ShellController extends _$ShellController {
     // from the persisted reference on the next selection.
     final session = ref.watch(authSessionControllerProvider);
     // Session identity: a NEW session (different sub, or signed-out after
-    // being signed-in) resets the tab index; a pending restore (null key
-    // after null key) does not.
+    // being signed-in) resets the tab index AND evicts the previous
+    // session's persisted season reference (CodeRabbit review fix: the
+    // key space is session-scoped — identity B never resolves identity
+    // A's season, including a direct u1 → u2 switch); a pending restore
+    // (null key after null key) does not.
     final key = switch (session) {
       AsyncData(:final value) => value?.sub,
       _ => null,
     };
     if (key != _sessionKey) {
+      if (_sessionKey != null) {
+        _evictPersistedReference(_sessionKey);
+      }
       _sessionKey = key;
       _selectedIndex = kSeasonTabIndex;
     }
@@ -133,14 +139,15 @@ class ShellController extends _$ShellController {
     _clearPersistedReference();
   }
 
-  /// Best-effort persistence of the active-season reference; a store
+  /// Best-effort persistence of the active-season reference under the
+  /// CURRENT session's scoped key (CodeRabbit review fix); a store
   /// failure never breaks the in-memory state. Refreshes the persisted-id
   /// provider once settled so the resolution converges.
   Future<void> _persist(String seasonId) async {
     final res = await ref
         .read(shellStateDaoProvider)
         .upsert(
-          key: kActiveSeasonKey,
+          key: activeSeasonKeyFor(_sessionKey),
           value: seasonId,
           cachedAt: ref.read(clockProvider).now(),
         );
@@ -149,16 +156,21 @@ class ShellController extends _$ShellController {
     ref.invalidate(activeSeasonPersistedProvider);
   }
 
-  /// Removes the persisted reference (sign-out / cleared season). Failures
-  /// are swallowed as the in-memory state is already authoritative-null;
-  /// the next boot simply resolves `null`.
-  void _clearPersistedReference() {
+  /// Removes the persisted reference (sign-out / cleared season / session
+  /// switch). [sub] scopes WHICH identity's key is evicted — pass the
+  /// previous session's sub on a session change, or null for the current
+  /// (signed-out) scope. Failures are swallowed as the in-memory state is
+  /// already authoritative-null; the next boot simply resolves `null`.
+  void _evictPersistedReference(String? sub) {
     unawaited(
-      ref.read(shellStateDaoProvider).delete(kActiveSeasonKey).then((r) {
+      ref.read(shellStateDaoProvider).delete(activeSeasonKeyFor(sub)).then((r) {
         r.fold((_) {}, (_) {});
         if (!ref.mounted) return;
         ref.invalidate(activeSeasonPersistedProvider);
       }),
     );
   }
+
+  /// Clears the CURRENT session's persisted reference.
+  void _clearPersistedReference() => _evictPersistedReference(_sessionKey);
 }

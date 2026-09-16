@@ -2,6 +2,8 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
 
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -70,9 +72,12 @@ class MoreTabScreen extends ConsumerWidget {
             title: const Text('Import'),
             subtitle: const Text('KI-Assistent: Spielplan importieren'),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const AiImportSubmitScreen(),
+            // Fire-and-forget navigation (no result consumed).
+            onTap: () => unawaited(
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const AiImportSubmitScreen(),
+                ),
               ),
             ),
           ),
@@ -81,15 +86,21 @@ class MoreTabScreen extends ConsumerWidget {
             leading: const Icon(Icons.style_outlined),
             title: const Text('Kategorien'),
             subtitle: season == null
-                ? const Text('First select a season')
+                // CodeRabbit review fix: name the tab that CAN set the
+                // active season (Planen — from the acted-on season row
+                // DTO); the entry itself jumps there when disabled.
+                ? const Text('Season im Planen-Tab öffnen')
                 : Text(season.title ?? 'Season ${season.number}'),
-            enabled: season != null,
             trailing: const Icon(Icons.chevron_right),
             onTap: season == null
-                ? null
-                : () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => CostumeCategoriesScreen(season: season),
+                ? () => ref
+                      .read(shellControllerProvider.notifier)
+                      .selectTab(kPlanenTabIndex)
+                : () => unawaited(
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => CostumeCategoriesScreen(season: season),
+                      ),
                     ),
                   ),
           ),

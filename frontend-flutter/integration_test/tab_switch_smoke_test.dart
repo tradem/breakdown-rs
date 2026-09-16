@@ -86,7 +86,10 @@ void main() {
       );
       addTearDown(container.dispose);
 
-      tester.view.physicalSize = const Size(800, 1200);
+      // COMPACT viewport: the smoke asserts the bottom NavigationBar and
+      // the `shell-destination-<n>` tap targets of the compact morphology
+      // (800dp wide would render the rail instead — CodeRabbit review fix).
+      tester.view.physicalSize = const Size(360, 800);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
       await tester.pumpWidget(
@@ -135,7 +138,8 @@ void main() {
         container.read(shellControllerProvider).selectedIndex,
         kPlanenTabIndex,
       );
-      expect(resolveWindowSizeClass(800), WindowSizeClass.medium);
+      // The smoke exercises the COMPACT morphology throughout.
+      expect(resolveWindowSizeClass(360), WindowSizeClass.compact);
     },
   );
 }

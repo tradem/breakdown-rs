@@ -35,8 +35,11 @@
 - [x] 3.2 Tab content: `IndexedStack` with a nested `Navigator` per
       tab (restorable); root screens: Season = SeasonsScreen content,
       Planen = seasons hierarchy entry, Kleidung = costumes/
-      characters scope, Mehr = list (reports, AI import, categories,
-      settings, sign-out)
+      characters scope, Mehr = list (AI import, categories, settings,
+      sign-out). UPDATED after review (alignment with D8/task 4.3):
+      reports are NOT in the Mehr tab — `ReportsScreen` is strictly
+      day-scoped and stays anchored in the day board; the Berichte
+      entry was dropped during apply (see D8).
 - [x] 3.3 Back behavior: inner `maybePop` first; at the tab root
       `PopScope` → app-exit intent (no tab hopping); predictive-back
       compatible
