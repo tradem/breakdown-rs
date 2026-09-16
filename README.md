@@ -1,3 +1,7 @@
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+<!-- Co-authored-by: omen-alpha (opencode-go) -->
+
 # breakdown-rs
 
 🦀 A modern, collaborative costume and scene continuity breakdown app built with Rust and PostgreSQL.
@@ -73,6 +77,18 @@ cargo test -p integration-tests
 Requires Docker (or a compatible container runtime); Tier-4 tests additionally
 pull the `tqwewe/sierradb:0.3.1` image. For details on the integration-test
 boundary, CI triggers, and local dev commands, see [`backend/AGENTS.md`](./backend/AGENTS.md).
+
+## Design documentation
+
+Design docs live under `docs/design/`: screen specs
+(`docs/design/screens/<screen-name>.md`, authored in the same OpenSpec
+change that implements the screen), the icon/terminology glossary
+(`docs/design/glossary.md`), and the UI/UX research report. Every
+screen change must author or update its screen spec **before** the
+implementation tasks; the `design-wireframe-salt` pi skill
+(`frontend-flutter/.pi/skills/design-wireframe-salt/`) drives the
+format, and CI validates that all PlantUML blocks compile
+(`scripts/check-design-diagrams.sh` → `.github/workflows/docs-design-lint.yml`).
 
 ## Self-hosting
 

@@ -1,0 +1,69 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: omen-alpha (opencode-go)
+
+name: Docs Design Lint
+
+# Validates the text-based design documentation under docs/design/:
+# every fenced ```plantuml block (Salt wireframes, activity diagrams)
+# must compile via `plantuml -checkonly` (scripts/check-design-diagrams.sh).
+#
+# The PlantUML jar is version-pinned and SHA-256-verified inside the
+# script (matching the digest-pinned docker image in docs.yml); the jar
+# is cached across runs. Diagram *content* (labels, glossary
+# conformance) is not automated — it is reviewed at PR time (Decision D4
+# of establish-design-doc-workflow).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/design/**"
+      - "scripts/check-design-diagrams.sh"
+      - ".github/workflows/docs-design-lint.yml"
+  pull_request:
+    paths:
+      - "docs/design/**"
+      - "scripts/check-design-diagrams.sh"
+      - ".github/workflows/docs-design-lint.yml"
+
+permissions:
+  contents: read
+
+env:
+  PLANTUML_VERSION: "1.2026.6"
+  # SHA-256 of plantuml-1.2026.6.jar — used as the cache key; the script
+  # itself re-verifies the downloaded jar against this checksum before
+  # first use
+  PLANTUML_SHA256: "89948f14c93756c7a3fb7b69078ff37e8489fd79dd430c582b931e2f65358690"
+
+concurrency:
+  group: docs-design-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-design-diagrams:
+    name: PlantUML -checkonly (docs/design)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Java (Temurin 17, pinned)
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Cache PlantUML jar
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: .cache/plantuml-${{ env.PLANTUML_VERSION }}.jar
+          key: plantuml-${{ env.PLANTUML_VERSION }}-${{ env.PLANTUML_SHA256 }}
+
+      - name: Validate PlantUML blocks in docs/design
+        env:
+          CI_CACHE_DIR: ${{ github.workspace }}/.cache
+        run: |
+          set -euo pipefail
+          ./scripts/check-design-diagrams.sh
