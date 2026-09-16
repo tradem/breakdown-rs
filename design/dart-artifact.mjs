@@ -59,6 +59,37 @@ function dartLiteral(value) {
   if (typeof value === 'string' && /^Color\(0x[0-9A-F]{8}\)$/.test(value)) {
     return { type: 'Color', literal: value };
   }
+  if (typeof value === 'object' && value !== null) {
+    // DTCG 2025.10 structured values reaching the intermediate without a
+    // platform transform. Style Dictionary converts srgb color objects to
+    // `Color(0xAARRGGBB)` via `color/hex8flutter`; dimensions stay objects
+    // because we apply no size transform — unit "px" maps 1:1 to a Dart
+    // double (logical px).
+    if (
+      typeof value.value === 'number' &&
+      Number.isFinite(value.value) &&
+      value.unit === 'px'
+    ) {
+      return dartLiteral(value.value);
+    }
+    if (
+      value.colorSpace === 'srgb' &&
+      Array.isArray(value.components) &&
+      value.components.length === 3 &&
+      value.components.every((c) => typeof c === 'number' && c >= 0 && c <= 1)
+    ) {
+      const alpha =
+        value.alpha === undefined || value.alpha === null
+          ? 255
+          : Math.round(value.alpha * 255);
+      const rgb = value.components
+        .map((c) => Math.round(c * 255).toString(16).padStart(2, '0'))
+        .join('')
+        .toUpperCase();
+      const a = alpha.toString(16).padStart(2, '0').toUpperCase();
+      return { type: 'Color', literal: `Color(0x${a}${rgb})` };
+    }
+  }
   throw new Error(`unsupported token value shape: ${JSON.stringify(value)}`);
 }
 

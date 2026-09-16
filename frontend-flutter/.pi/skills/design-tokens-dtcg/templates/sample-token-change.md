@@ -13,21 +13,32 @@ breakdown-orange, and tighten `space8` from 8 to 6.
      "brand": {
        "seed": {
          "$type": "color",
--        "$value": "#009688",
-+        "$value": "#c77800",
+-        "$value": {
+-          "colorSpace": "srgb",
+-          "components": [0.0, 0.5882352941176471, 0.5333333333333333],
+-          "hex": "#009688"
+-        },
++        "$value": {
++          "colorSpace": "srgb",
++          "components": [0.7803921568627451, 0.47058823529411764, 0.0],
++          "hex": "#c77800"
++        },
          "$description": "Brand seed color driving ColorScheme.fromSeed …"
        }
      },
 ```
+
+(`components` are normalized sRGB in [0,1]; the `hex` fallback must agree
+exactly with `components` — the validator checks both.)
 
 ## 2. JSON change — `design/tokens/size.json`
 
 ```diff
        "8": {
          "$type": "dimension",
--        "$value": 8,
+-        "$value": {"value": 8, "unit": "px"},
 -        "$description": "Compact gap (AppSpacing.space8)."
-+        "$value": 6,
++        "$value": {"value": 6, "unit": "px"},
 +        "$description": "Compact gap (AppSpacing.space8)."
        },
 ```

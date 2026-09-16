@@ -26,13 +26,17 @@ Flutter app through the pinned build pipeline.
 ## Format rules
 
 1. **DTCG attributes only:** leaf tokens carry `$value`, `$type`
-   (`color` | `dimension`), optional `$description`. No other `$`-prefixed
-   keys — the validator rejects them.
-2. **Aliases** reference other tokens as `{path.to.token}` (e.g.
+   (`color` | `dimension` | `fontWeight`), optional `$description`. No other
+   `$`-prefixed keys — the validator rejects them.
+2. **DTCG 2025.10 structured `$value` shapes** (validator enforces):
+   - `color` → `{colorSpace: "srgb", components: [r,g,b], hex: "#rrggbb"}` —
+     bare hex strings are NOT valid; `hex` is only the optional fallback and
+     must agree exactly with `components`.
+   - `dimension` → `{value: <number>, unit: "px"}` — unit mandatory even for
+     0; this pipeline implements only `"px"` (logical px → Dart double 1:1).
+   - `fontWeight` → number 100–900.
+3. **Aliases** reference other tokens as `{path.to.token}` (e.g.
    `{color.brand.seed}`); every alias must resolve (validator enforces).
-3. **Colors** are hex strings (`#rgb`, `#rrggbb`, `#aarrggbb`);
-   `dimension` values are unitless numbers = logical px (they become Dart
-   `double`s 1:1).
 4. **Light/dark sets:** semantic colors use explicit `light` and `dark`
    sub-groups per token (see `color.semantic.*`).
 5. **No Flutter semantics in the JSON** (Decision D4): the M3 scheme roles

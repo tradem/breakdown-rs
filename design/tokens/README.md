@@ -12,10 +12,18 @@ shared styling truth, diffable as data — not Dart constants (spec
 ## Format
 
 [W3C Design Tokens Community Group (DTCG)](https://www.w3.org/community/design-tokens/)
-format, stable 2025-10: leaf tokens carry `$value`, `$type`, and optional
-`$description`; values reference other tokens via `{path.to.token}` aliases.
-Types used here: `color` (hex strings) and `dimension` (unitless numbers =
-logical px).
+**Format Module 2025.10** (stable): leaf tokens carry `$value`, `$type`, and
+optional `$description`; values reference other tokens via `{path.to.token}`
+aliases. Values use the 2025.10 structured forms:
+
+- `color`: `{"colorSpace": "srgb", "components": [r, g, b], "hex": "#rrggbb"}`
+  — bare hex strings are NOT valid color values in 2025.10; `hex` is only the
+  optional fallback inside the object and must agree exactly with
+  `components` (the validator enforces this).
+- `dimension`: `{"value": <number>, "unit": "px"}` — the unit is mandatory
+  even for 0; this pipeline implements only `"px"` (logical px, mapping 1:1
+  to Dart doubles; `"rem"` would be valid DTCG but is rejected here).
+- `fontWeight`: a number 100–900.
 
 - `color.json` — primitive color tokens (incl. `color.brand.seed`, the
   M3 `ColorScheme.fromSeed` seed) and semantic status colors with explicit
