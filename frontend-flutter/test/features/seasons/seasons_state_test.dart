@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
@@ -78,6 +79,103 @@ void main() {
       );
       expect(state.projected.isLoading, isTrue);
       expect(state.projected.value, isNull);
+    });
+  });
+
+  group('mergedSeasonRows with SeasonMetrics (task 2.1)', () {
+    final metrics = {
+      'a': SeasonMetrics(
+        blockCount: 3,
+        sceneCount: 42,
+        costumeCount: 118,
+        cachedAt: DateTime.utc(2026, 1, 1),
+      ),
+    };
+
+    test('Ok branch: projected rows get their metrics by id', () {
+      final rows = mergedSeasonRows(
+        projected: [season('a'), season('b')],
+        overlays: const [],
+        metrics: metrics,
+      );
+      final a = rows[0] as ProjectedSeasonRow;
+      final b = rows[1] as ProjectedSeasonRow;
+      expect(a.metrics, metrics['a']);
+      // Season 'b' has no cached entry → no metadata (spec: omission,
+      // never fabricated counts).
+      expect(b.metrics, isNull);
+    });
+
+    test('Ok branch: empty-count metrics still attach (all counts null)', () {
+      final rows = mergedSeasonRows(
+        projected: [season('b')],
+        overlays: const [],
+        metrics: {'b': SeasonMetrics(cachedAt: DateTime.utc(2026, 1, 1))},
+      );
+      expect((rows.single as ProjectedSeasonRow).metrics, isNotNull);
+    });
+
+    test('Err branch (null metrics map): rows unchanged, no metadata', () {
+      final rows = mergedSeasonRows(
+        projected: [season('a')],
+        overlays: const [
+          SeasonOverlay(id: 'x', status: OverlayStatus.acknowledged),
+        ],
+        metrics: null,
+      );
+      expect(rows, hasLength(2));
+      expect(
+        rows.whereType<ProjectedSeasonRow>().every((r) => r.metrics == null),
+        isTrue,
+      );
+    });
+
+    test('overlays never receive metrics (no fabricated overlay counts)', () {
+      final rows = mergedSeasonRows(
+        projected: [],
+        overlays: const [
+          SeasonOverlay(id: 'x', status: OverlayStatus.acknowledged),
+        ],
+        metrics: {
+          'x': SeasonMetrics(blockCount: 1, cachedAt: DateTime.utc(2026, 1, 1)),
+        },
+      );
+      expect(rows.single, isA<OptimisticSeasonRow>());
+    });
+
+    test('state.rowsWithMetrics delegates the merge', () {
+      const state = SeasonsScreenState(
+        projected: AsyncData<List<SeasonView>>([]),
+        cachedRows: [],
+      );
+      expect(state.rowsWithMetrics(metrics), hasLength(0));
+      final withRows = SeasonsScreenState(
+        projected: AsyncData<List<SeasonView>>([season('a')]),
+        cachedRows: [season('a')],
+      );
+      expect(
+        (withRows.rowsWithMetrics(metrics).single as ProjectedSeasonRow)
+            .metrics,
+        metrics['a'],
+      );
+      // Plain rows getter = the Err branch (no metrics).
+      expect((withRows.rows.single as ProjectedSeasonRow).metrics, isNull);
+    });
+
+    test('SeasonMetrics equality / hashCode / toString', () {
+      final a = SeasonMetrics(
+        blockCount: 1,
+        cachedAt: DateTime.utc(2026, 1, 1),
+        isStale: true,
+      );
+      final b = SeasonMetrics(
+        blockCount: 1,
+        cachedAt: DateTime.utc(2026, 1, 1),
+        isStale: true,
+      );
+      expect(a, b);
+      expect(a.hashCode, b.hashCode);
+      expect(a.toString(), contains('stale: true'));
     });
   });
 

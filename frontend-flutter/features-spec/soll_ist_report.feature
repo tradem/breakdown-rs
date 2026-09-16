@@ -1,7 +1,7 @@
-// SPDX-License-Identifier: AGPL-3.0
-// Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: muse-spark-1.3 (opencode)
-// Co-authored-by: omen-alpha (opencode-go)
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: muse-spark-1.3 (opencode)
+# Co-authored-by: omen-alpha (opencode-go)
 
 @critical
 Feature: Soll-Ist report (planned vs actual)

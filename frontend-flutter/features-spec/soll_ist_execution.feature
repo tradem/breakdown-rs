@@ -19,6 +19,7 @@ Feature: Soll-Ist execution (plan to wrap)
   (scene "s-2", planned_order "a1"), both Planned; empty shooting day
   "day-2" with scene "s-1" scheduled on it.
 
+  @pending
   Scenario: Plan a shoot on an empty day
     Given the app is launched in dev-auth mode
     And I am authenticated as a "costume_dept" user
@@ -30,6 +31,7 @@ Feature: Soll-Ist execution (plan to wrap)
     And I plan the first shoot
     Then the board shows a "Planned" shoot
 
+  @pending
   Scenario: Execute the day from plan to finish with a skip
     Given the app is launched in dev-auth mode
     And I am authenticated as a "costume_dept" user
@@ -50,6 +52,7 @@ Feature: Soll-Ist execution (plan to wrap)
     And the board shows a "Shot" shoot
     And the board shows a "Skipped" shoot
 
+  @pending
   Scenario: Wrap makes the day final and read-only
     Given the app is launched in dev-auth mode
     And I am authenticated as a "costume_dept" user

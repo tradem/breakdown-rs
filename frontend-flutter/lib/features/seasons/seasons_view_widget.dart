@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/cache/seasons_cache_providers.dart';
+import 'widgets/season_card.dart';
 
 /// Localized, client-side copy keyed on the stable problem `code` (AGENTS.md
 /// §5). Network failures disable writes with an "online required" message
@@ -20,6 +22,10 @@ const String _errorBanner = 'Couldn’t refresh — showing cached data';
 /// directly (Design Decision D1). Shows a stale indicator when the served rows
 /// are from an expired cache or a failed refetch (D2/D4), and disables the
 /// write FAB while offline (last fetch failed, Task 4.2).
+///
+/// Presentation follows the seasons-home capability (task 3.2): rows render
+/// as Material 3 cards instead of tiles (no cached metadata source on this
+/// standalone projection — cards render title + chevron only).
 class SeasonsViewWidget extends ConsumerWidget {
   const SeasonsViewWidget({super.key});
 
@@ -69,10 +75,9 @@ class SeasonsViewWidget extends ConsumerWidget {
                     itemCount: view.rows.length,
                     itemBuilder: (context, i) {
                       final s = view.rows[i];
-                      return ListTile(
+                      return SeasonCard(
                         key: Key('season-${s.id}'),
-                        title: Text(s.title ?? 'Season ${s.number}'),
-                        subtitle: Text('Number ${s.number}'),
+                        title: s.title ?? 'Season ${s.number}',
                       );
                     },
                   ),

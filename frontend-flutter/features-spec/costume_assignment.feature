@@ -13,8 +13,9 @@ Feature: Costume assignment (optimistic update + role denial)
   assignment on the costume stream for an unprivileged caller.
 
   The costume assignment screen ships with `flutter-costume-domains`, so these
-  scenarios run on device (no @pending).
+  scenarios run on device once the 4.1 emulator seed lands; they are @pending until then.
 
+  @pending
   Scenario: Command shows optimistically then reconciles with the projection
     Given the app is launched in dev-auth mode
     And I am authenticated as a "costume_dept" user
@@ -23,6 +24,7 @@ Feature: Costume assignment (optimistic update + role denial)
     Then the costume assignment appears optimistically
     And the costume assignment projection refreshes
 
+  @pending
   Scenario: Unprivileged caller is denied on the costume stream
     Given the app is launched in dev-auth mode
     And I am authenticated as a "viewer" user

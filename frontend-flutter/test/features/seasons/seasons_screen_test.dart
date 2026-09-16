@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
+
+import 'dart:async';
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:dio/dio.dart';
@@ -16,8 +19,13 @@ import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
+import 'package:frontend_flutter/data/cache/clock.dart';
+import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/hierarchy_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
+import 'package:frontend_flutter/design/theme.dart';
+import 'package:frontend_flutter/features/shell/shell_controller.dart';
 import 'package:frontend_flutter/features/seasons/seasons_controller.dart';
 import 'package:frontend_flutter/features/seasons/seasons_screen.dart';
 
@@ -57,26 +65,42 @@ void main() {
   late ManualReconciliationScheduler scheduler;
   late ProviderContainer container;
 
+  /// The held list-fetch seam (`holdInitialFetch: true`): stays pending
+  /// until the test completes it, so the cold-start window is observable.
+  late Completer<Result<List<SeasonView>>> heldFetch;
+
   /// Container with fake create and holder-driven projection writing the
   /// in-memory Drift cache. Dev-auth boots signed out at the login gate
   /// (spec `flutter-auth-shell`), so a dev-auth container resolves the
   /// permissive session explicitly — the `Continue` action the gate offers.
   /// [realOidcConfig] stays signed out (AUTHZ-GATE denial paths).
+  ///
+  /// [holdInitialFetch] keeps the list fetch in flight (a never-completing
+  /// seam) so the cold-start skeleton window is observable; [seed] writes
+  /// hierarchy/costume cache rows BEFORE the screen pumps (the metrics
+  /// provider reads them on first build); [clock] pins the TTL clock for
+  /// deterministic stale-indicator rendering.
   Future<void> setupContainer({
     AppConfig config = devAuthConfig,
     List<SeasonView> initialRows = const [],
     bool failInitialFetch = false,
+    bool holdInitialFetch = false,
+    void Function(CacheDatabase db)? seed,
+    Clock? clock,
   }) async {
     db = CacheDatabase(NativeDatabase.memory());
     addTearDown(db.close);
+    seed?.call(db);
     repo = FakeSeasonRepository(BreakdownApi(), SeasonCacheDao(db));
     holder = ValueNotifier<Result<List<SeasonView>>>(
       failInitialFetch ? const Left(_listUnavailable) : Right(initialRows),
     );
     scheduler = ManualReconciliationScheduler();
+    heldFetch = Completer<Result<List<SeasonView>>>();
     container = ProviderContainer(
       overrides: [
         appConfigProvider.overrideWithValue(config),
+        if (clock != null) clockProvider.overrideWithValue(clock),
         if (!config.devAuthMode) ...[
           dioProvider.overrideWithValue(Dio()),
           tokenStoreProvider.overrideWithValue(FakeTokenStore(null)),
@@ -86,7 +110,11 @@ void main() {
         reconciliationSchedulerProvider.overrideWith((ref) => scheduler),
         seasonsListFetchProvider.overrideWith((ref) async {
           final r = ref.watch(seasonRepositoryProvider);
-          return r.fetchAndCacheList(() async => holder.value);
+          return holdInitialFetch
+              // The never-completed (until the test completes it) seam
+              // keeps the cold-start loading window observable.
+              ? heldFetch.future
+              : r.fetchAndCacheList(() async => holder.value);
         }),
       ],
     );
@@ -96,7 +124,7 @@ void main() {
     }
   }
 
-  Future<void> pumpScreen(WidgetTester tester) async {
+  Future<void> pumpScreen(WidgetTester tester, {ThemeData? theme}) async {
     // A phone-tall test surface (the 600px default clips the bottom sheet).
     tester.view.physicalSize = const Size(800, 1200);
     tester.view.devicePixelRatio = 1.0;
@@ -104,7 +132,10 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: const MaterialApp(home: SeasonsScreen()),
+        child: MaterialApp(
+          theme: theme ?? AppThemes.light(),
+          home: const SeasonsScreen(),
+        ),
       ),
     );
     // Settle the route / FAB entrance animations; the screen itself has no
@@ -164,10 +195,17 @@ void main() {
       expect(find.byKey(const Key('season-add-fab')), findsOneWidget);
     });
 
-    testWidgets('empty projection shows the empty state', (tester) async {
+    testWidgets('empty projection shows the guided empty state', (
+      tester,
+    ) async {
       await setupContainer();
       await pumpScreen(tester);
-      expect(find.text('No seasons yet'), findsOneWidget);
+      // Task 3.4: the bare 'No seasons yet' text became the guided empty
+      // state (headline + guidance + setup/import CTAs).
+      expect(find.byKey(const Key('seasons-empty-title')), findsOneWidget);
+      expect(find.byKey(const Key('seasons-empty-guidance')), findsOneWidget);
+      expect(find.byKey(const Key('seasons-empty-setup-cta')), findsOneWidget);
+      expect(find.byKey(const Key('seasons-empty-import-cta')), findsOneWidget);
     });
 
     testWidgets('AUTHZ-GATE: signed out → FAB hidden (task 3.3)', (
@@ -341,4 +379,281 @@ void main() {
       matchesGoldenFile('goldens/seasons_screen.png'),
     );
   });
+
+  group('Season cards (task 4.1)', () {
+    final fixedClock = Clock.fixed(DateTime.utc(2026, 1, 2, 12));
+
+    /// Seeds two blocks + one costume for season 'a'; the writes predate
+    /// the pinned clock by MORE than the 24h TTL → stale indicator.
+    void seedStale(CacheDatabase db) {
+      final at = DateTime.utc(2026, 1, 1, 6); // > TTL before the clock
+      BlockCacheDao(db)
+        ..upsert(block('b1', seasonId: 'a'), at)
+        ..upsert(block('b2', seasonId: 'a'), at);
+      CostumeCacheDao(db).upsert('a', costume('c1'), at);
+    }
+
+    testWidgets('projected card renders cached metadata (counts)', (
+      tester,
+    ) async {
+      await setupContainer(
+        initialRows: [season('a', number: 1, title: 'Spring')],
+        seed: seedStale,
+        clock: fixedClock,
+      );
+      await pumpScreen(tester);
+
+      expect(find.byKey(const Key('season-a')), findsOneWidget);
+      expect(find.text('Spring'), findsOneWidget);
+      // Metadata line: cached counts joined (glossary seasons.meta.*).
+      expect(find.textContaining('2 Blöcke'), findsOneWidget);
+      expect(find.textContaining('1 Kostüme'), findsOneWidget);
+    });
+
+    testWidgets('projected card WITHOUT cached entry omits the metadata line', (
+      tester,
+    ) async {
+      await setupContainer(
+        initialRows: [season('a', number: 1, title: 'Spring')],
+        clock: fixedClock,
+      );
+      await pumpScreen(tester);
+
+      expect(find.byKey(const Key('season-a')), findsOneWidget);
+      expect(find.text('Spring'), findsOneWidget);
+      // No counts anywhere (never fabricated).
+      expect(find.textContaining('Blöcke'), findsNothing);
+      // Fresh metadata → no stale indicator.
+      expect(find.byIcon(Icons.history), findsNothing);
+    });
+
+    testWidgets('stale cached metadata renders the stale indicator', (
+      tester,
+    ) async {
+      await setupContainer(
+        initialRows: [season('a', number: 1, title: 'Spring')],
+        seed: seedStale,
+        clock: fixedClock,
+      );
+      await pumpScreen(tester);
+
+      // Glossary `seasons.stale`: history icon + relative-time reference.
+      expect(find.byIcon(Icons.history), findsOneWidget);
+      expect(find.textContaining('Stand:'), findsOneWidget);
+      // The counts stay visible next to the indicator (team decision 4).
+      expect(find.textContaining('Blöcke'), findsOneWidget);
+    });
+
+    testWidgets('optimistic overlay renders as a card with status copy', (
+      tester,
+    ) async {
+      await setupContainer();
+      await pumpScreen(tester);
+      await submitCreate(
+        tester,
+        seriesId: 'series-1',
+        number: '2',
+        title: 'Autumn',
+      );
+
+      // Keys/semantics unchanged from the tile era.
+      expect(find.byKey(const Key('overlay-n1')), findsOneWidget);
+      expect(find.text('Autumn'), findsOneWidget);
+      expect(find.text('Just created — syncing…'), findsOneWidget);
+      expect(find.byKey(const Key('overlay-spinner')), findsOneWidget);
+    });
+
+    testWidgets('card tap sets the active season and jumps to Planen', (
+      tester,
+    ) async {
+      await setupContainer(
+        initialRows: [season('a', number: 1, title: 'Spring')],
+        clock: fixedClock,
+      );
+      await pumpScreen(tester);
+
+      await tester.tap(find.byKey(const Key('season-a')));
+      // The active-season resolution converges asynchronously (the shell
+      // controller rebuilds from the persisted reference); wait bounded.
+      for (
+        var i = 0;
+        i < 20 &&
+            container.read(shellControllerProvider).activeSeason?.id != 'a';
+        i++
+      ) {
+        await pumpFrames(tester, n: 2);
+      }
+      final shell = container.read(shellControllerProvider);
+      expect(shell.activeSeason?.id, 'a');
+      expect(shell.selectedIndex, kPlanenTabIndex);
+    });
+  });
+
+  group('Extended FAB + empty state (task 4.2)', () {
+    testWidgets('extended FAB renders the visible label', (tester) async {
+      await setupContainer();
+      await pumpScreen(tester);
+
+      final fab = find.byKey(const Key('season-add-fab'));
+      expect(fab, findsOneWidget);
+      expect(
+        find.descendant(of: fab, matching: find.text('Season erstellen')),
+        findsOneWidget,
+      );
+      // The add icon rides INSIDE the extended FAB (the empty state's
+      // setup CTA carries its own, so scope the assertion to the FAB).
+      expect(
+        find.descendant(of: fab, matching: find.byIcon(Icons.add)),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('signed out: no FAB and the setup CTA is disabled', (
+      tester,
+    ) async {
+      await setupContainer(config: realOidcConfig);
+      await pumpScreen(tester);
+
+      expect(find.byKey(const Key('season-add-fab')), findsNothing);
+      final cta = find.byKey(const Key('seasons-empty-setup-cta'));
+      expect(cta, findsOneWidget);
+      // The gated entry never opens the create sheet (client-side gate).
+      await tester.tap(cta);
+      await pumpFrames(tester);
+      expect(find.byKey(const Key('create-series-id')), findsNothing);
+    });
+
+    testWidgets('import CTA jumps to the Mehr tab (gate travels with the '
+        'entry — no network call from the CTA)', (tester) async {
+      await setupContainer();
+      await pumpScreen(tester);
+
+      await tester.tap(find.byKey(const Key('seasons-empty-import-cta')));
+      await pumpFrames(tester);
+
+      expect(
+        container.read(shellControllerProvider).selectedIndex,
+        kMehrTabIndex,
+      );
+    });
+  });
+
+  testWidgets(
+    'cold start shows the skeleton, no empty-state flash (task 4.3)',
+    (tester) async {
+      await setupContainer(holdInitialFetch: true);
+      await pumpScreen(tester);
+
+      // Loading window: skeleton renders, empty state does NOT.
+      expect(find.byKey(const Key('seasons-skeleton')), findsOneWidget);
+      expect(find.byKey(const Key('seasons-empty-title')), findsNothing);
+
+      // Data resolves → cards replace the skeleton.
+      heldFetch.complete(Right([season('a', number: 1, title: 'Spring')]));
+      await pumpFrames(tester, n: 10);
+      expect(find.byKey(const Key('seasons-skeleton')), findsNothing);
+      expect(find.byKey(const Key('season-a')), findsOneWidget);
+    },
+  );
+
+  group(
+    'Goldens (task 4.4: light/dark × cards full/optimistic + empty + skeleton)',
+    () {
+      final fixedClock = Clock.fixed(DateTime.utc(2026, 1, 2, 12));
+
+      /// Full card list: two projected cards (one with stale metadata),
+      /// deterministic frame (no spinner, no animation).
+      Future<void> pumpFull(WidgetTester tester, {required bool dark}) async {
+        await setupContainer(
+          initialRows: [
+            season('a', number: 1, title: 'Spring'),
+            season('b', number: 2, title: 'Summer'),
+          ],
+          seed: (db) {
+            final at = DateTime.utc(2026, 1, 1, 6); // > TTL before the clock
+            BlockCacheDao(db)
+              ..upsert(block('b1', seasonId: 'a'), at)
+              ..upsert(block('b2', seasonId: 'a'), at);
+            CostumeCacheDao(db).upsert('a', costume('c1'), at);
+          },
+          clock: fixedClock,
+        );
+        await pumpScreen(
+          tester,
+          theme: dark ? AppThemes.dark() : AppThemes.light(),
+        );
+      }
+
+      for (final dark in [false, true]) {
+        final variant = dark ? 'dark' : 'light';
+
+        testWidgets('seasons_home_${variant}_full', (tester) async {
+          await pumpFull(tester, dark: dark);
+          await expectLater(
+            find.byType(SeasonsScreen),
+            matchesGoldenFile('goldens/seasons_home_${variant}_full.png'),
+          );
+        });
+
+        testWidgets('seasons_home_${variant}_empty', (tester) async {
+          await setupContainer(clock: fixedClock);
+          await pumpScreen(
+            tester,
+            theme: dark ? AppThemes.dark() : AppThemes.light(),
+          );
+          await expectLater(
+            find.byType(SeasonsScreen),
+            matchesGoldenFile('goldens/seasons_home_${variant}_empty.png'),
+          );
+        });
+
+        testWidgets('seasons_home_${variant}_skeleton', (tester) async {
+          await setupContainer(holdInitialFetch: true, clock: fixedClock);
+          await pumpScreen(
+            tester,
+            theme: dark ? AppThemes.dark() : AppThemes.light(),
+          );
+          await expectLater(
+            find.byType(SeasonsScreen),
+            matchesGoldenFile('goldens/seasons_home_${variant}_skeleton.png'),
+          );
+        });
+
+        testWidgets('seasons_home_${variant}_optimistic', (tester) async {
+          await setupContainer(
+            initialRows: [
+              season('a', number: 1, title: 'Spring'),
+              season('b', number: 2, title: 'Summer'),
+            ],
+            clock: fixedClock,
+          );
+          await pumpScreen(
+            tester,
+            theme: dark ? AppThemes.dark() : AppThemes.light(),
+          );
+          await submitCreate(
+            tester,
+            seriesId: 'series-1',
+            number: '3',
+            title: 'Autumn',
+          );
+          // Drive to the settled stale state (no animated spinner in the
+          // frame — the syncing spinner is not golden-safe).
+          await drive(
+            tester,
+            scheduler,
+            () => container
+                .read(seasonsControllerProvider)
+                .overlays
+                .any((o) => o.status == OverlayStatus.stale),
+          );
+          await pumpFrames(tester);
+          await expectLater(
+            find.byType(SeasonsScreen),
+            matchesGoldenFile('goldens/seasons_home_${variant}_optimistic.png'),
+          );
+        });
+      }
+    },
+  );
 }

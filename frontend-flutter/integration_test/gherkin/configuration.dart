@@ -48,7 +48,12 @@ Future<FlutterTestConfiguration> buildGherkinConfig() async {
 
   return FlutterTestConfiguration.DEFAULT(
       steps,
-      featurePath: 'features-spec/*.feature',
+      // The gherkin core matches this pattern as a REGEX against the FULL
+      // relative path (matchAsPrefix + group(0) == path), so it must
+      // express a real glob: any file directly/anywhere under features-spec/
+      // ending in `.feature`. (A literal `features-spec/*.feature` would
+      // never match — the `*` would quantify the `/`, yielding 0 scenarios.)
+      featurePath: 'features-spec/.*\\.feature',
       targetAppPath: 'integration_test/gherkin/app.dart',
     )
     ..targetAppWorkingDirectory = '.'
@@ -60,6 +65,11 @@ Future<FlutterTestConfiguration> buildGherkinConfig() async {
     ..hooks = [AppHook()]
     ..tagExpression = 'not @pending'
     ..restartAppBetweenScenarios = true
+    // Per-step timeout must exceed the app-launch step's own 30s
+    // `seasons-list` wait (cold emulator starts need it); the gherkin
+    // core default is 10s, which deterministically times out the first
+    // scenario's Given on a cold instrumented start.
+    ..defaultTimeout = const Duration(seconds: 45)
     ..logFlutterProcessOutput = true
     ..verboseFlutterProcessLogs = false
     // Both values are configurable from the run environment so the suite is

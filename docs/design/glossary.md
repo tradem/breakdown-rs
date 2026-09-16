@@ -49,6 +49,13 @@ establishing change).
 | `person_outline` | **Figuren** | Bottom-nav destination „Figuren"; character rows (branch term for Kostüm/Film — not „Rollen") | `nav.characters` |
 | `smart_toy_outlined` | **Import** | AppBar/menu entry → AI schedule import (verb > object: "what can I do here?") | `nav.aiImport` |
 | `add` (FAB) | **Season erstellen** | Seasons extended FAB label — icon-only FABs are the weakest form for rare, high-priority actions | `seasons.create` |
+| `—` *(no icon)* | **{n} Blöcke** | Season card metadata — cached block count (omitted when no cache entry) | `seasons.meta.blocks` |
+| `—` *(no icon)* | **{n} Szenen** | Season card metadata — cached scene count (omitted when no cache entry) | `seasons.meta.scenes` |
+| `—` *(no icon)* | **{n} Kostüme** | Season card metadata — cached costume count (omitted when no cache entry) | `seasons.meta.costumes` |
+| `—` *(no icon)* | **Noch keine Seasons** | Seasons home empty-state headline | `seasons.empty.title` |
+| `—` *(no icon)* | **Lege deine erste Season an — oder importiere einen bestehenden Spielplan per KI.** | Seasons home empty-state guidance sentence | `seasons.empty.guidance` |
+| `rocket_launch_outlined` | **Season-Setup starten** | Seasons home empty-state setup CTA (create flow; later the setup wizard change's entry route) | `seasons.empty.setupCta` |
+| `smart_toy_outlined` | **KI-Import öffnen** | Seasons home empty-state import CTA — jumps to the Mehr tab's labeled Import entry | `seasons.empty.importCta` |
 | `add` (FAB) | **Block hinzufügen** | Blocks FAB (same icon, per-screen label) | `blocks.create` |
 | `cloud_off` | **Verbindung gestört** | Stale/optimistic overlay banner when sync hangs | `errors.connectionLost` |
 | `style_outlined` | **Kategorien** | Season tile → costume categories. Redesign note (report §4.5): not a daily entry point — relocates into „Mehr"/season detail; then icon-only entry is removed | `nav.costumeCategories` |
@@ -94,6 +101,7 @@ accompany.
 | Material Symbols icon | Context | Copy key (accompanying text) |
 |---|---|---|
 | `cloud_off` (stale variant) | Stale banner icon | `errors.connectionLost` |
+| `history` | Season-card metadata stale indicator (accompanies "Stand: vor 2 h") | `seasons.stale` |
 | `error_outline` | Error banners / photo errors | `errors.*` |
 | `warning_amber_outlined` | AI-apply review warnings | `ai.review.warning` |
 | `check` / `check_circle_outline` | Selection avatar, job success | context-specific |

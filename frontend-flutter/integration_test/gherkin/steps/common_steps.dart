@@ -9,13 +9,26 @@ import 'package:gherkin/gherkin.dart';
 
 import '../world/app_world.dart';
 
-/// The runner launches the instrumented app before each scenario. We assert
-/// the home screen rendered on device — an on-device assertion, not a
-/// pure-function check.
+/// The runner launches the instrumented app before each scenario. Dev-auth
+/// boots SIGNED OUT at the auth gate (spec `flutter-auth-shell`) — the
+/// gate's visible Continue action (`login-continue-button`, „Continue as
+/// dev-e2e") resolves the permissive session explicitly. The step taps it
+/// when present (hot-restarted isolate may already be signed in), then
+/// asserts the home screen rendered on device — an on-device assertion,
+/// not a pure-function check.
 StepDefinitionGeneric givenAppLaunched() => given<FlutterWorld>(
   'the app is launched in dev-auth mode',
   (context) async {
-    await context.world.driver!.waitFor(
+    final driver = context.world.driver!;
+    try {
+      final gate = find.byValueKey('login-continue-button');
+      await driver.waitFor(gate, timeout: const Duration(seconds: 5));
+      await FlutterDriverUtils.tap(driver, gate);
+    } on Object {
+      // No auth gate: the isolate is already signed in (hot restart
+      // between scenarios) — go straight to the home assertion.
+    }
+    await driver.waitFor(
       find.byValueKey('seasons-list'),
       timeout: const Duration(seconds: 30),
     );

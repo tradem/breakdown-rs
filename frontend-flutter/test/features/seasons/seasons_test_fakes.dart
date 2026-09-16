@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: muse-spark (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
@@ -51,6 +52,28 @@ SeasonView season(String id, {int number = 1, String? title}) => SeasonView(
     ..number = number
     ..seriesId = 'series-1'
     ..title = title
+    ..updatedAt = DateTime.utc(2026, 1, 1)
+    ..version = 1,
+);
+
+/// Cached hierarchy row for seeding the season-card metrics
+/// (`redesign-seasons-home` widget tests).
+BlockView block(String id, {String seasonId = 'season-1'}) => BlockView(
+  (b) => b
+    ..id = id
+    ..number = 1
+    ..seasonId = seasonId
+    ..seriesId = 'series-1'
+    ..updatedAt = DateTime.utc(2026, 1, 1)
+    ..version = 1,
+);
+
+CostumeView costume(String id) => CostumeView(
+  (b) => b
+    ..id = id
+    ..notes = ''
+    ..details.replace(const [])
+    ..photos.replace(const [])
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = 1,
 );

@@ -41,6 +41,18 @@ is inherently **on-device**, not a headless pure-Dart VM run.
   the running app exclusively through `world.driver` + `find.byValueKey(...)`
   (widget keys) — they never import screen widgets and never call a pure
   function to satisfy an assertion.
+- The runner launches the app **signed out at the auth gate** (spec
+  `flutter-auth-shell`): the `Given the app is launched in dev-auth mode`
+  step taps the gate's visible Continue action (`login-continue-button`,
+  "Continue as dev-e2e") before asserting the home screen.
+
+**Known harness gap (Flutter ≥ 3.x):** `flutter_gherkin` 2.0.0 parses the
+legacy `Observatory debugger … is available at:` launch output only; modern
+Flutter prints `A Dart VM Service on …`. Until the dependency is patched or
+upgraded, apply the one-line regex patch to the pub-cache copy
+(`lib/src/flutter/flutter_run_process_handler.dart`: add a
+`dart vm service` alternative to `_observatoryDebuggerUriRegex`) — the
+runner otherwise times out waiting for the debugger URI.
 
 ### Run it
 
