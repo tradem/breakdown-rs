@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 import 'dart:io';
 
@@ -88,9 +89,11 @@ void main() {
     }
 
     Future<void> openSettings() async {
-      await tester.tap(find.byKey(const Key('seasons-menu-button')));
+      // Settings moved to the shell's Mehr tab (task 4.3): tap the Mehr
+      // destination, then the labeled Einstellungen entry.
+      await tester.tap(find.byKey(const Key('shell-destination-3')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('menu-settings')));
+      await tester.tap(find.byKey(const Key('mehr-settings')));
       await frames();
     }
 

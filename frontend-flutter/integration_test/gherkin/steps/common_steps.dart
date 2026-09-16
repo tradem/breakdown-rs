@@ -61,7 +61,15 @@ StepDefinitionGeneric whenOpenSollIstReport() => when1<String, FlutterWorld>(
 StepDefinitionGeneric whenOpenSeason() => when1<String, FlutterWorld>(
   'I open season {string}',
   (String seasonId, context) async {
-    final locator = find.byValueKey('season-$seasonId');
+    // Hierarchy spine via the shell's Planen tab (spec
+    // `flutter-hierarchy-navigation`: hierarchy pushes operate on the
+    // Planen tab's nested navigator): tap the Planen destination, then the
+    // season row (which also sets the shell's active season).
+    await FlutterDriverUtils.tap(
+      context.world.driver!,
+      find.byValueKey('shell-destination-1'),
+    );
+    final locator = find.byValueKey('planen-season-$seasonId');
     await FlutterDriverUtils.tap(context.world.driver!, locator);
   },
 );
@@ -103,13 +111,24 @@ StepDefinitionGeneric whenOpenDayBoard() => when1<String, FlutterWorld>(
   },
 );
 
-/// Opens costume assignment for a season: the season tile's Costumes entry
-/// (`open-costume-assignment-<season>`, seasons reference pattern).
+/// Opens costume assignment for a season via the shell's Kleidung tab
+/// (`redesign-app-shell-navigation` task 5.5 — the season-row icon buttons
+/// are gone; the costume stream is a first-class tab destination now):
+/// tap the Kleidung destination, then the season-scoped "Kostüme" entry.
+/// Scenario semantics preserved; only the entry action changed.
 StepDefinitionGeneric whenOpenCostumeAssignment() =>
     when1<String, FlutterWorld>(
       'I open the costume assignment for season {string}',
       (String seasonId, context) async {
-        final locator = find.byValueKey('open-costume-assignment-$seasonId');
-        await FlutterDriverUtils.tap(context.world.driver!, locator);
+        // Navigate to the Kleidung tab (labeled destination).
+        await FlutterDriverUtils.tap(
+          context.world.driver!,
+          find.byValueKey('shell-destination-2'),
+        );
+        // The season-scoped costumes entry (Kleidung tab root).
+        await FlutterDriverUtils.tap(
+          context.world.driver!,
+          find.byValueKey('kleidung-costumes-entry'),
+        );
       },
     );

@@ -43,7 +43,9 @@ establishing change).
 
 | Material Symbols icon | Visible label (German UI copy) | Context / screen | Copy key |
 |---|---|---|---|
-| `checkroom` | **Kleidung** | Bottom-nav destination „Kleidung" (costume department); costume rows | `nav.costumes` |
+| `home_outlined` | **Season** | Navigation shell destination 1 of 4 — home: seasons overview (team decision 2: term „Season" retained) | `nav.seasons` |
+| `edit_calendar_outlined` | **Planen** | Navigation shell destination 2 of 4 — hierarchy Season→Block→Episode→Scene | `nav.planen` |
+| `checkroom` | **Kleidung** | Navigation shell destination 3 of 4 — costume domains (Kostüme, Figuren) scoped to the active season; costume rows | `nav.costumes` |
 | `person_outline` | **Figuren** | Bottom-nav destination „Figuren"; character rows (branch term for Kostüm/Film — not „Rollen") | `nav.characters` |
 | `smart_toy_outlined` | **Import** | AppBar/menu entry → AI schedule import (verb > object: "what can I do here?") | `nav.aiImport` |
 | `add` (FAB) | **Season erstellen** | Seasons extended FAB label — icon-only FABs are the weakest form for rare, high-priority actions | `seasons.create` |
@@ -59,6 +61,7 @@ establishing change).
 | `summarize_outlined` | **Berichte** | Scene-shoot reports entry (Soll/Ist) | `reports.open` |
 | `event_busy` | **Termin entfernen** | Scene detail — remove shooting-day assignment | `scenes.unschedule` |
 | `unfold_more` | **Alle Szenen anzeigen** | Scene-shoots list — expand collapsed sections | `sceneShoots.expand` |
+| `more_horiz` | **Mehr** | Navigation shell destination 4 of 4 — Import, Kategorien, Über die App, Einstellungen, Abmelden (Berichte bleiben im Day-Board verankert) | `nav.more` |
 | `more_vert` | **Mehr** | Overflow menu (seasons, shooting days) | `common.overflow` |
 | `settings_outlined` | **Einstellungen** | Seasons overflow → settings dialog; AI-import config | `common.settings` |
 | `logout` | **Abmelden** | Seasons overflow → sign out | `common.signOut` |

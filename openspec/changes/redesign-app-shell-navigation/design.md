@@ -105,6 +105,17 @@ Inherited behavior: shell listens to `authSessionControllerProvider`
 — sign-out/sign-in mid-session pops to gate (existing pattern already
 in BlocksScreen etc.); shell root resets tab index on new session.
 
+### D8 — Mehr tab omits the Berichte entry (apply-time decision)
+Task 4.3 originally listed reports among the Mehr destinations.
+`ReportsScreen` is strictly day-scoped (`ShootingDayView` DTO, entered
+from the day board) and the backend exposes only day-scoped report
+routes (`/v1/shooting-days/{id}/report/*.pdf`) — a season-level reports
+surface does not exist, and filling a day context from Mehr would be
+exactly the second-projection-lookup the CQRS boundary forbids.
+Per the apply-time team decision, the Berichte entry is OMITTED;
+reports stay anchored in the day board. A season-level reports surface
+is a future change of its own (backend routes first).
+
 ## Risks / Trade-offs
 
 - [IndexedStack keeps 4 trees alive → memory/CPU cost on low-end

@@ -2,6 +2,12 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
+// The app-menu tests, MIGRATED to the Mehr tab (task 5.4): the seasons
+// overflow menu moved to the shell's Mehr tab as first-class labeled
+// entries (`redesign-app-shell-navigation` 4.3). Entry path: tap the
+// "Mehr" destination, then the labeled list entry. Keys are carried over
+// verbatim (menu-identity/menu-signout), only the entry action changes.
+
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
@@ -18,7 +24,7 @@ import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/features/seasons/seasons_controller.dart';
 
-import 'seasons_test_fakes.dart';
+import '../seasons/seasons_test_fakes.dart';
 
 /// Pumps a bounded number of frames (never `pumpAndSettle` while an
 /// indeterminate spinner may be on screen — that would hang the settle loop).
@@ -77,22 +83,21 @@ void main() {
     await pumpFrames(tester);
   }
 
-  Future<void> openMenu(WidgetTester tester) async {
-    await tester.tap(find.byKey(const Key('seasons-menu-button')));
-    await tester.pumpAndSettle();
+  Future<void> openMehr(WidgetTester tester) async {
+    await tester.tap(find.text('Mehr'));
+    await pumpFrames(tester, n: 6);
   }
 
-  group('Shell menu (task 4.1/4.3)', () {
+  group('Mehr tab menu (task 4.3, migrated from the seasons overflow)', () {
     testWidgets('shows the authenticated identity', (tester) async {
       await setupDevAuth();
       await pumpApp(tester);
-      await openMenu(tester);
+      await openMehr(tester);
 
       expect(find.byKey(const Key('menu-identity')), findsOneWidget);
       expect(find.text('dev-user'), findsOneWidget);
-      expect(find.byKey(const Key('menu-about')), findsOneWidget);
-      expect(find.byKey(const Key('menu-settings')), findsOneWidget);
-      expect(find.byKey(const Key('menu-signout')), findsOneWidget);
+      expect(find.byKey(const Key('mehr-settings')), findsOneWidget);
+      expect(find.byKey(const Key('mehr-signout')), findsOneWidget);
     });
 
     testWidgets('sign out returns to login: no refetch, cache emptied once', (
@@ -104,8 +109,8 @@ void main() {
       final fetchesBeforeSignOut = fetchCalls;
       expect(fetchesBeforeSignOut, greaterThanOrEqualTo(1));
 
-      await openMenu(tester);
-      await tester.tap(find.byKey(const Key('menu-signout')));
+      await openMehr(tester);
+      await tester.tap(find.byKey(const Key('mehr-signout')));
       await pumpFrames(tester);
 
       // Root recomposed to LoginScreen; no post-signout projection render.
@@ -121,8 +126,8 @@ void main() {
       await setupDevAuth();
       await pumpApp(tester);
 
-      await openMenu(tester);
-      await tester.tap(find.byKey(const Key('menu-about')));
+      await openMehr(tester);
+      await tester.tap(find.byKey(const Key('mehr-about')));
       await pumpFrames(tester);
 
       expect(find.byKey(const Key('info-dialog')), findsOneWidget);
@@ -135,8 +140,8 @@ void main() {
       await setupDevAuth();
       await pumpApp(tester);
 
-      await openMenu(tester);
-      await tester.tap(find.byKey(const Key('menu-settings')));
+      await openMehr(tester);
+      await tester.tap(find.byKey(const Key('mehr-settings')));
       await pumpFrames(tester);
 
       expect(find.byKey(const Key('settings-dialog')), findsOneWidget);
@@ -167,10 +172,8 @@ void main() {
       );
       await container.read(authSessionControllerProvider.notifier).signIn();
       await pumpApp(tester);
-      expect(find.text('Seasons'), findsOneWidget);
-
-      await openMenu(tester);
-      await tester.tap(find.byKey(const Key('menu-signout')));
+      await openMehr(tester);
+      await tester.tap(find.byKey(const Key('mehr-signout')));
       await pumpFrames(tester);
 
       // Fail-closed: seasons gone, LoginScreen carries the error copy.

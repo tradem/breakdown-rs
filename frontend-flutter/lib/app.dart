@@ -22,7 +22,7 @@ import 'data/settings/api_base_validation.dart';
 import 'design/spacing.dart';
 import 'design/theme.dart';
 import 'features/auth/login_screen.dart';
-import 'features/seasons/seasons_screen.dart';
+import 'features/shell/app_shell.dart';
 import 'src/network/api_client.dart';
 
 /// Root widget. Riverpod is the sole composition mechanism (AGENTS.md §1, D3);
@@ -56,7 +56,8 @@ class App extends ConsumerWidget {
 ///   MUST NOT flash `LoginScreen`).
 /// - `AsyncData(null)` → [LoginScreen] (signed out; the seasons subtree is
 ///   not built, so no main-app network call can happen).
-/// - `AsyncData(session)` → [SeasonsScreen].
+/// - `AsyncData(session)` → [AppShell] (the post-login root — the
+///   adaptive four-tab navigation shell).
 /// - `AsyncError` → [LoginScreen] with the failure surfaced. The error is
 ///   normalized to a stable-code [ProblemError] first: `AsyncError` is not
 ///   constrained to `ProblemError`, and the login error contract renders
@@ -87,7 +88,7 @@ class AuthGate extends ConsumerWidget {
       AsyncLoading() => const SplashView(),
       AsyncData(:final value) => switch (value) {
         null => const LoginScreen(),
-        _ => const SeasonsScreen(),
+        _ => const AppShell(),
       },
     };
   }

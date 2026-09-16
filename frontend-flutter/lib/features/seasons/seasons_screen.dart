@@ -9,14 +9,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
-import '../app_info/info_dialog.dart';
-import '../app_info/settings_dialog.dart';
-import '../ai_import/import_jobs/import_submit_screen.dart';
-import '../auth/sign_out.dart';
-import '../blocks/blocks_screen.dart';
-import '../costume_categories/costume_categories_screen.dart';
-import '../characters/characters_screen.dart';
-import '../costumes/costumes_screen.dart';
 import 'create_season_sheet.dart';
 import 'seasons_controller.dart';
 import 'seasons_state.dart';
@@ -51,14 +43,7 @@ class SeasonsScreen extends ConsumerWidget {
     final controller = ref.read(seasonsControllerProvider.notifier);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Seasons'),
-        // AUTHZ-GATE: the AI-import upload routes are gated by the season
-        // costume-dept membership; the gate runs inside the submit
-        // controller BEFORE any network call (the entry action itself is
-        // auth-only — the screens render the denial narratives).
-        actions: const [_AiImportEntry(), _ShellMenu()],
-      ),
+      appBar: AppBar(title: const Text('Seasons')),
       body: Column(
         children: [
           if (state.commandError case final error?)
@@ -93,44 +78,7 @@ class SeasonsScreen extends ConsumerWidget {
                       itemCount: rows.length,
                       itemBuilder: (context, i) {
                         final row = rows[i];
-                        return _SeasonTile(
-                          row: row,
-                          onOpenBlocks: row is ProjectedSeasonRow
-                              ? () => Navigator.of(context).push(
-                                  MaterialPageRoute<void>(
-                                    builder: (_) =>
-                                        BlocksScreen(season: row.season),
-                                  ),
-                                )
-                              : null,
-                          onOpenCategories: row is ProjectedSeasonRow
-                              ? () => Navigator.of(context).push(
-                                  MaterialPageRoute<void>(
-                                    builder: (_) => CostumeCategoriesScreen(
-                                      season: row.season,
-                                    ),
-                                  ),
-                                )
-                              : null,
-                          // Season context entries (design §4): the costume
-                          // department's day-to-day work lives here.
-                          onOpenCostumes: row is ProjectedSeasonRow
-                              ? () => Navigator.of(context).push(
-                                  MaterialPageRoute<void>(
-                                    builder: (_) =>
-                                        CostumesScreen(season: row.season),
-                                  ),
-                                )
-                              : null,
-                          onOpenCharacters: row is ProjectedSeasonRow
-                              ? () => Navigator.of(context).push(
-                                  MaterialPageRoute<void>(
-                                    builder: (_) =>
-                                        CharactersScreen(season: row.season),
-                                  ),
-                                )
-                              : null,
-                        );
+                        return _SeasonTile(row: row);
                       },
                     ),
             ),
@@ -161,28 +109,9 @@ class SeasonsScreen extends ConsumerWidget {
 }
 
 class _SeasonTile extends StatelessWidget {
-  const _SeasonTile({
-    required this.row,
-    this.onOpenBlocks,
-    this.onOpenCategories,
-    this.onOpenCostumes,
-    this.onOpenCharacters,
-  });
+  const _SeasonTile({required this.row});
 
   final SeasonRow row;
-
-  /// Pushes `BlocksScreen` with the row's `SeasonView` (5.1).
-  final VoidCallback? onOpenBlocks;
-
-  /// Pushes the season's `CostumeCategoriesScreen` (5.1: the entry to the
-  /// categories screen of the selected season).
-  final VoidCallback? onOpenCategories;
-
-  /// Pushes the season's `CostumesScreen` (Phase 2 core user value).
-  final VoidCallback? onOpenCostumes;
-
-  /// Pushes the season's `CharactersScreen` (Phase 2 core user value).
-  final VoidCallback? onOpenCharacters;
 
   @override
   Widget build(BuildContext context) => switch (row) {
@@ -190,34 +119,12 @@ class _SeasonTile extends StatelessWidget {
       key: Key('season-${season.id}'),
       title: Text(season.title ?? 'Season ${season.number}'),
       subtitle: Text('Number ${season.number}'),
-      trailing: onOpenCategories == null
-          ? const Icon(Icons.chevron_right)
-          : Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  // Gherkin contract key (`open-costume-assignment-<season>`)
-                  // for the costume-assignment critical scenario.
-                  key: Key('open-costume-assignment-${season.id}'),
-                  icon: const Icon(Icons.checkroom_outlined),
-                  tooltip: 'Costumes',
-                  onPressed: onOpenCostumes,
-                ),
-                IconButton(
-                  key: Key('season-characters-${season.id}'),
-                  icon: const Icon(Icons.person_outline),
-                  tooltip: 'Characters',
-                  onPressed: onOpenCharacters,
-                ),
-                IconButton(
-                  key: Key('season-categories-${season.id}'),
-                  icon: const Icon(Icons.style_outlined),
-                  tooltip: 'Costume categories',
-                  onPressed: onOpenCategories,
-                ),
-              ],
-            ),
-      onTap: onOpenBlocks,
+      // Task 4.4 + spec `flutter-hierarchy-navigation`: the season-row
+      // BlocksScreen push moved to the PLANEN tab's navigator (the shell's
+      // hierarchy spine); the icon-only trailing buttons are REMOVED —
+      // their targets are first-class destinations now (Kleidung tab,
+      // Mehr tab). The Season tab is the pure overview until
+      // `redesign-seasons-home` lands its cards/detail.
     ),
     OptimisticSeasonRow(:final overlay) => ListTile(
       key: Key('overlay-${overlay.id}'),
@@ -244,94 +151,6 @@ class _SeasonTile extends StatelessWidget {
 }
 
 enum BannerTone { warning, error }
-
-/// App-shell overflow menu (task 4.1): authenticated identity, About,
-/// Settings, Sign out. Lives on the seasons screen until Phase 1b adds a
-/// dedicated shell.
-///
-/// About opens the info dialog (task 5.1); Settings opens the settings
-/// dialog (task 6.4). Sign out runs the full [SessionReset] coordinator
-/// (never throws — failures surface as gate state).
-class _ShellMenu extends ConsumerWidget {
-  const _ShellMenu();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final session = ref.watch(authSessionControllerProvider);
-    final sub = switch (session) {
-      AsyncData(:final value) => value?.sub ?? '',
-      _ => '',
-    };
-    return PopupMenuButton<_ShellMenuItem>(
-      key: const Key('seasons-menu-button'),
-      icon: const Icon(Icons.more_vert),
-      tooltip: 'Account and app options',
-      onSelected: (item) async {
-        switch (item) {
-          case _ShellMenuItem.about:
-            if (context.mounted) await showAppInfoDialog(context);
-          case _ShellMenuItem.settings:
-            if (context.mounted) await showSettingsDialog(context);
-          case _ShellMenuItem.signOut:
-            await ref.read(sessionResetProvider.notifier).signOut();
-        }
-      },
-      itemBuilder: (context) => [
-        PopupMenuItem<_ShellMenuItem>(
-          enabled: false,
-          child: ListTile(
-            key: const Key('menu-identity'),
-            leading: const Icon(Icons.account_circle),
-            title: Text(sub.isEmpty ? 'Signed out' : sub),
-            subtitle: const Text('Signed in'),
-          ),
-        ),
-        const PopupMenuDivider(),
-        const PopupMenuItem<_ShellMenuItem>(
-          key: Key('menu-about'),
-          value: _ShellMenuItem.about,
-          child: ListTile(
-            leading: Icon(Icons.info_outline),
-            title: Text('About'),
-          ),
-        ),
-        const PopupMenuItem<_ShellMenuItem>(
-          key: Key('menu-settings'),
-          value: _ShellMenuItem.settings,
-          child: ListTile(
-            leading: Icon(Icons.settings_outlined),
-            title: Text('Settings'),
-          ),
-        ),
-        const PopupMenuDivider(),
-        const PopupMenuItem<_ShellMenuItem>(
-          key: Key('menu-signout'),
-          value: _ShellMenuItem.signOut,
-          child: ListTile(leading: Icon(Icons.logout), title: Text('Sign out')),
-        ),
-      ],
-    );
-  }
-}
-
-/// The seasons toolbar "AI import" entry (`flutter-ai-import` task 6.2):
-/// opens the submission flow; the configuration flow is reachable from
-/// the submit screen's app bar.
-class _AiImportEntry extends StatelessWidget {
-  const _AiImportEntry();
-
-  @override
-  Widget build(BuildContext context) => IconButton(
-    key: const Key('seasons-ai-import'),
-    icon: const Icon(Icons.auto_awesome),
-    tooltip: 'AI import',
-    onPressed: () => Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const AiImportSubmitScreen()),
-    ),
-  );
-}
-
-enum _ShellMenuItem { about, settings, signOut }
 
 class _Banner extends StatelessWidget {
   const _Banner({
