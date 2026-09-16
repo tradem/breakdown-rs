@@ -4,14 +4,22 @@
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
 
+import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
+import '../../data/cache/relative_time.dart';
+import '../../data/cache/seasons_cache_providers.dart';
+import '../shell/shell_controller.dart';
 import 'create_season_sheet.dart';
 import 'seasons_controller.dart';
+import 'seasons_metrics_provider.dart';
 import 'seasons_state.dart';
+import 'widgets/season_card.dart';
+import 'widgets/seasons_empty_state.dart';
+import 'widgets/seasons_skeleton.dart';
 
 /// Localized client-side copy for a create-command failure, keyed on the
 /// stable problem `code` (AGENTS.md §5 — never branch on / show the server's
@@ -28,19 +36,28 @@ String createErrorCopy(ProblemError error) => switch (error.code) {
 /// The seasons screen — the reference pattern for every subsequent screen
 /// (spec `flutter-first-screen`; AGENTS.md §9).
 ///
-/// A `ConsumerWidget`: it renders and dispatches only (task 3.1, no
-/// `StatefulWidget` / `setState`) — all domain branching lives in
-/// [SeasonsController] state. The merged row list comes from
-/// `SeasonsScreenState.rows`: authoritative rows from the Drift cache,
-/// optimistic overlays layered by the controller (never a Drift write).
+/// A `ConsumerWidget`: it renders and dispatches only (no `StatefulWidget`
+/// / `setState`) — all domain branching lives in [SeasonsController]
+/// state. The merged card list comes from `SeasonsScreenState`
+/// `rowsWithMetrics`: authoritative rows from the Drift cache with
+/// per-season cached metadata (`seasonMetricsProvider`), optimistic
+/// overlays layered by the controller (never a Drift write).
+///
+/// Presentation per the seasons-home capability (tasks 3.1–3.5): rows
+/// render as Material 3 cards, the create action is an extended FAB with
+/// a visible label, and the empty/loading states are the guided empty
+/// state and the skeleton.
 class SeasonsScreen extends ConsumerWidget {
   const SeasonsScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(seasonsControllerProvider);
-    final rows = state.rows;
     final controller = ref.read(seasonsControllerProvider.notifier);
+    // Err branch of the metrics source → `null` map: cards render without
+    // a metadata line (task 2.1 merge; never fabricated counts).
+    final metrics = ref.watch(seasonMetricsProvider).asData?.value;
+    final rows = state.rowsWithMetrics(metrics);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Seasons')),
@@ -63,24 +80,7 @@ class SeasonsScreen extends ConsumerWidget {
           Expanded(
             child: RefreshIndicator(
               onRefresh: controller.refresh,
-              child: rows.isEmpty
-                  ? ListView(
-                      key: const Key('seasons-list'),
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      children: const [
-                        SizedBox(height: 160),
-                        Center(child: Text('No seasons yet')),
-                      ],
-                    )
-                  : ListView.builder(
-                      key: const Key('seasons-list'),
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      itemCount: rows.length,
-                      itemBuilder: (context, i) {
-                        final row = rows[i];
-                        return _SeasonTile(row: row);
-                      },
-                    ),
+              child: _body(context, ref, state, rows),
             ),
           ),
         ],
@@ -88,17 +88,77 @@ class SeasonsScreen extends ConsumerWidget {
       // AUTHZ-GATE: the backend `create_season` handler requires an
       // authenticated caller (CurrentUser extractor; auth-only — there is
       // no season-membership role to check for a season that does not
-      // exist yet). The FAB is therefore shown only for a resolved
-      // authenticated session; loading and error states show nothing
-      // (the request would be refused server-side anyway).
+      // exist yet). The extended FAB is therefore shown only for a
+      // resolved authenticated session; loading and error states show
+      // nothing (the request would be refused server-side anyway).
       floatingActionButton: _canCreateSeason(ref)
-          ? FloatingActionButton(
+          ? FloatingActionButton.extended(
               key: const Key('season-add-fab'),
               onPressed: () => showCreateSeasonSheet(context, ref),
-              tooltip: 'Add season',
-              child: const Icon(Icons.add),
+              icon: const Icon(Icons.add),
+              label: const Text('Season erstellen'),
             )
           : null,
+    );
+  }
+
+  /// The list area's state machine (tasks 3.2/3.4/3.5): skeleton for the
+  /// cold-start loading window (no cached rows yet — the empty state never
+  /// flashes), guided empty state when empty without failures, cards when
+  /// data exists, and an error hint when the projection failed with
+  /// nothing to serve.
+  Widget _body(
+    BuildContext context,
+    WidgetRef ref,
+    SeasonsScreenState state,
+    List<SeasonRow> rows,
+  ) {
+    if (rows.isEmpty) {
+      if (state.projected.isLoading) {
+        return ListView(
+          key: const Key('seasons-list'),
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: const [SeasonsSkeleton()],
+        );
+      }
+      if (state.projected.hasError) {
+        return ListView(
+          key: const Key('seasons-list'),
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: const [
+            SizedBox(height: 160),
+            Center(child: Text('Seasons could not be loaded')),
+          ],
+        );
+      }
+      return ListView(
+        key: const Key('seasons-list'),
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          const SizedBox(height: 96),
+          SeasonsEmptyState(
+            // Session gate: same rule as the FAB (auth-only create).
+            onSetup: _canCreateSeason(ref)
+                ? () => showCreateSeasonSheet(context, ref)
+                : null,
+            // AUTHZ-GATE: the AI-import upload routes are gated by the
+            // season costume-dept membership INSIDE the import submit
+            // controller BEFORE any network call — this CTA only performs
+            // a client-side tab jump (no request is issued from here),
+            // and the gate comment travels with the Mehr tab's Import
+            // entry it lands on.
+            onImport: () => ref
+                .read(shellControllerProvider.notifier)
+                .selectTab(kMehrTabIndex),
+          ),
+        ],
+      );
+    }
+    return ListView.builder(
+      key: const Key('seasons-list'),
+      physics: const AlwaysScrollableScrollPhysics(),
+      itemCount: rows.length,
+      itemBuilder: (context, i) => _SeasonCard(row: rows[i]),
     );
   }
 
@@ -108,46 +168,85 @@ class SeasonsScreen extends ConsumerWidget {
   }
 }
 
-class _SeasonTile extends StatelessWidget {
-  const _SeasonTile({required this.row});
+/// One list item: a projected season or an optimistic overlay, both
+/// rendered in the card language (task 3.2 — the row keys
+/// `season-<id>` / `overlay-<id>` / `overlay-spinner` /
+/// `overlay-warning` are preserved unchanged).
+class _SeasonCard extends ConsumerWidget {
+  const _SeasonCard({required this.row});
 
   final SeasonRow row;
 
   @override
-  Widget build(BuildContext context) => switch (row) {
-    ProjectedSeasonRow(:final season) => ListTile(
-      key: Key('season-${season.id}'),
-      title: Text(season.title ?? 'Season ${season.number}'),
-      subtitle: Text('Number ${season.number}'),
-      // Task 4.4 + spec `flutter-hierarchy-navigation`: the season-row
-      // BlocksScreen push moved to the PLANEN tab's navigator (the shell's
-      // hierarchy spine); the icon-only trailing buttons are REMOVED —
-      // their targets are first-class destinations now (Kleidung tab,
-      // Mehr tab). The Season tab is the pure overview until
-      // `redesign-seasons-home` lands its cards/detail.
-    ),
-    OptimisticSeasonRow(:final overlay) => ListTile(
-      key: Key('overlay-${overlay.id}'),
-      title: Text(
-        overlay.name?.isNotEmpty == true
+  Widget build(BuildContext context, WidgetRef ref) {
+    return switch (row) {
+      ProjectedSeasonRow(:final season, :final metrics) => SeasonCard(
+        key: Key('season-${season.id}'),
+        title: season.title ?? 'Season ${season.number}',
+        metadata: _metadataLine(metrics),
+        staleLabel: _staleLabel(ref, metrics),
+        // Task 4.4 + spec `flutter-hierarchy-navigation`: the season-row
+        // BlocksScreen push stays on the PLANEN tab's navigator (the
+        // shell's hierarchy spine — the Season tab never hosts hierarchy
+        // pushes). The card tap sets the active season from the ACTED-ON
+        // row DTO (CQRS boundary: no second projection lookup) and jumps
+        // to the Planen tab, exactly like the shell's Kategorien entry.
+        onTap: () => _openPlanning(context, ref, season),
+      ),
+      OptimisticSeasonRow(:final overlay) => SeasonCard(
+        key: Key('overlay-${overlay.id}'),
+        title: overlay.name?.isNotEmpty == true
             ? overlay.name!
             : 'Season ${overlay.number ?? ''}',
-      ),
-      subtitle: Text(
-        overlay.status == OverlayStatus.stale
+        // The overlay's status copy (keys/semantics unchanged from the
+        // tile era): the syncing line, or the retained stale warning.
+        metadata: overlay.status == OverlayStatus.stale
             ? (overlay.warning ?? kReconcileStaleWarning)
             : 'Just created — syncing…',
+        trailing: overlay.status == OverlayStatus.stale
+            ? const Icon(Icons.cloud_off, key: Key('overlay-warning'))
+            : const SizedBox(
+                key: Key('overlay-spinner'),
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
       ),
-      trailing: overlay.status == OverlayStatus.stale
-          ? const Icon(Icons.cloud_off, key: Key('overlay-warning'))
-          : const SizedBox(
-              key: Key('overlay-spinner'),
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-    ),
-  };
+    };
+  }
+
+  /// Relative staleness label computed with the injectable clock (D2):
+  /// `null` while the metadata is fresh or absent — goldens stay
+  /// deterministic because the clock is pinned by the test container.
+  String? _staleLabel(WidgetRef ref, SeasonMetrics? metrics) {
+    if (metrics == null || !metrics.isStale) return null;
+    return 'Stand: ${relativeTimeSince(metrics.cachedAt, clock: ref.read(clockProvider))}';
+  }
+
+  /// Cached counts joined into the metadata line (glossary keys
+  /// `seasons.meta.*`): only cached sources contribute; `null` when the
+  /// season has no cached entry at all (the line is omitted — spec
+  /// "No cached metadata" scenario). Singular inflection when the count
+  /// is one ("1 Block", "1 Szene", "1 Kostüm" — review grammar fix).
+  String? _metadataLine(SeasonMetrics? metrics) {
+    if (metrics == null) return null;
+    String unit(String plural, String singular, int n) =>
+        n == 1 ? singular : plural;
+    final parts = [
+      if (metrics.blockCount case final b?) '$b ${unit('Blöcke', 'Block', b)}',
+      if (metrics.sceneCount case final s?) '$s ${unit('Szenen', 'Szene', s)}',
+      if (metrics.costumeCount case final c?)
+        '$c ${unit('Kostüme', 'Kostüm', c)}',
+    ];
+    if (parts.isEmpty) return null;
+    return parts.join(' · ');
+  }
+
+  void _openPlanning(BuildContext context, WidgetRef ref, SeasonView season) {
+    final shell = ref.read(shellControllerProvider.notifier);
+    shell.setActiveSeason(season);
+    shell.selectTab(kPlanenTabIndex);
+  }
 }
 
 enum BannerTone { warning, error }

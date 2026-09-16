@@ -4,12 +4,14 @@
 
 @smoke
 Feature: App launches on device
-  Harness-proof scenario. It exercises ONLY built-in flutter_gherkin steps
-  (no custom step definitions) against the already-landed SeasonsScreen, so
-  the on-device flutter_gherkin runner has at least one green scenario that
-  proves the harness (instrumented app + driver + feature parsing) works
-  end-to-end on a device/emulator. It is intentionally NOT tagged @pending,
-  so it always runs in the default on-device pass.
+  Harness-proof scenario: exercises the built-in flutter_gherkin step against
+  the already-landed SeasonsScreen plus one custom Given step that resolves
+  the dev-auth gate (Continue as dev-e2e on the `login-continue-button`
+  key; the app boots signed out at the auth gate per spec
+  `flutter-auth-shell`), proving the harness (instrumented app + driver +
+  feature parsing) works end-to-end on a device/emulator. Intentionally
+  NOT tagged @pending, so it always runs in the default on-device pass.
 
   Scenario: Home screen renders the seasons list
+    Given the app is launched in dev-auth mode
     Then I expect the widget "seasons-list" to be present within 30 seconds

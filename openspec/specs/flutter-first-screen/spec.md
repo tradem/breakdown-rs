@@ -8,9 +8,14 @@ TBD - created by archiving change first-screen-seasons. Update Purpose after arc
 `SeasonsScreen` SHALL be a `ConsumerWidget` (no `StatefulWidget` /
 `setState`) backed by a `@riverpod` `SeasonsController` returning
 `SeasonsScreenState` (whose `projected` field is the
-`AsyncValue<List<SeasonDto>>`), with optimistic create and bounded-retry
-refetch on `POST /v1/seasons`. It is the reference pattern for all subsequent
-screens.
+`AsyncValue<List<SeasonDto>>`), with optimistic create and
+bounded-retry refetch on `POST /v1/seasons`. It is the reference
+pattern for all subsequent screens. As the Season tab content, its
+presentation SHALL follow the seasons-home capability: rows render
+as Material 3 cards with cached metadata and stale indication, the
+create action renders as an extended FAB ("Season erstellen"), and
+the empty and loading states follow the guided-empty-state and
+skeleton requirements.
 
 #### Scenario: Creating a season optimistically (after acknowledgement)
 
@@ -18,22 +23,24 @@ screens.
 - **THEN** the controller dispatches `POST /v1/seasons`, which returns
   `IdVersionResponse { id, version }`; only after that 2xx does it add an
   optimistic overlay entry keyed by the returned `id` to
-  `SeasonsScreenState.overlays` and reconcile via a bounded-retry refetch of the
-  seasons projection. The full `SeasonDto` arrives with the refetch; the overlay
-  is controller state, not a Drift write; the screen reads `SeasonsScreenState`
-  (merging `projected` rows with `overlays` by `id`); authoritative rows come
-  from Drift.
+  `SeasonsScreenState.overlays` and reconcile via a bounded-retry refetch of
+  the seasons projection. The full `SeasonDto` arrives with the refetch; the overlay
+  renders as a card preserving the existing overlay keys.
 
-#### Scenario: A 409 conflict is returned
+#### Scenario: Card tap navigates to the season's planning context
 
-- **WHEN** `POST /v1/seasons` returns `409` with `code: seasons.conflict`
-  **before any 2xx** (the conflict is detected by a command-side check that
-  runs ahead of the 201).
-- **THEN** the repository returns `Err(ProblemError(code:
-  "seasons.conflict"))`, the controller surfaces it as `AsyncError`, and the
-  widget shows the error keyed on the stable `code` (never on `detail`).
-  Because the optimistic overlay is only added *after* a 2xx, no overlay
-  exists to revert — there is nothing to roll back.
+- **WHEN** an authenticated user taps a projected season card.
+- **THEN** the app opens the season's planning view (Season→Blocks)
+  with the `SeasonView` as navigation context (shell/Planen-tab
+  contract).
+
+#### Scenario: Command failure surfaces keyed copy
+
+- **WHEN** the create returns conflict/validation or transport
+  errors.
+- **THEN** the error banner renders localized copy keyed on the
+  problem `code` (unchanged behavior), and no overlay exists.
+
 
 ### Requirement: Optimistic Row Lives in Controller State, Never in Drift
 

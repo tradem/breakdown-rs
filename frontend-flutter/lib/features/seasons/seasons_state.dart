@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: qwen3.8-flash (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -90,17 +91,92 @@ sealed class SeasonRow {
 }
 
 class ProjectedSeasonRow extends SeasonRow {
-  const ProjectedSeasonRow(this.season);
+  const ProjectedSeasonRow(this.season, {this.metrics});
 
   /// The generated read DTO (`breakdown_api` `SeasonView` — the spec's
   /// `SeasonDto`); authoritative, comes from Drift only.
   final SeasonView season;
+
+  /// Cached card metadata for this season (Drift read-model cache),
+  /// `null` when the cache holds no entry for the season (spec: the
+  /// metadata line is omitted — no fabricated counts).
+  final SeasonMetrics? metrics;
 }
 
 class OptimisticSeasonRow extends SeasonRow {
   const OptimisticSeasonRow(this.overlay);
 
   final SeasonOverlay overlay;
+}
+
+/// Per-season cached metadata for a season card (`redesign-seasons-home`
+/// task 2.1, team decision 4).
+///
+/// Sourced read-only from the existing Drift hierarchy/costume cache
+/// tables — no new API routes. Every count is nullable: a season may have
+/// some contributing sources cached and others not, and a season with no
+/// cached datastore entry at all has no metadata line on the card.
+/// [cachedAt] is the OLDEST contributing source's cache-write time and
+/// [isStale] is its TTL verdict (computed at DAO time with the injectable
+/// clock, D2): the metadata is only as fresh as its oldest source.
+class SeasonMetrics {
+  const SeasonMetrics({
+    this.blockCount,
+    this.sceneCount,
+    this.costumeCount,
+    required this.cachedAt,
+    this.isStale = false,
+  });
+
+  final int? blockCount;
+  final int? sceneCount;
+  final int? costumeCount;
+
+  /// Cache-write time of the oldest contributing source (blocks, scenes,
+  /// costumes) that produced a count.
+  final DateTime cachedAt;
+
+  /// `true` when that oldest source is older than the cache TTL.
+  final bool isStale;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SeasonMetrics &&
+          other.blockCount == blockCount &&
+          other.sceneCount == sceneCount &&
+          other.costumeCount == costumeCount &&
+          other.cachedAt == cachedAt &&
+          other.isStale == isStale;
+
+  @override
+  int get hashCode =>
+      Object.hash(blockCount, sceneCount, costumeCount, cachedAt, isStale);
+
+  @override
+  String toString() =>
+      'SeasonMetrics(blocks: $blockCount, scenes: $sceneCount, '
+      'costumes: $costumeCount, cachedAt: $cachedAt, stale: $isStale)';
+}
+
+/// Pure merge (task 2.1): projected rows ∪ optimistic overlays (by id) ∪
+/// per-season cached metrics, expressed as the renderable card rows.
+///
+/// [metrics] is the Ok branch of the metrics DAO source (keyed by season
+/// id); `null` is the Err branch — a DAO failure degrades to cards
+/// WITHOUT a metadata line (spec: omission, never fabricated counts),
+/// it never hides or reshapes the rows themselves.
+List<SeasonRow> mergedSeasonRows({
+  required List<SeasonView> projected,
+  required List<SeasonOverlay> overlays,
+  Map<String, SeasonMetrics>? metrics,
+}) {
+  final projectedIds = {for (final s in projected) s.id};
+  return <SeasonRow>[
+    for (final s in projected) ProjectedSeasonRow(s, metrics: metrics?[s.id]),
+    for (final o in overlays)
+      if (!projectedIds.contains(o.id)) OptimisticSeasonRow(o),
+  ];
 }
 
 /// Controller state shape (spec `flutter-first-screen`, D2).
@@ -140,14 +216,20 @@ class SeasonsScreenState {
   /// (merged by `id`). A projected row carrying an overlay's id wins — the
   /// reconciliation drop may not have run yet, but the merge never doubles
   /// or hides the projected data (D2).
-  List<SeasonRow> get rows {
-    final projectedIds = {for (final s in cachedRows) s.id};
-    return <SeasonRow>[
-      for (final s in cachedRows) ProjectedSeasonRow(s),
-      for (final o in overlays)
-        if (!projectedIds.contains(o.id)) OptimisticSeasonRow(o),
-    ];
-  }
+  ///
+  /// Without metrics (the plain getter) — e.g. before the metrics provider
+  /// resolves. Prefer [rowsWithMetrics] on the screen so cards render
+  /// their cached metadata.
+  List<SeasonRow> get rows => rowsWithMetrics(null);
+
+  /// [rows] with the per-season cached metrics attached (task 2.1's merge
+  /// — the Ok branch passes the map, the Err branch passes `null`).
+  List<SeasonRow> rowsWithMetrics(Map<String, SeasonMetrics>? metrics) =>
+      mergedSeasonRows(
+        projected: cachedRows,
+        overlays: overlays,
+        metrics: metrics,
+      );
 
   SeasonsScreenState copyWith({
     AsyncValue<List<SeasonView>>? projected,

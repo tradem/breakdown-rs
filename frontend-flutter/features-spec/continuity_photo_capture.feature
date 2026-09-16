@@ -15,19 +15,20 @@ Feature: Continuity photo capture (AUTHZ-GATE to thumb)
       leaves the device (Scenario: client preflight); and
     - the server-side handler gate (SeasonPhotoAccessPolicy) rejects a request
       that does reach it (Scenario: server gate).
-  Then the happy path: capture → prepare → raw-bytes upload → link →
+  Covers the happy path: capture → prepare → raw-bytes upload → link →
   projector-lag reconciliation → strip count moves (Scenario: upload
   reconciles). And the bounded-watch expiry: a variant stuck in Processing
   past the budget stops polling with recovery affordances intact
   (Scenario: watch expires).
 
-  Seed preconditions (dev-auth mode, 4.1 emulator seed): season "1" with
+  Seed preconditions (dev-auth mode, 4.1 emulator seed — NOT yet landed; scenarios pending until it ships): season "1" with
   block "b-1", episode "e-1", scene "s-1" scheduled on shooting day "day-1"
   with scene shoot "ssh-1", and costume "c-1". The server-gate scenario
   additionally seeds a link denial for "ssh-1"; the watch-expired scenario
   seeds a continuity photo whose variants stay Processing past the
   60-second watch budget.
 
+  @pending
   Scenario: Client-side AUTHZ-GATE refuses capture before any network call
     Given the app is launched in dev-auth mode
     And I am authenticated as a "viewer" user
@@ -39,6 +40,7 @@ Feature: Continuity photo capture (AUTHZ-GATE to thumb)
     Then the continuity denial narrative appears
     And no network request leaves the device
 
+  @pending
   Scenario: Server-side handler rejects an unauthorized link
     Given the app is launched in dev-auth mode
     And I am authenticated as a "costume_dept" user
@@ -52,6 +54,7 @@ Feature: Continuity photo capture (AUTHZ-GATE to thumb)
     And I accept the capture rationale
     Then the day board shows the command denial
 
+  @pending
   Scenario: Upload reconciles through projector lag to the strip
     Given the app is launched in dev-auth mode
     And I am authenticated as a "costume_dept" user
@@ -65,6 +68,7 @@ Feature: Continuity photo capture (AUTHZ-GATE to thumb)
     And I accept the capture rationale
     Then the continuity count for "ssh-1" becomes "Continuity (1)"
 
+  @pending
   Scenario: Watch expires while a variant is still Processing
     Given the app is launched in dev-auth mode
     And I am authenticated as a "costume_dept" user
