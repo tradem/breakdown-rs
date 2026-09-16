@@ -1,0 +1,14 @@
+{
+  "name": "breakdown-design-tokens-tooling",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Node tooling for the breakdown-rs design-token build (W3C-DTCG source under design/tokens/ → Flutter artifact via Style Dictionary). Versions are pinned by package-lock.json; restore with `npm --prefix design ci`.",
+  "type": "module",
+  "private_scripts_note": "The build is driven by scripts/build-tokens.sh (single entry point) — no npm scripts.",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "style-dictionary": "5.5.3"
+  }
+}

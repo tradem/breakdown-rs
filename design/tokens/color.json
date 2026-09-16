@@ -1,0 +1,98 @@
+{
+  "color": {
+    "brand": {
+      "seed": {
+        "$type": "color",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [0.0, 0.5882352941176471, 0.5333333333333333],
+          "hex": "#009688"
+        },
+        "$description": "Brand seed color (Material teal) driving ColorScheme.fromSeed for both the light and the dark M3 scheme. Carried over 1:1 from the hand-written theme.dart seed (spec flutter-design-tokens); the seed IS the token — all other scheme roles stay M3-derived (design.md D4)."
+      }
+    },
+    "semantic": {
+      "$description": "Semantic status colors with explicit light and dark sets. Cross-frontend shared tokens; NOT consumed by Flutter in this change (scheme roles stay seed-derived per design.md D4).",
+      "success": {
+        "light": {
+          "$type": "color",
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [0.1803921568627451, 0.4901960784313725, 0.196078431372549],
+            "hex": "#2e7d32"
+          },
+          "$description": "Success status color on light surfaces."
+        },
+        "dark": {
+          "$type": "color",
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [0.5058823529411764, 0.7803921568627451, 0.5176470588235295],
+            "hex": "#81c784"
+          },
+          "$description": "Success status color on dark surfaces."
+        }
+      },
+      "warning": {
+        "light": {
+          "$type": "color",
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [0.9764705882352941, 0.6588235294117647, 0.1450980392156863],
+            "hex": "#f9a825"
+          },
+          "$description": "Warning status color on light surfaces."
+        },
+        "dark": {
+          "$type": "color",
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [1.0, 0.8352941176470589, 0.3098039215686275],
+            "hex": "#ffd54f"
+          },
+          "$description": "Warning status color on dark surfaces."
+        }
+      },
+      "error": {
+        "light": {
+          "$type": "color",
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [0.7019607843137254, 0.1490196078431373, 0.1176470588235294],
+            "hex": "#b3261e"
+          },
+          "$description": "Error status color on light surfaces (M3 error tone)."
+        },
+        "dark": {
+          "$type": "color",
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [0.9490196078431372, 0.7215686274509804, 0.7098039215686275],
+            "hex": "#f2b8b5"
+          },
+          "$description": "Error status color on dark surfaces (M3 error tone)."
+        }
+      },
+      "info": {
+        "light": {
+          "$type": "color",
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [0.007843137254902, 0.4666666666666667, 0.7411764705882353],
+            "hex": "#0277bd"
+          },
+          "$description": "Info status color on light surfaces."
+        },
+        "dark": {
+          "$type": "color",
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [0.5058823529411764, 0.8313725490196079, 0.9803921568627451],
+            "hex": "#81d4fa"
+          },
+          "$description": "Info status color on dark surfaces."
+        }
+      }
+    }
+  }
+}

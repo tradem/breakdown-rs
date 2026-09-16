@@ -1,0 +1,90 @@
+{
+  "size": {
+    "$description": "Dimension tokens in logical pixels (structured {value, unit:\"px\"} objects; unit is mandatory per DTCG 2025.10 and 'px' maps 1:1 to Dart logical px). Spacing scale is carried over 1:1 from the hand-written lib/design/spacing.dart (spec flutter-design-tokens).",
+    "space": {
+      "2": {
+        "$type": "dimension",
+        "$value": {
+          "value": 2,
+          "unit": "px"
+        },
+        "$description": "Hairline separation (AppSpacing.space2)."
+      },
+      "4": {
+        "$type": "dimension",
+        "$value": {
+          "value": 4,
+          "unit": "px"
+        },
+        "$description": "Tight inline gap (AppSpacing.space4)."
+      },
+      "8": {
+        "$type": "dimension",
+        "$value": {
+          "value": 8,
+          "unit": "px"
+        },
+        "$description": "Compact gap (AppSpacing.space8)."
+      },
+      "12": {
+        "$type": "dimension",
+        "$value": {
+          "value": 12,
+          "unit": "px"
+        },
+        "$description": "Comfortable gap (AppSpacing.space12)."
+      },
+      "16": {
+        "$type": "dimension",
+        "$value": {
+          "value": 16,
+          "unit": "px"
+        },
+        "$description": "Card-level padding (AppSpacing.space16)."
+      },
+      "24": {
+        "$type": "dimension",
+        "$value": {
+          "value": 24,
+          "unit": "px"
+        },
+        "$description": "Screen-level padding (AppSpacing.space24)."
+      },
+      "32": {
+        "$type": "dimension",
+        "$value": {
+          "value": 32,
+          "unit": "px"
+        },
+        "$description": "Section separation (AppSpacing.space32)."
+      }
+    },
+    "radius": {
+      "$description": "Corner radii aligned with the M3 shape defaults; not consumed by Flutter in this change.",
+      "small": {
+        "$type": "dimension",
+        "$value": {
+          "value": 8,
+          "unit": "px"
+        },
+        "$description": "Small corner radius (M3 extra-small/small components)."
+      },
+      "medium": {
+        "$type": "dimension",
+        "$value": {
+          "value": 12,
+          "unit": "px"
+        },
+        "$description": "Medium corner radius (M3 medium components)."
+      },
+      "large": {
+        "$type": "dimension",
+        "$value": {
+          "value": 16,
+          "unit": "px"
+        },
+        "$description": "Large corner radius (M3 large components)."
+      }
+    }
+  }
+}

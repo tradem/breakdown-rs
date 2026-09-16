@@ -112,3 +112,14 @@ accompany.
   it with an extended FAB labeled **Season erstellen**.
 - The AI-import AppBar icon is tooltip-only today; the redesign moves it
   to a labeled menu entry **Import**.
+
+## Design tokens (values vs. vocabulary)
+
+Theme-relevant **token names** referenced by screen specs (spacing keys,
+semantic color roles, type-scale names) resolve against the W3C-DTCG token
+source at `design/tokens/` (monorepo root) — see its README and the
+`design-tokens-dtcg` skill. The glossary governs *vocabulary* (icons,
+German copy keys); the token source governs *values* (`color`,
+`dimension`) and their generated Flutter artifact
+(`frontend-flutter/lib/design/gen/design_tokens.g.dart`, rebuild-only via
+`bash scripts/build-tokens.sh`).

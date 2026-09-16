@@ -1,0 +1,326 @@
+{
+  "typography": {
+    "$description": "Material 3 (2021) type scale in scalar dimension tokens, aligned with Material's Typography.material2021 defaults consumed by ThemeData. Scalar tokens only \u2014 composite typography values are not emitted to Dart (design.md D3: generated output is const Color/double only); the type scale stays Flutter-side until a real brand type system exists.",
+    "fontSize": {
+      "displayLarge": {
+        "$type": "dimension",
+        "$value": {
+          "value": 57,
+          "unit": "px"
+        },
+        "$description": "M3 displayLarge font size."
+      },
+      "displayMedium": {
+        "$type": "dimension",
+        "$value": {
+          "value": 45,
+          "unit": "px"
+        },
+        "$description": "M3 displayMedium font size."
+      },
+      "displaySmall": {
+        "$type": "dimension",
+        "$value": {
+          "value": 36,
+          "unit": "px"
+        },
+        "$description": "M3 displaySmall font size."
+      },
+      "headlineLarge": {
+        "$type": "dimension",
+        "$value": {
+          "value": 32,
+          "unit": "px"
+        },
+        "$description": "M3 headlineLarge font size."
+      },
+      "headlineMedium": {
+        "$type": "dimension",
+        "$value": {
+          "value": 28,
+          "unit": "px"
+        },
+        "$description": "M3 headlineMedium font size."
+      },
+      "headlineSmall": {
+        "$type": "dimension",
+        "$value": {
+          "value": 24,
+          "unit": "px"
+        },
+        "$description": "M3 headlineSmall font size."
+      },
+      "titleLarge": {
+        "$type": "dimension",
+        "$value": {
+          "value": 22,
+          "unit": "px"
+        },
+        "$description": "M3 titleLarge font size."
+      },
+      "titleMedium": {
+        "$type": "dimension",
+        "$value": {
+          "value": 16,
+          "unit": "px"
+        },
+        "$description": "M3 titleMedium font size."
+      },
+      "titleSmall": {
+        "$type": "dimension",
+        "$value": {
+          "value": 14,
+          "unit": "px"
+        },
+        "$description": "M3 titleSmall font size."
+      },
+      "bodyLarge": {
+        "$type": "dimension",
+        "$value": {
+          "value": 16,
+          "unit": "px"
+        },
+        "$description": "M3 bodyLarge font size."
+      },
+      "bodyMedium": {
+        "$type": "dimension",
+        "$value": {
+          "value": 14,
+          "unit": "px"
+        },
+        "$description": "M3 bodyMedium font size."
+      },
+      "bodySmall": {
+        "$type": "dimension",
+        "$value": {
+          "value": 12,
+          "unit": "px"
+        },
+        "$description": "M3 bodySmall font size."
+      },
+      "labelLarge": {
+        "$type": "dimension",
+        "$value": {
+          "value": 14,
+          "unit": "px"
+        },
+        "$description": "M3 labelLarge font size."
+      },
+      "labelMedium": {
+        "$type": "dimension",
+        "$value": {
+          "value": 12,
+          "unit": "px"
+        },
+        "$description": "M3 labelMedium font size."
+      },
+      "labelSmall": {
+        "$type": "dimension",
+        "$value": {
+          "value": 11,
+          "unit": "px"
+        },
+        "$description": "M3 labelSmall font size."
+      }
+    },
+    "lineHeight": {
+      "displayLarge": {
+        "$type": "dimension",
+        "$value": {
+          "value": 64,
+          "unit": "px"
+        },
+        "$description": "M3 displayLarge line height."
+      },
+      "displayMedium": {
+        "$type": "dimension",
+        "$value": {
+          "value": 52,
+          "unit": "px"
+        },
+        "$description": "M3 displayMedium line height."
+      },
+      "displaySmall": {
+        "$type": "dimension",
+        "$value": {
+          "value": 44,
+          "unit": "px"
+        },
+        "$description": "M3 displaySmall line height."
+      },
+      "headlineLarge": {
+        "$type": "dimension",
+        "$value": {
+          "value": 36,
+          "unit": "px"
+        },
+        "$description": "M3 headlineLarge line height."
+      },
+      "headlineMedium": {
+        "$type": "dimension",
+        "$value": {
+          "value": 32,
+          "unit": "px"
+        },
+        "$description": "M3 headlineMedium line height."
+      },
+      "headlineSmall": {
+        "$type": "dimension",
+        "$value": {
+          "value": 28,
+          "unit": "px"
+        },
+        "$description": "M3 headlineSmall line height."
+      },
+      "titleLarge": {
+        "$type": "dimension",
+        "$value": {
+          "value": 28,
+          "unit": "px"
+        },
+        "$description": "M3 titleLarge line height."
+      },
+      "titleMedium": {
+        "$type": "dimension",
+        "$value": {
+          "value": 28,
+          "unit": "px"
+        },
+        "$description": "M3 titleMedium line height."
+      },
+      "titleSmall": {
+        "$type": "dimension",
+        "$value": {
+          "value": 20,
+          "unit": "px"
+        },
+        "$description": "M3 titleSmall line height."
+      },
+      "bodyLarge": {
+        "$type": "dimension",
+        "$value": {
+          "value": 24,
+          "unit": "px"
+        },
+        "$description": "M3 bodyLarge line height."
+      },
+      "bodyMedium": {
+        "$type": "dimension",
+        "$value": {
+          "value": 20,
+          "unit": "px"
+        },
+        "$description": "M3 bodyMedium line height."
+      },
+      "bodySmall": {
+        "$type": "dimension",
+        "$value": {
+          "value": 16,
+          "unit": "px"
+        },
+        "$description": "M3 bodySmall line height."
+      },
+      "labelLarge": {
+        "$type": "dimension",
+        "$value": {
+          "value": 20,
+          "unit": "px"
+        },
+        "$description": "M3 labelLarge line height."
+      },
+      "labelMedium": {
+        "$type": "dimension",
+        "$value": {
+          "value": 16,
+          "unit": "px"
+        },
+        "$description": "M3 labelMedium line height."
+      },
+      "labelSmall": {
+        "$type": "dimension",
+        "$value": {
+          "value": 16,
+          "unit": "px"
+        },
+        "$description": "M3 labelSmall line height."
+      }
+    },
+    "fontWeight": {
+      "displayLarge": {
+        "$type": "fontWeight",
+        "$value": 400,
+        "$description": "M3 displayLarge font weight (DTCG fontWeight)."
+      },
+      "displayMedium": {
+        "$type": "fontWeight",
+        "$value": 400,
+        "$description": "M3 displayMedium font weight (DTCG fontWeight)."
+      },
+      "displaySmall": {
+        "$type": "fontWeight",
+        "$value": 400,
+        "$description": "M3 displaySmall font weight (DTCG fontWeight)."
+      },
+      "headlineLarge": {
+        "$type": "fontWeight",
+        "$value": 400,
+        "$description": "M3 headlineLarge font weight (DTCG fontWeight)."
+      },
+      "headlineMedium": {
+        "$type": "fontWeight",
+        "$value": 400,
+        "$description": "M3 headlineMedium font weight (DTCG fontWeight)."
+      },
+      "headlineSmall": {
+        "$type": "fontWeight",
+        "$value": 400,
+        "$description": "M3 headlineSmall font weight (DTCG fontWeight)."
+      },
+      "titleLarge": {
+        "$type": "fontWeight",
+        "$value": 400,
+        "$description": "M3 titleLarge font weight (DTCG fontWeight)."
+      },
+      "titleMedium": {
+        "$type": "fontWeight",
+        "$value": 500,
+        "$description": "M3 titleMedium font weight (DTCG fontWeight)."
+      },
+      "titleSmall": {
+        "$type": "fontWeight",
+        "$value": 500,
+        "$description": "M3 titleSmall font weight (DTCG fontWeight)."
+      },
+      "bodyLarge": {
+        "$type": "fontWeight",
+        "$value": 400,
+        "$description": "M3 bodyLarge font weight (DTCG fontWeight)."
+      },
+      "bodyMedium": {
+        "$type": "fontWeight",
+        "$value": 400,
+        "$description": "M3 bodyMedium font weight (DTCG fontWeight)."
+      },
+      "bodySmall": {
+        "$type": "fontWeight",
+        "$value": 400,
+        "$description": "M3 bodySmall font weight (DTCG fontWeight)."
+      },
+      "labelLarge": {
+        "$type": "fontWeight",
+        "$value": 500,
+        "$description": "M3 labelLarge font weight (DTCG fontWeight)."
+      },
+      "labelMedium": {
+        "$type": "fontWeight",
+        "$value": 500,
+        "$description": "M3 labelMedium font weight (DTCG fontWeight)."
+      },
+      "labelSmall": {
+        "$type": "fontWeight",
+        "$value": 500,
+        "$description": "M3 labelSmall font weight (DTCG fontWeight)."
+      }
+    }
+  }
+}

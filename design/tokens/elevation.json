@@ -1,0 +1,53 @@
+{
+  "elevation": {
+    "$description": "Material 3 elevation levels in logical px (not consumed by Flutter in this change; ThemeData applies M3 elevation defaults).",
+    "level0": {
+      "$type": "dimension",
+      "$value": {
+        "value": 0,
+        "unit": "px"
+      },
+      "$description": "M3 elevation level 0."
+    },
+    "level1": {
+      "$type": "dimension",
+      "$value": {
+        "value": 1,
+        "unit": "px"
+      },
+      "$description": "M3 elevation level 1."
+    },
+    "level2": {
+      "$type": "dimension",
+      "$value": {
+        "value": 3,
+        "unit": "px"
+      },
+      "$description": "M3 elevation level 2."
+    },
+    "level3": {
+      "$type": "dimension",
+      "$value": {
+        "value": 6,
+        "unit": "px"
+      },
+      "$description": "M3 elevation level 3."
+    },
+    "level4": {
+      "$type": "dimension",
+      "$value": {
+        "value": 8,
+        "unit": "px"
+      },
+      "$description": "M3 elevation level 4."
+    },
+    "level5": {
+      "$type": "dimension",
+      "$value": {
+        "value": 12,
+        "unit": "px"
+      },
+      "$description": "M3 elevation level 5."
+    }
+  }
+}
