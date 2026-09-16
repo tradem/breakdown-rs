@@ -28,11 +28,20 @@ Planen tab root stays on the tab (per the shell's back behavior).
   (`GET /v1/episodes?block_id=…`, backend issue #335); error copy is
   keyed on the problem `code`.
 
-#### Scenario: Back at hierarchy root inside the shell
+#### Scenario: Back at a non-initial tab root inside the shell
 - **WHEN** the user is on the Planen tab root and presses system back.
 - **THEN** the shell stays on the Planen tab (no lazy tab-switch
-  chain); consecutive back at the initial tab root requests app exit
-  per platform convention.
+  chain) and the back intent bubbles to the OS per D3 (tab roots do
+  not hop tabs; tab switches are user 'jump' actions, not history
+  steps).
+
+#### Scenario: Back at the initial tab root
+- **WHEN** the user is on the Season tab root (the initial tab) and
+  presses system back after the inner navigator has no remaining
+  entries.
+- **THEN** the app-exit request per platform convention is issued
+  (exit-once semantics per D3; `SystemNavigator.pop` on the initial
+  flow only).
 
 #### Scenario: Empty state
 - **WHEN** a screen's merged row list is empty and no fetch is

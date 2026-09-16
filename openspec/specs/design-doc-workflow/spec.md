@@ -5,7 +5,18 @@
 # design-doc-workflow Specification
 
 ## Purpose
-TBD - created by archiving change establish-design-doc-workflow. Update Purpose after archive.
+Rules for the repository's text-based design documentation workflow:
+the unified screen-spec format at `docs/design/screens/<screen-name>.md`
+(nine sections, authored in the implementing OpenSpec change),
+PlantUML Salt wireframes as the layout language with their static-only
+scope (team decision 7), the CI gate that validates every PlantUML
+block under `docs/design/` compiles (`plantuml -checkonly`), the icon
+and terminology glossary at `docs/design/glossary.md` with the
+visible-label norm, and the platform-neutrality rule keeping specs
+usable as source files for non-Flutter frontends (Svelte, Slint,
+GPUI). The operating agent skills are `design-wireframe-salt` and the
+extended `openspec-screen-prompt` (see
+`frontend-flutter/.pi/skills/`).
 ## Requirements
 ### Requirement: Screen specifications follow the unified format
 Every feature screen (new or redesigned) SHALL have a screen

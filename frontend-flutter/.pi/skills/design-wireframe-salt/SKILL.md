@@ -75,8 +75,8 @@ repository:
   --
   ( + Season ) FAB extended — Label sichtbar
   --
-  |W| Season | Kleidung | Planen | Mehr |   <- BottomNavigationBar (compact)
-  /Rail\                                     <- NavigationRail (medium/expanded)
+  |W| Season | Kleidung | Planen | Mehr |   <- navigation bar (compact)
+  /Rail\                                     <- navigation rail (medium/expanded)
 }
 @endsalt
 ```

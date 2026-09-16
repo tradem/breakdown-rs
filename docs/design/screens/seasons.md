@@ -29,19 +29,26 @@ membership-scoped server-side.
 ```plantuml
 @startsalt
 {
-  AppBar: "Seasons" [Import] [⋮]
+  "Seasons" [Import] [⋮]
   --
-  [Banner: 'Cached data may be outdated'] — nur bei stale
+  [Banner: 'Cached data may be outdated']
   --
   {^ "Season 2"
      "3 Blocks · 42 Szenen · 118 Kostüme" [›]}
   {^ "Season 1"
      "4 Blocks · 38 Szenen · 96 Kostüme" [›]}
   --
-  ( + ) FAB — nur Icon 'Season erstellen' via Tooltip
+  ( + )
 }
 @endsalt
 ```
+
+Static structure only: app bar with the Import entry and overflow, the
+optional stale banner, two season cards with counters, and the create
+FAB. The stale banner's display condition (cache-freshness flag), the
+FAB's current icon-only gap (label visible only via tooltip), and all
+create-flow behavior are covered in the States / Interactions sections
+and the Known-Ist-gaps paragraph below — not in the wireframe.
 
 **Known Ist gaps** (fixed by the redesign changes, documented here as
 the probe's findings): the Season-tile icons are icon-only navigation

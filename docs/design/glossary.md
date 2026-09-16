@@ -78,6 +78,8 @@ establishing change).
 | `science_outlined` | **Experimentelle Funktionen** | Settings — experimental features | `settings.experimental` |
 | `psychology_alt_outlined` | **KI-Konfiguration** | AI provider/model configuration | `ai.config` |
 | `smart_toy_outlined` *(info)* | **KI-Assistent** | App info — AI attribution entry | `common.aiInfo` |
+| `quickcheck.title` *(template example)* | **Schnell-Check** | Screen-spec template example screen (fictional `CostumeQuickCheck`) | `quickcheck.title` |
+| `quickcheck.empty` *(template example)* | **Keine Figuren in dieser Szene** | Template example screen — empty state | `quickcheck.empty` |
 
 ### Status & result icons (no user-facing label required)
 

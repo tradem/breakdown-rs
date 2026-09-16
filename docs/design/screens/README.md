@@ -139,7 +139,7 @@ the membership check before any network call.
 | Element | M3 component | Semantics | Copy key |
 |---|---|---|---|
 | App bar title | Top app bar | Screen identity | `quickcheck.title` |
-| Character row | List item | Opens costume detail | `figures.*` |
+| Character row | List item | Opens costume detail | `nav.characters` |
 | Stale banner | Banner | Connection lost indicator | `errors.connectionLost` |
 
 ## States
