@@ -71,6 +71,12 @@ class SeasonCard extends StatelessWidget {
     return Semantics(
       label: _semanticLabel,
       button: onTap != null,
+      // excludeSemantics keeps the label single-sourced (the merged
+      // ListTile text would otherwise duplicate title + metadata in the
+      // accessibility stream); excluding the child drops its tap action,
+      // so the parent Semantics carries it (review fix).
+      onTap: onTap,
+      excludeSemantics: true,
       child: AppCards.variant(
         brightness: Theme.of(context).brightness,
         child: ListTile(

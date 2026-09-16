@@ -226,13 +226,17 @@ class _SeasonCard extends ConsumerWidget {
   /// Cached counts joined into the metadata line (glossary keys
   /// `seasons.meta.*`): only cached sources contribute; `null` when the
   /// season has no cached entry at all (the line is omitted — spec
-  /// "No cached metadata" scenario).
+  /// "No cached metadata" scenario). Singular inflection when the count
+  /// is one ("1 Block", "1 Szene", "1 Kostüm" — review grammar fix).
   String? _metadataLine(SeasonMetrics? metrics) {
     if (metrics == null) return null;
+    String unit(String plural, String singular, int n) =>
+        n == 1 ? singular : plural;
     final parts = [
-      if (metrics.blockCount case final b?) '$b Blöcke',
-      if (metrics.sceneCount case final s?) '$s Szenen',
-      if (metrics.costumeCount case final c?) '$c Kostüme',
+      if (metrics.blockCount case final b?) '$b ${unit('Blöcke', 'Block', b)}',
+      if (metrics.sceneCount case final s?) '$s ${unit('Szenen', 'Szene', s)}',
+      if (metrics.costumeCount case final c?)
+        '$c ${unit('Kostüme', 'Kostüm', c)}',
     ];
     if (parts.isEmpty) return null;
     return parts.join(' · ');

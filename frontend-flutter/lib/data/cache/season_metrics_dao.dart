@@ -61,9 +61,14 @@ class SeasonMetricsDao {
       );
       // Scenes hang off episodes which hang off blocks — the season scope
       // comes from the join chain (same rows the hierarchy reads serve).
+      // The oldest source includes EVERY join contributor (scene, episode,
+      // block): an expired episode must not be masked by a fresher scene
+      // row (SeasonMetrics contract: cachedAt = oldest contributing
+      // source). SQLite's scalar `MIN(a, b, c)` handles the multi-source
+      // age; the outer aggregate MIN folds it per season group.
       final scenes = await _grouped(
         'SELECT b.season_id AS season_id, COUNT(*) AS c, '
-        'MIN(s.cached_at) AS oldest '
+        'MIN(MIN(s.cached_at, e.cached_at, b.cached_at)) AS oldest '
         'FROM scene_cache_rows s '
         'JOIN episode_cache_rows e ON s.episode_id = e.id '
         'JOIN block_cache_rows b ON e.block_id = b.id '

@@ -85,12 +85,12 @@ void main() {
     List<SeasonView> initialRows = const [],
     bool failInitialFetch = false,
     bool holdInitialFetch = false,
-    void Function(CacheDatabase db)? seed,
+    FutureOr<void> Function(CacheDatabase db)? seed,
     Clock? clock,
   }) async {
     db = CacheDatabase(NativeDatabase.memory());
     addTearDown(db.close);
-    seed?.call(db);
+    await seed?.call(db);
     repo = FakeSeasonRepository(BreakdownApi(), SeasonCacheDao(db));
     holder = ValueNotifier<Result<List<SeasonView>>>(
       failInitialFetch ? const Left(_listUnavailable) : Right(initialRows),
@@ -385,12 +385,12 @@ void main() {
 
     /// Seeds two blocks + one costume for season 'a'; the writes predate
     /// the pinned clock by MORE than the 24h TTL → stale indicator.
-    void seedStale(CacheDatabase db) {
+    Future<void> seedStale(CacheDatabase db) async {
       final at = DateTime.utc(2026, 1, 1, 6); // > TTL before the clock
-      BlockCacheDao(db)
-        ..upsert(block('b1', seasonId: 'a'), at)
-        ..upsert(block('b2', seasonId: 'a'), at);
-      CostumeCacheDao(db).upsert('a', costume('c1'), at);
+      final blocks = BlockCacheDao(db);
+      await blocks.upsert(block('b1', seasonId: 'a'), at);
+      await blocks.upsert(block('b2', seasonId: 'a'), at);
+      await CostumeCacheDao(db).upsert('a', costume('c1'), at);
     }
 
     testWidgets('projected card renders cached metadata (counts)', (
@@ -407,7 +407,7 @@ void main() {
       expect(find.text('Spring'), findsOneWidget);
       // Metadata line: cached counts joined (glossary seasons.meta.*).
       expect(find.textContaining('2 Blöcke'), findsOneWidget);
-      expect(find.textContaining('1 Kostüme'), findsOneWidget);
+      expect(find.textContaining('1 Kostüm'), findsOneWidget);
     });
 
     testWidgets('projected card WITHOUT cached entry omits the metadata line', (
@@ -569,12 +569,12 @@ void main() {
             season('a', number: 1, title: 'Spring'),
             season('b', number: 2, title: 'Summer'),
           ],
-          seed: (db) {
+          seed: (db) async {
             final at = DateTime.utc(2026, 1, 1, 6); // > TTL before the clock
-            BlockCacheDao(db)
-              ..upsert(block('b1', seasonId: 'a'), at)
-              ..upsert(block('b2', seasonId: 'a'), at);
-            CostumeCacheDao(db).upsert('a', costume('c1'), at);
+            final blocks = BlockCacheDao(db);
+            await blocks.upsert(block('b1', seasonId: 'a'), at);
+            await blocks.upsert(block('b2', seasonId: 'a'), at);
+            await CostumeCacheDao(db).upsert('a', costume('c1'), at);
           },
           clock: fixedClock,
         );

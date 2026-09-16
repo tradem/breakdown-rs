@@ -103,7 +103,7 @@ sections and tests — never in the wireframes.
 | Card metadata | Card supporting text | Cached block/scene/costume counts, omitted when absent | `seasons.meta.blocks` / `seasons.meta.scenes` / `seasons.meta.costumes` |
 | Stale indicator | Icon + relative time | Cached metadata older than TTL | `seasons.stale` |
 | Chevron affordance | List-item affordance | Drill-down (paired with visible title) | n/a |
-| Create FAB | Extended FAB | Creates a season (command `POST /seasons`) | `seasons.create` |
+| Create FAB | Extended FAB | Creates a season (command `POST /v1/seasons`) | `seasons.create` |
 | Empty headline | Text | No seasons yet | `seasons.empty.title` |
 | Empty guidance | Card supporting text | One sentence of guidance | `seasons.empty.guidance` |
 | Setup CTA | Filled button | Starts season setup (create flow; later the wizard) | `seasons.empty.setupCta` |

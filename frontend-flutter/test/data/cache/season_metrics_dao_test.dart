@@ -184,6 +184,32 @@ void main() {
     expect(metrics['season-1']!.isStale, isFalse);
   });
 
+  test(
+    'scene staleness includes the join chain (episode older than scene)',
+    () async {
+      // A fresh scene row must not mask an expired EPISODE row in the join
+      // chain (review fix: cachedAt = oldest contributing source).
+      final blocks = BlockCacheDao(db);
+      final episodes = EpisodeCacheDao(db);
+      final scenes = SceneCacheDao(db);
+      // Strictly older than the 24h TTL.
+      final expired = _now
+          .subtract(kCacheTtl)
+          .subtract(const Duration(minutes: 5));
+      await blocks.upsert(_block('b1'), _now);
+      await episodes.upsert(_episode('e1', blockId: 'b1'), expired);
+      await scenes.upsert(_scene('s1', episodeId: 'e1'), _now);
+
+      final metrics = (await dao().readAll(clock: _clock))
+          .getRight()
+          .toNullable()!;
+      final m = metrics['season-1']!;
+      expect(m.sceneCount, 1);
+      expect(m.blockCount, 1);
+      expect(m.isStale, isTrue);
+    },
+  );
+
   test('Err branch: a failed DAO read resolves Left, never throws', () async {
     // Deterministic fault seam: a closed in-memory database does NOT
     // reliably fault DAO reads (reads resolve instead of throwing — see
