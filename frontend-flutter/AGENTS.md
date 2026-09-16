@@ -2,6 +2,7 @@
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: hy3 (opencode-go) -->
 <!-- Co-authored-by: qwen3.8-flash (opencode-go) -->
+<!-- Co-authored-by: omen-alpha (opencode-go) -->
 
 
 # Agent Guidelines for the Flutter App (`frontend-flutter/`)
@@ -499,3 +500,21 @@ this foundation change.
 
 *When in doubt about the backend contract, read `backend/AGENTS.md` and the
 referenced ADRs before generating client code.*
+
+---
+
+## 11. Design Documentation Workflow
+
+Design docs live at the monorepo root under `docs/design/`: the
+screen-spec template (`docs/design/screens/README.md`), per-screen
+specs (`docs/design/screens/<screen-name>.md`, authored in the same
+OpenSpec change that implements the screen, before its implementation
+tasks run), and the icon/terminology glossary
+(`docs/design/glossary.md`) — the mandatory source for UI copy keys,
+visible labels, and Material Symbols icons. Layout is expressed as
+PlantUML Salt wireframes (static layout only; behavior lives in the
+spec's Markdown sections and tests). Use the `design-wireframe-salt`
+skill (`.pi/skills/design-wireframe-salt/`) to author, modify, and
+review specs and wireframes; CI validates that every PlantUML block
+under `docs/design/` compiles
+(`scripts/check-design-diagrams.sh` → `.github/workflows/docs-design-lint.yml`).

@@ -5,9 +5,17 @@ schema: spec-driven
 # Add your tech stack, conventions, style guides, domain knowledge, etc.
 # Example:
 #   context: |
-#     Tech stack: TypeScript, React, Node.js
+#     Tech stack: TypeScript, React, JavaScript, Node.js
 #     We use conventional commits
-#     Domain: e-commerce platform
+#     Domain: e-commerce
+
+context: |
+  Monorepo: event-sourced Rust backend (backend/), Flutter client
+  (frontend-flutter/), Svelte/Slint/GPUI frontends planned. OpenSpec
+  artifacts (proposal, design, specs, tasks) are written in ENGLISH.
+  German remains only as quoted UI copy (labels, CTAs, copy keys)
+  exactly as it appears or will appear in the app, and in domain
+  terms defined that way in the glossary (docs/design/glossary.md).
 
 # Per-artifact rules (optional)
 # Add custom rules for specific artifacts.
@@ -18,3 +26,13 @@ schema: spec-driven
 #       - Always include a "Non-goals" section
 #     tasks:
 #       - Break tasks into chunks of max 2 hours
+
+rules:
+  proposal:
+    - Write all prose in English; quote German UI copy verbatim where it is the artifact's subject
+  design:
+    - Write all prose in English; reference German UI copy only as quoted copy
+  specs:
+    - Scenarios in English; UI strings shown to users stay in their shipped German form
+  tasks:
+    - Task descriptions in English; German allowed only inside quoted UI copy
