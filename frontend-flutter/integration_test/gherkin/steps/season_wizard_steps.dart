@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+//Co-authored-by: glm-5.3 (neuralwatt)
 
 import 'dart:convert';
 import 'dart:io';
@@ -11,6 +12,16 @@ import 'package:flutter_gherkin/flutter_gherkin.dart';
 import 'package:gherkin/gherkin.dart';
 
 import '../world/app_world.dart';
+import 'seed_http.dart' show resolveFreeSeasonNumber;
+
+/// The wizard scenario hard-codes season number "1", but the dev series
+/// accumulates seasons across runs; the dispatch POST /v1/seasons only
+/// passes with a free number (409 `season.number-already-exists` otherwise).
+/// The lowest free number is resolved host-side (seed_http.dart, shared
+/// with the costume-assignment seeding) into `AppWorld
+/// .wizardFreeSeasonNumber`, and the number-entry / review-title steps map
+/// the symbolic "1" to it (same symbolic→real discipline as the #368 seed
+/// ids).
 
 /// Step definitions for the season-setup-wizard critical scope
 /// (`features-spec/setup/season-wizard.feature`). All steps drive the
@@ -58,11 +69,44 @@ Iterable<StepDefinitionGeneric> seasonWizardSteps() => [
   when<FlutterWorld>('I start the season setup wizard from the empty state', (
     context,
   ) async {
-    await FlutterDriverUtils.tap(
-      context.world.driver!,
-      find.byValueKey('seasons-empty-setup-cta'),
-    );
-    await context.world.driver!.waitFor(
+    // Post-#439 harness repair (discovered by the #368 on-device run): the
+    // seasons home renders the SEASONS EMPTY STATE only when the backend has
+    // no seasons — with seeded dev data it renders the card grid, whose
+    // wizard entry is the extended FAB → create sheet → "Oder geführt
+    // einrichten" (create-open-wizard). Both entries open the same
+    // SetupWizardScreen route; the driver wait below is the assertion.
+    // Try the FAB path first (works in both states — the FAB renders whenever
+    // creation is permitted), fall back to the empty-state CTA.
+    final world = context.world as AppWorld;
+    // Resolve the free season number BEFORE entering the wizard: the
+    // dispatch 409s on a taken SERIES-scoped number (dev data accumulates
+    // across runs); the number-entry step maps the symbolic "1" to it.
+    // resolveFreeSeasonNumber THROWS on backend/parser failure
+    // (CodeRabbit review, #456: never silently store a taken literal) —
+    // the exception propagates and fails this step deterministically.
+    // The wizard is currently STILL `@pending` (#455), so by default the
+    // runner never reaches this step; an explicit promotion simply inherits
+    // the loud-failure behavior.
+    if (Platform.environment['GHERKIN_WIZARD_RESOLVE'] == 'on') {
+      world.wizardFreeSeasonNumber = await resolveFreeSeasonNumber();
+    }
+    final driver = context.world.driver!;
+    try {
+      final fab = find.byValueKey('season-add-fab');
+      await driver.waitFor(fab, timeout: const Duration(seconds: 10));
+      await FlutterDriverUtils.tap(driver, fab);
+      final wizardEntry = find.byValueKey('create-open-wizard');
+      await driver.waitFor(wizardEntry, timeout: const Duration(seconds: 10));
+      await FlutterDriverUtils.tap(driver, wizardEntry);
+    } on Object {
+      // No FAB / create sheet (e.g. a wiped dev backend): fall back to the
+      // empty-state CTA — the original #442 entry path.
+      await FlutterDriverUtils.tap(
+        driver,
+        find.byValueKey('seasons-empty-setup-cta'),
+      );
+    }
+    await driver.waitFor(
       find.byValueKey('wizard-step-season'),
       timeout: const Duration(seconds: 10),
     );
@@ -70,10 +114,20 @@ Iterable<StepDefinitionGeneric> seasonWizardSteps() => [
   when2<String, String, FlutterWorld>(
     'I set the season number to {string} and the name {string}',
     (String number, String name, context) async {
+      // Symbolic→real mapping (same discipline as the #368 seed ids): the
+      // feature's season number "1" maps to the free SERIES-scoped number
+      // resolved host-side (AppWorld.wizardFreeSeasonNumber) — the dev
+      // series accumulates seasons across runs, and the dispatch 409s on a
+      // taken number. Legacy runs without a resolution fall back to the
+      // literal feature number.
+      final world = context.world as AppWorld;
+      final effective = (number == '1' && world.wizardFreeSeasonNumber != null)
+          ? world.wizardFreeSeasonNumber.toString()
+          : number;
       await FlutterDriverUtils.enterText(
         context.world.driver!,
         find.byValueKey('wizard-number-field'),
-        number,
+        effective,
       );
       await FlutterDriverUtils.enterText(
         context.world.driver!,
@@ -135,10 +189,24 @@ Iterable<StepDefinitionGeneric> seasonWizardSteps() => [
     },
   ),
   when<FlutterWorld>('I confirm the review', (context) async {
-    await FlutterDriverUtils.tap(
-      context.world.driver!,
-      find.byValueKey('wizard-confirm'),
+    // The review renders 4 block cards above the confirm CTA in a
+    // LongPressScrollable ListView (template 4x8): the button is composed
+    // but off-viewport, and a FlutterDriver tap requires the finder to be
+    // hit-testable — without scrolling it times out after 30s (discovered
+    // by the #368 on-device run). Scroll the review list until the button
+    // is onscreen, then tap. Bounded: the scroll target wait fails loudly
+    // if the button never scrolls into view (deterministic harness rule).
+    final driver = context.world.driver!;
+    final list = find.byValueKey('wizard-step-review');
+    final confirm = find.byValueKey('wizard-confirm');
+    await driver.scrollUntilVisible(
+      list,
+      confirm,
+      dxScroll: 0,
+      dyScroll: -200,
+      timeout: const Duration(seconds: 10),
     );
+    await FlutterDriverUtils.tap(driver, confirm);
   }),
   when<FlutterWorld>('I remove the first block draft', (context) async {
     await FlutterDriverUtils.tap(
@@ -178,13 +246,26 @@ Iterable<StepDefinitionGeneric> seasonWizardSteps() => [
   then3<String, int, int, FlutterWorld>(
     'the review shows {string} with {int} blocks and {int} episodes',
     (String title, int blocks, int episodes, context) async {
+      final world = context.world as AppWorld;
       final driver = context.world.driver!;
       await driver.waitFor(
         find.byValueKey('wizard-review-summary'),
         timeout: const Duration(seconds: 10),
       );
+      // The harness maps the symbolic season number "1" to the free
+      // SERIES-scoped number (AppWorld.wizardFreeSeasonNumber) — the dev
+      // series accumulates seasons across runs, so the on-screen preview
+      // shows e.g. "Season 102 · Sommer 2026", never a literal "1" when
+      // that number is taken. Map the feature's symbolic title accordingly
+      // (same symbolic→real discipline as the #368 seed ids).
+      final effectiveTitle = (world.wizardFreeSeasonNumber != null)
+          ? title.replaceFirst(
+              'Season 1 ',
+              'Season ${world.wizardFreeSeasonNumber} ',
+            )
+          : title;
       await driver.waitFor(
-        find.text(title),
+        find.text(effectiveTitle),
         timeout: const Duration(seconds: 10),
       );
     },

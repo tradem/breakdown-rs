@@ -25,7 +25,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 0.3.0-alpha.9+18
+version: 0.3.0-alpha.10+19
 
 environment:
   sdk: ^3.13.1
@@ -86,6 +86,12 @@ dependencies:
   share_plus: ^13.3.0
   path_provider: ^2.1.6
   file_picker: ^12.2.0
+  # Flutter-free annotations for the dev-auth membership override seam
+  # (issue #368 — lib/auth/membership/debug_membership_override.dart): that
+  # file is compiled into the gherkin runner HOST process (headless dart, no
+  # dart:ui), so it cannot use the foundation annotation. Transitive via
+  # flutter in practice; declared directly for depend_on_referenced_packages.
+  meta: ^1.18.0
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.

@@ -2,8 +2,10 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: glm-5.3-flash (opencode-go)
+//Co-authored-by: glm-5.3 (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
+import 'package:built_collection/built_collection.dart';
 import 'package:fpdart/fpdart.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -11,6 +13,7 @@ import '../../core/result.dart';
 import '../../src/network/api_client.dart';
 import '../auth_providers.dart';
 import 'capability.dart';
+import 'debug_membership_override.dart';
 import 'membership_repository.dart';
 
 part 'membership_providers.g.dart';
@@ -26,6 +29,18 @@ SeasonMembershipDto devAuthMembership(String seasonId) => SeasonMembershipDto(
     ..capabilities.replace(Capability.values.map((c) => c.wireName)),
 );
 
+/// The capability-less denial membership for the Gherkin viewer-role scenario
+/// (issue #368): every client-side AUTHZ-GATE resolves to a denial, and the
+/// gate fires before any network call (AGENTS.md §5, D6). Test-support only —
+/// produced exclusively via [DebugMembershipOverride] in dev-auth mode.
+SeasonMembershipDto devAuthDeniedMembership(String seasonId) =>
+    SeasonMembershipDto(
+      (b) => b
+        ..seasonId = seasonId
+        ..hasActiveCostumeRoleInSeason = false
+        ..capabilities.replace(BuiltList<String>()),
+    );
+
 /// Fetches the season-scoped membership projection (D2 — single endpoint,
 /// single source of truth). Returns the `Result` unthrown so the controller
 /// below can map it to `AsyncValue` without an async-notifier retry loop.
@@ -39,6 +54,13 @@ Future<Result<SeasonMembershipDto>> membershipFetch(
 ) async {
   final config = ref.watch(appConfigProvider);
   if (config.devAuthMode) {
+    // Test-support override (issue #368): the instrumented Gherkin app can
+    // flip the dev-auth membership to a capability-less viewer at runtime
+    // (driver data channel → DebugMembershipOverride.set). Only reachable in
+    // dev-auth mode — structurally unreachable in prod.
+    if (DebugMembershipOverride.deniesAll) {
+      return Right(devAuthDeniedMembership(seasonId));
+    }
     return Right(devAuthMembership(seasonId));
   }
   final repo = MembershipRepository(
