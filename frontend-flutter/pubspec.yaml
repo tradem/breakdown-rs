@@ -40,7 +40,7 @@ dependencies:
   # PKCE S256 code challenge (lib/auth/pkce.dart) — pure Dart, no Flutter deps.
   crypto: ^3.0.0
   dio: ^5.11.1
-  drift: ^2.34.3
+  drift: ^2.35.0
   flutter:
     sdk: flutter
   flutter_riverpod: ^3.4.3
@@ -50,7 +50,7 @@ dependencies:
   # Phase 2 photo pipeline (flutter-costume-domains D4): `image` is pure-Dart
   # decode/encode for background-isolate resizing; `image_picker` captures
   # via the system camera/gallery at point of use only (both FOSS).
-  image: ^4.2.0
+  image: ^4.10.1
   image_picker: ^1.1.2
   json_annotation: ^4.12.0
   riverpod_annotation: ^4.0.6
