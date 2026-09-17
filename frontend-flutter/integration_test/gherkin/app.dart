@@ -2,10 +2,12 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
+//Co-authored-by: glm-5.3 (neuralwatt)
 
 import 'package:flutter_driver/driver_extension.dart';
 import 'package:frontend_flutter/app.dart' show bootstrap;
 import 'package:frontend_flutter/app_config.dart';
+import 'package:frontend_flutter/auth/membership/debug_membership_override.dart';
 import 'package:frontend_flutter/src/network/api_client.dart'
     show debugDioInterceptors;
 import 'package:frontend_flutter/testing/request_recorder.dart';
@@ -44,6 +46,20 @@ Future<void> main() async {
           RequestRecorder.reset();
           return 'ok';
         default:
+          // Issue #368: `dev-membership:role=<role>` flips the dev-auth
+          // membership for the NEXT scenario (the runner restarts the app
+          // between scenarios, and dev-auth caches aside the membership is
+          // re-derived from this override on every provider rebuild).
+          // `dev-membership:role=` (empty role) resets to the default
+          // permissive membership. Test-support only — this handler exists
+          // solely in the instrumented Gherkin target.
+          if (message != null && message.startsWith('dev-membership:role=')) {
+            final role = message.substring('dev-membership:role='.length);
+            if (role.isEmpty || DevAuthRole.isKnown(role)) {
+              return DebugMembershipOverride.set(role);
+            }
+            return 'unknown-role';
+          }
           return 'unknown-command';
       }
     },

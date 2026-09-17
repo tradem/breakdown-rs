@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
+//Co-authored-by: glm-5.3 (neuralwatt)
 
 import 'package:flutter_gherkin/flutter_gherkin.dart';
 
@@ -35,6 +36,21 @@ class AppWorld extends FlutterWorld {
   String? lastCostumeId;
   String? lastCharacterId;
 
+  /// Real backend ids resolved by the host-side seeding step (issue #368):
+  /// the symbolic ids in `costume_assignment.feature` (season "1", costume
+  /// "c-7", character "ch-3") map to the freshly created aggregates. The
+  /// navigation/assign/assertion steps translate symbolic → real ids through
+  /// this map (symbolic season key → real season id; costume/character keys
+  /// likewise).
+  final Map<String, String> seedIds = {};
+
+  /// Free SERIES-scoped season number resolved host-side by the wizard
+  /// harness (season_wizard_steps.dart): the feature's symbolic season
+  /// number "1" maps here before entering the wizard's number field (the
+  /// dev series accumulates seasons across runs — the dispatch 409s on a
+  /// taken number). `null` = use the literal feature number.
+  int? wizardFreeSeasonNumber;
+
   /// Intent flag recorded by the season-setup-wizard steps: the scenario
   /// arranged the dev backend to reject the first block create, so the
   /// wizard must stop with the partial-failure surface.
@@ -46,6 +62,8 @@ class AppWorld extends FlutterWorld {
     requestsLeftDevice = 0;
     lastCostumeId = null;
     lastCharacterId = null;
+    seedIds.clear();
+    wizardFreeSeasonNumber = null;
     wizardExpectsPartialFailure = false;
     super.dispose();
   }
