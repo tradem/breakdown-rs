@@ -97,3 +97,21 @@ The test will:
 
 This policy prevents silent additions of irreversible schema changes and
 ensures every opt-out is intentional and documented.
+
+## Test-only Fault Injection (issue #443)
+
+The `X-Breakdown-Fault-Key` style of dev/test hooks is deliberately NOT used.
+The deterministic fault injection for E2E scenarios lives in
+`crates/api/src/fault_injection.rs` and is **entirely behind
+`#[cfg(feature = "test-support")]`** — a release binary does not contain the
+middleware, its one-shot latch, or the control route
+(`POST /v1/__faults/block-conflict`) at all: inert by compile-time absence,
+not runtime gating.
+The route is also deliberately excluded from the utoipa derive, so it can
+never appear in `backend/openapi.yaml` (the `openapi_drift` test fails if a
+mounted route leaks into the documented contract — a structural guard, not a
+review promise).
+
+Boot rule: `cargo run -p api --features api/test-support` is for local dev /
+E2E acceptance runs only. Production boot scripts must never enable the
+feature.

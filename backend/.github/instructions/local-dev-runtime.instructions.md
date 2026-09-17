@@ -52,6 +52,19 @@ cargo run -p api
 3. The migrator pool is dropped, and a long-lived app pool (`DATABASE_URL`,
    DML only) serves all runtime queries.
 
+```bash
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/breakdown \
+SIERRADB_URL=redis://127.0.0.1:9090/?protocol=resp3 \
+cargo run -p api
+```
+
+> **E2E/Gherkin fault injection (issue #443):** the on-device Gherkin suite
+> (`frontend-flutter tool/run_gherkin.sh`) arms a server-side one-shot fault
+> via `POST /v1/__faults/block-conflict`. This route exists ONLY when the API
+> is booted with `cargo run -p api --features api/test-support`; without the
+> feature the route is compile-time absent (arming returns 404). Never enable
+> the feature in production boot scripts.
+
 In dev mode (single role, `DATABASE_URL` only), both pools use the same
 connection — the audit REVOKE is skipped gracefully.
 

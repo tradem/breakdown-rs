@@ -323,6 +323,15 @@ pub fn requirement_for(path: &str) -> Requirement {
         return Requirement::Authenticated;
     }
 
+    // Issue #443 (test-support builds only): the fault-injection control
+    // route is authentication-gated, not block-scoped — arming a fault is a
+    // test orchestration action, the route only exists in test-support
+    // builds, and classification here costs production nothing (no such
+    // route is mounted in release binaries).
+    if path.starts_with("/__faults") {
+        return Requirement::Authenticated;
+    }
+
     // Ops endpoints (issue #409) expose deployment-wide infrastructure state,
     // not block-scoped production data. The handler performs the ops gate
     // itself (`AuthorizationPolicy::authorize_ops` — active `ops_admin`

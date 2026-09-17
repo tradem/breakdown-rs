@@ -114,6 +114,48 @@ void main() {
       );
     });
 
+    test(
+      'REAL wire code `season.number-already-exists` maps the same (443)',
+      () {
+        // Issue #443: the backend registry emits
+        // `{context}.number-already-exists`; the legacy `*.conflict` aliases
+        // never appear on the wire. The real code MUST hit the same copy.
+        expect(
+          wizardErrorCopy(
+            const ProblemError(code: 'season.number-already-exists'),
+          ),
+          'Eine Season mit dieser Nummer existiert bereits.',
+        );
+      },
+    );
+
+    test(
+      'REAL wire code `block.number-already-exists` names the SERIES scope',
+      () {
+        // Exactly the code the injected fault (and the real advisory
+        // pre-check) returns — this mapping is what the Gherkin
+        // partial-failure scenario asserts on device.
+        expect(
+          wizardErrorCopy(
+            const ProblemError(code: 'block.number-already-exists'),
+          ),
+          'Ein Block mit dieser Nummer existiert bereits in der Serie.',
+        );
+      },
+    );
+
+    test(
+      'REAL wire code `episode.number-already-exists` names the SERIES scope',
+      () {
+        expect(
+          wizardErrorCopy(
+            const ProblemError(code: 'episode.number-already-exists'),
+          ),
+          'Eine Episode mit dieser Nummer existiert bereits in der Serie.',
+        );
+      },
+    );
+
     test('block conflict copy names the SERIES scope (never per season)', () {
       expect(
         wizardErrorCopy(const ProblemError(code: 'blocks.conflict')),

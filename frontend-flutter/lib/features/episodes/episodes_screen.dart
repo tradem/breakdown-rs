@@ -18,6 +18,9 @@ import 'widgets/episodes_widgets.dart';
 /// Localized client-side copy for a create-episode failure, keyed on the
 /// stable problem `code` (never the server's localized `detail`).
 String episodeCreateErrorCopy(ProblemError error) => switch (error.code) {
+  // Real backend code first (issue #443); legacy aliases kept for stale
+  // fixtures.
+  'episode.number-already-exists' ||
   'episodes.conflict' ||
   'episode.conflict' => 'An episode with that number already exists.',
   'authz.denied' || 'auth.session_required' => 'Please sign in to continue.',
