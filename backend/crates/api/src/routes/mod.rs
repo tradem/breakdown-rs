@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 
 //! Router-Definitionen
 
@@ -36,18 +37,28 @@ pub fn apply_api_middleware<S>(
 where
     S: Clone + Send + Sync + 'static,
 {
-    api.layer(
-        ServiceBuilder::new()
-            // Outermost: negotiate `Accept-Language` once so even auth
-            // rejections render a localized problem `detail` (ADR-031 D5).
-            .layer(middleware::from_fn(negotiate_language))
-            .layer(middleware::from_fn_with_state(auth, auth_middleware))
-            .layer(middleware::from_fn_with_state(authz, authorize_middleware))
-            .layer(middleware::from_fn_with_state(
-                deprecations,
-                deprecation_middleware,
-            )),
-    )
+    let stack = ServiceBuilder::new()
+        // Outermost: negotiate `Accept-Language` once so even auth
+        // rejections render a localized problem `detail` (ADR-031 D5).
+        .layer(middleware::from_fn(negotiate_language))
+        .layer(middleware::from_fn_with_state(auth, auth_middleware))
+        .layer(middleware::from_fn_with_state(authz, authorize_middleware))
+        .layer(middleware::from_fn_with_state(
+            deprecations,
+            deprecation_middleware,
+        ));
+
+    // Issue #443: the fault-injection latch (innermost, after the auth/authz
+    // stack) is compiled in only under `test-support`; it short-circuits the
+    // FIRST armed `POST /v1/blocks` with the real
+    // `block.number-already-exists` 409 and passes the in-session retry
+    // through. Absent from release binaries by cfg (compile-time absence,
+    // AGENTS.md §3 test-helper gate).
+    #[cfg(feature = "test-support")]
+    let stack = stack.layer(middleware::from_fn(
+        crate::fault_injection::fault_injection_middleware,
+    ));
+    api.layer(stack)
 }
 
 /// Build the full Axum application router including API routes and Swagger UI.
@@ -69,9 +80,18 @@ pub fn app_router(
     // Empty while only `/v1` is served; populated when `/v{n+1}` ships
     // (ADR-021 D4) — release-time configuration, not per-request.
     let deprecations = DeprecationRegistry::new();
+    // Issue #443: the fault-injection control route (`POST /v1/__faults/{fault}`)
+    // is mounted only in test-support builds and is deliberately NOT part of
+    // the utoipa derive — undocumented by construction, so `openapi_drift`
+    // fails if it ever leaks into the documented wire contract.
+    #[cfg(feature = "test-support")]
+    let v1 =
+        crate::fault_injection::fault_control_routes::<ProductionPorts>().merge(handlers::routes());
+    #[cfg(not(feature = "test-support"))]
+    let v1 = handlers::routes();
     let api = apply_api_middleware(
         Router::new()
-            .nest("/v1", handlers::routes())
+            .nest("/v1", v1)
             // ADR-031 D3: unknown routes are a problem document, not an
             // empty 404 (http-error-surface spec). The fallback lives on
             // the outer router; axum falls through to it for unmatched

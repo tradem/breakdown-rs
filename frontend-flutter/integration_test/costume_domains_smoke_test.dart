@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+//Co-authored-by: glm-5.3 (neuralwatt)
 
 // Tier-4 integration smoke (Task 8.1, on device/emulator, dev-auth):
 // season → costume create + detail → assign to a character → capture
@@ -33,6 +34,7 @@ import 'package:one_of/one_of.dart';
 import 'package:integration_test/integration_test.dart';
 
 import 'package:frontend_flutter/app_config.dart';
+import 'package:frontend_flutter/auth/active_block.dart';
 import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/auth/membership/membership_providers.dart';
 import 'package:dio/dio.dart';
@@ -272,6 +274,15 @@ class _E2eScheduler extends ReconciliationScheduler {
   Future<void> tick(int attempt) => Future<void>.value();
 }
 
+/// Pre-set sticky active-block scope (issue #378 gate — #368 smoke triage):
+/// the season-direct screen entry resolves this BEFORE rendering content;
+/// the fake-backed smoke pins the ready scope for 'season-1'/'block-e2e'.
+class _E2eActiveBlock extends ActiveBlock {
+  @override
+  ActiveScope? build() =>
+      const ActiveScope(seasonId: 'season-1', blockId: 'block-e2e');
+}
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -322,6 +333,13 @@ void main() {
       final container = ProviderContainer(
         overrides: [
           appConfigProvider.overrideWithValue(devConfig),
+          // Issue #378 block-scope gate (post-#371 harness drift — #368
+          // on-device triage): the screen resolves the sticky
+          // active-block scope BEFORE rendering content; on the device the
+          // scope is user-set. A READY scope here unblocks the same
+          // production screen without a picker detour (the costume
+          // commands themselves remain exercised through the fake repo).
+          activeBlockProvider.overrideWith(() => _E2eActiveBlock()),
           cacheDatabaseProvider.overrideWithValue(db),
           costumeRepositoryProvider.overrideWithValue(repo),
           costumePhotoRepositoryProvider.overrideWithValue(photos),
@@ -395,6 +413,16 @@ void main() {
       await tester.tap(
         find.byKey(const Key('photo-capture-camera-e2e-costume')),
       );
+      // One-time in-app rationale (runCaptureIntent): on a fresh install
+      // the FIRST capture shows the dialog, and the section's always-
+      // animating `_busy` progress keeps `pumpAndSettle` from settling
+      // while it is open (#368 on-device triage). Pump one frame so the
+      // dialog builds, accept it when present, then settle.
+      await tester.pump();
+      final rationale = find.byKey(const Key('photo-rationale-accept'));
+      if (rationale.evaluate().isNotEmpty) {
+        await tester.tap(rationale);
+      }
       await tester.pumpAndSettle();
       expect(photos.uploadCalls, 1);
       expect(find.byKey(const Key('photo-tile-e2e-photo')), findsOneWidget);

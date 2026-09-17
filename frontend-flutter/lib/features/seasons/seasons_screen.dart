@@ -3,6 +3,7 @@
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 
 import 'dart:async' show unawaited;
 
@@ -28,6 +29,9 @@ import 'widgets/seasons_skeleton.dart';
 /// stable problem `code` (AGENTS.md §5 — never branch on / show the server's
 /// localized `detail`). Unknown codes fall back to a code-carrying generic.
 String createErrorCopy(ProblemError error) => switch (error.code) {
+  // Real backend code first (issue #443); legacy aliases kept for stale
+  // fixtures.
+  'season.number-already-exists' ||
   'seasons.conflict' ||
   'season.conflict' => 'A season with that number already exists.',
   'authz.denied' || 'auth.session_required' => 'Please sign in to continue.',

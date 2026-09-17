@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
@@ -247,14 +248,20 @@ int wizardDispatchTotal(List<BlockDraft> blocks) =>
 /// Client-side copy for a wizard command failure, keyed on the stable
 /// problem `code` (AGENTS.md §5 — never the backend's localized `detail`).
 String wizardErrorCopy(ProblemError error) => switch (error.code) {
+  // Real backend codes first (issue #443): the registry emits
+  // `{context}.number-already-exists`, never the old `*.conflict` aliases
+  // (kept only until stale unit fixtures are updated).
+  'season.number-already-exists' ||
   'seasons.conflict' ||
   'season.conflict' => 'Eine Season mit dieser Nummer existiert bereits.',
-  'blocks.conflict' || 'block.conflict' =>
+  'block.number-already-exists' || 'blocks.conflict' || 'block.conflict' =>
     // Series-scoped wording (backend invariant: block numbers are unique
     // per SERIES — `idx_projection_block_series_number` — not per season;
     // the copy must point the user at the ACTUAL conflict scope).
     'Ein Block mit dieser Nummer existiert bereits in der Serie.',
-  'episodes.conflict' || 'episode.conflict' =>
+  'episode.number-already-exists' ||
+  'episodes.conflict' ||
+  'episode.conflict' =>
     // Same series-scope: episode numbers are unique per series
     // (`idx_projection_episode_series_number`), not per block.
     'Eine Episode mit dieser Nummer existiert bereits in der Serie.',

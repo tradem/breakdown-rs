@@ -5,6 +5,7 @@
 <!-- Co-authored-by: hy4-preview (opencode-go) -->
 <!-- Co-authored-by: muse-spark-1.3-contributor (opencode-go) -->
 <!-- Co-authored-by: omen-alpha (opencode-go) -->
+<!-- Co-authored-by: glm-5.3-flash (neuralwatt) -->
 
 # Changelog
 
@@ -14,6 +15,28 @@ crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
 ## [0.10.0] - Unreleased
+
+### Added — deterministic fault injection for E2E tests (issue #443)
+
+- New cfg-gated module `fault_injection`: a process-global one-shot latch
+  armed via `POST /v1/__faults/block-conflict` (test-support builds only)
+  short-circuits the FIRST `POST /v1/blocks` with the REAL registry problem
+  (409 `block.number-already-exists`) rendered through the standard
+  `ApiError` path — byte-identical to the advisory pre-check's conflict.
+  The in-session retry passes through to the real handler.
+- Entire module (middleware + control route) lives behind
+  `#[cfg(feature = "test-support")]` — compile-time absence in release
+  binaries. The control route is deliberately NOT in the utoipa derive
+  (`openapi_drift` guards this) and the auth requirement classification
+  (`/__faults` → `Authenticated`) costs production nothing.
+- Motivation: the season-setup-wizard Gherkin partial-failure scenario
+  previously arranged failure only client-side; the wizard derives block
+  numbers from the projections (`max + 1`), so a real deterministic 409
+  needs an injectable server-side failure point.
+- 3 latch unit tests + 5 router-integration tests
+  (`--features test-support --test fault_injection_test`).
+- **No additional bump:** dev/test-only surface with no public API change —
+  rides with the open 0.10.0 MINOR.
 
 ### Fixed — graceful shutdown joined AI workers twice (found via issue #428)
 
