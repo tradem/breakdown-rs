@@ -46,8 +46,12 @@ abstract final class DebugMembershipOverride {
 
   /// True when the current override denies the costume-dept membership
   /// (capability-less viewer). Unknown role strings deny fail-closed — an
-  /// unrecognized harness value must never hand out capabilities.
-  static bool get deniesAll => role != null;
+  /// unrecognized harness value must never hand out capabilities. An
+  /// explicitly set `costume_dept` stays permissive (CodeRabbit review,
+  /// #456: the driver handler accepts the role, so a valid
+  /// `dev-membership:role=costume_dept` command must never produce the
+  /// viewer membership).
+  static bool get deniesAll => role != null && role != DevAuthRole.costumeDept;
 }
 
 /// The dev-auth roles the Gherkin harness uses (issue #368).

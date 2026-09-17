@@ -9,12 +9,7 @@ import 'package:flutter_gherkin/flutter_gherkin.dart';
 import 'package:gherkin/gherkin.dart';
 
 import '../world/app_world.dart';
-import 'seed_http.dart';
-
-/// Existing dev series for the seeded season (the same fixed dev-series UUID
-/// the season-setup-wizard scenarios use; dev-auth mode bootstraps its owner
-/// membership on block creation).
-const String kSeedSeriesId = '11111111-1111-1111-1111-111111111111';
+import 'seed_http.dart' show SeedCache;
 
 /// Step definitions for the costume assignment critical scenario
 /// (`features-spec/costume_assignment.feature`). Covers the CQRS-on-client

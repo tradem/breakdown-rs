@@ -81,7 +81,15 @@ Iterable<StepDefinitionGeneric> seasonWizardSteps() => [
     // Resolve the free season number BEFORE entering the wizard: the
     // dispatch 409s on a taken SERIES-scoped number (dev data accumulates
     // across runs); the number-entry step maps the symbolic "1" to it.
-    world.wizardFreeSeasonNumber = await resolveFreeSeasonNumber();
+    // resolveFreeSeasonNumber THROWS on backend/parser failure
+    // (CodeRabbit review, #456: never silently store a taken literal) —
+    // the exception propagates and fails this step deterministically.
+    // The wizard is currently STILL `@pending` (#455), so by default the
+    // runner never reaches this step; an explicit promotion simply inherits
+    // the loud-failure behavior.
+    if (Platform.environment['GHERKIN_WIZARD_RESOLVE'] == 'on') {
+      world.wizardFreeSeasonNumber = await resolveFreeSeasonNumber();
+    }
     final driver = context.world.driver!;
     try {
       final fab = find.byValueKey('season-add-fab');

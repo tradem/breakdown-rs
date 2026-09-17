@@ -20,9 +20,18 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
-/// The dev series the harness seeds into (same series the season-setup
-/// wizard and quick-create sheet target per `DEFAULT_SERIES_ID`).
-const String kSeedSeriesId = '11111111-1111-1111-1111-111111111111';
+/// The dev series the harness seeds into — `DEFAULT_SERIES_ID` from the
+/// runner environment (the same value `buildGherkinConfig()` passes to the
+/// app so the wizard and quick-create sheet submit against it), falling
+/// back to the fixed dev-series UUID when unset. Deriving BOTH sides from
+/// one variable keeps seed payloads and the wizard's series in sync
+/// (CodeRabbit review, #456: a fixed id diverges from an env override).
+String get seedSeriesId =>
+    Platform.environment['DEFAULT_SERIES_ID'] ?? kDefaultSeedSeriesId;
+
+/// Fallback dev-series UUID (the seeded dev backend's fixed series;
+/// also the value `buildGherkinConfig()` defaults `DEFAULT_SERIES_ID` to).
+const String kDefaultSeedSeriesId = '11111111-1111-1111-1111-111111111111';
 
 /// `API_BASE` from the runner environment, host-resolved.
 String hostApiBase() =>
@@ -40,7 +49,10 @@ Future<dynamic> getJson(String path) async {
         .getUrl(Uri.parse('${hostApiBase()}$path'))
         .timeout(const Duration(seconds: 10));
     final res = await req.close().timeout(const Duration(seconds: 10));
-    final text = await res.transform(utf8.decoder).join();
+    final text = await res
+        .transform(utf8.decoder)
+        .join()
+        .timeout(const Duration(seconds: 10));
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw Exception('seed GET $path failed (${res.statusCode}): $text');
     }
@@ -68,7 +80,10 @@ Future<Map<String, dynamic>> postJson(
     if (activeBlock != null) req.headers.add('X-Active-Block', activeBlock);
     req.add(utf8.encode(jsonEncode(body)));
     final res = await req.close().timeout(const Duration(seconds: 10));
-    final text = await res.transform(utf8.decoder).join();
+    final text = await res
+        .transform(utf8.decoder)
+        .join()
+        .timeout(const Duration(seconds: 10));
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw Exception('seed POST $path failed (${res.statusCode}): $text');
     }
@@ -84,28 +99,27 @@ Future<Map<String, dynamic>> postJson(
 }
 
 /// Resolves the lowest free SERIES-scoped season number in the dev series
-/// ([kSeedSeriesId]) from the REAL backend. The dev series accumulates
+/// ([seedSeriesId]) from the REAL backend. The dev series accumulates
 /// seasons across runs (the dispatch/seed POSTs 409 on a taken number), and
 /// the season lists order by number — a huge epoch-based number would bury
-/// the seeded row off-viewport. Returns 1 when the backend is unreachable
-/// (the seed POST will then fail loudly, preserving the failure signal).
+/// the seeded row off-viewport. Throws when the backend is unreachable or
+/// the response cannot be parsed — the caller surfaces the failure
+/// deterministically instead of silently reusing a taken number (CodeRabbit
+/// review, #456: a silent `1` fallback reproduces exactly the 409 this
+/// resolver exists to prevent).
 Future<int> resolveFreeSeasonNumber() async {
-  try {
-    final seasons =
-        await getJson('/v1/seasons?limit=1000&offset=0') as List<dynamic>;
-    final numbers = [
-      for (final s in seasons)
-        if (s is Map<String, dynamic> && s['series_id'] == kSeedSeriesId)
-          (s['number'] as num).toInt(),
-    ]..sort();
-    var candidate = 1;
-    for (final n in numbers) {
-      if (n == candidate) candidate++;
-    }
-    return candidate;
-  } on Object {
-    return 1;
+  final seasons =
+      await getJson('/v1/seasons?limit=1000&offset=0') as List<dynamic>;
+  final numbers = [
+    for (final s in seasons)
+      if (s is Map<String, dynamic> && s['series_id'] == seedSeriesId)
+        (s['number'] as num).toInt(),
+  ]..sort();
+  var candidate = 1;
+  for (final n in numbers) {
+    if (n == candidate) candidate++;
   }
+  return candidate;
 }
 
 /// Host-side, run-scoped seed cache: the hooks seed before the first app
@@ -147,7 +161,7 @@ Future<void> awaitSeasonProjection(String seasonId) async {
 Future<Map<String, String>> seedCostumeAssignment() async {
   final seasonNumber = await resolveFreeSeasonNumber();
   final season = await postJson('/v1/seasons', {
-    'series_id': kSeedSeriesId,
+    'series_id': seedSeriesId,
     'number': seasonNumber,
     'title': 'Gherkin seed',
   });
@@ -157,7 +171,7 @@ Future<Map<String, String>> seedCostumeAssignment() async {
   await awaitSeasonProjection(seasonId);
   final block = await postJson('/v1/blocks', {
     'season_id': seasonId,
-    'series_id': kSeedSeriesId,
+    'series_id': seedSeriesId,
     'number': seasonNumber,
   });
   final blockId = block['id']! as String;

@@ -19,7 +19,7 @@ emulator seed" landed; that seed now exists (first on-emulator smoke via PR
 - **Harness role override (test-support only):** the instrumented Gherkin app
   target gains a `dev-membership:role=<role>` command on its existing
   FlutterDriver data channel; `membershipFetchProvider` honors a
-  dev-auth-only, `@visibleForTesting` `DebugMembershipRole` override so the
+  dev-auth-only, `@visibleForTesting` `DebugMembershipOverride` override so the
   `I am authenticated as a "viewer" user` step can flip the client-side
   membership to capability-less at runtime (dart-defines are compile-time and
   the app process is built once per run — a runtime channel is the only
@@ -31,14 +31,24 @@ emulator seed" landed; that seed now exists (first on-emulator smoke via PR
   in dev-auth mode — verified against the dev API), character and costume via
   real HTTP, then stores the resolved ids in `AppWorld` for the navigation and
   assertion steps (opaque backend ids mapped to the feature's symbolic ids).
-- **Promotion:** the two `costume_assignment.feature` scenarios lose `@pending`
-  and enter the default on-device pass; the feature prose documents the seed
-  + role-override contract.
-- **Execution (the issue's actual deliverable):** `tool/run_gherkin.sh` green
-  on the emulator for both scenarios (optimistic overlay → projection
-  refresh; viewer denial with zero costume-assign network traffic via the
-  issue #380 recorder), and `costume_domains_smoke_test.dart` green on device
-  via `dart run integration_test run-tests`.
+- **Promotion attempt → RE-PENDING:** the two `costume_assignment.feature`
+  scenarios were promoted and driven on device, but the run exposed two real
+  backend/design gaps — G1: the season costume stream JOINs
+  `projection_character`, so an unassigned costume is unreachable from the
+  UI (no first-assign path → #453); G2: assign on an assigned costume 409s
+  `costume.already-assigned`, breaking the Reassign button → #454. Both
+  scenarios are therefore `@pending` again, with the harness contract
+  (host-side seed + role override) kept in place for the un-pending change.
+  The wizard happy path 409s on the series-scoped block number under
+  concurrent harness seeding → #455; `season-wizard.feature` is temporarily
+  re-pended with an in-file note.
+- **Execution (the issue's deliverable):** `tool/run_gherkin.sh` exit 0 on
+  the emulator (promoted `smoke.feature` passed; the re-pended scopes are
+  excluded via `not @pending`), and `costume_domains_smoke_test.dart` green
+  on device (2/2: create → assign → capture → upload → Ready tile; the
+  issue #370 isolate boundary). The costume-assignment optimistic-overlay +
+  viewer-denial scenarios themselves are NOT yet on-device green — they are
+  gated by #453/#454.
 
 ## Capabilities
 
@@ -57,8 +67,10 @@ emulator seed" landed; that seed now exists (first on-emulator smoke via PR
 - Code: `lib/auth/membership/` (dev-auth membership override seam),
   `integration_test/gherkin/` (world, steps, configuration docs),
   `features-spec/costume_assignment.feature`.
-- Tests: two scenarios promoted to the on-device gate; no unit-tier changes
-  required (the override is test-support-only).
+- Tests: smoke coverage on device complete; the costume-assignment and
+  wizard scenarios are re-pended on #453/#454/#455 (gaps documented in the
+  feature files); no unit-tier changes required (the override is
+  test-support-only).
 - Non-goals (unchanged from the issue): no new scenarios (continuity capture
   + Soll-Ist stay `@pending` in their own changes), no CI emulator job in
   this issue.
