@@ -59,7 +59,7 @@ final class ShellControllerProvider
   }
 }
 
-String _$shellControllerHash() => r'e071be155080cfaa45fea57ea84b7feda57069f8';
+String _$shellControllerHash() => r'2f66b4202f60e6a46bd17f1709fc5372d6a15d6d';
 
 /// The shell controller (task 2.1, design D2/D7): holds the selected tab
 /// index and the active season; resets both on sign-out / a new session.

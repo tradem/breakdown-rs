@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: glm-5.3 (neuralwatt) -->
+<!-- Co-authored-by: omen-alpha (opencode-go) -->
 
 ## Context
 
@@ -53,6 +54,19 @@ more wiring, no benefit at this size; step-local edit state (text
 fields) stays widget-local as in `create_season_sheet.dart`.
 
 ### D2 — Dispatch as state machine over existing repositories
+
+**Block numbering (implementation-discovered backend invariant):** the
+backend enforces block-number uniqueness per SERIES
+(`idx_projection_block_series_number` → `block.number-already-exists`),
+not per season. The wizard therefore derives the first free series-scoped
+block number at wizard open (walking the series' seasons' blocks
+projections, `max + 1` — the same client-side append-order derivation
+discipline as `nextOrderKey` for costume categories; never audit
+metadata) and dispatches draft `i` as block `derived + i`. The derived
+numbers render on the Blocks step and the Review summary as READ-ONLY
+information (a headline, never a field). A failed derivation degrades to
+base 1; a 409 mid-dispatch surfaces as partial failure with the
+in-session retry (D2's failure semantics).
 Dispatch phase reduces over drafts using the same repositories the
 individual screens use (`SeasonRepository.create`,
 `BlockRepository.create`, `EpisodeRepository.create`), each already
