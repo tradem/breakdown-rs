@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 
 //! Issue #443 — deterministic fault injection E2E: the armed one-shot latch
 //! short-circuits the FIRST `POST /v1/blocks` with the REAL registry problem

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: hy3 (opencode-go)
+# Co-authored-by: glm-5.3-flash (neuralwatt)
 #
 # Runs the on-device flutter_gherkin critical-scenario suite against a
 # connected device/emulator. This is the authoritative on-device gate for the

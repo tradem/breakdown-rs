@@ -5,6 +5,7 @@
 <!-- Co-authored-by: hy4-preview (opencode-go) -->
 <!-- Co-authored-by: muse-spark-1.3-contributor (opencode-go) -->
 <!-- Co-authored-by: omen-alpha (opencode-go) -->
+<!-- Co-authored-by: glm-5.3-flash (neuralwatt) -->
 
 # Changelog
 
