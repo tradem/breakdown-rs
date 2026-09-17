@@ -30,12 +30,15 @@ Iterable<StepDefinitionGeneric> seasonWizardSteps() => [
       // re-arming before each run re-arms deterministically).
       final apiBase =
           Platform.environment['API_BASE'] ?? 'http://10.0.2.2:3000';
-      final client = HttpClient();
+      // Bounded timeputs (CodeRabbit finding, PR #452): a stall here must
+      // fail the arming step deterministically, not hang the whole run.
+      final client = HttpClient()
+        ..connectionTimeout = const Duration(seconds: 5);
       try {
         final req = await client.postUrl(
           Uri.parse('$apiBase/v1/__faults/block-conflict'),
         );
-        final res = await req.close();
+        final res = await req.close().timeout(const Duration(seconds: 10));
         if (res.statusCode != HttpStatus.noContent) {
           final body = await res.transform(utf8.decoder).join();
           throw Exception(
@@ -44,7 +47,8 @@ Iterable<StepDefinitionGeneric> seasonWizardSteps() => [
           );
         }
       } finally {
-        client.close();
+        // Force-close: timeout sockets must not linger on the emulator.
+        client.close(force: true);
       }
       // The then-steps assert the wizard's partial-failure surface; the
       // flag stays as the assertion-side intent marker.

@@ -42,45 +42,43 @@ crate.
 
 1. **New module `crates/api/src/fault_injection.rs`**, entirely inside
    `#[cfg(feature = "test-support")]`:
-   - `FaultInjectionState`: process-local `Mutex<HashMap<String, usize>>`
-     of armed faults keyed by an injection key (fingerprint string);
-     `arm(key)`, `take(key) -> bool` (one-shot latch: `take` removes the
-     entry so the FIRST matching request fires and the retry passes).
-   - `fault_injection_middleware` (axum `middleware::from_fn_with_state`):
-     for `POST /v1/blocks` requests whose request body `series_id`/`number`
-     fingerprint matches an armed key AND whose latch is still set, short-
-     circuit with the REAL registry problem
-     (`DomainError::Conflict { code: &BLOCK_NUMBER_ALREADY_EXISTS, .. }` →
-     RFC 9457 `application/problem+json` 409 exactly like the advisory
-     pre-check emits). No new problem code is registered (the
-     `problem-code-registry` rule is untouched); the middleware reuses the
-     existing registry const.
-   - The middleware reads and buffers the small JSON request body to derive
-     the fingerprint, then re-injects it for the handler. Alternatively the
-     key may be carried in an `X-Breakdown-Fault-Key` header honored ONLY by
-     this layer — the fingerprint derivation must be deterministic between
-     the arming call and the wizard's request, so the header-keyed variant
-     is the implementation default (the Gherkin arrange sends the same key
-     the middleware waits for; a body-hash would depend on exact JSON
-     serialization of the generated Dart client).
-2. **Wiring:** `app_router` (routes/mod.rs) gains the layer ONLY under
-   `#[cfg(feature = "test-support")]`; `main.rs` passes the
-   `FaultInjectionState` (or a no-op/Unit variant in non-test builds is NOT
-   needed since cfg removes the layer entirely).
+   - A **process-global one-shot latch** (`OnceLock<Mutex<HashMap>>`) of
+     armed faults keyed by a **fault name** (`block-conflict`); the control
+     route arms it, `take(name) -> bool` consumes it atomically (the FIRST
+     matching request fires and the retry passes).
+   - `fault_injection_middleware` (axum `middleware::from_fn`, stateless —
+     no `AppState` changes): while the `block-conflict` latch is armed,
+     the NEXT `POST /v1/blocks` short-circuits with the REAL registry
+     problem (`DomainError::Conflict { code: &BLOCK_NUMBER_ALREADY_EXISTS,
+     .. }` → RFC 9457 `application/problem+json` 409 identical to the
+     advisory pre-check's conflict). No header or body inspection happens
+     — no request body buffering, no fingerprint derivation. No new
+     problem code is registered (the `problem-code-registry` rule is
+     untouched); the middleware reuses the existing registry const.
+   - Arming runs through the cfg-gated control route
+     `POST /v1/__faults/block-conflict` (`204 No Content`), which the
+     host-side Gherkin arrange step calls directly; unknown fault names
+     are a clean `404` `domain.not-found`. The route is deliberately NOT
+     in the utoipa derive — `openapi_drift` fails if it ever leaks into
+     the documented wire contract.
+2. **Wiring:** `app_router` (routes/mod.rs) mounts the control route and
+   applies the middleware layer ONLY under `#[cfg(feature = "test-support")]`;
+   no composition-root state changes are needed since cfg removes both
+   entirely from release binaries.
 3. **Dev binary gate:** `tool/run_gherkin.sh` and the backend dev-boot docs
    note the E2E backend must run
    `cargo run -p api --features api/test-support` while acceptance runs.
    Exclude: production/GitHub-CI backend boot paths do not enable the
    feature (unchanged commands).
 4. **Tests:** a new `crates/api/tests/fault_injection_test.rs` (gated
-   `#![cfg(feature = "test-support")]`) asserting: armed key → first
+   `#![cfg(feature = "test-support")]`) asserting: armed fault → first
    `POST /v1/blocks` returns 409 `block.number-already-exists` problem JSON;
-   retry (second request) passes through (201/other); unarmed key → pass-
-   through; non-block routes with the header → pass-through. Also verify
-   the response document byte-matches the advisory pre-check's 409 shape
-   (code, title, status fields).
-5. **Docs:** `docs/security/README.md` safe-patterns note: the
-   `X-Breakdown-Fault-Key` header is recognized ONLY in
+   retry (second request) passes through; unarmed fault → pass-through;
+   unknown fault name → `404`; non-POST method on the fault route → `405`.
+   Also verify the response document matches the advisory pre-check's 409
+   shape (code, status, `type` URI).
+5. **Docs:** `docs/security/README.md` safe-patterns note: the fault
+   machinery (latch, middleware, control route) exists ONLY in
    `test-support` builds; production builds structurally lack the layer.
 
 ### Flutter client
@@ -96,13 +94,14 @@ crate.
    gap exists.
 2. **Gherkin Given step** (`integration_test/gherkin/steps/
    season_wizard_steps.dart`): the arming step performs an HTTP `POST` to
-   the dev backend's arming endpoint `/v1/__faults/block-conflict`
-   (mounted under the same `#[cfg(feature = "test-support")]` gate inside
-   the fault-injection module) with the injection key header/body, then
-   sets `wizardExpectsPartialFailure` (kept as the assertion-side intent
-   flag). The arming call uses plain `package:http`/`Dio` from the host
-   runner process (the runner is a Dart VM process with network access —
-   NOT sandboxed — so it can reach `API_BASE` directly).
+   the dev backend's arming endpoint `/v1/__faults/block-conflict` (its
+   `204 No Content` arms the name-keyed latch), then sets
+   `wizardExpectsPartialFailure` (kept as the assertion-side intent flag).
+   The call uses a plain `dart:io` `HttpClient` from the host runner
+   process (a Dart VM process with network access — NOT sandboxed — so it
+   reaches `API_BASE` directly), with a 5 s connection timeout and a 10 s
+   response timeout so a stalled backend fails the Given instead of
+   hanging the run.
 3. **Keep the unit tier as-is:** `test/features/seasons/setup/
    setup_wizard_controller_test.dart`'s scripted `createResults` fakes
    remain authoritative for deterministic partial-failure coverage.
@@ -115,7 +114,8 @@ crate.
 - `test-helper-gate` compliant: the fault-injection module is entirely
   `#[cfg(feature = "test-support")]`-gated, not merely a `*_for_test` name.
 - No release binary can contain the layer (compile-time absence).
-- Header is inert in non-test builds BY ABSENCE (no layer compiled).
+- The fault machinery (name-keyed latch, middleware, control route) is
+  inert in non-test builds BY ABSENCE (nothing compiled).
 
 ## Version-bump plan
 
