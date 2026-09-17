@@ -11,8 +11,8 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../../../auth/auth_providers.dart';
 import '../../ai_import/ai_config/ai_config_controller.dart';
 import '../../ai_import/ai_config/ai_config_screen.dart';
+import '../../ai_import/import_jobs/import_submit_screen.dart';
 import '../../../data/cache/seasons_cache_providers.dart';
-import '../../shell/shell_controller.dart';
 import 'setup_wizard_controller.dart';
 import 'setup_wizard_state.dart';
 import 'widgets/wizard_blocks_step.dart';
@@ -95,7 +95,11 @@ class _SetupWizardScreenState extends ConsumerState<SetupWizardScreen> {
     return PopScope(
       canPop: canPop,
       onPopInvokedWithResult: (didPop, _) {
-        if (didPop) return;
+        // Pops during dispatch never reach here (canPop false) — but the
+        // callback STILL fires with didPop false; without this guard the
+        // discard dialog would open OVER the running dispatch. Only an
+        // editing route-exit presents the confirmation.
+        if (didPop || !state.isEditing) return;
         // Fire-and-forget: the dialog owns the pop decision.
         unawaited(_confirmDiscard(context, controller));
       },
@@ -114,7 +118,14 @@ class _SetupWizardScreenState extends ConsumerState<SetupWizardScreen> {
         ),
         body: Column(
           children: [
-            if (state.isEditing) _ProgressHeader(step: state.step),
+            // The progress header covers ALL FOUR steps (spec: Season,
+            // Blocks, Review, Completion — Completion is step 4); only the
+            // dispatch overlay hides it (its own per-command progress
+            // rules the screen then).
+            if (!state.isDispatching)
+              _ProgressHeader(
+                position: state.isSettled ? 4 : _stepPosition(state.step),
+              ),
             Expanded(child: _body(context, ref, state, controller)),
           ],
         ),
@@ -134,9 +145,14 @@ class _SetupWizardScreenState extends ConsumerState<SetupWizardScreen> {
     // Parse validity is event-reported (stepValid); the seeded number is
     // a positive integer by construction.
     SetupWizardStep.season => state.stepValid && state.seasonNumber > 0,
-    // Parse validity (episode counts) + the submit-time noBlocks rule.
-    SetupWizardStep.blocks => state.stepValid && state.blocks.isNotEmpty,
-    SetupWizardStep.review => true,
+    // Parse validity (episode counts) + the submit-time noBlocks rule —
+    // gated on the DERIVED NUMBERS having settled: advancing to review
+    // (and confirming) with the fallback numbers while the derivation
+    // still runs could create the season before a conflict stops the
+    // sequence.
+    SetupWizardStep.blocks =>
+      state.stepValid && state.blocks.isNotEmpty && state.numbersSeeded,
+    SetupWizardStep.review => state.numbersSeeded,
   };
 
   Widget _body(
@@ -169,6 +185,7 @@ class _SetupWizardScreenState extends ConsumerState<SetupWizardScreen> {
           seasonNumber: state.seasonNumber,
           seasonName: state.seasonName,
           blocks: state.blocks,
+          numbersSeeded: state.numbersSeeded,
           onConfirm: () => controller.submit(seriesId: _seriesId()),
         ),
       },
@@ -186,7 +203,7 @@ class _SetupWizardScreenState extends ConsumerState<SetupWizardScreen> {
         aiConfigAvailable: ref.watch(wizardAiConfigAvailableProvider),
         onRetry: () => controller.retryRemaining(seriesId: _seriesId()),
         onOpenAiConfig: () => _openAiConfig(context),
-        onImport: () => _openImport(context, ref),
+        onImport: () => _openImport(context),
         onDone: () => Navigator.of(context).pop(),
       ),
     };
@@ -195,6 +212,14 @@ class _SetupWizardScreenState extends ConsumerState<SetupWizardScreen> {
   /// The env-sourced series id (`--dart-define=DEFAULT_SERIES_ID`) — the
   /// same rule the quick-create sheet follows (never hardcoded).
   String _seriesId() => ref.read(appConfigProvider).defaultSeriesId;
+
+  /// The navigation steps' 1-based progress positions (Completion's 4 is
+  /// derived from the settled phase, not a navigation step).
+  int _stepPosition(SetupWizardStep step) => switch (step) {
+    SetupWizardStep.season => 1,
+    SetupWizardStep.blocks => 2,
+    SetupWizardStep.review => 3,
+  };
 
   /// Advances one step; the "Weiter" button is already disabled when the
   /// step does not validate, so an enabled tap always advances.
@@ -249,32 +274,41 @@ class _SetupWizardScreenState extends ConsumerState<SetupWizardScreen> {
     );
   }
 
-  /// The AI-import CTA: pops the wizard and jumps to the Mehr tab's
-  /// labeled Import entry (the import flow stays its own screen —
-  /// non-goal: no import execution inside the wizard).
-  void _openImport(BuildContext context, WidgetRef ref) {
-    Navigator.of(context).pop();
-    ref.read(shellControllerProvider.notifier).selectTab(kMehrTabIndex);
+  /// The AI-import CTA: pops the wizard and pushes the import submission
+  /// screen WITH the created season id — the acting context travels from
+  /// the command ack (CQRS boundary: never re-derived from a projection
+  /// or the ambient active-block scope), and the import flow opens
+  /// directly instead of a tab detour.
+  void _openImport(BuildContext context) {
+    final seasonId = ref.read(setupWizardControllerProvider).createdSeason?.id;
+    final navigator = Navigator.of(context);
+    navigator.pop();
+    if (seasonId != null) {
+      unawaited(
+        navigator.push(
+          MaterialPageRoute<void>(
+            builder: (_) => AiImportSubmitScreen(seasonId: seasonId),
+          ),
+        ),
+      );
+    }
   }
 }
 
 /// The "Schritt x von n" progress header (task 4.5): semantic label +
 /// linear indicator; directional step transitions are the platform
-/// default push/pop animations of the route itself.
+/// default push/pop animations of the route itself. The contract defines
+/// FOUR steps — Season (1), Blocks (2), Review (3), Completion (4) — the
+/// settled phases render as step 4.
 class _ProgressHeader extends StatelessWidget {
-  const _ProgressHeader({required this.step});
+  const _ProgressHeader({required this.position});
 
-  final SetupWizardStep step;
+  final int position;
 
   @override
   Widget build(BuildContext context) {
-    final position = switch (step) {
-      SetupWizardStep.season => 1,
-      SetupWizardStep.blocks => 2,
-      SetupWizardStep.review => 3,
-    };
     return Semantics(
-      label: 'Schritt $position von 3',
+      label: 'Schritt $position von 4',
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         child: Row(
@@ -282,7 +316,7 @@ class _ProgressHeader extends StatelessWidget {
           children: [
             Expanded(
               child: Text(
-                'Schritt $position von 3',
+                'Schritt $position von 4',
                 key: const Key('wizard-progress-text'),
               ),
             ),

@@ -117,6 +117,14 @@ abstract class SetupWizardState with _$SetupWizardState {
     /// The in-flight sub-step label (e.g. the block/episode being created).
     @Default('') String dispatchLabel,
 
+    /// Whether the series-scoped number derivation has SETTLED (the async
+    /// projection reads of `seedDerivedNumbers` completed — success OR the
+    /// honest fallback). The screen gates the blocks/review advance and
+    /// the review confirm on it: dispatching with the fallback numbers
+    /// while the derivation is still running could create a season before
+    /// a conflict stops the sequence.
+    @Default(false) bool numbersSeeded,
+
     /// Whether the current step's inputs validate (reported by the step
     /// widget from the PURE validation functions on every user edit —
     /// parse-invalid text never reaches the controller's fields, so this
@@ -135,6 +143,11 @@ abstract class SetupWizardState with _$SetupWizardState {
   /// affordance is disabled and PopScope blocks (spec `Abort during
   /// dispatch`).
   bool get isDispatching => phase == SetupWizardPhase.dispatching;
+
+  /// True once the sequence has settled (completion OR partial failure).
+  bool get isSettled =>
+      phase == SetupWizardPhase.completed ||
+      phase == SetupWizardPhase.partialFailure;
 
   /// The created-so-far rows for the summary screens.
   int get totalDraftEpisodes =>
@@ -237,9 +250,14 @@ String wizardErrorCopy(ProblemError error) => switch (error.code) {
   'seasons.conflict' ||
   'season.conflict' => 'Eine Season mit dieser Nummer existiert bereits.',
   'blocks.conflict' || 'block.conflict' =>
-    'Ein Block mit dieser Nummer existiert bereits in der Season.',
+    // Series-scoped wording (backend invariant: block numbers are unique
+    // per SERIES — `idx_projection_block_series_number` — not per season;
+    // the copy must point the user at the ACTUAL conflict scope).
+    'Ein Block mit dieser Nummer existiert bereits in der Serie.',
   'episodes.conflict' || 'episode.conflict' =>
-    'Eine Episode mit dieser Nummer existiert bereits im Block.',
+    // Same series-scope: episode numbers are unique per series
+    // (`idx_projection_episode_series_number`), not per block.
+    'Eine Episode mit dieser Nummer existiert bereits in der Serie.',
   'authz.denied' ||
   'auth.session_required' => 'Bitte melde dich an, um fortzufahren.',
   _ when error.code.startsWith('transport.') =>

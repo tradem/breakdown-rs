@@ -191,7 +191,7 @@ void main() {
       );
       // Live preview of the resulting title.
       expect(find.text('Season 3'), findsOneWidget);
-      expect(find.text('Schritt 1 von 3'), findsOneWidget);
+      expect(find.text('Schritt 1 von 4'), findsOneWidget);
     });
 
     testWidgets('name entry updates the live preview', (tester) async {
@@ -247,7 +247,7 @@ void main() {
         find.byKey(const Key('wizard-apply-template-3x6')),
         findsOneWidget,
       );
-      expect(find.text('Schritt 2 von 3'), findsOneWidget);
+      expect(find.text('Schritt 2 von 4'), findsOneWidget);
     });
 
     testWidgets('derived series numbers render read-only per draft', (
@@ -371,7 +371,7 @@ void main() {
       expect(find.text('Block 1 · '), findsNothing); // read-only, no field
       expect(find.text('Season 1'), findsOneWidget);
       expect(find.text('8 Episoden in 2 Blöcke'), findsOneWidget);
-      expect(find.text('Schritt 3 von 3'), findsOneWidget);
+      expect(find.text('Schritt 3 von 4'), findsOneWidget);
     });
 
     testWidgets('confirm starts the dispatch and settles on completion', (
@@ -743,23 +743,23 @@ void main() {
   });
 
   group('Progress indicator (task 4.5)', () {
-    testWidgets('announces "Schritt x von 3" semantically per step', (
+    testWidgets('announces "Schritt x von 4" semantically per step', (
       tester,
     ) async {
       final ctx = await _buildFixture();
       await _pumpWizard(tester, ctx);
 
-      expect(find.text('Schritt 1 von 3'), findsOneWidget);
+      expect(find.text('Schritt 1 von 4'), findsOneWidget);
       await tester.tap(find.byKey(const Key('wizard-next')));
       await tester.pumpAndSettle();
-      expect(find.text('Schritt 2 von 3'), findsOneWidget);
+      expect(find.text('Schritt 2 von 4'), findsOneWidget);
       await tester.tap(find.byKey(const Key('wizard-next')));
       await tester.pumpAndSettle();
-      expect(find.text('Schritt 3 von 3'), findsOneWidget);
-      // The progress header leaves on the settled phases.
+      expect(find.text('Schritt 3 von 4'), findsOneWidget);
+      // The settled phases render Completion as step 4 of 4.
       await tester.tap(find.byKey(const Key('wizard-confirm')));
       await pumpFrames(tester, n: 24);
-      expect(find.text('Schritt 3 von 3'), findsNothing);
+      expect(find.text('Schritt 4 von 4'), findsOneWidget);
     });
   });
 }

@@ -100,9 +100,16 @@ class _WizardBlocksStepState extends State<WizardBlocksStep> {
       null,
       growable: false,
     );
-    // NO validity report here — syncControllers runs during build phases;
-    // the parent's "Weiter" gate derives the structural conditions from
-    // the controller state and only user edits report parse validity.
+    // The structural re-sync CLEARS the per-draft errors (a stale invalid
+    // count from before the add/template must not keep "Weiter" disabled
+    // forever) — but it runs during build phases, so the single validity
+    // report is deferred to after the frame (never invoked synchronously
+    // during build; the parent's stepValid stays fresh event-driven).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _reportValidity();
+    });
+    // NO synchronous validity report here — syncControllers runs during
+    // build phases; the post-frame callback above owns the one report.
   }
 
   void _disposeControllers() {

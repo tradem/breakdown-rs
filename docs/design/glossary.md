@@ -119,6 +119,7 @@ establishing change).
 | `close` | **Weiter bearbeiten** | Wizard discard-confirmation keep-editing action | `wizard.abort.keepEditing` |
 | `—` *(no icon)* | **Eine ganze Zahl größer als 0 ist nötig.** | Wizard inline validation — season number / episode count | `wizard.errors.positiveNumber` |
 | `—` *(no icon)* | **Mindestens ein Block ist nötig.** | Wizard inline validation — zero drafts at submit time | `wizard.errors.noBlocks` |
+| `—` *(no icon)* | **Nummern werden ermittelt …** | Wizard review — derived series-scoped numbers still settling; confirm stays disabled until then | `wizard.review.numbersPending` |
 | `quickcheck.title` *(template example)* | **Schnell-Check** | Screen-spec template example screen (fictional `CostumeQuickCheck`) | `quickcheck.title` |
 | `quickcheck.empty` *(template example)* | **Keine Figuren in dieser Szene** | Template example screen — empty state | `quickcheck.empty` |
 

@@ -217,12 +217,20 @@ void main() {
     });
 
     test('editing guards: a non-editing phase ignores mutations', () async {
-      final ctx = await _buildFixture();
+      var ctx = await _buildFixture();
       ctx.controller.setSeasonName('Test');
-      // Simulate the dispatching phase directly via submit with no repos
-      // configured to fail — but a signed-out container denies first:
-      // simpler to assert the editing guard on a COMPLETED state is not
-      // reachable without dispatch; use the gate test's denial path.
+      ctx.controller.removeBlockAt(0);
+      ctx.controller.applyTemplate(count: 1, episodesPerBlock: 4);
+      // Drive into a NON-editing phase for real: the first block create
+      // fails → partial failure (created refs retained).
+      ctx.blockRepo.createResults.add(
+        Left<ProblemError, IdVersionResponse>(_conflict),
+      );
+      await ctx.controller.submit(seriesId: 'series-1');
+      await _flush();
+      expect(ctx.state.phase, SetupWizardPhase.partialFailure);
+      // The guard: field mutations in a non-editing phase are no-ops.
+      ctx.controller.setSeasonName('Ignored');
       expect(ctx.state.seasonName, 'Test');
     });
 

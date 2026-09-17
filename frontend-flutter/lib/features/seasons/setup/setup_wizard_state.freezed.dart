@@ -856,7 +856,13 @@ mixin _$SetupWizardState {
  List<WizardCreatedBlock> get createdBlocks;/// Number of acknowledged commands in the current dispatch plan.
  int get dispatchDone;/// Total commands of the current dispatch plan.
  int get dispatchTotal;/// The in-flight sub-step label (e.g. the block/episode being created).
- String get dispatchLabel;/// Whether the current step's inputs validate (reported by the step
+ String get dispatchLabel;/// Whether the series-scoped number derivation has SETTLED (the async
+/// projection reads of `seedDerivedNumbers` completed — success OR the
+/// honest fallback). The screen gates the blocks/review advance and
+/// the review confirm on it: dispatching with the fallback numbers
+/// while the derivation is still running could create a season before
+/// a conflict stops the sequence.
+ bool get numbersSeeded;/// Whether the current step's inputs validate (reported by the step
 /// widget from the PURE validation functions on every user edit —
 /// parse-invalid text never reaches the controller's fields, so this
 /// is the "Weiter" gate). Reset on step navigation.
@@ -874,20 +880,20 @@ $SetupWizardStateCopyWith<SetupWizardState> get copyWith => _$SetupWizardStateCo
 @override
 bool operator ==(Object other) {
   final _this = this as SetupWizardState;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is SetupWizardState&&(identical(other.step, _this.step) || other.step == _this.step)&&(identical(other.phase, _this.phase) || other.phase == _this.phase)&&(identical(other.seasonNumber, _this.seasonNumber) || other.seasonNumber == _this.seasonNumber)&&(identical(other.nextBlockNumber, _this.nextBlockNumber) || other.nextBlockNumber == _this.nextBlockNumber)&&(identical(other.nextEpisodeNumber, _this.nextEpisodeNumber) || other.nextEpisodeNumber == _this.nextEpisodeNumber)&&(identical(other.seasonName, _this.seasonName) || other.seasonName == _this.seasonName)&&const DeepCollectionEquality().equals(other.blocks, _this.blocks)&&(identical(other.createdSeason, _this.createdSeason) || other.createdSeason == _this.createdSeason)&&const DeepCollectionEquality().equals(other.createdBlocks, _this.createdBlocks)&&(identical(other.dispatchDone, _this.dispatchDone) || other.dispatchDone == _this.dispatchDone)&&(identical(other.dispatchTotal, _this.dispatchTotal) || other.dispatchTotal == _this.dispatchTotal)&&(identical(other.dispatchLabel, _this.dispatchLabel) || other.dispatchLabel == _this.dispatchLabel)&&(identical(other.stepValid, _this.stepValid) || other.stepValid == _this.stepValid)&&(identical(other.failure, _this.failure) || other.failure == _this.failure));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is SetupWizardState&&(identical(other.step, _this.step) || other.step == _this.step)&&(identical(other.phase, _this.phase) || other.phase == _this.phase)&&(identical(other.seasonNumber, _this.seasonNumber) || other.seasonNumber == _this.seasonNumber)&&(identical(other.nextBlockNumber, _this.nextBlockNumber) || other.nextBlockNumber == _this.nextBlockNumber)&&(identical(other.nextEpisodeNumber, _this.nextEpisodeNumber) || other.nextEpisodeNumber == _this.nextEpisodeNumber)&&(identical(other.seasonName, _this.seasonName) || other.seasonName == _this.seasonName)&&const DeepCollectionEquality().equals(other.blocks, _this.blocks)&&(identical(other.createdSeason, _this.createdSeason) || other.createdSeason == _this.createdSeason)&&const DeepCollectionEquality().equals(other.createdBlocks, _this.createdBlocks)&&(identical(other.dispatchDone, _this.dispatchDone) || other.dispatchDone == _this.dispatchDone)&&(identical(other.dispatchTotal, _this.dispatchTotal) || other.dispatchTotal == _this.dispatchTotal)&&(identical(other.dispatchLabel, _this.dispatchLabel) || other.dispatchLabel == _this.dispatchLabel)&&(identical(other.numbersSeeded, _this.numbersSeeded) || other.numbersSeeded == _this.numbersSeeded)&&(identical(other.stepValid, _this.stepValid) || other.stepValid == _this.stepValid)&&(identical(other.failure, _this.failure) || other.failure == _this.failure));
 }
 
 
 @override
 int get hashCode {
   final _this = this as SetupWizardState;
-  return Object.hash(runtimeType,_this.step,_this.phase,_this.seasonNumber,_this.nextBlockNumber,_this.nextEpisodeNumber,_this.seasonName,const DeepCollectionEquality().hash(_this.blocks),_this.createdSeason,const DeepCollectionEquality().hash(_this.createdBlocks),_this.dispatchDone,_this.dispatchTotal,_this.dispatchLabel,_this.stepValid,_this.failure);
+  return Object.hash(runtimeType,_this.step,_this.phase,_this.seasonNumber,_this.nextBlockNumber,_this.nextEpisodeNumber,_this.seasonName,const DeepCollectionEquality().hash(_this.blocks),_this.createdSeason,const DeepCollectionEquality().hash(_this.createdBlocks),_this.dispatchDone,_this.dispatchTotal,_this.dispatchLabel,_this.numbersSeeded,_this.stepValid,_this.failure);
 }
 
 @override
 String toString() {
   final _this = this as SetupWizardState;
-  return 'SetupWizardState(step: ${_this.step}, phase: ${_this.phase}, seasonNumber: ${_this.seasonNumber}, nextBlockNumber: ${_this.nextBlockNumber}, nextEpisodeNumber: ${_this.nextEpisodeNumber}, seasonName: ${_this.seasonName}, blocks: ${_this.blocks}, createdSeason: ${_this.createdSeason}, createdBlocks: ${_this.createdBlocks}, dispatchDone: ${_this.dispatchDone}, dispatchTotal: ${_this.dispatchTotal}, dispatchLabel: ${_this.dispatchLabel}, stepValid: ${_this.stepValid}, failure: ${_this.failure})';
+  return 'SetupWizardState(step: ${_this.step}, phase: ${_this.phase}, seasonNumber: ${_this.seasonNumber}, nextBlockNumber: ${_this.nextBlockNumber}, nextEpisodeNumber: ${_this.nextEpisodeNumber}, seasonName: ${_this.seasonName}, blocks: ${_this.blocks}, createdSeason: ${_this.createdSeason}, createdBlocks: ${_this.createdBlocks}, dispatchDone: ${_this.dispatchDone}, dispatchTotal: ${_this.dispatchTotal}, dispatchLabel: ${_this.dispatchLabel}, numbersSeeded: ${_this.numbersSeeded}, stepValid: ${_this.stepValid}, failure: ${_this.failure})';
 }
 
 
@@ -898,7 +904,7 @@ abstract mixin class $SetupWizardStateCopyWith<$Res>  {
   factory $SetupWizardStateCopyWith(SetupWizardState value, $Res Function(SetupWizardState) _then) = _$SetupWizardStateCopyWithImpl;
 @useResult
 $Res call({
- SetupWizardStep step, SetupWizardPhase phase, int seasonNumber, int nextBlockNumber, int nextEpisodeNumber, String seasonName, List<BlockDraft> blocks, WizardCreatedSeason? createdSeason, List<WizardCreatedBlock> createdBlocks, int dispatchDone, int dispatchTotal, String dispatchLabel, bool stepValid, ProblemError? failure
+ SetupWizardStep step, SetupWizardPhase phase, int seasonNumber, int nextBlockNumber, int nextEpisodeNumber, String seasonName, List<BlockDraft> blocks, WizardCreatedSeason? createdSeason, List<WizardCreatedBlock> createdBlocks, int dispatchDone, int dispatchTotal, String dispatchLabel, bool numbersSeeded, bool stepValid, ProblemError? failure
 });
 
 
@@ -915,7 +921,7 @@ class _$SetupWizardStateCopyWithImpl<$Res>
 
 /// Create a copy of SetupWizardState
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? step = null,Object? phase = null,Object? seasonNumber = null,Object? nextBlockNumber = null,Object? nextEpisodeNumber = null,Object? seasonName = null,Object? blocks = null,Object? createdSeason = freezed,Object? createdBlocks = null,Object? dispatchDone = null,Object? dispatchTotal = null,Object? dispatchLabel = null,Object? stepValid = null,Object? failure = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? step = null,Object? phase = null,Object? seasonNumber = null,Object? nextBlockNumber = null,Object? nextEpisodeNumber = null,Object? seasonName = null,Object? blocks = null,Object? createdSeason = freezed,Object? createdBlocks = null,Object? dispatchDone = null,Object? dispatchTotal = null,Object? dispatchLabel = null,Object? numbersSeeded = null,Object? stepValid = null,Object? failure = freezed,}) {
   return _then(SetupWizardState(
 step: null == step ? _self.step : step // ignore: cast_nullable_to_non_nullable
 as SetupWizardStep,phase: null == phase ? _self.phase : phase // ignore: cast_nullable_to_non_nullable
@@ -929,7 +935,8 @@ as WizardCreatedSeason?,createdBlocks: null == createdBlocks ? _self.createdBloc
 as List<WizardCreatedBlock>,dispatchDone: null == dispatchDone ? _self.dispatchDone : dispatchDone // ignore: cast_nullable_to_non_nullable
 as int,dispatchTotal: null == dispatchTotal ? _self.dispatchTotal : dispatchTotal // ignore: cast_nullable_to_non_nullable
 as int,dispatchLabel: null == dispatchLabel ? _self.dispatchLabel : dispatchLabel // ignore: cast_nullable_to_non_nullable
-as String,stepValid: null == stepValid ? _self.stepValid : stepValid // ignore: cast_nullable_to_non_nullable
+as String,numbersSeeded: null == numbersSeeded ? _self.numbersSeeded : numbersSeeded // ignore: cast_nullable_to_non_nullable
+as bool,stepValid: null == stepValid ? _self.stepValid : stepValid // ignore: cast_nullable_to_non_nullable
 as bool,failure: freezed == failure ? _self.failure : failure // ignore: cast_nullable_to_non_nullable
 as ProblemError?,
   ));
@@ -1028,10 +1035,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( SetupWizardStep step,  SetupWizardPhase phase,  int seasonNumber,  int nextBlockNumber,  int nextEpisodeNumber,  String seasonName,  List<BlockDraft> blocks,  WizardCreatedSeason? createdSeason,  List<WizardCreatedBlock> createdBlocks,  int dispatchDone,  int dispatchTotal,  String dispatchLabel,  bool stepValid,  ProblemError? failure)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( SetupWizardStep step,  SetupWizardPhase phase,  int seasonNumber,  int nextBlockNumber,  int nextEpisodeNumber,  String seasonName,  List<BlockDraft> blocks,  WizardCreatedSeason? createdSeason,  List<WizardCreatedBlock> createdBlocks,  int dispatchDone,  int dispatchTotal,  String dispatchLabel,  bool numbersSeeded,  bool stepValid,  ProblemError? failure)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _SetupWizardState() when $default != null:
-return $default(_that.step,_that.phase,_that.seasonNumber,_that.nextBlockNumber,_that.nextEpisodeNumber,_that.seasonName,_that.blocks,_that.createdSeason,_that.createdBlocks,_that.dispatchDone,_that.dispatchTotal,_that.dispatchLabel,_that.stepValid,_that.failure);case _:
+return $default(_that.step,_that.phase,_that.seasonNumber,_that.nextBlockNumber,_that.nextEpisodeNumber,_that.seasonName,_that.blocks,_that.createdSeason,_that.createdBlocks,_that.dispatchDone,_that.dispatchTotal,_that.dispatchLabel,_that.numbersSeeded,_that.stepValid,_that.failure);case _:
   return orElse();
 
 }
@@ -1049,10 +1056,10 @@ return $default(_that.step,_that.phase,_that.seasonNumber,_that.nextBlockNumber,
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( SetupWizardStep step,  SetupWizardPhase phase,  int seasonNumber,  int nextBlockNumber,  int nextEpisodeNumber,  String seasonName,  List<BlockDraft> blocks,  WizardCreatedSeason? createdSeason,  List<WizardCreatedBlock> createdBlocks,  int dispatchDone,  int dispatchTotal,  String dispatchLabel,  bool stepValid,  ProblemError? failure)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( SetupWizardStep step,  SetupWizardPhase phase,  int seasonNumber,  int nextBlockNumber,  int nextEpisodeNumber,  String seasonName,  List<BlockDraft> blocks,  WizardCreatedSeason? createdSeason,  List<WizardCreatedBlock> createdBlocks,  int dispatchDone,  int dispatchTotal,  String dispatchLabel,  bool numbersSeeded,  bool stepValid,  ProblemError? failure)  $default,) {final _that = this;
 switch (_that) {
 case _SetupWizardState():
-return $default(_that.step,_that.phase,_that.seasonNumber,_that.nextBlockNumber,_that.nextEpisodeNumber,_that.seasonName,_that.blocks,_that.createdSeason,_that.createdBlocks,_that.dispatchDone,_that.dispatchTotal,_that.dispatchLabel,_that.stepValid,_that.failure);case _:
+return $default(_that.step,_that.phase,_that.seasonNumber,_that.nextBlockNumber,_that.nextEpisodeNumber,_that.seasonName,_that.blocks,_that.createdSeason,_that.createdBlocks,_that.dispatchDone,_that.dispatchTotal,_that.dispatchLabel,_that.numbersSeeded,_that.stepValid,_that.failure);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -1069,10 +1076,10 @@ return $default(_that.step,_that.phase,_that.seasonNumber,_that.nextBlockNumber,
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( SetupWizardStep step,  SetupWizardPhase phase,  int seasonNumber,  int nextBlockNumber,  int nextEpisodeNumber,  String seasonName,  List<BlockDraft> blocks,  WizardCreatedSeason? createdSeason,  List<WizardCreatedBlock> createdBlocks,  int dispatchDone,  int dispatchTotal,  String dispatchLabel,  bool stepValid,  ProblemError? failure)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( SetupWizardStep step,  SetupWizardPhase phase,  int seasonNumber,  int nextBlockNumber,  int nextEpisodeNumber,  String seasonName,  List<BlockDraft> blocks,  WizardCreatedSeason? createdSeason,  List<WizardCreatedBlock> createdBlocks,  int dispatchDone,  int dispatchTotal,  String dispatchLabel,  bool numbersSeeded,  bool stepValid,  ProblemError? failure)?  $default,) {final _that = this;
 switch (_that) {
 case _SetupWizardState() when $default != null:
-return $default(_that.step,_that.phase,_that.seasonNumber,_that.nextBlockNumber,_that.nextEpisodeNumber,_that.seasonName,_that.blocks,_that.createdSeason,_that.createdBlocks,_that.dispatchDone,_that.dispatchTotal,_that.dispatchLabel,_that.stepValid,_that.failure);case _:
+return $default(_that.step,_that.phase,_that.seasonNumber,_that.nextBlockNumber,_that.nextEpisodeNumber,_that.seasonName,_that.blocks,_that.createdSeason,_that.createdBlocks,_that.dispatchDone,_that.dispatchTotal,_that.dispatchLabel,_that.numbersSeeded,_that.stepValid,_that.failure);case _:
   return null;
 
 }
@@ -1084,7 +1091,7 @@ return $default(_that.step,_that.phase,_that.seasonNumber,_that.nextBlockNumber,
 
 
 class _SetupWizardState extends SetupWizardState {
-  const _SetupWizardState({this.step = SetupWizardStep.season, this.phase = SetupWizardPhase.editing, this.seasonNumber = 1, this.nextBlockNumber = 1, this.nextEpisodeNumber = 1, this.seasonName = '',  List<BlockDraft> blocks = const <BlockDraft>[], this.createdSeason,  List<WizardCreatedBlock> createdBlocks = const <WizardCreatedBlock>[], this.dispatchDone = 0, this.dispatchTotal = 0, this.dispatchLabel = '', this.stepValid = true, this.failure}): _blocks = blocks,_createdBlocks = createdBlocks,super._();
+  const _SetupWizardState({this.step = SetupWizardStep.season, this.phase = SetupWizardPhase.editing, this.seasonNumber = 1, this.nextBlockNumber = 1, this.nextEpisodeNumber = 1, this.seasonName = '',  List<BlockDraft> blocks = const <BlockDraft>[], this.createdSeason,  List<WizardCreatedBlock> createdBlocks = const <WizardCreatedBlock>[], this.dispatchDone = 0, this.dispatchTotal = 0, this.dispatchLabel = '', this.numbersSeeded = false, this.stepValid = true, this.failure}): _blocks = blocks,_createdBlocks = createdBlocks,super._();
   
 
 /// Current navigation step (Season → Blocks → Review).
@@ -1133,6 +1140,13 @@ class _SetupWizardState extends SetupWizardState {
 @override@JsonKey() final  int dispatchTotal;
 /// The in-flight sub-step label (e.g. the block/episode being created).
 @override@JsonKey() final  String dispatchLabel;
+/// Whether the series-scoped number derivation has SETTLED (the async
+/// projection reads of `seedDerivedNumbers` completed — success OR the
+/// honest fallback). The screen gates the blocks/review advance and
+/// the review confirm on it: dispatching with the fallback numbers
+/// while the derivation is still running could create a season before
+/// a conflict stops the sequence.
+@override@JsonKey() final  bool numbersSeeded;
 /// Whether the current step's inputs validate (reported by the step
 /// widget from the PURE validation functions on every user edit —
 /// parse-invalid text never reaches the controller's fields, so this
@@ -1152,18 +1166,18 @@ _$SetupWizardStateCopyWith<_SetupWizardState> get copyWith => __$SetupWizardStat
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _SetupWizardState&&(identical(other.step, step) || other.step == step)&&(identical(other.phase, phase) || other.phase == phase)&&(identical(other.seasonNumber, seasonNumber) || other.seasonNumber == seasonNumber)&&(identical(other.nextBlockNumber, nextBlockNumber) || other.nextBlockNumber == nextBlockNumber)&&(identical(other.nextEpisodeNumber, nextEpisodeNumber) || other.nextEpisodeNumber == nextEpisodeNumber)&&(identical(other.seasonName, seasonName) || other.seasonName == seasonName)&&const DeepCollectionEquality().equals(other.blocks, _blocks)&&(identical(other.createdSeason, createdSeason) || other.createdSeason == createdSeason)&&const DeepCollectionEquality().equals(other.createdBlocks, _createdBlocks)&&(identical(other.dispatchDone, dispatchDone) || other.dispatchDone == dispatchDone)&&(identical(other.dispatchTotal, dispatchTotal) || other.dispatchTotal == dispatchTotal)&&(identical(other.dispatchLabel, dispatchLabel) || other.dispatchLabel == dispatchLabel)&&(identical(other.stepValid, stepValid) || other.stepValid == stepValid)&&(identical(other.failure, failure) || other.failure == failure));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _SetupWizardState&&(identical(other.step, step) || other.step == step)&&(identical(other.phase, phase) || other.phase == phase)&&(identical(other.seasonNumber, seasonNumber) || other.seasonNumber == seasonNumber)&&(identical(other.nextBlockNumber, nextBlockNumber) || other.nextBlockNumber == nextBlockNumber)&&(identical(other.nextEpisodeNumber, nextEpisodeNumber) || other.nextEpisodeNumber == nextEpisodeNumber)&&(identical(other.seasonName, seasonName) || other.seasonName == seasonName)&&const DeepCollectionEquality().equals(other.blocks, _blocks)&&(identical(other.createdSeason, createdSeason) || other.createdSeason == createdSeason)&&const DeepCollectionEquality().equals(other.createdBlocks, _createdBlocks)&&(identical(other.dispatchDone, dispatchDone) || other.dispatchDone == dispatchDone)&&(identical(other.dispatchTotal, dispatchTotal) || other.dispatchTotal == dispatchTotal)&&(identical(other.dispatchLabel, dispatchLabel) || other.dispatchLabel == dispatchLabel)&&(identical(other.numbersSeeded, numbersSeeded) || other.numbersSeeded == numbersSeeded)&&(identical(other.stepValid, stepValid) || other.stepValid == stepValid)&&(identical(other.failure, failure) || other.failure == failure));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,step,phase,seasonNumber,nextBlockNumber,nextEpisodeNumber,seasonName,const DeepCollectionEquality().hash(_blocks),createdSeason,const DeepCollectionEquality().hash(_createdBlocks),dispatchDone,dispatchTotal,dispatchLabel,stepValid,failure);
+    return Object.hash(runtimeType,step,phase,seasonNumber,nextBlockNumber,nextEpisodeNumber,seasonName,const DeepCollectionEquality().hash(_blocks),createdSeason,const DeepCollectionEquality().hash(_createdBlocks),dispatchDone,dispatchTotal,dispatchLabel,numbersSeeded,stepValid,failure);
 }
 
 @override
 String toString() {
-    return 'SetupWizardState(step: $step, phase: $phase, seasonNumber: $seasonNumber, nextBlockNumber: $nextBlockNumber, nextEpisodeNumber: $nextEpisodeNumber, seasonName: $seasonName, blocks: $blocks, createdSeason: $createdSeason, createdBlocks: $createdBlocks, dispatchDone: $dispatchDone, dispatchTotal: $dispatchTotal, dispatchLabel: $dispatchLabel, stepValid: $stepValid, failure: $failure)';
+    return 'SetupWizardState(step: $step, phase: $phase, seasonNumber: $seasonNumber, nextBlockNumber: $nextBlockNumber, nextEpisodeNumber: $nextEpisodeNumber, seasonName: $seasonName, blocks: $blocks, createdSeason: $createdSeason, createdBlocks: $createdBlocks, dispatchDone: $dispatchDone, dispatchTotal: $dispatchTotal, dispatchLabel: $dispatchLabel, numbersSeeded: $numbersSeeded, stepValid: $stepValid, failure: $failure)';
 }
 
 
@@ -1174,7 +1188,7 @@ abstract mixin class _$SetupWizardStateCopyWith<$Res> implements $SetupWizardSta
   factory _$SetupWizardStateCopyWith(_SetupWizardState value, $Res Function(_SetupWizardState) _then) = __$SetupWizardStateCopyWithImpl;
 @override @useResult
 $Res call({
- SetupWizardStep step, SetupWizardPhase phase, int seasonNumber, int nextBlockNumber, int nextEpisodeNumber, String seasonName, List<BlockDraft> blocks, WizardCreatedSeason? createdSeason, List<WizardCreatedBlock> createdBlocks, int dispatchDone, int dispatchTotal, String dispatchLabel, bool stepValid, ProblemError? failure
+ SetupWizardStep step, SetupWizardPhase phase, int seasonNumber, int nextBlockNumber, int nextEpisodeNumber, String seasonName, List<BlockDraft> blocks, WizardCreatedSeason? createdSeason, List<WizardCreatedBlock> createdBlocks, int dispatchDone, int dispatchTotal, String dispatchLabel, bool numbersSeeded, bool stepValid, ProblemError? failure
 });
 
 
@@ -1191,7 +1205,7 @@ class __$SetupWizardStateCopyWithImpl<$Res>
 
 /// Create a copy of SetupWizardState
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? step = null,Object? phase = null,Object? seasonNumber = null,Object? nextBlockNumber = null,Object? nextEpisodeNumber = null,Object? seasonName = null,Object? blocks = null,Object? createdSeason = freezed,Object? createdBlocks = null,Object? dispatchDone = null,Object? dispatchTotal = null,Object? dispatchLabel = null,Object? stepValid = null,Object? failure = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? step = null,Object? phase = null,Object? seasonNumber = null,Object? nextBlockNumber = null,Object? nextEpisodeNumber = null,Object? seasonName = null,Object? blocks = null,Object? createdSeason = freezed,Object? createdBlocks = null,Object? dispatchDone = null,Object? dispatchTotal = null,Object? dispatchLabel = null,Object? numbersSeeded = null,Object? stepValid = null,Object? failure = freezed,}) {
   return _then(_SetupWizardState(
 step: null == step ? _self.step : step // ignore: cast_nullable_to_non_nullable
 as SetupWizardStep,phase: null == phase ? _self.phase : phase // ignore: cast_nullable_to_non_nullable
@@ -1205,7 +1219,8 @@ as WizardCreatedSeason?,createdBlocks: null == createdBlocks ? _self._createdBlo
 as List<WizardCreatedBlock>,dispatchDone: null == dispatchDone ? _self.dispatchDone : dispatchDone // ignore: cast_nullable_to_non_nullable
 as int,dispatchTotal: null == dispatchTotal ? _self.dispatchTotal : dispatchTotal // ignore: cast_nullable_to_non_nullable
 as int,dispatchLabel: null == dispatchLabel ? _self.dispatchLabel : dispatchLabel // ignore: cast_nullable_to_non_nullable
-as String,stepValid: null == stepValid ? _self.stepValid : stepValid // ignore: cast_nullable_to_non_nullable
+as String,numbersSeeded: null == numbersSeeded ? _self.numbersSeeded : numbersSeeded // ignore: cast_nullable_to_non_nullable
+as bool,stepValid: null == stepValid ? _self.stepValid : stepValid // ignore: cast_nullable_to_non_nullable
 as bool,failure: freezed == failure ? _self.failure : failure // ignore: cast_nullable_to_non_nullable
 as ProblemError?,
   ));

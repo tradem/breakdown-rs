@@ -98,6 +98,10 @@ class SetupWizardController extends _$SetupWizardController {
     state = state.copyWith(
       nextBlockNumber: smartDefaultBlockNumber(blockNumbers),
       nextEpisodeNumber: smartDefaultEpisodeNumber(episodeNumbers),
+      // The derivation has SETTLED (success or honest fallback): the
+      // screen's advance/confirm gates lift from here (never dispatch on
+      // the fallback numbers while the reads are still running).
+      numbersSeeded: true,
     );
   }
 
@@ -409,7 +413,7 @@ class SetupWizardController extends _$SetupWizardController {
           return;
         }
         final updated = createdBlock.copyWith(episodesCreated: e + 1);
-        _ackEpisode(episode, updated, seasonId);
+        _ackEpisode(episode, updated, episodeNumber, seasonId);
         state = state.copyWith(
           createdBlocks: [
             for (var j = 0; j < state.createdBlocks.length; j++)
@@ -511,6 +515,7 @@ class SetupWizardController extends _$SetupWizardController {
   void _ackEpisode(
     IdVersionResponse res,
     WizardCreatedBlock block,
+    int episodeNumber,
     String seasonId,
   ) {
     ref
@@ -518,7 +523,10 @@ class SetupWizardController extends _$SetupWizardController {
         .add(
           EpisodeOverlay(
             id: res.id,
-            number: block.episodesCreated,
+            // The DERIVED series-scoped episode number (the wire payload's
+            // number), not the per-block ack count — the overlay row must
+            // match what the projection will render.
+            number: episodeNumber,
             status: OverlayStatus.acknowledged,
           ),
         );

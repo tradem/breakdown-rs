@@ -72,7 +72,7 @@ final class SetupWizardControllerProvider
 }
 
 String _$setupWizardControllerHash() =>
-    r'51c0a559eabba04d7ce8324c58473f2528fb4b28';
+    r'897b94d10efd3f00aa66f714b62eaad4e4d1338d';
 
 /// The season setup wizard controller (design D1/D2).
 ///

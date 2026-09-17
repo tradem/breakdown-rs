@@ -106,9 +106,25 @@ void main() {
 
   group('wizardErrorCopy (command failure, keyed on stable code)', () {
     test('conflict narrative for the 409 season conflict', () {
+      // The copy is asserted VERBATIM — a wrong mapping (e.g. the generic
+      // fallback) must fail, not just "anything without the word detail".
       expect(
         wizardErrorCopy(const ProblemError(code: 'seasons.conflict')),
-        isNot(contains('detail')),
+        'Eine Season mit dieser Nummer existiert bereits.',
+      );
+    });
+
+    test('block conflict copy names the SERIES scope (never per season)', () {
+      expect(
+        wizardErrorCopy(const ProblemError(code: 'blocks.conflict')),
+        'Ein Block mit dieser Nummer existiert bereits in der Serie.',
+      );
+    });
+
+    test('episode conflict copy names the SERIES scope (never per block)', () {
+      expect(
+        wizardErrorCopy(const ProblemError(code: 'episodes.conflict')),
+        'Eine Episode mit dieser Nummer existiert bereits in der Serie.',
       );
     });
 

@@ -61,10 +61,10 @@ class WizardCompletionView extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final season = createdSeason;
-    final blocksCreated = createdBlocks.fold<int>(
-      0,
-      (sum, b) => sum + (b.episodesCreated > 0 ? 1 : 0),
-    );
+    // EVERY persisted block counts — a block created before its first
+    // episode command failed has `episodesCreated == 0` but STILL exists
+    // server-side (the episode count stays per-block below).
+    final blocksCreated = createdBlocks.length;
     final episodesCreated = createdBlocks.fold<int>(
       0,
       (sum, b) => sum + b.episodesCreated,

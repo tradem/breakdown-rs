@@ -101,11 +101,14 @@ offline persistence.
   lookup.
 
 ### Requirement: Destructive Abort With Confirmation
-Leaving the wizard (back-out, app exit, or explicit cancel) SHALL
+Route exit (back-out on the wizard route) or explicit cancel SHALL
 discard all draft state after an explicit confirmation dialog that
 names what will be lost. No draft is written to Drift or any other
-persistent store pre-submit (team decision 3: no resume). Once
-dispatch has started, confirm-cancel is disallowed in favor of the
+persistent store pre-submit (team decision 3: no resume). An
+operating-system process termination cannot reliably display or await
+a confirmation dialog: it SHALL simply discard the ephemeral draft
+state without confirmation (nothing was persisted). Once dispatch has
+started, confirm-cancel is disallowed in favor of the
 partial-failure/completion paths.
 
 #### Scenario: Cancel with drafts entered

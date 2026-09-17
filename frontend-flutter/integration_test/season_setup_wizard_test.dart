@@ -43,6 +43,15 @@ Future<void> _waitForSettle(
     }
     await tester.pump(const Duration(milliseconds: 100));
   }
+  // Bounded-wait exhaustion is a FAILURE, never a silent pass: re-check
+  // after the final pump so a dispatch that settled on it is not reported.
+  if (container.read(setupWizardControllerProvider).phase ==
+      SetupWizardPhase.dispatching) {
+    fail(
+      'dispatch did not settle within $maxPumps pumps; phase is still '
+      'dispatching',
+    );
+  }
 }
 
 void main() {

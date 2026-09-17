@@ -35,9 +35,9 @@ Iterable<StepDefinitionGeneric> seasonWizardSteps() => [
       timeout: const Duration(seconds: 10),
     );
   }),
-  when1<String, FlutterWorld>(
+  when2<String, String, FlutterWorld>(
     'I set the season number to {string} and the name {string}',
-    (String number, context) async {
+    (String number, String name, context) async {
       await FlutterDriverUtils.enterText(
         context.world.driver!,
         find.byValueKey('wizard-number-field'),
@@ -46,7 +46,7 @@ Iterable<StepDefinitionGeneric> seasonWizardSteps() => [
       await FlutterDriverUtils.enterText(
         context.world.driver!,
         find.byValueKey('wizard-name-field'),
-        'Sommer 2026',
+        name,
       );
     },
   ),
@@ -193,11 +193,19 @@ Iterable<StepDefinitionGeneric> seasonWizardSteps() => [
     'three block drafts with 6 episodes each exist and stay editable',
     (context) async {
       final driver = context.world.driver!;
+      // The 3×6 template APPENDS to the one default draft: the template
+      // drafts are positions 1..3, each episode-count field holds "6".
       for (var i = 1; i <= 3; i++) {
         await driver.waitFor(
           find.byValueKey('wizard-block-draft-$i'),
           timeout: const Duration(seconds: 10),
         );
+        final count = await driver.getText(
+          find.byValueKey('wizard-episode-count-$i'),
+        );
+        if (count != '6') {
+          throw Exception('draft $i episode count is "$count", expected "6"');
+        }
       }
     },
   ),
@@ -223,10 +231,12 @@ Iterable<StepDefinitionGeneric> seasonWizardSteps() => [
   ) async {
     // The localized narrative is keyed on the stable `blocks.conflict`
     // code — the copy is asserted verbatim, never the server `detail`.
+    // Series-scoped wording (backend invariant: block numbers are unique
+    // per series, not per season).
     await context.world.driver!.waitFor(
       find.text(
         'Ein Block mit dieser Nummer existiert bereits in der '
-        'Season.',
+        'Serie.',
       ),
       timeout: const Duration(seconds: 10),
     );

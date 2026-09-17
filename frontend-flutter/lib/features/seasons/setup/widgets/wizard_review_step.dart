@@ -18,6 +18,7 @@ class WizardReviewStep extends StatelessWidget {
     required this.seasonNumber,
     required this.seasonName,
     required this.blocks,
+    required this.numbersSeeded,
     required this.onConfirm,
   });
 
@@ -26,6 +27,12 @@ class WizardReviewStep extends StatelessWidget {
   final int seasonNumber;
   final String seasonName;
   final List<BlockDraft> blocks;
+
+  /// Whether the derived series-scoped numbers have settled — the confirm
+  /// CTA stays disabled until then (dispatching on the fallback numbers
+  /// while the derivation runs could create the season before a conflict
+  /// stops the sequence).
+  final bool numbersSeeded;
 
   /// Starts the sequential dispatch (the screen wires the series id and
   /// the controller call — this widget only renders and dispatches).
@@ -71,10 +78,19 @@ class WizardReviewStep extends StatelessWidget {
               subtitle: Text('${blocks[i].episodeCount} Episoden'),
             ),
           ),
+        const SizedBox(height: AppSpacing.space12),
+        // The derivation is still running: an honest disabled state beats
+        // a silent fallback dispatch (glossary `wizard.review.numbersPending`).
+        if (!numbersSeeded)
+          Text(
+            'Nummern werden ermittelt …',
+            key: const Key('wizard-review-seeding'),
+            style: theme.textTheme.bodySmall,
+          ),
         const SizedBox(height: AppSpacing.space24),
         FilledButton.icon(
           key: const Key('wizard-confirm'),
-          onPressed: onConfirm,
+          onPressed: numbersSeeded ? onConfirm : null,
           icon: const Icon(Icons.check),
           label: const Text('Season erstellen'),
         ),

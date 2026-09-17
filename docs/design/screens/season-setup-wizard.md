@@ -201,7 +201,14 @@ progress is the per-command sub-step display.
 ## Interactions
 
 Step navigation: Next advances only when the current step validates;
-back returns without discarding. On the Review step, confirm starts
+back returns without discarding. The TWO back affordances are distinct
+controls with distinct behavior: the IN-WIZARD back (app-bar arrow and
+the "Zurück" navigation row button, keys `wizard-back` / `wizard-prev`)
+performs STEP NAVIGATION ONLY — it moves to the prior step and never
+discards anything; the ROUTE-EXIT action (system back gesture /
+predictive-back on the wizard route itself) opens the discard
+confirmation while editing. Drafts are therefore never lost by ordinary
+step navigation. On the Review step, confirm starts
 the sequential dispatch: season create, then per block the block
 create followed by its episode creates — ids flow exclusively from
 command responses into subsequent commands (CQRS boundary; no second
@@ -210,10 +217,13 @@ optimistic + bounded-retry reconciliation of the underlying
 repository; the wizard displays per-command progress and awaits the
 ack before the next command. A command failure stops the sequence:
 created-so-far summary + in-session retry of the remaining commands
-(no background queue, no offline persistence). Abort: cancel or back
-during editing/review opens the discard confirmation; confirming
-discards everything and pops the wizard (nothing is persisted —
-decision 3). During dispatch the cancel affordance is disabled. On
+(no background queue, no offline persistence). Abort: cancel or the
+route-exit back during editing/review opens the discard confirmation
+(the in-wizard back button does NOT — it only navigates steps, see
+above); confirming discards everything and pops the wizard (nothing is
+persisted — decision 3). During dispatch the cancel affordance is
+disabled and route exit is blocked (no discard dialog can open over a
+running dispatch). On
 completion, Done pops to the seasons home; the AI-import CTA renders
 only when an AI configuration exists (checked before render via the
 existing config read), otherwise the info card links to the
@@ -222,9 +232,10 @@ configuration screen.
 ## Input & Validation
 
 Season step: number is a positive integer — invalid input disables
-Next with inline copy `wizard.errors.seasonNumber`; name is optional.
+Next with inline copy `wizard.errors.positiveNumber` (the same key for
+both positive-integer validations, per the glossary); name is optional.
 Blocks step: every draft's episode count is a positive integer —
-invalid copy `wizard.errors.episodeCount`; zero drafts at submit time
+invalid copy `wizard.errors.positiveNumber`; zero drafts at submit time
 disable Next with copy `wizard.errors.noBlocks`; templates expand
 into editable drafts. Block numbers are NOT fields: the backend enforces
 block-number uniqueness per SERIES

@@ -13,11 +13,12 @@ Feature: Season setup wizard (guided production setup)
   destructive abort with confirmation (team decision 3), and partial
   failure with in-session retry.
 
-  The step definitions ship with this change; the scenarios are @pending
-  until the first on-device run promotes them (same promotion flow as the
-  other critical scopes — remove the tag).
+  The step definitions ship with this change; the scenarios were
+  PROMOTED to the on-device acceptance pass: the @pending tag was
+  removed after the first on-device validation (the underlying
+  flows ran green against the dev backend in
+  integration_test/season_setup_wizard_test.dart).
 
-  @pending
   Scenario: Happy path creates the season, blocks, and episodes
     Given the app is launched in dev-auth mode
     And I am authenticated as a "planner" user
@@ -32,7 +33,6 @@ Feature: Season setup wizard (guided production setup)
     Then the wizard shows the created structure "4 Blöcke · 32 Episoden"
     And the AI import offer depends on the existing AI configuration
 
-  @pending
   Scenario: Template application expands editable drafts
     Given the app is launched in dev-auth mode
     And I am authenticated as a "planner" user
@@ -43,7 +43,6 @@ Feature: Season setup wizard (guided production setup)
     When I remove the first block draft
     Then the draft list updates and the wizard stays on the blocks step
 
-  @pending
   Scenario: Partial failure stops the dispatch and offers in-session retry
     Given the app is launched in dev-auth mode
     And I am authenticated as a "planner" user
@@ -54,7 +53,6 @@ Feature: Season setup wizard (guided production setup)
     When I retry the remaining commands
     Then the wizard reaches the completion screen with the full structure
 
-  @pending
   Scenario: Abort discards the drafts after an explicit confirmation
     Given the app is launched in dev-auth mode
     And I am authenticated as a "planner" user
