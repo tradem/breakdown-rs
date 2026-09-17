@@ -51,18 +51,27 @@ class AiImportSubmitController extends _$AiImportSubmitController {
   /// screen navigates to the job status screen); every failure surfaces
   /// keyed on its stable problem `code`.
   ///
+  /// [seasonId] overrides the gate's season scope explicitly (the wizard's
+  /// created-season CTA passes the ack-sourced id — CQRS boundary: the
+  /// acting context is never re-derived from the ambient active-block
+  /// scope). `null` keeps the established active-block resolution.
+  ///
   /// // AUTHZ-GATE: schedule/script uploads and the apply command are
   /// season-membership-gated server-side (`authorize_season_result
   /// Action::Write` on the job's season — the same predicate that derives
   /// the capability set). The client mirrors that gate here via
   /// [checkAiImportCapability] BEFORE the call; denial issues zero calls.
-  Future<Result<AiUploadAck>> submit(AiImportDocument document) async {
+  Future<Result<AiUploadAck>> submit(
+    AiImportDocument document, {
+    String? seasonId,
+  }) async {
     // Every dispatch starts clean: a previous dispatch's non-fatal stamp
     // warning must not leak into this one's outcome.
     ref.read(aiStampWarningProvider.notifier).set(null);
     // -- AUTHZ-GATE (begin): scope + capability resolution --------------
     final scope = ref.read(activeBlockProvider);
-    if (scope == null) {
+    final gateSeasonId = seasonId ?? scope?.seasonId;
+    if (gateSeasonId == null) {
       const error = ProblemError(code: 'ai_import.scope_missing', status: 400);
       return const Left(error);
     }
@@ -77,13 +86,10 @@ class AiImportSubmitController extends _$AiImportSubmitController {
     // two bare `ref.read`s would let the autoDispose family die between
     // them (its 0ms disposal timer), re-arming a fresh pending fetch and
     // deterministically misreading the gate as `membership.pending`.
-    final sub = ref.listen(
-      currentMembershipProvider(scope.seasonId),
-      (_, _) {},
-    );
+    final sub = ref.listen(currentMembershipProvider(gateSeasonId), (_, _) {});
     try {
       final fetched = await ref.read(
-        membershipFetchProvider(scope.seasonId).future,
+        membershipFetchProvider(gateSeasonId).future,
       );
       // Explicitly consumed: the gate below re-reads the resolved
       // CurrentMembership state; the fetch Result itself needs no branch
@@ -100,7 +106,7 @@ class AiImportSubmitController extends _$AiImportSubmitController {
       return const Left(ProblemError(code: 'membership.pending'));
     }
     final SeasonMembershipDto? membership = ref
-        .read(currentMembershipProvider(scope.seasonId))
+        .read(currentMembershipProvider(gateSeasonId))
         .value;
     final decision = checkAiImportCapability(membership);
     sub.close();

@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: hy3 (opencode-go) -->
+<!-- Co-authored-by: omen-alpha (opencode-go) -->
 
 # Gherkin critical acceptance scenarios (`features-spec/`)
 
@@ -17,6 +18,7 @@ own screen):
 | Soll-Ist execution | `soll_ist_execution.feature` | plan → start → actual-order → finish; skip; wrap finality on the day board |
 | Continuity photo capture | `continuity_photo_capture.feature` | AUTHZ-GATE preflight + server handler gate; upload → projector-lag → thumb |
 | Costume assignment | `costume_assignment.feature` | optimistic update + projection refresh; role denial on the costume stream |
+| Season setup wizard | `setup/season-wizard.feature` | smart defaults; sequential dispatch + per-step reconciliation; partial failure + in-session retry; destructive abort (shipped with `add-season-setup-wizard`) |
 
 `smoke.feature` is **not** a critical scope — it is a harness-proof scenario
 that uses only built-in `flutter_gherkin` steps against the already-landed

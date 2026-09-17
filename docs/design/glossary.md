@@ -88,6 +88,38 @@ establishing change).
 | `science_outlined` | **Experimentelle Funktionen** | Settings — experimental features | `settings.experimental` |
 | `psychology_alt_outlined` | **KI-Konfiguration** | AI provider/model configuration | `ai.config` |
 | `smart_toy_outlined` *(info)* | **KI-Assistent** | App info — AI attribution entry | `common.aiInfo` |
+| `‹` *(navigation arrow)* | **Zurück** | Setup wizard — previous step / back affordance | `wizard.back` |
+| `—` *(no icon)* | **Season-Setup** | Setup wizard app bar title | `wizard.title` |
+| `—` *(no icon)* | **Schritt {x} von {n}** | Setup wizard step progress indicator | `wizard.progress` |
+| `—` *(no icon)* | **Nummer** | Wizard season step — number field | `wizard.season.numberLabel` |
+| `—` *(no icon)* | **Name (optional)** | Wizard season step — name field | `wizard.season.nameLabel` |
+| `—` *(no icon)* | **Season {n}** | Wizard season step — live preview of the resulting title | `wizard.season.preview` |
+| `—` *(no icon)* | **Block {n}** | Wizard blocks step — one block draft card | `wizard.blocks.draft` |
+| `—` *(no icon)* | **Episoden** | Wizard blocks step — episode-count field | `wizard.blocks.episodeCountLabel` |
+| `—` *(no icon)* | **Titel (optional)** | Wizard blocks step — draft title field | `wizard.blocks.titleLabel` |
+| `delete` | **Block entfernen** | Wizard blocks step — removes one draft | `wizard.blocks.remove` |
+| `add` | **Block hinzufügen** | Wizard blocks step — appends a draft (same icon as the Blocks FAB, per-screen label) | `wizard.blocks.addDraft` |
+| `bolt` | **4 Blöcke à 8 Episoden** | Wizard blocks step — template suggestion chip | `wizard.blocks.template4x8` |
+| `bolt` | **3 Blöcke à 6 Episoden** | Wizard blocks step — template suggestion chip | `wizard.blocks.template3x6` |
+| `arrow_forward` | **Weiter** | Wizard step advance button | `wizard.next` |
+| `fact_check_outlined` | **Prüfen & erstellen** | Wizard review step — summary headline | `wizard.review.title` |
+| `check` | **Season erstellen** | Wizard review step — dispatch confirm (same verb as the seasons create FAB) | `wizard.review.confirm` |
+| `progress_activity` | **Season wird erstellt…** | Wizard dispatch overlay — per-command progress | `wizard.dispatching` |
+| `check_circle_outline` | **Season {n} angelegt** | Wizard completion headline | `wizard.completion.title` |
+| `—` *(no icon)* | **{n} Blöcke · {m} Episoden** | Wizard completion — created-structure summary | `wizard.completion.summary` |
+| `smart_toy_outlined` | **KI-Import starten** | Wizard completion CTA (only with an AI configuration) | `wizard.completion.importCta` |
+| `psychology_alt_outlined` | **Für den KI-Import ist eine KI-Konfiguration nötig.** | Wizard completion info card without config | `wizard.completion.aiInfo` |
+| `psychology_alt_outlined` | **KI-Konfiguration öffnen** | Wizard completion info-card action → AI config screen | `wizard.completion.aiInfoCta` |
+| `error_outline` | **Teilweise erstellt** | Wizard partial-failure headline (created-so-far summary) | `wizard.completion.partialTitle` |
+| `refresh` | **Fortsetzen** | Wizard partial-failure retry of the remaining commands | `wizard.completion.retry` |
+| `check` | **Fertig** | Wizard completion — closes the wizard | `wizard.completion.done` |
+| `help_outline` | **Setup abbrechen?** | Wizard discard-confirmation dialog title | `wizard.abort.title` |
+| `—` *(no icon)* | **Deine Eingaben werden verworfen. Es wurde noch nichts gespeichert.** | Wizard discard-confirmation body (names what is lost — decision 3) | `wizard.abort.body` |
+| `delete` | **Verwerfen** | Wizard discard-confirmation destructive action | `wizard.abort.discard` |
+| `close` | **Weiter bearbeiten** | Wizard discard-confirmation keep-editing action | `wizard.abort.keepEditing` |
+| `—` *(no icon)* | **Eine ganze Zahl größer als 0 ist nötig.** | Wizard inline validation — season number / episode count | `wizard.errors.positiveNumber` |
+| `—` *(no icon)* | **Mindestens ein Block ist nötig.** | Wizard inline validation — zero drafts at submit time | `wizard.errors.noBlocks` |
+| `—` *(no icon)* | **Nummern werden ermittelt …** | Wizard review — derived series-scoped numbers still settling; confirm stays disabled until then | `wizard.review.numbersPending` |
 | `quickcheck.title` *(template example)* | **Schnell-Check** | Screen-spec template example screen (fictional `CostumeQuickCheck`) | `quickcheck.title` |
 | `quickcheck.empty` *(template example)* | **Keine Figuren in dieser Szene** | Template example screen — empty state | `quickcheck.empty` |
 

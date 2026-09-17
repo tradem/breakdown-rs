@@ -4,6 +4,8 @@
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
 
+import 'dart:async' show unawaited;
+
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -17,6 +19,7 @@ import 'create_season_sheet.dart';
 import 'seasons_controller.dart';
 import 'seasons_metrics_provider.dart';
 import 'seasons_state.dart';
+import 'setup/setup_wizard_screen.dart';
 import 'widgets/season_card.dart';
 import 'widgets/seasons_empty_state.dart';
 import 'widgets/seasons_skeleton.dart';
@@ -138,8 +141,18 @@ class SeasonsScreen extends ConsumerWidget {
           const SizedBox(height: 96),
           SeasonsEmptyState(
             // Session gate: same rule as the FAB (auth-only create).
+            // Guided path entry (add-season-setup-wizard): opens the setup
+            // wizard as a full-screen route on THIS tab's navigator; the
+            // quick-create sheet remains the FAB's path (additive, not a
+            // replacement).
             onSetup: _canCreateSeason(ref)
-                ? () => showCreateSeasonSheet(context, ref)
+                ? () => unawaited(
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const SetupWizardScreen(),
+                      ),
+                    ),
+                  )
                 : null,
             // AUTHZ-GATE: the AI-import upload routes are gated by the
             // season costume-dept membership INSIDE the import submit

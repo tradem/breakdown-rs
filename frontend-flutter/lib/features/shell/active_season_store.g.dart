@@ -57,32 +57,38 @@ final class ShellStateDaoProvider
 
 String _$shellStateDaoHash() => r'c71e260464ed615de6899a158ea8d021f75b38a0';
 
-/// The persisted active-season id, loaded once and kept alive.
+/// The persisted active-season id FOR THE CURRENT SESSION, kept alive.
 ///
-/// A store failure degrades to `null` ("nothing persisted") right here —
-/// failing the provider instead would arm the Riverpod auto-retry timers
-/// (never settle under `pumpAndSettle` in widget tests) and buy nothing
-/// in production.
+/// Session-scoped (CodeRabbit review fix): the key carries the
+/// authenticated `sub`, so a cold start only ever hydrates the signed-in
+/// identity's reference. A store failure degrades to `null` ("nothing
+/// persisted") right here — failing the provider instead would arm the
+/// Riverpod auto-retry timers (never settle under `pumpAndSettle` in
+/// widget tests) and buy nothing in production.
 
 @ProviderFor(activeSeasonPersisted)
 final activeSeasonPersistedProvider = ActiveSeasonPersistedProvider._();
 
-/// The persisted active-season id, loaded once and kept alive.
+/// The persisted active-season id FOR THE CURRENT SESSION, kept alive.
 ///
-/// A store failure degrades to `null` ("nothing persisted") right here —
-/// failing the provider instead would arm the Riverpod auto-retry timers
-/// (never settle under `pumpAndSettle` in widget tests) and buy nothing
-/// in production.
+/// Session-scoped (CodeRabbit review fix): the key carries the
+/// authenticated `sub`, so a cold start only ever hydrates the signed-in
+/// identity's reference. A store failure degrades to `null` ("nothing
+/// persisted") right here — failing the provider instead would arm the
+/// Riverpod auto-retry timers (never settle under `pumpAndSettle` in
+/// widget tests) and buy nothing in production.
 
 final class ActiveSeasonPersistedProvider
     extends $FunctionalProvider<AsyncValue<String?>, String?, FutureOr<String?>>
     with $FutureModifier<String?>, $FutureProvider<String?> {
-  /// The persisted active-season id, loaded once and kept alive.
+  /// The persisted active-season id FOR THE CURRENT SESSION, kept alive.
   ///
-  /// A store failure degrades to `null` ("nothing persisted") right here —
-  /// failing the provider instead would arm the Riverpod auto-retry timers
-  /// (never settle under `pumpAndSettle` in widget tests) and buy nothing
-  /// in production.
+  /// Session-scoped (CodeRabbit review fix): the key carries the
+  /// authenticated `sub`, so a cold start only ever hydrates the signed-in
+  /// identity's reference. A store failure degrades to `null` ("nothing
+  /// persisted") right here — failing the provider instead would arm the
+  /// Riverpod auto-retry timers (never settle under `pumpAndSettle` in
+  /// widget tests) and buy nothing in production.
   ActiveSeasonPersistedProvider._()
     : super(
         from: null,
@@ -109,7 +115,7 @@ final class ActiveSeasonPersistedProvider
 }
 
 String _$activeSeasonPersistedHash() =>
-    r'f2cfc99a65f1bfffb5ff75927ad695a9db8fb6b8';
+    r'93906b7f34a9a933f4d6b7613aa2f9551bb121b8';
 
 /// Resolves the persisted active-season id against the seasons projection.
 ///

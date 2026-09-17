@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: qwen3.8-flash (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
+
+import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/auth_providers.dart';
 import 'seasons_controller.dart';
+import 'setup/setup_wizard_screen.dart';
 
 /// Opens the bottom-sheet Create Season form (task 3.2).
 Future<void> showCreateSeasonSheet(BuildContext context, WidgetRef ref) {
@@ -145,6 +149,29 @@ class _CreateSeasonFormState extends ConsumerState<_CreateSeasonForm> {
                     : const Text('Create'),
               ),
               const SizedBox(height: 8),
+              // Guided-path entry (add-season-setup-wizard task 5.1): the
+              // create flow offers the wizard alongside the quick-create
+              // sheet. The navigator is captured BEFORE the sheet pop —
+              // pushing on the popped context would be unsafe.
+              TextButton(
+                key: const Key('create-open-wizard'),
+                onPressed: () {
+                  final nav = Navigator.of(context);
+                  nav.pop();
+                  // Fire-and-forget push (no result consumed).
+                  unawaited(
+                    nav.push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const SetupWizardScreen(),
+                      ),
+                    ),
+                  );
+                },
+                child: const Text(
+                  'Oder geführt einrichten: Season-Setup '
+                  'starten',
+                ),
+              ),
             ],
           ),
         ),

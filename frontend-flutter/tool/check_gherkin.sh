@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: hy3 (opencode-go)
+# Co-authored-by: omen-alpha (opencode-go)
 #
 # Static CI gate for the Gherkin critical-scenario discipline
 # (features-spec/README.md, tasks 5.1/5.2). Enforces:
@@ -37,6 +38,7 @@ critical_files=(
   "soll_ist_execution.feature"
   "continuity_photo_capture.feature"
   "costume_assignment.feature"
+  "setup/season-wizard.feature"
 )
 
 echo "Gherkin discipline check"

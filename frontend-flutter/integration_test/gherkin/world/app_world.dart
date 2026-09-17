@@ -35,12 +35,18 @@ class AppWorld extends FlutterWorld {
   String? lastCostumeId;
   String? lastCharacterId;
 
+  /// Intent flag recorded by the season-setup-wizard steps: the scenario
+  /// arranged the dev backend to reject the first block create, so the
+  /// wizard must stop with the partial-failure surface.
+  bool wizardExpectsPartialFailure = false;
+
   @override
   void dispose() {
     currentRole = null;
     requestsLeftDevice = 0;
     lastCostumeId = null;
     lastCharacterId = null;
+    wizardExpectsPartialFailure = false;
     super.dispose();
   }
 }

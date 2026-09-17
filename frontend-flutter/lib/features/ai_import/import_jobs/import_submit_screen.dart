@@ -27,7 +27,14 @@ import 'job_status_screen.dart';
 /// A `ConsumerWidget` for the shell; the paste field is a
 /// `ConsumerStatefulWidget` carve-out (ephemeral text state).
 class AiImportSubmitScreen extends ConsumerWidget {
-  const AiImportSubmitScreen({super.key});
+  const AiImportSubmitScreen({super.key, this.seasonId});
+
+  /// Explicit season scope for the AUTHZ-GATE (nullable): the season
+  /// setup wizard's completion CTA passes the CREATED season's id — the
+  /// acting context travels from the command ack (CQRS boundary: never
+  /// re-derived from the ambient active-block scope). `null` keeps the
+  /// established resolution from [activeBlockProvider] (the shell entry).
+  final String? seasonId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -82,7 +89,7 @@ class AiImportSubmitScreen extends ConsumerWidget {
           ],
           _FilePickRow(kind: kind),
           const SizedBox(height: 24),
-          const _SubmitButton(),
+          _SubmitButton(seasonId: seasonId),
         ],
       ),
     );
@@ -202,7 +209,9 @@ AiImportDocument documentFromBytes(
 /// duplicate the status screen opens with the duplicate callout; on a 202
 /// the plain status screen opens.
 class _SubmitButton extends ConsumerStatefulWidget {
-  const _SubmitButton();
+  const _SubmitButton({this.seasonId});
+
+  final String? seasonId;
 
   @override
   ConsumerState<_SubmitButton> createState() => _SubmitButtonState();
@@ -233,7 +242,7 @@ class _SubmitButtonState extends ConsumerState<_SubmitButton> {
       // determinate progress is surfaced via the linear indicator below.
       final res = await ref
           .read(aiImportSubmitControllerProvider.notifier)
-          .submit(document);
+          .submit(document, seasonId: widget.seasonId);
       if (!mounted) return;
       res.match(
         (err) {
