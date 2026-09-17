@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
@@ -18,6 +19,9 @@ import 'widgets/episodes_widgets.dart';
 /// Localized client-side copy for a create-episode failure, keyed on the
 /// stable problem `code` (never the server's localized `detail`).
 String episodeCreateErrorCopy(ProblemError error) => switch (error.code) {
+  // Real backend code first (issue #443); legacy aliases kept for stale
+  // fixtures.
+  'episode.number-already-exists' ||
   'episodes.conflict' ||
   'episode.conflict' => 'An episode with that number already exists.',
   'authz.denied' || 'auth.session_required' => 'Please sign in to continue.',

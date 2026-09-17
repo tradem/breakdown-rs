@@ -4,6 +4,7 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: hy4-preview (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 #![cfg_attr(
@@ -11,6 +12,12 @@
     allow(clippy::print_stdout, clippy::print_stderr, clippy::dbg_macro)
 )]
 pub mod auth;
+// Issue #443: the deterministic fault-injection machinery (middleware +
+// control routes) exists ONLY in `test-support` builds — compile-time
+// absence in release binaries (dev/E2E backend boots with `--features
+// api/test-support`).
+#[cfg(feature = "test-support")]
+pub mod fault_injection;
 pub mod handlers;
 pub mod problems;
 pub mod routes;

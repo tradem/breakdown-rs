@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
+
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_driver/flutter_driver.dart';
 import 'package:flutter_gherkin/flutter_gherkin.dart';
@@ -17,9 +21,37 @@ Iterable<StepDefinitionGeneric> seasonWizardSteps() => [
   given<FlutterWorld>(
     'the backend rejects the first block create with a conflict',
     (context) async {
-      // The dev backend for this scenario family is seeded so the first
-      // block create hits `blocks.conflict`; the then-steps assert the
-      // wizard's partial-failure surface.
+      // Issue #443: arm the REAL backend fault instead of only recording a
+      // client-side intent. The dev backend must be booted with `--features
+      // api/test-support`; the one-shot latch then short-circuits the FIRST
+      // `POST /v1/blocks` of this scenario with the registry 409
+      // `block.number-already-exists`, and the in-session retry passes
+      // through. Arming is idempotent-on-repeat (the latch is one-shot, so
+      // re-arming before each run re-arms deterministically).
+      final apiBase =
+          Platform.environment['API_BASE'] ?? 'http://10.0.2.2:3000';
+      // Bounded timeputs (CodeRabbit finding, PR #452): a stall here must
+      // fail the arming step deterministically, not hang the whole run.
+      final client = HttpClient()
+        ..connectionTimeout = const Duration(seconds: 5);
+      try {
+        final req = await client.postUrl(
+          Uri.parse('$apiBase/v1/__faults/block-conflict'),
+        );
+        final res = await req.close().timeout(const Duration(seconds: 10));
+        if (res.statusCode != HttpStatus.noContent) {
+          final body = await res.transform(utf8.decoder).join();
+          throw Exception(
+            'fault arming failed (${res.statusCode}): $body — is the dev '
+            'backend running with `--features api/test-support`?',
+          );
+        }
+      } finally {
+        // Force-close: timeout sockets must not linger on the emulator.
+        client.close(force: true);
+      }
+      // The then-steps assert the wizard's partial-failure surface; the
+      // flag stays as the assertion-side intent marker.
       (context.world as AppWorld).wizardExpectsPartialFailure = true;
     },
   ),
@@ -229,10 +261,12 @@ Iterable<StepDefinitionGeneric> seasonWizardSteps() => [
   then<FlutterWorld>('the conflict is reported keyed on its problem code', (
     context,
   ) async {
-    // The localized narrative is keyed on the stable `blocks.conflict`
-    // code — the copy is asserted verbatim, never the server `detail`.
-    // Series-scoped wording (backend invariant: block numbers are unique
-    // per series, not per season).
+    // The localized narrative is keyed on the stable registry code
+    // `block.number-already-exists` (issue #443 — the real wire code; the
+    // legacy `blocks.conflict` alias never appears on the wire). The copy
+    // is asserted verbatim, never the server `detail`. Series-scoped
+    // wording (backend invariant: block numbers are unique per series, not
+    // per season).
     await context.world.driver!.waitFor(
       find.text(
         'Ein Block mit dieser Nummer existiert bereits in der '

@@ -5,6 +5,7 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: hy4-preview (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 
 //! Authorization policy for the API layer (Section 5, Decision D2/D5).
 //!
@@ -320,6 +321,15 @@ pub fn requirement_for(path: &str) -> Requirement {
     // `// AUTHZ-GATE:`) and returns `403` on denial (issue #342). Classified
     // `Authenticated` like the other handler-gated route families above.
     if path == "/audit" {
+        return Requirement::Authenticated;
+    }
+
+    // Issue #443 (test-support builds only): the fault-injection control
+    // route is authentication-gated, not block-scoped — arming a fault is a
+    // test orchestration action, the route only exists in test-support
+    // builds, and classification here costs production nothing (no such
+    // route is mounted in release binaries).
+    if path.starts_with("/__faults") {
         return Requirement::Authenticated;
     }
 
