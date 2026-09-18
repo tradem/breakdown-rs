@@ -37,6 +37,21 @@ void main() {
     expect(RequestRecorder.photoPipelineRequests, 2);
   });
 
+  test(
+    'counts costume assign/unassign commands against the costume counter',
+    () {
+      record('/v1/costumes/c1/assign');
+      record('/v1/costumes/c1/unassign');
+      expect(RequestRecorder.totalRequests, 2);
+      expect(RequestRecorder.costumeCommandRequests, 2);
+      // Read fetches under the same resource are NOT command traffic.
+      record('/v1/costumes/c1');
+      record('/v1/costumes/c1/details');
+      expect(RequestRecorder.costumeCommandRequests, 2);
+      expect(RequestRecorder.totalRequests, 4);
+    },
+  );
+
   test('navigation read-model fetches count ONLY against the total', () {
     record('/v1/seasons');
     record('/v1/blocks');
@@ -48,12 +63,13 @@ void main() {
     expect(RequestRecorder.photoPipelineRequests, 0);
   });
 
-  test('snapshot carries both counts and reset zeroes them', () {
+  test('snapshot carries all counts and reset zeroes them', () {
     record('/v1/seasons');
     record('/v1/costumes/c1/photos');
+    record('/v1/costumes/c1/assign');
     expect(
       RequestRecorder.snapshot(),
-      'total=2;photo=1',
+      'total=3;photo=1;costume=1',
       reason:
           'the driver channel speaks String only — the steps parse '
           'this exact shape',
@@ -62,7 +78,8 @@ void main() {
     RequestRecorder.reset();
     expect(RequestRecorder.totalRequests, 0);
     expect(RequestRecorder.photoPipelineRequests, 0);
-    expect(RequestRecorder.snapshot(), 'total=0;photo=0');
+    expect(RequestRecorder.costumeCommandRequests, 0);
+    expect(RequestRecorder.snapshot(), 'total=0;photo=0;costume=0');
   });
 
   test('interceptor lets the request through to the next handler', () {

@@ -80,13 +80,14 @@ manual pub-cache edit:
 bash tool/run_gherkin.sh          # needs a connected device/emulator
 ```
 
-The `@critical` acceptance scenarios are currently tagged `@pending` because
-their screens are not yet landed; the runner's `tagExpression` is
-`not @pending`, so the default on-device pass runs only `smoke.feature`. When a
-screen ships, **remove `@pending` from its Scenario(s)** to promote them into
-the on-device pass. A critical scope may be fully promoted (no `@pending` left
-— it then runs on device); the static checker allows both the pending and the
-promoted states.
+The `@critical` acceptance scenarios whose screens have not landed carry
+`@pending`; the runner's `tagExpression` is `not @pending`, so the default
+on-device pass runs `smoke.feature` plus every **promoted** critical scope.
+The costume assignment scope is fully promoted (issue #459): no `@pending`
+left, so its scenarios now run in the default on-device pass. A screen ships
+by **removing `@pending` from its Scenario(s)**; a critical scope may be
+fully promoted (no `@pending` left — it then runs on device); the static
+checker allows both the pending and the promoted states.
 
 The API endpoint is **configurable**, not bound to the Android-emulator host
 alias: `tool/run_gherkin.sh` reads `API_BASE` (and `DEV_AUTH_SUB`) from the
