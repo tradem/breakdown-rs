@@ -387,16 +387,19 @@ class CostumesController extends _$CostumesController {
     required CostumeView costume,
     required String characterId,
   }) async {
+    // Already bound to the picked character: the assignment the caller
+    // asked for already holds — a no-op success (the backend 422s the
+    // same-character reassign command). Run before the AUTHZ-GATE: this path
+    // dispatches NO mutating request, so it must not depend on membership
+    // resolution (or its fetch failures → `membership.pending`); returning
+    // the acted-on row's version immediately is authorization-neutral.
+    if (costume.characterId == characterId) {
+      return Right<ProblemError, int>(costume.version);
+    }
     // AUTHZ-GATE: capability check before any network call.
     final gate = await _assignGate();
     if (_deny(gate) != null) {
       return Left(ProblemError(code: (gate as GateDeny).code, status: 403));
-    }
-    // Already bound to the picked character: the assignment the caller
-    // asked for already holds — a no-op success (the backend 422s the
-    // same-character reassign command).
-    if (costume.characterId == characterId) {
-      return Right<ProblemError, int>(costume.version);
     }
     final repo = ref.read(costumeRepositoryProvider);
     // Reassignment path (issue #454): costume already bound to a DIFFERENT
@@ -480,6 +483,14 @@ class CostumesController extends _$CostumesController {
         return assignResult.match(
           (err) {
             ref.read(costumesCommandErrorProvider(seasonId).notifier).set(err);
+            // The unassign leg already succeeded and recorded an
+            // acknowledged unassigned overlay, but the assign leg failed;
+            // the costume is genuinely UNASSIGNED server-side. Reconcile now
+            // (single bounded pass) so the projection + cache swap to the
+            // honest unassigned state instead of lingering on the assigned
+            // row — no silent discard (AGENTS.md §4).
+            _reconcile.ackReceived();
+            unawaited(reconcile());
             return Left<ProblemError, int>(err);
           },
           (version) => _recordAssignmentOverlay(

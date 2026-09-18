@@ -751,6 +751,17 @@ void main() {
         // Error surfaced keyed on the stable code (honest surface).
         expect(find.byKey(const Key('costume-detail-error')), findsOneWidget);
         expect(find.textContaining('Network problem'), findsWidgets);
+        // The honest unassigned state: the unassign leg succeeded, so the
+        // costume is genuinely UNASSIGNED — the unassigned control renders,
+        // and neither the pre-command (ch-1) nor the target (ch-9)
+        // assignment badge is present. No fake target binding survives the
+        // failed assign leg (issue #454).
+        expect(
+          find.byKey(const Key('assign-costume-c-1-none')),
+          findsOneWidget,
+        );
+        expect(find.byKey(const Key('assigned-c-1-ch-1')), findsNothing);
+        expect(find.byKey(const Key('overlay-assign-c-1-ch-9')), findsNothing);
       },
     );
   });

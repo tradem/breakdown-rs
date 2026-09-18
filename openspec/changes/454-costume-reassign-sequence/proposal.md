@@ -124,6 +124,6 @@ the user confirmed this approach).
 
 | Package / Artifact | Action | Reason |
 |---|---|---|
-| `frontend-flutter` | code change (no version bump required) | Controller reassign sequence + tests + Gherkin step/feature |
+| `frontend-flutter` (`pubspec.yaml`) | code change + version bump `0.3.0-alpha.11+20` → `0.3.0-alpha.12+21` | Controller reassign sequence + tests + Gherkin step/feature |
 | `breakdown_api` (`vendor/breakdown_api/`) | none | `backend/openapi.yaml` unchanged |
 | `*.g.dart` / `*.freezed.dart` | none | No `@freezed` / `@riverpod` / drift edits |
