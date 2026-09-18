@@ -19,6 +19,7 @@ import 'package:fpdart/fpdart.dart';
 
 import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/auth/membership/membership_providers.dart';
+import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
@@ -132,21 +133,46 @@ class _FakeCostumeRepository extends CostumeRepository {
   int notesCalls = 0;
   int detailCalls = 0;
 
+  /// Captured echoed versions of the LAST assign/unassign requests — the
+  /// reassignment test (issue #454) asserts the assign leg echoes the
+  /// unassign ACK version, not the pre-command version.
+  int? lastAssignVersion;
+  int? lastUnassignVersion;
+
+  /// Scripted per-call results (in order) for the sequential unassign →
+  /// assign sequence failures (issue #454: assign leg fails after unassign).
+  List<Result<int>>? nextUnassignResults;
+  List<Result<int>>? nextAssignResults;
+
   @override
   Future<Result<int>> unassign(String id, VersionRequest request) {
     unassignCalls++;
+    lastUnassignVersion = request.version;
     final scripted = nextWrite;
     if (scripted != null) return Future.value(scripted);
+    final queued = nextUnassignResults;
+    if (queued != null && queued.isNotEmpty) {
+      return Future.value(queued.removeAt(0));
+    }
     return Future.value(const Right(2));
   }
 
   @override
   Future<Result<int>> assign(String id, AssignCostumeRequest request) {
     assignCalls++;
+    lastAssignVersion = request.version;
+    // Reassignment also records the picked character for the sequence check.
+    lastAssignCharacterId = request.characterId;
     final scripted = nextWrite;
     if (scripted != null) return Future.value(scripted);
+    final queued = nextAssignResults;
+    if (queued != null && queued.isNotEmpty) {
+      return Future.value(queued.removeAt(0));
+    }
     return Future.value(const Right(2));
   }
+
+  String? lastAssignCharacterId;
 
   @override
   Future<Result<int>> updateNotes(
@@ -630,5 +656,101 @@ void main() {
       await _pumpFrames(tester);
       expect(repo.unassignCalls, 1);
     });
+
+    testWidgets(
+      'reassign: unassign→assign sequence with fence-friendly version echo',
+      (tester) async {
+        // Costume already assigned to ch-1; the Reassign flow must NOT send
+        // the plain assign command (it would 409 `costume.already-assigned`
+        // — issue #454). The controller runs unassign first (echoing the
+        // acted-on version), then assign echoing the unassign ACK version.
+        await setupContainer(
+          costume: _costume('c-1', characterId: 'ch-1', version: 3),
+          characters: [
+            _character('ch-1'),
+            _character('ch-9', name: 'Bea'),
+          ],
+        );
+        // Unassign ack advances 3 → 4; assign ack advances 4 → 5.
+        repo.nextUnassignResults = [Right(4)];
+        repo.nextAssignResults = [Right(5)];
+        await pumpDetail(tester, 'c-1');
+        // The row is assigned: the button renders 'Reassign'.
+        expect(find.text('Reassign'), findsOneWidget);
+        await tester.tap(find.byKey(const Key('assign-costume-c-1-ch-1')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('assign-character-ch-9')));
+        await _pumpFrames(tester);
+        // Both legs dispatched, in order.
+        expect(repo.unassignCalls, 1);
+        expect(repo.assignCalls, 1);
+        // Unassign echoed the acted-on row's version (3).
+        expect(repo.lastUnassignVersion, 3);
+        // Assign echoed the unassign ACK version (4), NOT the pre-command
+        // version (3) — the fence-friendly version echo the issue demands.
+        expect(repo.lastAssignVersion, 4);
+        // The assign leg carried the picked target character.
+        expect(repo.lastAssignCharacterId, 'ch-9');
+        // Optimistic overlay key while the fence holds.
+        expect(
+          find.byKey(const Key('overlay-assign-c-1-ch-9')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'reassign: already assigned to the picked character is a no-op',
+      (tester) async {
+        // Re-picking the CURRENTLY assigned character must not dispatch any
+        // command: the backend 422s the same-character reassign, and the
+        // assignment already holds (issue #454).
+        await setupContainer(
+          costume: _costume('c-1', characterId: 'ch-1', version: 3),
+          characters: [_character('ch-1')],
+        );
+        await pumpDetail(tester, 'c-1');
+        await tester.tap(find.byKey(const Key('assign-costume-c-1-ch-1')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('assign-character-ch-1')));
+        await _pumpFrames(tester);
+        expect(repo.unassignCalls, 0);
+        expect(repo.assignCalls, 0);
+        // The assignment already holds: no overlay key change.
+        expect(find.byKey(const Key('assigned-c-1-ch-1')), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'reassign: assign-leg failure keeps the honest unassigned state + error',
+      (tester) async {
+        // Issue #454: the sequence is NOT atomic. When the assign leg fails
+        // after the unassign leg succeeded, the costume is genuinely
+        // UNASSIGNED server-side — the overlay must show the true unassigned
+        // state (never a fake target binding) and the failure surfaces via
+        // the command-error provider (no silent discard, AGENTS.md §4).
+        await setupContainer(
+          costume: _costume('c-1', characterId: 'ch-1', version: 3),
+          characters: [
+            _character('ch-1'),
+            _character('ch-9', name: 'Bea'),
+          ],
+        );
+        repo.nextUnassignResults = [Right(4)];
+        repo.nextAssignResults = [
+          Left(ProblemError(code: 'transport.generic', status: 502)),
+        ];
+        await pumpDetail(tester, 'c-1');
+        await tester.tap(find.byKey(const Key('assign-costume-c-1-ch-1')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('assign-character-ch-9')));
+        await _pumpFrames(tester);
+        expect(repo.unassignCalls, 1);
+        expect(repo.assignCalls, 1);
+        // Error surfaced keyed on the stable code (honest surface).
+        expect(find.byKey(const Key('costume-detail-error')), findsOneWidget);
+        expect(find.textContaining('Network problem'), findsWidgets);
+      },
+    );
   });
 }

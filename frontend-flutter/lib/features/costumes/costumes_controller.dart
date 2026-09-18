@@ -369,6 +369,18 @@ class CostumesController extends _$CostumesController {
   /// row; 409 → keyed copy, no auto-retry). Optimistic-after-2xx on the
   /// costume row's `character_id`, cleared by the version fence.
   ///
+  /// Reassignment (issue #454): an already-assigned costume cannot take the
+  /// plain `assign` command — the backend answers 409 `costume.already-
+  /// assigned`. When the acted-on row is bound to a DIFFERENT character, a
+  /// client-side **unassign→assign sequence** runs instead: unassign echoes
+  /// the acted-on row's version, and the follow-up assign echoes the
+  /// unassign ACK version (never the pre-command version, which the server
+  /// would reject as a version conflict). The sequence is not atomic — an
+  /// assign failure after a successful unassign leaves the costume
+  /// UNASSIGNED, and that true state is surfaced honestly via the overlay +
+  /// command-error provider (AGENTS.md §4: no silent discard). Re-picking the
+  /// already-assigned character is a no-op (the backend would 422 it).
+  ///
   /// // AUTHZ-GATE: `assign_costumes` capability checked before the call.
   Future<Result<int>> assign({
     required CostumeView costume,
@@ -379,7 +391,19 @@ class CostumesController extends _$CostumesController {
     if (_deny(gate) != null) {
       return Left(ProblemError(code: (gate as GateDeny).code, status: 403));
     }
+    // Already bound to the picked character: the assignment the caller
+    // asked for already holds — a no-op success (the backend 422s the
+    // same-character reassign command).
+    if (costume.characterId == characterId) {
+      return Right<ProblemError, int>(costume.version);
+    }
     final repo = ref.read(costumeRepositoryProvider);
+    // Reassignment path (issue #454): costume already bound to a DIFFERENT
+    // character — unassign first, then assign echoing the unassign ack.
+    if (costume.characterId != null) {
+      return _reassign(costume: costume, characterId: characterId, repo: repo);
+    }
+    // First assignment (no current binding): single assign command.
     final res = await repo.assign(
       costume.id,
       AssignCostumeRequest(
@@ -393,29 +417,106 @@ class CostumesController extends _$CostumesController {
         ref.read(costumesCommandErrorProvider(seasonId).notifier).set(err);
         return Left<ProblemError, int>(err);
       },
-      (version) {
-        ref.read(costumesCommandErrorProvider(seasonId).notifier).clear();
+      (version) => _recordAssignmentOverlay(
+        costume: costume,
+        characterId: characterId,
+        version: version,
+      ),
+    );
+  }
+
+  /// The client-side unassign→assign sequence for reassignment (issue #454).
+  ///
+  /// 1. `unassign` echoes the acted-on row's version; on ack the overlay is
+  ///    updated to the unassigned row (the true intermediate state) with the
+  ///    unassign ack version.
+  /// 2. `assign` carries that unassign ACK version — never the pre-command
+  ///    version, which the server would reject as a version conflict. On ack
+  ///    the same overlay is replaced by the final assigned row.
+  /// 3. A single reconcile pass runs after the final ack; the intermediate
+  ///    overlay is never reconciled on its own.
+  ///
+  /// If the assign leg fails after the unassign leg succeeded, the costume
+  /// stays UNASSIGNED and the error is surfaced via the command-error
+  /// provider — the honest state wins over a fake target binding.
+  Future<Result<int>> _reassign({
+    required CostumeView costume,
+    required String characterId,
+    required CostumeRepository repo,
+  }) async {
+    final unResult = await repo.unassign(
+      costume.id,
+      VersionRequest((b) => b..version = costume.version),
+    );
+    return unResult.match(
+      (err) {
+        ref.read(costumesCommandErrorProvider(seasonId).notifier).set(err);
+        return Left<ProblemError, int>(err);
+      },
+      (unVersion) async {
+        // Honest intermediate overlay: the binding is gone, version advanced
+        // to the unassign ack — so the follow-up command echoes the ACK, not
+        // the pre-command version. The final assign overlay replaces this.
         ref
             .read(costumesOverlaysProvider(seasonId).notifier)
             .add(
               CostumeRowOverlay(
                 id: costume.id,
-                // The overlay version advances to the ack: a follow-up
-                // command echoes it instead of the pre-command version
-                // (which the server would reject as a version conflict).
-                overlay: applyAssignOptimistic(
-                  costume,
-                  characterId,
-                ).rebuild((b) => b..version = version),
-                acknowledgedVersion: version,
+                overlay: applyUnassignOptimistic(costume)
+                    .rebuild((b) => b..version = unVersion),
+                acknowledgedVersion: unVersion,
                 status: OverlayStatus.acknowledged,
               ),
             );
-        _reconcile.ackReceived();
-        unawaited(reconcile());
-        return Right<ProblemError, int>(version);
+        final assignResult = await repo.assign(
+          costume.id,
+          AssignCostumeRequest(
+            (b) => b
+              ..characterId = characterId
+              ..version = unVersion,
+          ),
+        );
+        return assignResult.match(
+          (err) {
+            ref.read(costumesCommandErrorProvider(seasonId).notifier).set(err);
+            return Left<ProblemError, int>(err);
+          },
+          (version) => _recordAssignmentOverlay(
+            costume: costume,
+            characterId: characterId,
+            version: version,
+          ),
+        );
       },
     );
+  }
+
+  /// Records the final assigned overlay after a successful assign ack
+  /// (first-assignment and reassignment both land here) and triggers one
+  /// bounded reconcile pass. The overlay version advances to the ack: a
+  /// follow-up command echoes it instead of the pre-command version.
+  Right<ProblemError, int> _recordAssignmentOverlay({
+    required CostumeView costume,
+    required String characterId,
+    required int version,
+  }) {
+    ref.read(costumesCommandErrorProvider(seasonId).notifier).clear();
+    ref
+        .read(costumesOverlaysProvider(seasonId).notifier)
+        .add(
+          CostumeRowOverlay(
+            id: costume.id,
+            overlay: applyAssignOptimistic(
+              costume,
+              characterId,
+            ).rebuild((b) => b..version = version),
+            acknowledgedVersion: version,
+            status: OverlayStatus.acknowledged,
+          ),
+        );
+    _reconcile.ackReceived();
+    unawaited(reconcile());
+    return Right<ProblemError, int>(version);
   }
 
   /// Unassigns the costume (`VersionRequest` = `version` only, backend
