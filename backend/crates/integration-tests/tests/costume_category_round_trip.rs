@@ -388,6 +388,7 @@ async fn costume_detail_carries_subject_category_id_and_resolved_name() -> Resul
     let costume_created = CostumeEvent::CostumeCreated {
         id: costume_id,
         character_id: None,
+        season_id: None,
         notes: String::new(),
         details: vec![],
         photos: vec![],
@@ -586,6 +587,7 @@ async fn rename_category_refreshes_referencing_detail_category_name() -> Result<
         &encode_event(&CostumeEvent::CostumeCreated {
             id: costume_id,
             character_id: None,
+            season_id: None,
             notes: String::new(),
             details: vec![],
             photos: vec![],
@@ -689,6 +691,7 @@ async fn archive_category_preserves_detail_name_and_hides_from_picker() -> Resul
         &encode_event(&CostumeEvent::CostumeCreated {
             id: costume_id,
             character_id: None,
+            season_id: None,
             notes: String::new(),
             details: vec![],
             photos: vec![],
@@ -835,6 +838,7 @@ async fn end_to_end_costume_categorisation_with_character() -> Result<()> {
         &encode_event(&CostumeEvent::CostumeCreated {
             id: costume_id,
             character_id: Some(char_id),
+            season_id: None,
             notes: String::new(),
             details: vec![],
             photos: vec![],

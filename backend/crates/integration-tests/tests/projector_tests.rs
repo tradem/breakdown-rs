@@ -605,6 +605,7 @@ async fn costume_created_projects_basic_fields() -> Result<()> {
         &breakdown_core::costume::events::CostumeEvent::CostumeCreated {
             id: costume_id,
             character_id: None,
+            season_id: None,
             notes: "Blue dress".into(),
             details: vec![],
             photos: vec![],
@@ -653,6 +654,7 @@ async fn costume_notes_updated_projects_changes() -> Result<()> {
         &breakdown_core::costume::events::CostumeEvent::CostumeCreated {
             id: costume_id,
             character_id: None,
+            season_id: None,
             notes: "Initial".into(),
             details: vec![],
             photos: vec![],
@@ -721,6 +723,7 @@ async fn costume_assign_unassign_characters() -> Result<()> {
         &breakdown_core::costume::events::CostumeEvent::CostumeCreated {
             id: costume_id,
             character_id: None,
+            season_id: None,
             notes: String::new(),
             details: vec![],
             photos: vec![],
@@ -817,6 +820,7 @@ async fn costume_detail_add_remove() -> Result<()> {
         &breakdown_core::costume::events::CostumeEvent::CostumeCreated {
             id: costume_id,
             character_id: None,
+            season_id: None,
             notes: String::new(),
             details: vec![],
             photos: vec![],
@@ -898,6 +902,7 @@ async fn costume_photo_link_unlink() -> Result<()> {
         &breakdown_core::costume::events::CostumeEvent::CostumeCreated {
             id: costume_id,
             character_id: None,
+            season_id: None,
             notes: String::new(),
             details: vec![],
             photos: vec![],
@@ -949,3 +954,156 @@ async fn costume_photo_link_unlink() -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
+
+/// Issue #453: a costume created with a repertoire `season_id` appears in the
+/// season's costume stream (`list_by_season`) even while unassigned
+/// (`character_id IS NULL`). The pre-#453 INNER-JOIN-through-character query
+/// returned 0 rows for this case — leaving no UI path to a first assignment.
+#[tokio::test]
+async fn costume_created_with_repertoire_season_is_visible_in_season_stream() -> Result<()> {
+    let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
+    let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
+
+    let _costume_ref = infra::projectors::spawn_costume_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
+
+    let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
+    let season_id = Uuid::now_v7();
+    let costume_id = Uuid::now_v7();
+    let stream_id = format!("costume-{}", costume_id);
+
+    eappend_event(
+        Arc::clone(&redis_client),
+        &stream_id,
+        "CostumeCreated",
+        "EMPTY",
+        &breakdown_core::costume::events::CostumeEvent::CostumeCreated {
+            id: costume_id,
+            character_id: None,
+            season_id: Some(season_id),
+            notes: "Unassigned Repertoire Costume".into(),
+            details: vec![],
+            photos: vec![],
+            version: AggregateVersion::INITIAL,
+        },
+    )
+    .await?;
+
+    await_proj_row(
+        || {
+            let c_repo = costume_repo.clone();
+            let expected_season = season_id;
+            Box::pin(async move {
+                c_repo
+                    .list_by_season(SeasonId(expected_season), 50, 0)
+                    .await
+                    .map(|rows| rows.iter().any(|v| v.id == costume_id))
+                    .unwrap_or(false)
+            })
+        },
+        "costume in season stream",
+    )
+    .await?;
+
+    let listed = costume_repo
+        .list_by_season(SeasonId(season_id), 50, 0)
+        .await?;
+    assert_eq!(listed.len(), 1, "unassigned repertoire costume is visible");
+    assert_eq!(listed[0].id, costume_id);
+    assert!(listed[0].character_id.is_none());
+
+    // A different season must NOT list the costume (no cross-stream bleed).
+    let other = costume_repo
+        .list_by_season(SeasonId(Uuid::now_v7()), 50, 0)
+        .await?;
+    assert!(other.is_empty(), "costume must not leak into other seasons");
+
+    Ok(())
+}
+
+/// Issue #453 backwards compatibility: a pre-#453 `CostumeCreated` event
+/// (no `season_id` field — old CBOR payload) must still project; the
+/// `#[serde(default)]` on the event field deserializes it as `None` and the
+/// costume simply has no repertoire binding.
+#[tokio::test]
+async fn costume_created_without_season_still_projects() -> Result<()> {
+    let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
+    let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
+
+    let _costume_ref = infra::projectors::spawn_costume_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
+
+    let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
+
+    let costume_id = Uuid::now_v7();
+    let stream_id = format!("costume-{}", costume_id);
+
+    // Pre-#453 payload shape: externally tagged enum WITHOUT `season_id`,
+    // UUID encoded as CBOR bytes (matching the real old events' encoder).
+    let legacy_cbor = ciborium::value::Value::Map(vec![(
+        ciborium::value::Value::Text("CostumeCreated".into()),
+        ciborium::value::Value::Map(vec![
+            (
+                ciborium::value::Value::Text("id".into()),
+                ciborium::value::Value::Bytes(costume_id.as_bytes().to_vec()),
+            ),
+            (
+                ciborium::value::Value::Text("character_id".into()),
+                ciborium::value::Value::Null,
+            ),
+            (
+                ciborium::value::Value::Text("notes".into()),
+                ciborium::value::Value::Text("Legacy costume".into()),
+            ),
+            (
+                ciborium::value::Value::Text("details".into()),
+                ciborium::value::Value::Array(vec![]),
+            ),
+            (
+                ciborium::value::Value::Text("photos".into()),
+                ciborium::value::Value::Array(vec![]),
+            ),
+            (
+                ciborium::value::Value::Text("version".into()),
+                ciborium::value::Value::Integer(1.into()),
+            ),
+        ]),
+    )]);
+
+    eappend_event(
+        Arc::clone(&redis_client),
+        &stream_id,
+        "CostumeCreated",
+        "EMPTY",
+        &legacy_cbor,
+    )
+    .await?;
+
+    await_proj_row(
+        || {
+            let c_repo = costume_repo.clone();
+            Box::pin(async move { c_repo.find_by_id(costume_id).await.is_ok() })
+        },
+        "costume",
+    )
+    .await?;
+
+    let v = costume_repo.find_by_id(costume_id).await?;
+    assert_eq!(v.notes, "Legacy costume");
+
+    // No repertoire binding → not visible in any season stream.
+    let listed = costume_repo
+        .list_by_season(SeasonId(Uuid::now_v7()), 50, 0)
+        .await?;
+    assert!(listed.is_empty());
+
+    Ok(())
+}

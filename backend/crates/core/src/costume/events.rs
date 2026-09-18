@@ -28,6 +28,11 @@ pub enum CostumeEvent {
     CostumeCreated {
         id: Uuid,
         character_id: Option<Uuid>,
+        /// Repertoire season (issue #453): the season whose costume stream the
+        /// costume appears in while unassigned. Old events (pre-#453) lack the
+        /// field; `serde(default)` keeps them replayable as `None`.
+        #[serde(default)]
+        season_id: Option<Uuid>,
         notes: String,
         details: Vec<CostumeDetail>,
         photos: Vec<Uuid>,

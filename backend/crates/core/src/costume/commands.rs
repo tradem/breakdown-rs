@@ -7,13 +7,24 @@
 use uuid::Uuid;
 
 use super::events::CostumeDetail;
-use crate::shared::{AggregateVersion, SeriesId};
+use crate::shared::{AggregateVersion, SeasonId, SeriesId};
 
-/// Create a costume. A fresh costume has no character association yet, so
-/// `series_id` may be genuinely unknown — the API edge passes `None`.
+/// Create a costume.
+///
+/// `season_id` is the optional **repertoire** season (issue #453): the season
+/// whose costume stream the costume should appear in while unassigned. A
+/// costume may sit in several seasons' repertoires over its lifetime (main
+/// characters reuse costumes across seasons), so this is one binding among
+/// possibly many — not an ownership. The API edge resolves `series_id` for the
+/// audit trail from the season projection; the aggregate itself stays
+/// scope-free apart from the emitted event's `season_id` (read-model
+/// repertoire row).
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct CreateCostume {
     pub id: Uuid,
+    pub season_id: Option<SeasonId>,
+    /// Audit metadata (`EventMetadata`), resolved at the API edge from the
+    /// repertoire season's projection.
     pub series_id: Option<SeriesId>,
 }
 /// Update the costume's free-form notes.

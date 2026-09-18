@@ -185,8 +185,16 @@ pub struct CreateCharacterRequest {
     pub category: CharacterCategory,
 }
 
+/// Create-costume payload (issue #453).
+///
+/// `season_id` is the optional repertoire season: when present, the costume
+/// joins that season's costume stream while unassigned. The API edge resolves
+/// the `series_id` audit metadata from the season projection (404 on an
+/// unknown season).
 #[derive(Debug, Clone, Deserialize, ToSchema)]
-pub struct CreateCostumeRequest {}
+pub struct CreateCostumeRequest {
+    pub season_id: Option<SeasonId>,
+}
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct CreateCostumeCategoryRequest {
@@ -1712,14 +1720,28 @@ pub async fn update_contact_info<P: Ports>(
 pub async fn create_costume<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
-    Json(_req): Json<CreateCostumeRequest>,
+    Json(req): Json<CreateCostumeRequest>,
 ) -> ApiResult<IdVersionResponse> {
     let id = Uuid::now_v7();
-    // A fresh costume has no character association yet — the series is
-    // genuinely unknown at creation (issue #147).
+    // Audit metadata (issue #147 pattern): resolve `series_id` best-effort at
+    // the API edge from the repertoire season's projection (issue #453). An
+    // unknown season 404s via `SEASON_NOT_FOUND`; a season-less create keeps
+    // `None`.
+    let series_id = match req.season_id {
+        Some(season_id) => Some(
+            state
+                .ports
+                .season_repo()
+                .find_by_id(season_id.0)
+                .await?
+                .series_id,
+        ),
+        None => None,
+    };
     let cmd = CreateCostume {
         id,
-        series_id: None,
+        season_id: req.season_id,
+        series_id,
     };
     let (id, version) = state
         .ports

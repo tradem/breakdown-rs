@@ -165,8 +165,12 @@ impl CostumeRepository for CostumeRepositoryImpl {
             r#"
             SELECT c.id, c.character_id, c.notes, c.version, c.updated_at
             FROM projection_costume c
-            JOIN projection_character ch ON ch.id = c.character_id
+            LEFT JOIN projection_character ch ON ch.id = c.character_id
             WHERE ch.season_id = $1
+               OR EXISTS (
+                    SELECT 1 FROM projection_costume_season cs
+                    WHERE cs.costume_id = c.id AND cs.season_id = $1
+               )
             ORDER BY c.updated_at DESC
             LIMIT $2 OFFSET $3
             "#,

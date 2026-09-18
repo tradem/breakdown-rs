@@ -539,8 +539,9 @@ impl CostumeCommands for CostumeCommandsImpl {
         cmd: CreateCostume,
     ) -> Result<(Uuid, AggregateVersion), DomainError> {
         let id = cmd.id;
-        // A freshly created costume has no character association yet, so the
-        // series is genuinely unknown at creation; the command carries `None`.
+        // The series is not a costume attribute — it is audit metadata only,
+        // resolved at the API edge from the repertoire season's projection
+        // (issue #453). A costume created without a season carries `None`.
         let series_id = cmd.series_id;
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Empty)
