@@ -1,0 +1,15 @@
+--- a/lib/src/flutter/flutter_run_process_handler.dart
++++ b/lib/src/flutter/flutter_run_process_handler.dart
+@@ -13,7 +13,11 @@
+   // `An Observatory debugger and profiler on AOSP on IA Emulator is available at: http://127.0.0.1:51322/BI_fyYaeoCE=/`
+   // `Observatory URL on device: http://127.0.0.1:37849/t2xp9hvaxNs=/`
+   static final RegExp _observatoryDebuggerUriRegex = RegExp(
+-    r'observatory .*[:] (http[s]?:.*\/).*',
++    // Flutter <=2.x printed "An Observatory debugger and profiler on ...
++    // is available at: ..."; Flutter 3.x prints "A Dart VM Service on ...
++    // is available at: ...". Match both wordings (local patch — upstream
++    // flutter_gherkin 2.0.0 only knows the legacy wording).
++    r'(?:observatory|dart vm service) .*[:] (http[s]?:.*\/).*',
+     caseSensitive: false,
+     multiLine: false,
+   );

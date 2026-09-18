@@ -2,6 +2,7 @@
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: hy3 (opencode-go) -->
 <!-- Co-authored-by: omen-alpha (opencode-go) -->
+<!-- Co-authored-by: deepseek-v4-flash (neuralwatt) -->
 
 # Gherkin critical acceptance scenarios (`features-spec/`)
 
@@ -48,13 +49,30 @@ is inherently **on-device**, not a headless pure-Dart VM run.
   step taps the gate's visible Continue action (`login-continue-button`,
   "Continue as dev-e2e") before asserting the home screen.
 
-**Known harness gap (Flutter ≥ 3.x):** `flutter_gherkin` 2.0.0 parses the
-legacy `Observatory debugger … is available at:` launch output only; modern
-Flutter prints `A Dart VM Service on …`. Until the dependency is patched or
-upgraded, apply the one-line regex patch to the pub-cache copy
-(`lib/src/flutter/flutter_run_process_handler.dart`: add a
-`dart vm service` alternative to `_observatoryDebuggerUriRegex`) — the
-runner otherwise times out waiting for the debugger URI.
+**Known harness gap — resolved (Flutter ≥ 3.x, issue #440):**
+`flutter_gherkin` 2.0.0 parses the legacy
+`Observatory debugger … is available at:` launch output only; modern Flutter
+prints `A Dart VM Service on … is available at: …`. There is no upstream fix
+(`flutter_gherkin` 2.0.0, last published 2021). The VM-service regex patch is
+**tracked in-tree** and applied to the pub-cache copy of the package by a
+setup step, so a clean checkout + `bash tool/run_gherkin.sh` works without any
+manual pub-cache edit:
+
+- Patch file: `tool/patches/flutter_gherkin-2.0.0-vm-service.patch` (exactly
+  the `lib/src/flutter/flutter_run_process_handler.dart` hunk that adds a
+  `dart vm service` alternative to `_observatoryDebuggerUriRegex`).
+- Setup step: `tool/patch_gherkin.sh` (idempotent; normalizes the pub archive's
+  CRLF line endings, applies the patch, verifies). `tool/run_gherkin.sh`
+  invokes it **after** `flutter pub get` (which re-fetches the pristine hosted
+  package) and **before** launching the runner.
+- CI gate: `tool/check_gherkin.sh` asserts the tracked patch file + helper
+  exist and (when the package is cached) are applied; the `gherkin-critical`
+  CI job additionally runs the apply step right after `pub get` to prove the
+  patch applies to a fresh download.
+- **UPGRADE ME:** both `tool/patch_gherkin.sh` and `tool/check_gherkin.sh`
+  hard-reference the `flutter_gherkin-2.0.0` pub-cache path and the patch file.
+  If the dependency is ever upgraded or resolved differently, update both in
+  the same change.
 
 ### Run it
 

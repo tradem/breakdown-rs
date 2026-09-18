@@ -3,6 +3,7 @@
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: hy3 (opencode-go)
 # Co-authored-by: glm-5.3-flash (neuralwatt)
+# Co-authored-by: deepseek-v4-flash (neuralwatt)
 #
 # Runs the on-device flutter_gherkin critical-scenario suite against a
 # connected device/emulator. This is the authoritative on-device gate for the
@@ -21,10 +22,21 @@
 #   cargo run -p api --features api/test-support
 # before running this suite. Without it the arming step fails fast with an
 # actionable message (404).
+#
+# Issue #440: flutter_gherkin 2.0.0 only matches the legacy "Observatory
+# debugger" launch line; Flutter >= 3.x prints "A Dart VM Service on ...". The
+# tracked patch (tool/patches/flutter_gherkin-2.0.0-vm-service.patch) must be
+# applied to the pub-cache copy AFTER flutter pub get (which re-fetches the
+# pristine hosted package) and BEFORE the runner launches — otherwise the
+# unpatched file times out the run. patch_gherkin.sh is idempotent and also
+# serves as the setup step for a clean checkout.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 API_BASE="${API_BASE:-http://10.0.2.2:3000}"
 DEV_AUTH_SUB="${DEV_AUTH_SUB:-dev-e2e}"
 export API_BASE DEV_AUTH_SUB
 flutter pub get
+# Apply the flutter_gherkin VM-service regex patch AFTER pub get (which
+# re-fetches the pristine hosted package) and BEFORE launching the runner.
+bash tool/patch_gherkin.sh
 dart integration_test/gherkin/gherkin_runner.dart
