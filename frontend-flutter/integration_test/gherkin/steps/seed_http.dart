@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 /// Host-side HTTP helpers for the Gherkin harness seeding steps
 /// (issue #368).
@@ -158,7 +159,8 @@ Future<void> awaitSeasonProjection(String seasonId) async {
 /// replaces the old character-join-only scoping that required the
 /// server-side pre-assign workaround).
 ///
-/// Returns the symbolic→real id map (`1`, `ch-3`, `ch-9`, `c-7`).
+/// Returns the symbolic→real id map (`1`, `ch-3`, `ch-9`, `c-7`, and the
+/// reassignment-dedicated `c-r`).
 Future<Map<String, String>> seedCostumeAssignment() async {
   final seasonNumber = await resolveFreeSeasonNumber();
   final season = await postJson('/v1/seasons', {
@@ -190,10 +192,21 @@ Future<Map<String, String>> seedCostumeAssignment() async {
     'season_id': seasonId, // #453: repertoire binding → visible unassigned
   }, activeBlock: blockId);
   final costumeId = costume['id']! as String;
+  // Second, DISTINCT unassigned costume for the reassignment scenario
+  // (issue #454): the suite's scenarios share ONE seed run, so scenario 1's
+  // assign mutates `c-7` (leaves it at version 2 = assigned); a scenario that
+  // needs to first-assign then reassign must operate on its OWN costume that
+  // no other scenario touches. `c-r` stays unassigned until the reassign
+  // scenario assigns it.
+  final reassignCostume = await postJson('/v1/costumes', <String, Object?>{
+    'season_id': seasonId,
+  }, activeBlock: blockId);
+  final reassignCostumeId = reassignCostume['id']! as String;
   return {
     '1': seasonId,
     'ch-3': character3['id']! as String,
     'ch-9': character9['id']! as String,
     'c-7': costumeId,
+    'c-r': reassignCostumeId,
   };
 }

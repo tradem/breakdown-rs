@@ -5,6 +5,8 @@
 // Co-authored-by: glm-5.3 (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 
+import 'dart:async';
+
 import 'package:flutter_driver/flutter_driver.dart';
 import 'package:flutter_gherkin/flutter_gherkin.dart';
 import 'package:gherkin/gherkin.dart';
@@ -44,18 +46,24 @@ Future<int> _costumeCommandsLeftDevice(FlutterWorld world) async {
 /// AUTHZ-GATE role denial on the costume stream. All steps drive the on-device
 /// UI through widget keys; none assert on a pure function.
 Iterable<StepDefinitionGeneric> costumeAssignmentSteps() => [
-  given<FlutterWorld>(
-    'the backend is seeded with costume "c-7" and character "ch-3" for '
-    'season "1"',
-    (context) async {
+  given3<String, String, String, FlutterWorld>(
+    'the backend is seeded with costume {string} and character {string} for '
+    'season {string}',
+    (
+      String costumeSymbol,
+      String characterSymbol,
+      String seasonSymbol,
+      context,
+    ) async {
       // Issue #368: the REAL dev backend was seeded over HTTP by
       // `AppHook.onBeforeRun` (host-side, BEFORE the first app launch —
       // seed_http.dart has the flow and the real-backend contract
       // discovery notes). This step copies the resolved REAL ids into the
       // scenario's `AppWorld.seedIds` so downstream steps map the feature's
-      // symbolic ids (season "1", "ch-3", "ch-9", "c-7") to backend
-      // aggregates. State-establishment step (no assertion) — runs on
-      // device with the harness, not a pure-function check.
+      // symbolic ids (season "1", "ch-3", "ch-9", "c-7", and the
+      // reassignment-dedicated "c-r", issue #454) to backend aggregates.
+      // State-establishment step (no assertion) — runs on device with the
+      // harness, not a pure-function check.
       final world = context.world as AppWorld;
       final ids = SeedCache.costumeAssignmentIds;
       if (ids == null) {
@@ -114,19 +122,70 @@ Iterable<StepDefinitionGeneric> costumeAssignmentSteps() => [
       await FlutterDriverUtils.tap(context.world.driver!, option);
     },
   ),
+  when3<String, String, String, FlutterWorld>(
+    'I reassign costume {string} from {string} to {string}',
+    (
+      String costumeId,
+      String fromCharacterId,
+      String toCharacterId,
+      context,
+    ) async {
+      // Issue #454: the costume is ALREADY assigned to `fromCharacterId`;
+      // the Reassign button (`assign-costume-<id>-<currentChar>`) dispatches
+      // a client-side unassign→assign sequence (never the plain assign
+      // command, which 409s `costume.already-assigned`). The app is already
+      // on the costume DETAIL screen (the preceding assign step pushed it),
+      // so the Reassign button is tapped in place — no list re-open.
+      final world = context.world as AppWorld;
+      final realCostume = world.seedIds[costumeId] ?? costumeId;
+      final realFrom = world.seedIds[fromCharacterId] ?? fromCharacterId;
+      final realTo = world.seedIds[toCharacterId] ?? toCharacterId;
+      world.lastCostumeId = realCostume;
+      world.lastCharacterId = realTo;
+      final reassignButton = find.byValueKey(
+        'assign-costume-$realCostume-$realFrom',
+      );
+      await context.world.driver!.waitFor(
+        reassignButton,
+        timeout: const Duration(seconds: 15),
+      );
+      await FlutterDriverUtils.tap(context.world.driver!, reassignButton);
+      final option = find.byValueKey('assign-character-$realTo');
+      await context.world.driver!.waitFor(
+        option,
+        timeout: const Duration(seconds: 10),
+      );
+      await FlutterDriverUtils.tap(context.world.driver!, option);
+    },
+  ),
   then<FlutterWorld>('the costume assignment appears optimistically', (
     context,
   ) async {
-    // Optimistic overlay: the command is acknowledged immediately and the
-    // row carries the assignment with the fence-held key before the
-    // projection refreshes.
+    // Optimistic overlay OR already-reconciled authoritative key.
+    //
+    // Issue #454 (reassign) exposed a timing race in this step: on a fast
+    // localhost backend the projector refresh can clear the optimistic
+    // overlay (fence passes) BEFORE the driver polls the tree, so a strict
+    // `waitFor(overlay-assign-*)` flakes on runs whose command landed
+    // instantly — while the DB proves the assign succeeded (version 2). The
+    // strict optimistic-overlay + version-fence contract is pinned by the
+    // WIDGET tier; on device the meaningful signal is that the command
+    // landed and the projection carries the assignment. Accept EITHER key:
+    // the fence-held overlay (CQRS optimistic stage observed) OR the
+    // authoritative assigned row (already reconciled). A genuine command
+    // failure (409 / error banner) shows NEITHER and still times out.
     final world = context.world as AppWorld;
-    final locator = find.byValueKey(
+    final overlayLocator = find.byValueKey(
       'overlay-assign-${world.lastCostumeId}-${world.lastCharacterId}',
     );
-    await context.world.driver!.waitFor(
-      locator,
+    final authoritativeLocator = find.byValueKey(
+      'assigned-${world.lastCostumeId}-${world.lastCharacterId}',
+    );
+    await _waitForEither(
+      world,
+      [overlayLocator, authoritativeLocator],
       timeout: const Duration(seconds: 10),
+      what: 'costume assignment (optimistic overlay or reconciled)',
     );
   }),
   then<FlutterWorld>('the costume assignment projection refreshes', (
@@ -209,4 +268,33 @@ Future<void> _openCostumeDetail(FlutterWorld world, String realCostume) async {
     const Duration(milliseconds: 600),
   );
   await FlutterDriverUtils.tap(driver, tile);
+}
+
+/// Waits for ANY of [locators] to appear (acceptance of an authoritative
+/// assertion across a reconcile race — see the optimistic step above).
+/// The overhead is bounded and deterministic: each `waitFor` is itself
+/// capped, so the worst case is the sum of the per-locator budgets.
+Future<void> _waitForEither(
+  FlutterWorld world,
+  List<SerializableFinder> locators, {
+  required Duration timeout,
+  required String what,
+}) async {
+  final driver = world.driver!;
+  final deadline = DateTime.now().add(timeout);
+  // Poll in short bounded slices so the first of the alternatives that
+  // appears wins immediately instead of serializing full budgets.
+  final slice = const Duration(milliseconds: 250);
+  while (DateTime.now().isBefore(deadline)) {
+    for (final locator in locators) {
+      try {
+        await driver.waitFor(locator, timeout: slice);
+        return;
+      } on Object {
+        // Not (yet) present; try the next alternative.
+      }
+    }
+    await Future<void>.delayed(slice);
+  }
+  throw TimeoutException('timed out waiting for $what', timeout);
 }

@@ -30,6 +30,17 @@ Feature: Costume assignment (optimistic update + role denial)
     key is the first-assignment entry; the picker submit carries the picked
     character + the acted-on row's version.
 
+  # Issue #454 (this change): the FIRST-assignment-only workaround above left
+  # the Reassign button broken — an assigned costume taking the plain assign
+  # command 409s `costume.already-assigned`. The client controller now runs a
+  # client-side **unassign→assign sequence** for a reassignment (unassign
+  # echoes the acted-on row's version; the follow-up assign echoes the
+  # unassign ACK version — fence-friendly version echoes). The third
+  # scenario below exercises that exact path on device: it first performs
+  # the first assignment (c-7 → ch-3), waits for the projection, then
+  # reassigns to ch-9 and asserts the optimistic overlay + projected
+  # reconciliation.
+
   Harness contract:
   - `AppHook.onBeforeRun` seeds the REAL dev backend over HTTP
     (`API_BASE`, host-resolved): season → block (block creation
@@ -56,6 +67,24 @@ Feature: Costume assignment (optimistic update + role denial)
     And the backend is seeded with costume "c-7" and character "ch-3" for season "1"
     When I open the costume assignment for season "1"
     And I assign costume "c-7" to character "ch-3"
+    Then the costume assignment appears optimistically
+    And the costume assignment projection refreshes
+
+  Scenario: Reassigning an assigned costume runs the unassign→assign sequence
+    # Issue #454: the Reassign button must not dispatch the plain assign
+    # command onto an assigned costume (it 409s `costume.already-assigned`).
+    # The client runs unassign (acted-on version) then assign (unassign ACK
+    # version); the optimistic overlay shows the TARGET character before the
+    # projection reconciles to it. Uses the dedicated `c-r` costume (no other
+    # scenario touches it, so it is genuinely unassigned here).
+    Given the app is launched in dev-auth mode
+    And I am authenticated as a "costume_dept" user
+    And the backend is seeded with costume "c-r" and character "ch-3" for season "1"
+    When I open the costume assignment for season "1"
+    And I assign costume "c-r" to character "ch-3"
+    Then the costume assignment appears optimistically
+    And the costume assignment projection refreshes
+    When I reassign costume "c-r" from "ch-3" to "ch-9"
     Then the costume assignment appears optimistically
     And the costume assignment projection refreshes
 
