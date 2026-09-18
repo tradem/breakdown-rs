@@ -51,6 +51,7 @@ import 'package:breakdown_api/src/model/create_ai_config_request.dart';
 import 'package:breakdown_api/src/model/create_block_request.dart';
 import 'package:breakdown_api/src/model/create_character_request.dart';
 import 'package:breakdown_api/src/model/create_costume_category_request.dart';
+import 'package:breakdown_api/src/model/create_costume_request.dart';
 import 'package:breakdown_api/src/model/create_credential_request.dart';
 import 'package:breakdown_api/src/model/create_episode_request.dart';
 import 'package:breakdown_api/src/model/create_scene_request.dart';
@@ -170,6 +171,7 @@ part 'serializers.g.dart';
   CreateBlockRequest,
   CreateCharacterRequest,
   CreateCostumeCategoryRequest,
+  CreateCostumeRequest,
   CreateCredentialRequest,
   CreateEpisodeRequest,
   CreateSceneRequest,

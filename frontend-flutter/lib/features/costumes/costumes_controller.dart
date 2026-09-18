@@ -330,7 +330,9 @@ class CostumesController extends _$CostumesController {
       return const Left(error);
     }
     final repo = ref.read(costumeRepositoryProvider);
-    final ack = await repo.createEmpty();
+    // Issue #453: bind the costume to the current season's repertoire so it
+    // is visible in the Kleidung stream while unassigned.
+    final ack = await repo.create(seasonId);
     return ack.match(
       (err) {
         ref.read(costumesCommandErrorProvider(seasonId).notifier).set(err);

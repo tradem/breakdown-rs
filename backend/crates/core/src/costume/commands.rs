@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! Costume commands.
