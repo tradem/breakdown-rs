@@ -307,6 +307,7 @@ async fn costumes_by_season_returns_data() -> Result<()> {
             test_user(),
             CreateCostume {
                 id: costume_id,
+                season_id: Some(season_id),
                 series_id: None,
             },
         )
@@ -348,6 +349,7 @@ async fn costumes_with_details_returns_data() -> Result<()> {
 
     let cmd = CreateCostume {
         id: costume_id,
+        season_id: None,
         series_id: None,
     };
     let (_id, ver) = costume_cmd.create(test_user(), cmd).await?;

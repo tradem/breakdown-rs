@@ -15,6 +15,19 @@ commits (ADR-020 D5).
 
 ## [0.11.0] - Unreleased
 
+### Added — costume season repertoire binding (issue #453)
+
+- `CreateCostume` gains `season_id: Option<SeasonId>` — the optional
+  **repertoire** season whose costume stream the costume appears in while
+  unassigned. Previously a costume created without a character (`character_id
+  IS NULL`) was invisible in every season's stream (the read query scoped
+  exclusively through the character join), leaving no UI path to a costume's
+  first assignment.
+- `CostumeEvent::CostumeCreated` carries `season_id: Option<Uuid>` with
+  `#[serde(default)]` — pre-#453 events (field absent) replay as `None`.
+- **No additional bump:** additive optional command/event field — rides with
+  the open 0.11.0 MINOR.
+
 ### Added — `ai-import.disabled` problem code (issue #422)
 
 - New registered problem code `ai-import.disabled` (status 404,

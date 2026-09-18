@@ -6,7 +6,6 @@
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:built_collection/built_collection.dart';
-import 'package:built_value/json_object.dart';
 import 'package:fpdart/fpdart.dart';
 
 import '../core/problem_error.dart';
@@ -107,13 +106,14 @@ class CostumeRepository extends BaseRepository {
     });
   }
 
-  /// Creates a costume shell (empty-body contract D1).
-  Future<Result<IdVersionResponse>> create(JsonObject body) =>
-      run(() => api.getHandlersApi().createCostume(body: body));
-
-  /// Creates a costume shell with the empty contract body.
-  Future<Result<IdVersionResponse>> createEmpty() =>
-      create(JsonObject(const <String, Object?>{}));
+  /// Creates a costume shell, optionally bound to the repertoire season
+  /// (issue #453): a costume with `seasonId` appears in that season's
+  /// stream while unassigned — the client's first-assignment path.
+  Future<Result<IdVersionResponse>> create(String? seasonId) => run(
+    () => api.getHandlersApi().createCostume(
+      createCostumeRequest: CreateCostumeRequest((b) => b.seasonId = seasonId),
+    ),
+  );
 
   Future<Result<CostumeView>> get(String id) =>
       run(() => api.getHandlersApi().getCostume(id: id));

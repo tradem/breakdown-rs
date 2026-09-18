@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
@@ -58,7 +59,7 @@ use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::{
     BLOCK_NUMBER_ALREADY_EXISTS, EPISODE_NUMBER_ALREADY_EXISTS, MEMBERSHIP_NOT_FOUND,
-    SCENE_SHOOT_PAIR_ALREADY_EXISTS, SEASON_NUMBER_ALREADY_EXISTS,
+    SCENE_SHOOT_PAIR_ALREADY_EXISTS, SEASON_NOT_FOUND, SEASON_NUMBER_ALREADY_EXISTS,
 };
 use breakdown_core::membership::policy::{Action, PolicyDecision, SeasonAuthContext};
 use breakdown_core::membership::views::MembershipView;
@@ -127,7 +128,7 @@ use infra::ai::{
     ScheduleApplyWorker,
 };
 
-use crate::auth::CurrentUser;
+use crate::auth::{ActiveBlock, CurrentUser};
 use crate::state::{AppState, Ports, ProductionPorts};
 
 /// Response for aggregate creation endpoints.
@@ -185,8 +186,16 @@ pub struct CreateCharacterRequest {
     pub category: CharacterCategory,
 }
 
+/// Create-costume payload (issue #453).
+///
+/// `season_id` is the optional repertoire season: when present, the costume
+/// joins that season's costume stream while unassigned. The API edge resolves
+/// the `series_id` audit metadata from the season projection (404 on an
+/// unknown season).
 #[derive(Debug, Clone, Deserialize, ToSchema)]
-pub struct CreateCostumeRequest {}
+pub struct CreateCostumeRequest {
+    pub season_id: Option<SeasonId>,
+}
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct CreateCostumeCategoryRequest {
@@ -1712,14 +1721,54 @@ pub async fn update_contact_info<P: Ports>(
 pub async fn create_costume<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
-    Json(_req): Json<CreateCostumeRequest>,
+    active_block: ActiveBlock,
+    Json(req): Json<CreateCostumeRequest>,
 ) -> ApiResult<IdVersionResponse> {
     let id = Uuid::now_v7();
-    // A fresh costume has no character association yet — the series is
-    // genuinely unknown at creation (issue #147).
+    let series_id = match req.season_id {
+        Some(season_id) => {
+            // AUTHZ-GATE: the route is gated only by block-membership
+            // middleware, so the target season must be verified against the
+            // caller's active block INSIDE the handler — otherwise a member
+            // of block A could create a repertoire row for a season of
+            // another block and expose it via season-scoped costume reads
+            // (issue #453 CodeRabbit review). The active block's projection
+            // is the authoritative block→season attribution; a cross-block
+            // season is rejected as not-found (no scope oracle) before any
+            // command is dispatched. The lookup is the API edge's legitimate
+            // read-model consumption (AGENTS.md §1).
+            let active_season = state
+                .ports
+                .block_repo()
+                .find_by_id(active_block.0.0)
+                .await?
+                .season_id;
+            if active_season != season_id {
+                // Deliberately indistinguishable from an unknown season:
+                // answering 404 (not 403) keeps the block scope a non-oracle.
+                return Err(ApiError::Domain(DomainError::NotFound {
+                    code: &SEASON_NOT_FOUND,
+                    resource: "season",
+                    id: season_id.0,
+                }));
+            }
+            // Series audit metadata from the target season's projection —
+            // only reached when the season passed the block-scope check.
+            Some(
+                state
+                    .ports
+                    .season_repo()
+                    .find_by_id(season_id.0)
+                    .await?
+                    .series_id,
+            )
+        }
+        None => None,
+    };
     let cmd = CreateCostume {
         id,
-        series_id: None,
+        season_id: req.season_id,
+        series_id,
     };
     let (id, version) = state
         .ports

@@ -257,6 +257,7 @@ fn sample_chain() -> SampleChain {
         costume: CostumeEvent::CostumeCreated {
             id: costume_id,
             character_id: Some(character_id),
+            season_id: None,
             notes: "Rote Lederjacke".to_string(),
             details: vec![],
             photos: vec![],

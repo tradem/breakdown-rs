@@ -15,6 +15,22 @@ commits (ADR-020 D5).
 
 ## [0.16.0] - Unreleased
 
+### Added — costume season repertoire projection + query (issue #453)
+
+- New migration `20260216000001_costume_season_repertoire`:
+  `projection_costume_season (costume_id, season_id)` join table + season
+  index. A costume can sit in **several** seasons' repertoires (main
+  characters reuse costumes across seasons) — the join is many-to-many, not
+  an ownership.
+- Costume projector: `CostumeCreated` with `season_id: Some(_)` inserts the
+  repertoire row (idempotent via PK); old events (`None`) skip it.
+- `CostumeRepositoryImpl::list_by_season` now returns the **union** of
+  costumes assigned to a character of the season (LEFT JOIN, previously
+  INNER) and costumes in repertoire for the season (EXISTS) — unassigned
+  seasonal costumes are visible, fixing the invisible-first-assignment bug.
+- **No additional bump:** additive migration + widened query result — rides
+  with the open 0.16.0 MINOR.
+
 ### Added — projector-health port implementation + ops predicate (issue #409)
 
 - `MembershipRepositoryImpl::has_active_ops_role`: static-SQL predicate over

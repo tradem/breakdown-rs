@@ -32,6 +32,7 @@ async fn postgres_harness_supports_costume_round_trip_template() -> Result<()> {
     let events = aggregate.handle(
         CreateCostume {
             id: costume_id,
+            season_id: None,
             series_id: None,
         },
         make_ctx::<CostumeAggregate>(),

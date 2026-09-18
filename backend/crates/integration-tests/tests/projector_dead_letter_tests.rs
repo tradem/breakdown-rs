@@ -248,6 +248,7 @@ async fn fk_violation_event_is_dead_lettered_and_projector_keeps_advancing() -> 
     let created = CostumeEvent::CostumeCreated {
         id: costume_id,
         character_id: None,
+        season_id: None,
         notes: String::new(),
         details: Vec::new(),
         photos: Vec::new(),
@@ -446,6 +447,7 @@ async fn undecodable_sierra_message_is_dead_lettered_and_projector_keeps_advanci
     let created = CostumeEvent::CostumeCreated {
         id: costume_id,
         character_id: None,
+        season_id: None,
         notes: String::new(),
         details: Vec::new(),
         photos: Vec::new(),

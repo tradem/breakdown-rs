@@ -49,6 +49,7 @@ export 'package:breakdown_api/src/model/create_ai_config_request.dart';
 export 'package:breakdown_api/src/model/create_block_request.dart';
 export 'package:breakdown_api/src/model/create_character_request.dart';
 export 'package:breakdown_api/src/model/create_costume_category_request.dart';
+export 'package:breakdown_api/src/model/create_costume_request.dart';
 export 'package:breakdown_api/src/model/create_credential_request.dart';
 export 'package:breakdown_api/src/model/create_episode_request.dart';
 export 'package:breakdown_api/src/model/create_scene_request.dart';

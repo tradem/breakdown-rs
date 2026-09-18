@@ -155,7 +155,7 @@ class _E2eCostumeRepository extends CostumeRepository {
   int assignCalls = 0;
 
   @override
-  Future<Result<IdVersionResponse>> createEmpty() async {
+  Future<Result<IdVersionResponse>> create(String? seasonId) async {
     final id = 'e2e-costume';
     rows = [...rows, _costume(id)];
     return Right(

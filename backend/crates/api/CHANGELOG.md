@@ -16,6 +16,19 @@ commits (ADR-020 D5).
 
 ## [0.10.0] - Unreleased
 
+### Added — create-with-repertoire-season costume flow (issue #453)
+
+- `POST /v1/costumes` body extends from empty `{}` to
+  `{ season_id: Option<SeasonId> }`: when present, the costume joins that
+  season's costume stream while unassigned — the API edge resolves the
+  `series_id` audit metadata from the season projection (404 on an unknown
+  season, mirroring `create_character`). Combined with the widened
+  `list_by_season` union (#453, infra) this restores the UI path to a
+  costume's first assignment that the Flutter widget contract
+  (`assign-costume-<id>-none` rows) already assumes.
+- **No additional bump:** request-body extension (optional field, old
+  clients sending `{}` keep working) — rides with the open 0.10.0 MINOR.
+
 ### Added — deterministic fault injection for E2E tests (issue #443)
 
 - New cfg-gated module `fault_injection`: a process-global one-shot latch
