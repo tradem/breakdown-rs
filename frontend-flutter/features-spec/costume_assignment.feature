@@ -44,7 +44,8 @@ Feature: Costume assignment (optimistic update + role denial)
     channel (`dev-membership:role=<role>`) — the runner builds the app once
     with fixed dart-defines, so a per-scenario membership shape cannot be a
     compile-time define. "viewer" yields a capability-less membership: the
-    client-side AUTHZ-GATE denies before any network call. The denial
+    client-side AUTHZ-GATE denies any costume command before that command's
+    network call (read-model/detail traffic stays allowed). The denial
     scenario therefore OPENS the costume detail (the `costume-assign-denied`
     narrative renders in place of the assign button) and asserts the #380
     request recorder proves zero costume command traffic left the device.
