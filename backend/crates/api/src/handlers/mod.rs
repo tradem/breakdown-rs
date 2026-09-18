@@ -59,7 +59,7 @@ use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::{
     BLOCK_NUMBER_ALREADY_EXISTS, EPISODE_NUMBER_ALREADY_EXISTS, MEMBERSHIP_NOT_FOUND,
-    SCENE_SHOOT_PAIR_ALREADY_EXISTS, SEASON_NUMBER_ALREADY_EXISTS,
+    SCENE_SHOOT_PAIR_ALREADY_EXISTS, SEASON_NOT_FOUND, SEASON_NUMBER_ALREADY_EXISTS,
 };
 use breakdown_core::membership::policy::{Action, PolicyDecision, SeasonAuthContext};
 use breakdown_core::membership::views::MembershipView;
@@ -128,7 +128,7 @@ use infra::ai::{
     ScheduleApplyWorker,
 };
 
-use crate::auth::CurrentUser;
+use crate::auth::{ActiveBlock, CurrentUser};
 use crate::state::{AppState, Ports, ProductionPorts};
 
 /// Response for aggregate creation endpoints.
@@ -1721,22 +1721,48 @@ pub async fn update_contact_info<P: Ports>(
 pub async fn create_costume<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
+    active_block: ActiveBlock,
     Json(req): Json<CreateCostumeRequest>,
 ) -> ApiResult<IdVersionResponse> {
     let id = Uuid::now_v7();
-    // Audit metadata (issue #147 pattern): resolve `series_id` best-effort at
-    // the API edge from the repertoire season's projection (issue #453). An
-    // unknown season 404s via `SEASON_NOT_FOUND`; a season-less create keeps
-    // `None`.
     let series_id = match req.season_id {
-        Some(season_id) => Some(
-            state
+        Some(season_id) => {
+            // AUTHZ-GATE: the route is gated only by block-membership
+            // middleware, so the target season must be verified against the
+            // caller's active block INSIDE the handler — otherwise a member
+            // of block A could create a repertoire row for a season of
+            // another block and expose it via season-scoped costume reads
+            // (issue #453 CodeRabbit review). The active block's projection
+            // is the authoritative block→season attribution; a cross-block
+            // season is rejected as not-found (no scope oracle) before any
+            // command is dispatched. The lookup is the API edge's legitimate
+            // read-model consumption (AGENTS.md §1).
+            let active_season = state
                 .ports
-                .season_repo()
-                .find_by_id(season_id.0)
+                .block_repo()
+                .find_by_id(active_block.0.0)
                 .await?
-                .series_id,
-        ),
+                .season_id;
+            if active_season != season_id {
+                // Deliberately indistinguishable from an unknown season:
+                // answering 404 (not 403) keeps the block scope a non-oracle.
+                return Err(ApiError::Domain(DomainError::NotFound {
+                    code: &SEASON_NOT_FOUND,
+                    resource: "season",
+                    id: season_id.0,
+                }));
+            }
+            // Series audit metadata from the target season's projection —
+            // only reached when the season passed the block-scope check.
+            Some(
+                state
+                    .ports
+                    .season_repo()
+                    .find_by_id(season_id.0)
+                    .await?
+                    .series_id,
+            )
+        }
         None => None,
     };
     let cmd = CreateCostume {
