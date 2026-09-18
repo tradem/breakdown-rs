@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 /// Host-side HTTP helpers for the Gherkin harness seeding steps
 /// (issue #368).
