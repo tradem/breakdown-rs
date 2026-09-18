@@ -52,11 +52,16 @@ Block and episode numbers are NOT user fields: the backend
 enforces `(series_id, number)` uniqueness for both blocks
 (`idx_projection_block_series_number`) and episodes
 (`idx_projection_episode_series_number`), so the wizard SHALL
-derive the first free series-scoped numbers at wizard open from the
-series' existing projections (`max + 1` — the same client-side
-append-order derivation discipline as `nextOrderKey`), render them
-as read-only headlines, and dispatch the drafts' episodes
-plan-sequentially (a retry reproduces the acked numbers exactly).
+derive the first free series-scoped numbers from the series'
+EXISTING projections via **live, forced-fresh network refetch**
+(`max + 1` — the same client-side append-order derivation
+Discipline as `nextOrderKey`), never from the boot-time
+`seasonsView`/Drift cache: the derivation must hold against
+accumulated, concurrently-mutated series state (issue #455), so a
+concurrent create cannot 409 on a number the derivation believed
+free. The derivation SHALL be re-run on submit, immediately
+before the first command, and SHALL render the read-only headline
+numbers.
 
 #### Scenario: Applying a template
 - **WHEN** the user selects the "4 Blöcke à 8 Episoden" template.

@@ -71,8 +71,13 @@ Future<FlutterTestConfiguration> buildGherkinConfig() async {
     // Per-step timeout must exceed the app-launch step's own 30s
     // `seasons-list` wait (cold emulator starts need it); the gherkin
     // core default is 10s, which deterministically times out the first
-    // scenario's Given on a cold instrumented start.
-    ..defaultTimeout = const Duration(seconds: 45)
+    // scenario's Given on a cold instrumented start. Raised further for
+    // the season-wizard happy path, whose 4×8 dispatch runs 37 sequential
+    // backend commands (~1s each from the emulator) plus the submit-time
+    // live re-derive (issue #455): every step STILL carries its own
+    // bounded `waitFor` timeouts, so the larger ceiling is the analytic
+    // worst case, never a sleep.
+    ..defaultTimeout = const Duration(seconds: 150)
     ..logFlutterProcessOutput = true
     ..verboseFlutterProcessLogs = false
     // Both values are configurable from the run environment so the suite is

@@ -282,9 +282,11 @@ void main() {
         expect(ctx.state.nextBlockNumber, 6);
         expect(ctx.state.nextEpisodeNumber, 10);
         expect(ctx.blockRepo.listBySeasonCalls, 2);
-        // The scripted projection serves the SAME two blocks for both
-        // seasons, so the episode walk fetches 2 × 2 blocks.
-        expect(ctx.episodeRepo.listByBlockCalls, 4);
+        // The series' episodes derive in ONE live series-scoped read
+        // (issue #455 derive repair: `GET /v1/episodes?series_id=…`), not
+        // a per-block walk.
+        expect(ctx.episodeRepo.listBySeriesCalls, 1);
+        expect(ctx.episodeRepo.listByBlockCalls, 0);
       },
     );
 
@@ -298,6 +300,70 @@ void main() {
       expect(ctx.state.nextBlockNumber, 1);
       expect(ctx.state.nextEpisodeNumber, 1);
     });
+
+    test('issue #455: a FAILED series episode-base read degrades to base 1 '
+        '(Err branch of the live listBySeries derivation)', () async {
+      final ctx = await _buildFixture(seasons: [_season('s1', 1)]);
+      ctx.blockRepo.listBySeasonResult = Right([
+        _blockView('b1', number: 3, seasonId: 's1'),
+      ]);
+      // The series' episodes read fails (e.g. no block membership yet at
+      // wizard open): the derivation must degrade honestly to episode
+      // base 1 — never fabricate a number that could 409.
+      ctx.episodeRepo.listBySeriesResult =
+          const Left<ProblemError, List<EpisodeView>>(
+            ProblemError(code: 'transport.down'),
+          );
+
+      await ctx.controller.seedDerivedNumbers(seriesId: 'series-1');
+
+      expect(ctx.state.nextBlockNumber, 4);
+      expect(ctx.state.nextEpisodeNumber, 1);
+    });
+
+    test('issue #455: boot-time seasonsView being EMPTY (retained snapshot in '
+        'the boot window) does not skew the derivation — it reads the live '
+        'fetch, not seasonsView', () async {
+      final ctx = await _buildFixture();
+      // The controller test harness serves an EMPTY `seasonsView` (the
+      // old derivation read it), but the live fetch sees two seasons
+      // with blocks — the derivation must reflect the LIVE projection.
+      ctx.seasonsHolder.value = Right([_season('s1', 1), _season('s2', 2)]);
+      ctx.blockRepo.listBySeasonResult = Right([
+        _blockView('b1', number: 9, seasonId: 's1'),
+      ]);
+      ctx.episodeRepo.listByBlockResult = Right([
+        _episodeView('e1', number: 5, blockId: 'b1'),
+      ]);
+
+      await ctx.controller.seedDerivedNumbers(seriesId: 'series-1');
+
+      // Derived from the LIVE fetch (block 9 / episode 5), not from an
+      // empty boot-time seasonsView.
+      expect(ctx.state.nextBlockNumber, 10);
+      expect(ctx.state.nextEpisodeNumber, 6);
+    });
+
+    test(
+      'issue #455: seedDerivedNumbers re-derives on demand (repeatable) — '
+      'numbers update when the series accumulates state between runs',
+      () async {
+        final ctx = await _buildFixture();
+        // First run: no blocks (empty series) → base 1.
+        await ctx.controller.seedDerivedNumbers(seriesId: 'series-1');
+        expect(ctx.state.nextBlockNumber, 1);
+        expect(ctx.state.numbersSeeded, isTrue);
+
+        // Concurrent harness seeding lands block 7 before the dispatch;
+        // a repeated derivation sees it and advances the plan.
+        ctx.blockRepo.listBySeasonResult = Right([
+          _blockView('b7', number: 7, seasonId: 's1'),
+        ]);
+        ctx.seasonsHolder.value = Right([_season('s1', 1)]);
+        await ctx.controller.seedDerivedNumbers(seriesId: 'series-1');
+        expect(ctx.state.nextBlockNumber, 8);
+      },
+    );
 
     test('reset restores the initial state (reopen starts fresh)', () async {
       final ctx = await _buildFixture();
@@ -357,6 +423,38 @@ void main() {
       expect(ctx.state.createdBlocks[1].episodesCreated, 4);
       // The season overlay was inserted for the seasons screen.
       expect(ctx.seasonOverlays.any((o) => o.id == 'n1'), isTrue);
+    });
+
+    test('issue #455: submit re-derives numbers from the live projection '
+        'BEFORE the first command (concurrent harness writes cannot 409 the '
+        'first block create)', () async {
+      var ctx = await _buildFixture();
+      ctx = seededTwoByFour(ctx);
+      // The wizard opened and derived base 1; by submit time the series
+      // accumulated block 12 in season s1 (same series-7 the dispatch
+      // targets). The submit-time re-derive must dispatch at block 13,
+      // NOT the stale 1.
+      ctx.blockRepo.listBySeasonResult = Right([
+        _blockView('b12', number: 12, seasonId: 's1'),
+      ]);
+      final s1 = SeasonView(
+        (b) => b
+          ..id = 's1'
+          ..number = 1
+          ..seriesId = 'series-7'
+          ..updatedAt = DateTime.utc(2026, 1, 1)
+          ..version = 1,
+      );
+      ctx.seasonsHolder.value = Right([s1]);
+
+      await ctx.controller.submit(seriesId: 'series-7');
+      await _flush();
+
+      expect(ctx.state.phase, SetupWizardPhase.completed);
+      // The first block create was at number 13 (the fresh derivation),
+      // not the stale 1.
+      expect(ctx.blockRepo.lastCreateRequests.first.number, 13);
+      expect(ctx.state.nextBlockNumber, 13);
     });
 
     test(

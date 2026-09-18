@@ -73,6 +73,52 @@ class EpisodeRepository extends BaseRepository {
     );
   }
 
+  /// Series-scoped fetch (`GET /v1/episodes?series_id=…` — the backend
+  /// lists episodes of a series, or of a single block when `block_id` is
+  /// given). This is the derivation's honest single-scope read for
+  /// series-scoped episode numbers (`idx_projection_episode_series_number`):
+  /// one call instead of a per-block walk, and a live fetch never a cache
+  /// snapshot (issue #455 derive repair).
+  ///
+  /// The snapshot is stored per-block on [Right] (each row's `block_id`
+  /// scope) so the cache stays consistent with the per-block snapshots of
+  /// the block-scoped reads. A failure leaves the cache untouched.
+  ///
+  /// Paginates through every page (issue #385).
+  Future<Result<List<EpisodeView>>> listBySeries(
+    String seriesId, {
+    Clock clock = Clock.system,
+    CacheWriteFence? fence,
+  }) async {
+    final Result<List<EpisodeView>> fetched = await fetchAllPages<EpisodeView>(
+      ({required int limit, required int offset}) => api
+          .getHandlersApi()
+          .listEpisodes(seriesId: seriesId, limit: limit, offset: offset),
+      dtoInvalidCode: 'episode.dto_invalid',
+    );
+    return fetched.match(
+      (err) async => Left<ProblemError, List<EpisodeView>>(err),
+      (rows) async {
+        if (fence != null && !fence.isCurrentGeneration(fence.generation)) {
+          return Right(rows);
+        }
+        try {
+          final byBlock = EpisodeRepository.groupByBlock(rows);
+          for (final entry in byBlock.entries) {
+            await cache.applySnapshotForBlock(
+              entry.key,
+              entry.value,
+              clock.now(),
+            );
+          }
+        } on Object {
+          return const Left(ProblemError(code: 'cache.write_failed'));
+        }
+        return Right(rows);
+      },
+    );
+  }
+
   /// Pure Drift read (no network) of the block's cached episodes.
   Future<Result<List<EpisodeView>>> readCached(String blockId) async {
     try {
