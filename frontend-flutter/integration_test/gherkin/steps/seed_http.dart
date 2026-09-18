@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: glm-5.3 (neuralwatt)
 
 /// Host-side HTTP helpers for the Gherkin harness seeding steps
@@ -151,11 +152,11 @@ Future<void> awaitSeasonProjection(String seasonId) async {
 /// Seeds the costume-assignment acceptance state against the REAL dev
 /// backend (issue #368): season → block (auto-bootstraps the dev principal
 /// as active costume-dept member in dev-auth mode) → two characters →
-/// costume → server-side pre-assign c-7 → ch-9 (the season costume stream
-/// scopes through the character join, so an unassigned costume never
-/// renders there — a real-backend contract discovery of this run; the
-/// scenario exercises its optimistic-update + reconciliation contract as a
-/// REASSIGNMENT on device).
+/// costume created with the repertoire season binding (issue #453 backend
+/// fix: `POST /v1/costumes` accepts `season_id`, the costume stays UNASSIGNED
+/// and is still visible in the season stream — the stream's repertoire union
+/// replaces the old character-join-only scoping that required the
+/// server-side pre-assign workaround).
 ///
 /// Returns the symbolic→real id map (`1`, `ch-3`, `ch-9`, `c-7`).
 Future<Map<String, String>> seedCostumeAssignment() async {
@@ -185,16 +186,10 @@ Future<Map<String, String>> seedCostumeAssignment() async {
     'name': 'Gherkin Vorbefund',
     'category': 'guest',
   }, activeBlock: blockId);
-  final costume = await postJson(
-    '/v1/costumes',
-    <String, Object?>{},
-    activeBlock: blockId,
-  );
-  final costumeId = costume['id']! as String;
-  await postJson('/v1/costumes/$costumeId/assign', {
-    'character_id': character9['id']! as String,
-    'version': 1,
+  final costume = await postJson('/v1/costumes', <String, Object?>{
+    'season_id': seasonId, // #453: repertoire binding → visible unassigned
   }, activeBlock: blockId);
+  final costumeId = costume['id']! as String;
   return {
     '1': seasonId,
     'ch-3': character3['id']! as String,

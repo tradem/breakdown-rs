@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
@@ -539,8 +540,9 @@ impl CostumeCommands for CostumeCommandsImpl {
         cmd: CreateCostume,
     ) -> Result<(Uuid, AggregateVersion), DomainError> {
         let id = cmd.id;
-        // A freshly created costume has no character association yet, so the
-        // series is genuinely unknown at creation; the command carries `None`.
+        // The series is not a costume attribute — it is audit metadata only,
+        // resolved at the API edge from the repertoire season's projection
+        // (issue #453). A costume created without a season carries `None`.
         let series_id = cmd.series_id;
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Empty)

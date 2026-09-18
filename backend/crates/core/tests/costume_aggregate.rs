@@ -27,6 +27,7 @@ fn make_costume() -> CostumeAggregate {
         .handle(
             CreateCostume {
                 id: Uuid::now_v7(),
+                season_id: None,
                 series_id: Some(series_id()),
             },
             make_ctx(),
@@ -42,6 +43,7 @@ fn test_create_costume_success() {
     let result = CostumeAggregate::default().handle(
         CreateCostume {
             id: Uuid::now_v7(),
+            season_id: None,
             series_id: Some(series_id()),
         },
         make_ctx(),
@@ -412,6 +414,7 @@ fn test_apply_updates_state() {
         CostumeEvent::CostumeCreated {
             id,
             character_id: None,
+            season_id: None,
             notes: notes.clone(),
             details: Vec::new(),
             photos: Vec::new(),
@@ -438,6 +441,7 @@ fn test_unlink_photo_uses_negation() {
         CostumeEvent::CostumeCreated {
             id,
             character_id: None,
+            season_id: None,
             notes: String::new(),
             details: Vec::new(),
             photos: vec![photo_id],

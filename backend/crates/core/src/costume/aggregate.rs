@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
 //! Costume aggregate.
@@ -42,6 +43,7 @@ impl Apply for CostumeAggregate {
             CostumeEvent::CostumeCreated {
                 id,
                 character_id,
+                season_id: _,
                 notes,
                 details,
                 photos,
@@ -112,6 +114,7 @@ impl Command<CreateCostume> for CostumeAggregate {
         Ok(vec![CostumeEvent::CostumeCreated {
             id: cmd.id,
             character_id: None,
+            season_id: cmd.season_id.map(|s| s.0),
             notes: String::new(),
             details: Vec::new(),
             photos: Vec::new(),

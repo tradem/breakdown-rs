@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: qwen3.6-35b (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
@@ -35,6 +36,7 @@ impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for Cos
             CostumeEvent::CostumeCreated {
                 id,
                 character_id,
+                season_id,
                 notes,
                 details,
                 photos,
@@ -62,6 +64,23 @@ impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for Cos
                 .bind(updated_at)
                 .execute(&mut **ctx)
                 .await?;
+
+                // Repertoire binding (issue #453): the created costume joins
+                // the season's costume stream. Idempotent via the PK; old
+                // events replay with `season_id = None` and skip this.
+                if let Some(season_id) = season_id {
+                    sqlx::query(
+                        r#"
+                        INSERT INTO projection_costume_season (costume_id, season_id)
+                        VALUES ($1, $2)
+                        ON CONFLICT (costume_id, season_id) DO NOTHING
+                        "#,
+                    )
+                    .bind(id)
+                    .bind(season_id)
+                    .execute(&mut **ctx)
+                    .await?;
+                }
 
                 for detail in details {
                     let category_name =

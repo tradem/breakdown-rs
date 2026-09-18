@@ -125,7 +125,7 @@ class _FakeCostumeRepository extends CostumeRepository {
   int? lastNotesVersion;
 
   @override
-  Future<Result<IdVersionResponse>> createEmpty() {
+  Future<Result<IdVersionResponse>> create(String? seasonId) {
     createCalls++;
     final scripted = nextCreate;
     if (scripted != null) return Future.value(scripted);

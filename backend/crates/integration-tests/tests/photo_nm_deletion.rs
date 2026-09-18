@@ -224,6 +224,7 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
             test_user(),
             CreateCostume {
                 id: costume_a_id,
+                season_id: None,
                 series_id: None,
             },
         )
@@ -247,6 +248,7 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
             test_user(),
             CreateCostume {
                 id: costume_b_id,
+                season_id: None,
                 series_id: None,
             },
         )

@@ -210,7 +210,7 @@ void main() {
 
       final ok = _ScriptInterceptor(respond: (o) => okFor(o.path));
       final repo = CostumeRepository(_api(ok), dao);
-      expect((await repo.createEmpty()).isRight(), isTrue);
+      expect((await repo.create(null)).isRight(), isTrue);
       expect(
         (await repo.assign(
           'c-1',
@@ -258,7 +258,7 @@ void main() {
         statusCode: 409,
       );
       final failing = CostumeRepository(_api(conflict), dao);
-      _expectLeftCode(await failing.createEmpty(), 'concurrency.conflict');
+      _expectLeftCode(await failing.create(null), 'concurrency.conflict');
       _expectLeftCode(
         await failing.assign(
           'c-1',

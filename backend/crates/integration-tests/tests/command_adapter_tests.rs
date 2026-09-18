@@ -537,6 +537,7 @@ async fn costume_create() -> Result<()> {
 
     let cmd = CreateCostume {
         id: costume_id,
+        season_id: None,
         series_id: None,
     };
 
@@ -562,6 +563,7 @@ async fn costume_notes() -> Result<()> {
 
     let cmd = CreateCostume {
         id: costume_id,
+        season_id: None,
         series_id: None,
     };
     let (_id, ver) = costume_cmd.create(test_user(), cmd).await?;
@@ -621,6 +623,7 @@ async fn costume_assign_unassign() -> Result<()> {
 
     let cmd = CreateCostume {
         id: costume_id,
+        season_id: None,
         series_id: None,
     };
     let (_id, ver) = costume_cmd.create(test_user(), cmd).await?;
@@ -679,6 +682,7 @@ async fn costume_detail_add_remove() -> Result<()> {
 
     let cmd = CreateCostume {
         id: costume_id,
+        season_id: None,
         series_id: None,
     };
     let (_id, ver) = costume_cmd.create(test_user(), cmd).await?;
@@ -741,6 +745,7 @@ async fn costume_photo_link_unlink() -> Result<()> {
 
     let cmd = CreateCostume {
         id: costume_id,
+        season_id: None,
         series_id: None,
     };
     let (_id, ver) = costume_cmd.create(test_user(), cmd).await?;

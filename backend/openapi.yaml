@@ -766,6 +766,18 @@ components:
       - order_key
       type: object
     CreateCostumeRequest:
+      description: |-
+        Create-costume payload (issue #453).
+
+        `season_id` is the optional repertoire season: when present, the costume
+        joins that season's costume stream while unassigned. The API edge resolves
+        the `series_id` audit metadata from the season projection (404 on an
+        unknown season).
+      properties:
+        season_id:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SeasonId'
       type: object
     CreateCredentialRequest:
       description: |-

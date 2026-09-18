@@ -14,6 +14,20 @@ releases are cut as `flutter-vX.Y.Z` tags.
 
 ## [Unreleased]
 
+### Changed
+
+- Gherkin costume-assignment seed uses the backend #453 repertoire
+  binding: `POST /v1/costumes` now carries `season_id`, so the seeded
+  costume is created UNASSIGNED yet visible in the season's Kleidung
+  stream — the server-side pre-assign workaround from #368 is dropped
+  and the optimistic-overlay scenario can exercise a genuine first
+  assignment. Un-pending + on-device run of
+  `costume_assignment.feature` remains a follow-up (emulator harness
+  from #368 in place).
+- **Version bump:** `0.3.0-alpha.10+19 → 0.3.0-alpha.11+20` (pre-release
+  increment per merged-PR practice on the alpha line; `+N` stays
+  strictly monotonic for the Play `versionCode`).
+
 ### Added
 
 - AI document import (`flutter-ai-import`): the user-facing

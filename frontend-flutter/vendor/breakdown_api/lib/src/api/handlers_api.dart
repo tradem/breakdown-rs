@@ -31,6 +31,7 @@ import 'package:breakdown_api/src/model/create_ai_config_request.dart';
 import 'package:breakdown_api/src/model/create_block_request.dart';
 import 'package:breakdown_api/src/model/create_character_request.dart';
 import 'package:breakdown_api/src/model/create_costume_category_request.dart';
+import 'package:breakdown_api/src/model/create_costume_request.dart';
 import 'package:breakdown_api/src/model/create_credential_request.dart';
 import 'package:breakdown_api/src/model/create_episode_request.dart';
 import 'package:breakdown_api/src/model/create_scene_request.dart';
@@ -79,7 +80,6 @@ import 'package:breakdown_api/src/model/update_shooting_day_request.dart';
 import 'package:breakdown_api/src/model/version_request.dart';
 import 'package:breakdown_api/src/model/wrap_shooting_day_request.dart';
 import 'package:built_collection/built_collection.dart';
-import 'package:built_value/json_object.dart';
 
 class HandlersApi {
   final Dio _dio;
@@ -1121,7 +1121,7 @@ class HandlersApi {
   ///
   ///
   /// Parameters:
-  /// * [body]
+  /// * [createCostumeRequest]
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -1132,7 +1132,7 @@ class HandlersApi {
   /// Returns a [Future] containing a [Response] with a [IdVersionResponse] as data
   /// Throws [DioException] if API call or serialization fails
   Future<Response<IdVersionResponse>> createCostume({
-    required JsonObject body,
+    required CreateCostumeRequest createCostumeRequest,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -1157,7 +1157,9 @@ class HandlersApi {
     dynamic _bodyData;
 
     try {
-      _bodyData = body.value;
+      const _type = FullType(CreateCostumeRequest);
+      _bodyData =
+          _serializers.serialize(createCostumeRequest, specifiedType: _type);
     } catch (error, stackTrace) {
       throw DioException(
         requestOptions: _options.compose(
