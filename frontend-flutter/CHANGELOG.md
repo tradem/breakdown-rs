@@ -2,6 +2,7 @@
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: muse-spark-1.3-contributor (opencode-go) -->
 <!-- Co-authored-by: omen-alpha (opencode-go) -->
+<!-- Co-authored-by: deepseek-v4-flash (neuralwatt) -->
 
 # Changelog
 
@@ -16,6 +17,22 @@ releases are cut as `flutter-vX.Y.Z` tags.
 
 ### Changed
 
+- Costume Reassign runs a client-side unassign→assign sequence (issue
+  #454). `CostumesController.assign` no longer dispatches the plain
+  `POST /v1/costumes/{id}/assign` command onto an already-assigned costume
+  (which the backend rejects with 409 `costume.already-assigned`): a
+  reassignment now runs `unassign` (echoing the acted-on row's version) then
+  `assign` (echoing the unassign ACK version — fence-friendly version
+  echoes). Re-picking the already-assigned character is a client-side no-op
+  (the backend 422s it). An assign-leg failure after a successful unassign
+  leaves the costume honestly UNASSIGNED and surfaces via the command-error
+  provider. On-device `costume_assignment.feature` gains a promoted
+  reassignment scenario (dedicated seed costume `c-r`; seed step
+  generalized, optimistic step tolerates the reconcile race on a fast
+  localhost backend).
+- **Version bump:** `0.3.0-alpha.11+20 → 0.3.0-alpha.12+21` (pre-release
+  increment per merged-PR practice on the alpha line; `+N` stays strictly
+  monotonic for the Play `versionCode`).
 - Gherkin costume-assignment seed uses the backend #453 repertoire
   binding: `POST /v1/costumes` now carries `season_id`, so the seeded
   costume is created UNASSIGNED yet visible in the season's Kleidung
