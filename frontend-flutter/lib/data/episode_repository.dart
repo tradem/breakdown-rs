@@ -114,13 +114,18 @@ class EpisodeRepository extends BaseRepository {
   /// Test/DI seam mirroring `SeasonRepository.getAndCacheFrom`: applies a
   /// [fetched] series-scoped episode result to the cache WITHOUT a network
   /// call. On [Right] stores the per-block snapshots AND clears every
-  /// cached block of the series absent from the snapshot (CodeRabbit #464:
-  /// the successful SERIES snapshot is authoritative per block —
-  /// `groupByBlock(rows)` creates entries only for blocks with returned
-  /// episodes, so a block whose episodes were ALL removed since the last
-  /// cache would otherwise keep stale rows, since an empty block never
-  /// reaches `applySnapshotForBlock` otherwise). On [Left] returns the
-  /// error unchanged and leaves the cache untouched.
+  /// cached block of the series absent from the snapshot — atomically, in
+  /// ONE transaction via [EpisodeCacheDao.applySeriesSnapshot] (CodeRabbit
+  /// #464 re-review: `groupByBlock(rows)` creates entries only for blocks
+  /// with returned episodes, so a block whose episodes were ALL removed
+  /// since the last cache would otherwise keep stale rows; a single
+  /// transaction means a mid-write failure rolls back every block, it never
+  /// leaves earlier blocks committed under `cache.write_failed`). On
+  /// [Left] returns the error unchanged and leaves the cache untouched.
+  ///
+  /// When [seriesId] is null the series-scoped absent-block clearing is
+  /// skipped (no series scope to prune against) and only the per-block
+  /// snapshot-replace runs, mirroring [listByBlock]'s block-scoped write.
   Future<Result<List<EpisodeView>>> applySeriesSnapshotFrom(
     Result<List<EpisodeView>> fetched, {
     Clock clock = Clock.system,
@@ -130,21 +135,20 @@ class EpisodeRepository extends BaseRepository {
       (err) async => Left<ProblemError, List<EpisodeView>>(err),
       (rows) async {
         try {
-          final byBlock = EpisodeRepository.groupByBlock(rows);
-          for (final entry in byBlock.entries) {
-            await cache.applySnapshotForBlock(
-              entry.key,
-              entry.value,
-              clock.now(),
+          if (seriesId == null) {
+            for (final entry in EpisodeRepository.groupByBlock(rows).entries) {
+              await cache.applySnapshotForBlock(
+                entry.key,
+                entry.value,
+                clock.now(),
+              );
+            }
+          } else {
+            await cache.applySeriesSnapshot(
+              byBlock: EpisodeRepository.groupByBlock(rows),
+              seriesId: seriesId,
+              cachedAt: clock.now(),
             );
-          }
-          final cachedBlockIds = seriesId == null
-              ? <String>{}
-              : await cache.readBlockIdsBySeries(seriesId);
-          for (final blockId in cachedBlockIds.difference(
-            byBlock.keys.toSet(),
-          )) {
-            await cache.applySnapshotForBlock(blockId, const [], clock.now());
           }
         } on Object {
           return const Left(ProblemError(code: 'cache.write_failed'));

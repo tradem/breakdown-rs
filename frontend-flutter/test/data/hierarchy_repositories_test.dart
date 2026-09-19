@@ -285,6 +285,65 @@ void main() {
     });
   });
 
+  group(
+    'EpisodeCacheDao.applySeriesSnapshot (single-transaction series snapshot)',
+    () {
+      late CacheDatabase db;
+      late EpisodeCacheDao dao;
+
+      setUp(() {
+        db = CacheDatabase(NativeDatabase.memory());
+        dao = EpisodeCacheDao(db);
+      });
+      tearDown(() => db.close());
+
+      test(
+        'replaces per-block snapshots AND clears absent cached blocks in one '
+        'call (CodeRabbit #464 re-review: absent-from-snapshot blocks must not '
+        'keep stale rows)',
+        () async {
+          final at = DateTime.utc(2026, 1, 1);
+          // Seed block A and block B episodes for the series.
+          await dao.applySnapshotForBlock('blockA', [
+            _episode('eA1', blockId: 'blockA'),
+            _episode('eA2', blockId: 'blockA'),
+          ], at);
+          await dao.applySnapshotForBlock('blockB', [
+            _episode('eB1', blockId: 'blockB'),
+          ], at);
+
+          // A SERIES snapshot containing only block A (block B's episodes
+          // were all removed server-side). The absent block B must be
+          // cleared, and block A snapshot-replaced, in one apply call.
+          await dao.applySeriesSnapshot(
+            byBlock: {
+              'blockA': [_episode('eA3', blockId: 'blockA')],
+            },
+            seriesId: 'series-1',
+            cachedAt: at,
+          );
+
+          expect((await dao.readByBlock('blockA')).map((e) => e.id), ['eA3']);
+          expect(await dao.readByBlock('blockB'), isEmpty);
+        },
+      );
+
+      test('an empty snapshot for every block clears the series entirely '
+          '(absent-block clearing with zero live blocks)', () async {
+        final at = DateTime.utc(2026, 1, 1);
+        await dao.applySnapshotForBlock('blockA', [
+          _episode('eA1', blockId: 'blockA'),
+        ], at);
+        await dao.applySeriesSnapshot(
+          byBlock: const <String, List<EpisodeView>>{},
+          seriesId: 'series-1',
+          cachedAt: at,
+        );
+        expect(await dao.readByBlock('blockA'), isEmpty);
+      });
+    },
+  );
+
   group('pruneOrphanedHierarchyRows + expiry (D5/TTL)', () {
     late CacheDatabase db;
 

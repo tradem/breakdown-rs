@@ -60,9 +60,13 @@ Discipline as `nextOrderKey`), never from the boot-time
 accumulated, concurrently-mutated series state (issue #455). The
 live refetch reduces stale-number conflicts but is NOT an atomic
 allocator — a create-time conflict in the remaining race window
-follows the partial-failure and in-session retry flow. The
-derivation SHALL be re-run on submit, immediately before the first
-command, and SHALL render the read-only headline numbers.
+follows the partial-failure and in-session retry flow. Before
+the first command, the wizard SHALL force-freshly derive block
+numbers and render the read-only headline numbers. After the first
+block create succeeds, it SHALL force-freshly derive the series'
+episode base before creating episodes. Failed required live reads
+SHALL stop dependent dispatch instead of using a degraded
+`max + 1`; retries SHALL preserve already-locked numbers.
 
 #### Scenario: Applying a template
 - **WHEN** the user selects the "4 Blöcke à 8 Episoden" template.

@@ -165,6 +165,50 @@ class EpisodeCacheDao {
     });
   }
 
+  /// Applies a complete SERIES episode snapshot in ONE transaction
+  /// (CodeRabbit #464 re-review): per-block snapshot-replace for each entry
+  /// in [byBlock] PLUS clearing of every cached block of [seriesId] absent
+  /// from the snapshot, all atomic — a failure rolls back everything. Does
+  /// NOT nest [applySnapshotForBlock] (which starts its own transaction).
+  Future<void> applySeriesSnapshot({
+    required Map<String, List<EpisodeView>> byBlock,
+    required DateTime cachedAt,
+    required String seriesId,
+  }) {
+    return _db.transaction(() async {
+      final liveBlockIds = byBlock.keys.toSet();
+      for (final entry in byBlock.entries) {
+        final ids = entry.value.map((v) => v.id).toSet();
+        for (final view in entry.value) {
+          await _db
+              .into(_db.episodeCacheRows)
+              .insertOnConflictUpdate(_companion(view, cachedAt));
+        }
+        if (ids.isEmpty) {
+          await (_db.delete(
+            _db.episodeCacheRows,
+          )..where((t) => t.blockId.equals(entry.key))).go();
+        } else {
+          await (_db.delete(_db.episodeCacheRows)
+                ..where((t) => t.blockId.equals(entry.key) & t.id.isNotIn(ids)))
+              .go();
+        }
+      }
+      final rows = await (_db.select(
+        _db.episodeCacheRows,
+      )..where((t) => t.seriesId.equals(seriesId))).get();
+      final absent = {
+        for (final r in rows)
+          if (!liveBlockIds.contains(r.blockId)) r.blockId,
+      };
+      for (final blockId in absent) {
+        await (_db.delete(
+          _db.episodeCacheRows,
+        )..where((t) => t.blockId.equals(blockId))).go();
+      }
+    });
+  }
+
   Future<List<EpisodeView>> readByBlock(String blockId) async {
     final rows = await (_db.select(
       _db.episodeCacheRows,
@@ -187,18 +231,6 @@ class EpisodeCacheDao {
             ]))
             .get();
     return rows.map(_toEpisodeView).toList();
-  }
-
-  /// Distinct cached `blockId`s for [seriesId] — the cached episode rows
-  /// carry `seriesId`, so this enumerates every block whose episodes the
-  /// client has EVER cached for the series (used by the series-scoped
-  /// snapshot in `EpisodeRepository.listBySeries` to clear blocks absent
-  /// from the successful response). Deterministic ordering for tests.
-  Future<Set<String>> readBlockIdsBySeries(String seriesId) async {
-    final rows = await (_db.select(
-      _db.episodeCacheRows,
-    )..where((t) => t.seriesId.equals(seriesId))).get();
-    return {for (final row in rows) row.blockId};
   }
 
   Future<EpisodeView?> readById(String id) async {
