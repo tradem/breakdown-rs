@@ -274,13 +274,19 @@ Iterable<StepDefinitionGeneric> seasonWizardSteps() => [
     'the wizard shows the created structure {string}',
     (String structure, context) async {
       final driver = context.world.driver!;
+      // The 4×8 happy path dispatches 1 season + 4 blocks + 32 episodes =
+      // 37 sequential commands against the real backend; each takes ~1s
+      // from the emulator, plus the submit-time live re-derive (issue
+      // #455). The completion budget must cover that analytic worst case
+      // (deterministic-tests rule — never a sleep, a bounded per-command
+      // worst case).
       await driver.waitFor(
         find.byValueKey('wizard-completion'),
-        timeout: const Duration(seconds: 30),
+        timeout: const Duration(seconds: 120),
       );
       await driver.waitFor(
         find.text(structure),
-        timeout: const Duration(seconds: 10),
+        timeout: const Duration(seconds: 30),
       );
     },
   ),
@@ -294,7 +300,7 @@ Iterable<StepDefinitionGeneric> seasonWizardSteps() => [
       final found = await _waitForAny(driver, [
         find.byValueKey('wizard-completion-import-cta'),
         find.byValueKey('wizard-completion-ai-info'),
-      ], const Duration(seconds: 10));
+      ], const Duration(seconds: 20));
       if (!found) {
         throw Exception(
           'Neither the import CTA nor the prerequisite info card rendered',
@@ -308,10 +314,13 @@ Iterable<StepDefinitionGeneric> seasonWizardSteps() => [
       final driver = context.world.driver!;
       // The 3×6 template APPENDS to the one default draft: the template
       // drafts are positions 1..3, each episode-count field holds "6".
+      // The emulator driver is slow under a multi-scenario run (the happy
+      // path's own waits logged "taking a long time"), so the draft-card
+      // wait is raised to a bounded worst case.
       for (var i = 1; i <= 3; i++) {
         await driver.waitFor(
           find.byValueKey('wizard-block-draft-$i'),
-          timeout: const Duration(seconds: 10),
+          timeout: const Duration(seconds: 30),
         );
         final count = await driver.getText(
           find.byValueKey('wizard-episode-count-$i'),
@@ -377,11 +386,19 @@ Iterable<StepDefinitionGeneric> seasonWizardSteps() => [
     context,
   ) async {
     // The wizard popped back to the seasons home and nothing was
-    // created: the empty state's setup CTA is on-screen again (the dev
-    // backend seeds zero seasons for this scenario family).
+    // created. The seasons home renders the empty-state CTA only when the
+    // backend has ZERO seasons; under accumulated dev data it renders the
+    // card grid + the create FAB. Both states are guaranteed by the
+    // authenticated-session gate, so assert the seasons home is showing
+    // (wizard gone) via the FAB — the same entry the wizard came from.
     await context.world.driver!.waitFor(
-      find.byValueKey('seasons-empty-setup-cta'),
+      find.byValueKey('season-add-fab'),
       timeout: const Duration(seconds: 30),
+    );
+    // The wizard route is gone (its season step is no longer on-screen).
+    await context.world.driver!.waitForAbsent(
+      find.byValueKey('wizard-step-season'),
+      timeout: const Duration(seconds: 10),
     );
   }),
 ];

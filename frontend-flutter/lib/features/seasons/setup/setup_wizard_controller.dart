@@ -59,50 +59,161 @@ class SetupWizardController extends _$SetupWizardController {
 
   /// Derives the first free SERIES-scoped block number (task: backend
   /// invariant `idx_projection_block_series_number` — block numbers are
-  /// unique per series, not per season) from the series' existing blocks
-  /// projection. Walks the series' seasons (the projection rows the screen
-  /// opened on) and fetches each season's blocks — the same read-model
-  /// data the blocks screens render; the DERIVED NUMBER is the only
-  /// command payload this feeds (append-order derivation, `nextOrderKey`
-  /// discipline), never audit context.
+  /// unique per series, not per season) from the series' EXISTING blocks
+  /// projection. Live network refetch, never the boot-time `seasonsView`/
+  /// Drift cache: the derivation must hold against accumulated,
+  /// concurrently-mutated dev-series state (issue #455 — the boot-time
+  /// `seasonsView` can be empty (see below) or a stale snapshot of a
+  /// concurrently-seeded backend, and a caching read that degrades on
+  /// failure starts the plan at a taken base number). The DERIVED NUMBER
+  /// is the only command payload this feeds (append-order derivation,
+  /// `nextOrderKey` discipline), never audit context.
+  ///
+  /// Reads go through the injected list-fetch seams the screens use
+  /// (`seasonsListFetchProvider` / `blocksListFetchProvider`) plus the
+  /// series-scoped episode read ([EpisodeRepository.listBySeries]), all
+  /// forced FRESH on every run via the established refetch boundary
+  /// (`ref.invalidate` → `ref.read(...future)` — the same pattern the
+  /// blocks/episodes controllers' `_refetchProjection` uses). In
+  /// production each run is therefore a live network refetch, in the
+  /// controller tests the overridden seam:
+  /// * `GET /v1/seasons` (paginated, series-filtered) — the series'
+  ///   seasons. The boot-time `seasonsView` can serve an EMPTY retained
+  ///   snapshot during the boot window, which emptied the old derivation
+  ///   to block 1; a live fetch closes that;
+  /// * per season `GET /v1/blocks?season_id=…` — that season's blocks
+  ///   (all pages; the backend REQUIRES `season_id`, so one call per
+  ///   season is the honest single-scope block read);
+  /// * `GET /v1/episodes?series_id=…` (one call via
+  ///   [EpisodeRepository.listBySeries]) — the series' episode numbers
+  ///   (episodes are numbered per series too,
+  ///   `idx_projection_episode_series_number`).
   ///
   /// A failed fetch degrades to base 1 (the honest fallback for an empty
-  /// series); a mid-dispatch 409 then surfaces as partial failure with
-  /// the in-session retry.
+  /// series — and for a momentarily unreachable backend, the submit-time
+  /// re-derive and the mid-dispatch 409 then surface as partial failure
+  /// with the in-session retry). Never reverts to a cached/retained
+  /// snapshot: that is exactly the poisoning this repair removes.
+  ///
+  /// The method is repeatable and re-invokable while editing (issue #455:
+  /// the derivation must hold against state that changed after a previous
+  /// run); [SetupWizardState.numbersSeeded] is set only when a run
+  /// settles.
   Future<void> seedDerivedNumbers({required String seriesId}) async {
     if (!state.isEditing) return;
-    final seasons = ref
-        .read(seasonsView)
-        .rows
-        .where((s) => s.seriesId == seriesId)
-        .toList();
+    await _deriveNumbers(seriesId: seriesId);
+  }
+
+  /// Un-guarded core of the derivation (the editing-phase guard lives on
+  /// [seedDerivedNumbers]; the dispatch runs this during `dispatching`, so
+  /// it must NOT gate on editing). See [seedDerivedNumbers] for the
+  /// contract. Writes state only if `ref.mounted` (the autoDispose
+  /// controller may be disposed across the network awaits).
+  ///
+  /// Returns the first **season or block** read error, or `null` on
+  /// success (CodeRabbit #464: the wizard must never dispatch against a
+  /// degraded `max + 1` — a failed live read is propagated so the dispatch
+  /// caller can fail closed). The wizard-open path ([seedDerivedNumbers])
+  /// ignores the return and treats the failure as the honest empty
+  /// fallback (base 1, `numbersSeeded` still lifts so the user can
+  /// continue); the dispatch path (`_runDispatch`) stops on a non-null
+  /// return.
+  Future<ProblemError?> _deriveNumbers({required String seriesId}) async {
+    ProblemError? error;
     final blockNumbers = <int>[];
-    final episodeNumbers = <int>[];
-    final blockRepo = ref.read(blockRepositoryProvider);
-    final episodeRepo = ref.read(episodeRepositoryProvider);
-    for (final season in seasons) {
-      final blocks = await blockRepo
-          .listBySeason(season.id)
-          .then((res) => res.match((_) => const <BlockView>[], (rows) => rows));
-      blockNumbers.addAll(blocks.map((b) => b.number));
-      for (final block in blocks) {
-        final episodes = await episodeRepo
-            .listByBlock(block.id)
-            .then(
-              (res) => res.match((_) => const <EpisodeView>[], (rows) => rows),
-            );
-        episodeNumbers.addAll(episodes.map((e) => e.number));
+
+    // The series' seasons forced FRESH from the injected live fetch (never
+    // the boot-time seasonsView — issue #455 derive repair; an invalidated
+    // re-run refetches, so a repeatable derivation reflects accumulation).
+    ref.invalidate(seasonsListFetchProvider);
+    final seasonsResult = await ref.read(seasonsListFetchProvider.future);
+    final seasonsError = seasonsResult.getLeft().toNullable();
+    if (seasonsError != null) {
+      error = seasonsError;
+    } else {
+      final seasons = seasonsResult
+          .getOrElse((_) => const <SeasonView>[])
+          .where((s) => s.seriesId == seriesId)
+          .toList();
+      for (final season in seasons) {
+        if (!ref.mounted) return null;
+        ref.invalidate(blocksListFetchProvider(season.id));
+        final blocksResult = await ref.read(
+          blocksListFetchProvider(season.id).future,
+        );
+        final blockError = blocksResult.getLeft().toNullable();
+        if (blockError != null) {
+          error = blockError;
+          break;
+        }
+        blockNumbers.addAll(
+          blocksResult
+              .getOrElse((_) => const <BlockView>[])
+              .map((b) => b.number),
+        );
       }
     }
-    if (!ref.mounted || !state.isEditing) return;
+
+    // Episode base is NON-fatal here (CodeRabbit #464): at dispatch start
+    // the caller has no block membership yet, so the BlockMember-scoped
+    // episodes read is EXPECTED to 400 — the authoritative base is set by
+    // the post-first-block re-derive in `_runDispatch`. Its error is
+    // ignored; a failure leaves `nextEpisodeNumber` at its prior value.
+    await _deriveEpisodeNumbers(seriesId: seriesId);
+    if (!ref.mounted) return null;
     state = state.copyWith(
       nextBlockNumber: smartDefaultBlockNumber(blockNumbers),
-      nextEpisodeNumber: smartDefaultEpisodeNumber(episodeNumbers),
       // The derivation has SETTLED (success or honest fallback): the
       // screen's advance/confirm gates lift from here (never dispatch on
       // the fallback numbers while the reads are still running).
       numbersSeeded: true,
     );
+    return error;
+  }
+
+  /// Derives ONLY the series' first free EPISODE number (the series'
+  /// episodes from a live series-scoped read).
+  ///
+  /// Episodes are `BlockMember`-scoped server-side
+  /// (`GET /v1/episodes` requires `X-Active-Block`): at wizard open the
+  /// caller has NO block membership yet, so the read 400s and honestly
+  /// degrades (no state mutation — the prior `nextEpisodeNumber` stays;
+  /// at open that is the default 1). But a freshly created block grants
+  /// its creator ownership (the dispatch's own `AUTHZ-GATE` scope-set), so
+  /// the dispatch re-derives the episode base AFTER the first block create
+  /// — see `_runDispatch` (issue #455 episode side).
+  ///
+  /// Returns the read error, or `null` on success (CodeRabbit #464). On a
+  /// failure the derivation does NOT fabricate base 1 — it leaves
+  /// `nextEpisodeNumber` untouched so the caller can fail closed; the
+  /// post-block-1 dispatch caller stops before any episode create.
+  Future<ProblemError?> _deriveEpisodeNumbers({
+    required String seriesId,
+  }) async {
+    if (!ref.mounted) return null;
+    final episodeResult = await ref
+        .read(episodeRepositoryProvider)
+        .listBySeries(seriesId);
+    if (!ref.mounted) return null;
+    final episodeError = episodeResult.getLeft().toNullable();
+    if (episodeError != null) return episodeError;
+    final episodeNumbers = episodeResult
+        .getOrElse((_) => const <EpisodeView>[])
+        .map((e) => e.number)
+        .toList();
+    state = state.copyWith(
+      nextEpisodeNumber: smartDefaultEpisodeNumber(episodeNumbers),
+    );
+    return null;
+  }
+
+  /// Re-runs [seedDerivedNumbers] against the live backend (issue #455):
+  /// the series accumulates state concurrently while the wizard is open,
+  /// so the plan's derived block number must be re-checked before the
+  /// user advances. No-op outside the editing phase; keeps draft state.
+  Future<void> rederive({required String seriesId}) async {
+    if (!state.isEditing) return;
+    await seedDerivedNumbers(seriesId: seriesId);
   }
 
   void setSeasonName(String name) {
@@ -245,7 +356,9 @@ class SetupWizardController extends _$SetupWizardController {
   /// Retries the remaining commands of a partially failed dispatch
   /// in-session (spec `Partial failure`): skips every command already
   /// acknowledged (the created refs are the resume cursor) and continues
-  /// from the failed one.
+  /// from the failed one. The plan's numbers stay LOCKED to the acked
+  /// ones (recomputing would renumber already-created rows), so a retry
+  /// never re-derives.
   Future<void> retryRemaining({required String seriesId}) async {
     if (state.phase != SetupWizardPhase.partialFailure) return;
     await _runDispatch(seriesId: seriesId);
@@ -263,6 +376,33 @@ class SetupWizardController extends _$SetupWizardController {
       // created-so-far refs are deliberately KEPT (resume cursor).
       failure: null,
     );
+
+    // Issue #455 derive repair: the number derivation must hold against
+    // state that accumulated AFTER the wizard opened (concurrent harness
+    // writes / a boot snapshot). Re-run the live refetch derivation at the
+    // START of the dispatch (phase is already `dispatching`, so the
+    // screen's settle detection and the autoDispose keep-alive stay
+    // correct): the plan then dispatches against the freshest possible
+    // numbers, and a still-taken number 409s as a partial failure with the
+    // in-session retry instead of silently creating a conflicting block.
+    // Never reverts to a cached/retained snapshot.
+    //
+    // Gated to a FRESH dispatch (nothing acked yet): a retry re-enters
+    // with an already-started plan whose numbers are LOCKED to the acked
+    // commands — re-deriving then would renumber created rows.
+    if (_completedCommandsSoFar() == 0) {
+      final deriveError = await _deriveNumbers(seriesId: seriesId);
+      if (!ref.mounted) return;
+      if (deriveError != null) {
+        // Fail closed (CodeRabbit #464): never dispatch against a degraded
+        // max + 1 that could 409 or create a wrong plan. The read failure
+        // surfaces as partial failure; a retry re-derives (nothing acked
+        // yet).
+        _fail(deriveError);
+        return;
+      }
+      if (state.phase != SetupWizardPhase.dispatching) return;
+    }
 
     // AUTHZ-GATE: resolve the authenticated session before ANY command.
     // Awaited (not read): a pending restore must resolve before the gate
@@ -372,6 +512,27 @@ class SetupWizardController extends _$SetupWizardController {
       // Resolved AFTER the scope set: `apiDioProvider` rebuilds with the
       // new header and the repository re-resolves through it.
       final episodeRepo = ref.read(episodeRepositoryProvider);
+
+      // Issue #455 episode side: the episodes route is `BlockMember`
+      // scoped, so at wizard open the caller had no block membership and
+      // the episode-base derive degraded to 1. A freshly created block
+      // grants the creator ownership — NOW the series' episodes are
+      // readable (the scope set above), so re-derive the episode base
+      // before ANY episode create. Only needed once (block 0, no acked
+      // episodes yet); later blocks reuse the derived base.
+      if (i == 0 && createdBlock.episodesCreated == 0) {
+        final episodeError = await _deriveEpisodeNumbers(seriesId: seriesId);
+        if (!ref.mounted) return;
+        if (episodeError != null) {
+          // Fail closed (CodeRabbit #464): no episode create without an
+          // authoritative series episode base (a degraded base-1 would 409
+          // on accumulated series episodes). Created-so-far: the season + this
+          // block.
+          _fail(episodeError);
+          return;
+        }
+        if (state.phase != SetupWizardPhase.dispatching) return;
+      }
 
       // 3. The block's episodes (resume at the first un-acked number).
       // The series-scoped numbers are PLAN-SEQUENTIAL across blocks

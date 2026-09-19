@@ -107,9 +107,7 @@ Future<_Fixture> _buildFixture({
   final episodeRepo = FakeEpisodeRepository(db);
   final holder = ValueNotifier<Result<List<SeasonView>>>(
     seasons == null
-        ? const Left<ProblemError, List<SeasonView>>(
-            ProblemError(code: 'transport.down'),
-          )
+        ? Right<ProblemError, List<SeasonView>>(const <SeasonView>[])
         : Right<ProblemError, List<SeasonView>>(seasons),
   );
   final container = ProviderContainer(

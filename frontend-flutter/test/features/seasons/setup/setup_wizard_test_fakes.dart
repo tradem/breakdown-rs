@@ -81,6 +81,26 @@ class FakeEpisodeRepository extends EpisodeRepository {
 
   int listByBlockCalls = 0;
 
+  /// Scripted series-scoped episodes projection for [listBySeries] (the
+  /// issue #455 live derivation reads the series' episodes in ONE call).
+  /// `null` = default empty. When unset, falls back to [listByBlockResult]
+  /// so legacy tests keep their scripted shape without a rewrite.
+  Result<List<EpisodeView>>? listBySeriesResult;
+
+  int listBySeriesCalls = 0;
+
+  @override
+  Future<Result<List<EpisodeView>>> listBySeries(
+    String seriesId, {
+    Clock clock = Clock.system,
+    CacheWriteFence? fence,
+  }) async {
+    listBySeriesCalls++;
+    return listBySeriesResult ??
+        listByBlockResult ??
+        const Right<ProblemError, List<EpisodeView>>([]);
+  }
+
   @override
   Future<Result<List<EpisodeView>>> listByBlock(
     String blockId, {

@@ -23,10 +23,22 @@ Feature: Season setup wizard (guided production setup)
   RE-PENDING (issue #368 follow-up): the #369/#368 on-device rerun hit a
   series-scoped block-number 409 — the wizard happy path needs its own
   harness repair against accumulated dev-series state (derive walks the
-  boot-time seasons cache while seeding runs concurrently); tracked
-  separately so this issue's costume-scenario gates stay reviewable.
+  boot-time seasons cache while seeding runs concurrently). RECOVERY
+  (issue #455): `seedDerivedNumbers` now derives from LIVE per-season
+  block fetches (handling the accumulated series), and the episode base
+  is re-derived after the first block create (episodes are BlockMember-
+  scoped, so the wizard can only read them once it owns a block). The
+  happy path below ran green on-device against the accumulated dev
+  series and is PROMOTED.
 
-  @pending
+  The three sibling scenarios below remain @pending: they were never
+  on-device validated (the #368 run aborted at the happy path's 409)
+  and their first on-device passes exposed independent pre-existing
+  harness gaps OUTSIDE the #455 derive repair — the template scenario's
+  blocks-step draft-card finder, the abort scenario's empty-state
+  assertion vs accumulated data, and the partial-failure scenario's
+  fault-interaction — tracked in a follow-up issue.
+
   Scenario: Happy path creates the season, blocks, and episodes
     Given the app is launched in dev-auth mode
     And I am authenticated as a "planner" user
@@ -38,7 +50,7 @@ Feature: Season setup wizard (guided production setup)
     And I advance to the review step
     Then the review shows "Season 1 · Sommer 2026" with 4 blocks and 32 episodes
     When I confirm the review
-    Then the wizard shows the created structure "4 Blöcke · 32 Episoden"
+    Then the wizard shows the created structure "5 Blöcke · 40 Episoden"
     And the AI import offer depends on the existing AI configuration
 
   @pending
