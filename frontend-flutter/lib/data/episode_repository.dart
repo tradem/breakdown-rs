@@ -102,6 +102,33 @@ class EpisodeRepository extends BaseRepository {
         if (fence != null && !fence.isCurrentGeneration(fence.generation)) {
           return Right(rows);
         }
+        return applySeriesSnapshotFrom(
+          Right<ProblemError, List<EpisodeView>>(rows),
+          seriesId: seriesId,
+          clock: clock,
+        );
+      },
+    );
+  }
+
+  /// Test/DI seam mirroring `SeasonRepository.getAndCacheFrom`: applies a
+  /// [fetched] series-scoped episode result to the cache WITHOUT a network
+  /// call. On [Right] stores the per-block snapshots AND clears every
+  /// cached block of the series absent from the snapshot (CodeRabbit #464:
+  /// the successful SERIES snapshot is authoritative per block —
+  /// `groupByBlock(rows)` creates entries only for blocks with returned
+  /// episodes, so a block whose episodes were ALL removed since the last
+  /// cache would otherwise keep stale rows, since an empty block never
+  /// reaches `applySnapshotForBlock` otherwise). On [Left] returns the
+  /// error unchanged and leaves the cache untouched.
+  Future<Result<List<EpisodeView>>> applySeriesSnapshotFrom(
+    Result<List<EpisodeView>> fetched, {
+    Clock clock = Clock.system,
+    String? seriesId,
+  }) async {
+    return fetched.match(
+      (err) async => Left<ProblemError, List<EpisodeView>>(err),
+      (rows) async {
         try {
           final byBlock = EpisodeRepository.groupByBlock(rows);
           for (final entry in byBlock.entries) {
@@ -110,6 +137,14 @@ class EpisodeRepository extends BaseRepository {
               entry.value,
               clock.now(),
             );
+          }
+          final cachedBlockIds = seriesId == null
+              ? <String>{}
+              : await cache.readBlockIdsBySeries(seriesId);
+          for (final blockId in cachedBlockIds.difference(
+            byBlock.keys.toSet(),
+          )) {
+            await cache.applySnapshotForBlock(blockId, const [], clock.now());
           }
         } on Object {
           return const Left(ProblemError(code: 'cache.write_failed'));

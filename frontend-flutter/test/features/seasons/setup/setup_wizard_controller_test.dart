@@ -71,9 +71,7 @@ Future<_Fixture> _buildFixture({
   final blockRepo = FakeBlockRepository(db);
   final episodeRepo = FakeEpisodeRepository(db);
   final holder = ValueNotifier<Result<List<SeasonView>>>(
-    seasons == null
-        ? const Left(ProblemError(code: 'transport.down'))
-        : Right(seasons),
+    seasons == null ? Right(const <SeasonView>[]) : Right(seasons),
   );
   final container = ProviderContainer(
     overrides: [
@@ -455,6 +453,29 @@ void main() {
       // not the stale 1.
       expect(ctx.blockRepo.lastCreateRequests.first.number, 13);
       expect(ctx.state.nextBlockNumber, 13);
+    });
+
+    test('issue #455/CodeRabbit: a FAILED live derive stops the dispatch '
+        'before any create (fail-closed, never base-1 dispatch)', () async {
+      var ctx = await _buildFixture();
+      ctx = seededTwoByFour(ctx);
+      // A real derivation read fails at dispatch start: the seasons fetch
+      // returns a transport error.
+      ctx.seasonsHolder.value = const Left(
+        ProblemError(code: 'transport.down'),
+      );
+
+      await ctx.controller.submit(seriesId: 'series-1');
+      await _flush();
+
+      expect(ctx.state.phase, SetupWizardPhase.partialFailure);
+      expect(ctx.state.failure!.code, 'transport.down');
+      // NOTHING was created — the season create never reached the
+      // network (the derivation is a fail-closed gate before the first
+      // command).
+      expect(ctx.state.createdSeason, isNull);
+      expect(ctx.seasonRepo.createCalls, 0);
+      expect(ctx.blockRepo.lastCreateRequests, isEmpty);
     });
 
     test(

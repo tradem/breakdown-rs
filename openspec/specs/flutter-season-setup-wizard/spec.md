@@ -57,11 +57,12 @@ EXISTING projections via **live, forced-fresh network refetch**
 (`max + 1` — the same client-side append-order derivation
 Discipline as `nextOrderKey`), never from the boot-time
 `seasonsView`/Drift cache: the derivation must hold against
-accumulated, concurrently-mutated series state (issue #455), so a
-concurrent create cannot 409 on a number the derivation believed
-free. The derivation SHALL be re-run on submit, immediately
-before the first command, and SHALL render the read-only headline
-numbers.
+accumulated, concurrently-mutated series state (issue #455). The
+live refetch reduces stale-number conflicts but is NOT an atomic
+allocator — a create-time conflict in the remaining race window
+follows the partial-failure and in-session retry flow. The
+derivation SHALL be re-run on submit, immediately before the first
+command, and SHALL render the read-only headline numbers.
 
 #### Scenario: Applying a template
 - **WHEN** the user selects the "4 Blöcke à 8 Episoden" template.

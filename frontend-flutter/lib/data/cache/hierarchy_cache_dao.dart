@@ -189,6 +189,18 @@ class EpisodeCacheDao {
     return rows.map(_toEpisodeView).toList();
   }
 
+  /// Distinct cached `blockId`s for [seriesId] — the cached episode rows
+  /// carry `seriesId`, so this enumerates every block whose episodes the
+  /// client has EVER cached for the series (used by the series-scoped
+  /// snapshot in `EpisodeRepository.listBySeries` to clear blocks absent
+  /// from the successful response). Deterministic ordering for tests.
+  Future<Set<String>> readBlockIdsBySeries(String seriesId) async {
+    final rows = await (_db.select(
+      _db.episodeCacheRows,
+    )..where((t) => t.seriesId.equals(seriesId))).get();
+    return {for (final row in rows) row.blockId};
+  }
+
   Future<EpisodeView?> readById(String id) async {
     final row = await (_db.select(
       _db.episodeCacheRows,

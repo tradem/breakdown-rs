@@ -109,27 +109,58 @@ class SetupWizardController extends _$SetupWizardController {
   /// it must NOT gate on editing). See [seedDerivedNumbers] for the
   /// contract. Writes state only if `ref.mounted` (the autoDispose
   /// controller may be disposed across the network awaits).
-  Future<void> _deriveNumbers({required String seriesId}) async {
+  ///
+  /// Returns the first **season or block** read error, or `null` on
+  /// success (CodeRabbit #464: the wizard must never dispatch against a
+  /// degraded `max + 1` — a failed live read is propagated so the dispatch
+  /// caller can fail closed). The wizard-open path ([seedDerivedNumbers])
+  /// ignores the return and treats the failure as the honest empty
+  /// fallback (base 1, `numbersSeeded` still lifts so the user can
+  /// continue); the dispatch path (`_runDispatch`) stops on a non-null
+  /// return.
+  Future<ProblemError?> _deriveNumbers({required String seriesId}) async {
+    ProblemError? error;
+    final blockNumbers = <int>[];
+
     // The series' seasons forced FRESH from the injected live fetch (never
     // the boot-time seasonsView — issue #455 derive repair; an invalidated
     // re-run refetches, so a repeatable derivation reflects accumulation).
     ref.invalidate(seasonsListFetchProvider);
     final seasonsResult = await ref.read(seasonsListFetchProvider.future);
-    final seasons = seasonsResult
-        .getOrElse((_) => const <SeasonView>[])
-        .where((s) => s.seriesId == seriesId)
-        .toList();
-    final blockNumbers = <int>[];
-    for (final season in seasons) {
-      if (!ref.mounted) return;
-      ref.invalidate(blocksListFetchProvider(season.id));
-      final blocks = await ref
-          .read(blocksListFetchProvider(season.id).future)
-          .then((res) => res.match((_) => const <BlockView>[], (rows) => rows));
-      blockNumbers.addAll(blocks.map((b) => b.number));
+    final seasonsError = seasonsResult.getLeft().toNullable();
+    if (seasonsError != null) {
+      error = seasonsError;
+    } else {
+      final seasons = seasonsResult
+          .getOrElse((_) => const <SeasonView>[])
+          .where((s) => s.seriesId == seriesId)
+          .toList();
+      for (final season in seasons) {
+        if (!ref.mounted) return null;
+        ref.invalidate(blocksListFetchProvider(season.id));
+        final blocksResult = await ref.read(
+          blocksListFetchProvider(season.id).future,
+        );
+        final blockError = blocksResult.getLeft().toNullable();
+        if (blockError != null) {
+          error = blockError;
+          break;
+        }
+        blockNumbers.addAll(
+          blocksResult
+              .getOrElse((_) => const <BlockView>[])
+              .map((b) => b.number),
+        );
+      }
     }
+
+    // Episode base is NON-fatal here (CodeRabbit #464): at dispatch start
+    // the caller has no block membership yet, so the BlockMember-scoped
+    // episodes read is EXPECTED to 400 — the authoritative base is set by
+    // the post-first-block re-derive in `_runDispatch`. Its error is
+    // ignored; a failure leaves `nextEpisodeNumber` at its prior value.
     await _deriveEpisodeNumbers(seriesId: seriesId);
-    if (!ref.mounted) return;
+    if (!ref.mounted) return null;
     state = state.copyWith(
       nextBlockNumber: smartDefaultBlockNumber(blockNumbers),
       // The derivation has SETTLED (success or honest fallback): the
@@ -137,6 +168,7 @@ class SetupWizardController extends _$SetupWizardController {
       // the fallback numbers while the reads are still running).
       numbersSeeded: true,
     );
+    return error;
   }
 
   /// Derives ONLY the series' first free EPISODE number (the series'
@@ -145,23 +177,34 @@ class SetupWizardController extends _$SetupWizardController {
   /// Episodes are `BlockMember`-scoped server-side
   /// (`GET /v1/episodes` requires `X-Active-Block`): at wizard open the
   /// caller has NO block membership yet, so the read 400s and honestly
-  /// degrades to base 1. But a freshly created block grants its creator
-  /// ownership (the dispatch's own `AUTHZ-GATE` scope-set), so the
-  /// dispatch re-derives the episode base AFTER the first block create —
-  /// see `_runDispatch` (issue #455 episode side).
-  Future<void> _deriveEpisodeNumbers({required String seriesId}) async {
-    if (!ref.mounted) return;
+  /// degrades (no state mutation — the prior `nextEpisodeNumber` stays;
+  /// at open that is the default 1). But a freshly created block grants
+  /// its creator ownership (the dispatch's own `AUTHZ-GATE` scope-set), so
+  /// the dispatch re-derives the episode base AFTER the first block create
+  /// — see `_runDispatch` (issue #455 episode side).
+  ///
+  /// Returns the read error, or `null` on success (CodeRabbit #464). On a
+  /// failure the derivation does NOT fabricate base 1 — it leaves
+  /// `nextEpisodeNumber` untouched so the caller can fail closed; the
+  /// post-block-1 dispatch caller stops before any episode create.
+  Future<ProblemError?> _deriveEpisodeNumbers({
+    required String seriesId,
+  }) async {
+    if (!ref.mounted) return null;
     final episodeResult = await ref
         .read(episodeRepositoryProvider)
         .listBySeries(seriesId);
+    if (!ref.mounted) return null;
+    final episodeError = episodeResult.getLeft().toNullable();
+    if (episodeError != null) return episodeError;
     final episodeNumbers = episodeResult
         .getOrElse((_) => const <EpisodeView>[])
         .map((e) => e.number)
         .toList();
-    if (!ref.mounted) return;
     state = state.copyWith(
       nextEpisodeNumber: smartDefaultEpisodeNumber(episodeNumbers),
     );
+    return null;
   }
 
   /// Re-runs [seedDerivedNumbers] against the live backend (issue #455):
@@ -348,8 +391,17 @@ class SetupWizardController extends _$SetupWizardController {
     // with an already-started plan whose numbers are LOCKED to the acked
     // commands — re-deriving then would renumber created rows.
     if (_completedCommandsSoFar() == 0) {
-      await _deriveNumbers(seriesId: seriesId);
-      if (!ref.mounted || state.phase != SetupWizardPhase.dispatching) return;
+      final deriveError = await _deriveNumbers(seriesId: seriesId);
+      if (!ref.mounted) return;
+      if (deriveError != null) {
+        // Fail closed (CodeRabbit #464): never dispatch against a degraded
+        // max + 1 that could 409 or create a wrong plan. The read failure
+        // surfaces as partial failure; a retry re-derives (nothing acked
+        // yet).
+        _fail(deriveError);
+        return;
+      }
+      if (state.phase != SetupWizardPhase.dispatching) return;
     }
 
     // AUTHZ-GATE: resolve the authenticated session before ANY command.
@@ -469,10 +521,17 @@ class SetupWizardController extends _$SetupWizardController {
       // before ANY episode create. Only needed once (block 0, no acked
       // episodes yet); later blocks reuse the derived base.
       if (i == 0 && createdBlock.episodesCreated == 0) {
-        await _deriveEpisodeNumbers(seriesId: seriesId);
-        if (!ref.mounted || state.phase != SetupWizardPhase.dispatching) {
+        final episodeError = await _deriveEpisodeNumbers(seriesId: seriesId);
+        if (!ref.mounted) return;
+        if (episodeError != null) {
+          // Fail closed (CodeRabbit #464): no episode create without an
+          // authoritative series episode base (a degraded base-1 would 409
+          // on accumulated series episodes). Created-so-far: the season + this
+          // block.
+          _fail(episodeError);
           return;
         }
+        if (state.phase != SetupWizardPhase.dispatching) return;
       }
 
       // 3. The block's episodes (resume at the first un-acked number).
