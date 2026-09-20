@@ -12,7 +12,7 @@ import 'package:flutter_gherkin/flutter_gherkin.dart';
 import 'package:gherkin/gherkin.dart';
 
 import '../world/app_world.dart';
-import 'seed_http.dart' show resolveFreeSeasonNumber;
+import 'seed_http.dart' show hostApiBase, resolveFreeSeasonNumber;
 
 /// The wizard scenario hard-codes season number "1", but the dev series
 /// accumulates seasons across runs; the dispatch POST /v1/seasons only
@@ -39,8 +39,13 @@ Iterable<StepDefinitionGeneric> seasonWizardSteps() => [
       // `block.number-already-exists`, and the in-session retry passes
       // through. Arming is idempotent-on-repeat (the latch is one-shot, so
       // re-arming before each run re-arms deterministically).
-      final apiBase =
-          Platform.environment['API_BASE'] ?? 'http://10.0.2.2:3000';
+      // This is a HOST-side step (the test-runner process), so it must
+      // reach the backend via hostApiBase() — the emulator-only `10.0.2.2`
+      // loopback alias is unreachable from the host and would time out
+      // (issue #463 on-device gap: the arming step's first on-device pass
+      // hit exactly that). hostApiBase() substitutes `10.0.2.2` ->
+      // `localhost` (the same host-resolution the seed helpers use).
+      final apiBase = hostApiBase();
       // Bounded timeputs (CodeRabbit finding, PR #452): a stall here must
       // fail the arming step deterministically, not hang the whole run.
       final client = HttpClient()
@@ -84,9 +89,10 @@ Iterable<StepDefinitionGeneric> seasonWizardSteps() => [
     // resolveFreeSeasonNumber THROWS on backend/parser failure
     // (CodeRabbit review, #456: never silently store a taken literal) —
     // the exception propagates and fails this step deterministically.
-    // The wizard is currently STILL `@pending` (#455), so by default the
-    // runner never reaches this step; an explicit promotion simply inherits
-    // the loud-failure behavior.
+    // The env gate (GHERKIN_WIZARD_RESOLVE) is defaulted ON by
+    // tool/run_gherkin.sh (issue #463): the promoted wizard scenarios
+    // dispatch against the accumulated dev series, so the resolution must
+    // be active for the default on-device pass, never a silent-literal 1.
     if (Platform.environment['GHERKIN_WIZARD_RESOLVE'] == 'on') {
       world.wizardFreeSeasonNumber = await resolveFreeSeasonNumber();
     }
@@ -161,8 +167,22 @@ Iterable<StepDefinitionGeneric> seasonWizardSteps() => [
   when<FlutterWorld>(
     'I complete the season setup with 2 blocks of 4 episodes',
     (context) async {
-      // Season step: the smart defaults stay; blocks step: clear the
-      // default draft, apply 2×4, then review + confirm.
+      // Season step: enter the HOST-RESOLVED free season number (the happy
+      // path's resolution discipline — issue #463 on-device race: the smart
+      // default recomputes max+1 from the projection, but the happy path's
+      // dispatch took that number mid-run, so the season create 409s with
+      // `season.number-already-exists` and the block fault never fires,
+      // leaving the BLOCK-conflict narrative missing). Entering the resolved
+      // free number keeps the season create conflict-free and lets the armed
+      // block fault be the first failure, as the scenario contracts.
+      final world = context.world as AppWorld;
+      if (world.wizardFreeSeasonNumber != null) {
+        await FlutterDriverUtils.enterText(
+          context.world.driver!,
+          find.byValueKey('wizard-number-field'),
+          world.wizardFreeSeasonNumber.toString(),
+        );
+      }
       await _advanceThroughSteps(context, untilKey: 'wizard-step-blocks');
       await FlutterDriverUtils.tap(
         context.world.driver!,
@@ -182,10 +202,13 @@ Iterable<StepDefinitionGeneric> seasonWizardSteps() => [
         );
       }
       await _advanceThroughSteps(context, untilKey: 'wizard-step-review');
-      await FlutterDriverUtils.tap(
-        context.world.driver!,
-        find.byValueKey('wizard-confirm'),
-      );
+      // Same scroll-then-tap as `I confirm the review`: the confirm CTA sits
+      // at the bottom of the review ListView (below the block cards) and a
+      // FlutterDriver tap requires it hit-testable (issue #463 — the
+      // partial-failure scenario exercises this path on-device; the happy
+      // path's review-confirm repair discovered the off-viewport tap
+      // timeout). Bounded: fails loudly if it never scrolls into view.
+      await _scrollToAndTap(context, 'wizard-step-review', 'wizard-confirm');
     },
   ),
   when<FlutterWorld>('I confirm the review', (context) async {
@@ -196,28 +219,36 @@ Iterable<StepDefinitionGeneric> seasonWizardSteps() => [
     // by the #368 on-device run). Scroll the review list until the button
     // is onscreen, then tap. Bounded: the scroll target wait fails loudly
     // if the button never scrolls into view (deterministic harness rule).
-    final driver = context.world.driver!;
-    final list = find.byValueKey('wizard-step-review');
-    final confirm = find.byValueKey('wizard-confirm');
-    await driver.scrollUntilVisible(
-      list,
-      confirm,
-      dxScroll: 0,
-      dyScroll: -200,
-      timeout: const Duration(seconds: 10),
-    );
-    await FlutterDriverUtils.tap(driver, confirm);
+    await _scrollToAndTap(context, 'wizard-step-review', 'wizard-confirm');
   }),
   when<FlutterWorld>('I remove the first block draft', (context) async {
-    await FlutterDriverUtils.tap(
-      context.world.driver!,
-      find.byValueKey('wizard-remove-draft-0'),
+    final driver = context.world.driver!;
+    // Issue #463 on-device gap: the blocks step is a viewport-limited
+    // non-lazy ListView (_DraftCard children plus the template chips below).
+    // In the template scenario the `three block drafts` assertion just
+    // scrolled DOWN to draft 3, so draft 0 (and its remove button) sits
+    // ABOVE the viewport — a FlutterDriver tap requires the finder to be
+    // hit-testable, so scroll UP (positive dyScroll) until it is onscreen
+    // (bounded: the scroll target wait fails loudly if it never appears).
+    final list = find.byValueKey('wizard-step-blocks');
+    final remove = find.byValueKey('wizard-remove-draft-0');
+    await driver.scrollUntilVisible(
+      list,
+      remove,
+      dxScroll: 0,
+      dyScroll: 200,
+      timeout: const Duration(seconds: 10),
     );
+    await FlutterDriverUtils.tap(driver, remove);
   }),
   when<FlutterWorld>('I retry the remaining commands', (context) async {
-    await FlutterDriverUtils.tap(
-      context.world.driver!,
-      find.byValueKey('wizard-retry'),
+    // runUnsynchronized: the retry re-starts the dispatch, whose reconcile
+    // keeps the app scheduling frames; the un-synced tap targets the
+    // already-rendered `wizard-retry` button without frame-sync waiting for
+    // a quiescent frame first (issue #463).
+    final driver = context.world.driver!;
+    await driver.runUnsynchronized(
+      () => FlutterDriverUtils.tap(driver, find.byValueKey('wizard-retry')),
     );
   }),
   when<FlutterWorld>('I leave the wizard without submitting', (context) async {
@@ -312,15 +343,26 @@ Iterable<StepDefinitionGeneric> seasonWizardSteps() => [
     'three block drafts with 6 episodes each exist and stay editable',
     (context) async {
       final driver = context.world.driver!;
-      // The 3×6 template APPENDS to the one default draft: the template
-      // drafts are positions 1..3, each episode-count field holds "6".
-      // The emulator driver is slow under a multi-scenario run (the happy
-      // path's own waits logged "taking a long time"), so the draft-card
-      // wait is raised to a bounded worst case.
+      // Issue #463 on-device gap: the 3×6 template APPENDS to the one
+      // default draft (block drafts 1..3), but the blocks step is a
+      // viewport-limited non-lazy ListView — the appended draft cards sit
+      // BELOW the fold, so a plain `waitFor(byValueKey)` never matches
+      // (the happy path never asserts these keys, so this was never
+      // caught). Each draft must be scrolled into view before asserting it
+      // and its episode-count field (established pattern: the same
+      // `scrollUntilVisible` the review-confirm step uses). The emulator
+      // driver is slow under a multi-scenario run (the happy path's own
+      // waits logged "taking a long time"), so the per-scroll budget is a
+      // bounded worst case. `scrollUntilVisible` returns after
+      // `scrollIntoView` settles, making a later tap/getText hit-testable.
       for (var i = 1; i <= 3; i++) {
-        await driver.waitFor(
-          find.byValueKey('wizard-block-draft-$i'),
-          timeout: const Duration(seconds: 30),
+        final draft = find.byValueKey('wizard-block-draft-$i');
+        await driver.scrollUntilVisible(
+          find.byValueKey('wizard-step-blocks'),
+          draft,
+          dxScroll: 0,
+          dyScroll: -200,
+          timeout: const Duration(seconds: 10),
         );
         final count = await driver.getText(
           find.byValueKey('wizard-episode-count-$i'),
@@ -357,20 +399,54 @@ Iterable<StepDefinitionGeneric> seasonWizardSteps() => [
     // is asserted verbatim, never the server `detail`. Series-scoped
     // wording (backend invariant: block numbers are unique per series, not
     // per season).
-    await context.world.driver!.waitFor(
-      find.text(
-        'Ein Block mit dieser Nummer existiert bereits in der '
-        'Serie.',
-      ),
-      timeout: const Duration(seconds: 10),
-    );
+    //
+    // runUnsynchronized: the dispatch's fire-and-forget reconcile keeps the
+    // app scheduling frames right after the partial-failure settles, so a
+    // frame-synced `waitFor` can starve on the "quiet frame" it never gets
+    // (issue #463 on-device failure). The un-synced wait still asserts the
+    // text is present; it just does not wait for the frame to idle first.
+    final driver = context.world.driver!;
+    try {
+      await driver.runUnsynchronized(
+        () => driver.waitFor(
+          find.text(
+            'Ein Block mit dieser Nummer existiert bereits in der '
+            'Serie.',
+          ),
+          timeout: const Duration(seconds: 10),
+        ),
+      );
+    } on Object {
+      // Diagnostic: surface the REAL rendered failure so a code-mapping
+      // drift fails loudly with the actual copy (issue #463 — the full-
+      // suite run showed the block-conflict narrative absent; this dumps
+      // what the completion view actually renders).
+      String rendered = '<error-key-not-read>';
+      try {
+        rendered = await driver.runUnsynchronized(
+          () => driver.getText(find.byValueKey('wizard-completion-error')),
+        );
+      } on Object {
+        rendered = '<wizard-completion-error not found>';
+      }
+      throw StateError(
+        'block-conflict narrative not found; rendered error copy was: '
+        '$rendered',
+      );
+    }
   }),
   then<FlutterWorld>(
     'the wizard reaches the completion screen with the full structure',
     (context) async {
-      await context.world.driver!.waitFor(
-        find.byValueKey('wizard-completion'),
-        timeout: const Duration(seconds: 30),
+      // runUnsynchronized: the retry dispatch's reconcile keeps scheduling
+      // frames as it lands the remaining commands; the un-synced wait still
+      // asserts the completion screen rendered (issue #463).
+      final driver = context.world.driver!;
+      await driver.runUnsynchronized(
+        () => driver.waitFor(
+          find.byValueKey('wizard-completion'),
+          timeout: const Duration(seconds: 30),
+        ),
       );
     },
   ),
@@ -403,8 +479,36 @@ Iterable<StepDefinitionGeneric> seasonWizardSteps() => [
   }),
 ];
 
+/// Scrolls [scrollableKey]'s list until the widget at [itemKey] is onscreen,
+/// then taps it. Shared by the review-confirm paths: the confirm CTA sits at
+/// the bottom of the review ListView below the block cards, and a
+/// FlutterDriver tap requires the finder to be hit-testable (the #368-era
+/// review-confirm repair; reused by the partial-failure scenario under issue
+/// #463). Bounded — the scroll target wait fails loudly if the item never
+/// scrolls into view (deterministic harness rule, never a silent pass).
+Future<void> _scrollToAndTap(
+  StepContext<FlutterWorld> context,
+  String scrollableKey,
+  String itemKey,
+) async {
+  final driver = context.world.driver!;
+  await driver.scrollUntilVisible(
+    find.byValueKey(scrollableKey),
+    find.byValueKey(itemKey),
+    dxScroll: 0,
+    dyScroll: -200,
+    timeout: const Duration(seconds: 10),
+  );
+  await FlutterDriverUtils.tap(driver, find.byValueKey(itemKey));
+}
+
 /// Taps `wizard-next` until [untilKey] appears (bounded, deterministic —
-/// no wall-clock gating beyond the per-locator timeouts).
+/// no wall-clock gating beyond the per-locator timeouts). The next button
+/// is waited for PRESENT before each tap, so a blocked/unrendered advance
+/// fails loudly instead of mis-tapping the surrounding screen (issue #463
+/// — the partial-failure scenario drove the seasons HOME because its
+/// feature was missing the wizard-start step; this guard catches that
+/// class of harness error deterministically instead of hanging the tap).
 Future<void> _advanceThroughSteps(
   StepContext<FlutterWorld> context, {
   required String untilKey,
@@ -418,6 +522,10 @@ Future<void> _advanceThroughSteps(
       );
       return;
     } on Object {
+      await driver.waitFor(
+        find.byValueKey('wizard-next'),
+        timeout: const Duration(seconds: 20),
+      );
       await FlutterDriverUtils.tap(driver, find.byValueKey('wizard-next'));
       await driver.waitFor(
         find.byValueKey('wizard-progress'),

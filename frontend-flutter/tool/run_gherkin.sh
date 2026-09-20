@@ -23,6 +23,13 @@
 # before running this suite. Without it the arming step fails fast with an
 # actionable message (404).
 #
+# Issue #463: the season-wizard scenarios (happy path, template application,
+# partial failure) dispatch a series-scoped season/block number that must be
+# FREE — the dev series accumulates seasons/blocks across runs, so the
+# feature's symbolic number "1" maps to a host-side resolved free number via
+# GHERKIN_WIZARD_RESOLVE (=on). Default it on for the authoritative on-device
+# pass so a promoted wizard scenario can never 409 on accumulated state.
+#
 # Issue #440: flutter_gherkin 2.0.0 only matches the legacy "Observatory
 # debugger" launch line; Flutter >= 3.x prints "A Dart VM Service on ...". The
 # tracked patch (tool/patches/flutter_gherkin-2.0.0-vm-service.patch) must be
@@ -34,7 +41,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 API_BASE="${API_BASE:-http://10.0.2.2:3000}"
 DEV_AUTH_SUB="${DEV_AUTH_SUB:-dev-e2e}"
-export API_BASE DEV_AUTH_SUB
+GHERKIN_WIZARD_RESOLVE="${GHERKIN_WIZARD_RESOLVE:-on}"
+export API_BASE DEV_AUTH_SUB GHERKIN_WIZARD_RESOLVE
 flutter pub get
 # Apply the flutter_gherkin VM-service regex patch AFTER pub get (which
 # re-fetches the pristine hosted package) and BEFORE launching the runner.

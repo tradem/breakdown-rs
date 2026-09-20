@@ -3,6 +3,7 @@
 <!-- Co-authored-by: hy3 (opencode-go) -->
 <!-- Co-authored-by: omen-alpha (opencode-go) -->
 <!-- Co-authored-by: deepseek-v4-flash (neuralwatt) -->
+<!-- Co-authored-by: glm-5.3-flash (neuralwatt) -->
 
 # Gherkin critical acceptance scenarios (`features-spec/`)
 
@@ -84,10 +85,14 @@ The `@critical` acceptance scenarios whose screens have not landed carry
 `@pending`; the runner's `tagExpression` is `not @pending`, so the default
 on-device pass runs `smoke.feature` plus every **promoted** critical scope.
 The costume assignment scope is fully promoted (issue #459): no `@pending`
-left, so its scenarios now run in the default on-device pass. A screen ships
-by **removing `@pending` from its Scenario(s)**; a critical scope may be
-fully promoted (no `@pending` left — it then runs on device); the static
-checker allows both the pending and the promoted states.
+left, so its scenarios now run in the default on-device pass. The season
+setup wizard scope is fully promoted (issues #455 + #463): the happy path
+under #455 and its three sibling scenarios (template application, abort
+discard, partial failure) under #463 — no `@pending` left, so all four run
+in the default on-device pass. A screen ships by **removing `@pending`
+from its Scenario(s)**; a critical scope may be fully promoted (no
+`@pending` left — it then runs on device); the static checker allows both
+the pending and the promoted states.
 
 The API endpoint is **configurable**, not bound to the Android-emulator host
 alias: `tool/run_gherkin.sh` reads `API_BASE` (and `DEV_AUTH_SUB`) from the
