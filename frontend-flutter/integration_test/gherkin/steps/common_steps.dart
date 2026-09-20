@@ -3,6 +3,7 @@
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
 //Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 
 import 'package:flutter_driver/flutter_driver.dart';
 import 'package:flutter_gherkin/flutter_gherkin.dart';
@@ -186,16 +187,21 @@ StepDefinitionGeneric whenOpenCostumeAssignment() =>
         final planenList = find.byValueKey('planen-list');
         final seasonRow = find.byValueKey('planen-season-$realSeason');
         // Off-viewport guard (#368 on-device run): the seeded season sorts
-        // mid-list of the accumulated dev series — beyond the built window
-        // of the Planen ListView.builder, so a plain finder never matches.
-        // Scroll the list until the row builds into the tree (a real
-        // gesture on the real read-model surface, no sleep), then tap it.
+        // at the END of the accumulated dev series (it gets the next free,
+        // hence highest, number), beyond the built window of the Planen
+        // ListView.builder, so a plain finder never matches. Scroll the list
+        // until the row builds into the tree (a real gesture on the real
+        // read-model surface, no sleep), then tap it. Bounded worst case:
+        // the dev series accumulates seasons across on-device runs (issue
+        // #463), so the deepest row can sit ~6400px down; the budget covers
+        // that analytic worst case deterministically (per-step -200px
+        // gesture, never a sleep).
         await context.world.driver!.scrollUntilVisible(
           planenList,
           seasonRow,
           dxScroll: 0,
           dyScroll: -200,
-          timeout: const Duration(seconds: 15),
+          timeout: const Duration(seconds: 45),
         );
         await FlutterDriverUtils.tap(context.world.driver!, seasonRow);
         await FlutterDriverUtils.tap(

@@ -2,6 +2,7 @@
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: omen-alpha (opencode-go)
 # Co-authored-by: glm-5.3 (neuralwatt)
+# Co-authored-by: glm-5.3-flash (neuralwatt)
 
 @critical
 Feature: Season setup wizard (guided production setup)
@@ -31,13 +32,22 @@ Feature: Season setup wizard (guided production setup)
   happy path below ran green on-device against the accumulated dev
   series and is PROMOTED.
 
-  The three sibling scenarios below remain @pending: they were never
-  on-device validated (the #368 run aborted at the happy path's 409)
-  and their first on-device passes exposed independent pre-existing
-  harness gaps OUTSIDE the #455 derive repair — the template scenario's
-  blocks-step draft-card finder, the abort scenario's empty-state
-  assertion vs accumulated data, and the partial-failure scenario's
-  fault-interaction — tracked in a follow-up issue.
+  The three sibling scenarios below were on-device validated under
+  follow-up #463 and are now PROMOTED too, each after its independent
+  pre-existing harness gap was repaired:
+  * Template application: the blocks-step draft cards sit BELOW the
+    fold of the viewport-limited ListView, so `wizard-block-draft-$i`
+    (and the remove button) must be scrolled into view before being
+    asserted/tapped — the happy path never exercised these keys, so the
+    gap was invisible until this scenario first ran on device.
+  * Abort discards: the final assertion waits for the seasons home's
+    create FAB (renders in BOTH the zero-season empty state and the
+    accumulated card-grid state), not the empty-state CTA which only
+    renders with zero backend seasons under the old assertion.
+  * Partial failure: the fault + in-session retry run against the
+    re-derived plan; the retry MUST NOT re-derive (a retry re-enters
+    with its ACKED numbers locked — `_completedCommandsSoFar() != 0`
+    skips the dispatch-start derive).
 
   Scenario: Happy path creates the season, blocks, and episodes
     Given the app is launched in dev-auth mode
@@ -53,7 +63,6 @@ Feature: Season setup wizard (guided production setup)
     Then the wizard shows the created structure "5 Blöcke · 40 Episoden"
     And the AI import offer depends on the existing AI configuration
 
-  @pending
   Scenario: Template application expands editable drafts
     Given the app is launched in dev-auth mode
     And I am authenticated as a "planner" user
@@ -64,18 +73,22 @@ Feature: Season setup wizard (guided production setup)
     When I remove the first block draft
     Then the draft list updates and the wizard stays on the blocks step
 
-  @pending
   Scenario: Partial failure stops the dispatch and offers in-session retry
     Given the app is launched in dev-auth mode
     And I am authenticated as a "planner" user
     And the backend rejects the first block create with a conflict
+    # Issue #463 on-device gap: this scenario must OPEN the wizard (like its
+    # siblings) before completing the setup — without the entry step the
+    # "complete" steps drive the seasons HOME, where no wizard-next exists
+    # and the advance hangs while the conductor waits for a key that never
+    # renders (deterministic, was invisible while @pending).
+    When I start the season setup wizard from the empty state
     When I complete the season setup with 2 blocks of 4 episodes
     Then the wizard stops with the created-so-far summary
     And the conflict is reported keyed on its problem code
     When I retry the remaining commands
     Then the wizard reaches the completion screen with the full structure
 
-  @pending
   Scenario: Abort discards the drafts after an explicit confirmation
     Given the app is launched in dev-auth mode
     And I am authenticated as a "planner" user
