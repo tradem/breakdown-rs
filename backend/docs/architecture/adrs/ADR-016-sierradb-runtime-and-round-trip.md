@@ -1,3 +1,7 @@
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+<!-- Co-authored-by: glm-5.3-flash (neuralwatt) -->
+
 # ADR-016: SierraDB runtime & round-trip (image path, dev/prod runtime, Tier-4 tests)
 
 **Status**: Accepted
