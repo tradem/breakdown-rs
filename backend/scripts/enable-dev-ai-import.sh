@@ -66,10 +66,25 @@ gcli() {
 
 echo "==> Ensuring Garage cluster layout (single-node, dev)"
 if gcli status 2>/dev/null | grep -q "NO ROLE ASSIGNED"; then
-    NODE_ID="$(gcli status 2>/dev/null | awk '/==== HEALTHY NODES ====/{getline; print $1}')"
+    # Node line sits BELOW the column-header row ("ID  Hostname  ..."); skip
+    # both the section header and that header line, then take the first line
+    # whose first field is a hex Garage node id (short id, length ≥ 16).
+    NODE_ID="$(gcli status 2>/dev/null | awk '/==== HEALTHY NODES ====/{h=1;next} h && $1 ~ /^[0-9a-f]{16,64}$/ {print $1; exit}')"
+    if [ -z "$NODE_ID" ]; then
+        echo "ERROR: could not parse Garage node id from 'garage status'" >&2
+        gcli status >&2 || true
+        exit 1
+    fi
     gcli layout assign -z dc1 -c 1G "$NODE_ID"
-    VERSION="$(gcli layout show 2>/dev/null | sed -n 's/^Current cluster layout version: //p')"
-    gcli layout apply --version "$VERSION"
+    # After `layout assign`, Garage enacts the STAGED changes at version
+    # current + 1 — applying the current version fails with
+    # "Invalid new layout version".
+    CURRENT="$(gcli layout show 2>/dev/null | sed -n 's/^Current cluster layout version: //p')"
+    if ! [[ "$CURRENT" =~ ^[0-9]+$ ]]; then
+        echo "ERROR: could not parse Garage layout version from 'garage layout show'" >&2
+        exit 1
+    fi
+    gcli layout apply --version "$((CURRENT + 1))"
 else
     echo "    Cluster layout already assigned — skipping"
 fi
