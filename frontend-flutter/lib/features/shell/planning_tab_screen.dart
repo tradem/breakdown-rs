@@ -100,9 +100,7 @@ class PlanningTabScreen extends ConsumerWidget {
       // Fire-and-forget navigation (no result consumed).
       onTap: () => unawaited(
         Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            builder: (_) => const AiImportSubmitScreen(),
-          ),
+          MaterialPageRoute<void>(builder: (_) => const AiImportSubmitScreen()),
         ),
       ),
     );
