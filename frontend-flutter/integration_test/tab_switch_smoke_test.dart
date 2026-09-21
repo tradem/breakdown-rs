@@ -104,9 +104,16 @@ void main() {
       expect(find.byType(SeasonsScreen), findsOneWidget);
       expect(find.text('E2E Season'), findsOneWidget);
 
-      // Planen tab: season row → BlocksScreen on the Planen navigator.
+      // Planen tab: the AI-import entry lives at the top of the list
+      // (moved from the Mehr tab — the import creates planning entities).
+      // Assert it BEFORE the season drilldown: the tab's nested Navigator
+      // persists (IndexedStack), and a default finder skips offstage routes
+      // behind a pushed BlocksScreen.
       await tester.tap(find.byKey(const Key('shell-destination-1')));
       await tester.pumpAndSettle();
+      expect(find.byKey(const Key('planen-ai-import')), findsOneWidget);
+
+      // Season row → BlocksScreen on the Planen navigator.
       await tester.tap(find.byKey(const Key('planen-season-season-1')));
       await tester.pumpAndSettle();
       expect(find.byType(BlocksScreen), findsOneWidget);
@@ -123,12 +130,6 @@ void main() {
       expect(find.byKey(const Key('kleidung-list')), findsOneWidget);
       expect(find.text('Kostüme'), findsOneWidget);
       expect(find.text('Figuren'), findsOneWidget);
-
-      // Planen tab: the AI-import entry lives at the top of the list
-      // (moved from the Mehr tab — the import creates planning entities).
-      await tester.tap(find.byKey(const Key('shell-destination-1')));
-      await tester.pumpAndSettle();
-      expect(find.byKey(const Key('planen-ai-import')), findsOneWidget);
 
       // Mehr tab: labeled secondary entries render (no import entry here
       // anymore — it moved to the Planen tab).
