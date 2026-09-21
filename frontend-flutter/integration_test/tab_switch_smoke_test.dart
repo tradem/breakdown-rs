@@ -116,19 +116,27 @@ void main() {
         'season-1',
       );
 
-      // Kleidung tab: season-scoped costume domain entries, no error.
+      // Garderobe tab (label renamed from Kleidung; keys kept): season-scoped
+      // costume domain entries, no error.
       await tester.tap(find.byKey(const Key('shell-destination-2')));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('kleidung-list')), findsOneWidget);
       expect(find.text('Kostüme'), findsOneWidget);
       expect(find.text('Figuren'), findsOneWidget);
 
-      // Mehr tab: labeled secondary entries render.
+      // Planen tab: the AI-import entry lives at the top of the list
+      // (moved from the Mehr tab — the import creates planning entities).
+      await tester.tap(find.byKey(const Key('shell-destination-1')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('planen-ai-import')), findsOneWidget);
+
+      // Mehr tab: labeled secondary entries render (no import entry here
+      // anymore — it moved to the Planen tab).
       await tester.tap(find.byKey(const Key('shell-destination-3')));
       await tester.pumpAndSettle();
       expect(find.byType(MoreTabScreen), findsOneWidget);
-      expect(find.byKey(const Key('mehr-ai-import')), findsOneWidget);
       expect(find.byKey(const Key('mehr-signout')), findsOneWidget);
+      expect(find.byKey(const Key('mehr-ai-import')), findsNothing);
 
       // Back to Planen: the drilldown position is preserved (IndexedStack).
       await tester.tap(find.byKey(const Key('shell-destination-1')));

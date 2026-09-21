@@ -234,7 +234,7 @@ Iterable<StepDefinitionGeneric> costumeAssignmentSteps() => [
   }),
 ];
 
-/// Opens the seeded costume's DETAIL screen from the Kleidung stream row.
+/// Opens the seeded costume's DETAIL screen from the Garderobe stream row.
 ///
 /// Projection-lag guard (#368 on-device run): the freshly seeded costume
 /// reaches the read model a few seconds AFTER its 201 — if the tile is

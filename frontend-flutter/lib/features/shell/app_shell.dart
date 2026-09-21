@@ -44,8 +44,8 @@ class AppShell extends ConsumerStatefulWidget {
   const AppShell({super.key});
 
   /// Root screen per tab (design D2/task 3.2): Season = the seasons
-  /// overview, Planen = hierarchy entry, Kleidung = costume domains scope,
-  /// Mehr = secondary destinations.
+  /// overview, Planen = hierarchy entry (+ AI import), Garderobe = costume
+  /// domains scope, Mehr = secondary destinations.
   static const List<Widget> _tabRoots = [
     SeasonsScreen(),
     PlanningTabScreen(),
@@ -255,7 +255,7 @@ class _DestinationSpec {
   final IconData filledIcon;
   final String semanticLabel;
 
-  static const _labels = ['Season', 'Planen', 'Kleidung', 'Mehr'];
+  static const _labels = ['Season', 'Planen', 'Garderobe', 'Mehr'];
   static const _keySuffixes = [
     'shell-destination-0',
     'shell-destination-1',
@@ -263,7 +263,7 @@ class _DestinationSpec {
     'shell-destination-3',
   ];
   // Glossary (`docs/design/glossary.md`): home_outlined/Season,
-  // edit_calendar_outlined/Planen, checkroom/Kleidung, more_horiz/Mehr.
+  // edit_calendar_outlined/Planen, checkroom/Garderobe, more_horiz/Mehr.
   static const _outlineIcons = [
     Icons.home_outlined,
     Icons.edit_calendar_outlined,

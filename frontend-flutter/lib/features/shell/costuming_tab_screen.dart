@@ -11,7 +11,7 @@ import '../characters/characters_screen.dart';
 import '../costumes/costumes_screen.dart';
 import 'shell_controller.dart';
 
-/// The Kleidung tab root (task 4.2): the costume department's tab, scoped
+/// The Garderobe tab root (label renamed from Kleidung; keys kept) (task 4.2): the costume department's tab, scoped
 /// to the shell's active season.
 ///
 /// - With an active season: labeled entries into the season-scoped
@@ -35,7 +35,7 @@ class CostumingTabScreen extends ConsumerWidget {
     final season = ref.watch(shellControllerProvider).activeSeason;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Kleidung')),
+      appBar: AppBar(title: const Text('Garderobe')),
       body: season == null
           ? ListView(
               key: const Key('kleidung-empty'),

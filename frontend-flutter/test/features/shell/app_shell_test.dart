@@ -128,7 +128,7 @@ void main() {
       // Every destination shows a VISIBLE label (glossary rule).
       expect(find.text('Season'), findsWidgets);
       expect(find.text('Planen'), findsOneWidget);
-      expect(find.text('Kleidung'), findsOneWidget);
+      expect(find.text('Garderobe'), findsOneWidget);
       expect(find.text('Mehr'), findsOneWidget);
       // The Season tab is the initial tab; its content is the seasons list.
       expect(find.byType(SeasonsScreen), findsOneWidget);
@@ -146,7 +146,7 @@ void main() {
       // Visible labels (rail labelType all).
       expect(find.text('Season'), findsOneWidget);
       expect(find.text('Planen'), findsOneWidget);
-      expect(find.text('Kleidung'), findsOneWidget);
+      expect(find.text('Garderobe'), findsOneWidget);
       expect(find.text('Mehr'), findsOneWidget);
     });
 
@@ -160,7 +160,7 @@ void main() {
       expect(find.byKey(const Key('shell-navigation-bar')), findsNothing);
       expect(find.text('Season'), findsOneWidget);
       expect(find.text('Planen'), findsOneWidget);
-      expect(find.text('Kleidung'), findsOneWidget);
+      expect(find.text('Garderobe'), findsOneWidget);
       expect(find.text('Mehr'), findsOneWidget);
     });
 
@@ -199,7 +199,7 @@ void main() {
             find.semantics.byPredicate((SemanticsNode n) => n.label == label);
         expect(hasLabel('Season, Tab 1 of 4'), findsOneWidget);
         expect(hasLabel('Planen, Tab 2 of 4'), findsOneWidget);
-        expect(hasLabel('Kleidung, Tab 3 of 4'), findsOneWidget);
+        expect(hasLabel('Garderobe, Tab 3 of 4'), findsOneWidget);
         expect(hasLabel('Mehr, Tab 4 of 4'), findsOneWidget);
         semantics.dispose();
       },
@@ -234,7 +234,7 @@ void main() {
       // NOTE: IndexedStack keeps ALL tab navigators mounted, so
       // finders see every tab's widgets — visibility is asserted via
       // the shell controller's selected index.
-      await tester.tap(find.text('Kleidung'));
+      await tester.tap(find.text('Garderobe'));
       await pumpFrames(tester);
       expect(
         container.read(shellControllerProvider).selectedIndex,

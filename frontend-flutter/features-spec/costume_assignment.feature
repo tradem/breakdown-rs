@@ -22,7 +22,7 @@ Feature: Costume assignment (optimistic update + role denial)
   - G1 (closed): the season costume stream (`list_by_season`) now returns the
     union of assigned-to-season-character OR in-repertoire costumes
     (`projection_costume_season` join), so an UNASSIGNED costume seeded with
-    `POST /v1/costumes {season_id}` renders in the Kleidung stream — the
+    `POST /v1/costumes {season_id}` renders in the Garderobe stream — the
     app's `assign-costume-<id>-none` first-assignment row key is reachable.
   - G2 (closed): with the seed costume UNASSIGNED, the scenario exercises a
     genuine FIRST assignment (c-7 → ch-3) instead of the reassign path that

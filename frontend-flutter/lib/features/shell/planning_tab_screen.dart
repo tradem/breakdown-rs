@@ -9,8 +9,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/cache/seasons_cache_providers.dart';
+import '../ai_import/import_jobs/import_submit_screen.dart';
 import '../blocks/blocks_screen.dart';
 import 'shell_controller.dart';
+
+/// The AI-import entry's AUTHZ-GATE comment travels with it (the submit
+/// controller gates BEFORE any network call — `grep AUTHZ-GATE` stays
+/// green). The entry moved here from the Mehr tab: the import creates
+/// planning entities (season/block/episode/schedule) for the seasons
+/// managed in this tab.
 
 /// The Planen tab root (task 4.1): the hierarchy entry.
 ///
@@ -38,12 +45,15 @@ class PlanningTabScreen extends ConsumerWidget {
         onRefresh: () => _refresh(ref),
         child: Builder(
           builder: (context) {
+            final importEntry = _aiImportEntry(context);
             if (rows.isEmpty) {
               return ListView(
                 key: const Key('planen-list'),
                 physics: const AlwaysScrollableScrollPhysics(),
                 children: [
-                  const SizedBox(height: 160),
+                  const SizedBox(height: 80),
+                  importEntry,
+                  const SizedBox(height: 120),
                   Center(
                     child: view.error != null
                         ? Text(
@@ -58,9 +68,11 @@ class PlanningTabScreen extends ConsumerWidget {
             return ListView.builder(
               key: const Key('planen-list'),
               physics: const AlwaysScrollableScrollPhysics(),
-              itemCount: rows.length,
+              // Index 0 is the AI-import entry; 1..n are the season rows.
+              itemCount: rows.length + 1,
               itemBuilder: (context, i) {
-                final season = rows[i];
+                if (i == 0) return importEntry;
+                final season = rows[i - 1];
                 return ListTile(
                   key: Key('planen-season-${season.id}'),
                   title: Text(season.title ?? 'Season ${season.number}'),
@@ -71,6 +83,26 @@ class PlanningTabScreen extends ConsumerWidget {
               },
             );
           },
+        ),
+      ),
+    );
+  }
+
+  /// The AI-import entry (moved from the Mehr tab): the KI-assistant
+  /// creates planning entities for a season, so its action lives here.
+  ListTile _aiImportEntry(BuildContext context) {
+    return ListTile(
+      key: const Key('planen-ai-import'),
+      leading: const Icon(Icons.smart_toy_outlined),
+      title: const Text('Import'),
+      subtitle: const Text('KI-Assistent: Spielplan importieren'),
+      trailing: const Icon(Icons.chevron_right),
+      // Fire-and-forget navigation (no result consumed).
+      onTap: () => unawaited(
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => const AiImportSubmitScreen(),
+          ),
         ),
       ),
     );
