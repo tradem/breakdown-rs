@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: omen-alpha (opencode-go) -->
+<!-- Co-authored-by: deepseek-v4-flash (neuralwatt) -->
 
 # Android Release Process (tag → GitHub Release)
 
@@ -119,3 +120,60 @@ place, no uninstall.
   switch are a separate app now — uninstall the old one once.)
 - The dev IdP client registration must allowlist the derived dev URI
   `breakdown-dev://auth/callback` — see `self-hosting.md` §4.
+
+#### Building a dev test APK (`scripts/dev/build-test-apk.sh`, issue #475)
+
+`scripts/dev/build-test-apk.sh` is the one-command way to produce an
+installable test APK for a real device or emulator — it encodes what the
+local-testing sessions kept as tribal knowledge (flavor + entrypoint, the
+`--dart-define` set, the pinned-CA sanity check, the per-build version
+marker). `scripts/release/*` is the PROD pipeline (CI signing + real OIDC
+secrets) and is deliberately the wrong target for local testing. The dev
+flavor is dev-runtime-only and is never published (spec
+`flutter-release-artifacts`).
+
+```bash
+cd frontend-flutter
+# one-time: create a gitignored .env.build-test with your values
+#   API_BASE=https://<lan-ip>:3000
+#   DEV_AUTH_SUB=<dev-subject>
+#   DEFAULT_SERIES_ID=<series-id>
+./scripts/dev/build-test-apk.sh          # --help documents every define
+```
+
+Preconditions (hard fail before any build work, so misconfiguration never
+surfaces as a later runtime error):
+
+- `DEFAULT_SERIES_ID` non-empty — an empty define dispatches a
+  season-create with an empty series_id that only shows up as a generic
+  422 at runtime (issue #467).
+- `DEV_AUTH_SUB` non-empty — backend dev-auth parity (ADR-018).
+- `assets/certs/dev/ca.pem` is NOT the committed placeholder
+  (`CN=breakdown-dev-ca`) and parses as an X.509 certificate — the dev
+  flavor pins this CA as its exclusive trust anchor (spec
+  `flutter-dev-ca`). For a LAN https edge, install the LAN CA from
+  `backend/dev-certs/lan/` (`ca.crt` → `assets/certs/dev/ca.pem`) with a
+  leaf whose SAN covers the edge host/IP.
+- `API_BASE` scheme/host policy hint: https always OK; cleartext http only
+  for the emulator/loopback hosts in `kDevCleartextHosts`
+  (`10.0.2.2`, `127.0.0.1`, `localhost`) — an http base to any other host
+  warns loudly (non-fatal; the app's runtime validation is the final gate).
+
+Defines (each injected with `--dart-define`; precedence: environment >
+`.env.build-test` > built-in defaults): `API_BASE` (default
+`http://10.0.2.2:3000`, emulator only), `DEV_AUTH_SUB`, `DEFAULT_SERIES_ID`,
+and `APP_VERSION` — the latter defaults to `<pubspec version> · DEV-<n>`, a
+per-build marker that auto-increments over the stamps in `build/test-apk/`
+so every installed variant is identifiable in the About dialog.
+
+Outputs, each run:
+
+```text
+build/app/outputs/flutter-apk/app-dev-release.apk   (raw build)
+build/test-apk/breakdown-dev-<marker>.apk           (stamped copy, sha256 printed)
+```
+
+The dev-flavor release build type is debug-signed by the Gradle fallback
+(`build.gradle.kts`), so the APK installs on a device without a signing
+environment — but treats it as what it is: a local test build, never a
+release artifact.

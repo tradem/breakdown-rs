@@ -49,3 +49,8 @@ app.*.map.json
 
 # Release artifact staging (frontend-flutter/scripts/release/stage-artifacts.sh)
 dist/
+
+# Local dev test-APK config (scripts/dev/build-test-apk.sh, issue #475)
+# Per-developer values (API_BASE, DEV_AUTH_SUB, DEFAULT_SERIES_ID, APP_VERSION) —
+# never committed; the build script hard-fails on missing defines.
+/.env.build-test
