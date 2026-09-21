@@ -197,7 +197,13 @@ if [[ ! -f "${CA_PEM}" ]]; then
   die "${CA_PEM} not found — the dev flavor pins this CA exclusively (spec flutter-dev-ca); restore it," \
       "otherwise the app fails closed at bootstrap (TlsConfigError). See --help."
 fi
-CA_SUBJECT="$(openssl x509 -in "${CA_PEM}" -noout -subject 2>/dev/null || true)"
+# RFC2253 nameopt: deterministic, version-independent subject formatting. The
+# default `oneline` format of `openssl x509 -subject` is locale/version
+# dependent (some OpenSSL versions emit `CN = breakdown-dev-ca` with spaces
+# around `=`), which would let the placeholder detection below fail to match.
+# RFC2253 never inserts spaces around `=` and is stable across OpenSSL
+# versions; the substring match is RDN-order independent.
+CA_SUBJECT="$(openssl x509 -in "${CA_PEM}" -noout -subject -nameopt RFC2253 2>/dev/null || true)"
 if [[ -z "${CA_SUBJECT}" ]]; then
   die "${CA_PEM} does not parse as an X.509 certificate (openssl x509 failed) — point it at a real CA PEM," \
       "not a placeholder or text file. See --help."
