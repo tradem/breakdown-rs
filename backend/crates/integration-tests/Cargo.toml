@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: deepseek-v4-flash (opencode-go)
+# Co-authored-by: glm-5.3-flash (neuralwatt)
 
 [package]
 name = "integration-tests"
@@ -24,6 +25,9 @@ test_support = { path = "../test_support", version = "0.3.0" }
 
 # Event-sourcing traits used by the in-memory aggregate command checks.
 kameo_es.workspace = true
+
+# Raw ESCAN read-back of CommandService-written events (Tier-4 probe, issue #25).
+sierradb-client.workspace = true
 
 # Implementing core/infra async ports (AiDocumentSource, LlmClient) in fakes.
 async-trait.workspace = true

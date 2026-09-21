@@ -3203,6 +3203,7 @@ dependencies = [
  "rust_decimal",
  "serde",
  "serde_json",
+ "sierradb-client",
  "sqlx",
  "tempfile",
  "test_support",

@@ -2,6 +2,7 @@
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: gpt-5.6-luna (opencode-go) -->
 <!-- Co-authored-by: omen-alpha (opencode-go) -->
+<!-- Co-authored-by: glm-5.3-flash (neuralwatt) -->
 
 # Agent Guidelines for breakdown-rs
 
@@ -57,7 +58,7 @@ Aggregate details and invariants (`shooting_day`/`wrapped_at`, `scene_shoot` lif
 - **Mutation Testing:** CI-only — **do NOT run locally** (saturates CPU/memory for hours; local feedback via `cargo llvm-cov` / `cargo tarpaulin`). Config lives in `.cargo/mutants.toml` (a top-level `.mutants.toml` is silently ignored). `cargo mutants --in-diff` for changed code only.
 - **Architecture Tests:** `rust_arkitect` + `cargo-deny` (ADR-017). Run `cargo test -p architecture_tests` and `cargo deny check bans` — core must not depend on infra/api.
 - **Mechanical Guardrails (CI):** `architecture-checks.yml` + `backend/rules/*.yml` (ast-grep) enforce: CQRS boundary (`cqrs-boundary`), no-string-interpolation-SQL, test-shim leak (`test-shim-leak`), error hygiene (`discard-result`, `test-helper-gate`), problem-code registry (non-suppressible), UUIDv7-only, reqwest TLS/auth security rules (Layer 9, ADR-024: rustls + pinned CAs). Suppression only via `// ast-grep-ignore: <rule-id>` with a justification comment. `backend/git-hooks/pre-commit` mirrors these on staged files; CI is authoritative. → Job/rule detail: `.github/instructions/ci-hardening.instructions.md`
-- **Integration Tests:** Black-box E2E in `crates/integration-tests` (tiers 1–4, testcontainers, ADR-016). The crate consumes only the `pub` API of `core`/`infra`. **Known deviation (issue #25):** Tier-4 round-trip tests append events via `EAPPEND` instead of driving a real `CommandService` command — a workaround for the SierraDB v0.3.1 single-node `ESCAN`/`ReadStream` bug; restore the `CommandService` variant once a fixed upstream tag exists (tracked in issue #25, ADR-016 §5). → Tiers, local execution, troubleshooting, gotchas: `.github/instructions/integration-tests.instructions.md`
+- **Integration Tests:** Black-box E2E in `crates/integration-tests` (tiers 1–4, testcontainers, ADR-016). The crate consumes only the `pub` API of `core`/`infra`. Tier 4 drives a real `CommandService` command (`CreateScene`/`UpdateSceneDetails` via the production adapter), verifies persistence via raw `ESCAN`, and asserts projector catch-up — the former issue #25 deviation (SierraDB v0.3.1 single-node `ESCAN`/`ReadStream` bug) is resolved as of 2026-09-21: the bug never got an upstream fix (v0.3.1 is still the latest tag); it stopped reproducing on the current client stack (vendored `kameo_es` 0.2.0, `sierradb-client` 0.3.1, `redis` 1.7). `EAPPEND`-based variants remain as projector idempotency/redelivery coverage. → Tiers, local execution, troubleshooting, gotchas: `.github/instructions/integration-tests.instructions.md`
 - **CI hardening (hard rule):** SHA-pin third-party actions (40-char SHA + `# vX` comment); never interpolate `${{ github.event.* }}` into `run:` — pass via `env:`. → Workflow detail: `../.github/instructions/workflow-hardening.instructions.md`
 
 ## 5. Code Example: kameo_es Aggregate

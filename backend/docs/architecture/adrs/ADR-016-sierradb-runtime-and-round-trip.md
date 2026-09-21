@@ -1,3 +1,7 @@
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+<!-- Co-authored-by: glm-5.3-flash (neuralwatt) -->
+
 # ADR-016: SierraDB runtime & round-trip (image path, dev/prod runtime, Tier-4 tests)
 
 **Status**: Accepted
@@ -96,34 +100,32 @@ change, closing task 4.3 of the original `sierradb-runtime-and-round-trip`
 change. Tier-4 tests
 remain excluded from `cargo-mutants` (`.cargo/mutants.toml`).
 
-### 5. Known deviation — Tier-4 bypasses `CommandService` (issue #25)
+### 5. Historical deviation — Tier-4 bypassed `CommandService` (issue #25, resolved)
 
-**Status update (2026-09-15):** as shipped by PR #24, the Tier-4 tests in
-`crates/integration-tests/tests/sierradb_round_trip.rs` do **not** drive a real
-`CommandService` command. They append events directly to SierraDB via `EAPPEND`
-(cborium-CBOR-encoded `SceneEvent` payloads) and then verify the
-`projector → Postgres projection → read query` segments against the real tiers.
+**Resolved (2026-09-21, issue #25):** the deviation is closed. A Tier-4 variant
+(`command_service_create_scene_round_trips_via_escan` in
+`crates/integration-tests/tests/sierradb_round_trip.rs`) now drives a real
+`CreateScene` + `UpdateSceneDetails` command through the production
+`SceneCommandsImpl` adapter onto the live write path (`CommandService` →
+`EntityActor` → `on_start`/`resync_with_db` → append), verifies the persisted
+events via raw `ESCAN` reads, and asserts the projector catch-up through the
+read adapter — the exact chain the `sierradb-round-trip-testing` spec mandates.
 
-**Reason — upstream SierraDB v0.3.1 single-node bug:** the live write path
-(`CommandService` → `EntityActor` → `resync_with_db`) exercises the SierraDB
-read path (`ESCAN` / `ReadStream`), which fails on single-node v0.3.1 with
-`PartitionUnavailable` / `broken pipe` while the write path (`EAPPEND`) works.
-The `EAPPEND`-based tests are a deliberate, documented workaround for that bug.
+**Resolution note:** the upstream bug never received an upstream fix — v0.3.1
+remains the latest `tqwewe/sierradb` tag (verified 2026-09-21). The
+`PartitionUnavailable` / `broken pipe` failure on the `EntityActor`'s
+`resync_with_db` read no longer reproduces because the *client stack* moved:
+vendored `kameo_es` 0.2.0 (path-patched under `.patches/kameo_es`),
+`sierradb-client` 0.3.1, and `redis` 1.7. Empirically re-verified against the
+pinned `tqwewe/sierradb:0.3.1` container with 5/5 stable runs.
 
-**Consequence:** the `command →` segment of the Tier-4 chain is not exercised
-against real tiers yet, and latent bugs in that path (e.g. stream-version
-divergence) are masked. The `sierradb-round-trip-testing` requirement to
-drive a real `CommandService` command is **not yet satisfied**; task 4.2/4.3
-"done" marks are provisional.
-
-**Restore condition (tracked in issue #25):** once SierraDB ships a fix for
-the single-node `ESCAN`/`ReadStream` bug — a new release tag built into
-`tqwewe/sierradb` (v0.3.1 is the latest tag as of 2026-09-15; upstream main
-since the tag contains only dependency bumps and unrelated fixes) — restore a
-Tier-4 variant that drives a real `CreateScene` command through
-`CommandService` and verifies the persisted event via a read/`ESCAN`, and
-bump the pinned tag per the upgrade steps in the Consequences section below.
-Until then this deviation stays open and is tracked in issue #25.
+**Historical context:** as shipped by PR #24, the Tier-4 tests appended events
+directly to SierraDB via `EAPPEND` (cborium-CBOR-encoded `SceneEvent`
+payloads) and only verified the `projector → Postgres projection → read query`
+segments against the real tiers — a deliberate workaround for the then-failing
+read path. The `EAPPEND`-based tests are retained as additional projector
+idempotency/redelivery coverage (the idempotency-under-redelivery variant requires
+raw appends by design).
 
 ## Alternatives Considered
 

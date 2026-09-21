@@ -1,3 +1,7 @@
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+<!-- Co-authored-by: glm-5.3-flash (neuralwatt) -->
+
 # SierraDB Round-Trip Integration Testing
 
 ## Purpose
@@ -75,16 +79,22 @@ The `crates/integration-tests` crate SHALL provide a second Tier-4 integration t
 
 ## Deviations
 
-### Known deviation: `CommandService` segment not exercised (issue #25)
+### Former deviation: `CommandService` segment not exercised (issue #25, resolved 2026-09-21)
 
-As implemented (PR #24), the Tier-4 tests append events directly to SierraDB
-via `EAPPEND` and do **not** drive a real `CommandService` command. This is a
-deliberate workaround for the SierraDB v0.3.1 single-node bug where the read
-path (`ESCAN` / `ReadStream` / `resync_with_db`) fails with
-`PartitionUnavailable` / `broken pipe` while the write path (`EAPPEND`) works.
-Consequently the `command →` segment of the chain above is not yet exercised
-against the real tiers and latent bugs in that path are masked. The
-`CommandService`-driven variant SHALL be restored once SierraDB ships a fix
-for the single-node read-path bug (new `tqwewe/sierradb` release tag; v0.3.1
-remains the latest as of 2026-09-15). Tracked in issue #25 and documented in
-ADR-016 §5 — do not mark this requirement satisfied until then.
+**Resolved.** As shipped by PR #24, the Tier-4 tests appended events directly
+to SierraDB via `EAPPEND` and did **not** drive a real `CommandService`
+command — a deliberate workaround for the SierraDB v0.3.1 single-node bug
+where the read path (`ESCAN` / `ReadStream` / `resync_with_db`) failed with
+`PartitionUnavailable` / `broken pipe`.
+
+The deviation is closed as of 2026-09-21: the Tier-4 variant
+`command_service_create_scene_round_trips_via_escan` now drives a real
+`CreateScene` + `UpdateSceneDetails` command through the production
+`SceneCommandsImpl` adapter, verifies the persisted events via raw `ESCAN`
+reads, and asserts the projector catch-up through the read adapter — the
+`command →` segment of the chain is exercised against the real tiers. The
+upstream bug never received a fix (v0.3.1 remains the latest `tqwewe/sierradb`
+tag); it stopped reproducing on the current client stack (vendored `kameo_es`
+0.2.0, `sierradb-client` 0.3.1, `redis` 1.7), empirically verified with 5/5
+stable runs against the pinned container. The `EAPPEND`-based tests remain as
+additional projector idempotency/redelivery coverage. Documented in ADR-016 §5.
