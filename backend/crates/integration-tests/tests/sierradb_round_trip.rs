@@ -454,6 +454,7 @@ async fn command_service_create_scene_round_trips_via_escan() -> Result<()> {
         2,
         "expected SceneCreated + SceneDetailsUpdated on stream {stream_id}"
     );
+    assert_eq!(stream_batch.events[1].event_name, "SceneDetailsUpdated");
 
     // 4. Verify the projector consumed the CommandService-written events.
     let view = await_scene_version(&repo, scene_id, AggregateVersion(2)).await?;
@@ -461,6 +462,9 @@ async fn command_service_create_scene_round_trips_via_escan() -> Result<()> {
     assert_eq!(view.episode_id, episode_id);
     assert_eq!(view.scene_number, Some(8));
     assert_eq!(view.location.as_deref(), Some("Potsdam"));
+    assert_eq!(view.mood.as_deref(), Some("bright"));
+    assert!(view.is_schedule_set);
+    assert_eq!(view.version, AggregateVersion(2));
 
     Ok(())
 }
