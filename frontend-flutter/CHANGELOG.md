@@ -17,6 +17,20 @@ releases are cut as `flutter-vX.Y.Z` tags.
 
 ### Changed
 
+- **IA cleanup (PR #474):** the AI-import entry moves from the Mehr tab
+  to the top of the Planen tab (the KI-assistant creates planning
+  entities — season/block/episode/schedule — so its action lives where
+  that structure is built; key `planen-ai-import` replaces
+  `mehr-ai-import`). The bottom tab **Kleidung** is renamed to
+  **Garderobe** and the Mehr entry **Kategorien** to
+  **Kostüm-Kategorien** (semantically precise: the entry manages the
+  season-scoped vocabulary, not the costumes themselves). Shell test
+  keys (`kleidung-*`, `shell-destination-*`, `kKleidungTabIndex`) are
+  deliberately kept — on-device Gherkin suites bind to them; goldens
+  regenerated.
+- **Version bump:** `0.3.0-alpha.12+21 → 0.3.0-alpha.13+22` (pre-release
+  increment per merged-PR practice on the alpha line; `+N` stays strictly
+  monotonic for the Play `versionCode`).
 - Costume Reassign runs a client-side unassign→assign sequence (issue
   #454). `CostumesController.assign` no longer dispatches the plain
   `POST /v1/costumes/{id}/assign` command onto an already-assigned costume

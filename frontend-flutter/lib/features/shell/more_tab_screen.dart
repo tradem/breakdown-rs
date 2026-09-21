@@ -10,20 +10,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../auth/auth_providers.dart';
 import '../app_info/info_dialog.dart';
 import '../app_info/settings_dialog.dart';
-import '../ai_import/import_jobs/import_submit_screen.dart';
 import '../auth/sign_out.dart';
 import '../costume_categories/costume_categories_screen.dart';
 import 'shell_controller.dart';
 
 /// The Mehr tab root (task 4.3): secondary destinations as labeled list
-/// entries — AI import, costume categories (active-season scoped),
-/// About, Settings, Sign out.
+/// entries — costume categories (active-season scoped), About, Settings,
+/// Sign out.
 ///
-/// The AI-import entry's AUTHZ-GATE comment travels with it (the submit
-/// controller gates BEFORE any network call — `grep AUTHZ-GATE` stays
-/// green). Reports are intentionally NOT listed here (design D8:
-/// `ReportsScreen` is strictly day-scoped; reports stay anchored in the
-/// day board).
+/// The AI-import entry lives in the Planen tab (the import creates
+/// planning entities — season/block/episode/schedule — so its action
+/// sits where that structure is built). Reports are intentionally NOT
+/// listed here (design D8: `ReportsScreen` is strictly day-scoped;
+/// reports stay anchored in the day board).
 ///
 /// Secondary entries push on this tab's nested navigator; dialogs stay
 /// dialogs. Sign-out runs the [SessionReset] coordinator (never throws —
@@ -61,30 +60,10 @@ class MoreTabScreen extends ConsumerWidget {
             },
           ),
           const Divider(),
-          // AUTHZ-GATE: the AI-import upload routes are gated by the season
-          // costume-dept membership; the gate runs inside the submit
-          // controller BEFORE any network call (the entry action itself is
-          // auth-only — the screens render the denial narratives). This
-          // comment moved with the entry from the seasons AppBar (task 4.3).
-          ListTile(
-            key: const Key('mehr-ai-import'),
-            leading: const Icon(Icons.smart_toy_outlined),
-            title: const Text('Import'),
-            subtitle: const Text('KI-Assistent: Spielplan importieren'),
-            trailing: const Icon(Icons.chevron_right),
-            // Fire-and-forget navigation (no result consumed).
-            onTap: () => unawaited(
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const AiImportSubmitScreen(),
-                ),
-              ),
-            ),
-          ),
           ListTile(
             key: const Key('mehr-categories-entry'),
             leading: const Icon(Icons.style_outlined),
-            title: const Text('Kategorien'),
+            title: const Text('Kostüm-Kategorien'),
             subtitle: season == null
                 // CodeRabbit review fix: name the tab that CAN set the
                 // active season (Planen — from the acted-on season row

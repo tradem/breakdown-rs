@@ -15,12 +15,12 @@ part 'shell_controller.g.dart';
 
 /// Shell controller state (task 2.1, design D2/D5): the selected tab index
 /// and the active season as **plain data** — no season-changing token
-/// knowledge lives in widgets; the Kleidung tab consumes `activeSeason`
+/// knowledge lives in widgets; the Garderobe tab consumes `activeSeason`
 /// directly.
 class ShellState {
   const ShellState({this.selectedIndex = 0, this.activeSeason});
 
-  /// Selected destination (0..3: Season | Planen | Kleidung | Mehr).
+  /// Selected destination (0..3: Season | Planen | Garderobe | Mehr).
   final int selectedIndex;
 
   /// The active season (last-opened, persisted reference resolved against
@@ -50,7 +50,9 @@ class ShellState {
 }
 
 /// The four shell destinations in display order (spec
-/// `flutter-navigation-shell` — Season | Planen | Kleidung | Mehr).
+/// `flutter-navigation-shell` — Season | Planen | Garderobe | Mehr).
+/// `kKleidungTabIndex` keeps its historical name: shell test keys
+/// (`kleidung-*`) and on-device Gherkin steps bind to it.
 const int kSeasonTabIndex = 0;
 const int kPlanenTabIndex = 1;
 const int kKleidungTabIndex = 2;
@@ -67,7 +69,7 @@ class ShellController extends _$ShellController {
   @override
   ShellState build() {
     // D7: sign-out mid-session (and any new session) resets the tab index
-    // and drops the in-memory active season; the Kleidung tab re-resolves
+    // and drops the in-memory active season; the Garderobe tab re-resolves
     // from the persisted reference on the next selection.
     final session = ref.watch(authSessionControllerProvider);
     // Session identity: a NEW session (different sub, or signed-out after
