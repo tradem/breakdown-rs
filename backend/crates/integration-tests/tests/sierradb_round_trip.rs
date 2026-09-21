@@ -12,20 +12,28 @@
 )]
 //! Tier-4 round-trip integration tests (ADR-014 / ADR-015 / ADR-016).
 //!
-//! These tests drive the full live chain against ephemeral containers:
+//! The tests drive the full live chain against ephemeral containers:
 //!
 //! ```text
-//! direct EAPPEND → SierraDB event persisted → PostgresProcessor catches up
+//! CommandService → SierraDB event persisted → PostgresProcessor catches up
 //!              → read via *Repository adapter asserts the projection row
 //! ```
 //!
-//! SierraDB v0.3.1 has a single-node topology issue where `ESCAN` (used by
-//! `kameo_es`'s `EntityActor::resync_with_db`) returns `PartitionUnavailable`.
-//! To work around this, we append events directly via `EAPPEND` (which goes
-//! through the write path) instead of using the `kameo_es` `CommandService`.
-//! The projector subscription picks up the event regardless of how it was
-//! written, so the full `SierraDB → projector → Postgres projection` chain
-//! is still exercised.
+//! # Variants
+//!
+//! 1. `command_service_create_scene_round_trips_via_escan` — the spec-mandated
+//!    variant: a real `CreateScene`/`UpdateSceneDetails` command dispatched
+//!    through the production `SceneCommandsImpl` adapter, events verified via
+//!    raw `ESCAN` reads, projection asserted via the read adapter. This
+//!    re-closes the former issue #25 deviation: the SierraDB v0.3.1
+//!    single-node `PartitionUnavailable` failure on the `EntityActor`'s
+//!    `resync_with_db` read no longer reproduces on the current client stack
+//!    (vendored `kameo_es` 0.2.0, `sierradb-client` 0.3.1, `redis` 1.7).
+//! 2. `eappend_scene_created_round_trips_into_projection` — appends via raw
+//!    `EAPPEND` and asserts the full `SierraDB → projector → Postgres
+//!    projection → read query` segment.
+//! 3. `eappend_character_assigned_twice_is_idempotent` — verifies projector
+//!    idempotency under event redelivery (ADR-016 task 4.3).
 //!
 //! Requirements: Docker (or a compatible container runtime) and network access
 //! to pull the SierraDB image. Excluded from `cargo-mutants` (`.mutants.toml`).
@@ -37,11 +45,15 @@ use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
 use breakdown_core::error::DomainError;
+use breakdown_core::scene::commands::{CreateScene, UpdateSceneDetails};
 use breakdown_core::scene::events::{SceneDetails, SceneEvent};
-use breakdown_core::scene::ports::SceneRepository as _;
-use breakdown_core::shared::{AggregateVersion, EpisodeId};
+use breakdown_core::scene::ports::{SceneCommands as _, SceneRepository as _};
+use breakdown_core::shared::{AggregateVersion, EpisodeId, UserId};
 use chrono::Utc;
+use infra::event_store::SceneCommandsImpl;
 use infra::queries::SceneRepositoryImpl;
+use kameo_es::command_service::CommandService;
+use sierradb_client::AsyncCommands;
 use uuid::Uuid;
 
 /// Bounded-retry window for the projector to catch up (ADR-015 eventual
@@ -326,6 +338,129 @@ async fn eappend_character_assigned_twice_is_idempotent() -> Result<()> {
     assert_eq!(view2.location, view.location);
     assert_eq!(view2.mood, view.mood);
     assert_eq!(view2.is_schedule_set, view.is_schedule_set);
+
+    Ok(())
+}
+
+/// Tier-4 round-trip variant driving a **real** `CommandService` command
+/// (issue #25, ADR-016 §5; spec requirement restored 2026-09-21).
+///
+/// Dispatches `CreateScene` (and a follow-up `UpdateSceneDetails`) through the
+/// production `SceneCommandsImpl` adapter onto the live write path
+/// (`CommandService` → `EntityActor` → `on_start`/`resync_with_db` → append),
+/// verifies the resulting events are persisted in SierraDB via raw `ESCAN`
+/// reads, and asserts the projector catches up to the projection row — the
+/// exact chain `openspec/specs/sierradb-round-trip-testing/spec.md` mandates.
+///
+/// Historical note: PR #24 worked around a SierraDB v0.3.1 single-node
+/// `PartitionUnavailable` / `broken pipe` failure on the `EntityActor`'s
+/// `resync_with_db` read. That failure no longer reproduces on the current
+/// client stack (vendored `kameo_es` 0.2.0, `sierradb-client` 0.3.1,
+/// `redis` 1.7) — empirically re-verified against the pinned container in
+/// issue #25 (repeated stable runs; upstream tag unchanged at v0.3.1: the
+/// fix lives client-side, not upstream). The `EAPPEND`-based variants below
+/// are kept as additional projector idempotency/redelivery coverage.
+#[tokio::test]
+async fn command_service_create_scene_round_trips_via_escan() -> Result<()> {
+    let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
+    let (redis_client, sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
+
+    let _scene_ref = infra::projectors::spawn_scene_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
+
+    let repo = SceneRepositoryImpl::new(pool);
+
+    // 1. Dispatch a real CreateScene through the production command adapter.
+    let cmd_service = CommandService::new(sierra_conn);
+    let scenes = SceneCommandsImpl::new(cmd_service);
+
+    let scene_id = Uuid::now_v7();
+    let episode_id = EpisodeId::new();
+    let (created_id, created_version) = scenes
+        .create(
+            UserId::from_sub("tier4-command-service-probe"),
+            CreateScene {
+                id: scene_id,
+                episode_id,
+                series_id: None,
+                details: SceneDetails {
+                    scene_number: Some(7),
+                    location: Some("Berlin".into()),
+                    mood: Some("dark".into()),
+                    is_schedule_set: true,
+                    summary: None,
+                    script_day: None,
+                },
+            },
+        )
+        .await
+        .map_err(|e| anyhow!("CreateScene dispatch via CommandService failed: {e}"))?;
+
+    assert_eq!(created_id, scene_id);
+    assert_eq!(created_version, AggregateVersion::INITIAL);
+
+    // 2. Verify the event is persisted in SierraDB via a raw ESCAN read.
+    let stream_id = format!("scene-{scene_id}");
+    let mut conn = redis_client.get_multiplexed_async_connection().await?;
+    let batch: sierradb_client::EventBatch = conn
+        .escan(&stream_id, 0, None, Some(100))
+        .await
+        .map_err(|e| anyhow!("ESCAN read-back failed: {e}"))?;
+    assert_eq!(
+        batch.events.len(),
+        1,
+        "expected exactly the SceneCreated event on stream {stream_id}"
+    );
+    assert_eq!(batch.events[0].event_name, "SceneCreated");
+    let persisted: SceneEvent = ciborium::from_reader(batch.events[0].payload.as_slice())
+        .map_err(|e| anyhow!("CBOR decode of persisted event failed: {e}"))?;
+    assert!(matches!(persisted, SceneEvent::SceneCreated { .. }));
+
+    // 3. Drive a second mutation through the same live write path to assert
+    //    version progression on an already-loaded aggregate.
+    let updated_version = scenes
+        .update_details(
+            UserId::from_sub("tier4-command-service-probe"),
+            UpdateSceneDetails {
+                id: scene_id,
+                details: SceneDetails {
+                    scene_number: Some(8),
+                    location: Some("Potsdam".into()),
+                    mood: Some("bright".into()),
+                    is_schedule_set: true,
+                    summary: None,
+                    script_day: None,
+                },
+                series_id: None,
+                // The caller-observed (domain) version after the create: the
+                // adapter maps it to the 0-based SierraDB stream version.
+                version: AggregateVersion(1),
+            },
+        )
+        .await
+        .map_err(|e| anyhow!("UpdateSceneDetails dispatch via CommandService failed: {e}"))?;
+    assert_eq!(updated_version, AggregateVersion(2));
+
+    let stream_batch: sierradb_client::EventBatch = conn
+        .escan(&stream_id, 0, None, Some(100))
+        .await
+        .map_err(|e| anyhow!("ESCAN read-back after update failed: {e}"))?;
+    assert_eq!(
+        stream_batch.events.len(),
+        2,
+        "expected SceneCreated + SceneDetailsUpdated on stream {stream_id}"
+    );
+
+    // 4. Verify the projector consumed the CommandService-written events.
+    let view = await_scene_version(&repo, scene_id, AggregateVersion(2)).await?;
+    assert_eq!(view.id, scene_id);
+    assert_eq!(view.episode_id, episode_id);
+    assert_eq!(view.scene_number, Some(8));
+    assert_eq!(view.location.as_deref(), Some("Potsdam"));
 
     Ok(())
 }

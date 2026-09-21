@@ -25,6 +25,9 @@ test_support = { path = "../test_support", version = "0.3.0" }
 # Event-sourcing traits used by the in-memory aggregate command checks.
 kameo_es.workspace = true
 
+# Raw ESCAN read-back of CommandService-written events (Tier-4 probe, issue #25).
+sierradb-client.workspace = true
+
 # Implementing core/infra async ports (AiDocumentSource, LlmClient) in fakes.
 async-trait.workspace = true
 

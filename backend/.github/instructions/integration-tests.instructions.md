@@ -14,7 +14,24 @@ End-to-end, black-box integration tests live in the dedicated workspace member `
 
 - **Tiers 1–3 (Postgres-only)**: projector and repository tests against an ephemeral PostgreSQL container.
 - **Tier 4 (full round-trip, ADR-016)**: `command → SierraDB event persisted → PostgresProcessor catches up → read via *Repository adapter asserts the projection row`, against ephemeral SierraDB (`tqwewe/sierradb:0.3.1`) **and** Postgres containers, with bounded-retry eventual-consistency handling. A second variant verifies projector idempotency under redelivery.
-- **Tier-4 known deviation (issue #25)**: the implemented tests append events directly via `EAPPEND` instead of driving a real `CommandService` command — a workaround for the SierraDB v0.3.1 single-node `ESCAN`/`ReadStream` bug (`PartitionUnavailable`/`broken pipe` on the write path's `resync_with_db` read). The `command →` segment is therefore not exercised against real tiers; restore a `CommandService`-driven `CreateScene` variant once a fixed upstream tag exists (v0.3.1 is still the latest tag — check `sierra-db/sierradb` releases). Details: ADR-016 §5 and issue #25.
+- **Tier-4 `CommandService` variant (issue #25, resolved 2026-09-21)**:
+  `command_service_create_scene_round_trips_via_escan` drives a real
+  `CreateScene` + `UpdateSceneDetails` command through the production
+  `SceneCommandsImpl` adapter (`CommandService` → `EntityActor` →
+  `on_start`/`resync_with_db` → append), verifies the persisted events via raw
+  `ESCAN` reads, and asserts the projector catch-up through the read adapter.
+  The former deviation (SierraDB v0.3.1 single-node
+  `PartitionUnavailable`/`broken pipe` on the write path's `resync_with_db`
+  read) never received an upstream fix — v0.3.1 is still the latest tag — but
+  stopped reproducing on the current client stack (vendored `kameo_es` 0.2.0,
+  `sierradb-client` 0.3.1, `redis` 1.7); verified with 5/5 stable runs
+  against the pinned container. The `EAPPEND`-based variants remain as
+  projector idempotency/redelivery coverage. Note the version conventions if
+  adding multi-command Tier-4 tests: SierraDB stream versions are 0-based
+  (first event = 0) while domain `AggregateVersion` is 1-based — pass the
+  caller-observed domain version to command fields (e.g. `version:
+  AggregateVersion(1)` after create) and let the adapter map via
+  `domain_to_stream_checked`.
 - **How to run locally**: See [Local development](#local-development-integration-tests) below.
 - **Boundary**: The crate consumes only the `pub` API of `core` and `infra`. It is excluded from the `cargo-mutants` surface — only whitebox `#[cfg(test)]` modules are mutated.
 - **CI trigger**: The integration-test workflow runs on pull requests and pushes to main. The main job runs the Vault fixture, the Postgres-only tests, and the SierraDB round-trip group; a second `ai-import-integration-tests` job runs the heavy Postgres-only AI import/payload suites (issue #226). CI starts the Postgres and SierraDB containers; the photo and AI payload tests additionally start a Garage (S3) container, and the workflow pre-pulls Postgres, SierraDB, Garage and Vault images with retries.
