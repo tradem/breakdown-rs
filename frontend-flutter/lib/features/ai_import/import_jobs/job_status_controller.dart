@@ -112,14 +112,15 @@ class AiJobContext {
 /// exhaustion) keyed on the stable problem `code`. `ai-import.forbidden` is
 /// the scoped wire code the backend emits for ALL AI-import job denials
 /// (ownership, season-scope, cross-resource) — the copy is access-neutral
-/// (CodeRabbit #480); `ai_import.not_found` covers the client-side "job gone
-/// from the watch" outcome.
+/// (CodeRabbit #480). The not-found arm keys on `ai-import.not-found`, the
+/// scoped wire code the backend emits for a missing/oracle-hidden job (issue
+/// #481) — the client never fabricates a job not-found code of its own.
 String jobWatchErrorCopy(ProblemError error) => switch (error.code) {
   'ai-import.forbidden' => 'You do not have access to this AI import job.',
   'ai_import.watch_exhausted' =>
     'Still no update from the backend — the job keeps processing. '
         'Re-arm the watch or come back later.',
-  'ai_import.not_found' =>
+  'ai-import.not-found' =>
     'This job does not exist (or belongs to another account).',
   _ when error.code.startsWith('transport.') =>
     'Network problem — the status could not be refreshed.',

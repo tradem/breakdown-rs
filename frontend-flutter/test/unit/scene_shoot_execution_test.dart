@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3 (opencode)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 // Tier-1 unit tests (`flutter-shoot-day-execution` 1.3): every
 // `SceneShootRepository` execution command Ok AND Err, the pure
@@ -339,7 +340,7 @@ void main() {
       await _exerciseAllCommands(repo);
 
       final conflict = _ScriptInterceptor(
-        problem: 'scene_shoot.version_conflict',
+        problem: 'concurrency.version-mismatch',
         statusCode: 409,
       );
       final failing = SceneShootRepository(
@@ -355,7 +356,7 @@ void main() {
           'ssh-1',
           buildFinishSceneShootRequest(version: 2),
         ),
-        'scene_shoot.version_conflict',
+        'concurrency.version-mismatch',
       );
       _expectLeftCode(
         await failing.setActualOrder(
@@ -364,7 +365,7 @@ void main() {
           'ssh-1',
           buildSetActualOrderRequest(actualOrder: 'a0!', version: 2),
         ),
-        'scene_shoot.version_conflict',
+        'concurrency.version-mismatch',
       );
       _expectLeftCode(
         await failing.linkContinuityPhoto(
@@ -373,11 +374,11 @@ void main() {
           'ssh-1',
           buildLinkContinuityPhotoRequest(photoId: 'ph-1', version: 3),
         ),
-        'scene_shoot.version_conflict',
+        'concurrency.version-mismatch',
       );
       _expectLeftCode(
         await failing.wrap('day-1', buildWrapShootingDayRequest(version: 5)),
-        'scene_shoot.version_conflict',
+        'concurrency.version-mismatch',
       );
       await db.close();
     });

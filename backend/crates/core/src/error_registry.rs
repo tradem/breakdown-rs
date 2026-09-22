@@ -36,7 +36,7 @@ pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
 /// Kept in sync with the `problem_codes!` invocation below by a compile-time
 /// assertion — adding or removing a code without deliberately updating this
 /// count fails the build (issue #232).
-const PROBLEM_CODE_COUNT: usize = 81;
+const PROBLEM_CODE_COUNT: usize = 84;
 
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -830,6 +830,43 @@ problem_codes! {
         status: 403,
         title: "AI import forbidden",
         extensions: &[],
+    },
+
+    /// 415 — the uploaded AI import document declares an unsupported
+    /// `Content-Type` (script uploads require `application/pdf`; schedule
+    /// uploads `text/csv`, `application/pdf` or `text/plain`). Scoped
+    /// separately from the generic `http.unsupported-media-type` (issue #481)
+    /// so the AI-import upload screen can render its document-kind narrative
+    /// instead of the generic fallback.
+    AI_IMPORT_UNSUPPORTED_MEDIA_TYPE {
+        code: "ai-import.unsupported-media-type",
+        status: 415,
+        title: "AI import unsupported media type",
+        extensions: &[],
+    },
+
+    /// 404 — an AI import job does not exist (or is deliberately hidden per
+    /// the existence-oracle policy, ADR-031 decision 5). Scoped separately
+    /// from `domain.not-found` (issue #481) so the job-status watch can
+    /// render its "job gone" narrative instead of the generic fallback.
+    AI_IMPORT_NOT_FOUND {
+        code: "ai-import.not-found",
+        status: 404,
+        title: "AI import job not found",
+        extensions: &[],
+    },
+
+    /// 409 — optimistic-concurrency version conflict on an AI configuration
+    /// edit/revoke (`PATCH /ai-import/config/{id}`, `POST
+    /// /ai-import/config/{id}/revoke`). Scoped separately from
+    /// `concurrency.version-mismatch` (issue #481) so the AI-config screen
+    /// can render its "changed elsewhere — refresh" narrative; carries the
+    /// same S0 extensions as the generic concurrency code.
+    AI_CONFIG_VERSION_MISMATCH {
+        code: "ai-config.version-mismatch",
+        status: 409,
+        title: "AI configuration version conflict",
+        extensions: &["expected_version", "current_version"],
     },
 
 }

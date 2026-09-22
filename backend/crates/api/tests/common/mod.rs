@@ -7,6 +7,7 @@
 // Co-authored-by: longcat-2.0-free (opencode)
 // Co-authored-by: hy4-preview (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -1729,6 +1730,11 @@ pub struct FakeAiConfigCommands {
     pub created: Arc<Mutex<Vec<CreateAiConfig>>>,
     pub updated: Arc<Mutex<Vec<UpdateAiConfig>>>,
     pub revoked: Arc<Mutex<Vec<RevokeAiConfig>>>,
+    /// When set, `update`/`revoke` return `DomainError::VersionConflict`
+    /// (the optimistic-lock mismatch the production adapter surfaces on a
+    /// stale version) so the handler's scoped `ai-config.version-mismatch`
+    /// translation is exercised (issue #481).
+    pub version_conflict: Arc<Mutex<bool>>,
 }
 
 #[async_trait]
@@ -1748,6 +1754,12 @@ impl AiConfigCommands for FakeAiConfigCommands {
         _actor: UserId,
         command: UpdateAiConfig,
     ) -> Result<AggregateVersion, DomainError> {
+        if *self.version_conflict.lock().await {
+            return Err(DomainError::VersionConflict {
+                expected: command.version,
+                current: AggregateVersion(command.version.0 + 1),
+            });
+        }
         let version = AggregateVersion(command.version.0 + 1);
         self.updated.lock().await.push(command);
         Ok(version)
@@ -1758,6 +1770,12 @@ impl AiConfigCommands for FakeAiConfigCommands {
         _actor: UserId,
         command: RevokeAiConfig,
     ) -> Result<AggregateVersion, DomainError> {
+        if *self.version_conflict.lock().await {
+            return Err(DomainError::VersionConflict {
+                expected: command.version,
+                current: AggregateVersion(command.version.0 + 1),
+            });
+        }
         let version = AggregateVersion(command.version.0 + 1);
         self.revoked.lock().await.push(command);
         Ok(version)

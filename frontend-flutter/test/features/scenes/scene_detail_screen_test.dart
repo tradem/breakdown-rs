@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 // Tier-2 widget tests for `SceneDetailScreen` (Tasks 5.2, 6.2): assigned
 // characters (read-DTO join) + assign/unassign with scene version echo,
@@ -35,7 +36,10 @@ import 'package:frontend_flutter/features/shooting_days/shooting_days_controller
 
 import '../seasons/seasons_test_fakes.dart';
 
-const _conflict = ProblemError(code: 'concurrency.conflict', status: 409);
+const _conflict = ProblemError(
+  code: 'concurrency.version-mismatch',
+  status: 409,
+);
 
 SceneView _scene({
   String id = 'scene-1',

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:drift/native.dart';
@@ -24,7 +25,7 @@ import 'package:frontend_flutter/features/costume_categories/costume_categories_
 import '../seasons/seasons_test_fakes.dart';
 
 const _networkDown = ProblemError(code: 'transport.connectionError');
-const _versionConflict = ProblemError(code: 'concurrency.conflict');
+const _versionConflict = ProblemError(code: 'concurrency.version-mismatch');
 const _gone = ProblemError(code: 'season.not-found', status: 404);
 
 CostumeCategoryView _category(

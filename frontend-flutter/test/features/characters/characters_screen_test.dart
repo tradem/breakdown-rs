@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 // Tier-2 widget + controller tests for `CharactersScreen` and
 // `CharacterDetailScreen` (Task 5.3): list/create per spec scenarios (409
@@ -32,7 +33,10 @@ import 'package:frontend_flutter/features/characters/characters_screen.dart';
 import '../seasons/seasons_test_fakes.dart';
 
 const _networkDown = ProblemError(code: 'transport.connectionError');
-const _conflict = ProblemError(code: 'concurrency.conflict', status: 409);
+const _conflict = ProblemError(
+  code: 'concurrency.version-mismatch',
+  status: 409,
+);
 
 CharacterView _character(
   String id, {

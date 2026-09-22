@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'dart:async';
 
@@ -178,8 +179,12 @@ class CharactersCommandError extends _$CharactersCommandError {
 /// Localized client-side copy for character command failures, keyed on the
 /// stable problem `code` (never the server's localized `detail`).
 String characterErrorCopy(ProblemError error) => switch (error.code) {
-  'concurrency.conflict' ||
-  'character.version_conflict' => 'Changed elsewhere — refresh and try again.',
+  // 409 `concurrency.version-mismatch`: the backend's sole version-conflict
+  // code (the old `character.version_conflict`/`concurrency.conflict` keys
+  // were never emitted, so a real 409 fell through to the generic fallback
+  // — issue #481).
+  'concurrency.version-mismatch' =>
+    'Changed elsewhere — refresh and try again.',
   'authz.denied' || 'auth.session_required' => 'Please sign in to continue.',
   _ when error.code.startsWith('transport.') =>
     'Network problem — the change was not saved. Try again.',

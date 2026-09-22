@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:built_collection/built_collection.dart';
@@ -734,10 +735,12 @@ void main() {
     test('rename Ok AND Err (409 conflict) branches', () async {
       repo.nextWrite = const Right(2);
       expect(await repo.rename('c1', 1, 'Caps'), const Right(2));
-      repo.nextWrite = const Left(ProblemError(code: 'concurrency.conflict'));
+      repo.nextWrite = const Left(
+        ProblemError(code: 'concurrency.version-mismatch'),
+      );
       expect(
         await repo.rename('c1', 1, 'Caps'),
-        const Left(ProblemError(code: 'concurrency.conflict')),
+        const Left(ProblemError(code: 'concurrency.version-mismatch')),
       );
     });
 

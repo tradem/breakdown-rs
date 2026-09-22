@@ -22,7 +22,8 @@ use axum::http::{StatusCode, header, request::Parts};
 use axum::response::{IntoResponse, Response};
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::{
-    AI_CONFIG_FORBIDDEN, AI_IMPORT_DISABLED, AI_IMPORT_FORBIDDEN, CONCURRENCY_VERSION_MISMATCH,
+    AI_CONFIG_FORBIDDEN, AI_CONFIG_VERSION_MISMATCH, AI_IMPORT_DISABLED, AI_IMPORT_FORBIDDEN,
+    AI_IMPORT_NOT_FOUND, AI_IMPORT_UNSUPPORTED_MEDIA_TYPE, CONCURRENCY_VERSION_MISMATCH,
     COSTUME_ALREADY_ASSIGNED, DOMAIN_CONFLICT, DOMAIN_FORBIDDEN, DOMAIN_NOT_FOUND,
     DOMAIN_SERVICE_UNAVAILABLE, DOMAIN_VALIDATION, HTTP_BAD_JSON_BODY, HTTP_BAD_PATH_PARAM,
     HTTP_BAD_QUERY_PARAM, HTTP_BAD_REQUEST, HTTP_INTERNAL_ERROR, HTTP_PAYLOAD_TOO_LARGE,
@@ -319,6 +320,23 @@ pub enum ApiError {
     UnsupportedMediaType(&'static str),
     /// 413 `http.payload-too-large`.
     PayloadTooLarge(&'static str),
+    /// 415 `ai-import.unsupported-media-type` — the AI import upload content
+    /// type is unsupported (script uploads require `application/pdf`; schedule
+    /// uploads `text/csv`, `application/pdf` or `text/plain`). Scoped per
+    /// aggregate (ADR-031 Tranche 2, issue #481).
+    AiImportUnsupportedMediaType(&'static str),
+    /// 404 `ai-import.not-found` — the AI import job does not exist (or is
+    /// deliberately hidden per the existence-oracle policy). Scoped per
+    /// aggregate (issue #481).
+    AiImportNotFound(&'static str),
+    /// 409 `ai-config.version-mismatch` — optimistic-lock version conflict on
+    /// an AI-config edit/revoke. Scoped per aggregate (issue #481); carries
+    /// the same S0 `expected_version`/`current_version` extensions as the
+    /// generic concurrency code.
+    AiConfigVersionMismatch(
+        breakdown_core::shared::AggregateVersion,
+        breakdown_core::shared::AggregateVersion,
+    ),
     /// 500 `http.internal-error` — `detail` is always static text; the real
     /// error must be logged by the caller (internal text never leaves the
     /// server, ADR-031 decision 6).
@@ -403,6 +421,23 @@ impl ApiError {
             ApiError::PayloadTooLarge(msg) => {
                 tracing::debug!(reason = msg, "rendering payload-too-large problem");
                 problem(HTTP_PAYLOAD_TOO_LARGE).build()
+            }
+            ApiError::AiImportUnsupportedMediaType(msg) => {
+                tracing::debug!(
+                    reason = msg,
+                    "rendering ai-import unsupported-media-type problem"
+                );
+                problem(AI_IMPORT_UNSUPPORTED_MEDIA_TYPE).build()
+            }
+            ApiError::AiImportNotFound(msg) => {
+                tracing::debug!(reason = msg, "rendering ai-import not-found problem");
+                problem(AI_IMPORT_NOT_FOUND).build()
+            }
+            ApiError::AiConfigVersionMismatch(expected, current) => {
+                problem(AI_CONFIG_VERSION_MISMATCH)
+                    .extension("expected_version", expected)
+                    .extension("current_version", current)
+                    .build()
             }
             ApiError::Internal => problem(HTTP_INTERNAL_ERROR).build(),
             ApiError::ReportRender(err) => report_render_problem(err),

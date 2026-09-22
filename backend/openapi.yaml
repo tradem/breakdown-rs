@@ -2515,6 +2515,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: ''
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
       tags:
       - handlers
   /v1/ai-import/config/{id}/revoke:
@@ -2541,6 +2547,12 @@ paths:
                 $ref: '#/components/schemas/AggregateVersion'
           description: ''
         '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+        '409':
           content:
             application/problem+json:
               schema:
@@ -6658,3 +6670,20 @@ x-code-registry:
   status: 403
   title: AI import forbidden
   type: https://docs.breakdown.example/problems/ai-import.forbidden
+- code: ai-import.unsupported-media-type
+  extensions: []
+  status: 415
+  title: AI import unsupported media type
+  type: https://docs.breakdown.example/problems/ai-import.unsupported-media-type
+- code: ai-import.not-found
+  extensions: []
+  status: 404
+  title: AI import job not found
+  type: https://docs.breakdown.example/problems/ai-import.not-found
+- code: ai-config.version-mismatch
+  extensions:
+  - expected_version
+  - current_version
+  status: 409
+  title: AI configuration version conflict
+  type: https://docs.breakdown.example/problems/ai-config.version-mismatch

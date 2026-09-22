@@ -1,0 +1,7 @@
+{
+  "code": "ai-import.not-found",
+  "detail": "Dieser KI-Importauftrag existiert nicht.",
+  "status": 404,
+  "title": "AI import job not found",
+  "type": "https://docs.breakdown.example/problems/ai-import.not-found"
+}

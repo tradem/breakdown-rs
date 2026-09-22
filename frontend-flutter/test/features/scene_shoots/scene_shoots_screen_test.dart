@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3 (opencode)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 // Widget tests + goldens (`flutter-shoot-day-execution` 2.4): the day
 // board across {light,dark} × {android,macOS} (macOS via
@@ -434,7 +435,7 @@ void main() {
       );
       await pumpScreen(tester);
       repo.nextWrite = const Left(
-        ProblemError(code: 'scene_shoot.version_conflict'),
+        ProblemError(code: 'concurrency.version-mismatch'),
       );
       await tester.tap(find.byKey(const Key('scene-shoot-finish-ssh-1')));
       await _pumpFrames(tester, n: 10);

@@ -39,6 +39,15 @@ problem-ai-import-disabled =
 problem-ai-import-forbidden =
     You are not authorized to use this AI import job.
 
+problem-ai-import-not-found =
+    This AI import job does not exist.
+
+problem-ai-import-unsupported-media-type =
+    This document type is not supported for AI import.
+
+problem-ai-config-version-mismatch =
+    The AI configuration changed elsewhere. Refresh and re-apply your edit.
+
 problem-auth-idp-unavailable =
     The identity provider is currently unavailable.
 

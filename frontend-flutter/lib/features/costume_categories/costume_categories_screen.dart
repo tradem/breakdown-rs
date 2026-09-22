@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
@@ -15,10 +16,11 @@ import 'widgets/costume_categories_widgets.dart';
 /// Localized client-side copy for category command failures, keyed on the
 /// stable problem `code` (never the server's localized `detail`).
 String costumeCategoryErrorCopy(ProblemError error) => switch (error.code) {
-  'costume_category.conflict' ||
-  'costume_categories.conflict' => 'A category with that name already exists.',
-  'costume_category.version_conflict' ||
-  'concurrency.conflict' => 'Changed elsewhere — refresh and try again.',
+  // 409 `concurrency.version-mismatch`: the backend's sole version-conflict
+  // code (the old `costume_category.version_conflict`/`concurrency.conflict`
+  // keys were never emitted — issue #481).
+  'concurrency.version-mismatch' =>
+    'Changed elsewhere — refresh and try again.',
   'authz.denied' || 'auth.session_required' => 'Please sign in to continue.',
   _ when error.code.startsWith('transport.') =>
     'Network problem — the change was not saved. Try again.',

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 // Tier-2 widget tests for the AI-import submission screen
 // (`flutter-ai-import-workflow` tasks 3.1 + 3.4): the kind picker, the
@@ -228,7 +229,7 @@ void main() {
       'on the screen', (tester) async {
     await setupContainer(
       uploadResult: const Left(
-        ProblemError(code: 'ai_import.payload_too_large', status: 413),
+        ProblemError(code: 'http.payload-too-large', status: 413),
       ),
     );
     await pumpScreen(tester);

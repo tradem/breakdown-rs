@@ -17,6 +17,33 @@ releases are cut as `flutter-vX.Y.Z` tags.
 
 ### Changed
 
+- AI-import error switches key on the wire codes the backend actually emits
+  (issue #481): the non-forbidden arms of `aiUploadErrorCopy`,
+  `jobWatchErrorCopy`, and `aiConfigErrorCopy` were keyed on client-invented
+  codes the backend never emits, so real 415/404/409 errors fell through to
+  the generic `(${code})` fallback. The backend now emits scoped codes
+  (`ai-import.unsupported-media-type`, `ai-import.not-found`,
+  `ai-config.version-mismatch`; core registry 81 → 84) and the client keys on
+  them; `ai_import.unsupported_media_type` (the client script pre-gate) and
+  `http.payload-too-large`/`ai-import.disabled` (aligned, extractor-owned /
+  already-scoped) round out the surface. Copy stays keyed on the stable
+  `code`.
+- Same-class fix: every client switch that keyed a version conflict on
+  `concurrency.conflict` / `*.version_conflict` (putative codes the backend
+  never emits — its ONE version-conflict code is
+  `concurrency.version-mismatch`) now keys on `concurrency.version-mismatch`:
+  `costumeErrorCopy` (drops the dead `costume.version_conflict` alias),
+  `characterErrorCopy`, `costumeCategoryErrorCopy`, `shootingDayErrorCopy`,
+  `sceneShootErrorCopy`. A real 409 on those screens previously rendered the
+  generic fallback instead of the "changed elsewhere" copy. The dead
+  name-uniqueness keys `scene.conflict`/`scenes.conflict` and
+  `costume_category.conflict`/`costume_categories.conflict` (no backend code
+  exists for either) are removed.
+- **Version bump:** `0.3.0-alpha.15+25 → 0.3.0-alpha.16+26` (pre-release
+  increment per merged-PR practice on the alpha line — the alpha pre-release
+  number and the Play `versionCode` both advance; `+N` stays strictly
+  monotonic for the Play `versionCode`).
+
 - Costume detail add sends a real UUIDv7 wire id (issue #472):
   `CostumesController.addDetail` no longer submits the optimistic-overlay
   placeholder `'pending'` as `detail.id` — the `uuid`-typed contract

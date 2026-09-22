@@ -4426,7 +4426,7 @@ async fn enqueue_ai_upload<P: Ports>(
         "text/plain" => SourceFormat::PlainText,
         other => {
             tracing::warn!(content_type = %other, "unsupported AI import content type");
-            return Err(ApiError::UnsupportedMediaType(
+            return Err(ApiError::AiImportUnsupportedMediaType(
                 "unsupported AI import content type; expected text/csv, application/pdf or text/plain",
             ));
         }
@@ -4519,7 +4519,7 @@ pub async fn upload_ai_script<P: Ports>(
     // AUTHZ-GATE: script uploads require active costume-department membership.
     let content_type = request_content_type(&headers);
     if content_type != "application/pdf" {
-        return Err(ApiError::UnsupportedMediaType(
+        return Err(ApiError::AiImportUnsupportedMediaType(
             "script imports require application/pdf",
         ));
     }
@@ -4556,7 +4556,7 @@ pub async fn upload_ai_schedule<P: Ports>(
         content_type.as_str(),
         "application/pdf" | "text/csv" | "text/plain"
     ) {
-        return Err(ApiError::UnsupportedMediaType(
+        return Err(ApiError::AiImportUnsupportedMediaType(
             "schedule imports require text/csv, application/pdf or text/plain",
         ));
     }
@@ -4581,7 +4581,7 @@ pub async fn get_ai_import_job<P: Ports>(
 ) -> Result<Response, ApiError> {
     // AUTHZ-GATE: job status is visible only to its submitting user.
     let job = state.ports.ai_import_queue().get(id).await?;
-    let job = job.ok_or(ApiError::NotFound("AI import job not found"))?;
+    let job = job.ok_or(ApiError::AiImportNotFound("AI import job not found"))?;
     authorize_ai_job(&state, &current_user, &job, Action::Read).await?;
     Ok(no_store_json(StatusCode::OK, AiImportJobResponse { job }))
 }
@@ -4661,7 +4661,7 @@ pub async fn get_ai_import_preview<P: Ports>(
 ) -> Result<Response, ApiError> {
     // AUTHZ-GATE: preview content is visible only to its submitting user.
     let job = state.ports.ai_import_queue().get(id).await?;
-    let job = job.ok_or(ApiError::NotFound("AI import job not found"))?;
+    let job = job.ok_or(ApiError::AiImportNotFound("AI import job not found"))?;
     authorize_ai_job(&state, &current_user, &job, Action::Read).await?;
     let handle = job
         .preview_handle
@@ -4746,7 +4746,7 @@ pub async fn apply_ai_import<P: Ports>(
 ) -> ApiResult<ApplyAiImportResponse> {
     // AUTHZ-GATE: applying an AI preview is a privileged production mutation.
     let job = state.ports.ai_import_queue().get(id).await?;
-    let job = job.ok_or(ApiError::NotFound("AI import job not found"))?;
+    let job = job.ok_or(ApiError::AiImportNotFound("AI import job not found"))?;
     authorize_ai_job(&state, &current_user, &job, Action::Write).await?;
     if job.status != breakdown_core::ai::JobStatus::Succeeded {
         return Err(ApiError::Conflict(
@@ -5062,7 +5062,14 @@ pub async fn list_ai_configs<P: Ports>(
     path = "/ai-import/config/{id}",
     params(("id" = Uuid, Path)),
     request_body = UpdateAiConfigRequest,
-    responses((status = 200, body = AggregateVersion), (status = 403, body = ProblemDetails))
+    // 409 `ai-config.version-mismatch`: a stale optimistic-lock `version` on
+    // edit surfaces the scoped version-conflict code (issue #481) — declared
+    // here so the wire contract models the reachable conflict response.
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 403, body = ProblemDetails),
+        (status = 409, body = ProblemDetails)
+    )
 )]
 pub async fn update_ai_config<P: Ports>(
     State(state): State<AppState<P>>,
@@ -5078,7 +5085,12 @@ pub async fn update_ai_config<P: Ports>(
     if view.user_id != current_user.sub {
         return Err(forbidden_ai_config());
     }
-    let version = state
+    // Optimistic lock: the request echoes the fetched config's `version`; a
+    // stale version surfaces as the scoped `ai-config.version-mismatch` (409,
+    // issue #481) instead of the generic `concurrency.version-mismatch`, so
+    // the AI-config edit screen renders its "changed elsewhere — refresh"
+    // narrative. The typed expected/current extensions are preserved.
+    let version = match state
         .ports
         .ai_config_commands()
         .update(
@@ -5093,7 +5105,14 @@ pub async fn update_ai_config<P: Ports>(
                 version: request.version,
             },
         )
-        .await?;
+        .await
+    {
+        Ok(version) => version,
+        Err(DomainError::VersionConflict { expected, current }) => {
+            return Err(ApiError::AiConfigVersionMismatch(expected, current));
+        }
+        Err(err) => return Err(err.into()),
+    };
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -5102,7 +5121,14 @@ pub async fn update_ai_config<P: Ports>(
     path = "/ai-import/config/{id}/revoke",
     params(("id" = Uuid, Path)),
     request_body = RevokeAiConfigRequest,
-    responses((status = 200, body = AggregateVersion), (status = 403, body = ProblemDetails))
+    // 409 `ai-config.version-mismatch`: a stale optimistic-lock `version` on
+    // revoke surfaces the scoped version-conflict code (issue #481) — declared
+    // here so the wire contract models the reachable conflict response.
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 403, body = ProblemDetails),
+        (status = 409, body = ProblemDetails)
+    )
 )]
 pub async fn revoke_ai_config<P: Ports>(
     State(state): State<AppState<P>>,
@@ -5118,7 +5144,8 @@ pub async fn revoke_ai_config<P: Ports>(
     if view.user_id != current_user.sub {
         return Err(forbidden_ai_config());
     }
-    let version = state
+    // Optimistic lock (same scoped 409 as the update path, issue #481).
+    let version = match state
         .ports
         .ai_config_commands()
         .revoke(
@@ -5128,7 +5155,14 @@ pub async fn revoke_ai_config<P: Ports>(
                 version: request.version,
             },
         )
-        .await?;
+        .await
+    {
+        Ok(version) => version,
+        Err(DomainError::VersionConflict { expected, current }) => {
+            return Err(ApiError::AiConfigVersionMismatch(expected, current));
+        }
+        Err(err) => return Err(err.into()),
+    };
     Ok((StatusCode::OK, Json(version)))
 }
 

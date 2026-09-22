@@ -66,6 +66,36 @@ commits (ADR-020 D5).
 - **No additional bump:** additive registry extension — rides with the
   open 0.11.0 MINOR (same convention as #409/#422/#423).
 
+### Added — scoped AI-import/AI-config error codes for the client's non-forbidden switches (issue #481)
+
+Three new registered problem codes give the AI-import error switches stable
+codes the backend actually emits (the sibling that #470's follow-up
+flagged):
+
+- `ai-import.unsupported-media-type` (`AI_IMPORT_UNSUPPORTED_MEDIA_TYPE`, 415)
+  — the AI upload handlers now reject an unsupported document
+  `Content-Type` with this scoped code instead of the generic
+  `http.unsupported-media-type`, so the upload screen renders its
+  document-kind narrative.
+- `ai-import.not-found` (`AI_IMPORT_NOT_FOUND`, 404) — a missing/oracle-hidden
+  AI job surfaces this scoped code instead of `domain.not-found`, so the
+  job-status watch renders its "job gone" narrative.
+- `ai-config.version-mismatch` (`AI_CONFIG_VERSION_MISMATCH`, 409) — the
+  AI-config edit/revoke optimistic-lock conflict emits this scoped code
+  (preserving the typed `expected_version`/`current_version` extensions)
+  instead of the generic `concurrency.version-mismatch`, so the AI-config
+  screen renders its "changed elsewhere — refresh" narrative.
+- Fluent messages `problem-ai-config-version-mismatch` /
+  `problem-ai-import-not-found` / `problem-ai-import-unsupported-media-type`
+  added (en/de); golden snapshots regenerated; `openapi.yaml`
+  `x-code-registry` refreshed (extensions-only, no schema change).
+- The 413 oversize-document surface stays `http.payload-too-large`: the
+  shared pre-handler `Bytes`/body-limit extractor rejects an oversized
+  request before the handler runs, so a scoped code there would be
+  unreachable in production (opencoded as an alignment, not scoped).
+- **No additional bump:** additive registry/API extension — rides with the
+  open 0.11.0 MINOR (same convention as #409/#422/#423/#470).
+
 ### Fixed — `value_type` overrides drop `Option` nullability (issue #423)
 
 - The bare `#[schema(value_type = String)]` overrides on all seven

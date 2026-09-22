@@ -491,7 +491,7 @@ void main() {
       expect(updated.getRight().toNullable(), 3);
 
       final err = _api(
-        _ScriptInterceptor(problem: 'ai_config.conflict', status: 409),
+        _ScriptInterceptor(problem: 'ai-config.version-mismatch', status: 409),
       );
       final failed = await AiConfigRepository(err)
           .updateConfig('c1', request());
@@ -504,7 +504,7 @@ void main() {
       expect(revoked.getRight().toNullable(), 2);
 
       final err = _api(
-        _ScriptInterceptor(problem: 'ai_config.conflict', status: 409),
+        _ScriptInterceptor(problem: 'ai-config.version-mismatch', status: 409),
       );
       final failed = await AiConfigRepository(err).revokeConfig('c1', 1);
       expect(failed.isLeft(), isTrue);
@@ -861,10 +861,10 @@ void main() {
       'uploadSchedule 413/415/403/404 surface keyed on the problem code',
       () async {
         for (final (status, code) in [
-          (413, 'ai_import.payload_too_large'),
-          (415, 'ai_import.unsupported_media_type'),
+          (413, 'http.payload-too-large'),
+          (415, 'ai-import.unsupported-media-type'),
           (403, 'ai-import.forbidden'),
-          (404, 'ai_import.disabled'),
+          (404, 'ai-import.disabled'),
         ]) {
           final api = _api(_ScriptInterceptor(problem: code, status: status));
           final res = await AiImportRepository(
@@ -919,13 +919,13 @@ void main() {
         expect((await dao.readAll('user-a')).single.id, 'j1');
 
         final errApi = _api(
-          _ScriptInterceptor(problem: 'ai_import.not_found', status: 404),
+          _ScriptInterceptor(problem: 'ai-import.not-found', status: 404),
         );
         final failed = await AiImportRepository(
           errApi,
           dao,
         ).getJobAndCache('j1');
-        expect(failed.getLeft().toNullable()!.code, 'ai_import.not_found');
+        expect(failed.getLeft().toNullable()!.code, 'ai-import.not-found');
         // Success-only cache writes: the failed refetch kept the good row.
         expect((await dao.readAll('user-a')).single.id, 'j1');
       },
