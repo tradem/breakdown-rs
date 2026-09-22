@@ -210,7 +210,11 @@ class SceneShootsCommandError extends _$SceneShootsCommandError {
 /// Localized client-side copy for scene-shoot command failures, keyed on
 /// the stable problem `code` (never the server's localized `detail`).
 String sceneShootErrorCopy(ProblemError error) => switch (error.code) {
-  'concurrency.conflict' || 'scene_shoot.version_conflict' =>
+  // 409 `concurrency.version-mismatch`: the backend's sole version-conflict
+  // code (the old `concurrency.conflict`/`scene_shoot.version_conflict`
+  // keys were never emitted, so a real 409 fell through to the generic
+  // fallback — issue #481).
+  'concurrency.version-mismatch' =>
     'Changed elsewhere — refresh and try again.',
   'scene-shoot.shooting-day-wrapped' =>
     // Wrap finality (issue #376): a frozen execution command 409ed because

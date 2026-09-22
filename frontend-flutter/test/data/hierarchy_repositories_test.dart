@@ -734,10 +734,12 @@ void main() {
     test('rename Ok AND Err (409 conflict) branches', () async {
       repo.nextWrite = const Right(2);
       expect(await repo.rename('c1', 1, 'Caps'), const Right(2));
-      repo.nextWrite = const Left(ProblemError(code: 'concurrency.conflict'));
+      repo.nextWrite = const Left(
+        ProblemError(code: 'concurrency.version-mismatch'),
+      );
       expect(
         await repo.rename('c1', 1, 'Caps'),
-        const Left(ProblemError(code: 'concurrency.conflict')),
+        const Left(ProblemError(code: 'concurrency.version-mismatch')),
       );
     });
 

@@ -254,11 +254,14 @@ void main() {
       );
 
       final conflict = _ScriptInterceptor(
-        problem: 'concurrency.conflict',
+        problem: 'concurrency.version-mismatch',
         statusCode: 409,
       );
       final failing = CostumeRepository(_api(conflict), dao);
-      _expectLeftCode(await failing.create(null), 'concurrency.conflict');
+      _expectLeftCode(
+        await failing.create(null),
+        'concurrency.version-mismatch',
+      );
       _expectLeftCode(
         await failing.assign(
           'c-1',
@@ -268,11 +271,11 @@ void main() {
               ..version = 1,
           ),
         ),
-        'concurrency.conflict',
+        'concurrency.version-mismatch',
       );
       _expectLeftCode(
         await failing.unassign('c-1', VersionRequest((b) => b..version = 1)),
-        'concurrency.conflict',
+        'concurrency.version-mismatch',
       );
       await db.close();
     });
@@ -418,13 +421,13 @@ void main() {
       );
 
       final err = _ScriptInterceptor(
-        problem: 'concurrency.conflict',
+        problem: 'concurrency.version-mismatch',
         statusCode: 409,
       );
       final failing = ShootingDayRepository(_api(err), dao);
       _expectLeftCode(
         await failing.listByEpisode('ep-1'),
-        'concurrency.conflict',
+        'concurrency.version-mismatch',
       );
       expect((await dao.readByEpisodeOrdered('ep-1')).map((d) => d.id), [
         'd-1',
@@ -434,7 +437,7 @@ void main() {
           'd-1',
           buildReorderRequest(orderKey: 'a', version: 1),
         ),
-        'concurrency.conflict',
+        'concurrency.version-mismatch',
       );
       await db.close();
     });

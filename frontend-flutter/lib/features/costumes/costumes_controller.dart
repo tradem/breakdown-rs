@@ -211,13 +211,14 @@ class CostumesCommandError extends _$CostumesCommandError {
 /// Localized client-side copy for costume command failures, keyed on the
 /// stable problem `code` (never the server's localized `detail`).
 String costumeErrorCopy(ProblemError error) => switch (error.code) {
-  // 409 `concurrency.version-mismatch` (+ the `costume.version_conflict`
-  // alias): the echoed aggregate version lost the optimistic-concurrency
-  // guard. Distinct pull-to-refresh narrative (issue #473 req. #3) so the
-  // user resyncs instead of retrying a doomed write.
-  'concurrency.version-mismatch' || 'costume.version_conflict' =>
+  // 409 `concurrency.version-mismatch`: the echoed aggregate version lost
+  // the optimistic-concurrency guard (the backend's ONE version-conflict
+  // code — the old `costume.version_conflict`/`concurrency.conflict` keys
+  // were never emitted, issue #481). Distinct pull-to-refresh narrative
+  // (issue #473 req. #3) so the user resyncs instead of retrying a doomed
+  // write.
+  'concurrency.version-mismatch' =>
     'Changed elsewhere — pull to refresh and try again.',
-  'concurrency.conflict' => 'Changed elsewhere — refresh and try again.',
   'costume.forbidden' ||
   'authz.denied' => 'You need an active costume role in this season.',
   'membership.pending' =>

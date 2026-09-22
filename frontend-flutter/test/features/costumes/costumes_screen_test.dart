@@ -37,7 +37,10 @@ import 'package:frontend_flutter/features/costumes/costumes_screen.dart';
 import '../seasons/seasons_test_fakes.dart';
 
 const _networkDown = ProblemError(code: 'transport.connectionError');
-const _conflict = ProblemError(code: 'concurrency.conflict', status: 409);
+const _conflict = ProblemError(
+  code: 'concurrency.version-mismatch',
+  status: 409,
+);
 const _validation422 = ProblemError(code: 'domain.validation', status: 422);
 
 /// RFC-9562 UUIDv7 (version nibble 7, variant nibble 8-9-a-b). Used to assert
@@ -360,7 +363,7 @@ void main() {
       expect(result.isLeft(), isTrue);
       await _pumpFrames(tester);
       expect(
-        find.text('Changed elsewhere — refresh and try again.'),
+        find.text('Changed elsewhere — pull to refresh and try again.'),
         findsOneWidget,
       );
       final state = container.read(costumesControllerProvider('season-1'));
@@ -505,7 +508,7 @@ void main() {
       );
       await _pumpFrames(tester);
       expect(
-        find.text('Changed elsewhere — refresh and try again.'),
+        find.text('Changed elsewhere — pull to refresh and try again.'),
         findsOneWidget,
       );
       controller.dismissCommandError();

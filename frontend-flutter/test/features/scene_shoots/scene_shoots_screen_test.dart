@@ -434,7 +434,7 @@ void main() {
       );
       await pumpScreen(tester);
       repo.nextWrite = const Left(
-        ProblemError(code: 'scene_shoot.version_conflict'),
+        ProblemError(code: 'concurrency.version-mismatch'),
       );
       await tester.tap(find.byKey(const Key('scene-shoot-finish-ssh-1')));
       await _pumpFrames(tester, n: 10);

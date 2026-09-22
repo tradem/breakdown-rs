@@ -18,18 +18,27 @@ releases are cut as `flutter-vX.Y.Z` tags.
 ### Changed
 
 - AI-import error switches key on the wire codes the backend actually emits
-  (issue #481): the remaining non-forbidden arms of `aiUploadErrorCopy`,
+  (issue #481): the non-forbidden arms of `aiUploadErrorCopy`,
   `jobWatchErrorCopy`, and `aiConfigErrorCopy` were keyed on client-invented
-  codes (`ai_import.payload_too_large`, `ai_import.disabled`,
-  `ai_import.not_found`, `ai_config.conflict`) that the backend never emits,
-  so real 413/415/404/409 errors fell through to the generic `(${code})`
-  fallback. They now key on the registered wire codes
-  (`http.payload-too-large`, `http.unsupported-media-type`, `ai-import.disabled`,
-  `domain.not-found`, `concurrency.version-mismatch`). The one client-internal
-  code (`ai_import.unsupported_media_type`, fabricated by the script kind
-  pre-check) is kept alongside its server twin for the same narrative. Copy
-  stays keyed on the stable `code`; no backend change (all target codes are
-  already registered and wire-tested).
+  codes the backend never emits, so real 415/404/409 errors fell through to
+  the generic `(${code})` fallback. The backend now emits scoped codes
+  (`ai-import.unsupported-media-type`, `ai-import.not-found`,
+  `ai-config.version-mismatch`; core registry 81 → 84) and the client keys on
+  them; `ai_import.unsupported_media_type` (the client script pre-gate) and
+  `http.payload-too-large`/`ai-import.disabled` (aligned, extractor-owned /
+  already-scoped) round out the surface. Copy stays keyed on the stable
+  `code`.
+- Same-class fix: every client switch that keyed a version conflict on
+  `concurrency.conflict` / `*.version_conflict` (putative codes the backend
+  never emits — its ONE version-conflict code is
+  `concurrency.version-mismatch`) now keys on `concurrency.version-mismatch`:
+  `costumeErrorCopy` (drops the dead `costume.version_conflict` alias),
+  `characterErrorCopy`, `costumeCategoryErrorCopy`, `shootingDayErrorCopy`,
+  `sceneShootErrorCopy`. A real 409 on those screens previously rendered the
+  generic fallback instead of the "changed elsewhere" copy. The dead
+  name-uniqueness keys `scene.conflict`/`scenes.conflict` and
+  `costume_category.conflict`/`costume_categories.conflict` (no backend code
+  exists for either) are removed.
 
 - Costume detail add sends a real UUIDv7 wire id (issue #472):
   `CostumesController.addDetail` no longer submits the optimistic-overlay

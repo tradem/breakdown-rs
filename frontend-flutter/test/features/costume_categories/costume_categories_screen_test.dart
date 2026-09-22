@@ -24,7 +24,7 @@ import 'package:frontend_flutter/features/costume_categories/costume_categories_
 import '../seasons/seasons_test_fakes.dart';
 
 const _networkDown = ProblemError(code: 'transport.connectionError');
-const _versionConflict = ProblemError(code: 'concurrency.conflict');
+const _versionConflict = ProblemError(code: 'concurrency.version-mismatch');
 const _gone = ProblemError(code: 'season.not-found', status: 404);
 
 CostumeCategoryView _category(

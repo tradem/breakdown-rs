@@ -339,7 +339,7 @@ void main() {
       await _exerciseAllCommands(repo);
 
       final conflict = _ScriptInterceptor(
-        problem: 'scene_shoot.version_conflict',
+        problem: 'concurrency.version-mismatch',
         statusCode: 409,
       );
       final failing = SceneShootRepository(
@@ -355,7 +355,7 @@ void main() {
           'ssh-1',
           buildFinishSceneShootRequest(version: 2),
         ),
-        'scene_shoot.version_conflict',
+        'concurrency.version-mismatch',
       );
       _expectLeftCode(
         await failing.setActualOrder(
@@ -364,7 +364,7 @@ void main() {
           'ssh-1',
           buildSetActualOrderRequest(actualOrder: 'a0!', version: 2),
         ),
-        'scene_shoot.version_conflict',
+        'concurrency.version-mismatch',
       );
       _expectLeftCode(
         await failing.linkContinuityPhoto(
@@ -373,11 +373,11 @@ void main() {
           'ssh-1',
           buildLinkContinuityPhotoRequest(photoId: 'ph-1', version: 3),
         ),
-        'scene_shoot.version_conflict',
+        'concurrency.version-mismatch',
       );
       _expectLeftCode(
         await failing.wrap('day-1', buildWrapShootingDayRequest(version: 5)),
-        'scene_shoot.version_conflict',
+        'concurrency.version-mismatch',
       );
       await db.close();
     });

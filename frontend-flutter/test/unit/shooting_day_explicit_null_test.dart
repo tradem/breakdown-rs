@@ -85,7 +85,7 @@ void main() {
           requestOptions: RequestOptions(path: '/v1/shooting-days/d-1'),
           statusCode: 409,
           data: {
-            'code': 'shooting_day.version_conflict',
+            'code': 'concurrency.version-mismatch',
             'title': 'Conflict',
             'status': 409,
           },
@@ -101,7 +101,7 @@ void main() {
       expect(result.isLeft(), isTrue);
       result.fold((l) {
         expect(l, isA<ProblemError>());
-        expect(l.code, 'shooting_day.version_conflict');
+        expect(l.code, 'concurrency.version-mismatch');
       }, (r) => fail('expected Left but got Right($r)'));
     });
 
@@ -147,7 +147,7 @@ void main() {
           requestOptions: RequestOptions(path: '/v1/shooting-days/d-2'),
           statusCode: 409,
           data: {
-            'code': 'shooting_day.version_conflict',
+            'code': 'concurrency.version-mismatch',
             'title': 'Conflict',
             'status': 409,
           },
@@ -163,7 +163,7 @@ void main() {
       expect(result.isLeft(), isTrue);
       result.fold((l) {
         expect(l, isA<ProblemError>());
-        expect(l.code, 'shooting_day.version_conflict');
+        expect(l.code, 'concurrency.version-mismatch');
       }, (r) => fail('expected Left but got Right($r)'));
     });
   });

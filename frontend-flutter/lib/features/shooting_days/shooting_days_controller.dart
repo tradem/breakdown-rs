@@ -185,7 +185,11 @@ class ShootingDaysCommandError extends _$ShootingDaysCommandError {
 /// Localized client-side copy for shooting-day command failures, keyed on
 /// the stable problem `code` (never the server's localized `detail`).
 String shootingDayErrorCopy(ProblemError error) => switch (error.code) {
-  'concurrency.conflict' || 'shooting_day.version_conflict' =>
+  // 409 `concurrency.version-mismatch`: the backend's sole version-conflict
+  // code (the old `concurrency.conflict`/`shooting_day.version_conflict`
+  // keys were never emitted, so a real 409 fell through to the generic
+  // fallback — issue #481).
+  'concurrency.version-mismatch' =>
     'Changed elsewhere — refresh and try again.',
   'authz.denied' || 'auth.session_required' => 'Please sign in to continue.',
   _ when error.code.startsWith('transport.') =>

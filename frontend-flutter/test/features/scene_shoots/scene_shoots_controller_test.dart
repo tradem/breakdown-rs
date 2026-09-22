@@ -438,17 +438,19 @@ void main() {
     test('409 sets the keyed error and adds no overlay', () async {
       await setupContainer(initialRows: [_shoot('ssh-1')]);
       repo.nextWrite = const Left(
-        ProblemError(code: 'scene_shoot.version_conflict'),
+        ProblemError(code: 'concurrency.version-mismatch'),
       );
       final res = await controller().finish(shoot: _shoot('ssh-1'));
       expect(res.isLeft(), isTrue);
       expect(
         container.read(sceneShootsCommandErrorProvider(_scope))?.code,
-        'scene_shoot.version_conflict',
+        'concurrency.version-mismatch',
       );
       expect(container.read(sceneShootsOverlaysProvider(_scope)), isEmpty);
       expect(
-        sceneShootErrorCopy(const ProblemError(code: 'concurrency.conflict')),
+        sceneShootErrorCopy(
+          const ProblemError(code: 'concurrency.version-mismatch'),
+        ),
         contains('Changed elsewhere'),
       );
     });
@@ -583,7 +585,7 @@ void main() {
     test('note 409 sets the keyed error and adds no overlay', () async {
       await setupContainer(initialRows: [notedShoot()]);
       repo.nextWrite = const Left(
-        ProblemError(code: 'scene_shoot.version_conflict'),
+        ProblemError(code: 'concurrency.version-mismatch'),
       );
       final res = await controller().addNote(
         shoot: notedShoot(),
@@ -594,7 +596,7 @@ void main() {
       expect(container.read(sceneShootsOverlaysProvider(_scope)), isEmpty);
       expect(
         container.read(sceneShootsCommandErrorProvider(_scope))?.code,
-        'scene_shoot.version_conflict',
+        'concurrency.version-mismatch',
       );
     });
   });

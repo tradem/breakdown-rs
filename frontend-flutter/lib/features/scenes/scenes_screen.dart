@@ -15,10 +15,12 @@ import 'scenes_state.dart';
 import 'widgets/scenes_widgets.dart';
 
 /// Localized client-side copy for a create-scene failure, keyed on the
-/// stable problem `code` (never the server's localized `detail`).
+/// stable problem `code` (never the server's localized `detail`). There is
+/// no scene-number uniqueness conflict on the backend (create_scene has no
+/// 409 path), so the old `scenes.conflict`/`scene.conflict` keys are dead —
+/// every real create-scene failure lands on the transport/generic arms or
+/// the keyed auth arms (issue #481 class).
 String sceneCreateErrorCopy(ProblemError error) => switch (error.code) {
-  'scenes.conflict' ||
-  'scene.conflict' => 'A scene with that number already exists.',
   'authz.denied' || 'auth.session_required' => 'Please sign in to continue.',
   _ when error.code.startsWith('transport.') =>
     'Network problem — the scene was not created. Try again.',

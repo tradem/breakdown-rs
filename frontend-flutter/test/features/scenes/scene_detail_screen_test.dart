@@ -35,7 +35,10 @@ import 'package:frontend_flutter/features/shooting_days/shooting_days_controller
 
 import '../seasons/seasons_test_fakes.dart';
 
-const _conflict = ProblemError(code: 'concurrency.conflict', status: 409);
+const _conflict = ProblemError(
+  code: 'concurrency.version-mismatch',
+  status: 409,
+);
 
 SceneView _scene({
   String id = 'scene-1',

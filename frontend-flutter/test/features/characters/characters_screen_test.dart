@@ -32,7 +32,10 @@ import 'package:frontend_flutter/features/characters/characters_screen.dart';
 import '../seasons/seasons_test_fakes.dart';
 
 const _networkDown = ProblemError(code: 'transport.connectionError');
-const _conflict = ProblemError(code: 'concurrency.conflict', status: 409);
+const _conflict = ProblemError(
+  code: 'concurrency.version-mismatch',
+  status: 409,
+);
 
 CharacterView _character(
   String id, {

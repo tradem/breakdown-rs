@@ -31,7 +31,10 @@ import 'package:frontend_flutter/features/shooting_days/shooting_days_screen.dar
 import '../seasons/seasons_test_fakes.dart';
 
 const _networkDown = ProblemError(code: 'transport.connectionError');
-const _conflict = ProblemError(code: 'concurrency.conflict', status: 409);
+const _conflict = ProblemError(
+  code: 'concurrency.version-mismatch',
+  status: 409,
+);
 
 ShootingDayView _day(
   String id, {

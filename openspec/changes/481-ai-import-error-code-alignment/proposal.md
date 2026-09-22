@@ -123,6 +123,18 @@ Each was verified against the handlers/registry:
 6. Version bump per merged-PR alpha-line practice
    (`pubspec.yaml` 0.3.0-alpha.15+25 → 0.3.0-alpha.15+26).
 
+### Same-class sweep (folded in, no follow-up)
+
+The version-conflict class of the same bug is fixed in this change (not
+left as a follow-up): the backend's ONE version-conflict code is
+`concurrency.version-mismatch`, yet several client switches keyed on
+`concurrency.conflict` / `*.version_conflict` (never emitted), so real 409s
+rendered the generic fallback. All are now keyed on
+`concurrency.version-mismatch` (costumes, characters, costume-categories,
+shooting-days, scene-shoots); the dead `costume.version_conflict` alias and
+the unreachable name-uniqueness keys (`scene.conflict`/`scenes.conflict`,
+`costume_category.conflict`/`costume_categories.conflict`) are removed.
+
 ## Version-bump plan
 
 | Crate / package | Previous | New | Bump type | Reason |
@@ -134,6 +146,9 @@ Each was verified against the handlers/registry:
 
 ## Follow-ups
 
-- The client's `costume.version_conflict` arm (costumes_controller.dart) is
-  not in the registry and not part of #481's table — same class of stale arm;
-  track separately.
+None. The `costume.version_conflict` loose end flagged during the initial
+review is fixed as part of the same-class sweep above — no separate issue.
+The only related client keys left untouched are the season/block/episode
+`*.conflict` naming aliases that already carry the real
+`{context}.number-already-exists` codes in the same arm and are documented as
+deliberate legacy fixtures (issue #443); they are not #481-class bugs.
