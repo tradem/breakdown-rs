@@ -39,6 +39,15 @@ problem-ai-import-disabled =
 problem-ai-import-forbidden =
     Sie sind nicht berechtigt, diesen KI-Importauftrag zu verwenden.
 
+problem-ai-import-not-found =
+    Dieser KI-Importauftrag existiert nicht.
+
+problem-ai-import-unsupported-media-type =
+    Dieser Dokumenttyp wird für den KI-Import nicht unterstützt.
+
+problem-ai-config-version-mismatch =
+    Die KI-Konfiguration wurde zwischenzeitlich geändert. Aktualisieren Sie die Bearbeitung und wiederholen Sie den Vorgang.
+
 problem-auth-idp-unavailable =
     Der Identitätsanbieter ist derzeit nicht erreichbar.
 

@@ -17,6 +17,36 @@ commits (ADR-020 D5).
 
 ## [0.10.0] - Unreleased
 
+### Added — scoped AI-import/AI-config error codes for the client's non-forbidden switches (issue #481)
+
+- The AI import upload handlers (`upload_ai_script`, `upload_ai_schedule`,
+  and the shared `enqueue_ai_upload` content-type fallback) now reject an
+  unsupported document `Content-Type` with the new scoped code
+  `ai-import.unsupported-media-type` (415, `ApiError::AiImportUnsupportedMediaType`)
+  instead of the generic `http.unsupported-media-type`.
+- A missing/oracle-hidden AI import job (`get_ai_import_job`,
+  `get_ai_import_preview`, `apply_ai_import`) surfaces the new scoped code
+  `ai-import.not-found` (404, `ApiError::AiImportNotFound`) instead of
+  `domain.not-found`.
+- A stale optimistic-lock `version` on `PATCH /ai-import/config/{id}` /
+  `POST /ai-import/config/{id}/revoke` emits the new scoped code
+  `ai-config.version-mismatch` (409, `ApiError::AiConfigVersionMismatch`)
+  with the typed `expected_version`/`current_version` extensions preserved
+  — translated from `DomainError::VersionConflict` at the API edge — instead
+  of the generic `concurrency.version-mismatch`.
+- The 413 oversize-document surface is intentionally still the generic
+  `http.payload-too-large`: the shared pre-handler `Bytes`/body-limit
+  extractor rejects an oversized request before the handler runs, so a
+  scoped code there would be unreachable in production (client aligns,
+  not scoped).
+- Wire-level tests: `upload_ai_script`/`upload_ai_schedule` wrong
+  content-type → `ai-import.unsupported-media-type`; missing job →
+  `ai-import.not-found`; config edit version conflict →
+  `ai-config.version-mismatch` (+ extensions) in
+  `handler_ai_import_ports.rs`.
+- **No additional bump:** additive `ApiError` variants + registry codes —
+  rides with the open 0.10.0 MINOR (same convention as #470).
+
 ### Added — create-with-repertoire-season costume flow (issue #453)
 
 - `POST /v1/costumes` body extends from empty `{}` to

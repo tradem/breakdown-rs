@@ -177,9 +177,11 @@ class AiConfigRepository extends BaseRepository {
       run(() => api.getHandlersApi().getAiConfig(id: id));
 
   /// `PATCH /v1/ai-import/config/{id}` — the request carries the `version`
-  /// echoed from the fetched [AiConfigView]; a 409 surfaces as
-  /// `ai_config.conflict` copy ("changed elsewhere — refresh") with no
-  /// automatic version-bump re-dispatch (spec `flutter-ai-config`).
+  /// echoed from the fetched [AiConfigView]; a stale version surfaces as the
+  /// scoped wire code `ai-config.version-mismatch` (409, typed
+  /// expected/current extensions, issue #481), which renders the
+  /// `aiConfigErrorCopy` "changed elsewhere — refresh" copy with no automatic
+  /// version-bump re-dispatch (spec `flutter-ai-config`).
   /// Returns the new aggregate version.
   Future<Result<int>> updateConfig(String id, UpdateAiConfigRequest request) =>
       run(

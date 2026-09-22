@@ -468,7 +468,7 @@ void main() {
       'NO automatic version-bump re-dispatch', (tester) async {
     await setupContainer(discoveryValue: Right([_config(version: 1)]));
     repo.updateResult = const Left(
-      ProblemError(code: 'ai_config.conflict', status: 409),
+      ProblemError(code: 'ai-config.version-mismatch', status: 409),
     );
     await pumpScreen(tester);
     expect(find.byKey(const Key('ai-config-configured')), findsOneWidget);

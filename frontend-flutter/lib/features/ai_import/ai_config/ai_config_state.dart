@@ -157,7 +157,12 @@ class AiConfigUnresolved {
 String aiConfigErrorCopy(ProblemError error) => switch (error.code) {
   'ai-config.forbidden' || 'settings.forbidden' =>
     'Administrator role required — ask your production admin.',
-  'ai_config.conflict' => 'Changed elsewhere — refresh and re-apply your edit.',
+  // 409 `ai-config.version-mismatch` — the scoped optimistic-lock code the
+  // backend emits on a stale config edit/revoke (issue #481), preserving the
+  // typed expected/current extensions. Same narrative as the
+  // client-wide version-conflict copy.
+  'ai-config.version-mismatch' =>
+    'Changed elsewhere — refresh and re-apply your edit.',
   'ai_config.orphaned_credential' =>
     'The API key could not be removed from the server vault after the '
         'failed setup. Retry the cleanup from the configuration screen.',

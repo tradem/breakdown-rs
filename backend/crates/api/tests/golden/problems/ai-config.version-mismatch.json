@@ -1,0 +1,11 @@
+{
+  "code": "ai-config.version-mismatch",
+  "detail": "Die KI-Konfiguration wurde zwischenzeitlich geändert. Aktualisieren Sie die Bearbeitung und wiederholen Sie den Vorgang.",
+  "extensions": {
+    "current_version": 3,
+    "expected_version": 2
+  },
+  "status": 409,
+  "title": "AI configuration version conflict",
+  "type": "https://docs.breakdown.example/problems/ai-config.version-mismatch"
+}

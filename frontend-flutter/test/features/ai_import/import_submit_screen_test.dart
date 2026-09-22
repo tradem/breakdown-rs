@@ -228,7 +228,7 @@ void main() {
       'on the screen', (tester) async {
     await setupContainer(
       uploadResult: const Left(
-        ProblemError(code: 'ai_import.payload_too_large', status: 413),
+        ProblemError(code: 'http.payload-too-large', status: 413),
       ),
     );
     await pumpScreen(tester);

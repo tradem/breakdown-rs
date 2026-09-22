@@ -204,7 +204,7 @@ class FakeAiImportRepository extends AiImportRepository {
         return Right(view);
       }
     }
-    return Left(const ProblemError(code: 'ai_import.not_found'));
+    return Left(const ProblemError(code: 'ai-import.not-found'));
   }
 }
 

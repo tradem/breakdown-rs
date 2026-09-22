@@ -38,14 +38,21 @@ enum AiImportKind { schedule, script }
 /// problem `code` (never the server `detail`). The 403 arm matches BOTH the
 /// scoped server wire code `ai-import.forbidden` (upload block-scope denial,
 /// issue #470) and the client pre-gate deny code `ai_import.forbidden` from
-/// `membership_gate.dart` — different provenance, one narrative.
+/// `membership_gate.dart` — different provenance, one narrative. The 415 arm
+/// keys on the scoped server code `ai-import.unsupported-media-type` (issue
+/// #481) AND the client-internal 415 code `ai_import.unsupported_media_type`
+/// fabricated by the script pre-gate (a non-PDF source under the script kind
+/// is rejected device-side) — same narrative, different provenance. The 413
+/// arm stays on the generic `http.payload-too-large`: the shared body-limit
+/// extractor rejects an oversized body before the handler runs, so the AI
+/// route's wire surface is the generic code.
 String aiUploadErrorCopy(ProblemError error) => switch (error.code) {
-  'ai_import.payload_too_large' => 'The document is too large for AI import.',
-  'ai_import.unsupported_media_type' =>
+  'http.payload-too-large' => 'The document is too large for AI import.',
+  'ai-import.unsupported-media-type' || 'ai_import.unsupported_media_type' =>
     'This file type is not supported for the selected kind.',
   'ai-import.forbidden' ||
   'ai_import.forbidden' => 'You need an active costume role in this season.',
-  'ai_import.disabled' => 'AI import is not enabled on this backend.',
+  'ai-import.disabled' => 'AI import is not enabled on this backend.',
   'ai_import.scope_missing' =>
     'Open a production block first — AI import is block-scoped.',
   'authz.denied' || 'membership.pending' =>

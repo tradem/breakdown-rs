@@ -1,0 +1,7 @@
+{
+  "code": "ai-import.unsupported-media-type",
+  "detail": "Dieser Dokumenttyp wird für den KI-Import nicht unterstützt.",
+  "status": 415,
+  "title": "AI import unsupported media type",
+  "type": "https://docs.breakdown.example/problems/ai-import.unsupported-media-type"
+}

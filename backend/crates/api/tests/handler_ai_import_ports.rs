@@ -329,6 +329,48 @@ async fn upload_ai_script_rejects_oversize_documents() {
 }
 
 #[tokio::test]
+async fn upload_ai_script_rejects_wrong_content_type_with_scoped_code() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    seed_ai_block_access(&ports, block_id).await;
+    // A text/plain body under the script route (declares application/pdf)
+    // must be refused with the scoped AI code `ai-import.unsupported-media-type`
+    // — not the generic `http.unsupported-media-type` (issue #481).
+    let body = api::problems::Bytes(axum::body::Bytes::from_static(b"not a pdf"));
+    let mut headers = pdf_headers(block_id);
+    headers.insert("content-type", HeaderValue::from_static("text/plain"));
+
+    let problem = upload_ai_script::<FakePorts>(State(state(ports)), user(), headers, body)
+        .await
+        .expect_err("wrong content type must be rejected")
+        .into_problem();
+    assert_eq!(problem.status, StatusCode::UNSUPPORTED_MEDIA_TYPE.as_u16());
+    assert_eq!(problem.code, "ai-import.unsupported-media-type");
+    assert!(!problem.detail.is_empty());
+}
+
+#[tokio::test]
+async fn upload_ai_schedule_rejects_wrong_content_type_with_scoped_code() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    seed_ai_block_access(&ports, block_id).await;
+    // An image/heic body under the schedule route (declares text/csv,
+    // application/pdf or text/plain) must be refused with the scoped AI code
+    // `ai-import.unsupported-media-type` (issue #481).
+    let body = api::problems::Bytes(axum::body::Bytes::from_static(b"nope"));
+    let mut headers = pdf_headers(block_id);
+    headers.insert("content-type", HeaderValue::from_static("image/heic"));
+
+    let problem = upload_ai_schedule::<FakePorts>(State(state(ports)), user(), headers, body)
+        .await
+        .expect_err("wrong content type must be rejected")
+        .into_problem();
+    assert_eq!(problem.status, StatusCode::UNSUPPORTED_MEDIA_TYPE.as_u16());
+    assert_eq!(problem.code, "ai-import.unsupported-media-type");
+    assert!(!problem.detail.is_empty());
+}
+
+#[tokio::test]
 async fn get_ai_import_job_reads_through_the_queue_port() {
     let ports = FakePorts::default();
     let job = succeeded_job("ai-preview/handle");
@@ -364,6 +406,23 @@ async fn get_ai_import_job_denies_a_foreign_owner() {
     assert_eq!(problem.status, StatusCode::FORBIDDEN.as_u16());
     assert_eq!(problem.code, "ai-import.forbidden");
     // Detail is localized (ADR-031 D5); the code is the contract.
+    assert!(!problem.detail.is_empty());
+}
+
+#[tokio::test]
+async fn get_ai_import_job_not_found_is_ai_import_not_found() {
+    let ports = FakePorts::default();
+    // No job seeded — the queue lookup returns None, so the handler emits the
+    // scoped `ai-import.not-found` (issue #481), not the generic
+    // `domain.not-found` the job-status watch would fall through on.
+    let missing = AiImportJobId::new();
+
+    let problem = get_ai_import_job::<FakePorts>(State(state(ports)), user(), Path(missing))
+        .await
+        .expect_err("a missing job must be reported as not-found")
+        .into_problem();
+    assert_eq!(problem.status, StatusCode::NOT_FOUND.as_u16());
+    assert_eq!(problem.code, "ai-import.not-found");
     assert!(!problem.detail.is_empty());
 }
 
@@ -707,6 +766,60 @@ async fn ai_config_lifecycle_runs_through_the_config_ports() {
     assert_eq!(commands.revoked.lock().await.len(), 1);
 }
 
+#[tokio::test]
+async fn ai_config_version_conflict_is_scoped_409() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    let commands = ports.ai_config_commands.clone();
+    *commands.version_conflict.lock().await = true;
+    let id = Uuid::now_v7();
+    // Seed the read-model row so the ownership check is satisfied.
+    ports.ai_config_repo.views.lock().await.insert(
+        id,
+        AiConfigView {
+            id,
+            user_id: UserId::from_sub(TEST_SUB),
+            provider: LlmProvider::Neuralwatt,
+            assistant_model: "assistant".to_owned(),
+            image_model: None,
+            prompt_kinds: vec![],
+            vault_key_id: "vault-key".to_owned(),
+            version: AggregateVersion(2),
+            revoked: false,
+        },
+    );
+    let state = state(ports);
+
+    let problem = update_ai_config::<FakePorts>(
+        State(state.clone()),
+        user(),
+        Path(id),
+        Json(UpdateAiConfigRequest {
+            provider: LlmProvider::Neuralwatt,
+            assistant_model: "assistant-v2".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            vault_key_id: "vault-key".to_owned(),
+            version: AggregateVersion(2),
+        }),
+    )
+    .await
+    .expect_err("a stale version must surface as a scoped version conflict")
+    .into_problem();
+    assert_eq!(problem.status, StatusCode::CONFLICT.as_u16());
+    assert_eq!(problem.code, "ai-config.version-mismatch");
+    // The typed S0 extensions are preserved alongside the scoped code.
+    let extensions = problem
+        .extensions
+        .as_ref()
+        .expect("version conflict carries typed extensions");
+    assert_eq!(extensions["expected_version"], 2);
+    assert_eq!(extensions["current_version"], 3);
+    assert!(!problem.detail.is_empty());
+}
 #[tokio::test]
 async fn get_ai_config_denies_a_foreign_owner() {
     let ports = FakePorts::default();

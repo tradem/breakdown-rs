@@ -391,10 +391,10 @@ void main() {
     test('413/415/403/404 surface keyed on the problem code', () async {
       await setupContainer();
       for (final (status, code) in [
-        (413, 'ai_import.payload_too_large'),
-        (415, 'ai_import.unsupported_media_type'),
+        (413, 'http.payload-too-large'),
+        (415, 'ai-import.unsupported-media-type'),
         (403, 'ai-import.forbidden'),
-        (404, 'ai_import.disabled'),
+        (404, 'ai-import.disabled'),
       ]) {
         repo.uploadResult = Left(ProblemError(code: code, status: status));
         final res = await container
@@ -409,10 +409,27 @@ void main() {
       'upload copy is localized per code, never the server detail',
       () async {
         expect(
-          aiUploadErrorCopy(
-            const ProblemError(code: 'ai_import.payload_too_large'),
-          ),
+          aiUploadErrorCopy(const ProblemError(code: 'http.payload-too-large')),
           'The document is too large for AI import.',
+        );
+        // The server wire code and the client pre-gate deny code render the
+        // SAME narrative (issue #481): the pre-check fabricates the client
+        // code, the backend emits the scoped AI wire code.
+        expect(
+          aiUploadErrorCopy(
+            const ProblemError(code: 'ai-import.unsupported-media-type'),
+          ),
+          'This file type is not supported for the selected kind.',
+        );
+        expect(
+          aiUploadErrorCopy(
+            const ProblemError(code: 'ai_import.unsupported_media_type'),
+          ),
+          'This file type is not supported for the selected kind.',
+        );
+        expect(
+          aiUploadErrorCopy(const ProblemError(code: 'ai-import.disabled')),
+          'AI import is not enabled on this backend.',
         );
         expect(
           aiUploadErrorCopy(
@@ -523,6 +540,36 @@ void main() {
       expect(jobStatusTerminalError(JobStatus.deadLetter), isTrue);
       expect(jobStatusTerminalError(JobStatus.payloadUnavailable), isTrue);
       expect(jobStatusTerminalError(JobStatus.succeeded), isFalse);
+    });
+
+    test('watch-error copy is code-keyed: ai-import.not-found (the scoped '
+        'backend wire code for a missing/oracle-hidden job), forbidden, '
+        'exhaustion', () {
+      expect(
+        jobWatchErrorCopy(const ProblemError(code: 'ai-import.not-found')),
+        'This job does not exist (or belongs to another account).',
+      );
+      expect(
+        jobWatchErrorCopy(const ProblemError(code: 'ai-import.forbidden')),
+        contains('do not have access'),
+      );
+      expect(
+        jobWatchErrorCopy(
+          const ProblemError(code: 'ai_import.watch_exhausted'),
+        ),
+        contains('Re-arm the watch'),
+      );
+      // Transport faults and unknown codes render the honest fallbacks.
+      expect(
+        jobWatchErrorCopy(
+          const ProblemError(code: 'transport.connectionError'),
+        ),
+        contains('Network problem'),
+      );
+      expect(
+        jobWatchErrorCopy(const ProblemError(code: 'weird.future_code')),
+        contains('weird.future_code'),
+      );
     });
   });
 }

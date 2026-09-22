@@ -17,6 +17,20 @@ releases are cut as `flutter-vX.Y.Z` tags.
 
 ### Changed
 
+- AI-import error switches key on the wire codes the backend actually emits
+  (issue #481): the remaining non-forbidden arms of `aiUploadErrorCopy`,
+  `jobWatchErrorCopy`, and `aiConfigErrorCopy` were keyed on client-invented
+  codes (`ai_import.payload_too_large`, `ai_import.disabled`,
+  `ai_import.not_found`, `ai_config.conflict`) that the backend never emits,
+  so real 413/415/404/409 errors fell through to the generic `(${code})`
+  fallback. They now key on the registered wire codes
+  (`http.payload-too-large`, `http.unsupported-media-type`, `ai-import.disabled`,
+  `domain.not-found`, `concurrency.version-mismatch`). The one client-internal
+  code (`ai_import.unsupported_media_type`, fabricated by the script kind
+  pre-check) is kept alongside its server twin for the same narrative. Copy
+  stays keyed on the stable `code`; no backend change (all target codes are
+  already registered and wire-tested).
+
 - Costume detail add sends a real UUIDv7 wire id (issue #472):
   `CostumesController.addDetail` no longer submits the optimistic-overlay
   placeholder `'pending'` as `detail.id` — the `uuid`-typed contract
