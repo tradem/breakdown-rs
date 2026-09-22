@@ -2,31 +2,42 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: omen-alpha (opencode-go)
+# Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 set -euo pipefail
 
-# One-command AI-import enablement for the host-run dev API (issue #428).
+# One-command AI-import enablement for the host-run dev API (issue #428/#468).
 #
 # A `cargo run --bin api` started on the host cannot reach the internal-only
 # dev Garage, and `AI_IMPORT_ENABLED=1` fails closed (#181 — no in-memory
-# payload fallback) until durable payload storage is configured. This script
-# performs the whole sequence:
+# payload fallback) until durable payload storage is configured. The settings /
+# AI-config credential flow additionally needs a reachable Vault (ADR-027),
+# and the dev user needs an active credential role to reach the AUTHZ-GATED
+# endpoints. This script performs the whole sequence:
 #
-#   1. Boots the dev compose with the AI overlay (docker-compose.dev.ai.yml),
-#      which publishes Garage's S3 (:3900) and admin (:3902) ports to the host.
-#   2. Provisions Garage: cluster layout, the costume-photos bucket (ADR-019)
+#   1. Enables the Vault overlay (scripts/enable-dev-vault.sh + the
+#      docker-compose.dev.vault.yml overlay), publisher of Vault's HTTP API on
+#      loopback 127.0.0.1:8200 — dev-only plaintext, same `vault-bootstrap`
+#      one-shot + `breakdown-app` policy as prod.
+#   2. Boots the dev compose with the AI + Vault overlays
+#      (docker-compose.dev.ai.yml publishes Garage's S3 (:3900) and admin
+#      (:3902) ports to the host).
+#   3. Provisions Garage: cluster layout, the costume-photos bucket (ADR-019)
 #      and the ai-import-payloads bucket, plus a fixed dev-only S3 key.
-#   3. Verifies both ports are reachable from the host.
-#   4. Writes `.env.dev-ai.local` (git-ignored, chmod 600) with the complete
-#      AI-import environment for the host-run API.
+#   4. Verifies the Garage + Vault ports are reachable from the host.
+#   5. Writes `.env.dev-ai.local` (git-ignored, chmod 600) with the complete
+#      host-run env: AI_IMPORT_ENABLED + AI_PAYLOAD_S3_* + VAULT_ADDR +
+#      VAULT_APP_TOKEN_FILE + DB/SierraDB.
 #
 # Usage (from `backend/`):
 #   ./scripts/enable-dev-ai-import.sh            # boot + provision + env file
-#   ./scripts/enable-dev-ai-import.sh --run      # also start the API afterwards
+#   ./scripts/enable-dev-ai-import.sh --run      # also start the API + bootstrap
+#                                                 # the dev credential role afterwards
 #
 # The script is idempotent: Garage roles are only assigned when missing,
-# bucket/key creation errors on "already exists" are tolerated, and the env
-# file is rewritten with the same deterministic values.
+# bucket/key creation errors on "already exists" are tolerated, Vault re-runs
+# renew the app token, and the env file is rewritten with the same
+# deterministic values.
 #
 # Dev-only credentials: the S3 access key and secret are derived
 # deterministically from fixed dev-only strings (gitleaks-clean derivation —
@@ -35,7 +46,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-COMPOSE_ARGS=(-f docker-compose.dev.yml -f docker-compose.dev.ai.yml)
+COMPOSE_ARGS=(-f docker-compose.dev.yml -f docker-compose.dev.ai.yml -f docker-compose.dev.vault.yml)
 ADMIN_TOKEN="${GARAGE_ADMIN_TOKEN:-garage_admin_dev}"
 ENV_FILE=".env.dev-ai.local"
 
@@ -43,8 +54,34 @@ ENV_FILE=".env.dev-ai.local"
 ACCESS_KEY="GK$(printf 'breakdown-dev-only-s3-key-id' | sha256sum | cut -c1-24)"
 SECRET_KEY="$(printf 'breakdown-dev-only-s3-secret' | sha256sum | cut -d' ' -f1)"
 
-echo "==> Booting dev runtime with AI overlay (Garage ports published to host)"
-docker compose "${COMPOSE_ARGS[@]}" up -d
+echo "==> Ensuring dev Vault state + bootstrap token (.vault-dev/)"
+# Must exist before ANY compose up with the Vault overlay: the
+# vault-bootstrap one-shot mounts its dev-only bootstrap secret from here.
+VAULT_DIR=".vault-dev"
+mkdir -p "$VAULT_DIR" "$VAULT_DIR/unseal" "$VAULT_DIR/app-token"
+umask 077
+if [ ! -s "$VAULT_DIR/bootstrap.token" ]; then
+    # Dev-only recovery seed for vault-bootstrap.sh; random so it is never
+    # mistaken for a real secret. Git-ignored via .vault-dev/.
+    head -c 32 /dev/urandom | base64 > "$VAULT_DIR/bootstrap.token"
+fi
+chmod 600 "$VAULT_DIR/bootstrap.token"
+umask 022
+
+echo "==> Booting dev runtime with AI + Vault overlay (Garage ports published to host)"
+# Explicit service list: the vault-bootstrap one-shot is driven via `run --rm`
+# below (same compose invocation set), so no container is ever started against
+# a silently-torn-down network from a different file set (issue #468).
+docker compose "${COMPOSE_ARGS[@]}" up -d postgres sierradb garage-config garage vault
+
+echo "==> Running Vault bootstrap (init/unseal/engines/policy/app-token)"
+docker compose "${COMPOSE_ARGS[@]}" run --rm vault-bootstrap
+
+# Shared post-provision step (ownership, reachability, .env.dev-vault.local) —
+# no docker calls, so the combined compose invocation set stays the single
+# source of truth for the project's containers/networks (issue #468).
+./scripts/enable-dev-vault.sh --finalize
+
 # Re-render the Garage config one-shot and restart Garage against it, so the
 # rendered TOML always matches the current dev defaults.
 docker compose "${COMPOSE_ARGS[@]}" up -d --force-recreate garage-config garage
@@ -124,22 +161,82 @@ AI_PAYLOAD_S3_SECRET_KEY=$SECRET_KEY
 AI_PAYLOAD_S3_BUCKET=ai-import-payloads
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/breakdown
 SIERRADB_URL=redis://127.0.0.1:9090/?protocol=resp3
+# Dev Vault (issue #468) — merged from scripts/enable-dev-vault.sh.
+VAULT_ADDR=$(sed -n 's/^VAULT_ADDR=//p' .env.dev-vault.local)
+VAULT_APP_TOKEN_FILE=$(sed -n 's/^VAULT_APP_TOKEN_FILE=//p' .env.dev-vault.local)
 EOF
 chmod 600 "$ENV_FILE"
 
 echo ""
-echo "AI import is enabled for the host-run dev API."
+if [ -s "$ENV_FILE" ] && grep -q '^VAULT_APP_TOKEN_FILE=' "$ENV_FILE"; then
+    vault_status="Vault: $(grep '^VAULT_ADDR=' "$ENV_FILE" | cut -d= -f2)"
+else
+    vault_status="Vault: NOT configured"
+fi
+echo "AI import is enabled for the host-run dev API ($vault_status)."
 echo ""
 echo "Start the API with:"
 echo "  set -a; . ./$ENV_FILE; set +a; cargo run -p api"
-echo "(or re-run this script with --run to do that now)"
+echo "(or re-run this script with --run to start the API and bootstrap the"
+echo " dev credential role for DEV_AUTH_SUB automatically)"
 
 if [ "${1:-}" = "--run" ]; then
     echo ""
-    echo "==> Starting the API (AI import enabled)"
+    echo "==> Starting the API (AI import + Vault enabled, dev auth)"
     set -a
+    # Canonical dev env (DEV_AUTH_SUB / DEV_AUTH_EMAIL / optional overrides).
+    # shellcheck disable=SC1090
+    if [ -f .env.local ]; then
+        . ./.env.local
+    fi
     # shellcheck disable=SC1090
     . "$ENV_FILE"
     set +a
-    exec cargo run -p api
+    : "${DEV_AUTH_SUB:?DEV_AUTH_SUB is required for the host-run dev API (set it in .env.local or the environment)}"
+    API_URL="${API_URL:-http://127.0.0.1:3000}"
+
+    echo "==> Starting the API in the background, then bootstrapping the dev credential role"
+    cargo run -p api &
+    API_PID=$!
+    trap 'kill "$API_PID" 2>/dev/null || true' EXIT
+
+    up=0
+    for _ in $(seq 1 180); do
+        if curl -fsS "$API_URL/api-docs/openapi.json" -o /dev/null 2>/dev/null; then
+            up=1
+            break
+        fi
+        if ! kill -0 "$API_PID" 2>/dev/null; then
+            echo "ERROR: the API process exited before becoming ready" >&2
+            wait "$API_PID" || true
+            exit 1
+        fi
+        sleep 1
+    done
+    if [ "$up" != "1" ]; then
+        echo "ERROR: API did not become ready on $API_URL within 180s" >&2
+        wait "$API_PID" || true
+        exit 1
+    fi
+
+    echo "==> Bootstrapping the dev credential role (block → CostumeAssistant)"
+    if DEV_AUTH_SUB="$DEV_AUTH_SUB" API_URL="$API_URL" \
+        ./scripts/bootstrap-dev-credential-role.sh; then
+        :
+    else
+        echo "ERROR: credential-role bootstrap failed — the AUTHZ-GATED AI-import/settings endpoints stay unavailable." >&2
+        echo "       Re-run ./scripts/bootstrap-dev-credential-role.sh against the running API, or restart with --run." >&2
+        exit 1
+    fi
+
+    # Keep the API in the foreground (Ctrl-C stops both). Propagate a nonzero
+    # API status (e.g. a crash), ignoring the documented Ctrl-C status 130.
+    if wait "$API_PID"; then
+        :
+    else
+        api_status=$?
+        if [ "$api_status" -ne 130 ]; then
+            exit "$api_status"
+        fi
+    fi
 fi
