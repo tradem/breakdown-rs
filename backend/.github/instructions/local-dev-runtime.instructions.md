@@ -172,6 +172,13 @@ re-provisioning). Reset: `docker compose -f docker-compose.dev.vault.yml down
 > on-first-use `ensure_key` can provision the photo SSE-C bucket key without
 > a 403.
 
+> **Sealed-restart (found while testing issue #468):** `vault status` exits 2
+> for both a never-initialized and an initialized-but-sealed Vault. The shared
+> `vault-bootstrap.sh` now runs `operator init` only when the report shows
+> `Initialized false`; a sealed restart falls through to the unseal path and
+> renews the app token. Before this, a container restart made the one-shot
+> abort with "Vault is already initialized" in prod and dev.
+
 ### Optional: dev credential role (issue #468)
 
 The AI-config (`/v1/ai-import/config*`) and settings-credential (`/settings*`)
@@ -229,10 +236,12 @@ The script:
    satisfies it durably.
 
 Then start the API with the generated env (in dev auth mode, `DEV_AUTH_SUB`
-from `.env.local`):
+from `.env.local`). Source `.env.local` **first** so the generated
+`.env.dev-ai.local` takes precedence on any overlapping variable — the same
+order the `--run` branch uses:
 
 ```bash
-set -a; . ./.env.dev-ai.local; . ./.env.local; set +a; cargo run -p api
+set -a; . ./.env.local; . ./.env.dev-ai.local; set +a; cargo run -p api
 ```
 
 With `--run`, the script starts the API in the background, waits for it, and

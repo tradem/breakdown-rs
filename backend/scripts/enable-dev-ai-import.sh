@@ -224,9 +224,19 @@ if [ "${1:-}" = "--run" ]; then
         ./scripts/bootstrap-dev-credential-role.sh; then
         :
     else
-        echo "WARN: credential-role bootstrap failed — re-run ./scripts/bootstrap-dev-credential-role.sh against the running API" >&2
+        echo "ERROR: credential-role bootstrap failed — the AUTHZ-GATED AI-import/settings endpoints stay unavailable." >&2
+        echo "       Re-run ./scripts/bootstrap-dev-credential-role.sh against the running API, or restart with --run." >&2
+        exit 1
     fi
 
-    # Keep the API in the foreground (Ctrl-C stops both).
-    wait "$API_PID" || true
+    # Keep the API in the foreground (Ctrl-C stops both). Propagate a nonzero
+    # API status (e.g. a crash), ignoring the documented Ctrl-C status 130.
+    if wait "$API_PID"; then
+        :
+    else
+        api_status=$?
+        if [ "$api_status" -ne 130 ]; then
+            exit "$api_status"
+        fi
+    fi
 fi

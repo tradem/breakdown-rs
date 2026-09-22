@@ -39,6 +39,10 @@ credential flow requires.
   then runs the credential-role bootstrap before foregrounding it.
 - **`vault-bootstrap.sh`** — TLS becomes opt-in (`VAULT_CACERT` honoured when
   set, prod compose unchanged); the plaintext dev overlay leaves it unset.
+  Grants `update` on `transit/keys/photo-sse-c` (Vault key-creation requires
+  create+update) and runs `operator init` only when `vault status` reports
+  `Initialized false` — exit code 2 covers both uninitialized and sealed, so a
+  sealed restart used to abort with "Vault is already initialized" (prod + dev).
 - **Docs** — `local-dev-runtime.instructions.md`: dev Vault overlay,
   credential-role bootstrap, full-stack AI import, `VAULT_*` env vars, reset.
 

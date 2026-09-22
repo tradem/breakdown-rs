@@ -65,7 +65,12 @@ done
 
 initialized_now=0
 root_token="${VAULT_BOOTSTRAP_TOKEN}"
-if [ "$status" -eq 2 ]; then
+# `vault status` exits 2 for BOTH a never-initialized Vault and an
+# initialized-but-sealed one (Vault 1.20). Only operator-init when the report
+# says `Initialized false`; a sealed restart must fall through to the unseal
+# path below, otherwise it would abort with "Vault is already initialized"
+# (found via the issue #468 dev overlay restart path).
+if [ "$status" -eq 2 ] && vault status 2>/dev/null | grep -q '^Initialized[[:space:]]*false'; then
   # Vault 1.20 generates the initial root token; it no longer accepts a
   # caller-supplied -root-token. The generated token is used in-memory only
   # and revoked after policy/app-token provisioning below.
