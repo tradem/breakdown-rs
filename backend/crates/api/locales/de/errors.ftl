@@ -2,6 +2,7 @@
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: kimi-k3 (neuralwatt)
 # Co-authored-by: omen-alpha (opencode-go)
+# Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 # Problem-detail messages (ADR-031 D5). One message per registered
 # problem code; the key is derived 1:1 from the code
@@ -29,8 +30,14 @@ problem-ai-config-not-found =
 problem-ai-config-provider-mismatch =
     Der KI-Anbieter kann nicht geändert werden.
 
+problem-ai-config-forbidden =
+    Für die Verwaltung der KI-Konfiguration ist eine Administratorrolle erforderlich.
+
 problem-ai-import-disabled =
     Der KI-Import ist auf dieser Instanz nicht aktiviert.
+
+problem-ai-import-forbidden =
+    Sie sind nicht berechtigt, den KI-Import in diesem Produktionsblock zu verwenden.
 
 problem-auth-idp-unavailable =
     Der Identitätsanbieter ist derzeit nicht erreichbar.
@@ -229,6 +236,9 @@ problem-settings-not-found =
 
 problem-settings-provider-mismatch =
     Der Anbieter kann während der Rotation nicht gewechselt werden.
+
+problem-settings-forbidden =
+    Für die Verwaltung der Einstellungs-Anmeldedaten ist eine Administratorrolle erforderlich.
 
 problem-shooting-day-archived =
     Der Drehtag ist archiviert und kann nicht mehr geändert werden.

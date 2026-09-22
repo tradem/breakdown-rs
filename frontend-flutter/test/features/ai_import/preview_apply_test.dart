@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 // Tier-1 + Tier-2 tests for the preview + apply features
 // (`flutter-ai-import-workflow` tasks 4.3/4.4): the typed-preview
@@ -329,10 +330,10 @@ void main() {
       'definitive 403 surfaces immediately (no retry, no re-read)',
       () async {
         repo.applyQueue.add(
-          const Left(ProblemError(code: 'ai_import.forbidden', status: 403)),
+          const Left(ProblemError(code: 'ai-import.forbidden', status: 403)),
         );
         final res = await seedAndApply();
-        expect(res.getLeft().toNullable()!.code, 'ai_import.forbidden');
+        expect(res.getLeft().toNullable()!.code, 'ai-import.forbidden');
         expect(repo.applyRequests, hasLength(1));
       },
     );
@@ -695,7 +696,7 @@ void main() {
     testWidgets('apply 403 renders the localized narrative', (tester) async {
       await setupContainer(
         applyQueue: [
-          const Left(ProblemError(code: 'ai_import.forbidden', status: 403)),
+          const Left(ProblemError(code: 'ai-import.forbidden', status: 403)),
         ],
       );
       await pumpPreview(tester);

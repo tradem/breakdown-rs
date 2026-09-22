@@ -1,0 +1,7 @@
+{
+  "code": "ai-import.forbidden",
+  "detail": "Sie sind nicht berechtigt, den KI-Import in diesem Produktionsblock zu verwenden.",
+  "status": 403,
+  "title": "AI import forbidden",
+  "type": "https://docs.breakdown.example/problems/ai-import.forbidden"
+}

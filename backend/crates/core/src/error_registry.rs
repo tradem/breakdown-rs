@@ -3,6 +3,7 @@
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: kimi-k3 (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 //! Stable problem-code registry (ADR-031).
 //!
@@ -35,7 +36,7 @@ pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
 /// Kept in sync with the `problem_codes!` invocation below by a compile-time
 /// assertion — adding or removing a code without deliberately updating this
 /// count fails the build (issue #232).
-const PROBLEM_CODE_COUNT: usize = 78;
+const PROBLEM_CODE_COUNT: usize = 81;
 
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -732,6 +733,17 @@ problem_codes! {
         extensions: &[],
     },
 
+    /// 403 — authenticated caller lacks the credential role required to
+    /// manage settings credentials (handler-internal authz gate, ADR-027).
+    /// Scoped per-aggregate (ADR-031 Tranche 2) so the settings-credential
+    /// deny narrative is distinguishable from other `domain.forbidden` 403s.
+    SETTINGS_FORBIDDEN {
+        code: "settings.forbidden",
+        status: 403,
+        title: "Settings forbidden",
+        extensions: &[],
+    },
+
 
     // --- ai config ---
     AI_CONFIG_NOT_FOUND {
@@ -783,6 +795,18 @@ problem_codes! {
         extensions: &[],
     },
 
+    /// 403 — authenticated caller lacks the credential role required to
+    /// manage AI configuration (handler-internal authz gate). Scoped
+    /// per-aggregate (ADR-031 Tranche 2) so the AI-config credential-role
+    /// denial is distinguishable from `domain.forbidden` and from the
+    /// season-scope `ai-import.forbidden` (issue #470).
+    AI_CONFIG_FORBIDDEN {
+        code: "ai-config.forbidden",
+        status: 403,
+        title: "AI configuration forbidden",
+        extensions: &[],
+    },
+
     /// 404 — the AI import feature is disabled on this instance
     /// (`AI_IMPORT_ENABLED` unset). Distinct from `domain.not-found` so the
     /// client can branch on the stable `code` and render a dedicated
@@ -792,6 +816,19 @@ problem_codes! {
         code: "ai-import.disabled",
         status: 404,
         title: "AI import disabled",
+        extensions: &[],
+    },
+
+    /// 403 — authenticated caller is not authorized for this AI import job
+    /// (ownership or season-scope denial in `authorize_ai_job` /
+    /// `authorize_ai_block`). Scoped separately from `ai-config.forbidden`
+    /// (issue #470) so the job/apply screens can render their "active
+    /// costume role in this season" narrative instead of the credential-role
+    /// one.
+    AI_IMPORT_FORBIDDEN {
+        code: "ai-import.forbidden",
+        status: 403,
+        title: "AI import forbidden",
         extensions: &[],
     },
 

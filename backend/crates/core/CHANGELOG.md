@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: deepseek-v4-flash (opencode-go) -->
+<!-- Co-authored-by: deepseek-v4-flash (neuralwatt) -->
 <!-- Co-authored-by: longcat-2.0-free (opencode) -->
 <!-- Co-authored-by: hy4-preview (opencode-go) -->
 <!-- Co-authored-by: muse-spark-1.3-contributor (opencode-go) -->
@@ -45,6 +46,25 @@ commits (ADR-020 D5).
   and model discovery routes (already declared on the upload routes).
 - **No additional bump:** additive registry/API extension — rides with the
   open 0.11.0 MINOR (same convention as #409/#423).
+
+### Added — scoped forbidden problem codes for AI-config/AI-import/settings gates (issue #470)
+
+- Three new registered problem codes (status 403) in the `problem_codes!`
+  registry: `ai-config.forbidden` (`AI_CONFIG_FORBIDDEN`, the credential-role
+  gates on AI-config management/discovery), `ai-import.forbidden`
+  (`AI_IMPORT_FORBIDDEN`, the season-role/ownership gates on the AI import
+  job status/preview/apply/upload path), and `settings.forbidden`
+  (`SETTINGS_FORBIDDEN`, the credential-role gates on the settings
+  credential endpoints). Previously all three denial families collapsed into
+  the generic `domain.forbidden`, so the client — allowed to branch only on
+  the stable `code` — could not render the distinction between a
+  credential-role denial ("administrator role required") and a
+  season-scope job denial ("active costume role in this season").
+- Fluent messages `problem-ai-config-forbidden` / `problem-ai-import-forbidden`
+  / `problem-settings-forbidden` added (en/de); golden snapshots
+  regenerated; `openapi.yaml` `x-code-registry` refreshed.
+- **No additional bump:** additive registry extension — rides with the
+  open 0.11.0 MINOR (same convention as #409/#422/#423).
 
 ### Fixed — `value_type` overrides drop `Option` nullability (issue #423)
 

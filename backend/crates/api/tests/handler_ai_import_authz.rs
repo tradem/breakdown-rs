@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
 
@@ -76,7 +77,7 @@ async fn list_ai_providers_denies_non_credential_role_member() {
         .expect_err("denied caller must get an error")
         .into_problem();
     assert_eq!(problem.status, 403);
-    assert_eq!(problem.code, "domain.forbidden");
+    assert_eq!(problem.code, "ai-config.forbidden");
     // Detail is localized (ADR-031 D5); the code is the contract.
     assert!(!problem.detail.is_empty());
 }
@@ -135,7 +136,7 @@ async fn list_ai_models_denies_non_credential_role_member() {
         .expect_err("denied caller must get an error")
         .into_problem();
     assert_eq!(problem.status, 403);
-    assert_eq!(problem.code, "domain.forbidden");
+    assert_eq!(problem.code, "ai-config.forbidden");
     // Detail is localized (ADR-031 D5); the code is the contract.
     assert!(!problem.detail.is_empty());
 }
