@@ -40,7 +40,7 @@
 use std::sync::OnceLock;
 
 use axum::Router;
-use axum::extract::{Path, State};
+use axum::extract::State;
 use axum::http::{Method, Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
@@ -49,7 +49,7 @@ use axum::routing::post;
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::BLOCK_NUMBER_ALREADY_EXISTS;
 
-use crate::problems::ApiError;
+use crate::problems::{ApiError, Path};
 use crate::state::AppState;
 
 /// The designated fault name of this module (issue #443): the next block
@@ -118,6 +118,16 @@ pub async fn fault_injection_middleware(
 /// (`204 No Content`). Generic over the state's `Ports` so integration
 /// tests can mount the routes over `FakePorts` the same way `app_router`
 /// mounts them over `ProductionPorts`.
+///
+/// The path param uses the ADR-031 problem-document wrapper
+/// [`crate::problems::Path`], not the raw `axum::extract::Path`, so even the
+/// never-in-practice rejection path (a `String`-typed segment always parses)
+/// answers with `http.bad-path-param` (RFC 9457) instead of axum's plain-text
+/// rejection — the same contract every production handler follows (issue
+/// #483, follow-up to #467). No rejection regression test is added here:
+/// `Path<String>` against a path template cannot reject, so the switching is
+/// defense-in-depth for a future segment-type change, not a reachable branch
+/// today.
 pub fn fault_control_routes<P: crate::state::Ports>() -> Router<AppState<P>> {
     Router::new().route("/__faults/{fault}", post(arm_fault::<P>))
 }
