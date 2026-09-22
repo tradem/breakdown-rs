@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 // Tier-1 unit tests for the AI-import data layer (`flutter-ai-import`
 // tasks 1.1/1.2/1.4/1.5): every route Ok/Err (incl. 200/202/413/415/404/
@@ -426,7 +427,7 @@ void main() {
       expect(created.getRight().toNullable()!.id, 'config-1');
 
       final err = _api(
-        _ScriptInterceptor(problem: 'ai_config.forbidden', status: 403),
+        _ScriptInterceptor(problem: 'ai-config.forbidden', status: 403),
       );
       final failed = await AiConfigRepository(err).createConfig(
         CreateAiConfigRequest(
@@ -453,10 +454,10 @@ void main() {
       expect(configs.getRight().toNullable()!.first.id, 'c-1');
 
       final err = _api(
-        _ScriptInterceptor(problem: 'ai_config.forbidden', status: 403),
+        _ScriptInterceptor(problem: 'ai-config.forbidden', status: 403),
       );
       final failed = await AiConfigRepository(err).listConfigs();
-      expect(failed.getLeft().toNullable()!.code, 'ai_config.forbidden');
+      expect(failed.getLeft().toNullable()!.code, 'ai-config.forbidden');
     });
 
     test('getConfig Ok / 404', () async {
@@ -672,7 +673,7 @@ void main() {
 
       // Failure path (submission itself fails).
       final errApi = _api(
-        _ScriptInterceptor(problem: 'ai_config.forbidden', status: 403),
+        _ScriptInterceptor(problem: 'ai-config.forbidden', status: 403),
       );
       final failed = await submitCredentialWithHandoff(
         AiConfigRepository(errApi),
@@ -862,7 +863,7 @@ void main() {
         for (final (status, code) in [
           (413, 'ai_import.payload_too_large'),
           (415, 'ai_import.unsupported_media_type'),
-          (403, 'ai_import.forbidden'),
+          (403, 'ai-import.forbidden'),
           (404, 'ai_import.disabled'),
         ]) {
           final api = _api(_ScriptInterceptor(problem: code, status: status));
@@ -974,7 +975,7 @@ void main() {
       expect((await dao.readAll('user-a')).length, 2);
 
       final errApi = _api(
-        _ScriptInterceptor(problem: 'ai_config.forbidden', status: 403),
+        _ScriptInterceptor(problem: 'ai-config.forbidden', status: 403),
       );
       final failed = await AiImportRepository(errApi, dao).listJobsAndCache();
       expect(failed.isLeft(), isTrue);
@@ -1056,13 +1057,13 @@ void main() {
       expect(res.getRight().toNullable()!.appliedCount, 3);
 
       final errApi = _api(
-        _ScriptInterceptor(problem: 'ai_import.forbidden', status: 403),
+        _ScriptInterceptor(problem: 'ai-import.forbidden', status: 403),
       );
       final failed = await AiImportRepository(
         errApi,
         _dao(),
       ).apply('j1', _applyRequest());
-      expect(failed.getLeft().toNullable()!.code, 'ai_import.forbidden');
+      expect(failed.getLeft().toNullable()!.code, 'ai-import.forbidden');
       expect(
         _scriptOf(errApi).calls,
         1,

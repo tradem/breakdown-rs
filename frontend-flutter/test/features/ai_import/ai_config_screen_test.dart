@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 // Tier-2 widget tests for the AI-import configuration screen
 // (`flutter-ai-config` task 2.2): first-run discovery (list-first + empty
@@ -419,7 +420,7 @@ void main() {
       providersValue: Right([_provider('openai', LlmProvider.openai)]),
     );
     repo.submitResult = const Left(
-      ProblemError(code: 'ai_config.forbidden', status: 403),
+      ProblemError(code: 'ai-config.forbidden', status: 403),
     );
     await pumpScreen(tester);
     await pickProviderAndModel(tester);

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'dart:typed_data';
 
@@ -34,11 +35,15 @@ class AiImportDocument {
 enum AiImportKind { schedule, script }
 
 /// Localized client-side copy for an upload failure, keyed on the stable
-/// problem `code` (never the server `detail`).
+/// problem `code` (never the server `detail`). The 403 arm matches BOTH the
+/// scoped server wire code `ai-import.forbidden` (upload block-scope denial,
+/// issue #470) and the client pre-gate deny code `ai_import.forbidden` from
+/// `membership_gate.dart` — different provenance, one narrative.
 String aiUploadErrorCopy(ProblemError error) => switch (error.code) {
   'ai_import.payload_too_large' => 'The document is too large for AI import.',
   'ai_import.unsupported_media_type' =>
     'This file type is not supported for the selected kind.',
+  'ai-import.forbidden' ||
   'ai_import.forbidden' => 'You need an active costume role in this season.',
   'ai_import.disabled' => 'AI import is not enabled on this backend.',
   'ai_import.scope_missing' =>

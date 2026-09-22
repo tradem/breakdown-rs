@@ -5,6 +5,7 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: glm-5.2 (neuralwatt)
 // Co-authored-by: longcat-2.0-free (opencode)
 // Co-authored-by: hy4-preview (opencode-go)
@@ -3985,7 +3986,7 @@ pub async fn create_gdrive_credential<P: Ports>(
         .await
         .unwrap_or(false);
     if !authorized {
-        return Err(ApiError::Forbidden(
+        return Err(ApiError::SettingsForbidden(
             "not authorized to manage external credentials",
         ));
     }
@@ -4056,7 +4057,7 @@ pub async fn rotate_gdrive_credential<P: Ports>(
         .await
         .unwrap_or(false);
     if !authorized {
-        return Err(ApiError::Forbidden(
+        return Err(ApiError::SettingsForbidden(
             "not authorized to manage external credentials",
         ));
     }
@@ -4183,7 +4184,7 @@ pub async fn create_credential<P: Ports>(
         .await
         .unwrap_or(false);
     if !authorized {
-        return Err(ApiError::Forbidden(
+        return Err(ApiError::SettingsForbidden(
             "not authorized to manage external credentials",
         ));
     }
@@ -4250,7 +4251,7 @@ pub async fn get_settings<P: Ports>(
         .await
         .unwrap_or(false);
     if !authorized {
-        return Err(ApiError::Forbidden(
+        return Err(ApiError::SettingsForbidden(
             "not authorized to manage external credentials",
         ));
     }
@@ -4285,7 +4286,7 @@ pub async fn revoke_settings<P: Ports>(
         .await
         .unwrap_or(false);
     if !authorized {
-        return Err(ApiError::Forbidden(
+        return Err(ApiError::SettingsForbidden(
             "not authorized to manage external credentials",
         ));
     }
@@ -4346,9 +4347,7 @@ async fn authorize_ai_block<P: Ports>(
         })
         .await?;
     if decision != PolicyDecision::Allow {
-        return Err(ApiError::Forbidden(
-            "not authorized for this production block",
-        ));
+        return Err(forbidden_ai_job());
     }
     Ok(block_id)
 }
@@ -4360,7 +4359,7 @@ async fn authorize_ai_job<P: Ports>(
     action: Action,
 ) -> Result<(), ApiError> {
     if job.user_id != current_user.sub {
-        return Err(forbidden_ai_config());
+        return Err(forbidden_ai_job());
     }
     if let Some(block_id) = job.block_id {
         let block = state.ports.block_repo().find_by_id(block_id.0).await?;
@@ -4376,7 +4375,7 @@ async fn authorize_ai_job<P: Ports>(
             })
             .await?;
         if decision != PolicyDecision::Allow {
-            return Err(forbidden_ai_config());
+            return Err(forbidden_ai_job());
         }
     }
     Ok(())
@@ -4636,7 +4635,7 @@ pub async fn list_ai_import_jobs<P: Ports>(
                         break;
                     }
                 }
-                Err(ApiError::Forbidden(_)) | Err(ApiError::NotFound(_)) => continue,
+                Err(ApiError::AiImportForbidden(_)) | Err(ApiError::NotFound(_)) => continue,
                 Err(error) => return Err(error),
             }
         }
@@ -4796,7 +4795,7 @@ pub async fn apply_ai_import<P: Ports>(
             if let Some(job_block) = job.block_id
                 && episode.block_id != job_block
             {
-                return Err(forbidden_ai_config());
+                return Err(forbidden_ai_job());
             }
             // The episode is the authoritative source for the series seam;
             // resolving it here keeps the write side free of read-model lookups.
@@ -4829,7 +4828,7 @@ pub async fn apply_ai_import<P: Ports>(
                     }
                     let scene = state.ports.scene_repo().find_by_id(aggregate_id).await?;
                     if scene.episode_id != EpisodeId::from_uuid(episode.id) {
-                        return Err(forbidden_ai_config());
+                        return Err(forbidden_ai_job());
                     }
                 }
             }
@@ -4947,7 +4946,19 @@ async fn credential_role_gate<P: Ports>(
 }
 
 fn forbidden_ai_config() -> ApiError {
-    ApiError::Forbidden("not authorized to manage AI configuration")
+    // AUTHZ-GATE (issue #470): credential-role denial on an AI-config
+    // management/discovery handler → 403 `ai-config.forbidden`. Distinct
+    // from `forbidden_ai_job()` (season-role/ownership).
+    ApiError::AiConfigForbidden("not authorized to manage AI configuration")
+}
+
+/// Season-role/ownership denial on an AI import job (upload block-scope,
+/// status/preview/apply) → 403 `ai-import.forbidden` (issue #470). Distinct
+/// from `forbidden_ai_config()` so the job/apply screens can render their
+/// "active costume role in this season" narrative instead of the
+/// credential-role one.
+fn forbidden_ai_job() -> ApiError {
+    ApiError::AiImportForbidden("not authorized for this AI import job")
 }
 
 /// Render a JSON response with `Cache-Control: no-store` — AI import job and
@@ -5145,7 +5156,7 @@ pub async fn list_ai_providers<P: Ports>(
         .authorize_credential_role(&current_user.sub)
         .await?;
     if decision != PolicyDecision::Allow {
-        return Err(ApiError::Forbidden(
+        return Err(ApiError::AiConfigForbidden(
             "not authorized to discover AI providers",
         ));
     }
@@ -5185,7 +5196,9 @@ pub async fn list_ai_models<P: Ports>(
         .authorize_credential_role(&current_user.sub)
         .await?;
     if decision != PolicyDecision::Allow {
-        return Err(ApiError::Forbidden("not authorized to discover AI models"));
+        return Err(ApiError::AiConfigForbidden(
+            "not authorized to discover AI models",
+        ));
     }
     if !state.ai_import_enabled {
         return Err(ApiError::FeatureDisabled("AI import is disabled"));

@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: deepseek-v4-flash (opencode-go) -->
+<!-- Co-authored-by: deepseek-v4-flash (neuralwatt) -->
 <!-- Co-authored-by: longcat-2.0-free (opencode) -->
 <!-- Co-authored-by: hy4-preview (opencode-go) -->
 <!-- Co-authored-by: muse-spark-1.3-contributor (opencode-go) -->
@@ -79,6 +80,29 @@ commits (ADR-020 D5).
   sites switched, the disabled-state test now asserts the code, and
   `openapi.yaml` declares the 404 on the two discovery routes (regenerated,
   drift-checked).
+- **No additional bump:** additive public-API extension — rides with the
+  open 0.10.0 MINOR.
+
+### Added — scoped forbidden `ApiError` variants for the AI/settings gates (issue #470)
+
+- Three new `ApiError` variants map the handler-internal authz-gate denials
+  through the single problem builder to scoped per-aggregate codes instead
+  of the generic `domain.forbidden`: `AiConfigForbidden` →
+  `ai-config.forbidden` (AI-config management create/get/list/update/revoke
+  + provider/model discovery, credential-role gates), `AiImportForbidden` →
+  `ai-import.forbidden` (AI import job upload block-scope / status / preview
+  / apply season-role and ownership gates), and `SettingsForbidden` →
+  `settings.forbidden` (settings-credential create/rotate/update/revoke,
+  credential-role gates). `forbidden_ai_config()` now renders
+  `ai-config.forbidden`; a new `forbidden_ai_job()` renders
+  `ai-import.forbidden`; the five settings credential handlers switched to
+  `SettingsForbidden`. The `list_ai_import_jobs` visibility filter matches
+  the new `AiImportForbidden` variant (foreign/scope-denied jobs are still
+  skipped, not surfaced).
+- Handler-level tests now assert the scoped codes (issue #470 req. "wire
+  contract can't drift again") in `handler_ai_import_authz.rs`,
+  `handler_ai_import_ports.rs`, `handler_authz_batch2.rs` and the
+  `ai_import_tests.rs` unit; `openapi.yaml` `x-code-registry` refreshed.
 - **No additional bump:** additive public-API extension — rides with the
   open 0.10.0 MINOR.
 

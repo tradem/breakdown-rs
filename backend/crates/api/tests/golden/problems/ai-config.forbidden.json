@@ -1,0 +1,7 @@
+{
+  "code": "ai-config.forbidden",
+  "detail": "Für die Verwaltung der KI-Konfiguration ist eine Administratorrolle erforderlich.",
+  "status": 403,
+  "title": "AI configuration forbidden",
+  "type": "https://docs.breakdown.example/problems/ai-config.forbidden"
+}

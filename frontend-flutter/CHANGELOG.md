@@ -138,6 +138,24 @@ releases are cut as `flutter-vX.Y.Z` tags.
 
 ### Fixed
 
+- AI import / settings credential-role denials carry scoped wire codes
+  (issue #470): the backend now emits `ai-config.forbidden` (AI-config
+  management + provider/model discovery), `settings.forbidden` (settings
+  credential endpoints) and `ai-import.forbidden` (job upload/status/
+  preview/apply) instead of the overloaded generic `domain.forbidden`, so
+  the AI-config screens' "Administrator role required — ask your production
+  admin." narrative is reachable again (previously the config screen only
+  matched the never-emitted `ai_config.forbidden`/`settings.forbidden`, so
+  a real 403 landed in the generic `domain.forbidden` fallback — observed
+  live on `GET /v1/ai-import/config`). `aiConfigErrorCopy` keys on
+  `ai-config.forbidden`/`settings.forbidden`; the import-job switches key
+  on `ai-import.forbidden` (apply screen / upload server-side 403) while
+  keeping the client pre-gate deny code `ai_import.forbidden`; the
+  job-status banner gains an ownership/scope 403 arm. Copy stays keyed on
+  `code`, never the server `detail`.
+- **Version bump:** `0.3.0-alpha.15+24 → 0.3.0-alpha.15+25` (pre-release
+  increment per merged-PR practice on the alpha line; `+N` stays strictly
+  monotonic for the Play `versionCode`).
 - Wrapped-day finality copy on execution 409 (issue #376):
   `sceneShootErrorCopy` branches on the backend's new wire code
   `scene-shoot.shooting-day-wrapped` (409) with the same finality narrative

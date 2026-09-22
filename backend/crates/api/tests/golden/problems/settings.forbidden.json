@@ -1,0 +1,7 @@
+{
+  "code": "settings.forbidden",
+  "detail": "Für die Verwaltung der Einstellungs-Anmeldedaten ist eine Administratorrolle erforderlich.",
+  "status": 403,
+  "title": "Settings forbidden",
+  "type": "https://docs.breakdown.example/problems/settings.forbidden"
+}

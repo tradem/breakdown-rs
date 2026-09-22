@@ -3,6 +3,7 @@
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: kimi-k3 (neuralwatt)
 // Co-authored-by: longcat-2.0 (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 //! RFC 9457 problem-detail error surface (ADR-031).
 //!
@@ -21,12 +22,13 @@ use axum::http::{StatusCode, header, request::Parts};
 use axum::response::{IntoResponse, Response};
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::{
-    AI_IMPORT_DISABLED, CONCURRENCY_VERSION_MISMATCH, COSTUME_ALREADY_ASSIGNED, DOMAIN_CONFLICT,
-    DOMAIN_FORBIDDEN, DOMAIN_NOT_FOUND, DOMAIN_SERVICE_UNAVAILABLE, DOMAIN_VALIDATION,
-    HTTP_BAD_JSON_BODY, HTTP_BAD_PATH_PARAM, HTTP_BAD_QUERY_PARAM, HTTP_BAD_REQUEST,
-    HTTP_INTERNAL_ERROR, HTTP_PAYLOAD_TOO_LARGE, HTTP_REQUEST_TIMEOUT, HTTP_ROUTE_NOT_FOUND,
-    HTTP_UNSUPPORTED_MEDIA_TYPE, ProblemCode, SCENE_ALREADY_SCHEDULED, SCENE_NOT_SCHEDULED,
-    SCENE_SHOOT_ALREADY_LINKED, SCENE_SHOOT_SHOOTING_DAY_WRAPPED,
+    AI_CONFIG_FORBIDDEN, AI_IMPORT_DISABLED, AI_IMPORT_FORBIDDEN, CONCURRENCY_VERSION_MISMATCH,
+    COSTUME_ALREADY_ASSIGNED, DOMAIN_CONFLICT, DOMAIN_FORBIDDEN, DOMAIN_NOT_FOUND,
+    DOMAIN_SERVICE_UNAVAILABLE, DOMAIN_VALIDATION, HTTP_BAD_JSON_BODY, HTTP_BAD_PATH_PARAM,
+    HTTP_BAD_QUERY_PARAM, HTTP_BAD_REQUEST, HTTP_INTERNAL_ERROR, HTTP_PAYLOAD_TOO_LARGE,
+    HTTP_REQUEST_TIMEOUT, HTTP_ROUTE_NOT_FOUND, HTTP_UNSUPPORTED_MEDIA_TYPE, ProblemCode,
+    SCENE_ALREADY_SCHEDULED, SCENE_NOT_SCHEDULED, SCENE_SHOOT_ALREADY_LINKED,
+    SCENE_SHOOT_SHOOTING_DAY_WRAPPED, SETTINGS_FORBIDDEN,
 };
 use serde::Serialize;
 
@@ -276,8 +278,22 @@ fn domain_error_problem(err: DomainError) -> ProblemDetails {
 pub enum ApiError {
     /// Domain failure, mapped through the registry.
     Domain(DomainError),
-    /// Handler-internal authorization gate denial → 403 `domain.forbidden`.
+    /// Handler-internal authorization gate denial → 403 `domain.forbidden`
+    /// (generic; scoped forbidden codes below for the AI-config/
+    /// AI-import/settings-credential gates, issue #470).
     Forbidden(&'static str),
+    /// Handler-internal credential-role gate denial on an AI-config
+    /// management/discovery handler → 403 `ai-config.forbidden` (ADR-031
+    /// Tranche 2 scoped code, issue #470).
+    AiConfigForbidden(&'static str),
+    /// Handler-internal season-role/ownership gate denial on an AI import
+    /// job (upload/status/preview/apply) → 403 `ai-import.forbidden`
+    /// (ADR-031 Tranche 2 scoped code, issue #470).
+    AiImportForbidden(&'static str),
+    /// Handler-internal credential-role gate denial on a settings
+    /// credential handler → 403 `settings.forbidden` (ADR-031 Tranche 2
+    /// scoped code, issue #470).
+    SettingsForbidden(&'static str),
     /// Malformed request (path/body mismatch, bad headers) → 400 `http.bad-request`.
     BadRequest(&'static str),
     /// Malformed JSON body → 400 `http.bad-json-body`.
@@ -331,6 +347,18 @@ impl ApiError {
             ApiError::Forbidden(msg) => {
                 tracing::debug!(reason = msg, "rendering forbidden problem");
                 problem(DOMAIN_FORBIDDEN).build()
+            }
+            ApiError::AiConfigForbidden(msg) => {
+                tracing::debug!(reason = msg, "rendering ai-config forbidden problem");
+                problem(AI_CONFIG_FORBIDDEN).build()
+            }
+            ApiError::AiImportForbidden(msg) => {
+                tracing::debug!(reason = msg, "rendering ai-import forbidden problem");
+                problem(AI_IMPORT_FORBIDDEN).build()
+            }
+            ApiError::SettingsForbidden(msg) => {
+                tracing::debug!(reason = msg, "rendering settings forbidden problem");
+                problem(SETTINGS_FORBIDDEN).build()
             }
             ApiError::BadRequest(msg) => {
                 tracing::debug!(reason = msg, "rendering bad-request problem");

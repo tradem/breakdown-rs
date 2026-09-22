@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: longcat-2.0-free (opencode)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
@@ -361,7 +362,7 @@ async fn get_ai_import_job_denies_a_foreign_owner() {
         .expect_err("a foreign owner must be denied")
         .into_problem();
     assert_eq!(problem.status, StatusCode::FORBIDDEN.as_u16());
-    assert_eq!(problem.code, "domain.forbidden");
+    assert_eq!(problem.code, "ai-import.forbidden");
     // Detail is localized (ADR-031 D5); the code is the contract.
     assert!(!problem.detail.is_empty());
 }
@@ -552,7 +553,7 @@ async fn apply_ai_import_rejects_an_episode_from_another_block() {
     .into_problem();
 
     assert_eq!(problem.status, StatusCode::FORBIDDEN.as_u16());
-    assert_eq!(problem.code, "domain.forbidden");
+    assert_eq!(problem.code, "ai-import.forbidden");
     // Detail is localized (ADR-031 D5); the code is the contract.
     assert!(!problem.detail.is_empty());
     // The gate runs before the worker: nothing was written on *either* write
@@ -736,7 +737,7 @@ async fn get_ai_config_denies_a_foreign_owner() {
         .expect_err("a foreign owner must be denied")
         .into_problem();
     assert_eq!(problem.status, StatusCode::FORBIDDEN.as_u16());
-    assert_eq!(problem.code, "domain.forbidden");
+    assert_eq!(problem.code, "ai-config.forbidden");
     // Detail is localized (ADR-031 D5); the code is the contract.
     assert!(!problem.detail.is_empty());
 }
@@ -761,7 +762,7 @@ async fn ai_config_creation_is_denied_without_the_credential_role() {
     .expect_err("a non-credential-role caller must be denied")
     .into_problem();
     assert_eq!(problem.status, StatusCode::FORBIDDEN.as_u16());
-    assert_eq!(problem.code, "domain.forbidden");
+    assert_eq!(problem.code, "ai-config.forbidden");
     // Detail is localized (ADR-031 D5); the code is the contract.
     assert!(!problem.detail.is_empty());
 }
@@ -1145,6 +1146,6 @@ async fn list_ai_configs_is_denied_without_the_credential_role() {
         .expect_err("a non-credential-role caller must be denied")
         .into_problem();
     assert_eq!(problem.status, StatusCode::FORBIDDEN.as_u16());
-    assert_eq!(problem.code, "domain.forbidden");
+    assert_eq!(problem.code, "ai-config.forbidden");
     assert!(!problem.detail.is_empty());
 }

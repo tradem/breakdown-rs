@@ -2,6 +2,7 @@
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: kimi-k3 (neuralwatt)
 # Co-authored-by: omen-alpha (opencode-go)
+# Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 # Problem-detail messages (ADR-031 D5). One message per registered
 # problem code; the key is derived 1:1 from the code
@@ -29,8 +30,14 @@ problem-ai-config-not-found =
 problem-ai-config-provider-mismatch =
     The AI provider cannot be changed.
 
+problem-ai-config-forbidden =
+    Managing AI configuration requires an administrator role.
+
 problem-ai-import-disabled =
     AI import is not enabled on this instance.
+
+problem-ai-import-forbidden =
+    You are not authorized to use this AI import job.
 
 problem-auth-idp-unavailable =
     The identity provider is currently unavailable.
@@ -229,6 +236,9 @@ problem-settings-not-found =
 
 problem-settings-provider-mismatch =
     The provider cannot change during rotation.
+
+problem-settings-forbidden =
+    Managing settings credentials requires an administrator role.
 
 problem-shooting-day-archived =
     The shooting day is archived and can no longer be modified.

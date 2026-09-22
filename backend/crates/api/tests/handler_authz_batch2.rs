@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: claude-sonnet-4-20250514 (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: hy4-preview (opencode-go)
 
 //! Batch 2 — Authz-Handler 403-Tests for mutation-test hardening (issue #274).
@@ -454,7 +455,7 @@ async fn create_gdrive_credential_denies_non_member() {
         .expect_err("denied caller must get an error")
         .into_problem();
     assert_eq!(problem.status, 403);
-    assert_eq!(problem.code, "domain.forbidden");
+    assert_eq!(problem.code, "settings.forbidden");
     assert!(!problem.detail.is_empty());
 }
 
@@ -484,7 +485,7 @@ async fn rotate_gdrive_credential_denies_non_member() {
         .expect_err("denied caller must get an error")
         .into_problem();
     assert_eq!(problem.status, 403);
-    assert_eq!(problem.code, "domain.forbidden");
+    assert_eq!(problem.code, "settings.forbidden");
     assert!(!problem.detail.is_empty());
 }
 
@@ -508,7 +509,7 @@ async fn create_credential_denies_non_member() {
         .expect_err("denied caller must get an error")
         .into_problem();
     assert_eq!(problem.status, 403);
-    assert_eq!(problem.code, "domain.forbidden");
+    assert_eq!(problem.code, "settings.forbidden");
     assert!(!problem.detail.is_empty());
 }
 
@@ -529,7 +530,7 @@ async fn get_settings_denies_non_member() {
         .expect_err("denied caller must get an error")
         .into_problem();
     assert_eq!(problem.status, 403);
-    assert_eq!(problem.code, "domain.forbidden");
+    assert_eq!(problem.code, "settings.forbidden");
     assert!(!problem.detail.is_empty());
 }
 
@@ -553,7 +554,7 @@ async fn revoke_settings_denies_non_member() {
         .expect_err("denied caller must get an error")
         .into_problem();
     assert_eq!(problem.status, 403);
-    assert_eq!(problem.code, "domain.forbidden");
+    assert_eq!(problem.code, "settings.forbidden");
     assert!(!problem.detail.is_empty());
 }
 

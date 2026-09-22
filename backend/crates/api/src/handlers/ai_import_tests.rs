@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 use breakdown_core::ai::{
     ApplyGateError, ApplyMapping, ApplyMappingDecision, DocumentKind, DraftScene, ScriptContext,
@@ -10,7 +11,7 @@ use breakdown_core::ai::{
 use breakdown_core::shared::{AggregateVersion, EpisodeId, UserId};
 use uuid::Uuid;
 
-use super::{ai_dedup_key, forbidden_ai_config, parse_ai_provider};
+use super::{ai_dedup_key, forbidden_ai_config, forbidden_ai_job, parse_ai_provider};
 
 #[test]
 fn reupload_dedup_key_is_stable_and_kind_specific() {
@@ -54,9 +55,17 @@ fn reupload_dedup_key_is_format_specific() {
 
 #[test]
 fn unauthorized_response_is_forbidden() {
+    // Issue #470: the credential-role denial must carry the scoped
+    // `ai-config.forbidden` wire code — NOT the generic `domain.forbidden` —
+    // so the AI-config screens render the credential-role narrative. The
+    // season-role/ownership denial carries `ai-import.forbidden` instead.
     let problem = forbidden_ai_config().into_problem();
     assert_eq!(problem.status, 403);
-    assert_eq!(problem.code, "domain.forbidden");
+    assert_eq!(problem.code, "ai-config.forbidden");
+
+    let job_problem = forbidden_ai_job().into_problem();
+    assert_eq!(job_problem.status, 403);
+    assert_eq!(job_problem.code, "ai-import.forbidden");
 }
 
 #[test]

@@ -6603,6 +6603,11 @@ x-code-registry:
   status: 409
   title: Credential already revoked
   type: https://docs.breakdown.example/problems/settings.already-revoked
+- code: settings.forbidden
+  extensions: []
+  status: 403
+  title: Settings forbidden
+  type: https://docs.breakdown.example/problems/settings.forbidden
 - code: ai-config.not-found
   extensions: []
   status: 404
@@ -6638,8 +6643,18 @@ x-code-registry:
   status: 409
   title: AI configuration already revoked
   type: https://docs.breakdown.example/problems/ai-config.already-revoked
+- code: ai-config.forbidden
+  extensions: []
+  status: 403
+  title: AI configuration forbidden
+  type: https://docs.breakdown.example/problems/ai-config.forbidden
 - code: ai-import.disabled
   extensions: []
   status: 404
   title: AI import disabled
   type: https://docs.breakdown.example/problems/ai-import.disabled
+- code: ai-import.forbidden
+  extensions: []
+  status: 403
+  title: AI import forbidden
+  type: https://docs.breakdown.example/problems/ai-import.forbidden

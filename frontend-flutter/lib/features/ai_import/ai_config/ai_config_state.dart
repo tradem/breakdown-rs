@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -147,8 +148,14 @@ class AiConfigUnresolved {
 /// Localized client-side copy for a config command failure, keyed on the
 /// stable problem `code` (never the server `detail`). Unknown codes fall
 /// back to a code-carrying generic.
+///
+/// The 403 arms match the scoped wire codes the backend emits for the
+/// credential-role gates (issue #470): `ai-config.forbidden` (AI-config
+/// management/discovery) and `settings.forbidden` (settings credentials) —
+/// NOT the generic `domain.forbidden`. A real credential-role denial must
+/// land on the "administrator role required" narrative, never the fallback.
 String aiConfigErrorCopy(ProblemError error) => switch (error.code) {
-  'ai_config.forbidden' || 'settings.forbidden' =>
+  'ai-config.forbidden' || 'settings.forbidden' =>
     'Administrator role required — ask your production admin.',
   'ai_config.conflict' => 'Changed elsewhere — refresh and re-apply your edit.',
   'ai_config.orphaned_credential' =>

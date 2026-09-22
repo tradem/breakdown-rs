@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:fpdart/fpdart.dart';
@@ -275,9 +276,14 @@ class AiApplyController extends _$AiApplyController {
 }
 
 /// Localized copy for an apply failure, keyed on the stable problem
-/// `code` (never the server `detail`).
+/// `code` (never the server `detail`). `ai-import.forbidden` is the scoped
+/// wire code the backend emits for ALL AI-import job denials — ownership,
+/// season-scope AND cross-resource (episode/scene mismatch) — so the copy is
+/// access-neutral rather than role/block-specific (CodeRabbit #480). The
+/// apply screen has no client pre-gate, so only the server code reaches this
+/// switch.
 String aiApplyErrorCopy(ProblemError error) => switch (error.code) {
-  'ai_import.forbidden' => 'You need an active costume role in this season.',
+  'ai-import.forbidden' => 'You do not have access to this AI import job.',
   'ai_import.apply_job_not_succeeded' =>
     'The preview can no longer be applied — check the job status.',
   'ai_import.apply_unresolved' =>
