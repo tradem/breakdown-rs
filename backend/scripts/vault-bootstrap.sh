@@ -10,7 +10,18 @@
 set -eu
 
 : "${VAULT_ADDR:=https://vault:8200}"
-: "${VAULT_CACERT:=/tls/root_ca.crt}"
+# TLS is opt-in. Prod mounts the step-ca root at /tls/root_ca.crt and passes
+# VAULT_CACERT; the dev overlay (docker-compose.dev.vault.yml, issue #468)
+# serves plaintext HTTP and leaves it unset, so the same bootstrap drives both.
+# Prod keeps its explicit VAULT_CACERT (→ https, unchanged); dev keeps the
+# http:// scheme and no CA.
+if [ -n "${VAULT_CACERT:-}" ]; then
+  : # caller supplied an explicit CA path
+elif [ -f /tls/root_ca.crt ]; then
+  VAULT_CACERT=/tls/root_ca.crt
+else
+  unset VAULT_CACERT
+fi
 : "${VAULT_BOOTSTRAP_TOKEN_FILE:=/run/secrets/vault_bootstrap_token}"
 if [ ! -r "$VAULT_BOOTSTRAP_TOKEN_FILE" ]; then
   echo "Vault bootstrap failed: bootstrap secret file is not readable" >&2
@@ -18,13 +29,20 @@ if [ ! -r "$VAULT_BOOTSTRAP_TOKEN_FILE" ]; then
 fi
 VAULT_BOOTSTRAP_TOKEN=$(cat "$VAULT_BOOTSTRAP_TOKEN_FILE")
 : "${VAULT_BOOTSTRAP_TOKEN:?VAULT_BOOTSTRAP_TOKEN is required}"
-export VAULT_ADDR VAULT_CACERT
+export VAULT_ADDR
+if [ -n "${VAULT_CACERT:-}" ]; then
+  export VAULT_CACERT
+fi
 
 bootstrap_dir=/vault/unseal/bootstrap
 unseal_file="$bootstrap_dir/unseal.key"
 token_file=/vault/app-token/app.token
 mkdir -p "$bootstrap_dir" /vault/app-token
 chmod 700 "$bootstrap_dir"
+# The dev overlay bind-mounts /vault/unseal from the host; keep the unseal
+# dir owned by the API uid (1000) like the app-token dir so a host user can
+# read/reset it without root. Prod's named volume is unaffected.
+chown 1000:1000 "$bootstrap_dir"
 # The API image uses uid 1000 and receives only this separate token volume.
 chown 1000:1000 /vault/app-token
 chmod 700 /vault/app-token
@@ -77,8 +95,9 @@ if ! vault status >/dev/null 2>&1; then
   printf '{"key":"%s"}\n' "$(cat "$unseal_file")" > "$unseal_payload"
   # BusyBox wget in the pinned Vault image has HTTPS support but no
   # --ca-certificate option. Extend its container-local CA bundle with the
-  # public step-ca root; this does not modify the mounted host volume.
-  if [ -f /etc/ssl/certs/ca-certificates.crt ]; then
+  # public step-ca root; this does not modify the mounted host volume. The
+  # dev overlay is plaintext http:// and has no CA to append.
+  if [ -n "${VAULT_CACERT:-}" ] && [ -f /etc/ssl/certs/ca-certificates.crt ]; then
     cat "$VAULT_CACERT" >> /etc/ssl/certs/ca-certificates.crt
   fi
   if ! wget --quiet \
@@ -144,7 +163,9 @@ path "kv/metadata/settings-secrets/*" {
   capabilities = ["read", "delete"]
 }
 path "transit/keys/photo-sse-c" {
-  capabilities = ["create", "read"]
+  # `update` alongside `create` is required by the Transit key-creation
+  # endpoint: the app's `ensure_key` POST creates the bucket key on first use.
+  capabilities = ["create", "read", "update"]
 }
 path "transit/datakey/plaintext/photo-sse-c" {
   capabilities = ["update"]
