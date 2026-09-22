@@ -61,6 +61,14 @@ CostumeView _costume(
     ..version = version,
 );
 
+/// A genuine optimistic-concurrency defeat (server equality guard):
+/// `concurrency.version-mismatch` 409 — distinct from the generic
+/// conflict/validation codes.
+const _versionMismatch = ProblemError(
+  code: 'concurrency.version-mismatch',
+  status: 409,
+);
+
 CostumeDetailView _detail(String id, {String? categoryName}) =>
     CostumeDetailView(
       (b) => b
@@ -134,6 +142,12 @@ class _FakeCostumeRepository extends CostumeRepository {
   int notesCalls = 0;
   int detailCalls = 0;
 
+  /// Captured echoed versions of the LAST notes/detail requests — the
+  /// second-edit test (issue #473) asserts the follow-up save carries the
+  /// first ack version, never the stale pre-command version.
+  int? lastNotesVersion;
+  int? lastDetailVersion;
+
   /// Captured echoed versions of the LAST assign/unassign requests — the
   /// reassignment test (issue #454) asserts the assign leg echoes the
   /// unassign ACK version, not the pre-command version.
@@ -181,12 +195,21 @@ class _FakeCostumeRepository extends CostumeRepository {
     UpdateCostumeNotesRequest request,
   ) {
     notesCalls++;
+    lastNotesVersion = request.version;
+    final scripted = nextWrite;
+    if (scripted != null) return Future.value(scripted);
+    // Realistic ack progression: aggregate advances version+1. The
+    // second-edit regression flips this to a 422 when the echoed version
+    // is stale (server-side equality guard).
     return Future.value(const Right(2));
   }
 
   @override
   Future<Result<int>> addDetail(String id, AddCostumeDetailRequest request) {
     detailCalls++;
+    lastDetailVersion = request.version;
+    final scripted = nextWrite;
+    if (scripted != null) return Future.value(scripted);
     return Future.value(const Right(2));
   }
 }
@@ -433,6 +456,86 @@ void main() {
       await tester.tap(find.byKey(const Key('costume-notes-save-c-1')));
       await _pumpFrames(tester);
       expect(repo.notesCalls, 1);
+    });
+
+    testWidgets('second notes save echoes the ack version (no 422 loop)', (
+      tester,
+    ) async {
+      // Issue #473 acceptance: consecutive writes to the same costume must
+      // echo the acknowledged version — save notes, then save notes again;
+      // the second request must carry v2 (the first ack), never the stale
+      // v1 the backend equality guard would 422 as `domain.validation`.
+      await setupContainer(costume: _costume('c-1')); // v1
+      await pumpDetail(tester, 'c-1');
+      // First save echoes v1 → ack v2.
+      await tester.enterText(
+        find.byKey(const Key('costume-notes-c-1')),
+        'Wool coat',
+      );
+      await tester.tap(find.byKey(const Key('costume-notes-save-c-1')));
+      await _pumpFrames(tester);
+      expect(repo.notesCalls, 1);
+      expect(repo.lastNotesVersion, 1);
+      // Second save: the editor holds the fence (overlay version advanced
+      // to the ack), so the follow-up echoes 2 — and the save succeeds.
+      await tester.enterText(
+        find.byKey(const Key('costume-notes-c-1')),
+        'Wool coat v2',
+      );
+      await tester.tap(find.byKey(const Key('costume-notes-save-c-1')));
+      await _pumpFrames(tester);
+      expect(repo.notesCalls, 2);
+      expect(repo.lastNotesVersion, 2);
+      // The command error tray is quiet: no silent 422 loop.
+      expect(find.byKey(const Key('costume-detail-error')), findsNothing);
+    });
+
+    testWidgets('add detail after save echoes the ack version', (tester) async {
+      // Cross-command variant of the version-freshness contract (issue
+      // #473): save notes (v1 → ack v2), then add a detail — the detail
+      // command must carry v2, not the initial snapshot's 1.
+      await setupContainer(costume: _costume('c-1')); // v1
+      await pumpDetail(tester, 'c-1');
+      await tester.enterText(
+        find.byKey(const Key('costume-notes-c-1')),
+        'Wool coat',
+      );
+      await tester.tap(find.byKey(const Key('costume-notes-save-c-1')));
+      await _pumpFrames(tester);
+      expect(repo.notesCalls, 1);
+      expect(repo.lastNotesVersion, 1);
+      await tester.tap(find.byKey(const Key('costume-detail-add-c-1')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('add-detail-text')),
+        'Silk lining',
+      );
+      await tester.tap(find.byKey(const Key('add-detail-submit')));
+      await _pumpFrames(tester);
+      expect(repo.detailCalls, 1);
+      expect(repo.lastDetailVersion, 2);
+    });
+
+    testWidgets('409 version-mismatch renders pull-to-refresh copy', (
+      tester,
+    ) async {
+      // Requirement #3 (issue #473): a genuine optimistic-concurrency
+      // defeat surfaced as `concurrency.version-mismatch` (409) must show a
+      // distinct, actionable pull-to-refresh narrative — never generic copy
+      // (ties into the #467/#470 tranche).
+      await setupContainer(costume: _costume('c-1'));
+      await pumpDetail(tester, 'c-1');
+      repo.nextWrite = const Left(_versionMismatch);
+      await tester.enterText(
+        find.byKey(const Key('costume-notes-c-1')),
+        'Wool coat',
+      );
+      await tester.tap(find.byKey(const Key('costume-notes-save-c-1')));
+      await _pumpFrames(tester);
+      expect(
+        find.text('Changed elsewhere — pull to refresh and try again.'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('add-detail: form carries category id from read DTOs', (

@@ -567,6 +567,50 @@ void main() {
     });
 
     testWidgets(
+      'stale snapshot echoes the freshest known version, not the captured one',
+      (tester) async {
+        // Issue #473: every costume write must resolve the echoed version
+        // from the freshest KNOWN state (the held overlay's ack version),
+        // never from the screen-captured snapshot. Here the screen passes a
+        // stale v1 snapshot (re-opened cached state / the reconcile result
+        // never fed the view object the editor holds) while the previous
+        // command already advanced the aggregate to v2 — echoing the stale
+        // 1 would 422 as `domain.validation` (the backend equality guard).
+        final row = _costume('c-7'); // v1
+        await setupContainer(initialRows: [row]);
+        await pumpScreen(tester);
+        final controller = container.read(
+          costumesControllerProvider('season-1').notifier,
+        );
+        // First command acks 1 → 2; the version fence holds because the
+        // projection is still v1 (projector lag).
+        expect(
+          (await controller.updateNotes(costume: row, notes: 'n1')).isRight(),
+          isTrue,
+        );
+        expect(
+          container
+              .read(costumesControllerProvider('season-1'))
+              .overlays
+              .single
+              .acknowledgedVersion,
+          2,
+        );
+        // The screen now submits with a STALE snapshot still at v1 — the
+        // command must echo the overlay ack (2), not the captured 1.
+        final staleSnapshot = _costume('c-7');
+        expect(
+          (await controller.updateNotes(
+            costume: staleSnapshot,
+            notes: 'n2',
+          )).isRight(),
+          isTrue,
+        );
+        expect(repo.lastNotesVersion, 2);
+      },
+    );
+
+    testWidgets(
       'addDetail submits a UUIDv7 wire id, not the pending placeholder',
       (tester) async {
         // Regression for issue #472: the controller previously sent the
