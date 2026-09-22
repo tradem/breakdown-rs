@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3 (opencode)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 // Controller tests (`flutter-shoot-day-execution` 2.1, closing the 1.1
 // local-denial proof): execution commands dispatch with version echoes +

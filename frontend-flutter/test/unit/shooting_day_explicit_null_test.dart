@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 // Tier-1 unit test: pure data-layer logic, no Flutter imports (AGENTS.md test
 // pyramid). Verifies that the raw-Dio explicit-null paths (#374, follow-up to

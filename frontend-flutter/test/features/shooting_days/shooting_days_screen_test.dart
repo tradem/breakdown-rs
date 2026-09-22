@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 // Tier-2 widget + controller tests for `ShootingDaysScreen` (Task 6.3):
 // order fidelity (no re-sort), date null-vs-absent semantics, conflicts,

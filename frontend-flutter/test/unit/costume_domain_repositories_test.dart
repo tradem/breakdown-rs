@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 // Tier-1 unit tests, part 2 (Task 1.6): every repository method Ok AND Err.
 // Fake Dio interceptors resolve with wire-serialized DTOs (the generated
