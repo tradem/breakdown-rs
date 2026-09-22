@@ -77,6 +77,11 @@ dependencies:
   # Direct use in hand-written code (ShootingDaySource construction,
   # repository helpers): declared directly per depend_on_referenced_packages.
   one_of: ^1.5.0
+  # Client-side UUIDv7 generation for wire payloads that require a caller-
+  # supplied, server-validated UUID (issue #472: `CostumeDetail.id` is typed
+  # `uuid` on the contract, so the old `'pending'` placeholder 422'd before
+  # the handler ran). `Uuid().v7()` matches the backend's `uuid`-crate v7 ids.
+  uuid: ^4.6.0
   package_info_plus: ^10.2.1
   url_launcher: ^6.3.2
   app_links: ^7.2.1

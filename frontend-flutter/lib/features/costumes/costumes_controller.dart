@@ -15,6 +15,7 @@ import '../../auth/membership/membership_providers.dart';
 import '../../auth/membership_gate.dart';
 import '../../core/problem_error.dart';
 import '../../core/result.dart';
+import '../../core/uuid.dart';
 import '../../data/cache/cache_generation.dart';
 import '../../data/cache/costume_domains_cache_dao.dart';
 import '../../data/cache/seasons_cache_providers.dart';
@@ -589,7 +590,12 @@ class CostumesController extends _$CostumesController {
       costume.id,
       AddCostumeDetailRequest(
         (b) => b
-          ..detail.id = 'pending'
+          // Wire id MUST be a real UUIDv7 (contract-typed `uuid`); the
+          // optimistic overlay keeps its OWN separate transient placeholder
+          // (`pending-detail-<version>`) and is reconciled from the
+          // projection response — never from this value (issue #472: the
+          // old `'pending'` here 422'd as `domain.validation`).
+          ..detail.id = generateUuidV7()
           ..detail.text = text
           ..detail.subject = subject
           ..detail.categoryId = categoryId
