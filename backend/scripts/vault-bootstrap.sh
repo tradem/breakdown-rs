@@ -3,6 +3,7 @@
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: gpt-5.6-luna (opencode-go)
 # Co-authored-by: glm-5.2 (neuralwatt)
+# Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 # Idempotent first-boot bootstrap for the internal Vault service.
 # VAULT_BOOTSTRAP_TOKEN_FILE points to a Docker secret mounted only into this
