@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 // Tier-1 unit test (no Flutter imports): `generateUuidV7` must produce a
 // wire-valid UUIDv7 every time — the contract types such ids as `uuid`
