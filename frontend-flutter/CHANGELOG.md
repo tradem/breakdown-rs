@@ -17,6 +17,18 @@ releases are cut as `flutter-vX.Y.Z` tags.
 
 ### Changed
 
+- Costume detail add sends a real UUIDv7 wire id (issue #472):
+  `CostumesController.addDetail` no longer submits the optimistic-overlay
+  placeholder `'pending'` as `detail.id` — the `uuid`-typed contract
+  rejected it with `422 domain.validation` before the handler ran, so
+  details could never save. The wire id is now a client-side UUIDv7
+  (`generateUuidV7()`, `uuid ^4.6.0`); the optimistic overlay keeps its
+  separate `pending-detail-<version>` transient placeholder and is
+  reconciled from the projection. A server 422 still surfaces its problem
+  `code` via the keyed copy, never a generic network error.
+- **Version bump:** `0.3.0-alpha.13+22 → 0.3.0-alpha.14+23` (pre-release
+  increment per merged-PR practice on the alpha line; `+N` stays strictly
+  monotonic for the Play `versionCode`).
 - **IA cleanup (PR #474):** the AI-import entry moves from the Mehr tab
   to the top of the Planen tab (the KI-assistant creates planning
   entities — season/block/episode/schedule — so its action lives where

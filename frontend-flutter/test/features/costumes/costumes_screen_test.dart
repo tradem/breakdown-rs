@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 // Tier-2 widget + controller tests for `CostumesScreen` (Task 4.3):
 // data/empty/error/stale/overlay states (semantic finders, never `byType`
@@ -37,6 +38,13 @@ import '../seasons/seasons_test_fakes.dart';
 
 const _networkDown = ProblemError(code: 'transport.connectionError');
 const _conflict = ProblemError(code: 'concurrency.conflict', status: 409);
+const _validation422 = ProblemError(code: 'domain.validation', status: 422);
+
+/// RFC-9562 UUIDv7 (version nibble 7, variant nibble 8-9-a-b). Used to assert
+/// the wire `detail.id` is a real UUID, never the old `'pending'` placeholder.
+final _uuidV7 = RegExp(
+  r'^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+);
 
 CostumeView _costume(
   String id, {
@@ -123,6 +131,7 @@ class _FakeCostumeRepository extends CostumeRepository {
   String? lastAssignCharacter;
   int? lastAssignVersion;
   int? lastNotesVersion;
+  AddCostumeDetailRequest? lastAddDetailRequest;
 
   @override
   Future<Result<IdVersionResponse>> create(String? seasonId) {
@@ -171,6 +180,7 @@ class _FakeCostumeRepository extends CostumeRepository {
 
   @override
   Future<Result<int>> addDetail(String id, AddCostumeDetailRequest request) {
+    lastAddDetailRequest = request;
     final scripted = nextWrite;
     if (scripted != null) return Future.value(scripted);
     return Future.value(const Right<ProblemError, int>(2));
@@ -554,6 +564,67 @@ void main() {
         isTrue,
       );
       expect(repo.lastNotesVersion, 2);
+    });
+
+    testWidgets(
+      'addDetail submits a UUIDv7 wire id, not the pending placeholder',
+      (tester) async {
+        // Regression for issue #472: the controller previously sent the
+        // optimistic-overlay placeholder `'pending'` as `detail.id`, which the
+        // `uuid`-typed contract 422'd as `domain.validation`. The wire id must
+        // be a parseable UUIDv7; the overlay keeps its OWN transient placeholder.
+        final row = _costume('c-7');
+        await setupContainer(initialRows: [row]);
+        await pumpScreen(tester);
+        final controller = container.read(
+          costumesControllerProvider('season-1').notifier,
+        );
+        final result = await controller.addDetail(costume: row, text: 'Mantel');
+        expect(result.isRight(), isTrue);
+        final wireId = repo.lastAddDetailRequest!.detail.id;
+        expect(wireId, isNot('pending'));
+        expect(
+          _uuidV7.hasMatch(wireId),
+          isTrue,
+          reason: 'wire id must be a UUIDv7: $wireId',
+        );
+        // The optimistic overlay rides a SEPARATE transient placeholder keyed
+        // by version, reconciled from the projection (not from the wire id).
+        final overlay = container
+            .read(costumesControllerProvider('season-1'))
+            .overlays
+            .single
+            .overlay;
+        expect(overlay.details.single.id, 'pending-detail-2');
+      },
+    );
+
+    testWidgets('addDetail 422 domain.validation surfaces the wire code', (
+      tester,
+    ) async {
+      // Regression for #467-adjacent silent 422s: a server 422 must surface
+      // the problem `code` (keyed copy), never a generic transport error.
+      final row = _costume('c-7');
+      await setupContainer(initialRows: [row]);
+      await pumpScreen(tester);
+      repo.nextWrite = const Left(_validation422);
+      final controller = container.read(
+        costumesControllerProvider('season-1').notifier,
+      );
+      expect(
+        (await controller.addDetail(costume: row, text: 'Mantel')).isLeft(),
+        isTrue,
+      );
+      final error = container
+          .read(costumesControllerProvider('season-1'))
+          .commandError;
+      expect(error, isNotNull);
+      expect(error!.code, 'domain.validation');
+      expect(error.code, isNot(startsWith('transport.')));
+      // The localized copy is keyed on the wire code, not a generic network
+      // narrative.
+      expect(costumeErrorCopy(error), contains('domain.validation'));
+      expect(costumeErrorCopy(error), isNot(contains('Network problem')));
     });
 
     testWidgets('list resolves assigned names via characters join', (
