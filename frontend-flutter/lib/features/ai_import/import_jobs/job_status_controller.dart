@@ -110,12 +110,12 @@ class AiJobContext {
 
 /// Localized copy for the job-status error banner (watch failures,
 /// exhaustion) keyed on the stable problem `code`. `ai-import.forbidden` is
-/// the scoped wire code of the ownership/season-scope denial on
-/// `GET /ai-import/jobs/{id}` (issue #470); `ai_import.not_found` covers the
-/// client-side "job gone from the watch" outcome.
+/// the scoped wire code the backend emits for ALL AI-import job denials
+/// (ownership, season-scope, cross-resource) — the copy is access-neutral
+/// (CodeRabbit #480); `ai_import.not_found` covers the client-side "job gone
+/// from the watch" outcome.
 String jobWatchErrorCopy(ProblemError error) => switch (error.code) {
-  'ai-import.forbidden' =>
-    "You no longer have access to this job's production block.",
+  'ai-import.forbidden' => 'You do not have access to this AI import job.',
   'ai_import.watch_exhausted' =>
     'Still no update from the backend — the job keeps processing. '
         'Re-arm the watch or come back later.',

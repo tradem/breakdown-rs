@@ -703,7 +703,7 @@ void main() {
       await tester.tap(find.byKey(const Key('ai-apply-submit')));
       await tester.pumpAndSettle();
       expect(
-        find.textContaining('You need an active costume role'),
+        find.textContaining('You do not have access to this AI import job'),
         findsOneWidget,
       );
       await tester.pump();

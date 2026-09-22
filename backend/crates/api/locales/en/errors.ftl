@@ -37,7 +37,7 @@ problem-ai-import-disabled =
     AI import is not enabled on this instance.
 
 problem-ai-import-forbidden =
-    You are not authorized to use AI import in this production block.
+    You are not authorized to use this AI import job.
 
 problem-auth-idp-unavailable =
     The identity provider is currently unavailable.

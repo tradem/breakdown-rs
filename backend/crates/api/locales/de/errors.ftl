@@ -37,7 +37,7 @@ problem-ai-import-disabled =
     Der KI-Import ist auf dieser Instanz nicht aktiviert.
 
 problem-ai-import-forbidden =
-    Sie sind nicht berechtigt, den KI-Import in diesem Produktionsblock zu verwenden.
+    Sie sind nicht berechtigt, diesen KI-Importauftrag zu verwenden.
 
 problem-auth-idp-unavailable =
     Der Identitätsanbieter ist derzeit nicht erreichbar.

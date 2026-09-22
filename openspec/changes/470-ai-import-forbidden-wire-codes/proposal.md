@@ -39,7 +39,12 @@ real credential-role denial renders as the generic
   (`aiConfigErrorCopy`, `aiApplyErrorCopy`, `aiUploadErrorCopy`,
   `jobWatchErrorCopy`); the config-screen 403 narrative keeps pointing at the
   credential-role requirement.
-- **No `openapi.yaml` change:** the 403 responses are already declared on the
+- **`openapi.yaml` `x-code-registry` IS updated** (CodeRabbit #480): the
+  check-in artifact stays in sync with the registry — `UPDATE_OPENAPI=1`
+  regenerates the `x-code-registry` vendor extension with the three new
+  codes (`x-code-registry` is spec-root metadata, so no schema object or
+  generated Dart type changes and no `vendor/breakdown_api` regen). No
+  other `openapi.yaml` change: the 403 responses are already declared on the
   in-scope routes; problem `code` is a runtime value, not a schema enum.
   (The `create_credential` route's missing 403 declaration is a pre-existing
   doc gap, tracked as a follow-up.)
