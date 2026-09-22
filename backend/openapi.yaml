@@ -2515,6 +2515,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: ''
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
       tags:
       - handlers
   /v1/ai-import/config/{id}/revoke:
@@ -2541,6 +2547,12 @@ paths:
                 $ref: '#/components/schemas/AggregateVersion'
           description: ''
         '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+        '409':
           content:
             application/problem+json:
               schema:

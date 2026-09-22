@@ -5062,7 +5062,14 @@ pub async fn list_ai_configs<P: Ports>(
     path = "/ai-import/config/{id}",
     params(("id" = Uuid, Path)),
     request_body = UpdateAiConfigRequest,
-    responses((status = 200, body = AggregateVersion), (status = 403, body = ProblemDetails))
+    // 409 `ai-config.version-mismatch`: a stale optimistic-lock `version` on
+    // edit surfaces the scoped version-conflict code (issue #481) — declared
+    // here so the wire contract models the reachable conflict response.
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 403, body = ProblemDetails),
+        (status = 409, body = ProblemDetails)
+    )
 )]
 pub async fn update_ai_config<P: Ports>(
     State(state): State<AppState<P>>,
@@ -5114,7 +5121,14 @@ pub async fn update_ai_config<P: Ports>(
     path = "/ai-import/config/{id}/revoke",
     params(("id" = Uuid, Path)),
     request_body = RevokeAiConfigRequest,
-    responses((status = 200, body = AggregateVersion), (status = 403, body = ProblemDetails))
+    // 409 `ai-config.version-mismatch`: a stale optimistic-lock `version` on
+    // revoke surfaces the scoped version-conflict code (issue #481) — declared
+    // here so the wire contract models the reachable conflict response.
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 403, body = ProblemDetails),
+        (status = 409, body = ProblemDetails)
+    )
 )]
 pub async fn revoke_ai_config<P: Ports>(
     State(state): State<AppState<P>>,
