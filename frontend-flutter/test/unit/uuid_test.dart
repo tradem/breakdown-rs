@@ -32,7 +32,12 @@ void main() {
   test('generateUuidV7 is time-ordered (monotonic ms prefix)', () {
     final a = generateUuidV7();
     final b = generateUuidV7();
-    // 48-bit unix_ts_ms occupies the first 8 hex chars; v7 ids sort by time.
-    expect(a.substring(0, 8).compareTo(b.substring(0, 8)) <= 0, isTrue);
+    // The 48-bit unix_ts_ms occupies the first 12 hex chars of a UUIDv7
+    // (string chars 0-7 + 9-12, spanning the first dash). Compare the full
+    // timestamp prefix (not just its high 32 bits) so a regression in the
+    // low 16 bits of the timestamp cannot slip through.
+    final timestampA = a.substring(0, 13).replaceAll('-', '');
+    final timestampB = b.substring(0, 13).replaceAll('-', '');
+    expect(timestampA.compareTo(timestampB) <= 0, isTrue);
   });
 }
