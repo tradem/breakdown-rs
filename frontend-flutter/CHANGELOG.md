@@ -39,6 +39,10 @@ releases are cut as `flutter-vX.Y.Z` tags.
   name-uniqueness keys `scene.conflict`/`scenes.conflict` and
   `costume_category.conflict`/`costume_categories.conflict` (no backend code
   exists for either) are removed.
+- **Version bump:** `0.3.0-alpha.15+25 → 0.3.0-alpha.16+26` (pre-release
+  increment per merged-PR practice on the alpha line — the alpha pre-release
+  number and the Play `versionCode` both advance; `+N` stays strictly
+  monotonic for the Play `versionCode`).
 
 - Costume detail add sends a real UUIDv7 wire id (issue #472):
   `CostumesController.addDetail` no longer submits the optimistic-overlay
