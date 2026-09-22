@@ -62,6 +62,6 @@ be added in the app.
 
 | Package / Artifact | Action | Reason |
 |---|---|---|
-| `frontend-flutter` (`pubspec.yaml`) | add `uuid: ^4.6.0` (lockfile updated) | Client-side UUIDv7 for the `uuid`-typed wire id |
+| `frontend-flutter` (`pubspec.yaml`) | add `uuid: ^4.6.0`; version `0.3.0-alpha.13+22` → `0.3.0-alpha.14+23` (lockfile updated) | Client-side UUIDv7 for the `uuid`-typed wire id; per-PR version bump convention (ADR-033, see #362) |
 | `breakdown_api` (`vendor/breakdown_api/`) | unchanged | no `backend/openapi.yaml` change |
 | `*.g.dart` / `*.freezed.dart` | unchanged | no annotation / schema change |

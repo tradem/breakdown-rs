@@ -12,7 +12,9 @@
   `detail.id` now `generateUuidV7()`; overlay keeps its separate
   `pending-detail-<version>` transient placeholder (decoupled ids).
 - **`frontend-flutter/pubspec.yaml`**: `uuid: ^4.6.0` added (direct dep,
-  lockfile updated; uses the v7 generator shipped since uuid 4.4.0).
+  lockfile updated; uses the v7 generator shipped since uuid 4.4.0); version
+  bumped `0.3.0-alpha.13+22` → `0.3.0-alpha.14+23` (per-PR bump convention,
+  ADR-033 / #362).
 - **Tier-1 unit tests** (`test/unit/uuid_test.dart`): 100 unique RFC-9562
   UUIDv7 strings, never `'pending'`, time-ordered prefix.
 - **Tier-2 regression tests** (`test/features/costumes/costumes_screen_test.dart`):
