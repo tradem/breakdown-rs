@@ -630,6 +630,7 @@ pub fn panic_response(_panic: Box<dyn std::any::Any + Send>) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::http::{Method, Request};
     use breakdown_core::error_registry::HTTP_BAD_JSON_BODY;
     use uuid::Uuid;
 
@@ -821,5 +822,268 @@ mod tests {
         let wrapper = Bytes(payload.clone());
         let extracted: AxumBytes = wrapper.into();
         assert_eq!(extracted, payload);
+    }
+
+    // --- ADR-031 hardening: extraction rejections must be problem
+    // documents (issue #467). No avenue may answer outside
+    // `application/problem+json` — these regress the wrapper extractors
+    // (`Json`/`Query`/`Path`) from regressing to axum's plain-text 422/400
+    // rejections.
+
+    /// Mirror of the wire `CreateSeasonRequest` shape: `series_id` is an
+    /// opaque `Uuid`, so an empty/`""` value is *parseable JSON but an
+    /// invalid UUID* — the exact misconfiguration the issue observed
+    /// shipping as a blind 422.
+    ///
+    /// `#[allow(dead_code)]`: the fields exist only to mirror the wire
+    /// schema for serde deserialization (never read by the fake handler).
+    #[derive(serde::Deserialize)]
+    #[allow(dead_code)]
+    struct SeasonCreateLike {
+        series_id: Uuid,
+        number: i32,
+    }
+
+    async fn json_ok_handler(_: Json<SeasonCreateLike>) -> StatusCode {
+        StatusCode::OK
+    }
+
+    #[derive(serde::Deserialize)]
+    #[allow(dead_code)]
+    struct ListLike {
+        limit: i32,
+    }
+
+    async fn query_ok_handler(_: Query<ListLike>) -> StatusCode {
+        StatusCode::OK
+    }
+
+    async fn path_ok_handler(_: Path<Uuid>) -> StatusCode {
+        StatusCode::OK
+    }
+
+    /// Builds a full `Request` for an extractor-rejection test.
+    fn request_with(
+        method: Method,
+        uri: &str,
+        content_type: Option<&str>,
+        body: &'static [u8],
+    ) -> axum::http::Request<axum::body::Body> {
+        let mut builder = Request::builder().method(method).uri(uri);
+        if let Some(ct) = content_type {
+            builder = builder.header(header::CONTENT_TYPE, ct);
+        }
+        builder
+            .body(axum::body::Body::from(body))
+            .expect("static request is valid")
+    }
+
+    /// Asserts a response is an RFC 9457 problem document with the given
+    /// stable `code`, returning the parsed document for status assertions.
+    async fn assert_problem(
+        resp: axum::response::Response,
+        expected_code: &str,
+    ) -> serde_json::Value {
+        let content_type = resp
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .expect("problem response carries a content type");
+        assert!(
+            content_type.contains(PROBLEM_CONTENT_TYPE),
+            "expected a problem document, got content type {content_type}"
+        );
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .expect("problem body is readable");
+        let problem: serde_json::Value =
+            serde_json::from_slice(&body).expect("problem body parses as json");
+        assert_eq!(
+            problem["code"].as_str(),
+            Some(expected_code),
+            "unexpected problem code in {problem}"
+        );
+        assert!(
+            problem["trace_id"].as_str().is_some(),
+            "problem carries a trace_id"
+        );
+        problem
+    }
+
+    #[tokio::test]
+    async fn json_extraction_rejections_are_problem_documents() {
+        use axum::Router;
+        use axum::routing::post;
+        use tower::ServiceExt;
+
+        let app = Router::new().route("/", post(json_ok_handler));
+
+        // Malformed JSON body → 400 `http.bad-json-body` (never axum's
+        // plain-text 422).
+        let resp = app
+            .clone()
+            .oneshot(request_with(
+                Method::POST,
+                "/",
+                Some("application/json"),
+                b"{",
+            ))
+            .await
+            .expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert_problem(resp, "http.bad-json-body").await;
+
+        // Empty body with a JSON content type (EOF) → same problem code.
+        let resp = app
+            .clone()
+            .oneshot(request_with(
+                Method::POST,
+                "/",
+                Some("application/json"),
+                b"",
+            ))
+            .await
+            .expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert_problem(resp, "http.bad-json-body").await;
+
+        // Missing content type → 415 `http.unsupported-media-type`.
+        let resp = app
+            .clone()
+            .oneshot(request_with(Method::POST, "/", None, b"{}"))
+            .await
+            .expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+        assert_problem(resp, "http.unsupported-media-type").await;
+
+        // Wrong content type → 415 as well.
+        let resp = app
+            .clone()
+            .oneshot(request_with(Method::POST, "/", Some("text/plain"), b"{}"))
+            .await
+            .expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+        assert_problem(resp, "http.unsupported-media-type").await;
+
+        // Parseable JSON whose `series_id` is not a UUID (the issue #467
+        // observation: an empty env `DEFAULT_SERIES_ID`) → STILL a problem
+        // document (422 `domain.validation`), never plain text. The
+        // actionable root cause is fixed client-side (fail-fast guard);
+        // here we pin the wire contract that it is never a non-problem
+        // response.
+        let resp = app
+            .clone()
+            .oneshot(request_with(
+                Method::POST,
+                "/",
+                Some("application/json"),
+                b"{\"series_id\":\"\",\"number\":1}",
+            ))
+            .await
+            .expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let problem = assert_problem(resp, "domain.validation").await;
+        assert_eq!(problem["status"], 422);
+
+        // A valid body still extracts (the wrapper must never over-reject).
+        let valid_uuid = Uuid::now_v7();
+        let body = format!("{{\"series_id\":\"{valid_uuid}\",\"number\":1}}");
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(axum::body::Body::from(body))
+                    .expect("request"),
+            )
+            .await
+            .expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn query_extraction_rejection_is_problem_document() {
+        use axum::Router;
+        use axum::routing::get;
+        use tower::ServiceExt;
+
+        let app = Router::new().route("/", get(query_ok_handler));
+
+        // A malformed query parameter → 400 `http.bad-query-param` (axum's
+        // plain 400 rejection is closed off).
+        let resp = app
+            .clone()
+            .oneshot(request_with(Method::GET, "/?limit=not-a-number", None, b""))
+            .await
+            .expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert_problem(resp, "http.bad-query-param").await;
+
+        // Valid query still extracts.
+        let resp = app
+            .clone()
+            .oneshot(request_with(Method::GET, "/?limit=3", None, b""))
+            .await
+            .expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn path_extraction_rejection_is_problem_document() {
+        use axum::Router;
+        use axum::routing::get;
+        use tower::ServiceExt;
+
+        let app = Router::new().route("/{id}", get(path_ok_handler));
+
+        // A non-UUID path segment → 400 `http.bad-path-param`.
+        let resp = app
+            .clone()
+            .oneshot(request_with(Method::GET, "/not-a-uuid", None, b""))
+            .await
+            .expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert_problem(resp, "http.bad-path-param").await;
+
+        // A valid UUID path segment still extracts.
+        let resp = app
+            .clone()
+            .oneshot(request_with(
+                Method::GET,
+                &format!("/{}", Uuid::now_v7()),
+                None,
+                b"",
+            ))
+            .await
+            .expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn json_body_limit_rejection_is_problem_document() {
+        use axum::Router;
+        use axum::extract::DefaultBodyLimit;
+        use axum::routing::post;
+        use tower::ServiceExt;
+
+        let app = Router::new()
+            .route("/", post(json_ok_handler))
+            .layer(DefaultBodyLimit::max(8));
+
+        // An oversized body → 413 `http.payload-too-large`, not plain text.
+        let resp = app
+            .clone()
+            .oneshot(request_with(
+                Method::POST,
+                "/",
+                Some("application/json"),
+                b"0123456789abcdef",
+            ))
+            .await
+            .expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert_problem(resp, "http.payload-too-large").await;
     }
 }

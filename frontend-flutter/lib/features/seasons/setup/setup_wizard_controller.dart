@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'dart:async';
 
@@ -348,8 +349,17 @@ class SetupWizardController extends _$SetupWizardController {
   /// server-side (auth-only). The client mirrors that gate here — the
   /// session is resolved (awaited, never denial-by-absence) BEFORE the
   /// first network call and no command is dispatched without it.
+  ///
+  /// Pre-dispatch guard (issue #467): an empty env-sourced `seriesId` (a
+  /// rebuild without `--dart-define=DEFAULT_SERIES_ID`) fails fast with
+  /// the actionable [missingSeriesIdProblem] — NO network round-trip that
+  /// the backend could only answer with a blind 422 `domain.validation`.
   Future<void> submit({required String seriesId}) async {
     if (!state.isEditing) return;
+    if (seriesId.trim().isEmpty) {
+      _failPreDispatchConfig();
+      return;
+    }
     await _runDispatch(seriesId: seriesId);
   }
 
@@ -359,9 +369,28 @@ class SetupWizardController extends _$SetupWizardController {
   /// from the failed one. The plan's numbers stay LOCKED to the acked
   /// ones (recomputing would renumber already-created rows), so a retry
   /// never re-derives.
+  ///
+  /// The issue #467 guard applies here too: a retry on a build without
+  /// `DEFAULT_SERIES_ID` re-trips the same fail-fast (no network), keeping
+  /// the retry honest for a rebuild-required state.
   Future<void> retryRemaining({required String seriesId}) async {
     if (state.phase != SetupWizardPhase.partialFailure) return;
+    if (seriesId.trim().isEmpty) {
+      _failPreDispatchConfig();
+      return;
+    }
     await _runDispatch(seriesId: seriesId);
+  }
+
+  /// The fail-fast branch of both dispatch entry points: renders the
+  /// actionable build-misconfiguration error as the settled failure (zero
+  /// partial work), never an HTTP round-trip.
+  void _failPreDispatchConfig() {
+    state = state.copyWith(
+      phase: SetupWizardPhase.partialFailure,
+      failure: missingSeriesIdProblem,
+      dispatchLabel: '',
+    );
   }
 
   Future<void> _runDispatch({required String seriesId}) async {

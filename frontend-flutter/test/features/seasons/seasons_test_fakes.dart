@@ -4,6 +4,7 @@
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: muse-spark (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'dart:async';
 
@@ -29,6 +30,23 @@ const devAuthConfig = AppConfig(
   devIdpInsecure: '',
   appVersion: '1.0.0+1',
   defaultSeriesId: 'series-1',
+);
+
+/// Dev-auth config with an EMPTY series id — the issue #467
+/// build-misconfiguration state (a build shipped without
+/// `--dart-define=DEFAULT_SERIES_ID`). The wizard must fail fast with the
+/// actionable copy instead of a blind 422 round-trip.
+const devAuthConfigNoSeriesId = AppConfig(
+  flavor: Flavor.dev,
+  apiBase: 'http://10.0.2.2:3000',
+  oidcIss: '',
+  devAuthSub: 'dev-user',
+  oidcAudience: '',
+  oidcClientId: '',
+  oidcRedirectUri: '',
+  devIdpInsecure: '',
+  appVersion: '1.0.0+1',
+  defaultSeriesId: '',
 );
 
 /// Real-OIDC config (with an empty [TokenStore] this is a signed-out

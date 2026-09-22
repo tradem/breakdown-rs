@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'dart:async';
 
@@ -11,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
 
+import 'package:frontend_flutter/app_config.dart';
 import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
@@ -99,6 +101,7 @@ class _Fixture {
 Future<_Fixture> _buildFixture({
   List<SeasonView>? seasons,
   bool aiConfigAvailable = false,
+  AppConfig config = devAuthConfig,
 }) async {
   final db = CacheDatabase(NativeDatabase.memory());
   addTearDown(db.close);
@@ -112,7 +115,7 @@ Future<_Fixture> _buildFixture({
   );
   final container = ProviderContainer(
     overrides: [
-      appConfigProvider.overrideWithValue(devAuthConfig),
+      appConfigProvider.overrideWithValue(config),
       cacheDatabaseProvider.overrideWithValue(db),
       seasonRepositoryProvider.overrideWithValue(seasonRepo),
       blockRepositoryProvider.overrideWithValue(blockRepo),
@@ -567,6 +570,46 @@ void main() {
       await pumpFrames(tester, n: 24);
       expect(ctx.state.phase, SetupWizardPhase.completed);
       expect(find.byKey(const Key('wizard-completion')), findsOneWidget);
+    });
+
+    testWidgets('issue #467: an empty env series id fails fast with the '
+        'actionable message — no 422 round-trip, no retry affordance', (
+      tester,
+    ) async {
+      final ctx = await _buildFixture(config: devAuthConfigNoSeriesId);
+      await _pumpWizard(tester, ctx);
+      ctx.container
+          .read(setupWizardControllerProvider.notifier)
+          .removeBlockAt(0);
+      ctx.container
+          .read(setupWizardControllerProvider.notifier)
+          .applyTemplate(count: 2, episodesPerBlock: 4);
+      await tester.pumpAndSettle();
+      // Two steps: Season → Blocks → Review (the seeded drafts ride along).
+      await tester.tap(find.byKey(const Key('wizard-next')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('wizard-next')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('wizard-confirm')));
+      await pumpFrames(tester, n: 8);
+
+      expect(ctx.state.phase, SetupWizardPhase.partialFailure);
+      expect(ctx.state.failure!.code, 'config.series-id-missing');
+      // The guard never reached the network.
+      expect(ctx.seasonRepo.createCalls, 0);
+      // The completion surface is the honest build-misconfiguration state:
+      // NO partial summary, NO retry (rebuilding is the only way out).
+      expect(
+        find.byKey(const Key('wizard-completion-config-title')),
+        findsOneWidget,
+      );
+      expect(find.text('Build-Konfiguration fehlt'), findsOneWidget);
+      expect(find.textContaining('DEFAULT_SERIES_ID'), findsOneWidget);
+      expect(find.byKey(const Key('wizard-completion-summary')), findsNothing);
+      expect(find.byKey(const Key('wizard-retry')), findsNothing);
+      // The close affordance frees the (unusable) wizard.
+      expect(find.byKey(const Key('wizard-completion-done')), findsOneWidget);
     });
   });
 
