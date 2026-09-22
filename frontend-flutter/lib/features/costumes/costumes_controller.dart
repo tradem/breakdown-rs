@@ -211,8 +211,13 @@ class CostumesCommandError extends _$CostumesCommandError {
 /// Localized client-side copy for costume command failures, keyed on the
 /// stable problem `code` (never the server's localized `detail`).
 String costumeErrorCopy(ProblemError error) => switch (error.code) {
-  'concurrency.conflict' ||
-  'costume.version_conflict' => 'Changed elsewhere — refresh and try again.',
+  // 409 `concurrency.version-mismatch` (+ the `costume.version_conflict`
+  // alias): the echoed aggregate version lost the optimistic-concurrency
+  // guard. Distinct pull-to-refresh narrative (issue #473 req. #3) so the
+  // user resyncs instead of retrying a doomed write.
+  'concurrency.version-mismatch' || 'costume.version_conflict' =>
+    'Changed elsewhere — pull to refresh and try again.',
+  'concurrency.conflict' => 'Changed elsewhere — refresh and try again.',
   'costume.forbidden' ||
   'authz.denied' => 'You need an active costume role in this season.',
   'membership.pending' =>
@@ -321,6 +326,39 @@ class CostumesController extends _$CostumesController {
     return null;
   }
 
+  /// Resolves the freshest version for [costumeId] at command time (issue
+  /// #473). A write must echo the version the server aggregate currently
+  /// holds — NEVER the screen-captured snapshot, which can lag behind the
+  /// acknowledged state (the editor re-opened cached state, or the reconcile
+  /// refetch result never fed back into the view object the editor holds).
+  ///
+  /// Sources, freshest known state first:
+  ///   1. a held overlay's version (this client's latest ack — authoritative
+  ///      and above any lagging projection),
+  ///   2. the reconciled projection row's version (`costumesViewProvider`),
+  ///   3. the screen-passed [fallback] only when nothing fresher is known.
+  ///
+  /// The backend guard is strict equality (`cmd.version != self.version` →
+  /// 422 `domain.validation`), so the value must be the true current
+  /// aggregate version. Overlays and projections are both derived from the
+  /// same monotone aggregate, so the maximum known version is the correct
+  /// estimate — an overlay ack never overtakes the aggregate and a projection
+  /// can only lag it.
+  int _resolveVersion(String costumeId, int fallback) {
+    var version = fallback;
+    for (final o in ref.read(costumesOverlaysProvider(seasonId))) {
+      if (o.id == costumeId && o.overlay.version > version) {
+        version = o.overlay.version;
+      }
+    }
+    for (final row in ref.read(costumesViewProvider(seasonId)).rows) {
+      if (row.id == costumeId && row.version > version) {
+        version = row.version;
+      }
+    }
+    return version;
+  }
+
   /// Creates a costume shell (empty-body contract D1) and immediately
   /// chains to the first detail (the create sheet handles the chaining;
   /// the overlay row never dead-ends).
@@ -414,7 +452,7 @@ class CostumesController extends _$CostumesController {
       AssignCostumeRequest(
         (b) => b
           ..characterId = characterId
-          ..version = costume.version,
+          ..version = _resolveVersion(costume.id, costume.version),
       ),
     );
     return res.match(
@@ -451,7 +489,9 @@ class CostumesController extends _$CostumesController {
   }) async {
     final unResult = await repo.unassign(
       costume.id,
-      VersionRequest((b) => b..version = costume.version),
+      VersionRequest(
+        (b) => b..version = _resolveVersion(costume.id, costume.version),
+      ),
     );
     return unResult.match(
       (err) {
@@ -478,7 +518,7 @@ class CostumesController extends _$CostumesController {
           AssignCostumeRequest(
             (b) => b
               ..characterId = characterId
-              ..version = unVersion,
+              ..version = _resolveVersion(costume.id, unVersion),
           ),
         );
         return assignResult.match(
@@ -545,7 +585,9 @@ class CostumesController extends _$CostumesController {
     final repo = ref.read(costumeRepositoryProvider);
     final res = await repo.unassign(
       costume.id,
-      VersionRequest((b) => b..version = costume.version),
+      VersionRequest(
+        (b) => b..version = _resolveVersion(costume.id, costume.version),
+      ),
     );
     return res.match(
       (err) {
@@ -599,7 +641,7 @@ class CostumesController extends _$CostumesController {
           ..detail.text = text
           ..detail.subject = subject
           ..detail.categoryId = categoryId
-          ..version = costume.version,
+          ..version = _resolveVersion(costume.id, costume.version),
       ),
     );
     return res.match(
@@ -653,7 +695,7 @@ class CostumesController extends _$CostumesController {
       UpdateCostumeNotesRequest(
         (b) => b
           ..notes = notes
-          ..version = costume.version,
+          ..version = _resolveVersion(costume.id, costume.version),
       ),
     );
     return res.match(
