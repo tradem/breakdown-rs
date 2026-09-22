@@ -73,8 +73,10 @@ scope decision there) resurface as a dedicated follow-up:
 - `test/dev_missing_series_id_test.dart` — new:
   - predicate `Ok`/`Err`-style branches: dev+empty → message contains
     `DEFAULT_SERIES_ID`; dev+set → `null`; prod+empty → `null`.
-  - widget-testable log seam: `debugPrintOverride`-captured `testWidgets` proves
-    the message is emitted for dev+empty and silent for dev+set and prod.
+  - widget-testable log seam: `testWidgets` inject a capturer through
+    `logDevMissingSeriesIdWarning`'s `log` callback (no global-mutation of
+    `debugPrint`) and prove the message is emitted for dev+empty and silent
+    for dev+set and prod.
 
 ### Backend — fault-injection `Path` wrapper
 
