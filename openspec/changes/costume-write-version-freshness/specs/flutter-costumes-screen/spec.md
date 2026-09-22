@@ -9,13 +9,13 @@
 ### Requirement: Costume writes echo the freshest known aggregate version
 Every `CostumesController` write command (`updateNotes`, `addDetail`,
 `assign`, `unassign`, and both legs of the `_reassign` sequence) SHALL resolve
-the `AggregateVersion` it submits from the freshest known state at dispatch
-time — a held overlay's ack version first, else the reconciled projection
-row, else the screen-passed fallback — and MUST NOT trust the screen-captured
+the `AggregateVersion` it submits at dispatch time as the **maximum version
+across** a held overlay's ack version, the reconciled projection row, and the
+screen-passed fallback — and MUST NOT trust the screen-captured
 `CostumeView` snapshot's `version` when fresher state is known. Consecutive
 writes to the same costume therefore advance `version` with each ack; the
 result of one command is echoed by the next. The resolution SHALL be
-performed by `CostumeController._resolveVersion` for every write.
+performed by `CostumesController._resolveVersion` for every write.
 
 #### Scenario: Second save to the same costume succeeds
 - **WHEN** a user saves costume notes (version N acked, aggregate → N+1) and
