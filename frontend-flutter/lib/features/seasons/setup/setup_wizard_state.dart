@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
@@ -219,6 +220,25 @@ int derivedEpisodeNumber(
 WizardFieldError? validateHasBlocks(List<BlockDraft> blocks) =>
     blocks.isEmpty ? WizardFieldError.noBlocks : null;
 
+/// The pre-dispatch guard's failure (issue #467): this build shipped
+/// without `--dart-define=DEFAULT_SERIES_ID`, so the env-sourced series id
+/// is empty and NO season can be created meaningfully. The wizard fails
+/// fast with this actionable error instead of dispatching a request the
+/// backend can only answer with a blind 422 `domain.validation` — the
+/// guard owns the message, no network round-trip.
+const missingSeriesIdProblem = ProblemError(
+  code: 'config.series-id-missing',
+  title: 'Build missing DEFAULT_SERIES_ID',
+  detail: 'DEFAULT_SERIES_ID is empty in this build.',
+);
+
+/// True when [failure] is the build-misconfiguration guard (issue #467):
+/// the wizard rendered zero partial work, so the completion view hides the
+/// created-so-far summary and the in-session retry affordance (retrying a
+/// rebuild-required state is pointless — only a rebuilt app can proceed).
+bool isMissingSeriesIdFailure(ProblemError? failure) =>
+    failure?.code == missingSeriesIdProblem.code;
+
 /// Client-side inline copy for a validation error code (glossary
 /// `wizard.errors.*`) — never a platform dialog.
 String wizardErrorCopyForField(WizardFieldError error) => switch (error) {
@@ -267,6 +287,10 @@ String wizardErrorCopy(ProblemError error) => switch (error.code) {
     'Eine Episode mit dieser Nummer existiert bereits in der Serie.',
   'authz.denied' ||
   'auth.session_required' => 'Bitte melde dich an, um fortzufahren.',
+  'config.series-id-missing' =>
+    'Diese App wurde ohne DEFAULT_SERIES_ID gebaut: Die neue Season kann '
+        'keiner Serie zugeordnet werden. Baue die App mit '
+        '--dart-define=DEFAULT_SERIES_ID=<ID der Standardserie> neu.',
   _ when error.code.startsWith('transport.') =>
     'Netzwerkproblem — das Erstellen wurde abgebrochen. Versuche es '
         'erneut.',

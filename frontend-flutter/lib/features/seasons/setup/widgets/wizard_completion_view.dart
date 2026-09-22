@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:flutter/material.dart';
 
@@ -70,6 +71,11 @@ class WizardCompletionView extends StatelessWidget {
       (sum, b) => sum + b.episodesCreated,
     );
     final partial = phase == SetupWizardPhase.partialFailure;
+    // Issue #467: the pre-dispatch config guard's failure means ZERO
+    // partial work happened and a retry cannot help (only a rebuilt app
+    // with `DEFAULT_SERIES_ID` can proceed) — hide the partial summary
+    // and the in-session retry for that state.
+    final buildConfigFailure = partial && isMissingSeriesIdFailure(failure);
 
     return ListView(
       key: const Key('wizard-completion'),
@@ -83,24 +89,30 @@ class WizardCompletionView extends StatelessWidget {
         // Headline keyed per glossary `wizard.completion.title`
         // ("Season {n} angelegt"); the optional name stays in the summary.
         Text(
-          partial
-              ? 'Teilweise erstellt'
-              : (season == null
-                    ? 'Season angelegt'
-                    : 'Season ${season.number} angelegt'),
-          key: partial
-              ? const Key('wizard-completion-partial-title')
-              : const Key('wizard-completion-title'),
+          buildConfigFailure
+              ? 'Build-Konfiguration fehlt'
+              : (partial
+                    ? 'Teilweise erstellt'
+                    : (season == null
+                          ? 'Season angelegt'
+                          : 'Season ${season.number} angelegt')),
+          key: buildConfigFailure
+              ? const Key('wizard-completion-config-title')
+              : (partial
+                    ? const Key('wizard-completion-partial-title')
+                    : const Key('wizard-completion-title')),
           style: theme.textTheme.headlineSmall,
           textAlign: TextAlign.center,
         ),
-        const SizedBox(height: AppSpacing.space8),
-        Text(
-          '$blocksCreated Blöcke · $episodesCreated Episoden',
-          key: const Key('wizard-completion-summary'),
-          style: theme.textTheme.bodyMedium,
-          textAlign: TextAlign.center,
-        ),
+        if (!buildConfigFailure) ...[
+          const SizedBox(height: AppSpacing.space8),
+          Text(
+            '$blocksCreated Blöcke · $episodesCreated Episoden',
+            key: const Key('wizard-completion-summary'),
+            style: theme.textTheme.bodyMedium,
+            textAlign: TextAlign.center,
+          ),
+        ],
         const SizedBox(height: AppSpacing.space24),
         if (partial) ...[
           if (failure != null)
@@ -110,13 +122,19 @@ class WizardCompletionView extends StatelessWidget {
               style: TextStyle(color: theme.colorScheme.error),
               textAlign: TextAlign.center,
             ),
-          const SizedBox(height: AppSpacing.space16),
-          FilledButton.icon(
-            key: const Key('wizard-retry'),
-            onPressed: onRetry,
-            icon: const Icon(Icons.refresh),
-            label: const Text('Fortsetzen'),
-          ),
+          if (buildConfigFailure) const SizedBox(height: AppSpacing.space24),
+          // The in-session retry only makes sense for REAL partial
+          // failures; the issue #467 config guard shows the rebuild path
+          // and a single close affordance instead.
+          if (!buildConfigFailure) ...[
+            const SizedBox(height: AppSpacing.space16),
+            FilledButton.icon(
+              key: const Key('wizard-retry'),
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Fortsetzen'),
+            ),
+          ],
           const SizedBox(height: AppSpacing.space8),
           OutlinedButton(
             key: const Key('wizard-completion-done'),

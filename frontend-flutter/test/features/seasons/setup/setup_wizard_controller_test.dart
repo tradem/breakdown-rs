@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:drift/native.dart';
@@ -574,6 +575,47 @@ void main() {
       expect(ctx.seasonRepo.createCalls, 0);
       expect(ctx.blockRepo.lastCreateRequests, isEmpty);
       expect(ctx.episodeRepo.lastCreateRequests, isEmpty);
+    });
+
+    test('issue #467: an empty env series id fails fast — NOTHING dispatches '
+        '(no blind 422 round-trip)', () async {
+      var ctx = await _buildFixture();
+      ctx = seededTwoByFour(ctx);
+
+      await ctx.controller.submit(seriesId: '');
+      await _flush();
+
+      expect(ctx.state.phase, SetupWizardPhase.partialFailure);
+      expect(ctx.state.failure!.code, 'config.series-id-missing');
+      expect(isMissingSeriesIdFailure(ctx.state.failure), isTrue);
+      // Zero partial work, zero network (the guard is pre-dispatch).
+      expect(ctx.state.createdSeason, isNull);
+      expect(ctx.state.createdBlocks, isEmpty);
+      expect(ctx.state.dispatchDone, 0);
+      expect(ctx.seasonRepo.createCalls, 0);
+      expect(ctx.blockRepo.lastCreateRequests, isEmpty);
+      expect(ctx.episodeRepo.lastCreateRequests, isEmpty);
+
+      // A retry on the same broken build re-trips the guard — idempotent
+      // fail-fast, still no network.
+      await ctx.controller.retryRemaining(seriesId: '');
+      await _flush();
+      expect(ctx.state.phase, SetupWizardPhase.partialFailure);
+      expect(ctx.state.failure!.code, 'config.series-id-missing');
+      expect(ctx.seasonRepo.createCalls, 0);
+    });
+
+    test('issue #467: a whitespace-only series id is treated as empty '
+        '(fail-fast)', () async {
+      var ctx = await _buildFixture();
+      ctx = seededTwoByFour(ctx);
+
+      await ctx.controller.submit(seriesId: '   ');
+      await _flush();
+
+      expect(ctx.state.phase, SetupWizardPhase.partialFailure);
+      expect(ctx.state.failure!.code, 'config.series-id-missing');
+      expect(ctx.seasonRepo.createCalls, 0);
     });
 
     test(
