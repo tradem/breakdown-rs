@@ -137,7 +137,10 @@ fn test_update_block_time_span_wrong_version() {
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
-        BlockError::ValidationError(ref m) if m.contains("version mismatch")
+        BlockError::VersionMismatch {
+            expected: AggregateVersion(99),
+            actual: AggregateVersion::INITIAL,
+        }
     ));
 }
 

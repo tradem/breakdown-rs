@@ -159,8 +159,83 @@ fn test_update_scene_details_wrong_version() {
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
-        SceneError::ValidationError(ref m) if m.contains("version mismatch")
+        SceneError::VersionMismatch {
+            expected: AggregateVersion(99),
+            actual: AggregateVersion::INITIAL,
+        }
     ));
+}
+
+/// All five mutating scene commands must reject a stale version with the
+/// typed `SceneError::VersionMismatch { expected, actual }` (issue #488) so
+/// the write renders 409 `concurrency.version-mismatch` with the
+/// `expected_version` / `current_version` extensions — not a generic
+/// `domain.validation` 422.
+#[test]
+fn test_all_mutating_commands_reject_stale_version_as_version_mismatch() {
+    let agg = create_scene();
+    let stale = AggregateVersion(99);
+    let character_id = Uuid::now_v7();
+    let shooting_day_id = ShootingDayId::new();
+
+    for result in [
+        agg.handle(
+            UpdateSceneDetails {
+                id: agg.id,
+                details: SceneDetails {
+                    scene_number: Some(99),
+                    ..Default::default()
+                },
+                series_id: Some(series_id()),
+                version: stale,
+            },
+            make_ctx(),
+        ),
+        agg.handle(
+            AssignCharacter {
+                id: agg.id,
+                character_id,
+                series_id: Some(series_id()),
+                version: stale,
+            },
+            make_ctx(),
+        ),
+        agg.handle(
+            RemoveCharacter {
+                id: agg.id,
+                character_id,
+                series_id: Some(series_id()),
+                version: stale,
+            },
+            make_ctx(),
+        ),
+        agg.handle(
+            ScheduleSceneOnShootingDay {
+                id: agg.id,
+                shooting_day_id,
+                series_id: Some(series_id()),
+                version: stale,
+            },
+            make_ctx(),
+        ),
+        agg.handle(
+            UnscheduleSceneFromShootingDay {
+                id: agg.id,
+                shooting_day_id,
+                series_id: Some(series_id()),
+                version: stale,
+            },
+            make_ctx(),
+        ),
+    ] {
+        match result {
+            Err(SceneError::VersionMismatch { expected, actual }) => {
+                assert_eq!(expected, stale);
+                assert_eq!(actual, AggregateVersion::INITIAL);
+            }
+            other => panic!("expected VersionMismatch, got {other:?}"),
+        }
+    }
 }
 
 #[test]

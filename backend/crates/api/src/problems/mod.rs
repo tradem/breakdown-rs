@@ -821,6 +821,56 @@ mod tests {
         assert_eq!(value["extensions"]["current_version"], 4);
     }
 
+    /// The remaining optimistically-concurrency-guarded aggregates
+    /// (`character` / `scene` / `block` / `episode` / `season`) also surface
+    /// their typed `VersionMismatch` error as 409 `concurrency.version-mismatch`
+    /// with the `expected_version` / `current_version` extensions (issue #488)
+    /// — mirroring `costume` (#478) — so the Flutter client's "changed
+    /// elsewhere — pull to refresh" narrative branches on the same stable code
+    /// for every aggregate write instead of a generic `domain.validation` 422.
+    #[test]
+    fn remaining_aggregate_version_mismatches_render_concurrency_code() {
+        use breakdown_core::block::error::BlockError;
+        use breakdown_core::character::error::CharacterError;
+        use breakdown_core::episode::error::EpisodeError;
+        use breakdown_core::scene::error::SceneError;
+        use breakdown_core::season::error::SeasonError;
+        use breakdown_core::shared::AggregateVersion as Av;
+
+        let stale: Vec<DomainError> = vec![
+            DomainError::from(CharacterError::VersionMismatch {
+                expected: Av(5),
+                actual: Av(4),
+            }),
+            DomainError::from(SceneError::VersionMismatch {
+                expected: Av(5),
+                actual: Av(4),
+            }),
+            DomainError::from(BlockError::VersionMismatch {
+                expected: Av(5),
+                actual: Av(4),
+            }),
+            DomainError::from(EpisodeError::VersionMismatch {
+                expected: Av(5),
+                actual: Av(4),
+            }),
+            DomainError::from(SeasonError::VersionMismatch {
+                expected: Av(5),
+                actual: Av(4),
+            }),
+        ];
+
+        for domain in stale {
+            let problem = ApiError::from(domain).into_problem();
+            assert_eq!(problem.code, "concurrency.version-mismatch");
+            assert_eq!(problem.status, 409);
+            let value: serde_json::Value =
+                serde_json::to_value(&problem).expect("problem serializes");
+            assert_eq!(value["extensions"]["expected_version"], 5);
+            assert_eq!(value["extensions"]["current_version"], 4);
+        }
+    }
+
     #[test]
     fn api_error_ad_hoc_variants_map_to_expected_statuses() {
         assert_eq!(

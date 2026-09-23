@@ -131,7 +131,10 @@ fn test_rename_season_wrong_version() {
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
-        SeasonError::ValidationError(ref m) if m.contains("version mismatch")
+        SeasonError::VersionMismatch {
+            expected: AggregateVersion(99),
+            actual: AggregateVersion::INITIAL,
+        }
     ));
 }
 

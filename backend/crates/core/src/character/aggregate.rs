@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
 //! Character aggregate using `kameo_es` event-sourced actor pattern.
@@ -115,9 +116,10 @@ impl Command<UpdateMeasurements> for CharacterAggregate {
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         if cmd.version != self.version {
-            return Err(CharacterError::ValidationError(
-                "Aggregate version mismatch".to_string(),
-            ));
+            return Err(CharacterError::VersionMismatch {
+                expected: cmd.version,
+                actual: self.version,
+            });
         }
         if cmd.measurements == self.measurements {
             return Err(CharacterError::ValidationError(
@@ -141,9 +143,10 @@ impl Command<UpdateContactInfo> for CharacterAggregate {
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         if cmd.version != self.version {
-            return Err(CharacterError::ValidationError(
-                "Aggregate version mismatch".to_string(),
-            ));
+            return Err(CharacterError::VersionMismatch {
+                expected: cmd.version,
+                actual: self.version,
+            });
         }
         if cmd.contact_info == self.contact_info {
             return Err(CharacterError::ValidationError(

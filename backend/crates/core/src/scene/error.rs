@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 //! Scene errors.
 
 use thiserror::Error;
 
-use crate::shared::ShootingDayId;
+use crate::shared::{AggregateVersion, ShootingDayId};
 
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum SceneError {
@@ -26,4 +27,10 @@ pub enum SceneError {
 
     #[error("Scene is not scheduled on shooting day {shooting_day_id}")]
     NotScheduled { shooting_day_id: ShootingDayId },
+
+    #[error("version mismatch: expected {expected:?}, actual {actual:?}")]
+    VersionMismatch {
+        expected: AggregateVersion,
+        actual: AggregateVersion,
+    },
 }

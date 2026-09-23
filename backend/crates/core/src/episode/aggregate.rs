@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
 //! Episode aggregate using `kameo_es` event-sourced actor pattern.
@@ -95,9 +96,10 @@ impl Command<RenameEpisode> for EpisodeAggregate {
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         if cmd.version != self.version {
-            return Err(EpisodeError::ValidationError(
-                "Aggregate version mismatch".into(),
-            ));
+            return Err(EpisodeError::VersionMismatch {
+                expected: cmd.version,
+                actual: self.version,
+            });
         }
         if cmd.name == self.name {
             return Err(EpisodeError::ValidationError(
