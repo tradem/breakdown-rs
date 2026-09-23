@@ -129,6 +129,12 @@ pub struct ModelInfo {
     /// recommended default for a new AI-config creation (issue #471). Only
     /// set by the curated models endpoint (`curated_models`); models fetched
     /// live from a provider never carry the flag (`false`).
+    ///
+    /// `#[serde(default)]`: the flag is additive on the wire — a backend
+    /// that predates the field deserializes it as `false`, so clients keep
+    /// their "first model" fallback for pre-flag deployments (CodeRabbit
+    /// review, PR #489).
+    #[serde(default)]
     pub recommended: bool,
 }
 

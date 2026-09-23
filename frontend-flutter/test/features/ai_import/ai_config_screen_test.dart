@@ -602,20 +602,19 @@ void main() {
     expect(find.byKey(const Key('ai-prefill-hint')), findsOneWidget);
   });
 
-  testWidgets('first-run prefill: a recommended-less model set falls back to '
-      'the first model (backends that predate the flag)', (tester) async {
+  testWidgets('first-run prefill: a model set with NO recommended model '
+      'falls back to the first model (backends that predate the flag)', (
+    tester,
+  ) async {
     await setupContainer(
       defaultsValue: Right(_defaults()),
-      modelsValue: Right([
-        _model('gpt-5.6-luna'),
-        _model('gpt-5.6-terra', recommended: true),
-      ]),
+      modelsValue: Right([_model('gpt-5.6-luna'), _model('gpt-5.6-terra')]),
     );
     await pumpScreen(tester);
     final state = container.read(aiConfigControllerProvider);
-    // The first model in the set is authoritative only when NO model is
-    // recommended; here terra IS recommended, so it wins.
-    expect(state.selectedAssistantModelId, 'gpt-5.6-terra');
+    // No model is recommended → the `orElse` fallback (the first model in
+    // the set) is what is actually selected.
+    expect(state.selectedAssistantModelId, 'gpt-5.6-luna');
     expect(state.selectedProviderKey, 'openai');
     // No defaults text → no provenance hint.
     expect(find.byKey(const Key('ai-prefill-hint')), findsNothing);
@@ -663,12 +662,24 @@ void main() {
     );
 
     // Prompt: typing into the script field is never clobbered by a later
-    // defaults delivery (guarded per-field by the pristine check).
+    // defaults delivery, and the OTHER prefilled prompt (schedule) is NOT
+    // wiped by editing the script field (CodeRabbit review, PR #489): the
+    // touched-guard is per-field.
     await tester.enterText(
       find.byKey(const Key('ai-script-prompt')),
       'my custom prompt',
     );
     await tester.pump();
+    final after1 = container.read(aiConfigControllerProvider);
+    expect(after1.scriptPrompt, 'my custom prompt');
+    expect(
+      after1.schedulePrompt,
+      'S2',
+      reason:
+          'editing the script prompt must not drop the prefilled '
+          'schedule default',
+    );
+
     defaults.value = Right(_defaults(script: 'OVERWRITE', schedule: 'S2'));
     container.invalidate(aiImportDefaultsProvider);
     await tester.pumpAndSettle();
@@ -676,6 +687,11 @@ void main() {
       container.read(aiConfigControllerProvider).scriptPrompt,
       'my custom prompt',
       reason: 'a typed prompt must never be replaced by the defaults prefill',
+    );
+    expect(
+      container.read(aiConfigControllerProvider).schedulePrompt,
+      'S2',
+      reason: 'a prefilled prompt the user did not touch stays prefilled',
     );
   });
 

@@ -14,7 +14,7 @@ class _$ModelInfo extends ModelInfo {
   @override
   final LlmProvider provider;
   @override
-  final bool recommended;
+  final bool? recommended;
 
   factory _$ModelInfo([void Function(ModelInfoBuilder)? updates]) =>
       (ModelInfoBuilder()..update(updates))._build();
@@ -23,7 +23,7 @@ class _$ModelInfo extends ModelInfo {
       {this.displayName,
       required this.id,
       required this.provider,
-      required this.recommended})
+      this.recommended})
       : super._();
   @override
   ModelInfo rebuild(void Function(ModelInfoBuilder) updates) =>
@@ -119,8 +119,7 @@ class ModelInfoBuilder implements Builder<ModelInfo, ModelInfoBuilder> {
           id: BuiltValueNullFieldError.checkNotNull(id, r'ModelInfo', 'id'),
           provider: BuiltValueNullFieldError.checkNotNull(
               provider, r'ModelInfo', 'provider'),
-          recommended: BuiltValueNullFieldError.checkNotNull(
-              recommended, r'ModelInfo', 'recommended'),
+          recommended: recommended,
         );
     replace(_$result);
     return _$result;

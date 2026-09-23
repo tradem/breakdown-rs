@@ -26,9 +26,15 @@ commits (ADR-020 D5).
   credential-role policy (403 `ai-config.forbidden`) + `AI_IMPORT_ENABLED`
   (404 `ai-import.disabled`) — no new registry codes.
 - `GET /v1/ai-import/providers/{key}/models` now flags the curated
-  recommendation on each `ModelInfo.recommended` (additive response field),
-  giving the dialog a deterministic suggested model to preselect.
-- Wire-level authz tests for the defaults gate (allow/deny/repo-failure,
+  recommendation on each `ModelInfo.recommended` (additive, `#[serde(default)]`
+  response field, so pre-flag backends deserialize it as `false`), giving the
+  dialog a deterministic suggested model to preselect.
+- The defaults endpoint treats a broken/absent `AI_IMPORT_DEFAULT_PROMPTS_PATH`
+  (or invalid built-in TOML) as a deployment fault: the prompt-file read/parse
+  error is mapped to 500 `http.internal-error` (`map_prompt_defaults_error`,
+  reason is log-only), never a client 422; the route's OpenAPI responses
+  declare 500 and 503 (the gate's transient membership-repo failure).
+  Wire-level authz tests for the defaults gate (allow/deny/repo-failure,
   success shape) in `handler_ai_import_authz.rs`; `openapi.yaml` regenerated
   (new route + `ModelInfo.recommended`).
 - **No additional bump:** additive route + additive response field — rides

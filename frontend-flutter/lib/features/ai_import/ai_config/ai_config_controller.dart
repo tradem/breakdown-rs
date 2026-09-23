@@ -69,7 +69,8 @@ class AiConfigDraftData {
     this.imageModelTouched = false,
     this.scriptPrompt = '',
     this.schedulePrompt = '',
-    this.promptsTouched = false,
+    this.scriptPromptTouched = false,
+    this.schedulePromptTouched = false,
     this.unresolved,
   });
 
@@ -84,11 +85,15 @@ class AiConfigDraftData {
   String scriptPrompt;
   String schedulePrompt;
 
-  /// True once the user edited either prompt field — after that the draft
-  /// text is authoritative and the first-run defaults prefill (issue #471)
-  /// must NOT fall through, so clearing a field stays a real "remove
-  /// prompt" intent instead of silently resurrecting the default.
-  bool promptsTouched;
+  /// Per-field touched flags (CodeRabbit review, PR #489): once the user
+  /// edits a prompt field, THAT field's draft text is authoritative and the
+  /// first-run defaults prefill (issue #471) must NOT fall through for it —
+  /// so clearing a field stays a real "remove prompt" intent instead of
+  /// silently resurrecting the default. The OTHER field keeps its prefill
+  /// until the user touches it too (editing the script prompt must not
+  /// wipe the prefilled schedule prompt).
+  bool scriptPromptTouched;
+  bool schedulePromptTouched;
   AiConfigUnresolved? unresolved;
 }
 
@@ -107,7 +112,8 @@ class AiConfigDrafts extends Notifier<AiConfigDraftData> {
       imageModelTouched: state.imageModelTouched,
       scriptPrompt: state.scriptPrompt,
       schedulePrompt: state.schedulePrompt,
-      promptsTouched: state.promptsTouched,
+      scriptPromptTouched: state.scriptPromptTouched,
+      schedulePromptTouched: state.schedulePromptTouched,
       unresolved: state.unresolved,
     );
     fn(next);
@@ -210,7 +216,10 @@ class AiConfigController extends _$AiConfigController {
       if (models case AsyncData(:final value)) {
         if (value.isNotEmpty) {
           suggestedAssistantModelId = value
-              .firstWhere((m) => m.recommended, orElse: () => value.first)
+              .firstWhere(
+                (m) => m.recommended ?? false,
+                orElse: () => value.first,
+              )
               .id;
         }
       }
@@ -238,9 +247,11 @@ class AiConfigController extends _$AiConfigController {
     };
 
     // First-run prompt prefill: the single-source defaults from
-    // `GET /v1/ai-import/defaults` (editable — once the user touches either
-    // prompt field, the drafts win and these seeds are dropped). A failed
-    // defaults fetch degrades to empty fields, never a blocking state.
+    // `GET /v1/ai-import/defaults` (editable — once the user touches a
+    // prompt field, THAT field's draft wins and its seed is dropped; the
+    // other field keeps its prefill until touched too, CodeRabbit review
+    // PR #489). A failed defaults fetch degrades to empty fields, never a
+    // blocking state.
     final firstRunScriptDefault = firstRunResolved
         ? switch (promptDefaults) {
             AsyncData(:final value) => value.match(
@@ -274,10 +285,10 @@ class AiConfigController extends _$AiConfigController {
       selectedImageModelId: drafts.imageModelTouched
           ? drafts.selectedImageModelId
           : (config?.imageModel ?? drafts.selectedImageModelId),
-      scriptPrompt: drafts.promptsTouched
+      scriptPrompt: drafts.scriptPromptTouched
           ? drafts.scriptPrompt
           : (firstRunScriptDefault ?? ''),
-      schedulePrompt: drafts.promptsTouched
+      schedulePrompt: drafts.schedulePromptTouched
           ? drafts.schedulePrompt
           : (firstRunScheduleDefault ?? ''),
       unresolved: drafts.unresolved,
@@ -312,14 +323,14 @@ class AiConfigController extends _$AiConfigController {
   void setScriptPrompt(String value) {
     _draftsNotifier.mutate((d) {
       d.scriptPrompt = value;
-      d.promptsTouched = true;
+      d.scriptPromptTouched = true;
     });
   }
 
   void setSchedulePrompt(String value) {
     _draftsNotifier.mutate((d) {
       d.schedulePrompt = value;
-      d.promptsTouched = true;
+      d.schedulePromptTouched = true;
     });
   }
 

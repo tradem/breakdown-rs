@@ -37,7 +37,7 @@ flag, so the dialog has nothing to preselect.
      narrative), but the defaults are part of the same config-discovery
      surface, and a consistent gate avoids a second narrative path: when the
      role is denied the whole screen degrades honestly anyway.
-   - Error surface: `ai-import.forbidden` (403), `ai-import.disabled` (404) —
+   - Error surface: `ai-config.forbidden` (403), `ai-import.disabled` (404) —
      existing registered codes, no new registry entries.
 
 2. **Recommended model per provider** — `ModelInfo` gains a boolean
@@ -72,7 +72,7 @@ flag, so the dialog has nothing to preselect.
 
 - No change to the config aggregate (`CreateAiConfigRequest` /
   `UpdateAiConfigRequest` still carry user-supplied prompts).
-- No new problem codes (reuses `ai-import.forbidden` / `ai-import.disabled`).
+- No new problem codes (reuses `ai-config.forbidden` / `ai-import.disabled`).
 - The configured/edit form keeps its current behavior — prefill is strictly
   first-run, never silently replacing an existing config's prompts.
 

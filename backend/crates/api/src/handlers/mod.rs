@@ -5256,7 +5256,10 @@ pub struct AiImportDefaults {
 #[utoipa::path(
     get,
     path = "/ai-import/defaults",
-    responses((status = 200, body = AiImportDefaults), (status = 403, body = ProblemDetails), (status = 404, body = ProblemDetails), (status = 500, body = ProblemDetails))
+    // 500: an absent/invalid `AI_IMPORT_DEFAULT_PROMPTS_PATH` (or the built-in
+    // TOML) is a server-side deployment fault. 503: the credential-role gate's
+    // membership read failing (transient) surfaces as a mapped server error.
+    responses((status = 200, body = AiImportDefaults), (status = 403, body = ProblemDetails), (status = 404, body = ProblemDetails), (status = 500, body = ProblemDetails), (status = 503, body = ProblemDetails))
 )]
 pub async fn get_ai_import_defaults<P: Ports>(
     State(state): State<AppState<P>>,
@@ -5278,7 +5281,7 @@ pub async fn get_ai_import_defaults<P: Ports>(
     if !state.ai_import_enabled {
         return Err(ApiError::FeatureDisabled("AI import is disabled"));
     }
-    let defaults = infra::ai::default_prompts()?;
+    let defaults = infra::ai::default_prompts().map_err(map_prompt_defaults_error)?;
     Ok((
         StatusCode::OK,
         Json(AiImportDefaults {
@@ -5286,6 +5289,22 @@ pub async fn get_ai_import_defaults<P: Ports>(
             schedule: defaults.schedule,
         }),
     ))
+}
+
+/// Maps the prompt-file read/parse fault of `infra::ai::default_prompts()`
+/// to a server error, so the wire never classifies a deployment fault as a
+/// client error (CodeRabbit review, PR #489). A broken/absent
+/// `AI_IMPORT_DEFAULT_PROMPTS_PATH` (or an invalid built-in TOML) becomes 500
+/// `http.internal-error` — its reason carries the filesystem path, so it stays
+/// log-only per ADR-031 decision 6 (internal text never reaches the wire).
+/// Non-validation faults pass through untouched.
+fn map_prompt_defaults_error(err: DomainError) -> DomainError {
+    match err {
+        err @ DomainError::Validation { .. } => DomainError::Internal {
+            reason: err.to_string(),
+        },
+        _ => err,
+    }
 }
 
 fn parse_ai_provider(value: &str) -> Result<LlmProvider, DomainError> {

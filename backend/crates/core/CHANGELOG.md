@@ -21,8 +21,10 @@ commits (ADR-020 D5).
 - `ModelInfo` gains `recommended: bool` — the curated models endpoint
   (`GET /v1/ai-import/providers/{key}/models`) flags exactly one model per
   provider as the suggested default for a new AI-config creation; models
-  fetched live from a provider never carry the flag (`false`). Additive
-  response field — old clients ignore it.
+  fetched live from a provider never carry the flag (`false`).
+  `#[serde(default)]` keeps the field additive on the wire, so a backend that
+  predates it deserializes as `false` (clients keep their first-model
+  fallback). Additive response field — old clients ignore it.
 - **No additional bump:** additive struct field — rides with the open
   0.11.0 MINOR.
 
