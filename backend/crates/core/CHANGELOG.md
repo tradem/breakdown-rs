@@ -96,6 +96,24 @@ flagged):
 - **No additional bump:** additive registry/API extension — rides with the
   open 0.11.0 MINOR (same convention as #409/#422/#423/#470).
 
+### Fixed — costume stale-version writes surface 409 `concurrency.version-mismatch` (issue #478)
+
+- `CostumeError` gains a typed `VersionMismatch { expected, actual }` variant
+  (mirroring `scene_shoot` / `shooting_day` / `costume_category`), and all
+  seven mutating costume commands (`UpdateCostumeNotes`,
+  `AssignCostumeToCharacter`, `UnassignCostume`, `AddDetail`, `RemoveDetail`,
+  `LinkPhoto`, `UnlinkPhoto`) return it from their optimistic-concurrency
+  guard instead of `ValidationError("Aggregate version mismatch")`.
+- The `From<CostumeError> for DomainError` mapping translates it to
+  `DomainError::VersionConflict`, so a stale-version costume write now renders
+  RFC 9457 **409 `concurrency.version-mismatch`** with the
+  `expected_version` / `current_version` extensions — no longer a
+  wire-indistinguishable generic `domain.validation` 422. The Flutter client
+  (keyed on the stable `concurrency.version-mismatch` code since #473) can
+  now render the "pull to refresh" retry narrative for costume writes.
+- **No additional bump:** additive error variant — rides with the open
+  0.11.0 MINOR (same convention as #409/#422/#423/#470/#453).
+
 ### Fixed — `value_type` overrides drop `Option` nullability (issue #423)
 
 - The bare `#[schema(value_type = String)]` overrides on all seven

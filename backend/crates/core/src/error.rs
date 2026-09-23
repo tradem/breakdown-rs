@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: kimi-k3 (neuralwatt)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 use thiserror::Error;
 use uuid::Uuid;
@@ -233,6 +234,10 @@ impl From<CostumeError> for DomainError {
             },
             CostumeError::AlreadyAssigned { assigned_to } => DomainError::AlreadyAssigned {
                 character_id: assigned_to,
+            },
+            CostumeError::VersionMismatch { expected, actual } => DomainError::VersionConflict {
+                expected,
+                current: actual,
             },
         }
     }

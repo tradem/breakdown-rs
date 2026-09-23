@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 #![allow(
     clippy::unwrap_used,
@@ -111,10 +112,131 @@ fn test_update_costume_notes_wrong_version() {
         make_ctx(),
     );
     assert!(result.is_err());
+    // The stale-version guard is a typed VersionMismatch (issue #478) so the
+    // API layer can surface `concurrency.version-mismatch` (409) with the
+    // expected_version / current_version extensions — not a generic
+    // `domain.validation` 422.
     assert!(matches!(
         result.unwrap_err(),
-        CostumeError::ValidationError(ref m) if m.contains("version mismatch")
+        CostumeError::VersionMismatch {
+            expected: AggregateVersion(99),
+            actual: AggregateVersion::INITIAL,
+        }
     ));
+}
+
+fn assert_stale_version_rejected(
+    result: Result<Vec<CostumeEvent>, CostumeError>,
+    stale: AggregateVersion,
+) {
+    match result {
+        Err(CostumeError::VersionMismatch { expected, actual }) => {
+            assert_eq!(expected, stale);
+            assert_eq!(actual, AggregateVersion::INITIAL);
+        }
+        other => panic!("expected VersionMismatch, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_all_mutating_commands_reject_stale_version_as_version_mismatch() {
+    // Regression for issue #478: every mutating costume command's
+    // optimistic-concurrency guard must surface CostumeError::VersionMismatch
+    // (never ValidationError) so the API layer can emit 409
+    // `concurrency.version-mismatch` — not a generic `domain.validation` 422.
+    let agg = make_costume();
+    let stale = AggregateVersion(99);
+    let detail_id = Uuid::now_v7();
+    let photo_id = Uuid::now_v7();
+
+    assert_stale_version_rejected(
+        agg.handle(
+            UpdateCostumeNotes {
+                id: agg.id,
+                notes: "x".into(),
+                series_id: Some(series_id()),
+                version: stale,
+            },
+            make_ctx(),
+        ),
+        stale,
+    );
+    assert_stale_version_rejected(
+        agg.handle(
+            AssignCostumeToCharacter {
+                id: agg.id,
+                character_id: Uuid::now_v7(),
+                series_id: Some(series_id()),
+                version: stale,
+            },
+            make_ctx(),
+        ),
+        stale,
+    );
+    assert_stale_version_rejected(
+        agg.handle(
+            UnassignCostume {
+                id: agg.id,
+                series_id: Some(series_id()),
+                version: stale,
+            },
+            make_ctx(),
+        ),
+        stale,
+    );
+    assert_stale_version_rejected(
+        agg.handle(
+            AddDetail {
+                id: agg.id,
+                detail: CostumeDetail {
+                    id: detail_id,
+                    subject: None,
+                    category_id: None,
+                    text: "x".into(),
+                },
+                series_id: Some(series_id()),
+                version: stale,
+            },
+            make_ctx(),
+        ),
+        stale,
+    );
+    assert_stale_version_rejected(
+        agg.handle(
+            RemoveDetail {
+                id: agg.id,
+                detail_id,
+                series_id: Some(series_id()),
+                version: stale,
+            },
+            make_ctx(),
+        ),
+        stale,
+    );
+    assert_stale_version_rejected(
+        agg.handle(
+            LinkPhoto {
+                id: agg.id,
+                photo_id,
+                series_id: Some(series_id()),
+                version: stale,
+            },
+            make_ctx(),
+        ),
+        stale,
+    );
+    assert_stale_version_rejected(
+        agg.handle(
+            UnlinkPhoto {
+                id: agg.id,
+                photo_id,
+                series_id: Some(series_id()),
+                version: stale,
+            },
+            make_ctx(),
+        ),
+        stale,
+    );
 }
 
 #[test]

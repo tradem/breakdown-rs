@@ -802,6 +802,23 @@ mod tests {
         .into_problem();
         assert_eq!(problem.code, "costume.not-found");
         assert_eq!(problem.status, 404);
+
+        // Costume stale-version writes surface the typed 409 with the
+        // expected_version / current_version extensions (issue #478) — the
+        // client keys on the stable `concurrency.version-mismatch` code to
+        // offer the pull-to-refresh retry, instead of a wire-indistinguishable
+        // generic `domain.validation` 422.
+        use breakdown_core::shared::AggregateVersion as Av;
+        let problem = ApiError::from(DomainError::from(CostumeError::VersionMismatch {
+            expected: Av(5),
+            actual: Av(4),
+        }))
+        .into_problem();
+        assert_eq!(problem.code, "concurrency.version-mismatch");
+        assert_eq!(problem.status, 409);
+        let value: serde_json::Value = serde_json::to_value(&problem).expect("problem serializes");
+        assert_eq!(value["extensions"]["expected_version"], 5);
+        assert_eq!(value["extensions"]["current_version"], 4);
     }
 
     #[test]
