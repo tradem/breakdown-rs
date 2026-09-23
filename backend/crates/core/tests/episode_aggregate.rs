@@ -137,7 +137,10 @@ fn test_rename_episode_wrong_version() {
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
-        EpisodeError::ValidationError(ref m) if m.contains("version mismatch")
+        EpisodeError::VersionMismatch {
+            expected: AggregateVersion(99),
+            actual: AggregateVersion::INITIAL,
+        }
     ));
 }
 

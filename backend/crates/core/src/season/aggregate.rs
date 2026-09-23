@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
 //! Season aggregate using `kameo_es` event-sourced actor pattern.
@@ -92,9 +93,10 @@ impl Command<RenameSeason> for SeasonAggregate {
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         if cmd.version != self.version {
-            return Err(SeasonError::ValidationError(
-                "Aggregate version mismatch".into(),
-            ));
+            return Err(SeasonError::VersionMismatch {
+                expected: cmd.version,
+                actual: self.version,
+            });
         }
         if cmd.title == self.title {
             return Err(SeasonError::ValidationError(

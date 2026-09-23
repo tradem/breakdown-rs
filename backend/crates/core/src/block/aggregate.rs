@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
 //! Block aggregate using `kameo_es` event-sourced actor pattern.
@@ -106,9 +107,10 @@ impl Command<UpdateBlockTimeSpan> for BlockAggregate {
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         if cmd.version != self.version {
-            return Err(BlockError::ValidationError(
-                "Aggregate version mismatch".into(),
-            ));
+            return Err(BlockError::VersionMismatch {
+                expected: cmd.version,
+                actual: self.version,
+            });
         }
         let new_version = self.version.next();
         Ok(vec![BlockEvent::BlockTimeSpanUpdated {

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: longcat-2.0-free (opencode)
 
@@ -138,9 +139,10 @@ impl Command<UpdateSceneDetails> for SceneAggregate {
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         if cmd.version != self.version {
-            return Err(SceneError::ValidationError(
-                "Aggregate version mismatch".into(),
-            ));
+            return Err(SceneError::VersionMismatch {
+                expected: cmd.version,
+                actual: self.version,
+            });
         }
         if cmd.details == self.details {
             return Err(SceneError::ValidationError(
@@ -164,9 +166,10 @@ impl Command<AssignCharacter> for SceneAggregate {
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         if cmd.version != self.version {
-            return Err(SceneError::ValidationError(
-                "Aggregate version mismatch".into(),
-            ));
+            return Err(SceneError::VersionMismatch {
+                expected: cmd.version,
+                actual: self.version,
+            });
         }
         if self.assigned_characters.contains(&cmd.character_id) {
             return Err(SceneError::CharacterAlreadyAssigned);
@@ -188,9 +191,10 @@ impl Command<RemoveCharacter> for SceneAggregate {
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         if cmd.version != self.version {
-            return Err(SceneError::ValidationError(
-                "Aggregate version mismatch".into(),
-            ));
+            return Err(SceneError::VersionMismatch {
+                expected: cmd.version,
+                actual: self.version,
+            });
         }
         if !self.assigned_characters.contains(&cmd.character_id) {
             return Err(SceneError::ValidationError(
@@ -214,9 +218,10 @@ impl Command<ScheduleSceneOnShootingDay> for SceneAggregate {
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         if cmd.version != self.version {
-            return Err(SceneError::ValidationError(
-                "Aggregate version mismatch".into(),
-            ));
+            return Err(SceneError::VersionMismatch {
+                expected: cmd.version,
+                actual: self.version,
+            });
         }
         if self.shooting_day_ids.contains(&cmd.shooting_day_id) {
             // Defensive guard: unreachable through the command service, which
@@ -264,9 +269,10 @@ impl Command<UnscheduleSceneFromShootingDay> for SceneAggregate {
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         if cmd.version != self.version {
-            return Err(SceneError::ValidationError(
-                "Aggregate version mismatch".into(),
-            ));
+            return Err(SceneError::VersionMismatch {
+                expected: cmd.version,
+                actual: self.version,
+            });
         }
         if !self.shooting_day_ids.contains(&cmd.shooting_day_id) {
             return Err(SceneError::NotScheduled {

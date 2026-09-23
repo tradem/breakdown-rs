@@ -200,6 +200,10 @@ impl From<SceneError> for DomainError {
             SceneError::NotScheduled { shooting_day_id } => DomainError::NotScheduled {
                 shooting_day_id: shooting_day_id.0,
             },
+            SceneError::VersionMismatch { expected, actual } => DomainError::VersionConflict {
+                expected,
+                current: actual,
+            },
         }
     }
 }
@@ -215,6 +219,10 @@ impl From<CharacterError> for DomainError {
                 code: &CHARACTER_NOT_FOUND,
                 resource: "character",
                 id,
+            },
+            CharacterError::VersionMismatch { expected, actual } => DomainError::VersionConflict {
+                expected,
+                current: actual,
             },
         }
     }
@@ -288,6 +296,10 @@ impl From<SeasonError> for DomainError {
                 resource: "season",
                 id,
             },
+            SeasonError::VersionMismatch { expected, actual } => DomainError::VersionConflict {
+                expected,
+                current: actual,
+            },
         }
     }
 }
@@ -303,6 +315,10 @@ impl From<BlockError> for DomainError {
                 code: &BLOCK_NOT_FOUND,
                 resource: "block",
                 id,
+            },
+            BlockError::VersionMismatch { expected, actual } => DomainError::VersionConflict {
+                expected,
+                current: actual,
             },
         }
     }
@@ -340,6 +356,10 @@ impl From<EpisodeError> for DomainError {
                 code: &EPISODE_NOT_FOUND,
                 resource: "episode",
                 id,
+            },
+            EpisodeError::VersionMismatch { expected, actual } => DomainError::VersionConflict {
+                expected,
+                current: actual,
             },
         }
     }

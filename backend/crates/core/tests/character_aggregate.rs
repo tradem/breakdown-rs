@@ -150,7 +150,10 @@ fn test_update_measurements_wrong_version() {
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
-        CharacterError::ValidationError(ref m) if m.contains("version mismatch")
+        CharacterError::VersionMismatch {
+            expected: AggregateVersion(99),
+            actual: AggregateVersion::INITIAL,
+        }
     ));
 }
 
@@ -206,7 +209,10 @@ fn test_update_contact_info_wrong_version() {
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
-        CharacterError::ValidationError(ref m) if m.contains("version mismatch")
+        CharacterError::VersionMismatch {
+            expected: AggregateVersion(99),
+            actual: AggregateVersion::INITIAL,
+        }
     ));
 }
 
