@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0
-// Copyright (C) 2024 Breakdown RS Contributors
+// Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 //! Costume aggregate.
 
@@ -131,9 +132,10 @@ impl Command<UpdateCostumeNotes> for CostumeAggregate {
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         if cmd.version != self.version {
-            return Err(CostumeError::ValidationError(
-                "Aggregate version mismatch".into(),
-            ));
+            return Err(CostumeError::VersionMismatch {
+                expected: cmd.version,
+                actual: self.version,
+            });
         }
         if cmd.notes == self.notes {
             return Err(CostumeError::ValidationError("Notes unchanged".into()));
@@ -154,9 +156,10 @@ impl Command<AssignCostumeToCharacter> for CostumeAggregate {
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         if cmd.version != self.version {
-            return Err(CostumeError::ValidationError(
-                "Aggregate version mismatch".into(),
-            ));
+            return Err(CostumeError::VersionMismatch {
+                expected: cmd.version,
+                actual: self.version,
+            });
         }
         if let Some(assigned_to) = self.character_id {
             if assigned_to != cmd.character_id {
@@ -182,9 +185,10 @@ impl Command<UnassignCostume> for CostumeAggregate {
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         if cmd.version != self.version {
-            return Err(CostumeError::ValidationError(
-                "Aggregate version mismatch".into(),
-            ));
+            return Err(CostumeError::VersionMismatch {
+                expected: cmd.version,
+                actual: self.version,
+            });
         }
         if self.character_id.is_none() {
             return Err(CostumeError::ValidationError(
@@ -206,9 +210,10 @@ impl Command<AddDetail> for CostumeAggregate {
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         if cmd.version != self.version {
-            return Err(CostumeError::ValidationError(
-                "Aggregate version mismatch".into(),
-            ));
+            return Err(CostumeError::VersionMismatch {
+                expected: cmd.version,
+                actual: self.version,
+            });
         }
         Ok(vec![CostumeEvent::DetailAdded {
             id: self.id,
@@ -226,9 +231,10 @@ impl Command<RemoveDetail> for CostumeAggregate {
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         if cmd.version != self.version {
-            return Err(CostumeError::ValidationError(
-                "Aggregate version mismatch".into(),
-            ));
+            return Err(CostumeError::VersionMismatch {
+                expected: cmd.version,
+                actual: self.version,
+            });
         }
         if !self.details.iter().any(|d| d.id == cmd.detail_id) {
             return Err(CostumeError::ValidationError("Detail not found".into()));
@@ -249,9 +255,10 @@ impl Command<LinkPhoto> for CostumeAggregate {
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         if cmd.version != self.version {
-            return Err(CostumeError::ValidationError(
-                "Aggregate version mismatch".into(),
-            ));
+            return Err(CostumeError::VersionMismatch {
+                expected: cmd.version,
+                actual: self.version,
+            });
         }
         if self.photos.contains(&cmd.photo_id) {
             return Err(CostumeError::ValidationError("Photo already linked".into()));
@@ -272,9 +279,10 @@ impl Command<UnlinkPhoto> for CostumeAggregate {
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         if cmd.version != self.version {
-            return Err(CostumeError::ValidationError(
-                "Aggregate version mismatch".into(),
-            ));
+            return Err(CostumeError::VersionMismatch {
+                expected: cmd.version,
+                actual: self.version,
+            });
         }
         if !self.photos.contains(&cmd.photo_id) {
             return Err(CostumeError::ValidationError("Photo is not linked".into()));
