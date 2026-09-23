@@ -75,6 +75,23 @@ components:
       - version
       - revoked
       type: object
+    AiImportDefaults:
+      description: |-
+        Wire shape for `GET /v1/ai-import/defaults` (issue #471): the
+        deployment's single-source prompt defaults (script/schedule) read from
+        `AI_IMPORT_DEFAULT_PROMPTS_PATH` or the built-in fallback TOML — the same
+        prompts the import workers seed from.
+      properties:
+        schedule:
+          description: Default prompt seed for schedule imports.
+          type: string
+        script:
+          description: Default prompt seed for script imports.
+          type: string
+      required:
+      - script
+      - schedule
+      type: object
     AiImportJob:
       description: |-
         Operational job row. Preview blobs and errors are represented by opaque
@@ -1267,9 +1284,17 @@ components:
           type: string
         provider:
           $ref: '#/components/schemas/LlmProvider'
+        recommended:
+          description: |-
+            Whether the curated catalog designates this model as the provider's
+            recommended default for a new AI-config creation (issue #471). Only
+            set by the curated models endpoint (`curated_models`); models fetched
+            live from a provider never carry the flag (`false`).
+          type: boolean
       required:
       - id
       - provider
+      - recommended
       type: object
     PhotoBinding:
       description: |-
@@ -2553,6 +2578,36 @@ paths:
                 $ref: '#/components/schemas/ProblemDetails'
           description: ''
         '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+      tags:
+      - handlers
+  /v1/ai-import/defaults:
+    get:
+      operationId: get_ai_import_defaults
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AiImportDefaults'
+          description: ''
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
+        '500':
           content:
             application/problem+json:
               schema:

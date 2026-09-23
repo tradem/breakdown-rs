@@ -15,6 +15,24 @@ releases are cut as `flutter-vX.Y.Z` tags.
 
 ## [Unreleased]
 
+### Added
+
+- AI-config dialog first-run **prefill/preselect** (issue #471): the create
+  flow no longer starts empty. The script/schedule prompt fields are seeded
+  from `GET /v1/ai-import/defaults` (the deployment's single-source prompts,
+  `AI_IMPORT_DEFAULT_PROMPTS_PATH` or the built-in
+  `config/default_ai_prompts.toml`) and the provider + assistant model are
+  preselected on first run — the first curated provider in display order and
+  its `recommended` model (backend `ModelInfo.recommended`; falls back to the
+  first model for backends that predate the flag). Both remain editable and
+  user-overridable; a failed defaults fetch degrades to empty editable fields
+  (never a blocking state) and the configured/edit path is untouched. A
+  `promptsTouched` draft guard keeps a user-cleared prompt field from being
+  silently resurrected by the default.
+- **Version bump:** `0.3.0-alpha.16+26 → 0.3.0-alpha.17+27` (pre-release
+  increment per merged-PR practice on the alpha line; `+N` stays strictly
+  monotonic for the Play `versionCode`).
+
 ### Changed
 
 - AI-import error switches key on the wire codes the backend actually emits

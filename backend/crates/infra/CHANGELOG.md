@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+<!-- Co-authored-by: deepseek-v4-flash (neuralwatt) -->
 <!-- Co-authored-by: deepseek-v4-flash (opencode-go) -->
 <!-- Co-authored-by: longcat-2.0-free (opencode) -->
 <!-- Co-authored-by: hy4-preview (opencode-go) -->
@@ -14,6 +15,19 @@ crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
 ## [0.16.0] - Unreleased
+
+### Added — AI prompt defaults + curated recommendation (issue #471)
+
+- `prompts::default_prompts()` returns both document-kind prompt defaults
+  (`AiPromptDefaults { script, schedule }`) from one read of the configured
+  `AI_IMPORT_DEFAULT_PROMPTS_PATH` (or the built-in fallback), so the wire
+  endpoint and the per-kind worker seeding can never drift; `default_prompt`
+  now delegates to it.
+- `provider_registry::recommended_model(provider)` designates the curated
+  recommendation (must be one of `curated_model_ids`); `curated_models` flags
+  exactly that model `recommended: true` on `ModelInfo`.
+- **No additional bump:** additive functions + curated metadata — rides with
+  the open 0.16.0 MINOR.
 
 ### Added — costume season repertoire projection + query (issue #453)
 

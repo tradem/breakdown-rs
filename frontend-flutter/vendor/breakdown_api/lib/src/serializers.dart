@@ -19,6 +19,7 @@ import 'package:breakdown_api/src/model/date.dart';
 import 'package:breakdown_api/src/model/add_costume_detail_request.dart';
 import 'package:breakdown_api/src/model/add_note_request.dart';
 import 'package:breakdown_api/src/model/ai_config_view.dart';
+import 'package:breakdown_api/src/model/ai_import_defaults.dart';
 import 'package:breakdown_api/src/model/ai_import_job.dart';
 import 'package:breakdown_api/src/model/ai_import_job_response.dart';
 import 'package:breakdown_api/src/model/ai_import_preview_response.dart';
@@ -139,6 +140,7 @@ part 'serializers.g.dart';
   AddCostumeDetailRequest,
   AddNoteRequest,
   AiConfigView,
+  AiImportDefaults,
   AiImportJob,
   AiImportJobResponse,
   AiImportPreviewResponse,

@@ -249,6 +249,58 @@ final class AiProviderModelsFamily extends $Family
   String toString() => r'aiProviderModelsProvider';
 }
 
+/// `GET /v1/ai-import/defaults` (issue #471): the deployment's single-source
+/// prompt defaults (script/schedule). Feeds the first-run prompt prefill; a
+/// failure degrades to empty editable fields — never a blocking error state.
+
+@ProviderFor(aiImportDefaults)
+final aiImportDefaultsProvider = AiImportDefaultsProvider._();
+
+/// `GET /v1/ai-import/defaults` (issue #471): the deployment's single-source
+/// prompt defaults (script/schedule). Feeds the first-run prompt prefill; a
+/// failure degrades to empty editable fields — never a blocking error state.
+
+final class AiImportDefaultsProvider
+    extends
+        $FunctionalProvider<
+          AsyncValue<Result<AiImportDefaults>>,
+          Result<AiImportDefaults>,
+          FutureOr<Result<AiImportDefaults>>
+        >
+    with
+        $FutureModifier<Result<AiImportDefaults>>,
+        $FutureProvider<Result<AiImportDefaults>> {
+  /// `GET /v1/ai-import/defaults` (issue #471): the deployment's single-source
+  /// prompt defaults (script/schedule). Feeds the first-run prompt prefill; a
+  /// failure degrades to empty editable fields — never a blocking error state.
+  AiImportDefaultsProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'aiImportDefaultsProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$aiImportDefaultsHash();
+
+  @$internal
+  @override
+  $FutureProviderElement<Result<AiImportDefaults>> $createElement(
+    $ProviderPointer pointer,
+  ) => $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<Result<AiImportDefaults>> create(Ref ref) {
+    return aiImportDefaults(ref);
+  }
+}
+
+String _$aiImportDefaultsHash() => r'b42dfb5a680edab5795ea1578af6e966512cd5bd';
+
 /// The AI-import configuration controller (`flutter-ai-config` task 2.1).
 ///
 /// AUTHZ-GATE exception (D4, documented): the backend gates AI config and
@@ -307,7 +359,7 @@ final class AiConfigControllerProvider
 }
 
 String _$aiConfigControllerHash() =>
-    r'c518a0ff8e196c4817d5d5f6b119a13c07230a85';
+    r'0cf0bc4d4d88f10b67c3a7bab707a28f17155a1d';
 
 /// The AI-import configuration controller (`flutter-ai-config` task 2.1).
 ///

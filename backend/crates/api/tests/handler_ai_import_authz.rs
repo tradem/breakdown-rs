@@ -24,7 +24,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 
 use api::auth::CurrentUser;
-use api::handlers::{list_ai_models, list_ai_providers};
+use api::handlers::{get_ai_import_defaults, list_ai_models, list_ai_providers};
 use api::state::AppState;
 use breakdown_core::error::DomainError;
 use breakdown_core::shared::BlockId;
@@ -161,6 +161,58 @@ async fn list_ai_models_propagates_repo_failure_as_server_error() {
     assert_eq!(problem.status, 503);
     // Tranche 1: internal error text never leaves the server; the code is the
     // contract (ADR-031 decision 6).
+    assert_eq!(problem.code, "domain.service-unavailable");
+    assert!(!problem.detail.contains("membership repo down"));
+}
+
+#[tokio::test]
+async fn get_ai_import_defaults_allows_credential_role_member() {
+    // Issue #471: `GET /v1/ai-import/defaults` is gated like the other
+    // catalog reads; a granted caller gets the prompt defaults.
+    let ports = FakePorts::default();
+    seed_credential_member(&ports).await;
+    let state = ai_import_state(ports).await;
+
+    let result = get_ai_import_defaults::<FakePorts>(State(state), dummy_user()).await;
+    let (status, Json(defaults)) = result.expect("granted caller should succeed");
+    assert_eq!(status, StatusCode::OK);
+    // Wire contract: both prompt defaults are present and non-empty
+    // (read from the built-in TOML; the env override is absent in tests).
+    assert!(!defaults.script.is_empty(), "script default must be served");
+    assert!(
+        !defaults.schedule.is_empty(),
+        "schedule default must be served"
+    );
+}
+
+#[tokio::test]
+async fn get_ai_import_defaults_denies_non_credential_role_member() {
+    let ports = FakePorts::default();
+    *ports.membership_repo.credential_role_override.lock().await = Some(Ok(false));
+    let state = ai_import_state(ports).await;
+
+    let result = get_ai_import_defaults::<FakePorts>(State(state), dummy_user()).await;
+    let problem = result
+        .expect_err("denied caller must get an error")
+        .into_problem();
+    assert_eq!(problem.status, 403);
+    assert_eq!(problem.code, "ai-config.forbidden");
+    assert!(!problem.detail.is_empty());
+}
+
+#[tokio::test]
+async fn get_ai_import_defaults_propagates_repo_failure_as_server_error() {
+    let ports = FakePorts::default();
+    *ports.membership_repo.credential_role_override.lock().await = Some(Err(
+        DomainError::service_unavailable("membership repo down"),
+    ));
+    let state = ai_import_state(ports).await;
+
+    let result = get_ai_import_defaults::<FakePorts>(State(state), dummy_user()).await;
+    let problem = result
+        .expect_err("repo failure must surface as an error")
+        .into_problem();
+    assert_eq!(problem.status, 503);
     assert_eq!(problem.code, "domain.service-unavailable");
     assert!(!problem.detail.contains("membership repo down"));
 }

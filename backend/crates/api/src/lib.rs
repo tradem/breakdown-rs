@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: hy4-preview (opencode-go)
@@ -103,6 +104,7 @@ use utoipa::OpenApi;
         handlers::create_credential,
         handlers::list_ai_providers,
         handlers::list_ai_models,
+        handlers::get_ai_import_defaults,
         handlers::create_ai_config,
         handlers::get_ai_config,
         handlers::list_ai_configs,

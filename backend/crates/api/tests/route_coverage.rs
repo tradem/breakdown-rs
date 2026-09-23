@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: hy4-preview (opencode-go)
@@ -85,7 +86,7 @@ fn api_routes_are_behind_auth_middleware() {
     //  patterns, not method-verb pairs.)
     assert_eq!(
         api.len(),
-        77,
+        78,
         "number of API route path patterns has changed — \
          see doc comment above for update instructions"
     );
@@ -284,6 +285,10 @@ fn api_routes_have_deliberate_authorization_requirement() {
             "/ai-import/providers/{provider}/models",
             Requirement::Authenticated,
         ),
+        // Prompt-default prefill for the AI-config dialog (issue #471) —
+        // same AuthN level as the sibling catalog reads; the credential-role
+        // gate is handler-internal (`// AUTHZ-GATE:`, like the providers).
+        ("/ai-import/defaults", Requirement::Authenticated),
         // Ops surface (issue #409): deployment-scoped, handler-internal ops
         // gate (`authorize_ops`) inside the handler.
         ("/ops/projector-health", Requirement::Authenticated),

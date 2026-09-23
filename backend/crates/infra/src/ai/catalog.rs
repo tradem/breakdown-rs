@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
@@ -155,6 +156,9 @@ impl LlmModelCatalog for OpenAiCompatibleModelCatalog {
                 id: model.id,
                 display_name: None,
                 provider,
+                // Live provider catalogs never mark a recommendation — the
+                // flag is curated-only (issue #471).
+                recommended: false,
             })
             .collect())
     }

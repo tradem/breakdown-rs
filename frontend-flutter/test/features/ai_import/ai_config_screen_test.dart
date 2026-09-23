@@ -54,10 +54,18 @@ AiProviderInfo _provider(String key, LlmProvider provider) => AiProviderInfo(
     ..key = key,
 );
 
-ModelInfo _model(String id) => ModelInfo(
+AiImportDefaults _defaults({String script = '', String schedule = ''}) =>
+    AiImportDefaults(
+      (b) => b
+        ..script = script
+        ..schedule = schedule,
+    );
+
+ModelInfo _model(String id, {bool recommended = false}) => ModelInfo(
   (b) => b
     ..id = id
-    ..provider = LlmProvider.openai,
+    ..provider = LlmProvider.openai
+    ..recommended = recommended,
 );
 
 AiConfigView _config({
@@ -176,12 +184,14 @@ void main() {
   late ValueNotifier<Result<List<AiConfigView>>> discovery;
   late ValueNotifier<Result<List<AiProviderInfo>>> providers;
   late ValueNotifier<Result<List<ModelInfo>>> models;
+  late ValueNotifier<Result<AiImportDefaults>> defaults;
   late ProviderContainer container;
 
   Future<void> setupContainer({
     Result<List<AiConfigView>>? discoveryValue,
     Result<List<AiProviderInfo>>? providersValue,
     Result<List<ModelInfo>>? modelsValue,
+    Result<AiImportDefaults>? defaultsValue,
   }) async {
     repo = FakeAiConfigRepository(BreakdownApi());
     discovery = ValueNotifier(discoveryValue ?? const Right(<AiConfigView>[]));
@@ -195,6 +205,11 @@ void main() {
     models = ValueNotifier(
       modelsValue ?? Right([_model('gpt-5.6-luna'), _model('gpt-5.6-terra')]),
     );
+    // Defaults default to loaded-but-empty: the first-run form stays
+    // prompt-empty unless a test injects real defaults (existing tests keep
+    // their exact behavior; no real network call is ever made — the
+    // controller watches this provider in build).
+    defaults = ValueNotifier(defaultsValue ?? Right(_defaults()));
     container = ProviderContainer(
       overrides: [
         appConfigProvider.overrideWithValue(devAuthConfig),
@@ -202,6 +217,7 @@ void main() {
         aiConfigDiscoveryProvider.overrideWith((ref) async => discovery.value),
         aiProvidersProvider.overrideWith((ref) async => providers.value),
         aiProviderModelsProvider.overrideWith((ref, key) async => models.value),
+        aiImportDefaultsProvider.overrideWith((ref) async => defaults.value),
         // Immediate scheduler: reconciliation ticks are no-ops — no
         // wall-clock gating (AGENTS.md §6).
         reconciliationSchedulerProvider.overrideWith(
@@ -543,6 +559,143 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('ai-config-unresolved')), findsNothing);
     expect(find.byKey(const Key('ai-config-configured')), findsOneWidget);
+  });
+
+  // --- First-run prefill (issue #471) -------------------------------------
+
+  testWidgets('first-run prefill: provider + recommended model preselected '
+      'and prompt fields seeded from the defaults endpoint (issue #471)', (
+    tester,
+  ) async {
+    await setupContainer(
+      defaultsValue: Right(_defaults(script: 'S1', schedule: 'S2')),
+      modelsValue: Right([
+        _model('gpt-5.6-luna', recommended: true),
+        _model('gpt-5.6-terra'),
+      ]),
+    );
+    await pumpScreen(tester);
+
+    final state = container.read(aiConfigControllerProvider);
+    // Provider: the first curated provider in display order.
+    expect(state.selectedProviderKey, 'openai');
+    // Assistant model: the recommended model of the preselected provider.
+    expect(state.selectedAssistantModelId, 'gpt-5.6-luna');
+    // Prompt fields: seeded from GET /v1/ai-import/defaults (editable).
+    expect(state.scriptPrompt, 'S1');
+    expect(state.schedulePrompt, 'S2');
+    // The rendered fields carry the defaults and the provenance hint shows.
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('ai-script-prompt')))
+          .controller!
+          .text,
+      'S1',
+    );
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('ai-schedule-prompt')))
+          .controller!
+          .text,
+      'S2',
+    );
+    expect(find.byKey(const Key('ai-prefill-hint')), findsOneWidget);
+  });
+
+  testWidgets('first-run prefill: a recommended-less model set falls back to '
+      'the first model (backends that predate the flag)', (tester) async {
+    await setupContainer(
+      defaultsValue: Right(_defaults()),
+      modelsValue: Right([
+        _model('gpt-5.6-luna'),
+        _model('gpt-5.6-terra', recommended: true),
+      ]),
+    );
+    await pumpScreen(tester);
+    final state = container.read(aiConfigControllerProvider);
+    // The first model in the set is authoritative only when NO model is
+    // recommended; here terra IS recommended, so it wins.
+    expect(state.selectedAssistantModelId, 'gpt-5.6-terra');
+    expect(state.selectedProviderKey, 'openai');
+    // No defaults text → no provenance hint.
+    expect(find.byKey(const Key('ai-prefill-hint')), findsNothing);
+    expect(state.scriptPrompt, '');
+    expect(state.schedulePrompt, '');
+  });
+
+  testWidgets('first-run prefill: a failed defaults fetch degrades to empty '
+      'prompt fields with NO blocking state — the user types by hand', (
+    tester,
+  ) async {
+    await setupContainer(
+      defaultsValue: const Left(ProblemError(code: 'transport.down')),
+    );
+    await pumpScreen(tester);
+
+    final state = container.read(aiConfigControllerProvider);
+    // Provider + model preselect is independent of the defaults fetch.
+    expect(state.selectedProviderKey, 'openai');
+    expect(state.selectedAssistantModelId, 'gpt-5.6-luna');
+    expect(state.scriptPrompt, '');
+    expect(state.schedulePrompt, '');
+    expect(find.byKey(const Key('ai-prefill-hint')), findsNothing);
+    // The create flow is NOT blocked by the failed defaults fetch.
+    expect(find.byKey(const Key('ai-config-create')), findsOneWidget);
+  });
+
+  testWidgets('the user\'s own interaction always wins over the prefill '
+      '(issue #471): picking a non-first provider and typing over a prompt', (
+    tester,
+  ) async {
+    await setupContainer(
+      defaultsValue: Right(_defaults(script: 'S1', schedule: 'S2')),
+    );
+    await pumpScreen(tester);
+
+    // Provider: pick a non-first provider — the prefill must NOT flip it
+    // back to the first one once the user has chosen.
+    final controller = container.read(aiConfigControllerProvider.notifier);
+    controller.selectProvider('neuralwatt');
+    await tester.pumpAndSettle();
+    expect(
+      container.read(aiConfigControllerProvider).selectedProviderKey,
+      'neuralwatt',
+    );
+
+    // Prompt: typing into the script field is never clobbered by a later
+    // defaults delivery (guarded per-field by the pristine check).
+    await tester.enterText(
+      find.byKey(const Key('ai-script-prompt')),
+      'my custom prompt',
+    );
+    await tester.pump();
+    defaults.value = Right(_defaults(script: 'OVERWRITE', schedule: 'S2'));
+    container.invalidate(aiImportDefaultsProvider);
+    await tester.pumpAndSettle();
+    expect(
+      container.read(aiConfigControllerProvider).scriptPrompt,
+      'my custom prompt',
+      reason: 'a typed prompt must never be replaced by the defaults prefill',
+    );
+  });
+
+  testWidgets('configured state: NO prefill — provider/model come from the '
+      'config, prompt fields stay empty (never silently replaced by '
+      'defaults)', (tester) async {
+    await setupContainer(
+      discoveryValue: Right([_config()]),
+      defaultsValue: Right(_defaults(script: 'S1', schedule: 'S2')),
+    );
+    await pumpScreen(tester);
+
+    expect(find.byKey(const Key('ai-config-configured')), findsOneWidget);
+    final state = container.read(aiConfigControllerProvider);
+    // Configured values win; the prefill never touched the drafts.
+    expect(state.selectedProviderKey, 'openai');
+    expect(state.selectedAssistantModelId, 'gpt-5.6-luna');
+    expect(state.scriptPrompt, '');
+    expect(state.schedulePrompt, '');
+    expect(find.byKey(const Key('ai-prefill-hint')), findsNothing);
   });
 
   group('AiConfigScreen goldens (2.2): {light,dark}×{android,macos}', () {

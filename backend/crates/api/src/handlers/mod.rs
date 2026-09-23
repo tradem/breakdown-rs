@@ -5241,6 +5241,53 @@ pub async fn list_ai_models<P: Ports>(
     Ok((StatusCode::OK, Json(infra::ai::curated_models(provider))))
 }
 
+/// Wire shape for `GET /v1/ai-import/defaults` (issue #471): the
+/// deployment's single-source prompt defaults (script/schedule) read from
+/// `AI_IMPORT_DEFAULT_PROMPTS_PATH` or the built-in fallback TOML — the same
+/// prompts the import workers seed from.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct AiImportDefaults {
+    /// Default prompt seed for script imports.
+    pub script: String,
+    /// Default prompt seed for schedule imports.
+    pub schedule: String,
+}
+
+#[utoipa::path(
+    get,
+    path = "/ai-import/defaults",
+    responses((status = 200, body = AiImportDefaults), (status = 403, body = ProblemDetails), (status = 404, body = ProblemDetails), (status = 500, body = ProblemDetails))
+)]
+pub async fn get_ai_import_defaults<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+) -> ApiResult<AiImportDefaults> {
+    // AUTHZ-GATE: prompt-default discovery is part of the same
+    // credential-administration surface as the provider/model catalog reads
+    // (list_ai_providers / list_ai_models) — decided via the (fallible)
+    // credential-role policy.
+    let decision = state
+        .authorization_policy
+        .authorize_credential_role(&current_user.sub)
+        .await?;
+    if decision != PolicyDecision::Allow {
+        return Err(ApiError::AiConfigForbidden(
+            "not authorized to discover AI prompt defaults",
+        ));
+    }
+    if !state.ai_import_enabled {
+        return Err(ApiError::FeatureDisabled("AI import is disabled"));
+    }
+    let defaults = infra::ai::default_prompts()?;
+    Ok((
+        StatusCode::OK,
+        Json(AiImportDefaults {
+            script: defaults.script,
+            schedule: defaults.schedule,
+        }),
+    ))
+}
+
 fn parse_ai_provider(value: &str) -> Result<LlmProvider, DomainError> {
     // Delegate to the centralized provider registry (infra::ai::provider_registry).
     infra::ai::resolve_provider(value)
@@ -5379,6 +5426,10 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         .route(
             "/ai-import/providers/{provider}/models",
             routing::get(list_ai_models::<ProductionPorts>),
+        )
+        .route(
+            "/ai-import/defaults",
+            routing::get(get_ai_import_defaults::<ProductionPorts>),
         )
         .route(
             "/settings/gdrive",

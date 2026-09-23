@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: longcat-2.0-free (opencode)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
@@ -124,6 +125,11 @@ pub struct ModelInfo {
     pub id: String,
     pub display_name: Option<String>,
     pub provider: LlmProvider,
+    /// Whether the curated catalog designates this model as the provider's
+    /// recommended default for a new AI-config creation (issue #471). Only
+    /// set by the curated models endpoint (`curated_models`); models fetched
+    /// live from a provider never carry the flag (`false`).
+    pub recommended: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
