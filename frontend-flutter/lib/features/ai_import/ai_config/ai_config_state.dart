@@ -35,6 +35,7 @@ class AiConfigScreenState {
     this.commandError,
     this.unresolved,
     this.discoveryError,
+    this.promptDefaults,
   });
 
   /// The discovered active config, or `null` for the first-run state.
@@ -77,6 +78,12 @@ class AiConfigScreenState {
   /// degradation — a failed discovery is not "no config exists").
   final ProblemError? discoveryError;
 
+  /// `GET /v1/ai-import/defaults` wire read (issue #471): the prefill
+  /// source for the first-run prompt fields. A failure degrades to empty
+  /// editable fields — never a blocking error state; the success hint is
+  /// purely informational.
+  final AsyncValue<AiImportDefaults>? promptDefaults;
+
   bool get isFirstRun => config == null && discoveryError == null;
 
   AiConfigScreenState copyWith({
@@ -96,6 +103,7 @@ class AiConfigScreenState {
     bool clearUnresolved = false,
     ProblemError? discoveryError,
     bool clearDiscoveryError = false,
+    AsyncValue<AiImportDefaults>? promptDefaults,
   }) => AiConfigScreenState(
     config: clearConfig ? null : (config ?? this.config),
     providers: providers ?? this.providers,
@@ -115,6 +123,7 @@ class AiConfigScreenState {
     discoveryError: clearDiscoveryError
         ? null
         : (discoveryError ?? this.discoveryError),
+    promptDefaults: promptDefaults ?? this.promptDefaults,
   );
 }
 

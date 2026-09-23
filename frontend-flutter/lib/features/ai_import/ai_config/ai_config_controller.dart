@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
 
 import 'dart:async';
@@ -49,6 +50,13 @@ Future<Result<List<AiProviderInfo>>> aiProviders(Ref ref) =>
 Future<Result<List<ModelInfo>>> aiProviderModels(Ref ref, String key) =>
     ref.watch(aiConfigRepositoryProvider).listModels(key);
 
+/// `GET /v1/ai-import/defaults` (issue #471): the deployment's single-source
+/// prompt defaults (script/schedule). Feeds the first-run prompt prefill; a
+/// failure degrades to empty editable fields — never a blocking error state.
+@riverpod
+Future<Result<AiImportDefaults>> aiImportDefaults(Ref ref) =>
+    ref.watch(aiConfigRepositoryProvider).fetchDefaults();
+
 /// The ephemeral form-draft data (immutable snapshot). Kept in its own
 /// [Notifier] so it survives controller rebuilds (the reference pattern:
 /// `SeasonOverlays`); the masked key is deliberately NOT here — the
@@ -61,6 +69,8 @@ class AiConfigDraftData {
     this.imageModelTouched = false,
     this.scriptPrompt = '',
     this.schedulePrompt = '',
+    this.scriptPromptTouched = false,
+    this.schedulePromptTouched = false,
     this.unresolved,
   });
 
@@ -74,6 +84,16 @@ class AiConfigDraftData {
   bool imageModelTouched;
   String scriptPrompt;
   String schedulePrompt;
+
+  /// Per-field touched flags (CodeRabbit review, PR #489): once the user
+  /// edits a prompt field, THAT field's draft text is authoritative and the
+  /// first-run defaults prefill (issue #471) must NOT fall through for it —
+  /// so clearing a field stays a real "remove prompt" intent instead of
+  /// silently resurrecting the default. The OTHER field keeps its prefill
+  /// until the user touches it too (editing the script prompt must not
+  /// wipe the prefilled schedule prompt).
+  bool scriptPromptTouched;
+  bool schedulePromptTouched;
   AiConfigUnresolved? unresolved;
 }
 
@@ -92,6 +112,8 @@ class AiConfigDrafts extends Notifier<AiConfigDraftData> {
       imageModelTouched: state.imageModelTouched,
       scriptPrompt: state.scriptPrompt,
       schedulePrompt: state.schedulePrompt,
+      scriptPromptTouched: state.scriptPromptTouched,
+      schedulePromptTouched: state.schedulePromptTouched,
       unresolved: state.unresolved,
     );
     fn(next);
@@ -119,6 +141,7 @@ class AiConfigController extends _$AiConfigController {
   AiConfigScreenState build() {
     final discovery = ref.watch(aiConfigDiscoveryProvider);
     final providers = ref.watch(aiProvidersProvider);
+    final promptDefaults = ref.watch(aiImportDefaultsProvider);
     final drafts = ref.watch(aiConfigDraftsProvider);
 
     // List-first with remembered-id fallback (D2): the discovery list is
@@ -145,8 +168,32 @@ class AiConfigController extends _$AiConfigController {
       unawaited(_loadRememberedConfigFallback());
     }
 
+    // "Resolved first-run" — only a discovery that has GENUINELY resolved to
+    // "no active config" may feed the prefill/preselect (issue #471).
+    // Loading is NOT first-run (an active config may still appear), and a
+    // failed discovery is never the first-run state either (its save button
+    // would create a second credential).
+    final firstRunResolved =
+        discovery is AsyncData && config == null && discoveryError == null;
+
+    // First-run provider suggestion: the first curated provider in display
+    // order (backend `AiProviderInfo` list order — issue #471). Strictly a
+    // fallback: an explicit draft pick wins, a config beats both.
+    final suggestedProviderKey = firstRunResolved
+        ? switch (providers) {
+            AsyncData(:final value) => value.match(
+              (_) => null,
+              (rows) => rows.isEmpty ? null : rows.first.key,
+            ),
+            _ => null,
+          }
+        : null;
+
     final selectedProviderKey =
-        drafts.selectedProviderKey ?? config?.provider.name;
+        drafts.selectedProviderKey ??
+        suggestedProviderKey ??
+        config?.provider.name;
+
     final models = switch (selectedProviderKey == null
         ? const AsyncValue<Result<List<ModelInfo>>>.loading()
         : ref.watch(aiProviderModelsProvider(selectedProviderKey))) {
@@ -159,6 +206,25 @@ class AiConfigController extends _$AiConfigController {
       _ => const AsyncValue<List<ModelInfo>>.loading(),
     };
 
+    // First-run assistant-model suggestion: the selected provider's
+    // `recommended` model, falling back to the first model for backends that
+    // predate the flag. Strictly a fallback behind an explicit draft pick
+    // and the configured model. Read reactively: it appears once the
+    // selected provider's model set resolves.
+    String? suggestedAssistantModelId;
+    if (firstRunResolved && selectedProviderKey != null) {
+      if (models case AsyncData(:final value)) {
+        if (value.isNotEmpty) {
+          suggestedAssistantModelId = value
+              .firstWhere(
+                (m) => m.recommended ?? false,
+                orElse: () => value.first,
+              )
+              .id;
+        }
+      }
+    }
+
     final providersState = switch (providers) {
       AsyncData(:final value) => value.match(
         (err) =>
@@ -169,19 +235,62 @@ class AiConfigController extends _$AiConfigController {
         AsyncValue<List<AiProviderInfo>>.error(error, stackTrace),
       _ => const AsyncValue<List<AiProviderInfo>>.loading(),
     };
+
+    final promptDefaultsState = switch (promptDefaults) {
+      AsyncData(:final value) => value.match(
+        (err) => AsyncValue<AiImportDefaults>.error(err, StackTrace.current),
+        (defaults) => AsyncValue<AiImportDefaults>.data(defaults),
+      ),
+      AsyncError(:final error, :final stackTrace) =>
+        AsyncValue<AiImportDefaults>.error(error, stackTrace),
+      _ => const AsyncValue<AiImportDefaults>.loading(),
+    };
+
+    // First-run prompt prefill: the single-source defaults from
+    // `GET /v1/ai-import/defaults` (editable — once the user touches a
+    // prompt field, THAT field's draft wins and its seed is dropped; the
+    // other field keeps its prefill until touched too, CodeRabbit review
+    // PR #489). A failed defaults fetch degrades to empty fields, never a
+    // blocking state.
+    final firstRunScriptDefault = firstRunResolved
+        ? switch (promptDefaults) {
+            AsyncData(:final value) => value.match(
+              (_) => null,
+              (dto) => dto.script,
+            ),
+            _ => null,
+          }
+        : null;
+    final firstRunScheduleDefault = firstRunResolved
+        ? switch (promptDefaults) {
+            AsyncData(:final value) => value.match(
+              (_) => null,
+              (dto) => dto.schedule,
+            ),
+            _ => null,
+          }
+        : null;
+
     return AiConfigScreenState(
       config: config,
       discoveryError: discoveryError,
       providers: providersState,
       models: models,
+      promptDefaults: promptDefaultsState,
       selectedProviderKey: selectedProviderKey,
       selectedAssistantModelId:
-          drafts.selectedAssistantModelId ?? config?.assistantModel,
+          drafts.selectedAssistantModelId ??
+          suggestedAssistantModelId ??
+          config?.assistantModel,
       selectedImageModelId: drafts.imageModelTouched
           ? drafts.selectedImageModelId
           : (config?.imageModel ?? drafts.selectedImageModelId),
-      scriptPrompt: drafts.scriptPrompt,
-      schedulePrompt: drafts.schedulePrompt,
+      scriptPrompt: drafts.scriptPromptTouched
+          ? drafts.scriptPrompt
+          : (firstRunScriptDefault ?? ''),
+      schedulePrompt: drafts.schedulePromptTouched
+          ? drafts.schedulePrompt
+          : (firstRunScheduleDefault ?? ''),
       unresolved: drafts.unresolved,
     );
   }
@@ -212,11 +321,17 @@ class AiConfigController extends _$AiConfigController {
   }
 
   void setScriptPrompt(String value) {
-    _draftsNotifier.mutate((d) => d.scriptPrompt = value);
+    _draftsNotifier.mutate((d) {
+      d.scriptPrompt = value;
+      d.scriptPromptTouched = true;
+    });
   }
 
   void setSchedulePrompt(String value) {
-    _draftsNotifier.mutate((d) => d.schedulePrompt = value);
+    _draftsNotifier.mutate((d) {
+      d.schedulePrompt = value;
+      d.schedulePromptTouched = true;
+    });
   }
 
   void dismissCommandError() => state = state.copyWith(clearCommandError: true);

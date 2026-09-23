@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 
 //! AI infrastructure adapters.
@@ -59,6 +60,7 @@ pub use preview_store::{
     UnconfiguredAiPayloadStore,
 };
 pub use prompts::default_prompt;
+pub use prompts::{AiPromptDefaults, default_prompts};
 pub use provider_registry::{
     PROVIDER_REGISTRY, ProviderInfo, curated_models, list_providers, resolve_provider,
 };

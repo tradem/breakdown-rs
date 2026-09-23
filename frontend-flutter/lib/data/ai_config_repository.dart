@@ -59,6 +59,16 @@ class AiConfigRepository extends BaseRepository {
     dtoInvalidCode: 'ai_config.dto_invalid',
   );
 
+  /// `GET /v1/ai-import/defaults` — the deployment's single-source prompt
+  /// defaults (`{ script, schedule }`) read server-side from
+  /// `AI_IMPORT_DEFAULT_PROMPTS_PATH` or the built-in fallback (issue #471).
+  /// Feeds the first-run prompt prefill; a failure degrades to empty editable
+  /// fields (the user types by hand — never a blocking error state).
+  Future<Result<AiImportDefaults>> fetchDefaults() => run(
+    () => api.getHandlersApi().getAiImportDefaults(),
+    dtoInvalidCode: 'ai_config.dto_invalid',
+  );
+
   // --- Credentials (the secret transits exactly once) ------------------------
 
   /// `POST /v1/settings/credentials` — submits the LLM API key to the

@@ -17,6 +17,7 @@ export 'package:breakdown_api/src/api/handlers_api.dart';
 export 'package:breakdown_api/src/model/add_costume_detail_request.dart';
 export 'package:breakdown_api/src/model/add_note_request.dart';
 export 'package:breakdown_api/src/model/ai_config_view.dart';
+export 'package:breakdown_api/src/model/ai_import_defaults.dart';
 export 'package:breakdown_api/src/model/ai_import_job.dart';
 export 'package:breakdown_api/src/model/ai_import_job_response.dart';
 export 'package:breakdown_api/src/model/ai_import_preview_response.dart';

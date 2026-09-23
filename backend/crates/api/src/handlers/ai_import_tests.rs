@@ -8,10 +8,35 @@ use breakdown_core::ai::{
     ApplyGateError, ApplyMapping, ApplyMappingDecision, DocumentKind, DraftScene, ScriptContext,
     SourceFormat, ensure_script_applyable, plan_scene_apply,
 };
+use breakdown_core::error::DomainError;
 use breakdown_core::shared::{AggregateVersion, EpisodeId, UserId};
 use uuid::Uuid;
 
 use super::{ai_dedup_key, forbidden_ai_config, forbidden_ai_job, parse_ai_provider};
+
+#[test]
+fn prompt_defaults_config_fault_maps_to_internal_server_error() {
+    // A misconfigured prompt file is a deployment fault, never a client 422
+    // (CodeRabbit review, PR #489): the validation error becomes 500
+    // `http.internal-error` and its reason — which carries the filesystem
+    // path — is log-only (ADR-031 decision 6).
+    let fault = DomainError::validation(
+        "could not read AI prompt config /etc/breakdown/ai_prompts.toml: No such file or directory",
+    );
+    match super::map_prompt_defaults_error(fault) {
+        DomainError::Internal { reason } => {
+            assert!(reason.contains("could not read AI prompt config"));
+            assert!(reason.contains("/etc/breakdown/ai_prompts.toml"));
+        }
+        other => panic!("expected internal mapping, got {other:?}"),
+    }
+    // Non-validation faults pass through untouched.
+    let svc = DomainError::service_unavailable("membership repo down");
+    assert!(matches!(
+        super::map_prompt_defaults_error(svc),
+        DomainError::ServiceUnavailable { .. }
+    ));
+}
 
 #[test]
 fn reupload_dedup_key_is_stable_and_kind_specific() {

@@ -17,6 +17,7 @@ part 'model_info.g.dart';
 /// * [displayName]
 /// * [id]
 /// * [provider]
+/// * [recommended] - Whether the curated catalog designates this model as the provider's recommended default for a new AI-config creation (issue #471). Only set by the curated models endpoint (`curated_models`); models fetched live from a provider never carry the flag (`false`).  `#[serde(default)]`: the flag is additive on the wire — a backend that predates the field deserializes it as `false`, so clients keep their \"first model\" fallback for pre-flag deployments (CodeRabbit review, PR #489).
 @BuiltValue()
 abstract class ModelInfo implements Built<ModelInfo, ModelInfoBuilder> {
   @BuiltValueField(wireName: r'display_name')
@@ -28,6 +29,10 @@ abstract class ModelInfo implements Built<ModelInfo, ModelInfoBuilder> {
   @BuiltValueField(wireName: r'provider')
   LlmProvider get provider;
   // enum providerEnum {  openai,  openrouter,  eurouter,  neuralwatt,  opencode-go,  opencode,  ollama,  };
+
+  /// Whether the curated catalog designates this model as the provider's recommended default for a new AI-config creation (issue #471). Only set by the curated models endpoint (`curated_models`); models fetched live from a provider never carry the flag (`false`).  `#[serde(default)]`: the flag is additive on the wire — a backend that predates the field deserializes it as `false`, so clients keep their \"first model\" fallback for pre-flag deployments (CodeRabbit review, PR #489).
+  @BuiltValueField(wireName: r'recommended')
+  bool? get recommended;
 
   ModelInfo._();
 
@@ -69,6 +74,13 @@ class _$ModelInfoSerializer implements PrimitiveSerializer<ModelInfo> {
       object.provider,
       specifiedType: const FullType(LlmProvider),
     );
+    if (object.recommended != null) {
+      yield r'recommended';
+      yield serializers.serialize(
+        object.recommended,
+        specifiedType: const FullType(bool),
+      );
+    }
   }
 
   @override
@@ -115,6 +127,14 @@ class _$ModelInfoSerializer implements PrimitiveSerializer<ModelInfo> {
             specifiedType: const FullType(LlmProvider),
           ) as LlmProvider;
           result.provider = valueDes;
+          break;
+        case r'recommended':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(bool),
+          ) as bool?;
+          if (valueDes == null) continue;
+          result.recommended = valueDes;
           break;
         default:
           unhandled.add(key);

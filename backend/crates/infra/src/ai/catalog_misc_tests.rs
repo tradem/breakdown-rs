@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
 //! Unit tests for catalog, provider_registry, and prompts — kills mutations
@@ -122,6 +123,30 @@ fn default_prompt_contains_relevant_instructions() {
         schedule_prompt.to_lowercase().contains("schedule")
             || schedule_prompt.to_lowercase().contains("csv"),
         "Schedule prompt should mention schedule or csv"
+    );
+}
+
+#[test]
+fn default_prompts_returns_both_document_kinds() {
+    // Issue #471: the single-source defaults endpoint seeds both prompt
+    // fields; the per-kind accessor must agree with the batch read so the
+    // wire never drifts from the worker seeding.
+    let defaults = super::prompts::default_prompts().unwrap();
+    assert!(
+        !defaults.script.trim().is_empty(),
+        "script default must exist"
+    );
+    assert!(
+        !defaults.schedule.trim().is_empty(),
+        "schedule default must exist"
+    );
+    assert_eq!(
+        defaults.script,
+        super::prompts::default_prompt(DocumentKind::Script).unwrap()
+    );
+    assert_eq!(
+        defaults.schedule,
+        super::prompts::default_prompt(DocumentKind::Schedule).unwrap()
     );
 }
 

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
@@ -156,14 +157,34 @@ pub fn curated_model_ids(provider: LlmProvider) -> &'static [&'static str] {
     }
 }
 
+/// The provider's recommended default model for a new AI-config creation
+/// (issue #471). Must be one of the provider's [`curated_model_ids`]; the
+/// `curated_models` endpoint flags it `recommended: true`. `None` for
+/// uncurated/unknown variants.
+pub fn recommended_model(provider: LlmProvider) -> Option<&'static str> {
+    match provider {
+        LlmProvider::OpenAI => Some("gpt-5.6-luna"),
+        LlmProvider::OpenRouter => Some("openai/gpt-5-mini"),
+        LlmProvider::EURouter => Some("mistral-large-3"),
+        LlmProvider::Neuralwatt => Some("glm-5.3"),
+        LlmProvider::OpenCodeGo | LlmProvider::OpenCode => Some("glm-5.3"),
+        LlmProvider::Ollama => Some("qwen3:8b"),
+        // LlmProvider is #[non_exhaustive]; unknown variants have no
+        // curated recommendation.
+        _ => None,
+    }
+}
+
 /// Build `ModelInfo` list for a provider from the curated model IDs.
 pub fn curated_models(provider: LlmProvider) -> Vec<ModelInfo> {
+    let recommended = recommended_model(provider);
     curated_model_ids(provider)
         .iter()
         .map(|id| ModelInfo {
             id: (*id).to_owned(),
             display_name: None,
             provider,
+            recommended: Some(*id) == recommended,
         })
         .collect()
 }
@@ -243,6 +264,43 @@ mod tests {
             for model in &models {
                 assert_eq!(model.provider, entry.variant);
             }
+        }
+    }
+
+    #[test]
+    fn recommended_model_is_curated_per_provider() {
+        // Issue #471: every curated provider must designate a recommendation
+        // that is part of its curated model set, so the frontend can always
+        // preselect a suggested model.
+        for entry in PROVIDER_REGISTRY {
+            let recommended = recommended_model(entry.variant)
+                .unwrap_or_else(|| panic!("{} has no recommended model", entry.key));
+            assert!(
+                curated_model_ids(entry.variant).contains(&recommended),
+                "recommended model {recommended} of {} is not curated",
+                entry.key
+            );
+        }
+    }
+
+    #[test]
+    fn curated_models_flags_exactly_one_recommended() {
+        // Issue #471: the curated models endpoint flags exactly ONE model per
+        // provider as `recommended` — the client keying for preselect.
+        for entry in PROVIDER_REGISTRY {
+            let models = curated_models(entry.variant);
+            let recommended: Vec<&ModelInfo> = models.iter().filter(|m| m.recommended).collect();
+            assert_eq!(
+                recommended.len(),
+                1,
+                "{} must have exactly one recommended model",
+                entry.key
+            );
+            assert_eq!(
+                recommended[0].id,
+                recommended_model(entry.variant)
+                    .unwrap_or_else(|| { panic!("{} has no recommended model", entry.key) })
+            );
         }
     }
 

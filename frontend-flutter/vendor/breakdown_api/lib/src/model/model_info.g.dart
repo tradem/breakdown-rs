@@ -13,11 +13,17 @@ class _$ModelInfo extends ModelInfo {
   final String id;
   @override
   final LlmProvider provider;
+  @override
+  final bool? recommended;
 
   factory _$ModelInfo([void Function(ModelInfoBuilder)? updates]) =>
       (ModelInfoBuilder()..update(updates))._build();
 
-  _$ModelInfo._({this.displayName, required this.id, required this.provider})
+  _$ModelInfo._(
+      {this.displayName,
+      required this.id,
+      required this.provider,
+      this.recommended})
       : super._();
   @override
   ModelInfo rebuild(void Function(ModelInfoBuilder) updates) =>
@@ -32,7 +38,8 @@ class _$ModelInfo extends ModelInfo {
     return other is ModelInfo &&
         displayName == other.displayName &&
         id == other.id &&
-        provider == other.provider;
+        provider == other.provider &&
+        recommended == other.recommended;
   }
 
   @override
@@ -41,6 +48,7 @@ class _$ModelInfo extends ModelInfo {
     _$hash = $jc(_$hash, displayName.hashCode);
     _$hash = $jc(_$hash, id.hashCode);
     _$hash = $jc(_$hash, provider.hashCode);
+    _$hash = $jc(_$hash, recommended.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -50,7 +58,8 @@ class _$ModelInfo extends ModelInfo {
     return (newBuiltValueToStringHelper(r'ModelInfo')
           ..add('displayName', displayName)
           ..add('id', id)
-          ..add('provider', provider))
+          ..add('provider', provider)
+          ..add('recommended', recommended))
         .toString();
   }
 }
@@ -70,6 +79,10 @@ class ModelInfoBuilder implements Builder<ModelInfo, ModelInfoBuilder> {
   LlmProvider? get provider => _$this._provider;
   set provider(LlmProvider? provider) => _$this._provider = provider;
 
+  bool? _recommended;
+  bool? get recommended => _$this._recommended;
+  set recommended(bool? recommended) => _$this._recommended = recommended;
+
   ModelInfoBuilder() {
     ModelInfo._defaults(this);
   }
@@ -80,6 +93,7 @@ class ModelInfoBuilder implements Builder<ModelInfo, ModelInfoBuilder> {
       _displayName = $v.displayName;
       _id = $v.id;
       _provider = $v.provider;
+      _recommended = $v.recommended;
       _$v = null;
     }
     return this;
@@ -105,6 +119,7 @@ class ModelInfoBuilder implements Builder<ModelInfo, ModelInfoBuilder> {
           id: BuiltValueNullFieldError.checkNotNull(id, r'ModelInfo', 'id'),
           provider: BuiltValueNullFieldError.checkNotNull(
               provider, r'ModelInfo', 'provider'),
+          recommended: recommended,
         );
     replace(_$result);
     return _$result;

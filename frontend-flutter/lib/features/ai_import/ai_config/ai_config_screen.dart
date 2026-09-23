@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
 
+import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -151,6 +153,24 @@ class _FirstRunFormState extends ConsumerState<_FirstRunForm> {
     }
   }
 
+  /// Non-blocking provenance hint (issue #471): shown only when the prompt
+  /// defaults have actually loaded (the fields are prefilled — editable). A
+  /// failed defaults fetch degrades to empty fields WITHOUT this hint — no
+  /// error card, the user simply types by hand.
+  Widget _prefillCaption(AsyncValue<AiImportDefaults>? promptDefaults) {
+    if (promptDefaults case AsyncData(:final value)) {
+      if (value.script.isNotEmpty && value.schedule.isNotEmpty) {
+        return const Text(
+          'Prompt fields are prefilled from the server defaults — you can '
+          'edit them.',
+          key: Key('ai-prefill-hint'),
+          style: TextStyle(fontSize: 12),
+        );
+      }
+    }
+    return const SizedBox.shrink();
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(aiConfigControllerProvider);
@@ -190,6 +210,8 @@ class _FirstRunFormState extends ConsumerState<_FirstRunForm> {
           scriptKey: 'ai-script-prompt',
           scheduleKey: 'ai-schedule-prompt',
         ),
+        const SizedBox(height: 4),
+        _prefillCaption(state.promptDefaults),
         const SizedBox(height: 24),
         FilledButton(
           key: const Key('ai-config-create'),

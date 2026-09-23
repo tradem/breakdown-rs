@@ -45,7 +45,8 @@ AiProviderInfo _provider(String key) => AiProviderInfo(
 ModelInfo _model(String id) => ModelInfo(
   (b) => b
     ..id = id
-    ..provider = LlmProvider.openai,
+    ..provider = LlmProvider.openai
+    ..recommended = false,
 );
 
 SettingsView _settings(String id, {String vaultKeyId = 'vk-1'}) => SettingsView(
