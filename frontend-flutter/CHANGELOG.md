@@ -17,6 +17,20 @@ releases are cut as `flutter-vX.Y.Z` tags.
 
 ### Added
 
+- AI-config edit form renders the **stored prompt texts** (issue #490):
+  `AiConfigView` now carries `prompts` (`{script, schedule}` → stored text)
+  alongside `prompt_kinds`, and the configured/edit form seeds the
+  script/schedule fields from the fetched config via the existing
+  `_PromptFields._sync` mechanism — the fields are never empty at load.
+  An untouched save echoes the stored prompt map (the update command
+  replaces it wholesale), so prompts are no longer silently cleared; a
+  cleared field stays a deliberate "remove prompt" intent (the key is
+  omitted). Backend `breakdown_core`/`infra`/`api` MINOR-bumped; client
+  regenerated.
+- **Version bump:** `0.3.0-alpha.17+27 → 0.3.0-alpha.18+28` (pre-release
+  increment per merged-PR practice on the alpha line; `+N` stays strictly
+  monotonic for the Play `versionCode`).
+
 - AI-config dialog first-run **prefill/preselect** (issue #471): the create
   flow no longer starts empty. The script/schedule prompt fields are seeded
   from `GET /v1/ai-import/defaults` (the deployment's single-source prompts,
