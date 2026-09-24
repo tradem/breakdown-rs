@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: glm-5.3 (neuralwatt) -->
+<!-- Co-authored-by: deepseek-v4-flash (neuralwatt) -->
 
 # Breakdown-RS App Icon
 
@@ -35,7 +36,7 @@ Disposition) lives in the neutral wardrobe-on-machinery composition.
 | `app_icon.svg` | Full-bleed 108dp composition (background + glyph). Render source for legacy launcher PNGs. |
 | `foreground.svg` | Glyph-only 108dp layer (transparent). Source of truth for the adaptive foreground **and** monochrome layer. |
 | `frontend-flutter/android/.../res/mipmap-anydpi-v26/ic_launcher.xml` | Adaptive-icon layer wiring (background color / foreground / monochrome). |
-| `frontend-flutter/android/.../res/drawable/ic_launcher_foreground.xml` | VectorDrawable mirroring `foreground.svg` 1:1 (path data byte-identical, verified). |
+| `frontend-flutter/android/.../res/drawable/ic_launcher_foreground.xml` | VectorDrawable mirroring `foreground.svg` 1:1 (path data byte-identical AND glyph transforms normalized-equivalent, verified). |
 | `frontend-flutter/android/.../res/values/colors.xml` | `ic_launcher_background` = brand seed teal. |
 | `frontend-flutter/android/.../res/mipmap-{mdpi..xxxhdpi}/ic_launcher.png` | Legacy raster (pre-API-26 launchers; 48dp reference × density). Regenerated, never hand-edit. |
 
@@ -49,7 +50,12 @@ Disposition) lives in the neutral wardrobe-on-machinery composition.
 2. **Layout constants:** checkroom centered at (54, 42), scale 0.06
    (48dp wide); gear centered at (54, 74.5), scale 0.025 (21dp diameter);
    ≥3.5dp clear gap between hanger bar and gear (Material negative-space
-   rule: gaps must not collapse at small sizes).
+   rule: gaps must not collapse at small sizes). The SVGs express these as
+   `translate(x y) scale(s) translate(px py)` chains; the VectorDrawable
+   bakes the composed `translateX/translateY/scaleX/scaleY`. `gen-app-icon.sh`
+   verifies the two forms evaluate to the same affine matrix, so a
+   transform-only edit to both SVGs that leaves the VectorDrawable stale
+   fails the drift check.
 3. **Monochrome layer (Android 13+ themed icons):** the glyph is a
    single-color (white) silhouette — the same VectorDrawable is reused for
    the `<monochrome>` layer and tinted by the system's theme palette.
@@ -64,9 +70,14 @@ bash frontend-flutter/scripts/gen-app-icon.sh --check   # committed-tree drift c
 ```
 
 The script verifies that the glyph path data in `app_icon.svg`,
-`foreground.svg`, and `ic_launcher_foreground.xml` stays byte-identical
-(hand-maintained VectorDrawables drift silently otherwise), asserts
-deterministic rasterizer output, and re-runs the safe-zone check.
+`foreground.svg`, and `ic_launcher_foreground.xml` stays byte-identical,
+that the two SVGs carry byte-identical transform attributes, and that the
+SVG transform chains normalize to the same affine matrix as the
+VectorDrawable's baked translate/scale groups (hand-maintained
+VectorDrawables drift silently otherwise, and a transform-only edit to both
+SVGs would leave the adaptive layer stale while the legacy rasters move).
+It also asserts deterministic rasterizer output and re-runs the safe-zone
+check.
 
 ## License / attribution
 
