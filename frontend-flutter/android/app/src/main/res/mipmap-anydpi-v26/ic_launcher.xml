@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Breakdown-RS adaptive launcher icon (API 26+).
+
+  Layer wiring per the Android adaptive-icon spec (108dp layers; the
+  launcher mask shows the inner ~66dp circle):
+    background: brand seed teal, color resource ic_launcher_background
+                (design/tokens/color.json color.brand.seed #009688)
+    foreground: drawable/ic_launcher_foreground (Glyph: Kleiderbügel
+                [Material Symbols checkroom] + Zahnrad [settings] darunter)
+    monochrome: same glyph reused — it is a single-color silhouette, the
+                prerequisite for Android 13+ themed icons (tint-by-alpha)
+
+  Sources: design/app-icon/*.svg (repo root). Regenerate legacy raster
+  equivalents + verify layer consistency via
+  frontend-flutter/scripts/gen-app-icon.sh.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <monochrome android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>

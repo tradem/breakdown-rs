@@ -17,6 +17,20 @@ releases are cut as `flutter-vX.Y.Z` tags.
 
 ### Added
 
+- **App icon:** the Flutter default launcher icon is replaced with the
+  Breakdown-RS mark — the official Material Symbols `checkroom` hanger
+  (identical to the app's costuming-tab glyph) above the `settings` gear,
+  on the flat brand seed teal (`#009688`, `design/tokens/color.json`).
+  Ships as a full adaptive icon (API 26+: vector foreground, color
+  background, Android 13+ monochrome/themed layer), legacy rasters for
+  pre-API-26 launchers, and a regeneration/drift pipeline
+  (`scripts/gen-app-icon.sh`) over the sources in `design/app-icon/`
+  (byte-stable, path-data sync check between SVG and VectorDrawable,
+  pixel-analytic safe-zone verification: 31.02dp < 33dp).
+- **Version bump:** `0.3.0-alpha.18+28 → 0.3.0-alpha.19+29` (pre-release
+  increment per merged-PR practice on the alpha line; `+N` stays strictly
+  monotonic for the Play `versionCode`).
+
 - AI-config edit form renders the **stored prompt texts** (issue #490):
   `AiConfigView` now carries `prompts` (`{script, schedule}` → stored text)
   alongside `prompt_kinds`, and the configured/edit form seeds the

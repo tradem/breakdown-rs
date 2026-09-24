@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Breakdown-RS launcher icon colors.
+  Single source: design/tokens/color.json color.brand.seed (#009688,
+  Material teal — the ColorScheme.fromSeed seed of the app's theme).
+-->
+<resources>
+    <color name="ic_launcher_background">#009688</color>
+</resources>
