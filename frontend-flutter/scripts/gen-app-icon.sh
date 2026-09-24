@@ -89,11 +89,13 @@ assert_adaptive_layer monochrome "@drawable/ic_launcher_foreground"
 
 # ---------------------------------------------------------------------------
 # 1. Consistency check. Path data must be byte-identical across app_icon.svg,
-#    foreground.svg, and the VectorDrawable; glyph transforms must match too:
-#    the two SVGs use byte-identical transform attributes, and foreground.svg
-#    normalizes to the same affine matrix as the VectorDrawable's baked
-#    translate/scale groups. Without the transform checks, a transform-only
-#    edit to both SVGs passes every path-data assertion while the legacy
+#    foreground.svg, and the VectorDrawable. Glyph transforms must match too,
+#    with the path->transform ASSOCIATION preserved (never a sorted-list
+#    compare): every glyph's full transform chain (ancestor <g> + own) must be
+#    byte-identical between the two SVGs AND normalize to the same affine
+#    matrix as the VectorDrawable's baked translate/scale groups. Without
+#    these checks, a transform-only edit to both SVGs — a swap, a parent <g>
+#    shift, a nested group — passes every path-data assertion while the legacy
 #    rasters move and the adaptive VectorDrawable stays stale.
 # ---------------------------------------------------------------------------
 extract_svg_paths() {
@@ -107,42 +109,52 @@ extract_vector_paths() {
   grep -o 'android:pathData="[^"]*"' "$1" | sed 's/^android:pathData=/d=/' | sort
 }
 
-extract_svg_transforms() {
-  # All transform="..." attributes (one per glyph), sorted.
-  grep -o 'transform="[^"]*"' "$1" | sort
-}
-
 diff <(extract_svg_paths "$FULL_ICON_SVG") <(extract_svg_paths "$FOREGROUND_SVG") >/dev/null \
   || die "app_icon.svg and foreground.svg glyph path data differ"
 
 diff <(extract_svg_paths "$FOREGROUND_SVG") <(extract_vector_paths "$VECTOR_DRAWABLE") >/dev/null \
   || die "foreground.svg and ic_launcher_foreground.xml glyph path data differ"
 
-# The two SVGs must carry byte-identical transform attributes (a transform
-# edit to only one of them is drift even before the VectorDrawable compare).
-diff <(extract_svg_transforms "$FULL_ICON_SVG") <(extract_svg_transforms "$FOREGROUND_SVG") >/dev/null \
-  || die "app_icon.svg and foreground.svg glyph transform strings differ"
-
 # ---------------------------------------------------------------------------
 # 1b. Normalized transform equivalence (SVG ↔ VectorDrawable). The SVG chains
 #     translate(x y) scale(s) translate(px py); the VectorDrawable bakes the
 #     composed translateX/translateY/scaleX/scaleY. Different syntax, same
-#     layout — so compare the affine matrices the two forms evaluate to
-#     (glyphs associated by their identical path data, order-independent).
+#     layout — so the affine matrices the two forms evaluate to are compared
+#     per glyph (association keyed by identical path data). Walks the tree
+#     root→leaf so ancestor <g> transforms and nested groups are composed in.
 #     Requires python3 (stdlib only). Fail-closed: without it the transform
 #     guarantee cannot be upheld, so this dies instead of degrading to a
-#     warning. Unsupported SVG ops (rotate/skew) raise an ERROR — a transform
-#     not representable as a translate/scale group forces an explicit bake.
+#     warning. Unsupported or unparsed SVG ops (rotate/skew/…) raise an ERROR
+#     — a transform not representable as a translate/scale group forces an
+#     explicit bake into the drawable.
 # ---------------------------------------------------------------------------
 verify_transform_consistency() {
   command -v python3 >/dev/null 2>&1 \
     || die "python3 not found (required for the glyph transform-consistency check)"
-  python3 - "$FOREGROUND_SVG" "$VECTOR_DRAWABLE" <<'PYEOF' || die "foreground.svg and ic_launcher_foreground.xml glyph transform drift (see above)"
+  python3 - "$FULL_ICON_SVG" "$FOREGROUND_SVG" "$VECTOR_DRAWABLE" <<'PYEOF' || die "icon SVG/VectorDrawable glyph transform drift (see above)"
 import re
 import sys
 import xml.etree.ElementTree as ET
 
 TOL = 1e-6
+IDENT = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+
+
+def mul(m, n):
+    """Compose affine matrices (column vectors): (m * n) x, i.e. m applied
+    after n. Each matrix is (a, b, c, d, e, f) with [a c e; b d f; 0 0 1]."""
+    a, c, e = m[0], m[2], m[4]
+    b, d, f = m[1], m[3], m[5]
+    A, C, E = n[0], n[2], n[4]
+    B, D, F = n[1], n[3], n[5]
+    return (
+        a * A + c * B,
+        b * A + d * B,
+        a * C + c * D,
+        b * C + d * D,
+        a * E + c * F + e,
+        b * E + d * F + f,
+    )
 
 
 def svg_matrix(transform_str):
@@ -153,18 +165,22 @@ def svg_matrix(transform_str):
     `translate(54 42) scale(0.06) translate(-480 479)` yields
     M = T(54,42) * S(0.06) * T(-480,479) -- the leftmost op is composed last
     (applied first to the glyph in viewport space). Empty/missing transform
-    is the identity.
+    is the identity. Fail-closed: mixed-case op names (skewX/skewY) and any
+    text left unconsumed by the parser raise instead of being dropped.
     """
-    a, b, c, d, e, f = 1.0, 0.0, 0.0, 1.0, 0.0, 0.0
+    a, b, c, d, e, f = IDENT
     if not transform_str.strip():
         return (a, b, c, d, e, f)
-    funcs = re.findall(r"([a-z]+)\(([^)]*)\)", transform_str)
-    if not funcs:
-        raise ValueError(f"no transform functions in: {transform_str!r}")
+    func_re = r"[A-Za-z]+\s*\([^)]*\)"
+    funcs = re.findall(r"([A-Za-z]+)\s*\(([^)]*)\)", transform_str)
+    leftover = re.sub(func_re, "", transform_str).replace(",", "").strip()
+    if leftover:
+        raise ValueError(f"unparsed transform text {leftover!r} in: {transform_str!r}")
     for name, args in funcs:
         ws = [float(x) for x in args.replace(",", " ").split()]
         if name == "translate":
-            tx, ty = ws[0], ws[1]
+            tx = ws[0]
+            ty = ws[1] if len(ws) > 1 else 0.0
             e, f = a * tx + c * ty + e, b * tx + d * ty + f
         elif name == "scale":
             sx, sy = ws[0], ws[1] if len(ws) > 1 else ws[0]
@@ -213,30 +229,47 @@ def _attrs(el):
 
 
 def parse_svg(path):
+    """Glyph path-data (key) -> (transform chain string, composed matrix).
+
+    Walks the tree root→leaf: every ancestor <g> transform is composed into
+    the matrix and appended to the chain, so parent-transform edits and
+    nested groups are reflected, and the chain preserves the association
+    between each path and all of its transforms.
+    """
     out = {}
-    for el in ET.parse(path).iter():
-        if _local(el.tag) != "path":
-            continue
-        at = _attrs(el)
-        d = at.get("d")
-        if d is None:
-            continue
-        out[d] = (at.get("transform", ""), svg_matrix(at.get("transform", "")))
+
+    def walk(el, m, chain):
+        tr = _attrs(el).get("transform", "")
+        if tr:
+            m = mul(m, svg_matrix(tr))
+            chain = f"{chain} {tr}".strip()
+        if _local(el.tag) == "path":
+            d = _attrs(el).get("d")
+            if d is not None:
+                out[d] = (chain, m)
+        for ch in el:
+            walk(ch, m, chain)
+
+    walk(ET.parse(path).getroot(), IDENT, "")
     return out
 
 
 def parse_vd(path):
+    """Glyph path-data (key) -> (innermost group attrs, composed matrix)."""
     out = {}
-    for g in ET.parse(path).iter():
-        if _local(g.tag) != "group":
-            continue
-        for p in g.iter():
-            if _local(p.tag) != "path":
-                continue
-            d = _attrs(p).get("pathData")
-            if d is None:
-                continue
-            out[d] = (_attrs(g), vd_matrix(_attrs(g)))
+
+    def walk(el, m, attrs):
+        if _local(el.tag) == "group":
+            attrs = _attrs(el)
+            m = mul(m, vd_matrix(attrs))
+        if _local(el.tag) == "path":
+            d = _attrs(el).get("pathData")
+            if d is not None:
+                out[d] = (attrs, m)
+        for ch in el:
+            walk(ch, m, attrs)
+
+    walk(ET.parse(path).getroot(), IDENT, {})
     return out
 
 
@@ -244,26 +277,39 @@ def close(x, y):
     return abs(x - y) <= TOL * max(1.0, abs(y))
 
 
-svg_file, vd_file = sys.argv[1], sys.argv[2]
+full_svg_file, svg_file, vd_file = sys.argv[1], sys.argv[2], sys.argv[3]
+full_svg = parse_svg(full_svg_file)
 svg = parse_svg(svg_file)
 vd = parse_vd(vd_file)
-if not svg or not vd:
+if not full_svg or not svg or not vd:
     print(
-        f"ERROR: no glyph paths found (svg={len(svg)}, vd={len(vd)}); "
+        f"ERROR: no glyph paths found (app_icon.svg={len(full_svg)}, "
+        f"foreground.svg={len(svg)}, drawable={len(vd)}); "
         "cannot verify transforms",
         file=sys.stderr,
     )
     sys.exit(1)
-missing = {k for k in svg} ^ {k for k in vd}
+missing = ({k for k in full_svg} ^ {k for k in svg}) | ({k for k in svg} ^ {k for k in vd})
 if missing:
-    print("ERROR: glyph path data present in only one of the files:", file=sys.stderr)
+    print("ERROR: glyph path data present in only some of the files:", file=sys.stderr)
     for d in sorted(missing):
         print(f"  {d[:60]}...", file=sys.stderr)
     sys.exit(1)
 bad = 0
 for d in sorted(svg):
-    tr, m_svg = svg[d]
+    full_chain, _ = full_svg[d]
+    chain, m_svg = svg[d]
     attrs, m_vd = vd[d]
+    if full_chain != chain:
+        print(
+            f"ERROR: transform association drift for glyph {d[:40]}... "
+            "(path->transform mapping differs between the SVGs)",
+            file=sys.stderr,
+        )
+        print(f"  app_icon.svg:   {full_chain or '(identity)'}", file=sys.stderr)
+        print(f"  foreground.svg: {chain or '(identity)'}", file=sys.stderr)
+        bad += 1
+        continue
     for i, name in enumerate("abcdef"):
         if close(m_svg[i], m_vd[i]):
             continue
@@ -272,7 +318,7 @@ for d in sorted(svg):
             f"svg={m_svg[i]:.6f} != drawable={m_vd[i]:.6f}",
             file=sys.stderr,
         )
-        print(f"  svg transform: {tr or '(identity)'}", file=sys.stderr)
+        print(f"  svg transform chain: {chain or '(identity)'}", file=sys.stderr)
         print(
             "  drawable group: "
             f"translateX={attrs.get('translateX', '0')} "
@@ -284,11 +330,12 @@ for d in sorted(svg):
         bad += 1
         break
 if bad:
-    print(f"ERROR: {bad} glyph transform(s) drifted (total {len(svg)})", file=sys.stderr)
+    print(f"ERROR: {bad} glyph(s) drifted (total {len(svg)})", file=sys.stderr)
     sys.exit(1)
 print(
-    f"OK: {len(svg)} glyph transforms match "
-    f"({svg_file.split('/')[-1]} vs {vd_file.split('/')[-1]})"
+    "OK: glyph path->transform association matches across the SVGs, and "
+    f"{len(svg)} glyph transforms match the VectorDrawable ("
+    f"{vd_file.split('/')[-1]})"
 )
 PYEOF
 }
