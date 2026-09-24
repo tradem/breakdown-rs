@@ -17,6 +17,32 @@ commits (ADR-020 D5).
 
 ## [0.11.0] - Unreleased
 
+### Fixed — photo upload returns a spurious 404 when the photo projector lags (issue #514)
+
+- `POST /costumes/{id}/photos` previously built its 201 `PhotoView` response
+  by synchronously reading the freshly-uploaded photo back from the
+  projection (`photo_repo().find_by_id`). With any projector lag the just
+  written photo was not yet indexed → `None` → a **404 `photo.not-found`**
+  even though `PhotoUploaded` + `PhotoLinked` had been persisted (the write
+  side raced the read side; the Flutter client then surfaced #513's generic
+  "could not be saved" fallback).
+- The handler now builds the 201 `PhotoView` entirely from the
+  dispatch/command output: the generated `photo_id`, the request
+  `content-type`/`size_bytes`, the `AggregateVersion` echo from
+  `PhotoCommands::upload`, and the three `Pending` variants / `exif_stripped_at:
+  None` / `binding` per the `PhotoUploaded` event contract (the thumbnail saga
+  has not run yet). No photo-projection read-back remains on the upload path, so a
+  lagging photo projector can never turn a successful write into a 404.
+- Regression: `upload_costume_photo_returns_201_despite_projection_lag` in
+  `handler_authz_batch2.rs` — an authorized upload returns **201** (with the
+  response asserting it derives solely from the recorded `UploadPhoto`
+  command) while `FakePhotoRepo::find_by_id` still returns not-found,
+  simulating a frozen photo projector. This test fails on the pre-fix handler
+  (404) and passes after.
+- No wire-contract/API-surface change (`PhotoView` response schema
+  unchanged; `openapi.yaml` untouched). Rides with the open 0.11.0 MINOR; no
+  additional bump.
+
 ### Added — `AiConfigView` exposes the stored prompt texts (issue #490)
 
 - The `AiConfigView` response schema now includes `prompts`

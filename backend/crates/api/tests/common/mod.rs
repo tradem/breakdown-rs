@@ -1238,10 +1238,16 @@ impl ShootingDayRepository for FakeShootingDayRepo {
 #[allow(dead_code)]
 pub struct FakePhotoStorage;
 
-/// Placeholder photo commands for tests — panics if called.
+/// Placeholder photo commands for tests — records dispatched commands and
+/// echoes a fixed initial version (issue #514 regression: the upload handler
+/// must build its 201 response from this command output, never from a
+/// synchronous projection read-back).
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-pub struct FakePhotoCommands;
+pub struct FakePhotoCommands {
+    /// Recorded `UploadPhoto` dispatches, in order.
+    pub uploads: Arc<Mutex<Vec<UploadPhoto>>>,
+}
 
 /// Placeholder photo repo for tests — panics if called.
 #[derive(Clone, Default)]
@@ -1275,8 +1281,9 @@ impl PhotoCommands for FakePhotoCommands {
     async fn upload(
         &self,
         _actor: UserId,
-        _cmd: UploadPhoto,
+        cmd: UploadPhoto,
     ) -> Result<AggregateVersion, DomainError> {
+        self.uploads.lock().await.push(cmd);
         Ok(AggregateVersion::INITIAL)
     }
     async fn normalize_original(
