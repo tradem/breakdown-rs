@@ -31,7 +31,7 @@ commits (ADR-020 D5).
   `content-type`/`size_bytes`, the `AggregateVersion` echo from
   `PhotoCommands::upload`, and the three `Pending` variants / `exif_stripped_at:
   None` / `binding` per the `PhotoUploaded` event contract (the thumbnail saga
-  has not run yet). No read-model query remains on the upload path, so a
+  has not run yet). No photo-projection read-back remains on the upload path, so a
   lagging photo projector can never turn a successful write into a 404.
 - Regression: `upload_costume_photo_returns_201_despite_projection_lag` in
   `handler_authz_batch2.rs` — an authorized upload returns **201** (with the

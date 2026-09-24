@@ -2561,7 +2561,7 @@ pub async fn upload_costume_photo<P: Ports>(
     // spurious 404 (issue #514). The view is fully determinable here — at
     // upload time all three variants are `Pending` by contract (the thumbnail
     // saga has not run yet) and EXIF stripping has not happened — so no
-    // read-model query is needed.
+    // photo-projection read-back is needed.
     let view = PhotoView {
         id: photo_id,
         content_type,
@@ -2570,7 +2570,7 @@ pub async fn upload_costume_photo<P: Ports>(
             PhotoVariantView {
                 kind: PhotoVariant::Original,
                 status: VariantStatus::Pending,
-                size_bytes: 0,
+                size_bytes,
             },
             PhotoVariantView {
                 kind: PhotoVariant::Thumb,

@@ -246,6 +246,23 @@ async fn upload_costume_photo_returns_201_despite_projection_lag() {
     );
     assert_eq!(view.content_type, "image/jpeg");
     assert_eq!(view.size_bytes, payload.len() as u64);
+    // The immediate response must mirror the projection the photo projector
+    // writes on `PhotoUploaded`: the Original variant carries the uploaded
+    // size, Thumb/Medium are 0 until the thumbnail saga runs.
+    assert_eq!(view.variants.len(), 3);
+    let original = view
+        .variants
+        .iter()
+        .find(|v| v.kind == PhotoVariant::Original)
+        .expect("original variant present");
+    assert_eq!(original.size_bytes, payload.len() as u64);
+    for v in view
+        .variants
+        .iter()
+        .filter(|v| v.kind != PhotoVariant::Original)
+    {
+        assert_eq!(v.size_bytes, 0, "non-original variants must start empty");
+    }
     assert_eq!(view.version, AggregateVersion::INITIAL);
     assert_eq!(view.exif_stripped_at, None);
     assert_eq!(
