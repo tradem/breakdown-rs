@@ -16,6 +16,18 @@ commits (ADR-020 D5).
 
 ## [0.17.0] - Unreleased
 
+### Fixed — photo thumbnail saga crash-loop on aggregate version conflict (issue #515)
+
+- `PhotoThumbnailSaga::process_upload` maps each `PhotoAggregate::execute`
+  result with a saga-tolerant mapper (`map_saga_execute`) that treats the
+  idempotent no-op outcome (`Executed(vec![])`) as success instead of failing
+  with `command produced no events`. Combined with the idempotent aggregate
+  commands (core), a redelivery of `PhotoUploaded` after the aggregate has
+  advanced stabilizes and produces the thumb/medium variants instead of
+  crash-looping with a version conflict.
+- `GenerateVariant` now carries the real generated thumb/medium byte sizes
+  (previously hardcoded `0`), so the read model reports actual variant sizes.
+
 ### Added — `AiConfigView` exposes the stored prompt texts (issue #490)
 
 - `map_config_row` now passes the parsed `prompts` JSONB map through into
