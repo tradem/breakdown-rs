@@ -36,8 +36,10 @@ title/body/CTA/dialog narratives).
 - Problem-`code` narratives (including the client-side AUTHZ-GATE 403
   narrative) resolved through catalog keys, never from backend
   `detail`.
-- Deterministic CI gate: `flutter gen-l10n` + fail on non-empty
-  untranslated-messages file (mirrors the OpenAPI drift gate).
+- Deterministic CI gate: `flutter gen-l10n` + fail when the
+  parsed untranslated-messages JSON report contains untranslated
+  entries (a complete catalog writes `{}` and passes; mirrors the
+  OpenAPI drift gate).
 - `intl`-based date/number formats everywhere.
 - Minimal-invasive access convention for non-widget layers
   (controllers/validators) that already hold a `BuildContext` or locale.
