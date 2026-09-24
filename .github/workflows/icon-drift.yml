@@ -1,0 +1,93 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4-flash (neuralwatt)
+
+#
+# App-icon drift gate (issue #496) — the launcher-icon analog of the
+# OpenAPI-client drift check and the Design Tokens drift gate
+# (design-tokens-drift.yml).
+#
+# The icon regeneration pipeline's single source of truth is
+# `frontend-flutter/scripts/gen-app-icon.sh --check`: it verifies that the
+# glyph path data and transforms stay byte-identical/normalized-equal across
+# design/app-icon/app_icon.svg, design/app-icon/foreground.svg and the
+# hand-maintained Android resources (ic_launcher_foreground.xml, adaptive
+# wiring, colors.xml), and that the committed mipmap-*/ic_launcher.png
+# rasters byte-match a fresh render. Without CI enforcement, a stale
+# source↔raster↔VectorDrawable combination can merge silently (PR #493 / #495
+# added the local/ verification; this workflow gates it on PRs and main).
+#
+# This is a STANDALONE workflow (not a job in flutter-ci.yml) because the icon
+# sources live at the monorepo root under `design/app-icon/**`, which no
+# `frontend-flutter/**` paths filter covers — a pure source-only SVG edit must
+# fail this gate too. See design/app-icon/README.md for the pipeline.
+#
+# Job runtime: ~1 minute (apt for librsvg2-bin + python3-pillow, then the
+# check itself; no Flutter SDK needed).
+#
+# CI hardening (monorepo AGENTS.md §2 / .github/instructions/workflow-hardening):
+#  - every action SHA-pinned (no moving version tags)
+#  - rsvg-convert (librsvg2-bin) + Pillow are installed from the pinned
+#    runner OS apt mirror (no lockfile mechanism exists for apt; the design
+#    intent is distro-pinned versions, revisited if a hermetic pin is needed)
+#  - no `github.event.*` interpolation into `run:` — the check takes no
+#    dynamic inputs
+#
+# Intentional drift (any icon source/resource change without a matching
+# regeneration) fails this job with the script's own `DRIFT DETECTED` /
+# `ERROR` output and a regenerate instruction.
+
+name: Icon Drift
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "design/app-icon/**"
+      - "frontend-flutter/android/app/src/main/res/**"
+      - "frontend-flutter/scripts/gen-app-icon.sh"
+      - ".github/workflows/icon-drift.yml"
+  pull_request:
+    paths:
+      - "design/app-icon/**"
+      - "frontend-flutter/android/app/src/main/res/**"
+      - "frontend-flutter/scripts/gen-app-icon.sh"
+      - ".github/workflows/icon-drift.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: icon-drift-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  icon-drift:
+    name: Regenerate + diff (design/app-icon)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install icon pipeline dependencies
+        # rsvg-convert comes from librsvg2-bin (mandatory — the drift check
+        # dies without it). python3 is preinstalled on the runner; python3-pillow
+        # upgrades the safe-zone pixel check from a warning to a verification
+        # (Pillow is optional in the script and degrades to a warning when
+        # absent, but installing it here makes the gate strictly stronger).
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y librsvg2-bin python3-pillow
+
+      - name: Icon drift check (gen-app-icon.sh --check)
+        # The script resolves frontend-flutter/ and monorepo-root paths from
+        # its own location, so a bare invocation from the repository root is
+        # enough. Fails (exit 1) on any drift with the script's existing
+        # `DRIFT DETECTED` / `ERROR` output; success prints "no drift".
+        run: |
+          set -euo pipefail
+          bash frontend-flutter/scripts/gen-app-icon.sh --check

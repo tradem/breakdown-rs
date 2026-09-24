@@ -69,6 +69,12 @@ bash frontend-flutter/scripts/gen-app-icon.sh          # regenerate + verify
 bash frontend-flutter/scripts/gen-app-icon.sh --check   # committed-tree drift check
 ```
 
+CI enforces the committed-tree drift check on PRs and main
+(`.github/workflows/icon-drift.yml`): any change under `design/app-icon/**`, the
+Android icon resources (`frontend-flutter/android/app/src/main/res/**`), or the
+script itself that leaves a stale source↔raster↔VectorDrawable combination fails
+this gate with the script's `DRIFT DETECTED` / `ERROR` output.
+
 The script verifies that the glyph path data in `app_icon.svg`,
 `foreground.svg`, and `ic_launcher_foreground.xml` stays byte-identical,
 that the two SVGs carry byte-identical transform attributes, and that the
