@@ -15,6 +15,19 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.11.0] - Unreleased
+
+### Added — `AiConfigView` exposes the stored prompt texts (issue #490)
+
+- The `AiConfigView` response schema now includes `prompts`
+  (`{string: string}`, keys `script`/`schedule`) alongside `prompt_kinds`,
+  so the configured/edit form renders the stored prompt texts and an
+  untouched save preserves them. Additive wire field — `/v1` path version
+  stays (ADR-021 D3); `openapi.yaml` regenerated.
+- **MINOR bump (ADR-020 D2):** new required response field on
+  `AiConfigView` plus re-pinned `breakdown_core` 0.12.0 / `infra` 0.17.0:
+  **0.10.0 → 0.11.0**.
+
 ## [0.10.0] - Unreleased
 
 ### Added — AI-config dialog defaults + suggestion contract (issue #471)
