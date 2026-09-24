@@ -40,7 +40,8 @@ use breakdown_core::character::CharacterView;
 use breakdown_core::costume::CostumeView;
 use breakdown_core::episode::EpisodeView;
 use breakdown_core::shared::{
-    AggregateVersion, BlockId, EpisodeId, PhotoId, SceneShootId, SeasonId, SeriesId, ShootingDayId,
+    AggregateVersion, BlockId, EpisodeId, PhotoId, PhotoVariant, SceneShootId, SeasonId, SeriesId,
+    ShootingDayId, VariantStatus,
 };
 use breakdown_core::shooting_day::ShootingDayView;
 use common::FakePorts;
@@ -197,6 +198,69 @@ async fn upload_costume_photo_denies_non_member() {
     assert_eq!(problem.status, 403);
     assert_eq!(problem.code, "domain.forbidden");
     assert!(!problem.detail.is_empty());
+}
+
+/// Regression for issue #514: an authorized upload must return **201** with a
+/// view derived entirely from the dispatch/command output even when the photo
+/// projector has not yet caught up. `FakePhotoRepo::find_by_id` returns
+/// `NotFound` here (simulating projector lag), so the pre-fix handler — which
+/// built its response via a synchronous `photo_repo().find_by_id` read-back —
+/// turned the successful write into a spurious 404 `photo.not-found`.
+#[tokio::test]
+async fn upload_costume_photo_returns_201_despite_projection_lag() {
+    let ports = FakePorts::default();
+    let (costume_id, _sid) = seed_costume_chain(&ports).await;
+    // Authorize the caller (the handler-internal AUTHZ-GATE must pass).
+    *ports.membership_repo.costume_role_override.lock().await = Some(Ok(true));
+    // Keep a handle on the photo-command spy before `ports` is moved into the state.
+    let photo_commands = ports.photo_commands.clone();
+    let state = app_state(ports);
+
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert("content-type", "image/jpeg".parse().unwrap());
+    let payload = b"fake-image-data";
+    let result = upload_costume_photo::<FakePorts>(
+        State(state),
+        dummy_user(),
+        Path(costume_id),
+        headers,
+        Bytes::from_static(payload),
+    )
+    .await;
+
+    let (status, Json(view)) =
+        result.expect("authorized upload must succeed even when the photo projection lags");
+    assert_eq!(status, axum::http::StatusCode::CREATED);
+
+    // The response must be built solely from command output: the dispatched
+    // `UploadPhoto` carries the authoritative id/content-type/size.
+    let recorded = photo_commands
+        .uploads
+        .lock()
+        .await
+        .pop()
+        .expect("UploadPhoto must have been dispatched");
+    assert_eq!(
+        view.id, recorded.id,
+        "response id must be the dispatched photo id"
+    );
+    assert_eq!(view.content_type, "image/jpeg");
+    assert_eq!(view.size_bytes, payload.len() as u64);
+    assert_eq!(view.version, AggregateVersion::INITIAL);
+    assert_eq!(view.exif_stripped_at, None);
+    assert_eq!(
+        view.binding,
+        breakdown_core::photo::binding::PhotoBinding::Costume { costume_id }
+    );
+    let statuses: Vec<_> = view.variants.iter().map(|v| (v.kind, v.status)).collect();
+    assert_eq!(
+        statuses,
+        vec![
+            (PhotoVariant::Original, VariantStatus::Pending),
+            (PhotoVariant::Thumb, VariantStatus::Pending),
+            (PhotoVariant::Medium, VariantStatus::Pending),
+        ]
+    );
 }
 
 #[tokio::test]

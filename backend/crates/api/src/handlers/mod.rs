@@ -71,9 +71,10 @@ use breakdown_core::membership::{
 use breakdown_core::ops::ProjectorHealthSnapshot;
 // Trait method scope for the ops handler (`dead_letter_count` etc.).
 use breakdown_core::ops::ProjectorHealthRepository as _;
+use breakdown_core::photo::binding::PhotoBinding;
 use breakdown_core::photo::commands::UploadPhoto as UploadPhotoCmd;
-use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
-use breakdown_core::photo::views::PhotoView;
+use breakdown_core::photo::ports::{PhotoCommands, PhotoStorage};
+use breakdown_core::photo::views::{PhotoVariantView, PhotoView};
 use breakdown_core::reporting::{
     ArchivalTrigger, EnqueueArchivalRequest, EnqueueArchivalResult, RenderPresentationContext,
     ReportArchivalQueue, ReportKind, ReportLocale, ReportRenderRequest, SnapshotIdentity,
@@ -107,7 +108,7 @@ use breakdown_core::settings::ports::{
 use breakdown_core::settings::views::SettingsView;
 use breakdown_core::shared::{
     AggregateVersion, BlockId, EpisodeId, LexicalSortKey, PhotoId, PhotoVariant, SceneShootId,
-    SeasonId, SeriesId, ShootingDayId, UserId,
+    SeasonId, SeriesId, ShootingDayId, UserId, VariantStatus,
 };
 use breakdown_core::shooting_day::commands::{
     ArchiveShootingDay, CreateShootingDay, RenameShootingDay, ReorderShootingDay,
@@ -2510,9 +2511,10 @@ pub async fn upload_costume_photo<P: Ports>(
         )
         .await?;
 
-    // Dispatch UploadPhoto command.
+    // Dispatch UploadPhoto command; the returned version is the only
+    // read-side echo needed to build the response (issue #514).
     let series_id = series_id_for_costume(&state, costume_id).await?;
-    state
+    let photo_version = state
         .ports
         .photo_commands()
         .upload(
@@ -2521,7 +2523,7 @@ pub async fn upload_costume_photo<P: Ports>(
                 id: photo_id,
                 content_type: content_type.clone(),
                 size_bytes,
-                binding: breakdown_core::photo::PhotoBinding::Costume { costume_id },
+                binding: PhotoBinding::Costume { costume_id },
                 series_id,
             },
         )
@@ -2552,8 +2554,39 @@ pub async fn upload_costume_photo<P: Ports>(
             drop(state.ports.photo_storage().delete_all(photo_id));
         })?;
 
-    // Read back the projected photo view.
-    let view = state.ports.photo_repo().find_by_id(photo_id).await?;
+    // Build the 201 response from the dispatch/command output instead of
+    // reading the freshly written photo back from the projection: the photo
+    // projector may not have indexed it yet, and a synchronous
+    // `photo_repo().find_by_id` read-back turns a successful write into a
+    // spurious 404 (issue #514). The view is fully determinable here — at
+    // upload time all three variants are `Pending` by contract (the thumbnail
+    // saga has not run yet) and EXIF stripping has not happened — so no
+    // read-model query is needed.
+    let view = PhotoView {
+        id: photo_id,
+        content_type,
+        size_bytes,
+        variants: vec![
+            PhotoVariantView {
+                kind: PhotoVariant::Original,
+                status: VariantStatus::Pending,
+                size_bytes: 0,
+            },
+            PhotoVariantView {
+                kind: PhotoVariant::Thumb,
+                status: VariantStatus::Pending,
+                size_bytes: 0,
+            },
+            PhotoVariantView {
+                kind: PhotoVariant::Medium,
+                status: VariantStatus::Pending,
+                size_bytes: 0,
+            },
+        ],
+        exif_stripped_at: None,
+        binding: PhotoBinding::Costume { costume_id },
+        version: photo_version,
+    };
 
     Ok((StatusCode::CREATED, Json(view)))
 }
