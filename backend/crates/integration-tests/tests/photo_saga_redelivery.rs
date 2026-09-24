@@ -44,6 +44,7 @@ use infra::photo::sagas::PhotoThumbnailSaga;
 use kameo_es::command_service::CommandService;
 use kameo_es::event_handler::EntityEventHandler;
 use kameo_es::{Entity, Event, Metadata, StreamId};
+use sierradb_client::AsyncCommands;
 use uuid::Uuid;
 
 fn test_user() -> breakdown_core::shared::UserId {
@@ -195,6 +196,23 @@ fn uploaded_event(
     }
 }
 
+/// Raw `ESCAN` of the photo event stream, returning the recorded event names
+/// in stream order. Proves directly whether redelivery appended duplicate
+/// events — independent of projector timing (the projection check alone can
+/// pass before a stray duplicate reaches the projector).
+async fn photo_stream_event_names(
+    sierra_client: &redis::Client,
+    photo_id: PhotoId,
+) -> Result<Vec<String>> {
+    let stream_id = StreamId::new_from_parts(PhotoAggregate::category(), photo_id).to_string();
+    let mut conn = sierra_client.get_multiplexed_async_connection().await?;
+    let batch: sierradb_client::EventBatch = conn
+        .escan(&stream_id, 0, None, Some(100))
+        .await
+        .map_err(|e| anyhow::anyhow!("ESCAN photo stream {stream_id}: {e}"))?;
+    Ok(batch.events.into_iter().map(|e| e.event_name).collect())
+}
+
 #[tokio::test]
 async fn thumbnail_saga_redelivery_is_idempotent_and_converges() -> Result<()> {
     // Start all three tiers: Postgres (projection), SierraDB (event store),
@@ -290,12 +308,36 @@ async fn thumbnail_saga_redelivery_is_idempotent_and_converges() -> Result<()> {
         }
     }
 
+    // The event store must contain exactly the four saga-produced events, and
+    // the redelivery below must not append any further events (idempotent
+    // no-op + storage guard) — verified against the store itself, not the
+    // (asynchronous) projection.
+    let stream_after_first = photo_stream_event_names(&sierra_client, photo_id).await?;
+    assert_eq!(
+        stream_after_first,
+        vec![
+            "PhotoUploaded".to_string(),
+            "OriginalNormalized".to_string(),
+            "VariantGenerated".to_string(),
+            "VariantGenerated".to_string(),
+        ],
+        "the saga must have produced exactly PhotoUploaded + OriginalNormalized + 2×VariantGenerated"
+    );
+
     // ── 2nd delivery: replay `PhotoUploaded` AFTER the aggregate advanced. ──
     // This used to crash-loop with `expected AggregateVersion(1), current
     // AggregateVersion(2)` (issue #515); it must now be an idempotent no-op.
     saga.handle(&mut (), photo_id, event)
         .await
         .map_err(|e| anyhow::anyhow!("redelivery failed: {e}"))?;
+
+    // Direct event-store assertion: no duplicate/extra event may have been
+    // appended by the redelivery.
+    let stream_after_redelivery = photo_stream_event_names(&sierra_client, photo_id).await?;
+    assert_eq!(
+        stream_after_redelivery, stream_after_first,
+        "redelivery must not append any events to the photo stream"
+    );
 
     let converged_after_redelivery = await_photo_converged(&photo_repo, photo_id, deadline).await?;
     assert_eq!(

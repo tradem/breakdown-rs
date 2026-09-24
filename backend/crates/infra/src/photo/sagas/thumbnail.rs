@@ -15,7 +15,7 @@ use breakdown_core::photo::commands::{GenerateVariant, NormalizeOriginal};
 use breakdown_core::photo::events::PhotoEvent;
 use breakdown_core::photo::ports::PhotoStorage;
 use breakdown_core::shared::{
-    AggregateVersion, EventMetadata, PhotoId, PhotoVariant, Provenance, SeriesId,
+    AggregateVersion, EventMetadata, PhotoId, PhotoVariant, Provenance, SeriesId, VariantStatus,
 };
 use kameo_es::command_service::CommandService;
 use kameo_es::command_service::ExecuteExt;
@@ -24,8 +24,9 @@ use kameo_es::error::ExecuteError;
 use kameo_es::event_handler::EventHandlerStreamBuilder;
 use kameo_es::event_handler::{EntityEventHandler, EventHandler};
 use kameo_es::event_handler::{EventHandlerError, EventProcessor};
-use kameo_es::{Entity, Event};
+use kameo_es::{Apply, Entity, Event, Metadata, StreamId};
 use redis::Client as RedisClient;
+use sierradb_client::AsyncCommands;
 use sierradb_client::ExpectedVersion;
 use sierradb_client::SierraAsyncClientExt;
 
@@ -97,7 +98,60 @@ impl PhotoThumbnailSaga {
         retry_transient(|| self.process_upload(id, series_id)).await
     }
 
+    /// Rebuild the photo aggregate's current state from the event store.
+    ///
+    /// Read-side sagas must not consult a read-model projection (CQRS
+    /// boundary); the photo event stream is the write-side source of truth.
+    /// Used only to short-circuit redelivery so a completed photo is never
+    /// re-encoded / re-stored lossily (issue #515). A stream with no events
+    /// yields the default (empty) aggregate state, which no caller treats as
+    /// complete.
+    async fn current_photo_state(&self, id: PhotoId) -> Result<PhotoAggregate> {
+        let stream_id = StreamId::new_from_parts(PhotoAggregate::category(), id).to_string();
+        let mut conn = self.cmd_service.conn();
+        let mut state = PhotoAggregate::default();
+        let mut from_version = 0u64;
+        loop {
+            let batch: sierradb_client::EventBatch = conn
+                .escan(&stream_id, from_version, None, Some(1_000))
+                .await
+                .map_err(|e| anyhow::anyhow!("escan photo stream {stream_id}: {e}"))?;
+            for event in &batch.events {
+                let photo_event: PhotoEvent = ciborium::from_reader(event.payload.as_slice())
+                    .map_err(|e| anyhow::anyhow!("deserialize photo stream {stream_id}: {e}"))?;
+                state.apply(photo_event, Metadata::default());
+                from_version = event.stream_version + 1;
+            }
+            if !batch.has_more {
+                break;
+            }
+        }
+        Ok(state)
+    }
+
     async fn process_upload(&self, id: PhotoId, series_id: Option<SeriesId>) -> Result<()> {
+        // Redelivery guard (issue #515): read the aggregate's current state
+        // from the event store (the write-side source of truth — never a
+        // read-model projection) and only redo work that is still missing.
+        // A fully processed, or already deleted, photo is a complete no-op:
+        // re-encoding an already-encoded original would add another lossy JPEG
+        // generation and degrade the persisted bytes on every redelivery.
+        let state = self.current_photo_state(id).await?;
+        if state.deleted_at.is_some() {
+            return Ok(());
+        }
+        let complete = state.variants.len() == 3
+            && state
+                .variants
+                .iter()
+                .all(|v| v.status == VariantStatus::Ready);
+        if complete {
+            return Ok(());
+        }
+        let original_ready = variant_ready(&state, PhotoVariant::Original);
+        let thumb_ready = variant_ready(&state, PhotoVariant::Thumb);
+        let medium_ready = variant_ready(&state, PhotoVariant::Medium);
+
         // Fetch the original bytes from storage.
         let photo_bytes = self.storage.fetch(id, PhotoVariant::Original).await?;
 
@@ -109,33 +163,41 @@ impl PhotoThumbnailSaga {
         let thumb_size = thumb_bytes.len() as u64;
         let medium_size = medium_bytes.len() as u64;
 
-        // Overwrite the original with the EXIF-stripped, re-encoded version.
-        self.storage
-            .store(
-                id,
-                PhotoVariant::Original,
-                re_encoded,
-                photo_bytes.content_type.clone(),
-            )
-            .await?;
+        // Overwrite the original with the EXIF-stripped, re-encoded version —
+        // but only when it is not already the normalized original, so a
+        // partial redelivery never runs a second lossy generation on it.
+        if !original_ready {
+            self.storage
+                .store(
+                    id,
+                    PhotoVariant::Original,
+                    re_encoded,
+                    photo_bytes.content_type.clone(),
+                )
+                .await?;
+        }
 
-        // Store the generated variants.
-        self.storage
-            .store(
-                id,
-                PhotoVariant::Thumb,
-                thumb_bytes,
-                "image/jpeg".to_string(),
-            )
-            .await?;
-        self.storage
-            .store(
-                id,
-                PhotoVariant::Medium,
-                medium_bytes,
-                "image/jpeg".to_string(),
-            )
-            .await?;
+        // Store only the variants that are still missing.
+        if !thumb_ready {
+            self.storage
+                .store(
+                    id,
+                    PhotoVariant::Thumb,
+                    thumb_bytes,
+                    "image/jpeg".to_string(),
+                )
+                .await?;
+        }
+        if !medium_ready {
+            self.storage
+                .store(
+                    id,
+                    PhotoVariant::Medium,
+                    medium_bytes,
+                    "image/jpeg".to_string(),
+                )
+                .await?;
+        }
 
         // Dispatch the normalization command via Aggregate::execute. The
         // command is idempotent (no-op when the original is already Ready),
@@ -341,6 +403,14 @@ pub async fn spawn_photo_thumbnail_saga(
     .await?;
     drop(_handle);
     Ok(())
+}
+
+/// Whether a variant of a photo aggregate state is already `Ready`.
+fn variant_ready(state: &PhotoAggregate, kind: PhotoVariant) -> bool {
+    state
+        .variants
+        .iter()
+        .any(|v| v.kind == kind && v.status == VariantStatus::Ready)
 }
 
 /// Apply EXIF orientation to an image, returning the (possibly rotated) image

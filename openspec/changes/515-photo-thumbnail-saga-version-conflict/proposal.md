@@ -95,3 +95,16 @@ and all dispatches for one photo serialize on the same `CommandService`
       variant rows are `Ready`.
 - [ ] Existing strict versioning for `DeletePhoto` / `MarkVariantFailed` is
       preserved.
+
+## Review follow-up (CodeRabbit on PR #523)
+
+- **Storage guard on redelivery:** `process_upload` now rebuilds the photo
+  state from the photo event stream (`escan` + `Apply`, the write-side source
+  of truth — never a projection) before any byte work. A fully processed or
+  deleted photo is a complete no-op; a partial redelivery skips re-storing the
+  already-normalized `Original` (avoiding a second lossy JPEG generation) and
+  only persists the missing variants.
+- **Direct no-append assertion:** the Tier-4 test now ESCANs the photo stream
+  after the first delivery and across the redelivery, asserting the exact four
+  events and that redelivery appends nothing (independent of projector
+  timing).
