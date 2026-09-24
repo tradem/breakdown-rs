@@ -100,22 +100,38 @@ its keys in both places in the same change (extends the existing
 glossary workflow, §design docs).
 
 **D5 — Plurals/placeholders via ICU Message Syntax in ARB.**
-Counts (e.g. `'N Fotos ausgewählt'`), dates and numbers use ICU
+Counts (e.g. a photo-count label), dates and numbers use ICU
 plural/select and `intl`-typed placeholders (`int`, `DateTime`,
-`num`) declared in the `@key` metadata — no format!-style manual string
-interpolation anywhere in `lib/` for user-visible text (CI: grep-gate
-for `'${' inside copies outside ARB declarations is indicative, not
-primary — catalog completeness does the real enforcement: any missing
-key is a compile error via `nullable-getter: false`).
+`num`) declared in the `@key` metadata — no manual string
+interpolation of user-visible text anywhere in `lib/` outside ARB
+placeholder declarations. Any missing catalog key is a compile-time
+error via `nullable-getter: false`.
 
-**D6 — CI gate mirrors the OpenAPI drift gate.**
-Frontend CI gains a step: run `flutter gen-l10n` (configured with
-`untranslated-messages-file`),
-then fail if the report file exists and is non-empty; also fail if
-`dart format --set-exit-if-changed` on regenerated output shows drift
-between committed `.g.dart` (localizations output is checked in, like
-every other codegen artifact in this repo). gitleaks already covers
-`.arb`.
+**D6 — Two CI gates with distinct responsibilities.**
+Catalog completeness and the absence of hardcoded inline copy are
+different guarantees and are enforced separately — a widget retaining an
+inline string references no ARB key, so generation and compilation can
+both pass while that copy stays untranslated.
+
+1. **Catalog completeness (untranslated-keys gate).** CI runs
+   `flutter gen-l10n` with `untranslated-messages-file`, then **parses
+   the JSON report and fails only when it contains untranslated
+   entries**. A fully translated catalog yields an empty object `{}`,
+   not an empty file, so a file-size check would false-positive; the
+   gate keys on report content. It covers keys that exist in the
+   template but cannot see copy that was never turned into a key.
+2. **Inline user-facing literals (static audit).** A separate, bounded
+   static check / migration audit over `lib/features/**` — string
+   literals in `Text`, `label*`, `tooltip*`, `hint*`, dialog copy,
+   snackbars — blocks new hardcoded copy from entering and drives the
+   migration sweep (task 4.2). This is the enforcement the catalog gate
+   cannot provide.
+3. **Drift check.** CI runs message generation into a throwaway then
+   diffs the **generated directory** against the committed tree —
+   covering all generated `.dart` output including
+   `app_localizations.dart`, not just formatting via `dart format` and
+   not only `.g.dart` files — and fails on any difference. gitleaks
+   already covers `.arb`.
 
 **D7 — Generated output checked in, read-only.**
 `gen-l10n` output (`.dart_tool` default or `synthetic-package: false`

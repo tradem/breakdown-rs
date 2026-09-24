@@ -9,7 +9,7 @@
 - [ ] 1.3 Create the empty catalog `app_de.arb` / `app_en.arb` with a first smoke key (`appTitleBreakdown`), run `flutter gen-l10n`, commit the generated `lib/l10n/generated/` output, and verify the imports compile
 - [ ] 1.4 Wire `MaterialApp.router` in `lib/app.dart`: `localizationsDelegates`, `supportedLocales: AppLocalizations.supportedLocales` (`de`, `en`); verify Material-owned surfaces (date picker cancel) render German on a `de-DE` device
 - [ ] 1.5 Add the Riverpod `appLocalizationsProvider` (derived from the widget-resolved locale, per design D3) with a unit test proving it tracks the locale the root widget resolves — never an independent system-locale read
-- [ ] 1.6 Add the CI gate to the frontend workflow: `flutter gen-l10n`, then fail when `l10n-untranslated.txt` exists and is non-empty, plus drift detection on the committed generated output (mirror of the OpenAPI drift step, SHA-pinned action, no `github.event.*` interpolation into `run:`)
+- [ ] 1.6 Add the CI gate to the frontend workflow: `flutter gen-l10n`, then **parse the `untranslated-messages-file` JSON report and fail only when it contains untranslated entries** (a complete catalog writes `{}`), plus a `de`/`en` ARB key-set parity check (catches English-only keys), plus drift detection that diffs the generated directory (all `.dart`, incl. `app_localizations.dart`) against the committed tree (mirror of the OpenAPI drift step, SHA-pinned action, no `github.event.*` interpolation into `run:`)
 
 ## 2. Catalog seeding from the glossary
 
@@ -31,13 +31,13 @@ For every feature folder: migrate all user-facing strings to catalog keys, run `
 
 ## 4. Cross-cutting hardening
 
-- [ ] 4.1 Problem-code narrative map: centralize `code` → (title, body, CTA) resolution over `ProblemError` driven by `appLocalizationsProvider` (branch on `code`, never `detail`; keep the AUTHZ-GATE pattern comments) with unit tests asserting both `Ok`/`Err` branches per design §5 error-hygiene
+- [ ] 4.1 Problem-code narrative map: centralize `code` → (title, body, CTA) resolution over `ProblemError` driven by `appLocalizationsProvider` (branch on `code`, never `detail`; keep the AUTHZ-GATE pattern comments) with a **generic localized fallback for unknown `code` values** — backend identifiers must never surface as UI copy — and unit tests asserting both `Ok`/`Err` branches per design §5 error-hygiene, including one test that an unknown code renders the fallback, not the raw code string
 - [ ] 4.2 Sweep `lib/features/**` for remaining hardcoded user-facing strings (grep for `'…'` inside `Text`, `label*`, `tooltip*`, `hint*`, dialog copy) until the audit is empty; replace remaining hand-rolled date/number patterns with `intl`
 - [ ] 4.3 Add one locale-aware widget test per tier-2 screen: pump the screen in `de` AND `en`, assert catalog strings and German-long-text layout survival (no fixed-width text truncation) on the seasons screen as reference (`first-screen-seasons` pattern)
 
 ## 5. Verification & wrap-up
 
-- [ ] 5.1 Full local gate: `dart format --set-exit-if-changed`, `flutter analyze`, breakdown_lints runner, `flutter test --coverage` + coverde threshold, `flutter gen-l10n` + empty untranslated report
+- [ ] 5.1 Full local gate: `dart format --set-exit-if-changed`, `flutter analyze`, breakdown_lints runner, `flutter test --coverage` + coverde threshold, `flutter gen-l10n` with a **parsed empty untranslated report** and passing `de`/`en` key-set parity
 - [ ] 5.2 Integration smoke on device: verify German rendering on a `de-DE` device and English on an `en-US` device across the critical flows (season wizard, photo upload, Soll/Ist report)
 - [ ] 5.3 Update `frontend-flutter/AGENTS.md` §6/§9 testing & codegen conventions with the l10n rules (catalog-only copy, gen-l10n before commit, goldens in `de`); cross-link ADR-034 in `backend/docs/architecture/adrs/README.md`
 - [ ] 5.4 Close issue #518 when acceptance criteria are met; archive this change

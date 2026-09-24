@@ -26,8 +26,10 @@ missing key is a compile-time error.
 #### Scenario: De template is canonical
 - **WHEN** the German and English catalogs disagree on whether a key
   exists
-- **THEN** CI fails via the untranslated-messages gate (same rule for
-  both directions), keeping `de` and `en` key sets identical
+- **THEN** CI fails via a key-set parity check that compares the `de`
+  and `en` ARB key sets in both directions, keeping them identical
+  (the untranslated report alone only detects missing keys in the
+  secondary locale, not English-only additions)
 
 ### Requirement: Localization wiring in the app root
 The app root (`MaterialApp.router`) SHALL declare
@@ -97,15 +99,27 @@ Dart code.
   (e.g. `d. MMMM y` semantics), not a hardcoded pattern string
 
 ### Requirement: CI untranslated-keys gate
-Frontend CI SHALL run message generation and fail when the configured
-`untranslated-messages-file` exists and is non-empty, mirroring the
-OpenAPI-client drift gate; the committed generated output SHALL match
-regeneration exactly. gitleaks scans the `.arb` catalog files.
+Frontend CI SHALL run message generation and parse the configured
+`untranslated-messages-file` JSON report, failing **only when the
+report contains untranslated entries** — a complete catalog produces an
+empty object `{}`, which SHALL NOT fail the gate. CI SHALL additionally
+compare the `de` and `en` ARB key sets and fail on any asymmetry (the
+untranslated report detects only keys present in the template and
+missing from the secondary locale, so a parity check is required to
+catch English-only entries). The committed generated output SHALL match
+regeneration exactly, covering all generated `.dart` files including
+`app_localizations.dart`. gitleaks scans the `.arb` catalog files.
 
 #### Scenario: Untranslated key blocks the pipeline
 - **WHEN** a PR adds a key to `app_de.arb` without the `en` counterpart
 - **THEN** CI fails the untranslated-keys gate with a
   regenerate-and-complete instruction
+
+#### Scenario: English-only key blocks the pipeline
+- **WHEN** a PR adds a key to `app_en.arb` that is absent from
+  `app_de.arb`
+- **THEN** the key-set parity check fails CI with a
+  complete-the-template instruction
 
 ### Requirement: Glossary remains the copy key index
 `docs/design/glossary.md` SHALL remain the single human index of copy
