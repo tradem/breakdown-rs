@@ -45,6 +45,7 @@ RES_DIR="$FRONTEND_DIR/android/app/src/main/res"
 FULL_ICON_SVG="$ICON_DIR/app_icon.svg"
 FOREGROUND_SVG="$ICON_DIR/foreground.svg"
 VECTOR_DRAWABLE="$RES_DIR/drawable/ic_launcher_foreground.xml"
+ADAPTIVE_ICON="$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml"
 
 CHECK_ONLY=0
 if [[ "${1:-}" == "--check" ]]; then
@@ -60,10 +61,23 @@ command -v rsvg-convert >/dev/null 2>&1 \
   || die "rsvg-convert not found (install librsvg-tools / librsvg)"
 
 for f in "$FULL_ICON_SVG" "$FOREGROUND_SVG" "$VECTOR_DRAWABLE" \
-         "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml" \
+         "$ADAPTIVE_ICON" \
          "$RES_DIR/values/colors.xml"; do
   [[ -f "$f" ]] || die "missing icon source/resource: $f"
 done
+
+# Adaptive-icon layer wiring: assert the expected background/foreground/
+# monochrome references. Existence alone is not enough — dropping the
+# monochrome layer (disabling Android 13+ themed icons) or pointing the
+# foreground at the wrong drawable must fail both --check and regeneration.
+assert_adaptive_layer() {
+  local element="$1" drawable="$2"
+  grep -Eq "^[[:space:]]*<${element}[[:space:]]+android:drawable=\"${drawable}\"[[:space:]]*/>[[:space:]]*$" "$ADAPTIVE_ICON" \
+    || die "adaptive icon layer wiring mismatch: ${element} -> ${drawable}"
+}
+assert_adaptive_layer background "@color/ic_launcher_background"
+assert_adaptive_layer foreground "@drawable/ic_launcher_foreground"
+assert_adaptive_layer monochrome "@drawable/ic_launcher_foreground"
 
 # ---------------------------------------------------------------------------
 # 1. Consistency check: glyph path data must be byte-identical across
@@ -101,7 +115,7 @@ grep -q 'ic_launcher_background">#009688<' "$RES_DIR/values/colors.xml" \
 # ---------------------------------------------------------------------------
 # 2. Safe-zone verification (best-effort): the glyph must stay inside the
 #    33dp-radius centered circle of the 108dp canvas (adaptive-icon spec).
-#    Recorded baseline for the current glyph: 31.24dp.
+#    Recorded baseline for the current glyph (measured at 192px): 31.02dp.
 # ---------------------------------------------------------------------------
 verify_safe_zone() {
   local render="$1" label="$2"
@@ -149,7 +163,7 @@ if [[ $CHECK_ONLY -eq 1 ]]; then
       exit 1
     fi
   done
-  verify_safe_zone "$tmpdir/mdpi.png" "legacy raster (check mode)"
+  verify_safe_zone "$tmpdir/xxxhdpi.png" "legacy raster (check mode)"
   echo "OK: committed icon rasters match the design sources (no drift)."
   exit 0
 fi
