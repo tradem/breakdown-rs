@@ -66,6 +66,7 @@ AiConfigView _config(String id, {int version = 1}) => AiConfigView(
     ..vaultKeyId = 'vk-1'
     ..assistantModel = 'gpt-5.6-luna'
     ..provider = LlmProvider.openai
+    ..prompts.replace(const <String, String>{})
     ..promptKinds.replace(
       BuiltList(const [DocumentKind.script, DocumentKind.schedule]),
     )

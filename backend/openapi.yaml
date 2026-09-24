@@ -41,6 +41,11 @@ components:
       description: |-
         Public AI configuration view. It contains only the opaque vault reference,
         never a key or other secret material.
+
+        The [prompts] map carries the *stored prompt texts* (the same map the
+        create/update commands accept) so the client's configured/edit form can
+        render what is persisted instead of starting from empty fields (issue
+        #490) — saving an untouched edit must not clear them.
       properties:
         assistant_model:
           type: string
@@ -55,6 +60,21 @@ components:
           items:
             $ref: '#/components/schemas/DocumentKind'
           type: array
+        prompts:
+          additionalProperties:
+            type: string
+          description: |-
+            Stored prompt texts by document kind (`script`/`schedule`). Mirrors
+            the create/update request `prompts` payload so an edit can round-trip
+            the persisted texts. Prompts are user-authored extraction seeds, not
+            secrets — the vault reference is the only opaque material.
+          propertyNames:
+            description: The two document kinds supported by the import pipeline.
+            enum:
+            - script
+            - schedule
+            type: string
+          type: object
         provider:
           $ref: '#/components/schemas/LlmProvider'
         revoked:
@@ -70,6 +90,7 @@ components:
       - user_id
       - provider
       - assistant_model
+      - prompts
       - prompt_kinds
       - vault_key_id
       - version

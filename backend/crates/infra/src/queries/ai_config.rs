@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 use breakdown_core::ai::{AiConfigRepository, AiConfigView, DocumentKind, LlmProvider};
 use breakdown_core::error::DomainError;
@@ -159,6 +160,7 @@ fn map_config_row(row: &PgRow) -> Result<AiConfigView, DomainError> {
         provider,
         assistant_model: row.try_get("assistant_model").map_err(map_sqlx_error)?,
         image_model: row.try_get("image_model").map_err(map_sqlx_error)?,
+        prompts,
         prompt_kinds,
         vault_key_id: row.try_get("vault_key_id").map_err(map_sqlx_error)?,
         version: {

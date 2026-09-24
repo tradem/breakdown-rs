@@ -2,9 +2,11 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -147,6 +149,11 @@ impl Default for AiImportJobId {
 
 /// Public AI configuration view. It contains only the opaque vault reference,
 /// never a key or other secret material.
+///
+/// The [prompts] map carries the *stored prompt texts* (the same map the
+/// create/update commands accept) so the client's configured/edit form can
+/// render what is persisted instead of starting from empty fields (issue
+/// #490) — saving an untouched edit must not clear them.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AiConfigView {
     pub id: Uuid,
@@ -154,6 +161,11 @@ pub struct AiConfigView {
     pub provider: LlmProvider,
     pub assistant_model: String,
     pub image_model: Option<String>,
+    /// Stored prompt texts by document kind (`script`/`schedule`). Mirrors
+    /// the create/update request `prompts` payload so an edit can round-trip
+    /// the persisted texts. Prompts are user-authored extraction seeds, not
+    /// secrets — the vault reference is the only opaque material.
+    pub prompts: HashMap<DocumentKind, String>,
     pub prompt_kinds: Vec<DocumentKind>,
     pub vault_key_id: String,
     pub version: AggregateVersion,

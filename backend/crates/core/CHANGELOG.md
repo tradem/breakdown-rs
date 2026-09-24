@@ -14,6 +14,20 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.12.0] - Unreleased
+
+### Added — `AiConfigView` exposes the stored prompt texts (issue #490)
+
+- `AiConfigView` gains `prompts: HashMap<DocumentKind, String>` — the same
+  map the create/update commands accept — so the read views (`GET
+  /v1/ai-import/config` list + by-id) expose the *stored prompt texts*, not
+  just the active `prompt_kinds`. The client's configured/edit form renders
+  them and an untouched save round-trips them instead of silently clearing
+  the map (the update command replaces it wholesale).
+- **MINOR bump (ADR-020 D2):** a required (non-defaulted) field on the
+  public `AiConfigView` breaks struct-literal constructors downstream:
+  **0.11.0 → 0.12.0**.
+
 ## [0.11.0] - Unreleased
 
 ### Added — `ModelInfo.recommended` flag for the AI-config suggestion (issue #471)

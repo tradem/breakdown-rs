@@ -14,6 +14,16 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.17.0] - Unreleased
+
+### Added — `AiConfigView` exposes the stored prompt texts (issue #490)
+
+- `map_config_row` now passes the parsed `prompts` JSONB map through into
+  `AiConfigView.prompts` (previously only its keys surfaced as
+  `prompt_kinds`), so every read view carries the stored prompt texts.
+- **MINOR bump (ADR-020 D2):** re-pins `breakdown_core` 0.12.0 (its
+  `AiConfigView` gained a required `prompts` field): **0.16.0 → 0.17.0**.
+
 ## [0.16.0] - Unreleased
 
 ### Added — AI prompt defaults + curated recommendation (issue #471)

@@ -16,6 +16,8 @@ class _$AiConfigView extends AiConfigView {
   @override
   final BuiltList<DocumentKind> promptKinds;
   @override
+  final BuiltMap<String, String> prompts;
+  @override
   final LlmProvider provider;
   @override
   final bool revoked;
@@ -34,6 +36,7 @@ class _$AiConfigView extends AiConfigView {
       required this.id,
       this.imageModel,
       required this.promptKinds,
+      required this.prompts,
       required this.provider,
       required this.revoked,
       required this.userId,
@@ -55,6 +58,7 @@ class _$AiConfigView extends AiConfigView {
         id == other.id &&
         imageModel == other.imageModel &&
         promptKinds == other.promptKinds &&
+        prompts == other.prompts &&
         provider == other.provider &&
         revoked == other.revoked &&
         userId == other.userId &&
@@ -69,6 +73,7 @@ class _$AiConfigView extends AiConfigView {
     _$hash = $jc(_$hash, id.hashCode);
     _$hash = $jc(_$hash, imageModel.hashCode);
     _$hash = $jc(_$hash, promptKinds.hashCode);
+    _$hash = $jc(_$hash, prompts.hashCode);
     _$hash = $jc(_$hash, provider.hashCode);
     _$hash = $jc(_$hash, revoked.hashCode);
     _$hash = $jc(_$hash, userId.hashCode);
@@ -85,6 +90,7 @@ class _$AiConfigView extends AiConfigView {
           ..add('id', id)
           ..add('imageModel', imageModel)
           ..add('promptKinds', promptKinds)
+          ..add('prompts', prompts)
           ..add('provider', provider)
           ..add('revoked', revoked)
           ..add('userId', userId)
@@ -117,6 +123,11 @@ class AiConfigViewBuilder
   set promptKinds(ListBuilder<DocumentKind>? promptKinds) =>
       _$this._promptKinds = promptKinds;
 
+  MapBuilder<String, String>? _prompts;
+  MapBuilder<String, String> get prompts =>
+      _$this._prompts ??= MapBuilder<String, String>();
+  set prompts(MapBuilder<String, String>? prompts) => _$this._prompts = prompts;
+
   LlmProvider? _provider;
   LlmProvider? get provider => _$this._provider;
   set provider(LlmProvider? provider) => _$this._provider = provider;
@@ -148,6 +159,7 @@ class AiConfigViewBuilder
       _id = $v.id;
       _imageModel = $v.imageModel;
       _promptKinds = $v.promptKinds.toBuilder();
+      _prompts = $v.prompts.toBuilder();
       _provider = $v.provider;
       _revoked = $v.revoked;
       _userId = $v.userId;
@@ -182,6 +194,7 @@ class AiConfigViewBuilder
                 id, r'AiConfigView', 'id'),
             imageModel: imageModel,
             promptKinds: promptKinds.build(),
+            prompts: prompts.build(),
             provider: BuiltValueNullFieldError.checkNotNull(
                 provider, r'AiConfigView', 'provider'),
             revoked: BuiltValueNullFieldError.checkNotNull(
@@ -198,6 +211,8 @@ class AiConfigViewBuilder
       try {
         _$failedField = 'promptKinds';
         promptKinds.build();
+        _$failedField = 'prompts';
+        prompts.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'AiConfigView', _$failedField, e.toString());

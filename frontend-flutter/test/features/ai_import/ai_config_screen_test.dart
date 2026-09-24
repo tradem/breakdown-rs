@@ -72,6 +72,7 @@ AiConfigView _config({
   int version = 1,
   String assistantModel = 'gpt-5.6-luna',
   String? imageModel,
+  Map<String, String> prompts = const {},
 }) => AiConfigView(
   (b) => b
     ..id = 'config-1'
@@ -80,6 +81,7 @@ AiConfigView _config({
     ..provider = LlmProvider.openai
     ..vaultKeyId = 'vk-1'
     ..imageModel = imageModel
+    ..prompts.replace(prompts)
     ..promptKinds.replace(
       BuiltList(const [DocumentKind.script, DocumentKind.schedule]),
     )
@@ -98,6 +100,11 @@ class FakeAiConfigRepository extends AiConfigRepository {
   Result<int>? updateResult;
   Result<int>? revokeResult;
   Result<List<AiConfigView>>? listResult;
+
+  /// The last [UpdateAiConfigRequest] passed to [updateConfig] (issue #490:
+  /// verify an untouched edit echoes the stored prompts instead of an empty
+  /// map).
+  UpdateAiConfigRequest? lastUpdateRequest;
 
   int submitCalls = 0;
   int createCalls = 0;
@@ -163,6 +170,7 @@ class FakeAiConfigRepository extends AiConfigRepository {
   @override
   Future<Result<int>> updateConfig(String id, UpdateAiConfigRequest request) {
     updateCalls++;
+    lastUpdateRequest = request;
     return Future.value(updateResult ?? Right(2));
   }
 
@@ -712,6 +720,100 @@ void main() {
     expect(state.scriptPrompt, '');
     expect(state.schedulePrompt, '');
     expect(find.byKey(const Key('ai-prefill-hint')), findsNothing);
+  });
+
+  // --- Edit path: stored prompt texts (issue #490) -------------------------
+
+  testWidgets('edit path: the configured form RENDERS the stored prompt '
+      'texts — the fields are never empty at load (issue #490)', (
+    tester,
+  ) async {
+    await setupContainer(
+      discoveryValue: Right([
+        _config(
+          prompts: {'script': 'Stored Script', 'schedule': 'Stored Schedule'},
+        ),
+      ]),
+    );
+    await pumpScreen(tester);
+
+    expect(find.byKey(const Key('ai-config-configured')), findsOneWidget);
+    final state = container.read(aiConfigControllerProvider);
+    // State seeds the stored texts…
+    expect(state.scriptPrompt, 'Stored Script');
+    expect(state.schedulePrompt, 'Stored Schedule');
+    // …and the rendered text fields carry them (the same `_sync`
+    // mechanism the prefill already uses, issue #471).
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('ai-edit-script-prompt')))
+          .controller!
+          .text,
+      'Stored Script',
+    );
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('ai-edit-schedule-prompt')))
+          .controller!
+          .text,
+      'Stored Schedule',
+    );
+    // The edit form never shows the first-run prefill provenance hint.
+    expect(find.byKey(const Key('ai-prefill-hint')), findsNothing);
+  });
+
+  testWidgets('edit path: saving an UNTOUCHED edit preserves the stored '
+      'prompts — the update does NOT send an empty map (issue #490)', (
+    tester,
+  ) async {
+    await setupContainer(
+      discoveryValue: Right([
+        _config(
+          version: 3,
+          prompts: {'script': 'Stored Script', 'schedule': 'Stored Schedule'},
+        ),
+      ]),
+    );
+    await pumpScreen(tester);
+    expect(find.byKey(const Key('ai-config-configured')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+    await tester.pumpAndSettle();
+
+    expect(repo.updateCalls, 1);
+    final sent = repo.lastUpdateRequest!;
+    // The prompt map echoes the STORED texts — nothing is cleared by an
+    // untouched save.
+    expect(sent.prompts['script'], 'Stored Script');
+    expect(sent.prompts['schedule'], 'Stored Schedule');
+    // The optimistic lock still rides the fetched version.
+    expect(sent.version, 3);
+  });
+
+  testWidgets('edit path: clearing a stored prompt field is a REAL "remove '
+      'prompt" intent — the key is omitted from the update, the other '
+      'stored prompt is preserved (issue #490)', (tester) async {
+    await setupContainer(
+      discoveryValue: Right([
+        _config(
+          prompts: {'script': 'Stored Script', 'schedule': 'Stored Schedule'},
+        ),
+      ]),
+    );
+    await pumpScreen(tester);
+    expect(find.byKey(const Key('ai-config-configured')), findsOneWidget);
+
+    // Clear ONLY the script field; the schedule field stays untouched.
+    await tester.enterText(find.byKey(const Key('ai-edit-script-prompt')), '');
+    await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+    await tester.pumpAndSettle();
+
+    final sent = repo.lastUpdateRequest!;
+    // Clearing is a deliberate removal: the cleared key is OMITTED (the
+    // backend replaces the map wholesale; omitting = remove).
+    expect(sent.prompts.containsKey('script'), isFalse);
+    // The untouched stored schedule prompt survives.
+    expect(sent.prompts['schedule'], 'Stored Schedule');
   });
 
   group('AiConfigScreen goldens (2.2): {light,dark}×{android,macos}', () {
