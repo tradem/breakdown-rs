@@ -2,8 +2,10 @@
 <!--
   Breakdown-RS adaptive-icon foreground.
   Source of truth: design/app-icon/foreground.svg (repo root).
-  The glyph paths here must stay byte-identical to that SVG —
-  frontend-flutter/scripts/gen-app-icon.sh verifies this on every run.
+  The glyph paths here must stay byte-identical to that SVG, and the
+  group translate/scale must evaluate to the same affine matrix as the
+  SVG transform chains — frontend-flutter/scripts/gen-app-icon.sh
+  verifies both on every run.
 
   Glyph paths: official Material Symbols "checkroom" and "settings"
   (Apache-2.0, Copyright Google LLC), embedded unmodified.

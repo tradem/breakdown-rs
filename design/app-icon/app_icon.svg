@@ -3,6 +3,7 @@
   SPDX-License-Identifier: AGPL-3.0
   Copyright (C) 2024-2026 Breakdown RS Contributors
   Co-authored-by: glm-5.3 (neuralwatt)
+  Co-authored-by: deepseek-v4-flash (neuralwatt)
 
   Breakdown-RS App-Icon — full-bleed composition (background + glyph).
 
@@ -17,7 +18,9 @@
   Glyph paths: official Material Symbols "checkroom" and "settings"
   (Apache-2.0, Copyright Google LLC), embedded unmodified as path data.
   The path strings here, in foreground.svg, and in the VectorDrawable
-  must stay byte-identical — scripts/gen-app-icon.sh verifies this.
+  must stay byte-identical, and the glyph transform chains must evaluate
+  to the same layout as the VectorDrawable's baked translate/scale groups
+  — scripts/gen-app-icon.sh verifies both.
 
   Layout (108dp canvas, Android adaptive-icon spec):
     - checkroom glyph centered at (54, 42), scale 0.06, width 48dp

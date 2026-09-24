@@ -3,6 +3,7 @@
   SPDX-License-Identifier: AGPL-3.0
   Copyright (C) 2024-2026 Breakdown RS Contributors
   Co-authored-by: glm-5.3 (neuralwatt)
+  Co-authored-by: deepseek-v4-flash (neuralwatt)
 
   Breakdown-RS App-Icon — glyph-only layer (transparent background).
 
@@ -11,7 +12,9 @@
   a single-color silhouette is the prerequisite). The Android
   VectorDrawable (drawable/ic_launcher_foreground.xml) mirrors this
   file's glyph paths 1:1; scripts/gen-app-icon.sh verifies the path
-  strings stay byte-identical.
+  strings stay byte-identical and that these transform chains evaluate
+  to the same affine matrix as the VectorDrawable's baked
+  translate/scale groups.
 
   Glyph paths: official Material Symbols "checkroom" and "settings"
   (Apache-2.0, Copyright Google LLC), embedded unmodified as path data.
