@@ -1,0 +1,121 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4-flash (neuralwatt)
+
+#
+# App-icon drift gate (issue #496) — the launcher-icon analog of the
+# OpenAPI-client drift check and the Design Tokens drift gate
+# (design-tokens-drift.yml).
+#
+# The icon regeneration pipeline's single source of truth is
+# `frontend-flutter/scripts/gen-app-icon.sh --check`: it verifies that the
+# glyph path data and transforms stay byte-identical/normalized-equal across
+# design/app-icon/app_icon.svg, design/app-icon/foreground.svg and the
+# hand-maintained Android resources (ic_launcher_foreground.xml, adaptive
+# wiring, colors.xml), and that the committed mipmap-*/ic_launcher.png
+# rasters byte-match a fresh render. Without CI enforcement, a stale
+# source↔raster↔VectorDrawable combination can merge silently (PR #493 / #495
+# added the local/ verification; this workflow gates it on PRs and main).
+#
+# This is a STANDALONE workflow (not a job in flutter-ci.yml) because the icon
+# sources live at the monorepo root under `design/app-icon/**`, which no
+# `frontend-flutter/**` paths filter covers — a pure source-only SVG edit must
+# fail this gate too. See design/app-icon/README.md for the pipeline.
+#
+# Job runtime: ~1 minute (apt for librsvg2-bin + python3-pillow, then the
+# check itself; no Flutter SDK needed).
+#
+# BYTE-VERSION CONTRACT: the check compares rasters byte-for-byte, and
+# rsvg-convert's PNG byte output is not stable across librsvg versions
+# (pixels are identical, the PNG encoding is not). The rasterizer is
+# therefore LOCKED, not just the runner label: the runner image is pinned
+# to `ubuntu-24.04` AND the librsvg2 rendering family is installed by exact
+# apt version (2.58.0+dfsg-1build1) — the canonical librsvg the committed
+# rasters were generated with (the dedicated install step asserts it). If
+# Ubuntu point-updates librsvg2-bin, the pinned version leaves the mirror
+# and the install step fails LOUDLY with an installed-version dump, not a
+# silent spurious DRIFT rejection; the fix is a deliberate regenerate + pin
+# bump in one change (see design/app-icon/README.md, gen-app-icon.sh header).
+#
+# CI hardening (monorepo AGENTS.md §2 / .github/instructions/workflow-hardening):
+#  - every action SHA-pinned (no moving version tags)
+#  - rsvg-convert (librsvg2-bin) + Pillow are installed from the pinned
+#    runner OS apt mirror (no lockfile mechanism exists for apt; the design
+#    intent is distro-pinned versions, revisited if a hermetic pin is needed)
+#  - no `github.event.*` interpolation into `run:` — the check takes no
+#    dynamic inputs
+#
+# Intentional drift (any icon source/resource change without a matching
+# regeneration) fails this job with the script's own `DRIFT DETECTED` /
+# `ERROR` output and a regenerate instruction.
+
+name: Icon Drift
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "design/app-icon/**"
+      - "frontend-flutter/android/app/src/main/res/**"
+      - "frontend-flutter/scripts/gen-app-icon.sh"
+      - ".github/workflows/icon-drift.yml"
+  pull_request:
+    paths:
+      - "design/app-icon/**"
+      - "frontend-flutter/android/app/src/main/res/**"
+      - "frontend-flutter/scripts/gen-app-icon.sh"
+      - ".github/workflows/icon-drift.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: icon-drift-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  icon-drift:
+    name: Regenerate + diff (design/app-icon)
+    # Pinned (not ubuntu-latest) for the byte-version contract above: the
+    # committed rasters byte-match apt librsvg 2.58.0 on ubuntu-24.04.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install icon pipeline dependencies (exact-version pins)
+        # librsvg2-bin / librsvg2-2 / librsvg2-common are pinned to the EXACT
+        # canonical version (2.58.0+dfsg-1build1) the committed rasters were
+        # generated with, so the byte-level PNG compare stays deterministic
+        # across runs. python3-pillow is NOT a rendering dependency (it only
+        # powers the optional safe-zone analysis) and stays unpinned. If
+        # Ubuntu point-updates librsvg2-bin, the pinned version drops off the
+        # mirror and this step fails LOUDLY with the installed-version dump
+        # — the maintainer then regenerates the rasters under the new version,
+        # bumps the pin, and commits both together (never a silent spurious
+        # DRIFT rejection of unchanged rasters).
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            librsvg2-bin=2.58.0+dfsg-1build1 \
+            librsvg2-2=2.58.0+dfsg-1build1 \
+            librsvg2-common=2.58.0+dfsg-1build1 \
+            python3-pillow
+          echo "installed rasterizer versions:"
+          dpkg-query -W -f='  ${package} ${version}\n' librsvg2-bin librsvg2-2 librsvg2-common python3-pil
+          echo "rsvg-convert: $(rsvg-convert --version | head -1)"
+          # Fail-closed: assert the canonical librsvg is actually what runs.
+          test "$(dpkg-query -W -f='${Version}' librsvg2-bin)" = "2.58.0+dfsg-1build1"
+
+      - name: Icon drift check (gen-app-icon.sh --check)
+        # The script resolves frontend-flutter/ and monorepo-root paths from
+        # its own location, so a bare invocation from the repository root is
+        # enough. Fails (exit 1) on any drift with the script's existing
+        # `DRIFT DETECTED` / `ERROR` output; success prints "no drift".
+        run: |
+          set -euo pipefail
+          bash frontend-flutter/scripts/gen-app-icon.sh --check
