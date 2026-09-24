@@ -77,11 +77,16 @@ this gate with the script's `DRIFT DETECTED` / `ERROR` output.
 
 The drift check compares **bytes**, and rsvg-convert's PNG byte output is not
 stable across librsvg versions (the rendered pixels are identical; the PNG
-encoding is not). The canonical rasterizer is the one CI installs:
-`librsvg 2.58.0` from Ubuntu 24.04 (`librsvg2-bin`) — the workflow pins
-`runs-on: ubuntu-24.04` so this stays stable. The committed rasters are
-generated with that version; regenerate locally with the same version, or the
-gate will report byte drift against a freshly regenerated tree.
+encoding is not). The rasterizer is therefore **locked**, in two layers
+(`.github/workflows/icon-drift.yml`): the runner is pinned to
+`runs-on: ubuntu-24.04` and the librsvg2 rendering family is installed by
+**exact apt version** (`librsvg2-bin=2.58.0+dfsg-1build1`, + `librsvg2-2`/
+librsvg2-common, asserted fail-closed after install). If Ubuntu point-updates
+librsvg2-bin, the pinned version leaves the mirror and the install step fails
+loudly — the fix is a deliberate regenerate + pin bump in one change. The
+committed rasters are generated with this canonical version; regenerate
+locally with the same version, or the gate will report byte drift against a
+freshly regenerated tree.
 
 The script verifies that the glyph path data in `app_icon.svg`,
 `foreground.svg`, and `ic_launcher_foreground.xml` stays byte-identical,

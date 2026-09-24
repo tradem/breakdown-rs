@@ -27,11 +27,15 @@
 #
 # BYTE-VERSION CONTRACT: the check compares rasters byte-for-byte, and
 # rsvg-convert's PNG byte output is not stable across librsvg versions
-# (pixels are identical, the PNG encoding is not). The runner image is
-# therefore pinned to `ubuntu-24.04` (apt `librsvg2-bin` = 2.58.0), which is
-# the canonical rasterizer the committed rasters are generated with — bumping
-# the OS image requires regenerating the rasters with the new librsvg in the
-# same change (see design/app-icon/README.md, gen-app-icon.sh header).
+# (pixels are identical, the PNG encoding is not). The rasterizer is
+# therefore LOCKED, not just the runner label: the runner image is pinned
+# to `ubuntu-24.04` AND the librsvg2 rendering family is installed by exact
+# apt version (2.58.0+dfsg-1build1) — the canonical librsvg the committed
+# rasters were generated with (the dedicated install step asserts it). If
+# Ubuntu point-updates librsvg2-bin, the pinned version leaves the mirror
+# and the install step fails LOUDLY with an installed-version dump, not a
+# silent spurious DRIFT rejection; the fix is a deliberate regenerate + pin
+# bump in one change (see design/app-icon/README.md, gen-app-icon.sh header).
 #
 # CI hardening (monorepo AGENTS.md §2 / .github/instructions/workflow-hardening):
 #  - every action SHA-pinned (no moving version tags)
@@ -82,18 +86,30 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install icon pipeline dependencies
-        # rsvg-convert comes from librsvg2-bin (mandatory — the drift check
-        # dies without it; this is the CANONICAL rasterizer, librsvg 2.58.0, per
-        # the byte-version contract above). python3 is preinstalled on the
-        # runner; python3-pillow upgrades the safe-zone pixel check from a
-        # warning to a verification (Pillow is optional in the script and
-        # degrades to a warning when absent, but installing it here makes the
-        # gate strictly stronger).
+      - name: Install icon pipeline dependencies (exact-version pins)
+        # librsvg2-bin / librsvg2-2 / librsvg2-common are pinned to the EXACT
+        # canonical version (2.58.0+dfsg-1build1) the committed rasters were
+        # generated with, so the byte-level PNG compare stays deterministic
+        # across runs. python3-pillow is NOT a rendering dependency (it only
+        # powers the optional safe-zone analysis) and stays unpinned. If
+        # Ubuntu point-updates librsvg2-bin, the pinned version drops off the
+        # mirror and this step fails LOUDLY with the installed-version dump
+        # — the maintainer then regenerates the rasters under the new version,
+        # bumps the pin, and commits both together (never a silent spurious
+        # DRIFT rejection of unchanged rasters).
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y librsvg2-bin python3-pillow
+          sudo apt-get install -y \
+            librsvg2-bin=2.58.0+dfsg-1build1 \
+            librsvg2-2=2.58.0+dfsg-1build1 \
+            librsvg2-common=2.58.0+dfsg-1build1 \
+            python3-pillow
+          echo "installed rasterizer versions:"
+          dpkg-query -W -f='  ${package} ${version}\n' librsvg2-bin librsvg2-2 librsvg2-common python3-pil
+          echo "rsvg-convert: $(rsvg-convert --version | head -1)"
+          # Fail-closed: assert the canonical librsvg is actually what runs.
+          test "$(dpkg-query -W -f='${Version}' librsvg2-bin)" = "2.58.0+dfsg-1build1"
 
       - name: Icon drift check (gen-app-icon.sh --check)
         # The script resolves frontend-flutter/ and monorepo-root paths from
