@@ -38,6 +38,15 @@
 # stdlib XML parser and is mandatory — failure to run it is a hard error,
 # not a skip; the safe-zone check is best-effort and additionally needs
 # Pillow, degrading to a warning when absent).
+#
+# BYTE-STABILITY NOTE: rsvg-convert's PNG *byte* output is not stable across
+# librsvg versions (pixels are, the PNG encoding is not). The committed
+# rasters and the --check drift gate are therefore coupled to one librsvg
+# version: the canonical one installed by .github/workflows/icon-drift.yml
+# (ubuntu-24.04's apt librsvg 2.58.0). Regenerate with that version — a
+# locally regenerated tree produced by a different librsvg will correctly
+# report byte drift against the committed rasters. Verify level with the
+# same release used by CI (see design/app-icon/README.md).
 
 set -euo pipefail
 
