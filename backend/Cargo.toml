@@ -41,10 +41,17 @@ tracing = "0.1"
 tracing-subscriber = "0.3"
 
 # OpenTelemetry / Observability
-tracing-opentelemetry = "0.33"
-opentelemetry = { version = "0.32", features = ["trace"] }
-opentelemetry-otlp = { version = "0.32", default-features = false, features = ["http-proto", "grpc-tonic", "trace"] }
-opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
+# NOTE: this crate family must be bumped in lockstep — `opentelemetry`,
+# `opentelemetry_sdk`, `opentelemetry-otlp` and their partner `tracing-opentelemetry`
+# share `opentelemetry`-types across crate boundaries. A partial bump leaves two
+# versions of `opentelemetry`/`opentelemetry_sdk` in the graph and fails with
+# E0277/E0308/E0599 ("multiple different versions of crate ...").
+# Version pairing: OTEL 0.33 <-> tracing-opentelemetry 0.34.
+# Dependabot group `opentelemetry` in ../.github/dependabot.yml keeps them together.
+tracing-opentelemetry = "0.34"
+opentelemetry = { version = "0.33", features = ["trace"] }
+opentelemetry-otlp = { version = "0.33", default-features = false, features = ["http-proto", "grpc-tonic", "trace"] }
+opentelemetry_sdk = { version = "0.33", features = ["rt-tokio"] }
 tower-http = { version = "0.7", features = ["trace", "catch-panic"] }
 
 # Event Sourcing (ES)

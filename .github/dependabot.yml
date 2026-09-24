@@ -22,6 +22,25 @@ updates:
         update-types:
           - "minor"
           - "patch"
+      # The OpenTelemetry crate family shares `opentelemetry`-types across crate
+      # boundaries and MUST move in lockstep: bumping only one member leaves two
+      # versions of `opentelemetry`/`opentelemetry_sdk` in the dependency graph
+      # and fails to compile (E0277/E0308/E0599, "multiple different versions of
+      # crate ..."). Dependabot classifies the pre-1.0 `0.x -> 0.y` jump of these
+      # crates as a major update, so `cargo-minor-patch` (update-types-based) does
+      # NOT catch them and it used to open one broken PR per crate.
+      #
+      # A patterns-based group ignores `update-types`, so this group captures the
+      # 0.x family bump (major included) and moves all members together. Keep
+      # `tracing-opentelemetry` in the pattern set — it tracks the same
+      # `opentelemetry` version with a +1 offset (OTEL 0.33 <-> tracing-otel 0.34),
+      # so it is part of the lockstep even though its major digit differs.
+      opentelemetry:
+        patterns:
+          - "opentelemetry"
+          - "opentelemetry-*"
+          - "opentelemetry_*"
+          - "tracing-opentelemetry"
   - package-ecosystem: github-actions
     directory: /
     schedule:
