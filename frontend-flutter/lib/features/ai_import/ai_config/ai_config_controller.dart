@@ -271,6 +271,13 @@ class AiConfigController extends _$AiConfigController {
           }
         : null;
 
+    // Prompt drafts (edit path, issue #490): the configured form must
+    // render the STORED prompt texts, not start empty — otherwise an
+    // untouched save would echo an empty `prompts` map and silently clear
+    // them (the update command replaces the map wholesale). Center the
+    // seed on the fetched view (`config.prompts`), which has precedence
+    // over the first-run defaults. A user edit (touched flag) keeps its
+    // draft; the first-run path (config == null) is unaffected.
     return AiConfigScreenState(
       config: config,
       discoveryError: discoveryError,
@@ -287,10 +294,10 @@ class AiConfigController extends _$AiConfigController {
           : (config?.imageModel ?? drafts.selectedImageModelId),
       scriptPrompt: drafts.scriptPromptTouched
           ? drafts.scriptPrompt
-          : (firstRunScriptDefault ?? ''),
+          : (config?.prompts['script'] ?? firstRunScriptDefault ?? ''),
       schedulePrompt: drafts.schedulePromptTouched
           ? drafts.schedulePrompt
-          : (firstRunScheduleDefault ?? ''),
+          : (config?.prompts['schedule'] ?? firstRunScheduleDefault ?? ''),
       unresolved: drafts.unresolved,
     );
   }

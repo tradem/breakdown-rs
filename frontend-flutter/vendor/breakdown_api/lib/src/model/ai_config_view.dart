@@ -13,13 +13,14 @@ import 'package:built_value/serializer.dart';
 
 part 'ai_config_view.g.dart';
 
-/// Public AI configuration view. It contains only the opaque vault reference, never a key or other secret material.
+/// Public AI configuration view. It contains only the opaque vault reference, never a key or other secret material.  The [prompts] map carries the *stored prompt texts* (the same map the create/update commands accept) so the client's configured/edit form can render what is persisted instead of starting from empty fields (issue #490) — saving an untouched edit must not clear them.
 ///
 /// Properties:
 /// * [assistantModel]
 /// * [id]
 /// * [imageModel]
 /// * [promptKinds]
+/// * [prompts] - Stored prompt texts by document kind (`script`/`schedule`). Mirrors the create/update request `prompts` payload so an edit can round-trip the persisted texts. Prompts are user-authored extraction seeds, not secrets — the vault reference is the only opaque material.
 /// * [provider]
 /// * [revoked]
 /// * [userId] - Opaque identifier for a user, wrapping the OIDC `sub` claim.  `UserId` references the authenticated principal without ever decoding, storing, or dereferencing identity attributes in `core`. The backend only trusts the IdP-issued `sub`; account lifecycle lives exclusively in the OIDC provider (ADR-010). Unlike the hierarchy ids, `UserId` is *not* a UUIDv7 — it is the raw string subject the IdP assigns.
@@ -39,6 +40,10 @@ abstract class AiConfigView
 
   @BuiltValueField(wireName: r'prompt_kinds')
   BuiltList<DocumentKind> get promptKinds;
+
+  /// Stored prompt texts by document kind (`script`/`schedule`). Mirrors the create/update request `prompts` payload so an edit can round-trip the persisted texts. Prompts are user-authored extraction seeds, not secrets — the vault reference is the only opaque material.
+  @BuiltValueField(wireName: r'prompts')
+  BuiltMap<String, String> get prompts;
 
   @BuiltValueField(wireName: r'provider')
   LlmProvider get provider;
@@ -102,6 +107,12 @@ class _$AiConfigViewSerializer implements PrimitiveSerializer<AiConfigView> {
     yield serializers.serialize(
       object.promptKinds,
       specifiedType: const FullType(BuiltList, [FullType(DocumentKind)]),
+    );
+    yield r'prompts';
+    yield serializers.serialize(
+      object.prompts,
+      specifiedType:
+          const FullType(BuiltMap, [FullType(String), FullType(String)]),
     );
     yield r'provider';
     yield serializers.serialize(
@@ -181,6 +192,14 @@ class _$AiConfigViewSerializer implements PrimitiveSerializer<AiConfigView> {
             specifiedType: const FullType(BuiltList, [FullType(DocumentKind)]),
           ) as BuiltList<DocumentKind>;
           result.promptKinds.replace(valueDes);
+          break;
+        case r'prompts':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType:
+                const FullType(BuiltMap, [FullType(String), FullType(String)]),
+          ) as BuiltMap<String, String>;
+          result.prompts.replace(valueDes);
           break;
         case r'provider':
           final valueDes = serializers.deserialize(

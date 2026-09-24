@@ -6,6 +6,7 @@
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 //! Handler tests proving the AI import dependencies are reachable through the
 //! generic `Ports` seam (issue #176).
@@ -720,7 +721,13 @@ async fn ai_config_lifecycle_runs_through_the_config_ports() {
             provider: LlmProvider::Neuralwatt,
             assistant_model: "assistant".to_owned(),
             image_model: None,
-            prompt_kinds: vec![],
+            // Stored prompt texts: issue #490 — the GET must expose them so
+            // the configured/edit form can render what is persisted.
+            prompts: HashMap::from([
+                (DocumentKind::Script, "script-prompt".to_owned()),
+                (DocumentKind::Schedule, "schedule-prompt".to_owned()),
+            ]),
+            prompt_kinds: vec![DocumentKind::Script, DocumentKind::Schedule],
             vault_key_id: "vault-key".to_owned(),
             version: created.version,
             revoked: false,
@@ -733,6 +740,18 @@ async fn ai_config_lifecycle_runs_through_the_config_ports() {
             .expect("owner may read their config");
     assert_eq!(status, StatusCode::OK);
     assert_eq!(view.id, created.id);
+    // The stored prompt TEXTS round-trip through the read view (issue
+    // #490) — not just the active kinds.
+    assert_eq!(
+        view.prompts.get(&DocumentKind::Script).map(String::as_str),
+        Some("script-prompt")
+    );
+    assert_eq!(
+        view.prompts
+            .get(&DocumentKind::Schedule)
+            .map(String::as_str),
+        Some("schedule-prompt")
+    );
 
     let (status, Json(_)) = update_ai_config::<FakePorts>(
         State(state.clone()),
@@ -785,6 +804,7 @@ async fn ai_config_version_conflict_is_scoped_409() {
             provider: LlmProvider::Neuralwatt,
             assistant_model: "assistant".to_owned(),
             image_model: None,
+            prompts: HashMap::new(),
             prompt_kinds: vec![],
             vault_key_id: "vault-key".to_owned(),
             version: AggregateVersion(2),
@@ -838,6 +858,7 @@ async fn get_ai_config_denies_a_foreign_owner() {
             provider: LlmProvider::Neuralwatt,
             assistant_model: "assistant".to_owned(),
             image_model: None,
+            prompts: HashMap::new(),
             prompt_kinds: vec![],
             vault_key_id: "vault-key".to_owned(),
             version: AggregateVersion::INITIAL,
@@ -1204,6 +1225,7 @@ fn config_view(user_sub: &str) -> AiConfigView {
         provider: LlmProvider::Neuralwatt,
         assistant_model: "assistant".to_owned(),
         image_model: None,
+        prompts: HashMap::new(),
         prompt_kinds: vec![],
         vault_key_id: "vault-key".to_owned(),
         version: AggregateVersion::INITIAL,

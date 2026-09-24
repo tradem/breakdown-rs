@@ -146,6 +146,10 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(BuiltList, const [const FullType(DocumentKind)]),
           () => ListBuilder<DocumentKind>())
       ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(DraftScene)]),
           () => ListBuilder<DraftScene>())
       ..addBuilderFactory(
