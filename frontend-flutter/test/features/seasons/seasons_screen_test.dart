@@ -27,12 +27,16 @@ import 'package:frontend_flutter/data/cache/hierarchy_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/design/theme.dart';
+import 'package:frontend_flutter/features/blocks/blocks_controller.dart';
+import 'package:frontend_flutter/features/episodes/episodes_controller.dart';
 import 'package:frontend_flutter/features/shell/shell_controller.dart';
 import 'package:frontend_flutter/features/seasons/seasons_controller.dart';
 import 'package:frontend_flutter/features/seasons/seasons_screen.dart';
+import 'package:frontend_flutter/features/seasons/setup/setup_wizard_screen.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 
 import 'seasons_test_fakes.dart';
+import 'setup/setup_wizard_test_fakes.dart';
 
 const _conflict = ProblemError(code: 'seasons.conflict', status: 409);
 const _networkDown = ProblemError(code: 'transport.connectionError');
@@ -62,6 +66,8 @@ Future<void> drive(
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   late CacheDatabase db;
   late FakeSeasonRepository repo;
   late ValueNotifier<Result<List<SeasonView>>> holder;
@@ -110,6 +116,10 @@ void main() {
         ],
         cacheDatabaseProvider.overrideWithValue(db),
         seasonRepositoryProvider.overrideWithValue(repo),
+        // The wizard's own repositories (issue #511: the FAB opens it from
+        // the seasons home, so these reads must resolve here too).
+        blockRepositoryProvider.overrideWithValue(FakeBlockRepository(db)),
+        episodeRepositoryProvider.overrideWithValue(FakeEpisodeRepository(db)),
         reconciliationSchedulerProvider.overrideWith((ref) => scheduler),
         seasonsListFetchProvider.overrideWith((ref) async {
           final r = ref.watch(seasonRepositoryProvider);
@@ -119,6 +129,16 @@ void main() {
               ? heldFetch.future
               : r.fetchAndCacheList(() async => holder.value);
         }),
+        blocksListFetchProvider.overrideWith((ref, seasonId) async {
+          final r = ref.watch(blockRepositoryProvider);
+          return r.listBySeason(seasonId);
+        }),
+        episodesListFetchProvider.overrideWith((ref, ids) async {
+          final (blockId, seasonId) = ids;
+          final r = ref.watch(episodeRepositoryProvider);
+          return r.listByBlock(blockId);
+        }),
+        wizardAiConfigAvailableProvider.overrideWithValue(false),
       ],
     );
     addTearDown(container.dispose);
@@ -166,16 +186,15 @@ void main() {
     fail('create-submit never became visible');
   }
 
-  /// Open the sheet, fill the form, submit.
+  /// Open the manual sheet from the secondary app-bar action, fill the
+  /// form, submit (issue #511: the series id is derived, never typed).
   Future<void> submitCreate(
     WidgetTester tester, {
-    required String seriesId,
     required String number,
     required String title,
   }) async {
-    await tester.tap(find.byKey(const Key('season-add-fab')));
+    await tester.tap(find.byKey(const Key('season-manual-create')));
     await tester.pumpAndSettle(); // sheet slide-in
-    await tester.enterText(find.byKey(const Key('create-series-id')), seriesId);
     await tester.enterText(find.byKey(const Key('create-number')), number);
     await tester.enterText(find.byKey(const Key('create-title')), title);
     await revealSubmit(tester);
@@ -226,16 +245,13 @@ void main() {
   });
 
   group('Create Season sheet (task 3.2)', () {
-    testWidgets('FAB opens the form and submits a command', (tester) async {
+    testWidgets('the manual action opens the form and submits a command', (
+      tester,
+    ) async {
       await setupContainer();
       await pumpScreen(tester);
 
-      await submitCreate(
-        tester,
-        seriesId: 'series-1',
-        number: '2',
-        title: 'Summer',
-      );
+      await submitCreate(tester, number: '2', title: 'Summer');
 
       // Command dispatched; the optimistic overlay row renders (controller
       // state only — the Drift cache stays empty while unprojected).
@@ -246,10 +262,64 @@ void main() {
       expect(find.byKey(const Key('create-submit')), findsNothing);
     });
 
+    testWidgets('the submitted command carries the derived series id', (
+      tester,
+    ) async {
+      await setupContainer();
+      await pumpScreen(tester);
+
+      await submitCreate(tester, number: '2', title: 'Summer');
+
+      // Issue #511: the series is taken from the build config
+      // (`devAuthConfig.defaultSeriesId`), never from a form field.
+      expect(repo.lastCreateRequest!.seriesId, 'series-1');
+      expect(repo.lastCreateRequest!.number, 2);
+      expect(repo.lastCreateRequest!.title, 'Summer');
+    });
+
+    testWidgets('the form exposes no series id field (issue #511)', (
+      tester,
+    ) async {
+      await setupContainer();
+      await pumpScreen(tester);
+
+      await tester.tap(find.byKey(const Key('season-manual-create')));
+      await tester.pumpAndSettle();
+
+      // The editable UUID field is gone — internal ids are never
+      // user-editable.
+      expect(find.byKey(const Key('create-series-id')), findsNothing);
+      expect(find.text('Serien-ID'), findsNothing);
+      // The remaining form fields are untouched.
+      expect(find.byKey(const Key('create-number')), findsOneWidget);
+      expect(find.byKey(const Key('create-title')), findsOneWidget);
+      expect(find.byKey(const Key('create-submit')), findsOneWidget);
+    });
+
+    testWidgets('a build without a default series id fails fast (issue #511)', (
+      tester,
+    ) async {
+      await setupContainer(config: devAuthConfigNoSeriesId);
+      await pumpScreen(tester);
+
+      await tester.tap(find.byKey(const Key('season-manual-create')));
+      await tester.pumpAndSettle();
+
+      // The actionable build notice replaces the removed field …
+      expect(find.byKey(const Key('create-series-id-missing')), findsOneWidget);
+      expect(find.textContaining('DEFAULT_SERIES_ID'), findsOneWidget);
+      // … and no command is dispatched: the submit stays disabled.
+      final submit = tester.widget<FilledButton>(
+        find.byKey(const Key('create-submit')),
+      );
+      expect(submit.onPressed, isNull);
+      expect(repo.createCalls, 0);
+    });
+
     testWidgets('invalid number blocks submission', (tester) async {
       await setupContainer();
       await pumpScreen(tester);
-      await tester.tap(find.byKey(const Key('season-add-fab')));
+      await tester.tap(find.byKey(const Key('season-manual-create')));
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byKey(const Key('create-number')), 'x');
@@ -271,7 +341,7 @@ void main() {
       repo.createResult = const Left(_networkDown);
       await pumpScreen(tester);
 
-      await submitCreate(tester, seriesId: 's1', number: '1', title: 'Ghost');
+      await submitCreate(tester, number: '1', title: 'Ghost');
 
       expect(find.byKey(const Key('create-error-banner')), findsOneWidget);
       expect(find.textContaining('Netzwerkproblem'), findsOneWidget);
@@ -289,7 +359,7 @@ void main() {
       repo.createResult = const Left(_conflict);
       await pumpScreen(tester);
 
-      await submitCreate(tester, seriesId: 's1', number: '1', title: 'Dup');
+      await submitCreate(tester, number: '1', title: 'Dup');
 
       expect(find.byKey(const Key('create-error-banner')), findsOneWidget);
       expect(find.textContaining('existiert bereits'), findsOneWidget);
@@ -311,12 +381,7 @@ void main() {
     ) async {
       await setupContainer();
       await pumpScreen(tester);
-      await submitCreate(
-        tester,
-        seriesId: 'series-1',
-        number: '2',
-        title: 'Later',
-      );
+      await submitCreate(tester, number: '2', title: 'Later');
 
       // Drain the bounded retry budget deterministically.
       await drive(
@@ -365,12 +430,7 @@ void main() {
       ],
     );
     await pumpScreen(tester);
-    await submitCreate(
-      tester,
-      seriesId: 'series-1',
-      number: '3',
-      title: 'Autumn',
-    );
+    await submitCreate(tester, number: '3', title: 'Autumn');
 
     // Drive to the settled stale state (no animated spinner in the frame).
     await drive(
@@ -458,12 +518,7 @@ void main() {
     ) async {
       await setupContainer();
       await pumpScreen(tester);
-      await submitCreate(
-        tester,
-        seriesId: 'series-1',
-        number: '2',
-        title: 'Autumn',
-      );
+      await submitCreate(tester, number: '2', title: 'Autumn');
 
       // Keys/semantics unchanged from the tile era.
       expect(find.byKey(const Key('overlay-n1')), findsOneWidget);
@@ -501,38 +556,106 @@ void main() {
     });
   });
 
-  group('Extended FAB + empty state (task 4.2)', () {
-    testWidgets('extended FAB renders the visible label', (tester) async {
+  group('Guided FAB + manual entry + empty state (issue #511)', () {
+    testWidgets('the extended FAB renders the guided setup label', (
+      tester,
+    ) async {
       await setupContainer();
       await pumpScreen(tester);
 
       final fab = find.byKey(const Key('season-add-fab'));
       expect(fab, findsOneWidget);
+      // Issue #511: the primary create action is the GUIDED setup, so the
+      // FAB carries its copy (not the manual "Season erstellen" label).
       expect(
-        find.descendant(of: fab, matching: find.text('Season erstellen')),
+        find.descendant(of: fab, matching: find.text('Season-Setup starten')),
         findsOneWidget,
       );
-      // The add icon rides INSIDE the extended FAB (the empty state's
+      // The rocket glyph rides inside the extended FAB (the empty state's
       // setup CTA carries its own, so scope the assertion to the FAB).
       expect(
-        find.descendant(of: fab, matching: find.byIcon(Icons.add)),
+        find.descendant(
+          of: fab,
+          matching: find.byIcon(Icons.rocket_launch_outlined),
+        ),
         findsOneWidget,
       );
     });
 
-    testWidgets('signed out: no FAB and the setup CTA is disabled', (
+    testWidgets('the FAB opens the setup wizard (primary path)', (
+      tester,
+    ) async {
+      await setupContainer();
+      await pumpScreen(tester);
+
+      await tester.tap(find.byKey(const Key('season-add-fab')));
+      await tester.pumpAndSettle();
+
+      // The wizard's first step is on-screen …
+      expect(find.byType(SetupWizardScreen), findsOneWidget);
+      expect(find.byKey(const Key('wizard-step-season')), findsOneWidget);
+      // … and the manual sheet was NOT opened instead.
+      expect(find.byKey(const Key('create-submit')), findsNothing);
+    });
+
+    testWidgets('the wizard is reachable WITH existing seasons (issue #511)', (
+      tester,
+    ) async {
+      await setupContainer(
+        initialRows: [season('a', number: 1, title: 'Spring')],
+      );
+      await pumpScreen(tester);
+
+      // The card list renders (no empty state) — the guided entry does not
+      // depend on the empty state.
+      expect(find.byKey(const Key('season-a')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('season-add-fab')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('wizard-step-season')), findsOneWidget);
+    });
+
+    testWidgets('the app bar offers the manual create as the alternative', (
+      tester,
+    ) async {
+      await setupContainer(
+        initialRows: [season('a', number: 1, title: 'Spring')],
+      );
+      await pumpScreen(tester);
+
+      final action = find.byKey(const Key('season-manual-create'));
+      expect(action, findsOneWidget);
+      expect(
+        find.descendant(of: action, matching: find.text('Manuell')),
+        findsOneWidget,
+      );
+
+      await tester.tap(action);
+      await tester.pumpAndSettle();
+
+      // The manual sheet opens, the wizard does not.
+      expect(find.byKey(const Key('create-submit')), findsOneWidget);
+      expect(find.byType(SetupWizardScreen), findsNothing);
+    });
+
+    testWidgets('signed out: neither create entry renders (AUTHZ-GATE)', (
       tester,
     ) async {
       await setupContainer(config: realOidcConfig);
       await pumpScreen(tester);
 
       expect(find.byKey(const Key('season-add-fab')), findsNothing);
+      expect(find.byKey(const Key('season-manual-create')), findsNothing);
       final cta = find.byKey(const Key('seasons-empty-setup-cta'));
+      // Visibility != activation (CodeRabbit #530): the empty state keeps
+      // its guided entry point on screen, but it is DISABLED without a
+      // session — the spec's AUTHZ-GATE section states both halves.
       expect(cta, findsOneWidget);
-      // The gated entry never opens the create sheet (client-side gate).
+      expect(tester.widget<FilledButton>(cta).onPressed, isNull);
+      // The gated entry never opens the wizard (client-side gate).
       await tester.tap(cta);
       await pumpFrames(tester);
-      expect(find.byKey(const Key('create-series-id')), findsNothing);
+      expect(find.byKey(const Key('wizard-step-season')), findsNothing);
     });
 
     testWidgets('import CTA jumps to the Mehr tab (gate travels with the '
@@ -643,12 +766,7 @@ void main() {
             tester,
             theme: dark ? AppThemes.dark() : AppThemes.light(),
           );
-          await submitCreate(
-            tester,
-            seriesId: 'series-1',
-            number: '3',
-            title: 'Autumn',
-          );
+          await submitCreate(tester, number: '3', title: 'Autumn');
           // Drive to the settled stale state (no animated spinner in the
           // frame — the syncing spinner is not golden-safe).
           await drive(

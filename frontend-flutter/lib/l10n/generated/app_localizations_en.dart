@@ -325,17 +325,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get createSeasonTitle => 'Create season';
 
   @override
-  String get createSeasonSeriesId => 'Series id';
-
-  @override
-  String get createSeasonSeriesIdRequired => 'Series id is required';
-
-  @override
   String get createSeasonTitleLabel => 'Title';
-
-  @override
-  String get createSeasonWizardCta =>
-      'Or set up guided: start the season setup';
 
   @override
   String reportsTitle(Object label) {
@@ -1001,10 +991,6 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get wizardErrorEpisodeExistsSeries =>
       'An episode with this number already exists in the series.';
-
-  @override
-  String get wizardErrorSeriesIdMissing =>
-      'This app was built without DEFAULT_SERIES_ID: the new season cannot be assigned to a series. Rebuild the app with --dart-define=DEFAULT_SERIES_ID=<id of the default series>.';
 
   @override
   String get wizardErrorNetwork =>
@@ -1846,9 +1832,6 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get seasonsCreate => 'Create season';
-
-  @override
   String get seasonsEmptyTitle => 'No seasons yet';
 
   @override
@@ -1880,6 +1863,16 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get seasonsCreateGeneric => 'The season could not be created.';
+
+  @override
+  String get seasonsCreateSeriesIdMissing =>
+      'This app was built without DEFAULT_SERIES_ID: the new season cannot be assigned to a series. Rebuild the app with --dart-define=DEFAULT_SERIES_ID=<id of the default series>.';
+
+  @override
+  String get seasonsSetupCta => 'Start season setup';
+
+  @override
+  String get seasonsManualCreateCta => 'Manual';
 
   @override
   String seasonsDefaultTitle(Object number) {

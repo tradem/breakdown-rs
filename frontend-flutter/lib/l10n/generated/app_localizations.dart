@@ -626,29 +626,11 @@ abstract class AppLocalizations {
   /// **'Staffel erstellen'**
   String get createSeasonTitle;
 
-  /// No description provided for @createSeasonSeriesId.
-  ///
-  /// In de, this message translates to:
-  /// **'Serien-ID'**
-  String get createSeasonSeriesId;
-
-  /// No description provided for @createSeasonSeriesIdRequired.
-  ///
-  /// In de, this message translates to:
-  /// **'Serien-ID ist erforderlich'**
-  String get createSeasonSeriesIdRequired;
-
   /// No description provided for @createSeasonTitleLabel.
   ///
   /// In de, this message translates to:
   /// **'Titel'**
   String get createSeasonTitleLabel;
-
-  /// No description provided for @createSeasonWizardCta.
-  ///
-  /// In de, this message translates to:
-  /// **'Oder geführt einrichten: Season-Setup starten'**
-  String get createSeasonWizardCta;
 
   /// No description provided for @reportsTitle.
   ///
@@ -1753,12 +1735,6 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Eine Episode mit dieser Nummer existiert bereits in der Serie.'**
   String get wizardErrorEpisodeExistsSeries;
-
-  /// No description provided for @wizardErrorSeriesIdMissing.
-  ///
-  /// In de, this message translates to:
-  /// **'Diese App wurde ohne DEFAULT_SERIES_ID gebaut: Die neue Season kann keiner Serie zugeordnet werden. Baue die App mit --dart-define=DEFAULT_SERIES_ID=<ID der Standardserie> neu.'**
-  String get wizardErrorSeriesIdMissing;
 
   /// No description provided for @wizardErrorNetwork.
   ///
@@ -3182,12 +3158,6 @@ abstract class AppLocalizations {
   /// **'vor {count} d'**
   String seasonsStaleDays(Object count);
 
-  /// No description provided for @seasonsCreate.
-  ///
-  /// In de, this message translates to:
-  /// **'Season erstellen'**
-  String get seasonsCreate;
-
   /// No description provided for @seasonsEmptyTitle.
   ///
   /// In de, this message translates to:
@@ -3247,6 +3217,24 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Die Season konnte nicht erstellt werden.'**
   String get seasonsCreateGeneric;
+
+  /// No description provided for @seasonsCreateSeriesIdMissing.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese App wurde ohne DEFAULT_SERIES_ID gebaut: Die neue Season kann keiner Serie zugeordnet werden. Baue die App mit --dart-define=DEFAULT_SERIES_ID=<ID der Standardserie> neu.'**
+  String get seasonsCreateSeriesIdMissing;
+
+  /// No description provided for @seasonsSetupCta.
+  ///
+  /// In de, this message translates to:
+  /// **'Season-Setup starten'**
+  String get seasonsSetupCta;
+
+  /// No description provided for @seasonsManualCreateCta.
+  ///
+  /// In de, this message translates to:
+  /// **'Manuell'**
+  String get seasonsManualCreateCta;
 
   /// No description provided for @seasonsDefaultTitle.
   ///

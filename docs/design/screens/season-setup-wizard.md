@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: omen-alpha (opencode-go) -->
+<!-- Co-authored-by: space-bunny-free (opencode-go) -->
 
 # SeasonSetupWizard — Screen Spec
 
@@ -23,15 +24,17 @@ completion screen offers AI import only when a configuration exists
 ## Navigation
 
 Reached from the Season tab's guided empty state ("Season-Setup
-starten") and from the create flow (alongside the quick-create sheet).
+starten") and from its extended FAB — both open this route, and since
+issue #511 the FAB is the **primary** create entry in every state (the
+manual quick-create sheet is the secondary alternative in the app bar).
 The wizard runs as a full-screen pushed route on the Season tab's
 nested navigator — the shell tabs stay untouched beneath it. Back
 behavior: back-out from the Season/Blocks/Review steps triggers the
 discard confirmation; during dispatch, back is blocked until the
 sequence settles (completion or partial failure); from the completion
 step, back pops to the seasons home. Route parameters: none (the
-series id is the dev-define default series, as in the quick-create
-sheet).
+series id is the dev-define default series, as in the manual
+create sheet).
 
 AUTHZ-GATE: each dispatched create command (`POST /v1/seasons`,
 `POST /v1/blocks`, `POST /v1/episodes`) runs through its existing
