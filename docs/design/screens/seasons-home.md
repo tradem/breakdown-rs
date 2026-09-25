@@ -30,12 +30,15 @@ CTA jumps to the Mehr tab's AI-import entry.
 Back behavior: system back at this tab root follows the shell's
 app-exit contract. Route parameters: none.
 
-AUTHZ-GATE: season creation is auth-only — the setup CTA, the FAB and
-the manual action render only for a resolved authenticated session (the
-client-side gate mirrors the backend's `CurrentUser` extractor; no
-network call is issued signed out). The AI-import path keeps its
-client-side membership check inside the import submit controller before
-any network call.
+AUTHZ-GATE: season creation is auth-only — the client-side gate
+mirrors the backend's `CurrentUser` extractor; no network call is
+issued signed out. Visibility and activation differ per entry: the
+extended FAB and the "Manuell" app-bar action are **absent** without a
+resolved authenticated session, while the empty state's setup CTA still
+**renders but stays disabled** (`onSetup` is `null`), so the empty state
+keeps its guided entry point without offering an action. The AI-import
+path keeps its client-side membership check inside the import submit
+controller before any network call.
 
 ## Layout
 
@@ -111,7 +114,7 @@ and tests — never in the wireframes.
 | Setup FAB | Extended FAB | Primary create: opens the guided setup wizard (dispatches `POST /v1/seasons` + blocks/episodes) | `seasons.create.fab` |
 | Empty headline | Text | No seasons yet | `seasons.empty.title` |
 | Empty guidance | Card supporting text | One sentence of guidance | `seasons.empty.guidance` |
-| Setup CTA | Filled button | Starts the guided setup wizard | `seasons.empty.setupCta` |
+| Setup CTA | Filled button | Starts the guided setup wizard (renders always; disabled without a session) | `seasons.empty.setupCta` |
 | Import CTA | Outlined button | Jumps to the Mehr tab's AI-import entry | `seasons.empty.importCta` |
 | Stale banner | Banner | List-level cache staleness (existing) | `errors.connectionLost` |
 | Overlay card | Card | Optimistic create entry with sync indicator | `seasons.syncing` |

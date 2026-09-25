@@ -647,7 +647,11 @@ void main() {
       expect(find.byKey(const Key('season-add-fab')), findsNothing);
       expect(find.byKey(const Key('season-manual-create')), findsNothing);
       final cta = find.byKey(const Key('seasons-empty-setup-cta'));
+      // Visibility != activation (CodeRabbit #530): the empty state keeps
+      // its guided entry point on screen, but it is DISABLED without a
+      // session — the spec's AUTHZ-GATE section states both halves.
       expect(cta, findsOneWidget);
+      expect(tester.widget<FilledButton>(cta).onPressed, isNull);
       // The gated entry never opens the wizard (client-side gate).
       await tester.tap(cta);
       await pumpFrames(tester);
