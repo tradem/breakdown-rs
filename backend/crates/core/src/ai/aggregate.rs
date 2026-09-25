@@ -2,6 +2,10 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
+
 use std::collections::HashMap;
 
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
@@ -144,7 +148,11 @@ impl Command<UpdateAiConfig> for AiConfig {
         if self.revoked {
             return Err(AiConfigError::AlreadyRevoked);
         }
-        if current_provider != cmd.provider {
+        // A provider change is a credential hand-off, not a relabeling of the
+        // existing binding. Keep the invariant that the old vault key cannot
+        // be paired with a new provider; the client supplies a different,
+        // provider-bound vault key for the replacement.
+        if current_provider != cmd.provider && cmd.vault_key_id == self.vault_key_id {
             return Err(AiConfigError::ProviderMismatch);
         }
         if cmd.version != self.version {

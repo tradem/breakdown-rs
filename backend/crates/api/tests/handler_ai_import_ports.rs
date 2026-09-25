@@ -19,6 +19,10 @@
 // Test code: the workspace denies `clippy::expect_used`; assertions on
 // handler `Result` returns use `.expect()`/`.expect_err()` with explicit
 // messages. The allow list is kept minimal.
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
+
 #![allow(clippy::expect_used)]
 mod common;
 
@@ -758,18 +762,22 @@ async fn ai_config_lifecycle_runs_through_the_config_ports() {
         user(),
         Path(created.id),
         Json(UpdateAiConfigRequest {
-            provider: LlmProvider::Neuralwatt,
+            provider: LlmProvider::Ollama,
             assistant_model: "assistant-v2".to_owned(),
             image_model: None,
             prompts: HashMap::new(),
-            vault_key_id: "vault-key".to_owned(),
+            vault_key_id: "replacement-vault-key".to_owned(),
             version: created.version,
         }),
     )
     .await
     .expect("owner may update their config");
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(commands.updated.lock().await.len(), 1);
+    let updated = commands.updated.lock().await;
+    assert_eq!(updated.len(), 1);
+    assert_eq!(updated[0].provider, LlmProvider::Ollama);
+    assert_eq!(updated[0].vault_key_id, "replacement-vault-key");
+    drop(updated);
 
     let (status, Json(_)) = revoke_ai_config::<FakePorts>(
         State(state),
