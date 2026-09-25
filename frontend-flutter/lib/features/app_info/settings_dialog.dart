@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,6 +11,7 @@ import '../../auth/auth_providers.dart';
 import '../../data/settings/api_base_override_store.dart';
 import '../../data/settings/api_base_validation.dart';
 import '../../design/spacing.dart';
+import '../../l10n/app_localizations_provider.dart';
 import '../auth/sign_out.dart';
 
 /// Shows the settings dialog (spec `flutter-app-dialogs`, design.md §7).
@@ -113,9 +116,10 @@ class _SettingsDialogState extends ConsumerState<SettingsDialog> {
   Widget build(BuildContext context) {
     final config = ref.watch(appConfigProvider);
     final base = _effectiveBase();
+    final l10n = l10nOf(context);
     return AlertDialog(
       key: const Key('settings-dialog'),
-      title: const Text('Settings'),
+      title: Text(l10n.settingsTitle),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -125,14 +129,14 @@ class _SettingsDialogState extends ConsumerState<SettingsDialog> {
               key: const Key('settings-base'),
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.dns_outlined),
-              title: const Text('Server address'),
+              title: Text(l10n.settingsServerAddress),
               subtitle: Text(base),
             ),
             ListTile(
               key: const Key('settings-flavor'),
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.science_outlined),
-              title: const Text('Flavor'),
+              title: Text(l10n.settingsFlavor),
               subtitle: Text(config.flavor.name),
             ),
             if (config.isDev) ...[
@@ -144,7 +148,7 @@ class _SettingsDialogState extends ConsumerState<SettingsDialog> {
                 keyboardType: TextInputType.url,
                 autocorrect: false,
                 decoration: InputDecoration(
-                  labelText: 'Backend URI',
+                  labelText: l10n.settingsBackendUri,
                   hintText: 'https://api.example.com',
                   errorText: _fieldError,
                 ),
@@ -156,13 +160,10 @@ class _SettingsDialogState extends ConsumerState<SettingsDialog> {
               if (_saving)
                 const LinearProgressIndicator(key: Key('settings-progress')),
             ] else
-              const Padding(
-                key: Key('settings-prod-note'),
+              Padding(
+                key: const Key('settings-prod-note'),
                 padding: EdgeInsets.only(top: AppSpacing.space8),
-                child: Text(
-                  'The server address is set by your organization for '
-                  'security and cannot be changed here.',
-                ),
+                child: Text(l10n.settingsProdNote),
               ),
           ],
         ),
@@ -173,20 +174,20 @@ class _SettingsDialogState extends ConsumerState<SettingsDialog> {
             key: const Key('settings-reset'),
             style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
             onPressed: _saving ? null : _reset,
-            child: const Text('Reset'),
+            child: Text(l10n.settingsReset),
           ),
         if (config.isDev)
           FilledButton(
             key: const Key('settings-save'),
             style: FilledButton.styleFrom(minimumSize: const Size(48, 48)),
             onPressed: _saving ? null : _save,
-            child: const Text('Save'),
+            child: Text(l10n.settingsSave),
           ),
         TextButton(
           key: const Key('settings-close'),
           style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
           onPressed: _saving ? null : () => Navigator.of(context).pop(),
-          child: const Text('Close'),
+          child: Text(l10n.settingsClose),
         ),
       ],
     );

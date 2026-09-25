@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,6 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../auth/auth_providers.dart';
 import '../../design/spacing.dart';
+import '../../l10n/app_localizations_provider.dart';
 
 /// Source repository linked from the About dialog (spec
 /// `flutter-app-dialogs`: AGPL-3.0 license + source link).
@@ -51,7 +54,7 @@ class AppInfoDialog extends ConsumerWidget {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(
-          const SnackBar(content: Text('Could not open the source link.')),
+          SnackBar(content: Text(l10nOf(context).infoSourceError)),
         );
     }
   }
@@ -59,9 +62,10 @@ class AppInfoDialog extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final appVersion = ref.watch(appConfigProvider).appVersion;
+    final l10n = l10nOf(context);
     return AlertDialog(
       key: const Key('info-dialog'),
-      title: const Text('About Breakdown'),
+      title: Text(l10n.infoTitle),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -70,18 +74,15 @@ class AppInfoDialog extends ConsumerWidget {
               key: const Key('info-version'),
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.tag),
-              title: const Text('Version'),
+              title: Text(l10n.infoVersion),
               subtitle: Text(appVersion),
             ),
             ListTile(
               key: const Key('info-license'),
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.balance),
-              title: const Text('License'),
-              subtitle: const Text(
-                'GNU Affero General Public License v3.0. This is free '
-                'software: you may run, study, share, and modify it.',
-              ),
+              title: Text(l10n.infoLicense),
+              subtitle: Text(l10n.infoLicenseBody),
             ),
             Align(
               alignment: Alignment.centerLeft,
@@ -90,7 +91,7 @@ class AppInfoDialog extends ConsumerWidget {
                 style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
                 onPressed: () => _openSourceLink(context),
                 icon: const Icon(Icons.open_in_new, size: 18),
-                label: const Text('View source'),
+                label: Text(l10n.infoSource),
               ),
             ),
             const SizedBox(height: AppSpacing.space8),
@@ -98,13 +99,8 @@ class AppInfoDialog extends ConsumerWidget {
               key: const Key('info-ai-notice'),
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.smart_toy_outlined),
-              title: const Text('AI usage'),
-              subtitle: const Text(
-                'Schedule and script import features send text you provide '
-                'to a server-side configured AI provider when you explicitly '
-                'submit it. This app never communicates with an AI provider '
-                'directly.',
-              ),
+              title: Text(l10n.infoAiUsage),
+              subtitle: Text(l10n.infoAiBody),
             ),
           ],
         ),
@@ -114,7 +110,7 @@ class AppInfoDialog extends ConsumerWidget {
           key: const Key('info-close'),
           style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Close'),
+          child: Text(l10n.commonClose),
         ),
       ],
     );

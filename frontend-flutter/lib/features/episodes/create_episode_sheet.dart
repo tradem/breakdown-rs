@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../l10n/app_localizations_provider.dart';
 import 'episodes_controller.dart';
 
 /// Opens the Create Episode form: a centered dialog on macOS (side-sheet
@@ -99,7 +102,7 @@ class _CreateEpisodeFormState extends ConsumerState<_CreateEpisodeForm> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'Create episode',
+                l10nOf(context).episodesCreateTitle,
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 16),
@@ -107,7 +110,9 @@ class _CreateEpisodeFormState extends ConsumerState<_CreateEpisodeForm> {
                 key: const Key('create-episode-number'),
                 controller: _numberController,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Number'),
+                decoration: InputDecoration(
+                  labelText: l10nOf(context).blocksNumberLabel,
+                ),
                 validator: (v) => int.tryParse((v ?? '').trim()) == null
                     ? 'A whole number is required'
                     : null,
@@ -116,7 +121,9 @@ class _CreateEpisodeFormState extends ConsumerState<_CreateEpisodeForm> {
               TextFormField(
                 key: const Key('create-episode-name'),
                 controller: _nameController,
-                decoration: const InputDecoration(labelText: 'Name (optional)'),
+                decoration: InputDecoration(
+                  labelText: l10nOf(context).episodesNameLabel,
+                ),
               ),
               const SizedBox(height: 16),
               FilledButton(
@@ -128,7 +135,7 @@ class _CreateEpisodeFormState extends ConsumerState<_CreateEpisodeForm> {
                         height: 20,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Text('Create'),
+                    : Text(l10nOf(context).blocksCreateButton),
               ),
               const SizedBox(height: 8),
             ],

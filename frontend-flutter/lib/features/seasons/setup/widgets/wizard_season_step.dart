@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode)
 // Co-authored-by: omen-alpha (opencode-go)
 
 import 'package:flutter/material.dart';
 
 import '../../../../design/spacing.dart';
+import '../../../../l10n/app_localizations_provider.dart';
+import '../../../../l10n/generated/app_localizations.dart';
 import '../setup_wizard_state.dart';
 
 /// Season step of the setup wizard (task 4.1): the number field with the
@@ -98,10 +101,10 @@ class _WizardSeasonStepState extends State<WizardSeasonStep> {
           controller: _number,
           keyboardType: TextInputType.number,
           decoration: InputDecoration(
-            labelText: 'Nummer',
+            labelText: l10nOf(context).blocksNumberLabel,
             errorText: _numberError == null
                 ? null
-                : wizardErrorCopyForField(_numberError!),
+                : wizardErrorCopyForField(l10nOf(context), _numberError!),
           ),
           onChanged: _onNumberChanged,
         ),
@@ -109,14 +112,16 @@ class _WizardSeasonStepState extends State<WizardSeasonStep> {
         TextFormField(
           key: const Key('wizard-name-field'),
           controller: _name,
-          decoration: const InputDecoration(labelText: 'Name (optional)'),
+          decoration: InputDecoration(
+            labelText: l10nOf(context).episodesNameLabel,
+          ),
           onChanged: widget.onNameChanged,
         ),
         const SizedBox(height: AppSpacing.space24),
         // Live preview of the resulting season title (glossary
         // `wizard.season.preview`): number + optional name.
         Text(
-          _preview,
+          _preview(l10nOf(context)),
           key: const Key('wizard-live-preview'),
           style: theme.textTheme.titleMedium,
         ),
@@ -124,10 +129,10 @@ class _WizardSeasonStepState extends State<WizardSeasonStep> {
     );
   }
 
-  String get _preview {
+  String _preview(AppLocalizations l10n) {
     final name = widget.seasonName.trim();
     return name.isEmpty
-        ? 'Season ${widget.seasonNumber}'
-        : 'Season ${widget.seasonNumber} · $name';
+        ? l10n.wizardReviewSeason('${widget.seasonNumber}')
+        : '${l10n.wizardReviewSeason('${widget.seasonNumber}')} · $name';
   }
 }

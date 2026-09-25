@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../l10n/generated/app_localizations.dart';
+import '../../l10n/generated/app_localizations_de.dart';
 import 'more_tab_screen.dart';
 import 'planning_tab_screen.dart';
 import '../seasons/seasons_screen.dart';
@@ -19,8 +23,8 @@ import 'window_size_class.dart';
 /// pattern is announced without hand-rolled Semantics wrappers. This helper
 /// builds the concatenated form for the NavigationBar tooltip (carried into
 /// its semantics) and documents the contract for tests.
-String tabSemanticLabel(int index, String label) =>
-    '$label, Tab ${index + 1} of 4';
+String tabSemanticLabel(AppLocalizations l10n, int index, String label) =>
+    l10n.seasonTabSemantic(label, index + 1);
 
 /// The adaptive four-tab navigation shell (spec `flutter-navigation-shell`,
 /// design D1–D3).
@@ -75,6 +79,11 @@ class AppShellState extends ConsumerState<AppShell> {
     final controller = ref.read(shellControllerProvider.notifier);
     final widthDp = MediaQuery.sizeOf(context).width;
     final sizeClass = resolveWindowSizeClass(widthDp);
+    // Standalone shell previews/tests use the canonical German suite;
+    // the production App supplies resolved delegates for the device locale.
+    final l10n =
+        Localizations.of<AppLocalizations>(context, AppLocalizations) ??
+        AppLocalizationsDe();
 
     final content = PopScope(
       canPop: false,
@@ -116,6 +125,7 @@ class AppShellState extends ConsumerState<AppShell> {
           ShellDestinations.navigationBar(
             selectedIndex: state.selectedIndex,
             onSelected: controller.selectTab,
+            l10n: l10n,
           ),
         ],
       ),
@@ -124,6 +134,7 @@ class AppShellState extends ConsumerState<AppShell> {
           ShellDestinations.navigationRail(
             selectedIndex: state.selectedIndex,
             onSelected: controller.selectTab,
+            l10n: l10n,
           ),
           const VerticalDivider(width: 1, thickness: 1),
           Expanded(child: content),
@@ -134,6 +145,7 @@ class AppShellState extends ConsumerState<AppShell> {
           ShellDestinations.navigationDrawer(
             selectedIndex: state.selectedIndex,
             onSelected: controller.selectTab,
+            l10n: l10n,
           ),
           Expanded(child: content),
         ],
@@ -152,20 +164,21 @@ class AppShellState extends ConsumerState<AppShell> {
 class ShellDestinations {
   ShellDestinations._();
 
-  static List<_DestinationSpec> _specs() => [
-    for (var i = 0; i < 4; i++) _DestinationSpec.tab(i),
+  static List<_DestinationSpec> _specs(AppLocalizations l10n) => [
+    for (var i = 0; i < 4; i++) _DestinationSpec.tab(i, l10n),
   ];
 
   /// Compact morphology: bottom [NavigationBar].
   static Widget navigationBar({
     required int selectedIndex,
     required ValueChanged<int> onSelected,
+    AppLocalizations? l10n,
   }) => NavigationBar(
     key: const Key('shell-navigation-bar'),
     selectedIndex: selectedIndex,
     onDestinationSelected: onSelected,
     destinations: [
-      for (final d in _specs())
+      for (final d in _specs(l10n ?? AppLocalizationsDe()))
         NavigationDestination(
           key: Key(d.keySuffix),
           icon: Icon(d.outlineIcon),
@@ -181,13 +194,14 @@ class ShellDestinations {
   static Widget navigationRail({
     required int selectedIndex,
     required ValueChanged<int> onSelected,
+    AppLocalizations? l10n,
   }) => NavigationRail(
     key: const Key('shell-navigation-rail'),
     selectedIndex: selectedIndex,
     onDestinationSelected: onSelected,
     labelType: NavigationRailLabelType.all,
     destinations: [
-      for (final d in _specs())
+      for (final d in _specs(l10n ?? AppLocalizationsDe()))
         NavigationRailDestination(
           icon: Icon(d.outlineIcon),
           selectedIcon: Icon(d.filledIcon),
@@ -213,13 +227,17 @@ class ShellDestinations {
   static Widget navigationDrawer({
     required int selectedIndex,
     required ValueChanged<int> onSelected,
+    AppLocalizations? l10n,
   }) => NavigationDrawer(
     key: const Key('shell-navigation-drawer'),
     selectedIndex: selectedIndex,
     onDestinationSelected: onSelected,
     children: [
-      const Padding(padding: EdgeInsets.all(16), child: Text('Breakdown')),
-      for (final d in _specs())
+      Padding(
+        padding: const EdgeInsets.all(16),
+        child: Text((l10n ?? AppLocalizationsDe()).appTitleBreakdown),
+      ),
+      for (final d in _specs(l10n ?? AppLocalizationsDe()))
         NavigationDrawerDestination(
           icon: Icon(d.outlineIcon),
           selectedIcon: Icon(d.filledIcon),
@@ -241,12 +259,12 @@ class ShellDestinations {
 /// One shell destination's static metadata: glossary icon, visible label
 /// and the "Tab N of 4" semantics label.
 class _DestinationSpec {
-  _DestinationSpec.tab(int index)
+  _DestinationSpec.tab(int index, AppLocalizations l10n)
     : keySuffix = _keySuffixes[index],
-      label = _labels[index],
+      label = _label(index, l10n),
       outlineIcon = _outlineIcons[index],
       filledIcon = _filledIcons[index],
-      semanticLabel = tabSemanticLabel(index, _labels[index]);
+      semanticLabel = tabSemanticLabel(l10n, index, _label(index, l10n));
 
   /// Keys (`shell-destination-<n>`) for semantic/touch-target tests.
   final String keySuffix;
@@ -255,7 +273,12 @@ class _DestinationSpec {
   final IconData filledIcon;
   final String semanticLabel;
 
-  static const _labels = ['Season', 'Planen', 'Garderobe', 'Mehr'];
+  static String _label(int index, AppLocalizations l10n) => switch (index) {
+    0 => l10n.navSeasons,
+    1 => l10n.navPlanen,
+    2 => l10n.navCostumes,
+    _ => l10n.navMore,
+  };
   static const _keySuffixes = [
     'shell-destination-0',
     'shell-destination-1',

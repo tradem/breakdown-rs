@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
+import '../../l10n/app_localizations_provider.dart';
 import '../blocks/active_block_gate.dart';
 import '../blocks/blocks_controller.dart';
 import 'character_detail_screen.dart';
@@ -39,10 +41,10 @@ class CharactersScreen extends ConsumerWidget {
     final resolution = ref.watch(blockScopeResolutionProvider(season.id));
     switch (resolution) {
       case AsyncLoading():
-        return const BlockScopeLoadingScaffold(title: 'Characters');
+        return BlockScopeLoadingScaffold(title: l10nOf(context).navCharacters);
       case AsyncError(:final error):
         return BlockScopeErrorScaffold(
-          title: 'Characters',
+          title: l10nOf(context).navCharacters,
           code: blockScopeErrorCode(error),
           onRetry: () => ref.refresh(blocksListFetchProvider(season.id)),
         );
@@ -55,12 +57,12 @@ class CharactersScreen extends ConsumerWidget {
           final candidates = value.candidates;
           if (candidates != null) {
             return BlockScopePickerScaffold(
-              title: 'Characters',
+              title: l10nOf(context).navCharacters,
               seasonId: season.id,
               candidates: candidates,
             );
           }
-          return const NoBlocksHintScaffold(title: 'Characters');
+          return NoBlocksHintScaffold(title: l10nOf(context).navCharacters);
         }
     }
     final state = ref.watch(charactersControllerProvider(season.id));
@@ -71,19 +73,19 @@ class CharactersScreen extends ConsumerWidget {
     final notFound = state.notFound;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Characters')),
+      appBar: AppBar(title: Text(l10nOf(context).navCharacters)),
       body: Column(
         children: [
           if (state.commandError case final error?)
             _Banner(
               key: const Key('character-command-error-banner'),
-              text: characterErrorCopy(error),
+              text: characterErrorCopy(l10nOf(context), error),
               onDismiss: controller.dismissCommandError,
             ),
           if (state.isStale && notFound == null)
-            const _Banner(
-              key: Key('characters-stale-banner'),
-              text: 'Cached data may be outdated',
+            _Banner(
+              key: const Key('characters-stale-banner'),
+              text: l10nOf(context).charactersStaleBanner,
             ),
           Expanded(
             child: notFound != null
@@ -150,7 +152,7 @@ class CharactersScreen extends ConsumerWidget {
           ? FloatingActionButton(
               key: const Key('character-add-fab'),
               onPressed: () => _showCreateSheet(context, ref),
-              tooltip: 'Create character',
+              tooltip: l10nOf(context).characterAddFab,
               child: const Icon(Icons.add),
             )
           : null,
@@ -183,29 +185,42 @@ class CharactersScreen extends ConsumerWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text(
-                    'Create character',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  Text(
+                    l10nOf(context).characterCreateTitle,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   TextFormField(
                     key: const Key('create-character-name'),
                     controller: nameController,
-                    decoration: const InputDecoration(labelText: 'Name'),
+                    decoration: InputDecoration(
+                      labelText: l10nOf(context).characterNameLabel,
+                    ),
                     validator: (v) => (v == null || v.trim().isEmpty)
-                        ? 'A name is required'
+                        ? l10nOf(context).characterNameRequired
                         : null,
                   ),
                   DropdownButtonFormField<String>(
                     key: const Key('create-character-category'),
-                    decoration: const InputDecoration(labelText: 'Category'),
+                    decoration: InputDecoration(
+                      labelText: l10nOf(context).characterCategoryLabelName,
+                    ),
                     initialValue: categoryWire,
-                    items: const [
+                    items: [
                       DropdownMenuItem(
                         value: 'main_cast',
-                        child: Text('Main cast'),
+                        child: Text(l10nOf(context).characterCategoryMain),
                       ),
-                      DropdownMenuItem(value: 'guest', child: Text('Guest')),
-                      DropdownMenuItem(value: 'extra', child: Text('Extra')),
+                      DropdownMenuItem(
+                        value: 'guest',
+                        child: Text(l10nOf(context).characterCategoryGuest),
+                      ),
+                      DropdownMenuItem(
+                        value: 'extra',
+                        child: Text(l10nOf(context).characterCategoryExtra),
+                      ),
                     ],
                     onChanged: (v) {
                       if (v != null) setSheetState(() => categoryWire = v);
@@ -231,7 +246,7 @@ class CharactersScreen extends ConsumerWidget {
                         Navigator.of(sheetContext).pop();
                       }
                     },
-                    child: const Text('Create'),
+                    child: Text(l10nOf(context).blocksCreateButton),
                   ),
                 ],
               ),
@@ -255,13 +270,13 @@ class _FetchErrorView extends StatelessWidget {
     physics: const AlwaysScrollableScrollPhysics(),
     children: [
       const SizedBox(height: 160),
-      Center(child: Text('Could not load characters ($code).')),
+      Center(child: Text(l10nOf(context).charactersFetchError(code))),
       const SizedBox(height: 8),
       Center(
         child: FilledButton.tonal(
           key: const Key('characters-retry'),
           onPressed: onRetry,
-          child: const Text('Retry'),
+          child: Text(l10nOf(context).commonRetry),
         ),
       ),
     ],
@@ -293,7 +308,7 @@ class _Banner extends StatelessWidget {
               IconButton(
                 onPressed: onDismiss,
                 color: scheme.onErrorContainer,
-                tooltip: 'Dismiss',
+                tooltip: l10nOf(context).episodesDismiss,
                 icon: const Icon(
                   Icons.close,
                   key: Key('character-command-error-dismiss'),

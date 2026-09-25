@@ -9,6 +9,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../l10n/app_localizations_provider.dart';
 import '../ai_config/ai_config_screen.dart';
 import 'import_state.dart';
 
@@ -43,12 +44,12 @@ class AiImportSubmitScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('AI import'),
+        title: Text(l10nOf(context).aiImportTitle),
         actions: [
           IconButton(
             key: const Key('ai-import-open-config'),
             icon: const Icon(Icons.settings_outlined),
-            tooltip: 'Configure AI import',
+            tooltip: l10nOf(context).aiImportConfigure,
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => const AiConfigScreen()),
             ),
@@ -61,12 +62,15 @@ class AiImportSubmitScreen extends ConsumerWidget {
         children: [
           SegmentedButton<AiImportKind>(
             key: const Key('ai-import-kind-picker'),
-            segments: const [
+            segments: [
               ButtonSegment(
                 value: AiImportKind.schedule,
-                label: Text('Schedule'),
+                label: Text(l10nOf(context).aiImportSchedule),
               ),
-              ButtonSegment(value: AiImportKind.script, label: Text('Script')),
+              ButtonSegment(
+                value: AiImportKind.script,
+                label: Text(l10nOf(context).aiImportScript),
+              ),
             ],
             selected: {kind},
             onSelectionChanged: (selection) =>
@@ -74,17 +78,17 @@ class AiImportSubmitScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 16),
           if (kind == AiImportKind.schedule)
-            const Text(
-              'Schedules: paste the CSV/board text, or pick a CSV or PDF '
-              'file.',
-            )
+            Text(l10nOf(context).aiImportScheduleHint)
           else
-            const Text('Scripts: pick a PDF file.'),
+            Text(l10nOf(context).aiImportScriptHint),
           const SizedBox(height: 16),
           if (kind == AiImportKind.schedule) ...[
             const _PasteField(),
             const SizedBox(height: 12),
-            const Text('— or pick a file —', textAlign: TextAlign.center),
+            Text(
+              l10nOf(context).aiImportOrPickFile,
+              textAlign: TextAlign.center,
+            ),
             const SizedBox(height: 12),
           ],
           _FilePickRow(kind: kind),
@@ -119,9 +123,9 @@ class _PasteFieldState extends ConsumerState<_PasteField> {
     key: const Key('ai-import-paste-field'),
     controller: _pasteController,
     onChanged: (text) => ref.read(pendingPasteProvider.notifier).set(text),
-    decoration: const InputDecoration(
-      labelText: 'Paste the schedule (CSV or plain text)',
-      border: OutlineInputBorder(),
+    decoration: InputDecoration(
+      labelText: l10nOf(context).aiImportPasteLabel,
+      border: const OutlineInputBorder(),
     ),
     maxLines: 8,
   );
@@ -169,14 +173,14 @@ class _FilePickRowState extends ConsumerState<_FilePickRow> {
         onPressed: _pick,
         child: Text(
           widget.kind == AiImportKind.schedule
-              ? 'Pick CSV or PDF file'
-              : 'Pick PDF file',
+              ? l10nOf(context).aiImportPickCsvPdf
+              : l10nOf(context).aiImportPickPdf,
         ),
       ),
       const SizedBox(width: 12),
       Expanded(
         child: Text(
-          _pickedName ?? 'No file picked',
+          _pickedName ?? l10nOf(context).aiImportNoFile,
           key: const Key('ai-import-picked-name'),
           overflow: TextOverflow.ellipsis,
         ),
@@ -228,9 +232,9 @@ class _SubmitButtonState extends ConsumerState<_SubmitButton> {
             : AiImportDocument.pasted(ref.read(pendingPasteProvider)));
     if (document == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          key: Key('ai-import-document-missing'),
-          content: Text('Paste the schedule or pick a file first.'),
+        SnackBar(
+          key: const Key('ai-import-document-missing'),
+          content: Text(l10nOf(context).aiImportDocMissing),
         ),
       );
       return;
@@ -249,7 +253,7 @@ class _SubmitButtonState extends ConsumerState<_SubmitButton> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               key: const Key('ai-import-error-snackbar'),
-              content: Text(aiUploadErrorCopy(err)),
+              content: Text(aiUploadErrorCopy(l10nOf(context), err)),
             ),
           );
         },
@@ -264,9 +268,7 @@ class _SubmitButtonState extends ConsumerState<_SubmitButton> {
               SnackBar(
                 key: const Key('ai-import-stamp-warning'),
                 content: Text(
-                  'Import started — the episode context could not be '
-                  'saved (${stampWarning.code}); pick the episode when '
-                  'applying.',
+                  l10nOf(context).aiImportStampWarning(stampWarning.code),
                 ),
               ),
             );
@@ -296,7 +298,7 @@ class _SubmitButtonState extends ConsumerState<_SubmitButton> {
       FilledButton(
         key: const Key('ai-import-submit'),
         onPressed: _busy ? null : _submit,
-        child: const Text('Submit for import'),
+        child: Text(l10nOf(context).aiImportSubmit),
       ),
     ],
   );

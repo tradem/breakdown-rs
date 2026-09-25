@@ -21,6 +21,7 @@ import '../../data/shooting_day_repository.dart';
 import '../../domain/reconciliation/overlay_store.dart';
 import '../../domain/reconciliation/reconcile_coordinator.dart';
 import '../../domain/reconciliation/reconciliation_scheduler.dart';
+import '../../l10n/generated/app_localizations.dart';
 import '../costume_categories/next_order_key.dart';
 import 'shooting_days_state.dart';
 
@@ -185,18 +186,19 @@ class ShootingDaysCommandError extends _$ShootingDaysCommandError {
 
 /// Localized client-side copy for shooting-day command failures, keyed on
 /// the stable problem `code` (never the server's localized `detail`).
-String shootingDayErrorCopy(ProblemError error) => switch (error.code) {
-  // 409 `concurrency.version-mismatch`: the backend's sole version-conflict
-  // code (the old `concurrency.conflict`/`shooting_day.version_conflict`
-  // keys were never emitted, so a real 409 fell through to the generic
-  // fallback — issue #481).
-  'concurrency.version-mismatch' =>
-    'Changed elsewhere — refresh and try again.',
-  'authz.denied' || 'auth.session_required' => 'Please sign in to continue.',
-  _ when error.code.startsWith('transport.') =>
-    'Network problem — the change was not saved. Try again.',
-  _ => 'The shooting day could not be saved (${error.code}).',
-};
+String shootingDayErrorCopy(AppLocalizations l10n, ProblemError error) =>
+    switch (error.code) {
+      // 409 `concurrency.version-mismatch`: the backend's sole
+      // version-conflict code (the old
+      // `concurrency.conflict`/`shooting_day.version_conflict` keys were
+      // never emitted, so a real 409 fell through to the generic fallback
+      // — issue #481).
+      'concurrency.version-mismatch' => l10n.costumeCategoryErrorChanged,
+      'authz.denied' || 'auth.session_required' => l10n.blocksCreateErrorSignIn,
+      _ when error.code.startsWith('transport.') =>
+        l10n.shootingDayErrorNetwork,
+      _ => l10n.shootingDayErrorGeneric(error.code),
+    };
 
 /// `ShootingDaysController(episodeId)` on the shared reconciliation runner:
 /// create derives the append `order_key` with the shared rule (`source:

@@ -23,6 +23,7 @@ import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/auth/membership/membership_providers.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
+import 'package:frontend_flutter/l10n/generated/app_localizations_en.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
@@ -674,8 +675,14 @@ void main() {
       expect(error.error.code, isNot(startsWith('transport.')));
       // The localized copy is keyed on the wire code, not a generic network
       // narrative.
-      expect(costumeErrorCopy(error.error), contains('domain.validation'));
-      expect(costumeErrorCopy(error.error), isNot(contains('Network problem')));
+      expect(
+        costumeErrorCopy(AppLocalizationsEn(), error.error),
+        contains('domain.validation'),
+      );
+      expect(
+        costumeErrorCopy(AppLocalizationsEn(), error.error),
+        isNot(contains('Network problem')),
+      );
     });
 
     testWidgets('list resolves assigned names via characters join', (

@@ -3,6 +3,7 @@
 <!-- Co-authored-by: muse-spark-1.3-contributor (opencode-go) -->
 <!-- Co-authored-by: omen-alpha (opencode-go) -->
 <!-- Co-authored-by: deepseek-v4-flash (neuralwatt) -->
+<!-- Co-authored-by: space-bunny-free (opencode-go) -->
 
 # Changelog
 
@@ -16,6 +17,10 @@ releases are cut as `flutter-vX.Y.Z` tags.
 ## [Unreleased]
 
 ### Added
+
+- **Version bump:** `0.3.0-alpha.20+30 → 0.3.0-alpha.21+31` (pre-release
+  increment for the localization feature; `+N` stays strictly monotonic for
+  the Play `versionCode`).
 
 - **App icon:** the Flutter default launcher icon is replaced with the
   Breakdown-RS mark — the official Material Symbols `checkroom` hanger

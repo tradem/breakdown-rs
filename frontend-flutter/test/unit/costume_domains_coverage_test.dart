@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 // Tier-1 coverage tests (Task 8.3): branches the happy-path suites leave
 // cold — prepare reduction/tooLarge via the injectable budget seam,
@@ -26,6 +27,7 @@ import 'package:test/test.dart';
 
 import 'package:frontend_flutter/auth/membership_gate.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
+import 'package:frontend_flutter/l10n/generated/app_localizations_en.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/clock.dart';
 import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
@@ -227,10 +229,16 @@ void main() {
 
     test('picked/cancelled carry empty copy', () {
       expect(
-        captureOutcomeCopy(CapturePicked(XFile.fromData(Uint8List(0)))),
+        captureOutcomeCopy(
+          AppLocalizationsEn(),
+          CapturePicked(XFile.fromData(Uint8List(0))),
+        ),
         '',
       );
-      expect(captureOutcomeCopy(const CaptureCancelled()), '');
+      expect(
+        captureOutcomeCopy(AppLocalizationsEn(), const CaptureCancelled()),
+        '',
+      );
     });
 
     test('default settings opener fails closed headless', () async {
@@ -525,47 +533,75 @@ void main() {
   group('error-copy branches', () {
     test('costume/character/day/photo copies cover codes', () {
       expect(
-        costumeErrorCopy(const ProblemError(code: 'membership.pending')),
+        costumeErrorCopy(
+          AppLocalizationsEn(),
+          const ProblemError(code: 'membership.pending'),
+        ),
         contains('permissions'),
       );
       expect(
-        costumeErrorCopy(const ProblemError(code: 'auth.session_required')),
+        costumeErrorCopy(
+          AppLocalizationsEn(),
+          const ProblemError(code: 'auth.session_required'),
+        ),
         contains('sign in'),
       );
       expect(
-        costumeErrorCopy(const ProblemError(code: 'transport.x')),
+        costumeErrorCopy(
+          AppLocalizationsEn(),
+          const ProblemError(code: 'transport.x'),
+        ),
         contains('Network'),
       );
       expect(
-        costumeErrorCopy(const ProblemError(code: 'costume.unknown_xyz')),
+        costumeErrorCopy(
+          AppLocalizationsEn(),
+          const ProblemError(code: 'costume.unknown_xyz'),
+        ),
         contains('costume.unknown_xyz'),
       );
       expect(
         characterErrorCopy(
+          AppLocalizationsEn(),
           const ProblemError(code: 'character.unknown_category'),
         ),
         contains('character.unknown_category'),
       );
       expect(
-        shootingDayErrorCopy(const ProblemError(code: 'authz.denied')),
+        shootingDayErrorCopy(
+          AppLocalizationsEn(),
+          const ProblemError(code: 'authz.denied'),
+        ),
         contains('sign in'),
       );
       expect(
-        shootingDayErrorCopy(const ProblemError(code: 'transport.x')),
+        shootingDayErrorCopy(
+          AppLocalizationsEn(),
+          const ProblemError(code: 'transport.x'),
+        ),
         contains('Network'),
       );
       expect(
-        photoErrorCopy(const ProblemError(code: 'transport.x')),
+        photoErrorCopy(
+          AppLocalizationsEn(),
+          const ProblemError(code: 'transport.x'),
+        ),
         contains('Network'),
       );
       expect(
-        photoErrorCopy(const ProblemError(code: 'photo.mystery')),
+        photoErrorCopy(
+          AppLocalizationsEn(),
+          const ProblemError(code: 'photo.mystery'),
+        ),
         contains('photo.mystery'),
       );
     });
 
     test('category labels + gate denies', () {
-      expect(characterCategoryLabel(_character('x')), 'Guest');
+      expect(
+        characterCategoryLabel(AppLocalizationsEn(), _character('x')),
+        'Guest',
+      );
       expect(checkAssignCapability(null), isA<GateDeny>());
       expect(
         (checkPhotoCapability(null) as GateDeny).code,

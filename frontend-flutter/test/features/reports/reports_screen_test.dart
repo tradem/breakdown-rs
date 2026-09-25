@@ -26,6 +26,7 @@ import 'package:one_of/one_of.dart';
 
 import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/auth/membership/membership_providers.dart';
+import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
@@ -287,7 +288,7 @@ void main() {
     if (platform != null) {
       debugDefaultTargetPlatformOverride = platform;
     }
-    tester.view.physicalSize = const Size(800, 1400);
+    tester.view.physicalSize = const Size(900, 2400);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
@@ -296,6 +297,9 @@ void main() {
         child: MaterialApp(
           theme: AppThemes.light(),
           darkTheme: AppThemes.dark(),
+          locale: const Locale('de'),
+          supportedLocales: const [Locale('de'), Locale('en')],
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
           themeMode: brightness == Brightness.light
               ? ThemeMode.light
               : ThemeMode.dark,
@@ -323,7 +327,7 @@ void main() {
       expect(find.byKey(const Key('soll-ist-flag-missing')), findsOneWidget);
       expect(find.byKey(const Key('soll-ist-flag-skipped')), findsOneWidget);
       expect(find.byKey(const Key('soll-ist-flag-reshot')), findsOneWidget);
-      expect(find.text('moved'), findsOneWidget);
+      expect(find.text('verschoben'), findsOneWidget);
       // Finality banner from the report DTO.
       expect(find.byKey(const Key('soll-ist-final')), findsOneWidget);
       // All three PDF cards idle with user-initiated fetch buttons.
@@ -472,7 +476,7 @@ void main() {
       await pumpScreen(tester);
 
       expect(find.byKey(const Key('reports-error')), findsOneWidget);
-      expect(find.textContaining('unrecognized format'), findsOneWidget);
+      expect(find.textContaining('nicht erkanntes Format'), findsOneWidget);
     });
   });
 
@@ -487,7 +491,7 @@ void main() {
       expect(
         find.descendant(
           of: find.byKey(const Key('reports-denied')),
-          matching: find.textContaining('do not have access'),
+          matching: find.textContaining('keinen Zugriff'),
         ),
         findsOneWidget,
       );
@@ -559,7 +563,7 @@ void main() {
       try {
         await pumpScreen(tester, brightness: brightness, platform: platform);
         expect(find.byKey(const Key('soll-ist-report-screen')), findsOneWidget);
-        expect(find.text('Planned vs actual'), findsOneWidget);
+        expect(find.text('Geplant vs. tatsächlich'), findsOneWidget);
         await expectLater(
           find.byType(ReportsScreen),
           matchesGoldenFile('goldens/reports_$name.png'),

@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: space-bunny-free (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
@@ -9,6 +10,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
+import '../../l10n/app_localizations_provider.dart';
+import '../../l10n/generated/app_localizations.dart';
 import 'create_scene_sheet.dart';
 import 'scene_detail_screen.dart';
 import 'scenes_controller.dart';
@@ -21,12 +24,13 @@ import 'widgets/scenes_widgets.dart';
 /// 409 path), so the old `scenes.conflict`/`scene.conflict` keys are dead —
 /// every real create-scene failure lands on the transport/generic arms or
 /// the keyed auth arms (issue #481 class).
-String sceneCreateErrorCopy(ProblemError error) => switch (error.code) {
-  'authz.denied' || 'auth.session_required' => 'Please sign in to continue.',
-  _ when error.code.startsWith('transport.') =>
-    'Network problem — the scene was not created. Try again.',
-  _ => 'The scene could not be created (${error.code}).',
-};
+String sceneCreateErrorCopy(AppLocalizations l10n, ProblemError error) =>
+    switch (error.code) {
+      'authz.denied' || 'auth.session_required' => l10n.blocksCreateErrorSignIn,
+      _ when error.code.startsWith('transport.') =>
+        l10n.scenesCreateErrorNetwork,
+      _ => l10n.scenesCreateErrorGeneric(error.code),
+    };
 
 /// `ScenesScreen` — the episode's scenes with read-only detail data
 /// (`GET /v1/scenes?episode_id=…`).
@@ -62,21 +66,24 @@ class ScenesScreen extends ConsumerWidget {
     final controller = ref.read(scenesControllerProvider(episode.id).notifier);
     final rows = state.rows;
     final notFound = state.notFound;
+    final l10n = l10nOf(context);
 
     return Scaffold(
-      appBar: AppBar(title: Text(episode.name ?? 'Episode ${episode.number}')),
+      appBar: AppBar(
+        title: Text(episode.name ?? l10n.episodeTileLabel('${episode.number}')),
+      ),
       body: Column(
         children: [
           if (state.commandError case final error?)
             _Banner(
               key: const Key('scene-create-error-banner'),
-              text: sceneCreateErrorCopy(error),
+              text: sceneCreateErrorCopy(l10n, error),
               onDismiss: controller.dismissCommandError,
             ),
           if (state.isStale && notFound == null)
-            const _Banner(
-              key: Key('scenes-stale-banner'),
-              text: 'Cached data may be outdated',
+            _Banner(
+              key: const Key('scenes-stale-banner'),
+              text: l10n.scenesStaleBanner,
             ),
           Expanded(
             child: notFound != null
@@ -145,7 +152,7 @@ class ScenesScreen extends ConsumerWidget {
           ? FloatingActionButton(
               key: const Key('scene-add-fab'),
               onPressed: () => showCreateSceneSheet(context, ref, episode),
-              tooltip: 'Add scene',
+              tooltip: l10n.scenesAddFab,
               child: const Icon(Icons.add),
             )
           : null,
@@ -170,13 +177,13 @@ class _FetchErrorView extends StatelessWidget {
     physics: const AlwaysScrollableScrollPhysics(),
     children: [
       const SizedBox(height: 160),
-      Center(child: Text('Could not load scenes ($code).')),
+      Center(child: Text(l10nOf(context).scenesFetchError(code))),
       const SizedBox(height: 8),
       Center(
         child: FilledButton.tonal(
           key: const Key('scenes-retry'),
           onPressed: onRetry,
-          child: const Text('Retry'),
+          child: Text(l10nOf(context).commonRetry),
         ),
       ),
     ],
@@ -208,7 +215,7 @@ class _Banner extends StatelessWidget {
               IconButton(
                 onPressed: onDismiss,
                 color: scheme.onErrorContainer,
-                tooltip: 'Dismiss',
+                tooltip: l10nOf(context).episodesDismiss,
                 icon: const Icon(
                   Icons.close,
                   key: Key('scene-create-error-dismiss'),

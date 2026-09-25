@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../l10n/app_localizations_provider.dart';
 import 'scenes_controller.dart';
 
 /// Opens the Create Scene form: a centered dialog on macOS (side-sheet
@@ -102,6 +105,7 @@ class _CreateSceneFormState extends ConsumerState<_CreateSceneForm> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -112,7 +116,7 @@ class _CreateSceneFormState extends ConsumerState<_CreateSceneForm> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'Create scene',
+                l10n.scenesCreateTitle,
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 16),
@@ -120,14 +124,12 @@ class _CreateSceneFormState extends ConsumerState<_CreateSceneForm> {
                 key: const Key('create-scene-number'),
                 controller: _numberController,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Scene number (optional)',
-                ),
+                decoration: InputDecoration(labelText: l10n.sceneNumberLabel),
                 validator: (v) {
                   final t = (v ?? '').trim();
                   if (t.isEmpty) return null;
                   return int.tryParse(t) == null
-                      ? 'A whole number is required'
+                      ? l10n.blocksNumberRequired
                       : null;
                 },
               ),
@@ -135,30 +137,26 @@ class _CreateSceneFormState extends ConsumerState<_CreateSceneForm> {
               TextFormField(
                 key: const Key('create-scene-summary'),
                 controller: _summaryController,
-                decoration: const InputDecoration(
-                  labelText: 'Summary (optional)',
-                ),
+                decoration: InputDecoration(labelText: l10n.sceneSummaryLabel),
               ),
               const SizedBox(height: 8),
               TextFormField(
                 key: const Key('create-scene-mood'),
                 controller: _moodController,
-                decoration: const InputDecoration(labelText: 'Mood (optional)'),
+                decoration: InputDecoration(labelText: l10n.sceneMoodLabel),
               ),
               const SizedBox(height: 8),
               TextFormField(
                 key: const Key('create-scene-location'),
                 controller: _locationController,
-                decoration: const InputDecoration(
-                  labelText: 'Location (optional)',
-                ),
+                decoration: InputDecoration(labelText: l10n.sceneLocationLabel),
               ),
               const SizedBox(height: 8),
               TextFormField(
                 key: const Key('create-scene-script-day'),
                 controller: _scriptDayController,
-                decoration: const InputDecoration(
-                  labelText: 'Script day (optional)',
+                decoration: InputDecoration(
+                  labelText: l10n.sceneScriptDayLabel,
                 ),
               ),
               const SizedBox(height: 16),
@@ -171,7 +169,7 @@ class _CreateSceneFormState extends ConsumerState<_CreateSceneForm> {
                         height: 20,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Text('Create'),
+                    : Text(l10n.blocksCreateButton),
               ),
               const SizedBox(height: 8),
             ],

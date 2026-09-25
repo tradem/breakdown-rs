@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
@@ -10,6 +11,8 @@ import 'package:pdfrx/pdfrx.dart';
 import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
 import '../../data/report_models.dart';
+import '../../l10n/app_localizations_provider.dart';
+import '../../l10n/generated/app_localizations.dart';
 import 'reports_controller.dart';
 import 'reports_state.dart';
 
@@ -54,13 +57,18 @@ class ReportsScreen extends ConsumerWidget {
     final controller = ref.read(reportsControllerProvider(scope).notifier);
 
     return Scaffold(
-      appBar: AppBar(title: Text('Reports — ${day.label ?? 'Shooting day'}')),
+      appBar: AppBar(
+        title: Text(
+          l10nOf(context)
+              .reportsTitle(day.label ?? l10nOf(context).sceneShootDayFallback),
+        ),
+      ),
       body: Column(
         children: [
           if (state.commandError case final error?)
             _Banner(
               key: const Key('reports-command-error-banner'),
-              text: reportErrorCopy(error),
+              text: reportErrorCopy(l10nOf(context), error),
               onDismiss: controller.dismissCommandError,
             ),
           if (state.accessDenial case final denial?
@@ -83,7 +91,7 @@ class ReportsScreen extends ConsumerWidget {
                   _SollIstSection(state: state, onRetry: controller.refresh),
                   const SizedBox(height: 24),
                   Text(
-                    'PDF reports',
+                    l10nOf(context).reportsPdfSection,
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 8),
@@ -139,7 +147,10 @@ class _SollIstSection extends StatelessWidget {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Text('Planned vs actual', style: Theme.of(context).textTheme.titleMedium),
+      Text(
+        l10nOf(context).reportsSollIstTitle,
+        style: Theme.of(context).textTheme.titleMedium,
+      ),
       const SizedBox(height: 8),
       _CountsRow(state: state),
       const SizedBox(height: 8),
@@ -174,18 +185,18 @@ class _CountsRow extends StatelessWidget {
       return Row(
         key: const Key('soll-ist-counts'),
         children: [
-          const Text('Planned '),
+          Text(l10nOf(context).reportsPlannedLabel),
           Text('${planned.value}', key: const Key('soll-ist-planned')),
           const SizedBox(width: 16),
-          const Text('Actual '),
+          Text(l10nOf(context).reportsActualLabel),
           Text('${actual.value}', key: const Key('soll-ist-actual')),
         ],
       );
     }
     if (planned is AsyncError || actual is AsyncError) {
-      return const Text(
-        'Scene counts unavailable.',
-        key: Key('reports-counts-error'),
+      return Text(
+        l10nOf(context).reportsCountsUnavailable,
+        key: const Key('reports-counts-error'),
       );
     }
     return const Text('—', key: Key('soll-ist-counts-loading'));
@@ -205,14 +216,14 @@ class _SollIstRows extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (report.isFinal)
-          const Card(
-            key: Key('soll-ist-final'),
+          Card(
+            key: const Key('soll-ist-final'),
             child: Padding(
-              padding: EdgeInsets.all(12),
-              child: Text('Final — this day is wrapped.'),
+              padding: const EdgeInsets.all(12),
+              child: Text(l10nOf(context).reportsFinal),
             ),
           ),
-        if (report.rows.isEmpty) const Text('No scenes in this report.'),
+        if (report.rows.isEmpty) Text(l10nOf(context).reportsNoScenes),
         for (final row in report.rows)
           Card(
             key: Key('soll-ist-row-${row.sceneId}'),
@@ -222,15 +233,20 @@ class _SollIstRows extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    row.sceneNumber != null
-                        ? 'Scene ${row.sceneNumber}'
-                        : 'Scene ${row.sceneId.length > 8 ? row.sceneId.substring(0, 8) : row.sceneId}',
+                    l10nOf(context).sceneTileLabel(
+                      row.sceneNumber != null
+                          ? '$row.sceneNumber'
+                          : (row.sceneId.length > 8
+                                ? row.sceneId.substring(0, 8)
+                                : row.sceneId),
+                    ),
                     style: theme.textTheme.titleSmall,
                   ),
                   if (row.scriptDay != null || row.location != null)
                     Text(
                       [
-                        if (row.scriptDay != null) 'Day ${row.scriptDay}',
+                        if (row.scriptDay != null)
+                          l10nOf(context).reportsDayPrefix('$row.scriptDay'),
                         if (row.location != null) row.location!,
                       ].join(' · '),
                       style: theme.textTheme.bodySmall,
@@ -240,24 +256,24 @@ class _SollIstRows extends StatelessWidget {
                     spacing: 8,
                     children: [
                       if (row.moved)
-                        const Chip(
-                          key: Key('soll-ist-flag-moved'),
-                          label: Text('moved'),
+                        Chip(
+                          key: const Key('soll-ist-flag-moved'),
+                          label: Text(l10nOf(context).reportsFlagMoved),
                         ),
                       if (row.missing)
-                        const Chip(
-                          key: Key('soll-ist-flag-missing'),
-                          label: Text('missing'),
+                        Chip(
+                          key: const Key('soll-ist-flag-missing'),
+                          label: Text(l10nOf(context).reportsFlagMissing),
                         ),
                       if (row.skipped)
-                        const Chip(
-                          key: Key('soll-ist-flag-skipped'),
-                          label: Text('skipped'),
+                        Chip(
+                          key: const Key('soll-ist-flag-skipped'),
+                          label: Text(l10nOf(context).reportsFlagSkipped),
                         ),
                       if (row.reshotCandidate)
-                        const Chip(
-                          key: Key('soll-ist-flag-reshot'),
-                          label: Text('reshot'),
+                        Chip(
+                          key: const Key('soll-ist-flag-reshot'),
+                          label: Text(l10nOf(context).reportsFlagReshot),
                         ),
                     ],
                   ),
@@ -291,10 +307,10 @@ class _PdfCard extends StatelessWidget {
   final VoidCallback onPreview;
   final VoidCallback onShare;
 
-  String get _title => switch (kind) {
-    ReportPdfKind.dispo => 'Dispo (planned)',
-    ReportPdfKind.shootDay => 'Shoot day (execution)',
-    ReportPdfKind.plannedVsActual => 'Planned vs actual (PDF)',
+  String _title(AppLocalizations l10n) => switch (kind) {
+    ReportPdfKind.dispo => l10n.reportsPdfDispo,
+    ReportPdfKind.shootDay => l10n.reportsPdfShootDay,
+    ReportPdfKind.plannedVsActual => l10n.reportsPdfPlannedVsActual,
   };
 
   @override
@@ -305,7 +321,10 @@ class _PdfCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(_title, style: Theme.of(context).textTheme.titleSmall),
+          Text(
+            _title(l10nOf(context)),
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
           const SizedBox(height: 8),
           switch (cardState) {
             PdfIdle() => Align(
@@ -313,7 +332,7 @@ class _PdfCard extends StatelessWidget {
               child: FilledButton.tonal(
                 key: Key('report-pdf-fetch-${kind.name}'),
                 onPressed: gated ? null : onFetch,
-                child: const Text('Fetch'),
+                child: Text(l10nOf(context).reportsFetch),
               ),
             ),
             PdfFetching(:final progress) => Column(
@@ -332,7 +351,7 @@ class _PdfCard extends StatelessWidget {
                   child: TextButton(
                     key: Key('report-pdf-cancel-${kind.name}'),
                     onPressed: onCancel,
-                    child: const Text('Cancel'),
+                    child: Text(l10nOf(context).commonCancel),
                   ),
                 ),
               ],
@@ -343,13 +362,13 @@ class _PdfCard extends StatelessWidget {
                 TextButton(
                   key: Key('report-pdf-preview-${kind.name}'),
                   onPressed: onPreview,
-                  child: const Text('Preview'),
+                  child: Text(l10nOf(context).reportsPreview),
                 ),
                 const SizedBox(width: 8),
                 FilledButton.tonal(
                   key: Key('report-pdf-share-${kind.name}'),
                   onPressed: gated ? null : onShare,
-                  child: const Text('Share'),
+                  child: Text(l10nOf(context).reportsShare),
                 ),
               ],
             ),
@@ -357,7 +376,7 @@ class _PdfCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  reportErrorCopy(error),
+                  reportErrorCopy(l10nOf(context), error),
                   key: Key('report-pdf-error-${kind.name}'),
                 ),
                 Align(
@@ -365,7 +384,7 @@ class _PdfCard extends StatelessWidget {
                   child: TextButton(
                     key: Key('report-pdf-retry-${kind.name}'),
                     onPressed: gated ? null : onFetch,
-                    child: const Text('Retry'),
+                    child: Text(l10nOf(context).commonRetry),
                   ),
                 ),
               ],
@@ -428,7 +447,7 @@ class _Banner extends StatelessWidget {
               IconButton(
                 onPressed: onDismiss,
                 color: scheme.onErrorContainer,
-                tooltip: 'Dismiss',
+                tooltip: l10nOf(context).episodesDismiss,
                 icon: const Icon(Icons.close),
               ),
           ],
@@ -458,7 +477,7 @@ class _DenialBanner extends StatelessWidget {
           children: [
             Expanded(
               child: Text(
-                reportErrorCopy(denial),
+                reportErrorCopy(l10nOf(context), denial),
                 style: TextStyle(color: scheme.onErrorContainer),
               ),
             ),
@@ -467,7 +486,7 @@ class _DenialBanner extends StatelessWidget {
                 key: const Key('reports-denied-retry'),
                 onPressed: onRetry,
                 child: Text(
-                  'Retry',
+                  l10nOf(context).commonRetry,
                   style: TextStyle(color: scheme.onErrorContainer),
                 ),
               ),
@@ -490,14 +509,14 @@ class _ReportsErrorView extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Text(
-          reportErrorCopy(ProblemError(code: code)),
+          reportErrorCopy(l10nOf(context), ProblemError(code: code)),
           key: const Key('reports-error'),
         ),
         const SizedBox(height: 12),
         FilledButton.tonal(
           key: const Key('reports-retry'),
           onPressed: () => onRetry(),
-          child: const Text('Retry'),
+          child: Text(l10nOf(context).commonRetry),
         ),
       ],
     ),

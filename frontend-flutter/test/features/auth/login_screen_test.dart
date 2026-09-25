@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -157,7 +159,7 @@ void main() {
       await pumpFrames(tester);
 
       expect(find.byKey(const Key('login-error-banner')), findsOneWidget);
-      expect(find.textContaining('oidc.browser_launch_failed'), findsOneWidget);
+      expect(find.textContaining('Something went wrong'), findsOneWidget);
 
       ui.scripted = Right(Uri.parse('breakdown://redirect?code=abc123'));
       await tester.tap(find.byKey(const Key('login-error-retry')));
@@ -199,7 +201,9 @@ void main() {
 
       expect(find.byKey(const Key('login-dev-notice')), findsOneWidget);
       expect(
-        find.text('Dev authentication in effect — continuing as dev-user.'),
+        find.text(
+          'Developer authentication is active — continuing as dev-user.',
+        ),
         findsOneWidget,
       );
       expect(find.byKey(const Key('login-signin-button')), findsNothing);

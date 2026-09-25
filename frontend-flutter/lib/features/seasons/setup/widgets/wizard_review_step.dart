@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode)
 // Co-authored-by: omen-alpha (opencode-go)
 
 import 'package:flutter/material.dart';
 
 import '../../../../design/spacing.dart';
+import '../../../../l10n/app_localizations_provider.dart';
 import '../setup_wizard_state.dart';
 
 /// Review step of the setup wizard (task 4.3): the summary (season +
@@ -42,9 +44,10 @@ class WizardReviewStep extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final totalEpisodes = blocks.fold<int>(0, (sum, b) => sum + b.episodeCount);
+    final l10n = l10nOf(context);
     final seasonTitle = seasonName.trim().isEmpty
-        ? 'Season $seasonNumber'
-        : 'Season $seasonNumber · ${seasonName.trim()}';
+        ? l10n.wizardReviewSeason('$seasonNumber')
+        : l10n.wizardReviewSeasonNamed(seasonName.trim(), '$seasonNumber');
     return ListView(
       key: const Key('wizard-step-review'),
       padding: const EdgeInsets.all(AppSpacing.space16),
@@ -56,11 +59,19 @@ class WizardReviewStep extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Prüfen & erstellen', style: theme.textTheme.titleMedium),
+                Text(
+                  l10n.wizardReviewSubmit,
+                  style: theme.textTheme.titleMedium,
+                ),
                 const SizedBox(height: AppSpacing.space8),
                 Text(seasonTitle, style: theme.textTheme.titleLarge),
                 const SizedBox(height: AppSpacing.space8),
-                Text('$totalEpisodes Episoden in ${blocks.length} Blöcke'),
+                Text(
+                  l10n.wizardReviewEpisodesInBlocks(
+                    '${blocks.length}',
+                    '$totalEpisodes',
+                  ),
+                ),
               ],
             ),
           ),
@@ -71,11 +82,13 @@ class WizardReviewStep extends StatelessWidget {
             child: ListTile(
               title: Text(
                 blocks[i].title.trim().isEmpty
-                    ? 'Block ${firstBlockNumber + i}'
-                    : 'Block ${firstBlockNumber + i} · '
+                    ? l10n.blockTileLabel('${firstBlockNumber + i}')
+                    : '${l10n.blockTileLabel('${firstBlockNumber + i}')} · '
                           '${blocks[i].title.trim()}',
               ),
-              subtitle: Text('${blocks[i].episodeCount} Episoden'),
+              subtitle: Text(
+                l10n.wizardReviewEpisodeCount('${blocks[i].episodeCount}'),
+              ),
             ),
           ),
         const SizedBox(height: AppSpacing.space12),
@@ -83,7 +96,7 @@ class WizardReviewStep extends StatelessWidget {
         // a silent fallback dispatch (glossary `wizard.review.numbersPending`).
         if (!numbersSeeded)
           Text(
-            'Nummern werden ermittelt …',
+            l10n.wizardReviewNumbersPending,
             key: const Key('wizard-review-seeding'),
             style: theme.textTheme.bodySmall,
           ),
@@ -92,7 +105,7 @@ class WizardReviewStep extends StatelessWidget {
           key: const Key('wizard-confirm'),
           onPressed: numbersSeeded ? onConfirm : null,
           icon: const Icon(Icons.check),
-          label: const Text('Season erstellen'),
+          label: Text(l10n.wizardReviewCreateSeason),
         ),
       ],
     );

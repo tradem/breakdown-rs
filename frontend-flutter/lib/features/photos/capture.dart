@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../../l10n/generated/app_localizations.dart';
 import 'prepare.dart';
 
 part 'capture.g.dart';
@@ -151,25 +152,23 @@ Future<CaptureOutcome> runCaptureIntent({
 
 /// Localized client-side copy for capture outcomes, keyed on stable codes
 /// (never server `detail` text — these are client-side codes).
-String captureOutcomeCopy(CaptureOutcome outcome) => switch (outcome) {
-  CaptureDenied(:final source) => switch (source) {
-    ImageSource.camera =>
-      'Camera access is disabled. Enable camera access in settings to '
-          'document costumes.',
-    _ =>
-      'Photo library access is disabled. Enable photo access in settings '
-          'to document costumes.',
-  },
-  CaptureUnavailable() =>
-    'The camera is currently unavailable. Check settings and try again.',
-  CapturePicked() || CaptureCancelled() => '',
-};
+String captureOutcomeCopy(AppLocalizations l10n, CaptureOutcome outcome) =>
+    switch (outcome) {
+      CaptureDenied(:final source) => switch (source) {
+        ImageSource.camera => l10n.captureDeniedCamera,
+        _ => l10n.captureDeniedGallery,
+      },
+      CaptureUnavailable() => l10n.captureUnavailable,
+      CapturePicked() || CaptureCancelled() => '',
+    };
 
 /// Dialog title matching [captureOutcomeCopy] (camera vs photo-library).
-String captureDeniedTitle(CaptureOutcome outcome) => switch (outcome) {
-  CaptureDenied(source: ImageSource.camera) => 'Camera access disabled',
-  _ => 'Photo library access disabled',
-};
+String captureDeniedTitle(AppLocalizations l10n, CaptureOutcome outcome) =>
+    switch (outcome) {
+      CaptureDenied(source: ImageSource.camera) =>
+        l10n.captureDeniedTitleCamera,
+      _ => l10n.captureDeniedTitleGallery,
+    };
 
 /// Debug helper: the platform exception codes the denied branch keys on.
 @visibleForTesting

@@ -26,6 +26,7 @@ import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/auth/membership/membership_providers.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
+import 'package:frontend_flutter/l10n/generated/app_localizations_en.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/scene_shoot_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
@@ -450,6 +451,7 @@ void main() {
       expect(container.read(sceneShootsOverlaysProvider(_scope)), isEmpty);
       expect(
         sceneShootErrorCopy(
+          AppLocalizationsEn(),
           const ProblemError(code: 'concurrency.version-mismatch'),
         ),
         contains('Changed elsewhere'),
@@ -470,6 +472,7 @@ void main() {
       expect(container.read(sceneShootsOverlaysProvider(_scope)), isEmpty);
       expect(
         sceneShootErrorCopy(
+          AppLocalizationsEn(),
           const ProblemError(code: 'scene-shoot.shooting-day-wrapped'),
         ),
         'This day is wrapped — execution is final and read-only.',

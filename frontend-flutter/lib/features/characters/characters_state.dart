@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/problem_error.dart';
 import '../../domain/reconciliation/overlay_store.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 export '../../domain/reconciliation/overlay_store.dart' show OverlayStatus;
 
@@ -134,15 +136,15 @@ class CharactersScreenState {
 /// Category chip label for the exhaustive `main_cast|guest|extra`
 /// discriminator (unknown variants never reach the UI — the DTO strictly
 /// rejects them at parse time).
-String characterCategoryLabel(CharacterView character) {
+String characterCategoryLabel(AppLocalizations l10n, CharacterView character) {
   final wire = serializers.serializeWith(
     CharacterCategory.serializer,
     character.category,
   );
   return switch (wire) {
-    'main_cast' => 'Main cast',
-    'guest' => 'Guest',
-    'extra' => 'Extra',
-    _ => 'Unknown',
+    'main_cast' => l10n.characterCategoryMain,
+    'guest' => l10n.characterCategoryGuest,
+    'extra' => l10n.characterCategoryExtra,
+    _ => l10n.commonUnknown,
   };
 }

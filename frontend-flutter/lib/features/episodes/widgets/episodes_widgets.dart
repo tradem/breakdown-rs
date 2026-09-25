@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:flutter/material.dart';
 
-import '../../../domain/reconciliation/reconciliation_scheduler.dart';
+import '../../../l10n/app_localizations_provider.dart';
 import '../episodes_state.dart';
 
 /// Pure presentation trees for `EpisodesScreen`: plain data + callbacks in,
@@ -17,41 +19,45 @@ class EpisodeTile extends StatelessWidget {
   final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) => switch (row) {
-    ProjectedEpisodeRow(:final episode) => Semantics(
-      label: 'Episode ${episode.number}',
-      child: ListTile(
-        key: Key('episode-${episode.id}'),
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    String tileLabel(Object? number) => l10n.episodeTileLabel('$number');
+    return switch (row) {
+      ProjectedEpisodeRow(:final episode) => Semantics(
+        label: tileLabel(episode.number),
+        child: ListTile(
+          key: Key('episode-${episode.id}'),
+          minTileHeight: 48,
+          title: Text(episode.name ?? tileLabel(episode.number)),
+          subtitle: Text(l10n.episodeNumberPrefix(episode.number.toString())),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: onTap,
+        ),
+      ),
+      OptimisticEpisodeRow(:final overlay) => ListTile(
+        key: Key('overlay-${overlay.id}'),
         minTileHeight: 48,
-        title: Text(episode.name ?? 'Episode ${episode.number}'),
-        subtitle: Text('Number ${episode.number}'),
-        trailing: const Icon(Icons.chevron_right),
-        onTap: onTap,
+        title: Text(
+          overlay.name?.isNotEmpty == true
+              ? overlay.name!
+              : tileLabel(overlay.number),
+        ),
+        subtitle: Text(
+          overlay.status == OverlayStatus.stale
+              ? (overlay.warning ?? l10n.episodesTileSyncingStale)
+              : l10n.episodesTileSyncing,
+        ),
+        trailing: overlay.status == OverlayStatus.stale
+            ? const Icon(Icons.cloud_off, key: Key('overlay-warning'))
+            : const SizedBox(
+                key: Key('overlay-spinner'),
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
       ),
-    ),
-    OptimisticEpisodeRow(:final overlay) => ListTile(
-      key: Key('overlay-${overlay.id}'),
-      minTileHeight: 48,
-      title: Text(
-        overlay.name?.isNotEmpty == true
-            ? overlay.name!
-            : 'Episode ${overlay.number ?? ''}',
-      ),
-      subtitle: Text(
-        overlay.status == OverlayStatus.stale
-            ? (overlay.warning ?? kReconcileStaleWarning)
-            : 'Just created — syncing…',
-      ),
-      trailing: overlay.status == OverlayStatus.stale
-          ? const Icon(Icons.cloud_off, key: Key('overlay-warning'))
-          : const SizedBox(
-              key: Key('overlay-spinner'),
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-    ),
-  };
+    };
+  }
 }
 
 class EpisodesEmptyView extends StatelessWidget {
@@ -66,7 +72,7 @@ class EpisodesEmptyView extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          'No episodes yet',
+          l10nOf(context).episodesEmpty,
           key: const Key('episodes-empty'),
           style: Theme.of(context).textTheme.titleMedium,
         ),
@@ -75,7 +81,7 @@ class EpisodesEmptyView extends StatelessWidget {
           FilledButton.tonal(
             key: const Key('episodes-empty-create'),
             onPressed: onCreate,
-            child: const Text('Create the first episode'),
+            child: Text(l10nOf(context).episodesCreateFirst),
           ),
       ],
     ),
@@ -97,14 +103,14 @@ class EpisodesNotFoundView extends StatelessWidget {
         const Icon(Icons.search_off, size: 48),
         const SizedBox(height: 8),
         Text(
-          'This block no longer exists ($code).',
+          l10nOf(context).episodesNotFound(code),
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 8),
         FilledButton.tonal(
           key: const Key('episodes-not-found-back'),
           onPressed: onBack,
-          child: const Text('Back to blocks'),
+          child: Text(l10nOf(context).episodesBackToBlocks),
         ),
       ],
     ),

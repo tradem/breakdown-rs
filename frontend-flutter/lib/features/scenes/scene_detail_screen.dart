@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 
@@ -11,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
+import '../../l10n/app_localizations_provider.dart';
 import '../characters/characters_controller.dart';
 import '../costumes/widgets/costumes_widgets.dart';
 import '../scene_shoots/scene_shoots_screen.dart';
@@ -67,10 +69,11 @@ class SceneDetailScreen extends ConsumerWidget {
       appBar: AppBar(
         title: Text(
           scene == null
-              ? 'Scene'
+              ? l10nOf(context).sceneDetailTitleFallback
               : (scene.summary?.isNotEmpty == true
                     ? scene.summary!
-                    : 'Scene ${scene.sceneNumber ?? ''}'),
+                    : l10nOf(context)
+                          .sceneTileLabel('${scene.sceneNumber ?? ''}')),
         ),
       ),
       body: switch ((scene, scenesState.projected)) {
@@ -137,11 +140,16 @@ class _SceneSummary extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (scene.location case final location?) Text('Location: $location'),
-          if (scene.mood case final mood?) Text('Mood: $mood'),
-          if (scene.scriptDay case final day?) Text('Script day: $day'),
+          if (scene.location case final location?)
+            Text(l10nOf(context).sceneLoc(location)),
+          if (scene.mood case final mood?)
+            Text(l10nOf(context).sceneMood(mood)),
+          if (scene.scriptDay case final day?)
+            Text(l10nOf(context).sceneDetailScriptDay(day)),
           Text(
-            scene.isScheduleSet ? 'Scheduled' : 'Unscheduled',
+            scene.isScheduleSet
+                ? l10nOf(context).sceneScheduled
+                : l10nOf(context).sceneUnscheduled,
             key: Key('scene-schedule-flag-${scene.id}'),
           ),
         ],
@@ -180,22 +188,26 @@ class _SceneCharactersSection extends ConsumerWidget {
     return ExpansionTile(
       key: Key('scene-characters-${scene.id}'),
       initiallyExpanded: true,
-      title: Text('Characters (${assigned.length})'),
+      title: Text(
+        l10nOf(context).sceneDetailCharactersTitle('${assigned.length}'),
+      ),
       children: [
         if (assigned.isEmpty)
-          const ListTile(
-            key: Key('scene-characters-empty'),
-            title: Text('No characters assigned yet.'),
+          ListTile(
+            key: const Key('scene-characters-empty'),
+            title: Text(l10nOf(context).sceneDetailNoCharacters),
           )
         else
           for (final id in assigned)
             ListTile(
               key: Key('scene-character-$id'),
-              title: Text(names[id] ?? 'Unknown character'),
+              title: Text(
+                names[id] ?? l10nOf(context).sceneDetailUnknownCharacter,
+              ),
               trailing: IconButton(
                 key: Key('scene-character-remove-$id'),
                 icon: const Icon(Icons.person_remove_outlined),
-                tooltip: 'Remove',
+                tooltip: l10nOf(context).sceneDetailRemoveCharacterTooltip,
                 // Confirm-first (destructive actions confirm-first, §5).
                 onPressed: () => _confirmRemove(context, ref, id, names[id]),
               ),
@@ -207,7 +219,7 @@ class _SceneCharactersSection extends ConsumerWidget {
             onPressed: hasCandidates
                 ? () => _pickCharacter(context, ref, characters.rows)
                 : null,
-            child: const Text('Assign character'),
+            child: Text(l10nOf(context).sceneDetailAssignCharacter),
           ),
         ),
       ],
@@ -264,9 +276,9 @@ class _SceneCharactersSection extends ConsumerWidget {
       // Navigation or sign-out can unmount while the refresh is pending.
       if (!context.mounted) return;
       result.match(
-        (err) =>
-            ScaffoldMessenger.of(context)
-                .showSnackBar(SnackBar(content: Text(characterErrorCopy(err)))),
+        (err) => ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(characterErrorCopy(l10nOf(context), err))),
+        ),
         (_) {},
       );
     }
@@ -278,17 +290,20 @@ class _SceneCharactersSection extends ConsumerWidget {
     String characterId,
     String? name,
   ) {
+    final l10n = l10nOf(context);
     return showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Remove character?'),
+        title: Text(l10n.sceneDetailRemoveCharacterTitle),
         content: Text(
-          '${name ?? 'This character'} is no longer scheduled for this scene.',
+          l10n.sceneDetailRemoveCharacterMessage(
+            name ?? l10n.sceneDetailThisCharacter,
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
+            child: Text(l10n.commonCancel),
           ),
           FilledButton(
             key: Key('scene-character-remove-confirm-$characterId'),
@@ -314,7 +329,9 @@ class _SceneCharactersSection extends ConsumerWidget {
                 if (!dialogContext.mounted) return;
                 result.match(
                   (err) => ScaffoldMessenger.of(dialogContext).showSnackBar(
-                    SnackBar(content: Text(characterErrorCopy(err))),
+                    SnackBar(
+                      content: Text(characterErrorCopy(l10nOf(context), err)),
+                    ),
                   ),
                   (_) {},
                 );
@@ -323,7 +340,7 @@ class _SceneCharactersSection extends ConsumerWidget {
                 Navigator.of(dialogContext).pop();
               }
             },
-            child: const Text('Remove'),
+            child: Text(l10n.commonDelete),
           ),
         ],
       ),
@@ -357,20 +374,24 @@ class _SceneShootingDaysSection extends ConsumerWidget {
     return ExpansionTile(
       key: Key('scene-shooting-days-${scene.id}'),
       initiallyExpanded: true,
-      title: Text('Shooting days (${scheduled.length})'),
+      title: Text(
+        l10nOf(context).sceneDetailShootingDaysTitle('${scheduled.length}'),
+      ),
       children: [
         if (scheduled.isEmpty)
-          const ListTile(
-            key: Key('scene-shooting-days-empty'),
-            title: Text('Not scheduled on any shooting day yet.'),
+          ListTile(
+            key: const Key('scene-shooting-days-empty'),
+            title: Text(l10nOf(context).sceneDetailNoShootingDays),
           )
         else
           for (final id in scheduled)
             ListTile(
               key: Key('scene-shooting-day-$id'),
-              title: Text(byId[id]?.label ?? 'Shooting day'),
+              title: Text(
+                byId[id]?.label ?? l10nOf(context).sceneShootDayFallback,
+              ),
               subtitle: byId[id]?.date != null
-                  ? Text('Date: ${byId[id]!.date}')
+                  ? Text(l10nOf(context).shootingDayDate('${byId[id]!.date}'))
                   : null,
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -383,7 +404,7 @@ class _SceneShootingDaysSection extends ConsumerWidget {
                   IconButton(
                     key: Key('open-day-board-$id'),
                     icon: const Icon(Icons.view_agenda_outlined),
-                    tooltip: 'Open day board',
+                    tooltip: l10nOf(context).sceneDetailOpenDayBoard,
                     onPressed: byId[id] == null
                         ? null
                         : () => _openBoard(context, byId[id]!),
@@ -391,7 +412,7 @@ class _SceneShootingDaysSection extends ConsumerWidget {
                   IconButton(
                     key: Key('scene-shooting-day-unschedule-$id'),
                     icon: const Icon(Icons.event_busy),
-                    tooltip: 'Unschedule',
+                    tooltip: l10nOf(context).shootingDayUnscheduleButton,
                     onPressed: () => _unschedule(context, ref, id),
                   ),
                 ],
@@ -404,7 +425,7 @@ class _SceneShootingDaysSection extends ConsumerWidget {
             onPressed: candidates.isEmpty
                 ? null
                 : () => _pickDay(context, ref, candidates),
-            child: const Text('Schedule on day'),
+            child: Text(l10nOf(context).sceneDetailScheduleOnDay),
           ),
         ),
       ],
@@ -434,11 +455,14 @@ class _SceneShootingDaysSection extends ConsumerWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Padding(
-              padding: EdgeInsets.all(16),
+            Padding(
+              padding: const EdgeInsets.all(16),
               child: Text(
-                'Schedule on shooting day',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                l10nOf(context).sceneDetailScheduleTitle,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
             Flexible(
@@ -449,8 +473,10 @@ class _SceneShootingDaysSection extends ConsumerWidget {
                   final d = candidates[i];
                   return ListTile(
                     key: Key('schedule-day-${d.id}'),
-                    title: Text(d.label ?? 'Untitled day'),
-                    subtitle: d.date != null ? Text('Date: ${d.date}') : null,
+                    title: Text(d.label ?? l10nOf(context).shootingDayUntitled),
+                    subtitle: d.date != null
+                        ? Text(l10nOf(context).shootingDayDate('${d.date}'))
+                        : null,
                     onTap: () => Navigator.of(context).pop(d.id),
                   );
                 },
@@ -477,8 +503,9 @@ class _SceneShootingDaysSection extends ConsumerWidget {
       // Navigation or sign-out can unmount while the refresh is pending.
       if (!context.mounted) return;
       result.match(
-        (err) => ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(shootingDayErrorCopy(err)))),
+        (err) => ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(shootingDayErrorCopy(l10nOf(context), err))),
+        ),
         (_) {},
       );
     }
@@ -506,8 +533,9 @@ class _SceneShootingDaysSection extends ConsumerWidget {
       await ref.read(scenesControllerProvider(episodeId).notifier).refresh();
       if (!context.mounted) return;
       result.match(
-        (err) => ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(shootingDayErrorCopy(err)))),
+        (err) => ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(shootingDayErrorCopy(l10nOf(context), err))),
+        ),
         (_) {},
       );
     }
@@ -526,14 +554,14 @@ class _SceneDetailErrorView extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          'Could not load the scene ($code).',
+          l10nOf(context).sceneDetailFetchError(code),
           key: const Key('scene-detail-error'),
         ),
         const SizedBox(height: 8),
         FilledButton.tonal(
           key: const Key('scene-detail-retry'),
           onPressed: onRetry,
-          child: const Text('Retry'),
+          child: Text(l10nOf(context).commonRetry),
         ),
       ],
     ),
@@ -550,12 +578,15 @@ class _SceneDetailGoneView extends StatelessWidget {
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Text(
-          'This scene is no longer available.',
-          key: Key('scene-detail-gone'),
+        Text(
+          l10nOf(context).sceneDetailGone,
+          key: const Key('scene-detail-gone'),
         ),
         if (onBack != null)
-          FilledButton.tonal(onPressed: onBack, child: const Text('Back')),
+          FilledButton.tonal(
+            onPressed: onBack,
+            child: Text(l10nOf(context).commonBack),
+          ),
       ],
     ),
   );

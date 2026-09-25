@@ -123,6 +123,6 @@ class ReconciliationCoordinator {
       if (!_hasOverlays()) return;
     }
     if (!_isAlive()) return;
-    _markAllStale(kReconcileStaleWarning);
+    _markAllStale(kReconcileStaleWarningCode);
   }
 }

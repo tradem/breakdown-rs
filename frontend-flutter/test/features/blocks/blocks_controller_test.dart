@@ -293,7 +293,7 @@ void main() {
 
         final overlay = ctx.state.overlays.single;
         expect(overlay.status, OverlayStatus.stale);
-        expect(overlay.warning, kReconcileStaleWarning);
+        expect(overlay.warning, kReconcileStaleWarningCode);
         expect(ctx.scheduler.ticks, kMaxReconcileAttempts - 1);
       },
     );

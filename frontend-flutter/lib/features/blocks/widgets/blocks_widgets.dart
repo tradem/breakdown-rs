@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:flutter/material.dart';
 
-import '../../../domain/reconciliation/reconciliation_scheduler.dart';
+import '../../../l10n/app_localizations_provider.dart';
 import '../blocks_state.dart';
 
 /// Pure presentation trees for `BlocksScreen` (seasons reference pattern):
@@ -17,39 +19,42 @@ class BlockTile extends StatelessWidget {
   final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) => switch (row) {
-    ProjectedBlockRow(:final block) => Semantics(
-      label: 'Block ${block.number}',
-      child: ListTile(
-        key: Key('block-${block.id}'),
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    return switch (row) {
+      ProjectedBlockRow(:final block) => Semantics(
+        label: l10n.blockTileLabel('${block.number}'),
+        child: ListTile(
+          key: Key('block-${block.id}'),
+          minTileHeight: 48,
+          title: Text(l10n.blockTileLabel('${block.number}')),
+          // Nullable since issue #423 (unset dates arrive as JSON null):
+          // render a placeholder dash instead of the literal 'null'.
+          subtitle: Text('${block.startDate ?? '–'} – ${block.endDate ?? '–'}'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: onTap,
+        ),
+      ),
+      OptimisticBlockRow(:final overlay) => ListTile(
+        key: Key('overlay-${overlay.id}'),
         minTileHeight: 48,
-        title: Text('Block ${block.number}'),
-        // Nullable since issue #423 (unset dates arrive as JSON null):
-        // render a placeholder dash instead of the literal 'null'.
-        subtitle: Text('${block.startDate ?? '–'} – ${block.endDate ?? '–'}'),
-        trailing: const Icon(Icons.chevron_right),
-        onTap: onTap,
+        title: Text(l10n.blockTileLabel(overlay.number?.toString() ?? '')),
+        subtitle: Text(
+          overlay.status == OverlayStatus.stale
+              ? (overlay.warning ?? l10n.blocksTileSyncingStale)
+              : l10n.blocksTileSyncing,
+        ),
+        trailing: overlay.status == OverlayStatus.stale
+            ? const Icon(Icons.cloud_off, key: Key('overlay-warning'))
+            : const SizedBox(
+                key: Key('overlay-spinner'),
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
       ),
-    ),
-    OptimisticBlockRow(:final overlay) => ListTile(
-      key: Key('overlay-${overlay.id}'),
-      minTileHeight: 48,
-      title: Text('Block ${overlay.number ?? ''}'),
-      subtitle: Text(
-        overlay.status == OverlayStatus.stale
-            ? (overlay.warning ?? kReconcileStaleWarning)
-            : 'Just created — syncing…',
-      ),
-      trailing: overlay.status == OverlayStatus.stale
-          ? const Icon(Icons.cloud_off, key: Key('overlay-warning'))
-          : const SizedBox(
-              key: Key('overlay-spinner'),
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-    ),
-  };
+    };
+  }
 }
 
 /// Plain-language empty state with the create call to action (session-gated
@@ -66,7 +71,7 @@ class BlocksEmptyView extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          'No blocks yet',
+          l10nOf(context).blocksEmpty,
           key: const Key('blocks-empty'),
           style: Theme.of(context).textTheme.titleMedium,
         ),
@@ -75,7 +80,7 @@ class BlocksEmptyView extends StatelessWidget {
           FilledButton.tonal(
             key: const Key('blocks-empty-create'),
             onPressed: onCreate,
-            child: const Text('Create the first block'),
+            child: Text(l10nOf(context).blocksCreateFirst),
           ),
       ],
     ),
@@ -98,15 +103,12 @@ class BlocksNotFoundView extends StatelessWidget {
       children: [
         const Icon(Icons.search_off, size: 48),
         const SizedBox(height: 8),
-        Text(
-          'This season no longer exists ($code).',
-          textAlign: TextAlign.center,
-        ),
+        Text(l10nOf(context).blocksNotFound(code), textAlign: TextAlign.center),
         const SizedBox(height: 8),
         FilledButton.tonal(
           key: const Key('blocks-not-found-back'),
           onPressed: onBack,
-          child: const Text('Back to seasons'),
+          child: Text(l10nOf(context).blocksBackToSeasons),
         ),
       ],
     ),

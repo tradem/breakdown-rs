@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'dart:async' show unawaited;
 
@@ -12,6 +14,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../../auth/active_block.dart';
 import '../../auth/active_block_store.dart';
 import '../../core/problem_error.dart';
+import '../../l10n/app_localizations_provider.dart';
 import 'blocks_controller.dart';
 
 part 'active_block_gate.g.dart';
@@ -206,24 +209,27 @@ class BlockScopeErrorScaffold extends StatelessWidget {
   final VoidCallback onRetry;
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(title)),
-    body: Center(
-      child: Column(
-        key: const Key('block-scope-error'),
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text('Could not load blocks ($code).'),
-          const SizedBox(height: 12),
-          FilledButton(
-            key: const Key('block-scope-retry'),
-            onPressed: onRetry,
-            child: const Text('Retry'),
-          ),
-        ],
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    return Scaffold(
+      appBar: AppBar(title: Text(title)),
+      body: Center(
+        child: Column(
+          key: const Key('block-scope-error'),
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(l10n.blocksFetchError(code)),
+            const SizedBox(height: 12),
+            FilledButton(
+              key: const Key('block-scope-retry'),
+              onPressed: onRetry,
+              child: Text(l10n.commonRetry),
+            ),
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 /// Hint shown when the season has no blocks yet: every block-scoped request
@@ -236,10 +242,10 @@ class NoBlocksHintScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: Text(title)),
-    body: const Center(
+    body: Center(
       child: Text(
-        'No blocks yet — create a block first, then come back.',
-        key: Key('no-blocks-hint'),
+        l10nOf(context).blocksNoBlocksCreateFirst,
+        key: const Key('no-blocks-hint'),
         textAlign: TextAlign.center,
       ),
     ),
@@ -271,7 +277,7 @@ class BlockScopePickerScaffold extends ConsumerWidget {
         final block = candidates[i];
         return ListTile(
           key: Key('block-scope-pick-${block.id}'),
-          title: Text('Block ${block.number}'),
+          title: Text(l10nOf(context).blockTileLabel('${block.number}')),
           onTap: () => ref
               .read(activeBlockProvider.notifier)
               .set(seasonId: seasonId, blockId: block.id),

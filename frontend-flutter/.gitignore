@@ -32,6 +32,8 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
+# gen-l10n report; generated output itself is committed.
+l10n-untranslated.json
 
 # Symbolication related
 app.*.symbols

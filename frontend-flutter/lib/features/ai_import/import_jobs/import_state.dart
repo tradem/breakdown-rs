@@ -9,6 +9,7 @@ import 'package:breakdown_api/breakdown_api.dart';
 
 import '../../../core/problem_error.dart';
 import '../../../data/ai_import_repository.dart';
+import '../../../l10n/generated/app_localizations.dart';
 
 /// The submitted document (task 3.1): pasted text (plain) or a picked
 /// file (bytes + declared source). PDFs travel as raw bytes.
@@ -46,37 +47,35 @@ enum AiImportKind { schedule, script }
 /// arm stays on the generic `http.payload-too-large`: the shared body-limit
 /// extractor rejects an oversized body before the handler runs, so the AI
 /// route's wire surface is the generic code.
-String aiUploadErrorCopy(ProblemError error) => switch (error.code) {
-  'http.payload-too-large' => 'The document is too large for AI import.',
-  'ai-import.unsupported-media-type' || 'ai_import.unsupported_media_type' =>
-    'This file type is not supported for the selected kind.',
-  'ai-import.forbidden' ||
-  'ai_import.forbidden' => 'You need an active costume role in this season.',
-  'ai-import.disabled' => 'AI import is not enabled on this backend.',
-  'ai_import.scope_missing' =>
-    'Open a production block first — AI import is block-scoped.',
-  'authz.denied' || 'membership.pending' =>
-    'Your permissions are still loading — try again in a moment.',
-  _ when error.code.startsWith('transport.') =>
-    'Network problem — the document was not submitted. Try again.',
-  _ => 'The document could not be submitted (${error.code}).',
-};
+String aiUploadErrorCopy(AppLocalizations l10n, ProblemError error) =>
+    switch (error.code) {
+      'http.payload-too-large' => l10n.aiUploadTooLarge,
+      'ai-import.unsupported-media-type' ||
+      'ai_import.unsupported_media_type' => l10n.aiUploadUnsupported,
+      'ai-import.forbidden' ||
+      'ai_import.forbidden' => l10n.costumeErrorForbidden,
+      'ai-import.disabled' => l10n.aiUploadDisabled,
+      'ai_import.scope_missing' => l10n.aiUploadScopeMissing,
+      'authz.denied' || 'membership.pending' => l10n.aiUploadPermissions,
+      _ when error.code.startsWith('transport.') => l10n.aiUploadNetwork,
+      _ => l10n.aiUploadGeneric(error.code),
+    };
 
 /// Localized copy for a job status (the status matrix, task 3.2). Primary
 /// copy is keyed on the status; `last_error` renders as secondary detail
 /// only. `failed` is retryable — the copy says "retry scheduled".
-String jobStatusCopy(JobStatus status) => switch (status) {
-  JobStatus.pending => 'Queued — the backend picked it up.',
-  JobStatus.running => 'Processing your document…',
-  JobStatus.succeeded => 'Import preview ready.',
-  JobStatus.failed => 'Failed — a retry is scheduled.',
-  JobStatus.deadLetter => 'Processing gave up after repeated failures.',
-  JobStatus.payloadUnavailable =>
-    'The extracted data is no longer available on the server.',
-  // A future backend status the client does not know: honest copy keyed
-  // on the stable enum name, never a guessed meaning.
-  _ => 'Status unknown (${status.name}).',
-};
+String jobStatusCopy(AppLocalizations l10n, JobStatus status) =>
+    switch (status) {
+      JobStatus.pending => l10n.jobStatusPending,
+      JobStatus.running => l10n.jobStatusRunning,
+      JobStatus.succeeded => l10n.jobStatusSucceeded,
+      JobStatus.failed => l10n.jobStatusFailed,
+      JobStatus.deadLetter => l10n.jobStatusDeadLetter,
+      JobStatus.payloadUnavailable => l10n.jobStatusPayloadUnavailable,
+      // A future backend status the client does not know: honest copy
+      // keyed on the stable enum name, never a guessed meaning.
+      _ => l10n.jobStatusUnknown(status.name),
+    };
 
 /// True when [status] shows the indeterminate progress affordance
 /// (pending/running — the backend exposes no percentage and fabricating a

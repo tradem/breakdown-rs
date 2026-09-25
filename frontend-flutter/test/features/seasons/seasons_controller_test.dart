@@ -287,7 +287,7 @@ void main() {
         final overlay = ctx.state.overlays.single;
         expect(overlay.id, 'n1');
         expect(overlay.status, OverlayStatus.stale);
-        expect(overlay.warning, kReconcileStaleWarning);
+        expect(overlay.warning, kReconcileStaleWarningCode);
         // Drift still holds no unprojected row.
         expect(await cachedIds(ctx.db), isEmpty);
         // The budget was bounded: attempts 1..3 each requested one tick.

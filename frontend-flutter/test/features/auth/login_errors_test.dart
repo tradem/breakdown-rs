@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/features/auth/login_errors.dart';
@@ -10,12 +12,12 @@ import 'package:test/test.dart';
 /// Ok/Err-adjacent — the copy contract the login screen renders.
 void main() {
   group('loginErrorCopy', () {
-    test('names the fail-closed stand-in build', () {
+    test('uses localized copy for the fail-closed stand-in build', () {
       expect(
         loginErrorCopy(
           const ProblemError(code: 'oidc.authorization_ui_not_configured'),
         ),
-        contains('oidc.authorization_ui_not_configured'),
+        contains('not available'),
       );
     });
 
@@ -33,10 +35,10 @@ void main() {
       );
     });
 
-    test('oidc.* failures carry the stable code', () {
+    test('oidc.* failures use the generic localized narrative', () {
       final copy = loginErrorCopy(const ProblemError(code: 'oidc.timeout'));
-      expect(copy, contains('oidc.timeout'));
-      expect(copy, contains('try again'));
+      expect(copy, contains('Something went wrong'));
+      expect(copy, isNot(contains('oidc.timeout')));
     });
 
     test('transport.* failures read as network problems', () {
@@ -53,9 +55,10 @@ void main() {
       );
     });
 
-    test('unknown codes fall back to a code-carrying generic', () {
+    test('unknown codes use the generic localized narrative', () {
       final copy = loginErrorCopy(const ProblemError(code: 'weird.nope'));
-      expect(copy, contains('weird.nope'));
+      expect(copy, contains('Something went wrong'));
+      expect(copy, isNot(contains('weird.nope')));
     });
 
     test('never renders server detail or raw exception text', () {

@@ -2,19 +2,19 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: space-bunny-free (opencode)
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/cache/seasons_cache_providers.dart';
+import '../../l10n/app_localizations_provider.dart';
 import 'widgets/season_card.dart';
 
 /// Localized, client-side copy keyed on the stable problem `code` (AGENTS.md
 /// §5). Network failures disable writes with an "online required" message
-/// (Task 4.2).
-const String _onlineRequired = 'Online connection required';
-const String _staleBanner = 'Cached data may be outdated';
-const String _errorBanner = 'Couldn’t refresh — showing cached data';
+/// (Task 4.2). The narratives live in the ARB catalogs
+/// (`seasonsOnlineRequired`, `seasonsStaleBanner`, `seasonsErrorBanner`).
 
 /// Seasons screen bound to the cache-backed [seasonsView] projection.
 ///
@@ -34,7 +34,7 @@ class SeasonsViewWidget extends ConsumerWidget {
     final view = ref.watch(seasonsView);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Seasons')),
+      appBar: AppBar(title: Text(l10nOf(context).seasonsTitle)),
       // 4.2: write actions are disabled while offline (last fetch failed).
       floatingActionButton: FloatingActionButton(
         key: const Key('season-add-fab'),
@@ -43,41 +43,45 @@ class SeasonsViewWidget extends ConsumerWidget {
             : () {
                 // Wired by first-screen-seasons; placeholder here.
               },
-        tooltip: view.error != null ? _onlineRequired : 'Add season',
+        tooltip: view.error != null
+            ? l10nOf(context).seasonsOnlineRequired
+            : l10nOf(context).seasonsAddTooltip,
         child: const Icon(Icons.add),
       ),
       body: Column(
         children: [
           if (view.isStale)
-            const _Banner(
-              key: Key('stale-banner'),
-              text: _staleBanner,
+            _Banner(
+              key: const Key('stale-banner'),
+              text: l10nOf(context).seasonsStaleBanner,
               color: Colors.orange,
             ),
           if (view.error != null)
             _Banner(
               key: const Key('error-banner'),
-              text: _errorBanner,
+              text: l10nOf(context).seasonsErrorBanner,
               color: Colors.red,
               action: TextButton(
-                key: Key('retry-button'),
+                key: const Key('retry-button'),
                 onPressed: () {
                   ref.invalidate(seasonsListFetchProvider);
                   ref.invalidate(seasonsViewControllerProvider);
                 },
-                child: const Text('Retry'),
+                child: Text(l10nOf(context).commonRetry),
               ),
             ),
           Expanded(
             child: view.rows.isEmpty
-                ? const Center(child: Text('No seasons yet'))
+                ? Center(child: Text(l10nOf(context).seasonsEmpty))
                 : ListView.builder(
                     itemCount: view.rows.length,
                     itemBuilder: (context, i) {
                       final s = view.rows[i];
                       return SeasonCard(
                         key: Key('season-${s.id}'),
-                        title: s.title ?? 'Season ${s.number}',
+                        title:
+                            s.title ??
+                            l10nOf(context).wizardReviewSeason('${s.number}'),
                       );
                     },
                   ),

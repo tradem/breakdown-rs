@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 // The app-menu tests, MIGRATED to the Mehr tab (task 5.4): the seasons
 // overflow menu moved to the shell's Mehr tab as first-class labeled
@@ -84,7 +86,7 @@ void main() {
   }
 
   Future<void> openMehr(WidgetTester tester) async {
-    await tester.tap(find.text('Mehr'));
+    await tester.tap(find.text('More'));
     await pumpFrames(tester, n: 6);
   }
 
@@ -179,7 +181,7 @@ void main() {
       // Fail-closed: seasons gone, LoginScreen carries the error copy.
       expect(find.byKey(const Key('seasons-list')), findsNothing);
       expect(find.byKey(const Key('login-error-banner')), findsOneWidget);
-      expect(find.textContaining('cache.clear_failed'), findsOneWidget);
+      expect(find.textContaining('Something went wrong'), findsOneWidget);
     });
   });
 }

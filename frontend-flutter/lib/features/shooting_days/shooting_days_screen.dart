@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
+import '../../l10n/app_localizations_provider.dart';
 import '../costume_categories/next_order_key.dart';
 import 'order_keys.dart';
 import 'shooting_days_controller.dart';
@@ -43,21 +46,22 @@ class ShootingDaysScreen extends ConsumerWidget {
     );
     final rows = state.rows;
     final notFound = state.notFound;
+    final l10n = l10nOf(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Shooting days')),
+      appBar: AppBar(title: Text(l10n.navShootingDays)),
       body: Column(
         children: [
           if (state.commandError case final error?)
             _Banner(
               key: const Key('shooting-day-command-error-banner'),
-              text: shootingDayErrorCopy(error),
+              text: shootingDayErrorCopy(l10n, error),
               onDismiss: controller.dismissCommandError,
             ),
           if (state.isStale && notFound == null)
-            const _Banner(
-              key: Key('shooting-days-stale-banner'),
-              text: 'Cached data may be outdated',
+            _Banner(
+              key: const Key('shooting-days-stale-banner'),
+              text: l10n.shootingDaysStaleBanner,
             ),
           Expanded(
             child: notFound != null
@@ -147,7 +151,7 @@ class ShootingDaysScreen extends ConsumerWidget {
           ? FloatingActionButton(
               key: const Key('shooting-day-add-fab'),
               onPressed: () => _showCreateSheet(context, ref),
-              tooltip: 'Create shooting day',
+              tooltip: l10n.shootingDayAddFab,
               child: const Icon(Icons.add),
             )
           : null,
@@ -206,18 +210,16 @@ class ShootingDaysScreen extends ConsumerWidget {
     WidgetRef ref,
     ShootingDayView day,
   ) {
+    final l10n = l10nOf(context);
     return showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Unschedule date?'),
-        content: const Text(
-          'The calendar date is removed. The day keeps its order and '
-          'label.',
-        ),
+        title: Text(l10n.shootingDayUnscheduleTitle),
+        content: Text(l10n.shootingDayUnscheduleMessage),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
+            child: Text(l10n.commonCancel),
           ),
           FilledButton(
             key: Key('shooting-day-unschedule-confirm-${day.id}'),
@@ -229,7 +231,7 @@ class ShootingDaysScreen extends ConsumerWidget {
               unscheduleResult.match<void>((_) {}, (_) {});
               if (dialogContext.mounted) Navigator.of(dialogContext).pop();
             },
-            child: const Text('Unschedule'),
+            child: Text(l10n.shootingDayUnscheduleButton),
           ),
         ],
       ),
@@ -241,18 +243,16 @@ class ShootingDaysScreen extends ConsumerWidget {
     WidgetRef ref,
     ShootingDayView day,
   ) {
+    final l10n = l10nOf(context);
     return showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Archive shooting day?'),
-        content: const Text(
-          'Archived days stay in the projection but hide from scheduling '
-          'pickers.',
-        ),
+        title: Text(l10n.shootingDayArchiveTitle),
+        content: Text(l10n.shootingDayArchiveMessage),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
+            child: Text(l10n.commonCancel),
           ),
           FilledButton(
             key: Key('shooting-day-archive-confirm-${day.id}'),
@@ -264,7 +264,7 @@ class ShootingDaysScreen extends ConsumerWidget {
               archiveResult.match<void>((_) {}, (_) {});
               if (dialogContext.mounted) Navigator.of(dialogContext).pop();
             },
-            child: const Text('Archive'),
+            child: Text(l10n.shootingDayArchiveButton),
           ),
         ],
       ),
@@ -302,12 +302,7 @@ class ShootingDaysScreen extends ConsumerWidget {
       if (mid == null) {
         if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Cannot move here — the neighboring order keys leave no '
-              'room. Archive or recreate days to rebalance.',
-            ),
-          ),
+          SnackBar(content: Text(l10nOf(context).shootingDayMoveNoRoom)),
         );
         return;
       }
@@ -319,12 +314,7 @@ class ShootingDaysScreen extends ConsumerWidget {
       if (mid == null) {
         if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Cannot move here — the neighboring order keys leave no '
-              'room. Archive or recreate days to rebalance.',
-            ),
-          ),
+          SnackBar(content: Text(l10nOf(context).shootingDayMoveNoRoom)),
         );
         return;
       }
@@ -375,87 +365,92 @@ class _CreateShootingDaySheetState
   }
 
   @override
-  Widget build(BuildContext context) => SafeArea(
-    child: Padding(
-      padding: EdgeInsets.only(
-        left: 16,
-        right: 16,
-        top: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-      ),
-      child: Form(
-        key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'Create shooting day',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            TextFormField(
-              key: const Key('create-shooting-day-label'),
-              controller: _label,
-              decoration: const InputDecoration(
-                labelText: 'Label (e.g. 1. Tag)',
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          top: 16,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+        ),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                l10n.shootingDayCreateTitle,
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    _date == null ? 'No date yet' : 'Date: $_date',
-                    key: const Key('create-shooting-day-date-text'),
+              TextFormField(
+                key: const Key('create-shooting-day-label'),
+                controller: _label,
+                decoration: InputDecoration(
+                  labelText: l10n.shootingDayLabelHint,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _date == null
+                          ? l10n.shootingDayNoDate
+                          : l10n.shootingDayDate('$_date'),
+                      key: const Key('create-shooting-day-date-text'),
+                    ),
                   ),
-                ),
-                TextButton(
-                  key: const Key('create-shooting-day-date-pick'),
-                  onPressed: () async {
-                    // Material date utilities localize the picker (no
-                    // hand-rolled date math for locale — spec §5).
-                    final picked = await showDatePicker(
-                      context: context,
-                      initialDate: DateTime.now(),
-                      firstDate: DateTime(2000),
-                      lastDate: DateTime(2100),
-                    );
-                    if (picked != null) {
-                      setState(() => _date = picked.toDate());
-                    }
-                  },
-                  child: const Text('Pick date'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            FilledButton(
-              key: const Key('create-shooting-day-submit'),
-              onPressed: () async {
-                // Handled: failures surface via the command-error
-                // provider (keyed copy in the screen).
-                final createResult = await ref
-                    .read(
-                      shootingDaysControllerProvider(widget.episode.id)
-                          .notifier,
-                    )
-                    .create(
-                      label: _label.text.trim().isEmpty
-                          ? null
-                          : _label.text.trim(),
-                      date: _date,
-                    );
-                createResult.match<void>((_) {}, (_) {});
-                if (context.mounted) {
-                  Navigator.of(context).pop();
-                }
-              },
-              child: const Text('Create'),
-            ),
-          ],
+                  TextButton(
+                    key: const Key('create-shooting-day-date-pick'),
+                    onPressed: () async {
+                      // Material date utilities localize the picker (no
+                      // hand-rolled date math for locale — spec §5).
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: DateTime.now(),
+                        firstDate: DateTime(2000),
+                        lastDate: DateTime(2100),
+                      );
+                      if (picked != null) {
+                        setState(() => _date = picked.toDate());
+                      }
+                    },
+                    child: Text(l10n.shootingDayPickDate),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              FilledButton(
+                key: const Key('create-shooting-day-submit'),
+                onPressed: () async {
+                  // Handled: failures surface via the command-error
+                  // provider (keyed copy in the screen).
+                  final createResult = await ref
+                      .read(
+                        shootingDaysControllerProvider(widget.episode.id)
+                            .notifier,
+                      )
+                      .create(
+                        label: _label.text.trim().isEmpty
+                            ? null
+                            : _label.text.trim(),
+                        date: _date,
+                      );
+                  createResult.match<void>((_) {}, (_) {});
+                  if (context.mounted) {
+                    Navigator.of(context).pop();
+                  }
+                },
+                child: Text(l10n.blocksCreateButton),
+              ),
+            ],
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 /// Rename-dialog content: owns its controller in widget state (same
@@ -488,35 +483,40 @@ class _RenameShootingDaySheetState
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Rename shooting day'),
-    content: TextField(
-      key: const Key('rename-shooting-day-label'),
-      controller: _label,
-      decoration: const InputDecoration(labelText: 'Label'),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.of(context).pop(),
-        child: const Text('Cancel'),
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    return AlertDialog(
+      title: Text(l10n.shootingDayRenameTitle),
+      content: TextField(
+        key: const Key('rename-shooting-day-label'),
+        controller: _label,
+        decoration: InputDecoration(labelText: l10n.shootingDayLabel),
       ),
-      FilledButton(
-        key: const Key('rename-shooting-day-submit'),
-        onPressed: () async {
-          // Handled: failures surface via the command-error provider.
-          final renameResult = await ref
-              .read(shootingDaysControllerProvider(widget.episode.id).notifier)
-              .rename(
-                day: widget.day,
-                label: _label.text.trim().isEmpty ? null : _label.text.trim(),
-              );
-          renameResult.match<void>((_) {}, (_) {});
-          if (context.mounted) Navigator.of(context).pop();
-        },
-        child: const Text('Rename'),
-      ),
-    ],
-  );
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(l10n.commonCancel),
+        ),
+        FilledButton(
+          key: const Key('rename-shooting-day-submit'),
+          onPressed: () async {
+            // Handled: failures surface via the command-error provider.
+            final renameResult = await ref
+                .read(
+                  shootingDaysControllerProvider(widget.episode.id).notifier,
+                )
+                .rename(
+                  day: widget.day,
+                  label: _label.text.trim().isEmpty ? null : _label.text.trim(),
+                );
+            renameResult.match<void>((_) {}, (_) {});
+            if (context.mounted) Navigator.of(context).pop();
+          },
+          child: Text(l10n.shootingDayRenameButton),
+        ),
+      ],
+    );
+  }
 }
 
 class _FetchErrorView extends StatelessWidget {
@@ -531,13 +531,13 @@ class _FetchErrorView extends StatelessWidget {
     physics: const AlwaysScrollableScrollPhysics(),
     children: [
       const SizedBox(height: 160),
-      Center(child: Text('Could not load shooting days ($code).')),
+      Center(child: Text(l10nOf(context).shootingDaysFetchError(code))),
       const SizedBox(height: 8),
       Center(
         child: FilledButton.tonal(
           key: const Key('shooting-days-retry'),
           onPressed: onRetry,
-          child: const Text('Retry'),
+          child: Text(l10nOf(context).commonRetry),
         ),
       ),
     ],
@@ -569,7 +569,7 @@ class _Banner extends StatelessWidget {
               IconButton(
                 onPressed: onDismiss,
                 color: scheme.onErrorContainer,
-                tooltip: 'Dismiss',
+                tooltip: l10nOf(context).episodesDismiss,
                 icon: const Icon(
                   Icons.close,
                   key: Key('shooting-day-command-error-dismiss'),

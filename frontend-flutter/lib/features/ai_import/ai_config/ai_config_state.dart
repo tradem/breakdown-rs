@@ -7,6 +7,7 @@ import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/problem_error.dart';
+import '../../../l10n/generated/app_localizations.dart';
 
 /// The AI-import configuration screen state (`flutter-ai-config` task 2.1).
 ///
@@ -163,29 +164,23 @@ class AiConfigUnresolved {
 /// management/discovery) and `settings.forbidden` (settings credentials) —
 /// NOT the generic `domain.forbidden`. A real credential-role denial must
 /// land on the "administrator role required" narrative, never the fallback.
-String aiConfigErrorCopy(ProblemError error) => switch (error.code) {
-  'ai-config.forbidden' || 'settings.forbidden' =>
-    'Administrator role required — ask your production admin.',
-  // 409 `ai-config.version-mismatch` — the scoped optimistic-lock code the
-  // backend emits on a stale config edit/revoke (issue #481), preserving the
-  // typed expected/current extensions. Same narrative as the
-  // client-wide version-conflict copy.
-  'ai-config.version-mismatch' =>
-    'Changed elsewhere — refresh and re-apply your edit.',
-  'ai_config.orphaned_credential' =>
-    'The API key could not be removed from the server vault after the '
-        'failed setup. Retry the cleanup from the configuration screen.',
-  'provider.unavailable' => 'This provider is unavailable right now.',
-  // Wire code of the backend's `ai-import.disabled` problem (issue #422).
-  // The disabled state is a server configuration, NOT a transient failure —
-  // the UI renders it without a retry affordance.
-  'ai-import.disabled' =>
-    'AI import is not enabled on this instance. This is a server '
-        'configuration — nothing to retry here.',
-  _ when error.code.startsWith('transport.') =>
-    'Network problem — the change was not applied. Try again.',
-  _ => 'The configuration change failed (${error.code}).',
-};
+String aiConfigErrorCopy(AppLocalizations l10n, ProblemError error) =>
+    switch (error.code) {
+      'ai-config.forbidden' || 'settings.forbidden' => l10n.aiConfigErrorAdmin,
+      // 409 `ai-config.version-mismatch` — the scoped optimistic-lock code
+      // the backend emits on a stale config edit/revoke (issue #481),
+      // preserving the typed expected/current extensions. Same narrative as
+      // the client-wide version-conflict copy.
+      'ai-config.version-mismatch' => l10n.aiConfigErrorChanged,
+      'ai_config.orphaned_credential' => l10n.aiConfigErrorOrphaned,
+      'provider.unavailable' => l10n.aiConfigErrorProvider,
+      // Wire code of the backend's `ai-import.disabled` problem (issue
+      // #422). The disabled state is a server configuration, NOT a
+      // transient failure — the UI renders it without a retry affordance.
+      'ai-import.disabled' => l10n.aiConfigErrorDisabled,
+      _ when error.code.startsWith('transport.') => l10n.aiConfigErrorNetwork,
+      _ => l10n.aiConfigErrorGeneric(error.code),
+    };
 
 /// True when the backend refused the call because the AI import feature is
 /// disabled on this instance (wire code `ai-import.disabled`, status 404,

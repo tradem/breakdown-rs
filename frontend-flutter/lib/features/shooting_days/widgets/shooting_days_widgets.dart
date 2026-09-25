@@ -2,10 +2,14 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:flutter/material.dart';
 
 import '../../../domain/reconciliation/reconciliation_scheduler.dart';
+import '../../../l10n/app_localizations_provider.dart';
+import '../../../l10n/locale_formatters.dart';
 import '../shooting_days_state.dart';
 
 /// Pure presentation trees for `ShootingDaysScreen`: plain data + callbacks
@@ -33,102 +37,109 @@ class ShootingDayTile extends StatelessWidget {
   final VoidCallback? onMoveDown;
 
   @override
-  Widget build(BuildContext context) => switch (row) {
-    ProjectedShootingDayRow(:final day) => Semantics(
-      label: 'Shooting day ${day.label ?? day.id}',
-      child: Builder(
-        builder: (tileContext) => ListTile(
-          key: Key('shooting-day-${day.id}'),
-          minTileHeight: 48,
-          // Compact date/label calendar-row layout on Android (spec §5).
-          title: Text(
-            day.label ?? 'Untitled day',
-            key: Key('shooting-day-label-${day.id}'),
-          ),
-          subtitle: Text(
-            [
-              // Localized compact date (Material utilities — never
-              // hand-rolled locale math); the generated `Date` renders
-              // ISO `yyyy-MM-dd` via `toString` otherwise.
-              if (day.date != null)
-                'Date: ${MaterialLocalizations.of(tileContext).formatCompactDate(day.date!.toDateTime())}',
-              if (day.archived) 'Archived',
-              if (day.wrappedAt != null) 'Wrapped',
-            ].join(' · '),
-          ),
-          // Overflow menu (not six inline buttons): six 48×48 targets
-          // consume the full 288 px content width of a 320 px tile, leaving
-          // no title space. One menu button keeps the calendar row compact;
-          // Escape closes the menu (macOS). Item keys stay stable for tests.
-          trailing: PopupMenuButton<VoidCallback>(
-            key: Key('shooting-day-menu-${day.id}'),
-            tooltip: 'Day actions',
-            icon: const Icon(Icons.more_vert),
-            onSelected: (action) => action(),
-            itemBuilder: (_) => [
-              if (onMoveUp != null)
-                PopupMenuItem(
-                  key: Key('shooting-day-up-${day.id}'),
-                  value: onMoveUp,
-                  child: const Text('Move earlier'),
-                ),
-              if (onMoveDown != null)
-                PopupMenuItem(
-                  key: Key('shooting-day-down-${day.id}'),
-                  value: onMoveDown,
-                  child: const Text('Move later'),
-                ),
-              if (onRename != null)
-                PopupMenuItem(
-                  key: Key('shooting-day-rename-${day.id}'),
-                  value: onRename,
-                  child: const Text('Rename'),
-                ),
-              if (onReschedule != null)
-                PopupMenuItem(
-                  key: Key('shooting-day-reschedule-${day.id}'),
-                  value: onReschedule,
-                  child: const Text('Reschedule'),
-                ),
-              if (onUnschedule != null && day.date != null)
-                // Ungated (issue #374): the repository now emits the
-                // explicit `{"version": N, "date": null}` body the backend
-                // requires since #372, so the affordance is fully wired.
-                PopupMenuItem(
-                  key: Key('shooting-day-unschedule-${day.id}'),
-                  value: onUnschedule,
-                  child: const Text('Unschedule date'),
-                ),
-              if (onArchive != null && !day.archived)
-                PopupMenuItem(
-                  key: Key('shooting-day-archive-${day.id}'),
-                  value: onArchive,
-                  child: const Text('Archive'),
-                ),
-            ],
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    return switch (row) {
+      ProjectedShootingDayRow(:final day) => Semantics(
+        label: l10n.shootingDaySemantics(day.label ?? day.id),
+        child: Builder(
+          builder: (_) => ListTile(
+            key: Key('shooting-day-${day.id}'),
+            minTileHeight: 48,
+            // Compact date/label calendar-row layout on Android (spec §5).
+            title: Text(
+              day.label ?? l10n.shootingDayUntitled,
+              key: Key('shooting-day-label-${day.id}'),
+            ),
+            subtitle: Text(
+              [
+                // Framework locale data performs the date formatting; no
+                // hand-rolled locale math or fixed pattern is used.
+                if (day.date != null)
+                  l10n.shootingDayDate(
+                    formatMediumDate(context, day.date!.toDateTime()),
+                  ),
+                if (day.archived) l10n.shootingDayArchived,
+                if (day.wrappedAt != null) l10n.shootingDayWrapped,
+              ].join(' · '),
+            ),
+            // Overflow menu (not six inline buttons): six 48×48 targets
+            // consume the full 288 px content width of a 320 px tile, leaving
+            // no title space. One menu button keeps the calendar row compact;
+            // Escape closes the menu (macOS). Item keys stay stable for tests.
+            trailing: PopupMenuButton<VoidCallback>(
+              key: Key('shooting-day-menu-${day.id}'),
+              tooltip: l10n.shootingDayActions,
+              icon: const Icon(Icons.more_vert),
+              onSelected: (action) => action(),
+              itemBuilder: (_) => [
+                if (onMoveUp != null)
+                  PopupMenuItem(
+                    key: Key('shooting-day-up-${day.id}'),
+                    value: onMoveUp,
+                    child: Text(l10n.shootingDayMoveEarlier),
+                  ),
+                if (onMoveDown != null)
+                  PopupMenuItem(
+                    key: Key('shooting-day-down-${day.id}'),
+                    value: onMoveDown,
+                    child: Text(l10n.shootingDayMoveLater),
+                  ),
+                if (onRename != null)
+                  PopupMenuItem(
+                    key: Key('shooting-day-rename-${day.id}'),
+                    value: onRename,
+                    child: Text(l10n.shootingDayRename),
+                  ),
+                if (onReschedule != null)
+                  PopupMenuItem(
+                    key: Key('shooting-day-reschedule-${day.id}'),
+                    value: onReschedule,
+                    child: Text(l10n.shootingDayReschedule),
+                  ),
+                if (onUnschedule != null && day.date != null)
+                  // Ungated (issue #374): the repository now emits the
+                  // explicit `{"version": N, "date": null}` body the backend
+                  // requires since #372, so the affordance is fully wired.
+                  PopupMenuItem(
+                    key: Key('shooting-day-unschedule-${day.id}'),
+                    value: onUnschedule,
+                    child: Text(l10n.shootingDayUnschedule),
+                  ),
+                if (onArchive != null && !day.archived)
+                  PopupMenuItem(
+                    key: Key('shooting-day-archive-${day.id}'),
+                    value: onArchive,
+                    child: Text(l10n.shootingDayArchive),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
-    ),
-    OptimisticShootingDayRow(:final overlay) => ListTile(
-      key: Key('overlay-${overlay.id}'),
-      minTileHeight: 48,
-      title: Text(overlay.label ?? 'New shooting day'),
-      subtitle: Text(
-        overlay.status == OverlayStatus.stale
-            ? (overlay.warning ?? kReconcileStaleWarning)
-            : 'Just created — syncing…',
+      OptimisticShootingDayRow(:final overlay) => ListTile(
+        key: Key('overlay-${overlay.id}'),
+        minTileHeight: 48,
+        title: Text(overlay.label ?? l10n.shootingDayNew),
+        subtitle: Text(
+          overlay.status == OverlayStatus.stale
+              // Stable warning code from the domain layer; localized here.
+              ? (overlay.warning == kReconcileStaleWarningCode
+                    ? l10n.reconcileStaleWarning
+                    : (overlay.warning ?? l10n.reconcileStaleWarning))
+              : l10n.seasonsSyncing,
+        ),
+        trailing: overlay.status == OverlayStatus.stale
+            ? const Icon(Icons.cloud_off, key: Key('overlay-warning'))
+            : const SizedBox(
+                key: Key('overlay-spinner'),
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
       ),
-      trailing: overlay.status == OverlayStatus.stale
-          ? const Icon(Icons.cloud_off, key: Key('overlay-warning'))
-          : const SizedBox(
-              key: Key('overlay-spinner'),
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-    ),
-  };
+    };
+  }
 }
 
 class ShootingDaysEmptyView extends StatelessWidget {
@@ -137,24 +148,27 @@ class ShootingDaysEmptyView extends StatelessWidget {
   final VoidCallback? onCreate;
 
   @override
-  Widget build(BuildContext context) => Center(
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Icon(Icons.calendar_month_outlined, size: 48),
-        const SizedBox(height: 8),
-        const Text('No shooting days yet', key: Key('shooting-days-empty')),
-        if (onCreate != null) ...[
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.calendar_month_outlined, size: 48),
           const SizedBox(height: 8),
-          FilledButton.tonal(
-            key: const Key('shooting-days-empty-create'),
-            onPressed: onCreate,
-            child: const Text('Create shooting day'),
-          ),
+          Text(l10n.shootingDaysEmpty, key: const Key('shooting-days-empty')),
+          if (onCreate != null) ...[
+            const SizedBox(height: 8),
+            FilledButton.tonal(
+              key: const Key('shooting-days-empty-create'),
+              onPressed: onCreate,
+              child: Text(l10n.shootingDaysCreate),
+            ),
+          ],
         ],
-      ],
-    ),
-  );
+      ),
+    );
+  }
 }
 
 class ShootingDaysNotFoundView extends StatelessWidget {
@@ -164,17 +178,17 @@ class ShootingDaysNotFoundView extends StatelessWidget {
   final VoidCallback? onBack;
 
   @override
-  Widget build(BuildContext context) => Center(
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          'The episode is gone ($code).',
-          key: const Key('shooting-days-gone'),
-        ),
-        if (onBack != null)
-          FilledButton.tonal(onPressed: onBack, child: const Text('Back')),
-      ],
-    ),
-  );
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(l10n.shootingDaysGone, key: const Key('shooting-days-gone')),
+          if (onBack != null)
+            FilledButton.tonal(onPressed: onBack, child: Text(l10n.commonBack)),
+        ],
+      ),
+    );
+  }
 }

@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:flutter/material.dart';
 
 import '../../../design/spacing.dart';
+import '../../../l10n/app_localizations_provider.dart';
 
 /// Pure presentation widgets for the login screen (spec `flutter-auth-shell`,
 /// design.md §2.1).
@@ -22,6 +25,7 @@ class DevAuthNotice extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final l10n = l10nOf(context);
     return Card(
       key: const Key('login-dev-notice'),
       color: scheme.tertiaryContainer,
@@ -33,7 +37,7 @@ class DevAuthNotice extends StatelessWidget {
             const SizedBox(width: AppSpacing.space12),
             Expanded(
               child: Text(
-                'Dev authentication in effect — continuing as $sub.',
+                l10n.authDevNotice(sub),
                 style: TextStyle(color: scheme.onTertiaryContainer),
               ),
             ),
@@ -70,7 +74,7 @@ class SignInButton extends StatelessWidget {
               height: 20,
               child: CircularProgressIndicator(strokeWidth: 2),
             )
-          : const Text('Sign in'),
+          : Text(l10nOf(context).authSignIn),
     );
   }
 }
@@ -101,7 +105,7 @@ class DevContinueButton extends StatelessWidget {
               height: 20,
               child: CircularProgressIndicator(strokeWidth: 2),
             )
-          : Text('Continue as $sub'),
+          : Text(l10nOf(context).authContinueAs(sub)),
     );
   }
 }
@@ -143,7 +147,7 @@ class LoginErrorBanner extends StatelessWidget {
               key: const Key('login-error-retry'),
               style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
               onPressed: onRetry,
-              child: const Text('Retry'),
+              child: Text(l10nOf(context).commonRetry),
             ),
           ],
         ),

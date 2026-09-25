@@ -2,6 +2,8 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
@@ -9,6 +11,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
+import '../../l10n/app_localizations_provider.dart';
+import '../../l10n/generated/app_localizations.dart';
 import '../scenes/scenes_screen.dart';
 import '../shooting_days/shooting_days_screen.dart';
 import 'create_episode_sheet.dart';
@@ -18,17 +22,18 @@ import 'widgets/episodes_widgets.dart';
 
 /// Localized client-side copy for a create-episode failure, keyed on the
 /// stable problem `code` (never the server's localized `detail`).
-String episodeCreateErrorCopy(ProblemError error) => switch (error.code) {
-  // Real backend code first (issue #443); legacy aliases kept for stale
-  // fixtures.
-  'episode.number-already-exists' ||
-  'episodes.conflict' ||
-  'episode.conflict' => 'An episode with that number already exists.',
-  'authz.denied' || 'auth.session_required' => 'Please sign in to continue.',
-  _ when error.code.startsWith('transport.') =>
-    'Network problem — the episode was not created. Try again.',
-  _ => 'The episode could not be created (${error.code}).',
-};
+String episodeCreateErrorCopy(AppLocalizations l10n, ProblemError error) =>
+    switch (error.code) {
+      // Real backend code first (issue #443); legacy aliases kept for
+      // stale fixtures.
+      'episode.number-already-exists' ||
+      'episodes.conflict' ||
+      'episode.conflict' => l10n.episodesCreateErrorExists,
+      'authz.denied' || 'auth.session_required' => l10n.blocksCreateErrorSignIn,
+      _ when error.code.startsWith('transport.') =>
+        l10n.episodesCreateErrorNetwork,
+      _ => l10n.episodesCreateErrorGeneric(error.code),
+    };
 
 /// `EpisodesScreen` — the tapped block's episodes via the server-side
 /// filter (`GET /v1/episodes?block_id=…`, backend issue #335).
@@ -60,21 +65,22 @@ class EpisodesScreen extends ConsumerWidget {
     );
     final rows = state.rows;
     final notFound = state.notFound;
+    final l10n = l10nOf(context);
 
     return Scaffold(
-      appBar: AppBar(title: Text('Block ${block.number}')),
+      appBar: AppBar(title: Text(l10n.blockTileLabel('${block.number}'))),
       body: Column(
         children: [
           if (state.commandError case final error?)
             _Banner(
               key: const Key('episode-create-error-banner'),
-              text: episodeCreateErrorCopy(error),
+              text: episodeCreateErrorCopy(l10n, error),
               onDismiss: controller.dismissCommandError,
             ),
           if (state.isStale && notFound == null)
-            const _Banner(
-              key: Key('episodes-stale-banner'),
-              text: 'Cached data may be outdated',
+            _Banner(
+              key: const Key('episodes-stale-banner'),
+              text: l10n.episodesStaleBanner,
             ),
           Expanded(
             child: notFound != null
@@ -149,7 +155,7 @@ class EpisodesScreen extends ConsumerWidget {
                                           icon: const Icon(
                                             Icons.calendar_month_outlined,
                                           ),
-                                          tooltip: 'Shooting days',
+                                          tooltip: l10n.navShootingDays,
                                           onPressed: () => Navigator.of(context)
                                               .push(
                                                 MaterialPageRoute<void>(
@@ -173,7 +179,7 @@ class EpisodesScreen extends ConsumerWidget {
           ? FloatingActionButton(
               key: const Key('episode-add-fab'),
               onPressed: () => showCreateEpisodeSheet(context, ref, block),
-              tooltip: 'Add episode',
+              tooltip: l10n.episodesAddFab,
               child: const Icon(Icons.add),
             )
           : null,
@@ -198,13 +204,13 @@ class _FetchErrorView extends StatelessWidget {
     physics: const AlwaysScrollableScrollPhysics(),
     children: [
       const SizedBox(height: 160),
-      Center(child: Text('Could not load episodes ($code).')),
+      Center(child: Text(l10nOf(context).episodesFetchError(code))),
       const SizedBox(height: 8),
       Center(
         child: FilledButton.tonal(
           key: const Key('episodes-retry'),
           onPressed: onRetry,
-          child: const Text('Retry'),
+          child: Text(l10nOf(context).commonRetry),
         ),
       ),
     ],
@@ -236,7 +242,7 @@ class _Banner extends StatelessWidget {
               IconButton(
                 onPressed: onDismiss,
                 color: scheme.onErrorContainer,
-                tooltip: 'Dismiss',
+                tooltip: l10nOf(context).episodesDismiss,
                 icon: const Icon(
                   Icons.close,
                   key: Key('episode-create-error-dismiss'),

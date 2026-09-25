@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'dart:async' show unawaited;
 
@@ -9,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/cache/seasons_cache_providers.dart';
+import '../../l10n/app_localizations_provider.dart';
 import '../ai_import/import_jobs/import_submit_screen.dart';
 import '../blocks/blocks_screen.dart';
 import 'shell_controller.dart';
@@ -36,11 +39,12 @@ class PlanningTabScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = l10nOf(context);
     final view = ref.watch(seasonsView);
     final rows = view.rows;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Planen')),
+      appBar: AppBar(title: Text(l10n.navPlanen)),
       body: RefreshIndicator(
         onRefresh: () => _refresh(ref),
         child: Builder(
@@ -56,11 +60,8 @@ class PlanningTabScreen extends ConsumerWidget {
                   const SizedBox(height: 120),
                   Center(
                     child: view.error != null
-                        ? Text(
-                            'Seasons could not be loaded '
-                            '(${view.error!.code}).',
-                          )
-                        : const Text('No seasons yet'),
+                        ? Text(l10n.planningLoadError)
+                        : Text(l10n.planningNoSeasons),
                   ),
                 ],
               );
@@ -75,8 +76,10 @@ class PlanningTabScreen extends ConsumerWidget {
                 final season = rows[i - 1];
                 return ListTile(
                   key: Key('planen-season-${season.id}'),
-                  title: Text(season.title ?? 'Season ${season.number}'),
-                  subtitle: Text('Number ${season.number}'),
+                  title: Text(
+                    season.title ?? l10n.seasonsDefaultTitle(season.number),
+                  ),
+                  subtitle: Text(l10n.planningSeasonNumber(season.number)),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => _openSeason(context, ref, season),
                 );
@@ -94,8 +97,8 @@ class PlanningTabScreen extends ConsumerWidget {
     return ListTile(
       key: const Key('planen-ai-import'),
       leading: const Icon(Icons.smart_toy_outlined),
-      title: const Text('Import'),
-      subtitle: const Text('KI-Assistent: Spielplan importieren'),
+      title: Text(l10nOf(context).navAiImport),
+      subtitle: Text(l10nOf(context).planningImportSubtitle),
       trailing: const Icon(Icons.chevron_right),
       // Fire-and-forget navigation (no result consumed).
       onTap: () => unawaited(

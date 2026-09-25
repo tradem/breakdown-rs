@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
@@ -8,6 +9,7 @@ import 'package:breakdown_api/breakdown_api.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 import '../../../core/problem_error.dart';
+import '../../../l10n/generated/app_localizations.dart';
 
 part 'setup_wizard_state.freezed.dart';
 
@@ -241,11 +243,11 @@ bool isMissingSeriesIdFailure(ProblemError? failure) =>
 
 /// Client-side inline copy for a validation error code (glossary
 /// `wizard.errors.*`) — never a platform dialog.
-String wizardErrorCopyForField(WizardFieldError error) => switch (error) {
-  WizardFieldError.notPositiveNumber =>
-    'Eine ganze Zahl größer als 0 ist nötig.',
-  WizardFieldError.noBlocks => 'Mindestens ein Block ist nötig.',
-};
+String wizardErrorCopyForField(AppLocalizations l10n, WizardFieldError error) =>
+    switch (error) {
+      WizardFieldError.notPositiveNumber => l10n.wizardFieldPositive,
+      WizardFieldError.noBlocks => l10n.wizardFieldBlocks,
+    };
 
 /// Smart-default season number (task 2.3): highest existing number + 1 —
 /// an empty list defaults to 1, gaps are NOT filled (numbers identify a
@@ -267,32 +269,27 @@ int wizardDispatchTotal(List<BlockDraft> blocks) =>
 
 /// Client-side copy for a wizard command failure, keyed on the stable
 /// problem `code` (AGENTS.md §5 — never the backend's localized `detail`).
-String wizardErrorCopy(ProblemError error) => switch (error.code) {
-  // Real backend codes first (issue #443): the registry emits
-  // `{context}.number-already-exists`, never the old `*.conflict` aliases
-  // (kept only until stale unit fixtures are updated).
-  'season.number-already-exists' ||
-  'seasons.conflict' ||
-  'season.conflict' => 'Eine Season mit dieser Nummer existiert bereits.',
-  'block.number-already-exists' || 'blocks.conflict' || 'block.conflict' =>
-    // Series-scoped wording (backend invariant: block numbers are unique
-    // per SERIES — `idx_projection_block_series_number` — not per season;
-    // the copy must point the user at the ACTUAL conflict scope).
-    'Ein Block mit dieser Nummer existiert bereits in der Serie.',
-  'episode.number-already-exists' ||
-  'episodes.conflict' ||
-  'episode.conflict' =>
-    // Same series-scope: episode numbers are unique per series
-    // (`idx_projection_episode_series_number`), not per block.
-    'Eine Episode mit dieser Nummer existiert bereits in der Serie.',
-  'authz.denied' ||
-  'auth.session_required' => 'Bitte melde dich an, um fortzufahren.',
-  'config.series-id-missing' =>
-    'Diese App wurde ohne DEFAULT_SERIES_ID gebaut: Die neue Season kann '
-        'keiner Serie zugeordnet werden. Baue die App mit '
-        '--dart-define=DEFAULT_SERIES_ID=<ID der Standardserie> neu.',
-  _ when error.code.startsWith('transport.') =>
-    'Netzwerkproblem — das Erstellen wurde abgebrochen. Versuche es '
-        'erneut.',
-  _ => 'Das Erstellen ist fehlgeschlagen (${error.code}).',
-};
+String wizardErrorCopy(AppLocalizations l10n, ProblemError error) =>
+    switch (error.code) {
+      // Real backend codes first (issue #443): the registry emits
+      // `{context}.number-already-exists`, never the old `*.conflict` aliases
+      // (kept only until stale unit fixtures are updated).
+      'season.number-already-exists' ||
+      'seasons.conflict' ||
+      'season.conflict' => l10n.wizardErrorSeasonExists,
+      'block.number-already-exists' || 'blocks.conflict' || 'block.conflict' =>
+        // Series-scoped wording (backend invariant: block numbers are unique
+        // per SERIES — `idx_projection_block_series_number` — not per season;
+        // the copy must point the user at the ACTUAL conflict scope).
+        l10n.wizardErrorBlockExistsSeries,
+      'episode.number-already-exists' ||
+      'episodes.conflict' ||
+      'episode.conflict' =>
+        // Same series-scope: episode numbers are unique per series
+        // (`idx_projection_episode_series_number`), not per block.
+        l10n.wizardErrorEpisodeExistsSeries,
+      'authz.denied' || 'auth.session_required' => l10n.blocksCreateErrorSignIn,
+      'config.series-id-missing' => l10n.wizardErrorSeriesIdMissing,
+      _ when error.code.startsWith('transport.') => l10n.wizardErrorNetwork,
+      _ => l10n.wizardErrorGeneric(error.code),
+    };

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 
@@ -7,6 +8,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/problem_error.dart';
 import '../../../../design/spacing.dart';
+import '../../../../l10n/app_localizations_provider.dart';
 import '../setup_wizard_state.dart';
 
 /// Completion step of the setup wizard (task 4.4): the result overview
@@ -90,12 +92,14 @@ class WizardCompletionView extends StatelessWidget {
         // ("Season {n} angelegt"); the optional name stays in the summary.
         Text(
           buildConfigFailure
-              ? 'Build-Konfiguration fehlt'
+              ? l10nOf(context).wizardCompletionMissingConfig
               : (partial
-                    ? 'Teilweise erstellt'
+                    ? l10nOf(context).wizardCompletionPartial
                     : (season == null
-                          ? 'Season angelegt'
-                          : 'Season ${season.number} angelegt')),
+                          ? l10nOf(context).wizardCompletionCreated
+                          : l10nOf(context).wizardCompletionSeasonCreated(
+                              '${season.number}',
+                            ))),
           key: buildConfigFailure
               ? const Key('wizard-completion-config-title')
               : (partial
@@ -107,7 +111,8 @@ class WizardCompletionView extends StatelessWidget {
         if (!buildConfigFailure) ...[
           const SizedBox(height: AppSpacing.space8),
           Text(
-            '$blocksCreated Blöcke · $episodesCreated Episoden',
+            l10nOf(context)
+                .wizardCompletionSummary('$blocksCreated', '$episodesCreated'),
             key: const Key('wizard-completion-summary'),
             style: theme.textTheme.bodyMedium,
             textAlign: TextAlign.center,
@@ -117,7 +122,7 @@ class WizardCompletionView extends StatelessWidget {
         if (partial) ...[
           if (failure != null)
             Text(
-              wizardErrorCopy(failure!),
+              wizardErrorCopy(l10nOf(context), failure!),
               key: const Key('wizard-completion-error'),
               style: TextStyle(color: theme.colorScheme.error),
               textAlign: TextAlign.center,
@@ -132,14 +137,14 @@ class WizardCompletionView extends StatelessWidget {
               key: const Key('wizard-retry'),
               onPressed: onRetry,
               icon: const Icon(Icons.refresh),
-              label: const Text('Fortsetzen'),
+              label: Text(l10nOf(context).wizardResume),
             ),
           ],
           const SizedBox(height: AppSpacing.space8),
           OutlinedButton(
             key: const Key('wizard-completion-done'),
             onPressed: onDone,
-            child: const Text('Fertig'),
+            child: Text(l10nOf(context).wizardDone),
           ),
         ] else ...[
           // Conditional AI-import CTA (decision 6): with a configuration
@@ -149,7 +154,7 @@ class WizardCompletionView extends StatelessWidget {
               key: const Key('wizard-completion-import-cta'),
               onPressed: onImport,
               icon: const Icon(Icons.smart_toy_outlined),
-              label: const Text('KI-Import starten'),
+              label: Text(l10nOf(context).wizardAiImportCta),
             )
           else
             Card(
@@ -158,15 +163,13 @@ class WizardCompletionView extends StatelessWidget {
                 padding: const EdgeInsets.all(AppSpacing.space16),
                 child: Column(
                   children: [
-                    const Text(
-                      'Für den KI-Import ist eine KI-Konfiguration nötig.',
-                    ),
+                    Text(l10nOf(context).wizardAiImportNeedsConfig),
                     const SizedBox(height: AppSpacing.space8),
                     OutlinedButton.icon(
                       key: const Key('wizard-completion-ai-info-cta'),
                       onPressed: onOpenAiConfig,
                       icon: const Icon(Icons.psychology_alt_outlined),
-                      label: const Text('KI-Konfiguration öffnen'),
+                      label: Text(l10nOf(context).wizardOpenAiConfig),
                     ),
                   ],
                 ),
@@ -176,7 +179,7 @@ class WizardCompletionView extends StatelessWidget {
           FilledButton(
             key: const Key('wizard-completion-done'),
             onPressed: onDone,
-            child: const Text('Fertig'),
+            child: Text(l10nOf(context).wizardDone),
           ),
         ],
       ],

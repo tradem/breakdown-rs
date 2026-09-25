@@ -2,6 +2,8 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -255,10 +257,10 @@ void main() {
       );
     });
 
-    test('unknown codes surface a generic copy carrying the code', () {
+    test('unknown codes use the generic localized copy', () {
       expect(
         createErrorCopy(const ProblemError(code: 'season.weird')),
-        contains('season.weird'),
+        contains('The season could not be created.'),
       );
     });
   });

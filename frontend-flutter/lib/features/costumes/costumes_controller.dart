@@ -21,6 +21,7 @@ import '../../data/cache/costume_domains_cache_dao.dart';
 import '../../data/cache/seasons_cache_providers.dart';
 import '../../data/costume_repository.dart';
 import '../../data/photo_repository.dart';
+import '../../l10n/generated/app_localizations.dart';
 import '../../domain/reconciliation/reconcile_coordinator.dart';
 import '../characters/characters_controller.dart';
 import '../photos/widgets/photo_gallery.dart';
@@ -218,24 +219,23 @@ enum CostumeBinding { assigned, unassigned, unknown }
 
 /// Localized client-side copy for costume command failures, keyed on the
 /// stable problem `code` (never the server's localized `detail`).
-String costumeErrorCopy(ProblemError error) => switch (error.code) {
-  // 409 `concurrency.version-mismatch`: the echoed aggregate version lost
-  // the optimistic-concurrency guard (the backend's ONE version-conflict
-  // code — the old `costume.version_conflict`/`concurrency.conflict` keys
-  // were never emitted, issue #481). Distinct pull-to-refresh narrative
-  // (issue #473 req. #3) so the user resyncs instead of retrying a doomed
-  // write.
-  'concurrency.version-mismatch' =>
-    'Changed elsewhere — pull to refresh and try again.',
-  'costume.forbidden' ||
-  'authz.denied' => 'You need an active costume role in this season.',
-  'membership.pending' =>
-    'Could not verify permissions — check the connection and retry.',
-  'auth.session_required' => 'Please sign in to continue.',
-  _ when error.code.startsWith('transport.') =>
-    'Network problem — the change was not saved. Try again.',
-  _ => 'The costume could not be saved (${error.code}).',
-};
+String costumeErrorCopy(AppLocalizations l10n, ProblemError error) =>
+    switch (error.code) {
+      // 409 `concurrency.version-mismatch`: the echoed aggregate version
+      // lost the optimistic-concurrency guard (the backend's ONE
+      // version-conflict code — the old
+      // `costume.version_conflict`/`concurrency.conflict` keys were never
+      // emitted, issue #481). Distinct pull-to-refresh narrative (issue
+      // #473 req. #3) so the user resyncs instead of retrying a doomed
+      // write.
+      'concurrency.version-mismatch' => l10n.costumeErrorChanged,
+      'costume.forbidden' || 'authz.denied' => l10n.costumeErrorForbidden,
+      'membership.pending' => l10n.costumeErrorMembership,
+      'auth.session_required' => l10n.blocksCreateErrorSignIn,
+      _ when error.code.startsWith('transport.') =>
+        l10n.costumeCategoryErrorNetwork,
+      _ => l10n.costumeErrorGeneric(error.code),
+    };
 
 /// Copy for the shared season-scoped command-error banner (list + detail
 /// screens), routed by the command ORIGIN.
@@ -247,10 +247,12 @@ String costumeErrorCopy(ProblemError error) => switch (error.code) {
 /// generic `domain.validation` (a concurrent unassign races the local gate,
 /// issue #513) and must still render the photo copy, not the "costume could
 /// not be saved" fallback.
-String costumeCommandErrorCopy(CostumeCommandFailure failure) =>
-    failure.surface == CostumeCommandSurface.photo
-    ? photoErrorCopy(failure.error)
-    : costumeErrorCopy(failure.error);
+String costumeCommandErrorCopy(
+  AppLocalizations l10n,
+  CostumeCommandFailure failure,
+) => failure.surface == CostumeCommandSurface.photo
+    ? photoErrorCopy(l10n, failure.error)
+    : costumeErrorCopy(l10n, failure.error);
 
 /// `CostumesController(seasonId)` on the shared reconciliation runner.
 @Riverpod(keepAlive: true)

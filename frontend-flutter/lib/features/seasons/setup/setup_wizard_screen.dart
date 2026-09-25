@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode)
 // Co-authored-by: omen-alpha (opencode-go)
 
 import 'dart:async' show unawaited;
@@ -13,6 +14,7 @@ import '../../ai_import/ai_config/ai_config_controller.dart';
 import '../../ai_import/ai_config/ai_config_screen.dart';
 import '../../ai_import/import_jobs/import_submit_screen.dart';
 import '../../../data/cache/seasons_cache_providers.dart';
+import '../../../l10n/app_localizations_provider.dart';
 import 'setup_wizard_controller.dart';
 import 'setup_wizard_state.dart';
 import 'widgets/wizard_blocks_step.dart';
@@ -105,13 +107,13 @@ class _SetupWizardScreenState extends ConsumerState<SetupWizardScreen> {
       },
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Season-Setup'),
+          title: Text(l10nOf(context).wizardTitle),
           automaticallyImplyLeading: false,
           leading: state.isEditing
               ? IconButton(
                   key: const Key('wizard-back'),
                   icon: const Icon(Icons.arrow_back),
-                  tooltip: 'Zurück',
+                  tooltip: l10nOf(context).commonBack,
                   onPressed: () => _confirmDiscard(context, controller),
                 )
               : null,
@@ -237,20 +239,17 @@ class _SetupWizardScreenState extends ConsumerState<SetupWizardScreen> {
     final discard = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Setup abbrechen?'),
-        content: const Text(
-          'Deine Eingaben werden verworfen. Es wurde noch nichts '
-          'gespeichert.',
-        ),
+        title: Text(l10nOf(dialogContext).wizardCancelTitle),
+        content: Text(l10nOf(dialogContext).wizardCancelBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Weiter bearbeiten'),
+            child: Text(l10nOf(dialogContext).wizardKeepEditing),
           ),
           TextButton(
             key: const Key('wizard-discard-confirm'),
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Verwerfen'),
+            child: Text(l10nOf(dialogContext).wizardDiscard),
           ),
         ],
       ),
@@ -308,7 +307,7 @@ class _ProgressHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Semantics(
-      label: 'Schritt $position von 4',
+      label: l10nOf(context).wizardStepOf('$position', '4'),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         child: Row(
@@ -316,7 +315,7 @@ class _ProgressHeader extends StatelessWidget {
           children: [
             Expanded(
               child: Text(
-                'Schritt $position von 4',
+                l10nOf(context).wizardStepOf('$position', '4'),
                 key: const Key('wizard-progress-text'),
               ),
             ),
@@ -354,14 +353,14 @@ class _NavigationRow extends StatelessWidget {
                 key: const Key('wizard-prev'),
                 onPressed: onBack,
                 icon: const Icon(Icons.arrow_back),
-                label: const Text('Zurück'),
+                label: Text(l10nOf(context).commonBack),
               ),
             const Spacer(),
             FilledButton.icon(
               key: const Key('wizard-next'),
               onPressed: onNextEnabled ? onNext : null,
               icon: const Icon(Icons.arrow_forward),
-              label: const Text('Weiter'),
+              label: Text(l10nOf(context).wizardNext),
             ),
           ],
         ),

@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
+import '../../l10n/app_localizations_provider.dart';
 import '../blocks/active_block_gate.dart';
 import '../blocks/blocks_controller.dart';
 import 'costume_detail_screen.dart';
@@ -40,10 +41,10 @@ class CostumesScreen extends ConsumerWidget {
     final resolution = ref.watch(blockScopeResolutionProvider(season.id));
     switch (resolution) {
       case AsyncLoading():
-        return const BlockScopeLoadingScaffold(title: 'Costumes');
+        return BlockScopeLoadingScaffold(title: l10nOf(context).navCostumes);
       case AsyncError(:final error):
         return BlockScopeErrorScaffold(
-          title: 'Costumes',
+          title: l10nOf(context).navCostumes,
           code: blockScopeErrorCode(error),
           onRetry: () => ref.refresh(blocksListFetchProvider(season.id)),
         );
@@ -56,12 +57,12 @@ class CostumesScreen extends ConsumerWidget {
           final candidates = value.candidates;
           if (candidates != null) {
             return BlockScopePickerScaffold(
-              title: 'Costumes',
+              title: l10nOf(context).navCostumes,
               seasonId: season.id,
               candidates: candidates,
             );
           }
-          return const NoBlocksHintScaffold(title: 'Costumes');
+          return NoBlocksHintScaffold(title: l10nOf(context).navCostumes);
         }
     }
     final state = ref.watch(costumesControllerProvider(season.id));
@@ -70,19 +71,19 @@ class CostumesScreen extends ConsumerWidget {
     final notFound = state.notFound;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Costumes')),
+      appBar: AppBar(title: Text(l10nOf(context).navCostumes)),
       body: Column(
         children: [
           if (state.commandError case final failure?)
             _Banner(
               key: const Key('costume-command-error-banner'),
-              text: costumeCommandErrorCopy(failure),
+              text: costumeCommandErrorCopy(l10nOf(context), failure),
               onDismiss: controller.dismissCommandError,
             ),
           if (state.isStale && notFound == null)
-            const _Banner(
-              key: Key('costumes-stale-banner'),
-              text: 'Cached data may be outdated',
+            _Banner(
+              key: const Key('costumes-stale-banner'),
+              text: l10nOf(context).costumesStaleBanner,
             ),
           Expanded(
             child: notFound != null
@@ -149,7 +150,7 @@ class CostumesScreen extends ConsumerWidget {
           ? FloatingActionButton(
               key: const Key('costume-add-fab'),
               onPressed: () => _createAndOpenDetail(context, ref),
-              tooltip: 'Create costume',
+              tooltip: l10nOf(context).costumeAddFab,
               child: const Icon(Icons.add),
             )
           : null,
@@ -190,13 +191,13 @@ class _FetchErrorView extends StatelessWidget {
     physics: const AlwaysScrollableScrollPhysics(),
     children: [
       const SizedBox(height: 160),
-      Center(child: Text('Could not load costumes ($code).')),
+      Center(child: Text(l10nOf(context).costumesFetchError(code))),
       const SizedBox(height: 8),
       Center(
         child: FilledButton.tonal(
           key: const Key('costumes-retry'),
           onPressed: onRetry,
-          child: const Text('Retry'),
+          child: Text(l10nOf(context).commonRetry),
         ),
       ),
     ],
@@ -228,7 +229,7 @@ class _Banner extends StatelessWidget {
               IconButton(
                 onPressed: onDismiss,
                 color: scheme.onErrorContainer,
-                tooltip: 'Dismiss',
+                tooltip: l10nOf(context).episodesDismiss,
                 icon: const Icon(
                   Icons.close,
                   key: Key('costume-command-error-dismiss'),

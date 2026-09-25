@@ -29,6 +29,7 @@ import 'package:frontend_flutter/auth/active_block.dart';
 import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/auth/membership/membership_providers.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
+import 'package:frontend_flutter/l10n/generated/app_localizations_en.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/ai_import_providers.dart';
 import 'package:frontend_flutter/data/ai_import_repository.dart';
@@ -401,7 +402,10 @@ void main() {
             .read(aiImportSubmitControllerProvider.notifier)
             .submit(AiImportDocument.pasted('x'));
         expect(res.getLeft().toNullable()!.code, code, reason: code);
-        expect(aiUploadErrorCopy(res.getLeft().toNullable()!), isNotEmpty);
+        expect(
+          aiUploadErrorCopy(AppLocalizationsEn(), res.getLeft().toNullable()!),
+          isNotEmpty,
+        );
       }
     });
 
@@ -409,7 +413,10 @@ void main() {
       'upload copy is localized per code, never the server detail',
       () async {
         expect(
-          aiUploadErrorCopy(const ProblemError(code: 'http.payload-too-large')),
+          aiUploadErrorCopy(
+            AppLocalizationsEn(),
+            const ProblemError(code: 'http.payload-too-large'),
+          ),
           'The document is too large for AI import.',
         );
         // The server wire code and the client pre-gate deny code render the
@@ -417,29 +424,38 @@ void main() {
         // code, the backend emits the scoped AI wire code.
         expect(
           aiUploadErrorCopy(
+            AppLocalizationsEn(),
             const ProblemError(code: 'ai-import.unsupported-media-type'),
           ),
           'This file type is not supported for the selected kind.',
         );
         expect(
           aiUploadErrorCopy(
+            AppLocalizationsEn(),
             const ProblemError(code: 'ai_import.unsupported_media_type'),
           ),
           'This file type is not supported for the selected kind.',
         );
         expect(
-          aiUploadErrorCopy(const ProblemError(code: 'ai-import.disabled')),
+          aiUploadErrorCopy(
+            AppLocalizationsEn(),
+            const ProblemError(code: 'ai-import.disabled'),
+          ),
           'AI import is not enabled on this backend.',
         );
         expect(
           aiUploadErrorCopy(
+            AppLocalizationsEn(),
             const ProblemError(code: 'transport.connectionTimeout'),
           ),
           contains('Network problem'),
         );
         // Unknown codes fall back to a code-carrying generic.
         expect(
-          aiUploadErrorCopy(const ProblemError(code: 'weird.future_code')),
+          aiUploadErrorCopy(
+            AppLocalizationsEn(),
+            const ProblemError(code: 'weird.future_code'),
+          ),
           contains('weird.future_code'),
         );
       },
@@ -532,11 +548,17 @@ void main() {
     });
 
     test('status copy matrix (3.2): six statuses, honest copies', () {
-      expect(jobStatusCopy(JobStatus.pending), contains('Queued'));
+      expect(
+        jobStatusCopy(AppLocalizationsEn(), JobStatus.pending),
+        contains('Queued'),
+      );
       expect(jobStatusInProgress(JobStatus.pending), isTrue);
       expect(jobStatusInProgress(JobStatus.running), isTrue);
       expect(jobStatusInProgress(JobStatus.failed), isFalse);
-      expect(jobStatusCopy(JobStatus.failed), contains('retry is scheduled'));
+      expect(
+        jobStatusCopy(AppLocalizationsEn(), JobStatus.failed),
+        contains('retry is scheduled'),
+      );
       expect(jobStatusTerminalError(JobStatus.deadLetter), isTrue);
       expect(jobStatusTerminalError(JobStatus.payloadUnavailable), isTrue);
       expect(jobStatusTerminalError(JobStatus.succeeded), isFalse);
@@ -546,15 +568,22 @@ void main() {
         'backend wire code for a missing/oracle-hidden job), forbidden, '
         'exhaustion', () {
       expect(
-        jobWatchErrorCopy(const ProblemError(code: 'ai-import.not-found')),
+        jobWatchErrorCopy(
+          AppLocalizationsEn(),
+          const ProblemError(code: 'ai-import.not-found'),
+        ),
         'This job does not exist (or belongs to another account).',
       );
       expect(
-        jobWatchErrorCopy(const ProblemError(code: 'ai-import.forbidden')),
+        jobWatchErrorCopy(
+          AppLocalizationsEn(),
+          const ProblemError(code: 'ai-import.forbidden'),
+        ),
         contains('do not have access'),
       );
       expect(
         jobWatchErrorCopy(
+          AppLocalizationsEn(),
           const ProblemError(code: 'ai_import.watch_exhausted'),
         ),
         contains('Re-arm the watch'),
@@ -562,12 +591,16 @@ void main() {
       // Transport faults and unknown codes render the honest fallbacks.
       expect(
         jobWatchErrorCopy(
+          AppLocalizationsEn(),
           const ProblemError(code: 'transport.connectionError'),
         ),
         contains('Network problem'),
       );
       expect(
-        jobWatchErrorCopy(const ProblemError(code: 'weird.future_code')),
+        jobWatchErrorCopy(
+          AppLocalizationsEn(),
+          const ProblemError(code: 'weird.future_code'),
+        ),
         contains('weird.future_code'),
       );
     });

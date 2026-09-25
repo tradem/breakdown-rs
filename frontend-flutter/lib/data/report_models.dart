@@ -10,6 +10,7 @@ import 'package:fpdart/fpdart.dart';
 
 import '../core/problem_error.dart';
 import '../core/result.dart';
+import '../l10n/generated/app_localizations.dart';
 
 /// Server size budget for report PDFs (default 25 MB, spec B1/D3).
 ///
@@ -171,23 +172,19 @@ ProblemError strictParseError(Object e) {
 
 /// Localized client-side copy for report failures, keyed on the stable
 /// problem `code` (never the server's localized `detail`).
-String reportErrorCopy(ProblemError error) => switch (error.code) {
-  'report.unknown_status' =>
-    'The report has an unrecognized format — update the app to view it.',
-  'report.unknown_shape' =>
-    'The report could not be read (${error.code}). Try again.',
-  'pdf.too_large' => 'The PDF is too large to preview on this device.',
-  'authz.denied' ||
-  'auth.session_required' ||
-  'domain.forbidden' ||
-  'report.forbidden' => 'You do not have access to these reports.',
-  'membership.pending' => 'Checking report access…',
-  'membership.unavailable' =>
-    'Access check failed — retry to load the reports.',
-  'share.failed' => 'Sharing failed — the file was discarded. Try again.',
-  _ when error.code.startsWith('transport.') =>
-    'Network problem — the report was not loaded. Try again.',
-  _ when error.code.startsWith('http.') =>
-    'The report could not be loaded (${error.code}). Try again.',
-  _ => 'The report could not be loaded (${error.code}).',
-};
+String reportErrorCopy(AppLocalizations l10n, ProblemError error) =>
+    switch (error.code) {
+      'report.unknown_status' => l10n.reportErrorUnknownStatus,
+      'report.unknown_shape' => l10n.reportErrorUnknownShape(error.code),
+      'pdf.too_large' => l10n.reportErrorPdfTooLarge,
+      'authz.denied' ||
+      'auth.session_required' ||
+      'domain.forbidden' ||
+      'report.forbidden' => l10n.reportErrorForbidden,
+      'membership.pending' => l10n.reportErrorMembershipPending,
+      'membership.unavailable' => l10n.reportErrorMembershipUnavailable,
+      'share.failed' => l10n.reportErrorShareFailed,
+      _ when error.code.startsWith('transport.') => l10n.reportErrorNetwork,
+      _ when error.code.startsWith('http.') => l10n.reportErrorLoad(error.code),
+      _ => l10n.reportErrorLoad(error.code),
+    };

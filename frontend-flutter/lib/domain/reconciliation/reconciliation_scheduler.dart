@@ -12,10 +12,14 @@ part 'reconciliation_scheduler.g.dart';
 /// later attempts wait on [ReconciliationScheduler].
 const int kMaxReconcileAttempts = 4;
 
-/// Non-fatal warning retained with a stale overlay after retry exhaustion
-/// (D3). Client-side copy — screens never show server `detail` text.
-const String kReconcileStaleWarning =
-    'Created — the list is still catching up. Pull to refresh.';
+/// Non-fatal warning code retained with a stale overlay after retry
+/// exhaustion (D3).
+///
+/// This is a stable **code**, not user-facing copy: the domain layer must
+/// not carry translated strings, so the presentation layer maps it to the
+/// `reconcileStaleWarning` catalog entry (same convention as
+/// `ProblemError.code`). Screens never show server `detail` text either.
+const String kReconcileStaleWarningCode = 'reconcile.stale_retry_exhausted';
 
 /// Injectable backoff seam so reconciliation tests are deterministic
 /// (AGENTS.md §6: never gate a test on wall-clock / real `Future.delayed`).
