@@ -188,6 +188,9 @@ class _TileIdentityOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // The scrim remains dark in both color schemes, so its foreground must
+    // remain light in both as well.
+    const onScrim = Colors.white;
     return DecoratedBox(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -213,10 +216,8 @@ class _TileIdentityOverlay extends StatelessWidget {
                     key: Key('costume-name-$costumeId'),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: scheme.onInverseSurface,
-                      fontWeight: FontWeight.w700,
-                    ),
+                    style: Theme.of(context).textTheme.titleMedium
+                        ?.copyWith(color: onScrim, fontWeight: FontWeight.w700),
                   ),
                 ),
                 const SizedBox(width: 6),
@@ -224,7 +225,7 @@ class _TileIdentityOverlay extends StatelessWidget {
                   BreakdownMaterialIcons.forCostumeCategory(categoryName),
                   key: Key('costume-category-icon-$costumeId'),
                   size: 20,
-                  color: scheme.onInverseSurface,
+                  color: onScrim,
                 ),
               ],
             ),
@@ -234,7 +235,7 @@ class _TileIdentityOverlay extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.labelMedium
-                  ?.copyWith(color: scheme.onInverseSurface),
+                  ?.copyWith(color: onScrim),
             ),
             if (characterName != null)
               Text(
@@ -242,7 +243,7 @@ class _TileIdentityOverlay extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.labelSmall
-                    ?.copyWith(color: scheme.onInverseSurface),
+                    ?.copyWith(color: onScrim),
               ),
             if (text.isNotEmpty)
               Text(
@@ -261,7 +262,7 @@ class _TileIdentityOverlay extends StatelessWidget {
                       Icons.cloud_off,
                       key: const Key('overlay-warning'),
                       size: 16,
-                      color: scheme.onInverseSurface,
+                      color: onScrim,
                     )
                   else
                     const SizedBox(
@@ -279,7 +280,7 @@ class _TileIdentityOverlay extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.labelSmall
-                          ?.copyWith(color: scheme.onInverseSurface),
+                          ?.copyWith(color: onScrim),
                     ),
                   ),
                 ],

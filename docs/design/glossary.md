@@ -111,8 +111,7 @@ establishing change).
 | `edit_calendar_outlined` | **Planen** | Navigation shell destination 2 of 4 — hierarchy Season→Block→Episode→Scene | `nav.planen` |
 | `checkroom` | **Kleidung** | Navigation shell destination 3 of 4 — costume domains (Kostüme, Figuren) scoped to the active season; costume navigation source shared with costume category fallback | `nav.costumes` |
 | `add` (FAB) | **Kostüm erstellen** | Costumes FAB; selecting the action reveals the inline editor | `costumes.create` |
-| `style_outlined` | **Ohne Kategorie / Kategorie** | Costume tile placeholder fallback and deterministic unknown-category icon; category text stays visible | `categories.icon` |
-| `photo_library_outlined` | **Kein Foto** | Photo-less costume tile placeholder; a ready thumbnail replaces the surface | `costumes.placeholder` |
+| `style_outlined` | **Ohne Kategorie / Kategorie** | Costume tile uses the resolved category icon; unknown categories use this deterministic fallback; category text stays visible | `categories.icon` |
 | `subject` / detail text | **Bezeichnung / Beschreibung** | Costume identity overlay; first detail subject is the de-facto costume name, followed by notes fallback, never the UUID | `costumes.tile.name` |
 | — *(no icon)* | **Kostümdaten gespeichert** | Visible confirmation after a successful detail or notes save | `costumeDetail.saved` |
 | `—` *(no icon)* | **Foto löschen?** | Photo delete confirmation (costume detail / continuity strip) | `photos.delete` |

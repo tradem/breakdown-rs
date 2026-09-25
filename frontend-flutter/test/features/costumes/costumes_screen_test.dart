@@ -411,6 +411,11 @@ void main() {
       expect(result.isLeft(), isTrue);
       await _pumpFrames(tester);
       expect(
+        find.byKey(const Key('costume-command-error-banner')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('costume-detail-error')), findsNothing);
+      expect(
         find.text('Changed elsewhere — pull to refresh and try again.'),
         findsOneWidget,
       );

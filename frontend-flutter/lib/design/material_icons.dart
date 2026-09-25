@@ -8,7 +8,7 @@ import 'package:flutter/material.dart';
 ///
 /// Keeping these values in one source prevents a category tile from drifting
 /// away from the icon family used by the navigation shell. Category names
-/// are user-defined, so unknown names use the deterministic checkroom
+/// are user-defined, so unknown names use the deterministic style_outlined
 /// fallback until a server-owned icon key is available.
 abstract final class BreakdownMaterialIcons {
   static const shellHomeOutline = Icons.home_outlined;

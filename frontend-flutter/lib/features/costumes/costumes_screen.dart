@@ -3,6 +3,8 @@
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 
+import 'dart:async';
+
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -37,6 +39,7 @@ class CostumesScreen extends ConsumerStatefulWidget {
 
 class _CostumesScreenState extends ConsumerState<CostumesScreen> {
   String? _selectedId;
+  final _editorAdapterKey = GlobalKey();
   SeasonView get season => widget.season;
 
   @override
@@ -136,8 +139,7 @@ class _CostumesScreenState extends ConsumerState<CostumesScreen> {
                                   const SizedBox(height: 160),
                                   CostumesEmptyView(
                                     onCreate: _canCreate(ref)
-                                        ? () =>
-                                              _createAndShowEditor(context, ref)
+                                        ? () => _createAndShowEditor(ref)
                                         : null,
                                   ),
                                 ],
@@ -149,8 +151,8 @@ class _CostumesScreenState extends ConsumerState<CostumesScreen> {
                                 photoRepository: photoRepository,
                                 photoBytesLru: photoBytesLru,
                                 selectedId: _selectedId,
-                                onSelect: (id) =>
-                                    setState(() => _selectedId = id),
+                                editorAdapterKey: _editorAdapterKey,
+                                onSelect: _selectCostume,
                               ),
                     },
                   ),
@@ -160,7 +162,7 @@ class _CostumesScreenState extends ConsumerState<CostumesScreen> {
       floatingActionButton: _canCreate(ref)
           ? FloatingActionButton(
               key: const Key('costume-add-fab'),
-              onPressed: () => _createAndShowEditor(context, ref),
+              onPressed: () => _createAndShowEditor(ref),
               tooltip: l10nOf(context).costumeAddFab,
               child: const Icon(Icons.add),
             )
@@ -174,12 +176,28 @@ class _CostumesScreenState extends ConsumerState<CostumesScreen> {
   }
 
   /// Creates the empty shell and keeps the editor on the first screen.
-  Future<void> _createAndShowEditor(BuildContext context, WidgetRef ref) async {
+  Future<void> _createAndShowEditor(WidgetRef ref) async {
     final result = await ref
         .read(costumesControllerProvider(season.id).notifier)
         .create();
     final id = result.match((_) => null, (ack) => ack.id);
-    if (id != null && mounted) setState(() => _selectedId = id);
+    if (id != null && mounted) _selectCostume(id);
+  }
+
+  void _selectCostume(String id) {
+    setState(() => _selectedId = id);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final editorContext = _editorAdapterKey.currentContext;
+      if (editorContext == null) return;
+      unawaited(
+        Scrollable.ensureVisible(
+          editorContext,
+          alignment: 0,
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOut,
+        ),
+      );
+    });
   }
 }
 
@@ -191,6 +209,7 @@ class _CostumeOverview extends StatelessWidget {
     required this.photoRepository,
     required this.photoBytesLru,
     required this.selectedId,
+    required this.editorAdapterKey,
     required this.onSelect,
   });
 
@@ -200,6 +219,7 @@ class _CostumeOverview extends StatelessWidget {
   final PhotoRepository? photoRepository;
   final PhotoBytesLru photoBytesLru;
   final String? selectedId;
+  final GlobalKey editorAdapterKey;
   final ValueChanged<String> onSelect;
 
   @override
@@ -235,6 +255,7 @@ class _CostumeOverview extends StatelessWidget {
         ),
         if (selectedId != null)
           SliverToBoxAdapter(
+            key: editorAdapterKey,
             child: CostumeDetailPanel(
               key: Key('costume-editor-$selectedId'),
               season: season,

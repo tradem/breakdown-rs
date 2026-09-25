@@ -76,7 +76,13 @@ class CostumeDetailScreen extends ConsumerWidget {
           key: Key('costume-detail-$costumeId'),
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16),
-          children: [CostumeDetailPanel(season: season, costumeId: costumeId)],
+          children: [
+            CostumeDetailPanel(
+              season: season,
+              costumeId: costumeId,
+              showCommandError: true,
+            ),
+          ],
         ),
       ),
     );
@@ -92,10 +98,12 @@ class CostumeDetailPanel extends ConsumerWidget {
     super.key,
     required this.season,
     required this.costumeId,
+    this.showCommandError = false,
   });
 
   final SeasonView season;
   final String costumeId;
+  final bool showCommandError;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -125,11 +133,12 @@ class CostumeDetailPanel extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: 16),
-        if (state.commandError case final failure?)
-          _InlineError(
-            text: costumeCommandErrorCopy(l10nOf(context), failure),
-            onDismiss: controller.dismissCommandError,
-          ),
+        if (showCommandError)
+          if (state.commandError case final failure?)
+            _InlineError(
+              text: costumeCommandErrorCopy(l10nOf(context), failure),
+              onDismiss: controller.dismissCommandError,
+            ),
         _AssignmentSection(season: season, costume: costume),
         const Divider(height: 32),
         // Identity is primary; notes are deliberately secondary.
@@ -691,7 +700,7 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
                 ? () => _capture(ImageSource.camera)
                 : null,
           )
-        else
+        else if (widget.costume.photos.isEmpty)
           Text(
             l10nOf(context).photoGalleryEmpty,
             key: Key('photo-gallery-empty-${widget.costume.id}'),
