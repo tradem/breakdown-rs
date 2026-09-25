@@ -709,15 +709,18 @@ abstract class _$CostumesOverlays extends $Notifier<List<CostumeRowOverlay>> {
   }
 }
 
-/// Last command failure per season, surfaced to the screen keyed on `code`.
+/// Last command failure per season (with its originating surface so the
+/// banner copies correctly), surfaced to the screen keyed on `code`.
 
 @ProviderFor(CostumesCommandError)
 final costumesCommandErrorProvider = CostumesCommandErrorFamily._();
 
-/// Last command failure per season, surfaced to the screen keyed on `code`.
+/// Last command failure per season (with its originating surface so the
+/// banner copies correctly), surfaced to the screen keyed on `code`.
 final class CostumesCommandErrorProvider
-    extends $NotifierProvider<CostumesCommandError, ProblemError?> {
-  /// Last command failure per season, surfaced to the screen keyed on `code`.
+    extends $NotifierProvider<CostumesCommandError, CostumeCommandFailure?> {
+  /// Last command failure per season (with its originating surface so the
+  /// banner copies correctly), surfaced to the screen keyed on `code`.
   CostumesCommandErrorProvider._({
     required CostumesCommandErrorFamily super.from,
     required String super.argument,
@@ -744,10 +747,10 @@ final class CostumesCommandErrorProvider
   CostumesCommandError create() => CostumesCommandError();
 
   /// {@macro riverpod.override_with_value}
-  Override overrideWithValue(ProblemError? value) {
+  Override overrideWithValue(CostumeCommandFailure? value) {
     return $ProviderOverride(
       origin: this,
-      providerOverride: $SyncValueProvider<ProblemError?>(value),
+      providerOverride: $SyncValueProvider<CostumeCommandFailure?>(value),
     );
   }
 
@@ -763,17 +766,18 @@ final class CostumesCommandErrorProvider
 }
 
 String _$costumesCommandErrorHash() =>
-    r'c8a6c3bfc414bf8d7331d70fc222d2dc8a7a57c0';
+    r'79b692abfa43f3cccfb781bb4b18e85d19b21620';
 
-/// Last command failure per season, surfaced to the screen keyed on `code`.
+/// Last command failure per season (with its originating surface so the
+/// banner copies correctly), surfaced to the screen keyed on `code`.
 
 final class CostumesCommandErrorFamily extends $Family
     with
         $ClassFamilyOverride<
           CostumesCommandError,
-          ProblemError?,
-          ProblemError?,
-          ProblemError?,
+          CostumeCommandFailure?,
+          CostumeCommandFailure?,
+          CostumeCommandFailure?,
           String
         > {
   CostumesCommandErrorFamily._()
@@ -785,7 +789,8 @@ final class CostumesCommandErrorFamily extends $Family
         isAutoDispose: false,
       );
 
-  /// Last command failure per season, surfaced to the screen keyed on `code`.
+  /// Last command failure per season (with its originating surface so the
+  /// banner copies correctly), surfaced to the screen keyed on `code`.
 
   CostumesCommandErrorProvider call(String seasonId) =>
       CostumesCommandErrorProvider._(argument: seasonId, from: this);
@@ -794,22 +799,25 @@ final class CostumesCommandErrorFamily extends $Family
   String toString() => r'costumesCommandErrorProvider';
 }
 
-/// Last command failure per season, surfaced to the screen keyed on `code`.
+/// Last command failure per season (with its originating surface so the
+/// banner copies correctly), surfaced to the screen keyed on `code`.
 
-abstract class _$CostumesCommandError extends $Notifier<ProblemError?> {
+abstract class _$CostumesCommandError
+    extends $Notifier<CostumeCommandFailure?> {
   late final _$args = ref.$arg as String;
   String get seasonId => _$args;
 
-  ProblemError? build(String seasonId);
+  CostumeCommandFailure? build(String seasonId);
   @$mustCallSuper
   @override
   WhenComplete runBuild() {
-    final ref = this.ref as $Ref<ProblemError?, ProblemError?>;
+    final ref =
+        this.ref as $Ref<CostumeCommandFailure?, CostumeCommandFailure?>;
     final element =
         ref.element
             as $ClassProviderElement<
-              AnyNotifier<ProblemError?, ProblemError?>,
-              ProblemError?,
+              AnyNotifier<CostumeCommandFailure?, CostumeCommandFailure?>,
+              CostumeCommandFailure?,
               Object?,
               Object?
             >;
@@ -871,7 +879,7 @@ final class CostumesControllerProvider
 }
 
 String _$costumesControllerHash() =>
-    r'c2a73913c2898f39c6e691b1101d2007350c0cdf';
+    r'7f25a3892f358f7d63c565a0e67332f75bf3004d';
 
 /// `CostumesController(seasonId)` on the shared reconciliation runner.
 

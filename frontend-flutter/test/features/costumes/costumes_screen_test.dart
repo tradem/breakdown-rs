@@ -33,6 +33,7 @@ import 'package:frontend_flutter/features/blocks/blocks_controller.dart';
 import 'package:frontend_flutter/features/characters/characters_controller.dart';
 import 'package:frontend_flutter/features/costumes/costumes_controller.dart';
 import 'package:frontend_flutter/features/costumes/costumes_screen.dart';
+import 'package:frontend_flutter/features/costumes/costumes_state.dart';
 
 import '../seasons/seasons_test_fakes.dart';
 
@@ -666,12 +667,15 @@ void main() {
           .read(costumesControllerProvider('season-1'))
           .commandError;
       expect(error, isNotNull);
-      expect(error!.code, 'domain.validation');
-      expect(error.code, isNot(startsWith('transport.')));
+      // Costume-surface write failure: the copy routes through the costume
+      // copy on the underlying ProblemError.
+      expect(error!.surface, CostumeCommandSurface.costume);
+      expect(error.error.code, 'domain.validation');
+      expect(error.error.code, isNot(startsWith('transport.')));
       // The localized copy is keyed on the wire code, not a generic network
       // narrative.
-      expect(costumeErrorCopy(error), contains('domain.validation'));
-      expect(costumeErrorCopy(error), isNot(contains('Network problem')));
+      expect(costumeErrorCopy(error.error), contains('domain.validation'));
+      expect(costumeErrorCopy(error.error), isNot(contains('Network problem')));
     });
 
     testWidgets('list resolves assigned names via characters join', (

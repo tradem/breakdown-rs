@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
@@ -72,10 +73,10 @@ class CostumesScreen extends ConsumerWidget {
       appBar: AppBar(title: const Text('Costumes')),
       body: Column(
         children: [
-          if (state.commandError case final error?)
+          if (state.commandError case final failure?)
             _Banner(
               key: const Key('costume-command-error-banner'),
-              text: costumeErrorCopy(error),
+              text: costumeCommandErrorCopy(failure),
               onDismiss: controller.dismissCommandError,
             ),
           if (state.isStale && notFound == null)

@@ -23,6 +23,7 @@ import '../../data/costume_repository.dart';
 import '../../data/photo_repository.dart';
 import '../../domain/reconciliation/reconcile_coordinator.dart';
 import '../characters/characters_controller.dart';
+import '../photos/widgets/photo_gallery.dart';
 import '../../domain/reconciliation/reconciliation_scheduler.dart';
 import 'costumes_state.dart';
 
@@ -197,16 +198,23 @@ class CostumesOverlays extends _$CostumesOverlays {
   ];
 }
 
-/// Last command failure per season, surfaced to the screen keyed on `code`.
+/// Last command failure per season (with its originating surface so the
+/// banner copies correctly), surfaced to the screen keyed on `code`.
 @Riverpod(keepAlive: true)
 class CostumesCommandError extends _$CostumesCommandError {
   @override
-  ProblemError? build(String seasonId) => null;
+  CostumeCommandFailure? build(String seasonId) => null;
 
-  void set(ProblemError error) => state = error;
+  void set(CostumeCommandFailure failure) => state = failure;
 
   void clear() => state = null;
 }
+
+/// Tri-state result of the controller's character-binding resolution
+/// (CodeRabbit #4101353477): distinguishes a CONFIRMED unassigned costume
+/// from one whose row is unknown locally, so the assignment gate only
+/// pre-denies what it knows for sure.
+enum CostumeBinding { assigned, unassigned, unknown }
 
 /// Localized client-side copy for costume command failures, keyed on the
 /// stable problem `code` (never the server's localized `detail`).
@@ -228,6 +236,21 @@ String costumeErrorCopy(ProblemError error) => switch (error.code) {
     'Network problem — the change was not saved. Try again.',
   _ => 'The costume could not be saved (${error.code}).',
 };
+
+/// Copy for the shared season-scoped command-error banner (list + detail
+/// screens), routed by the command ORIGIN.
+///
+/// Photo commands (upload/delete) share this provider with costume writes;
+/// their failures render through [photoErrorCopy] while costume writes use
+/// [costumeErrorCopy]. Routing by origin — never by the `photo.*` code
+/// prefix (CodeRabbit #4101353471): a photo command can fail with the
+/// generic `domain.validation` (a concurrent unassign races the local gate,
+/// issue #513) and must still render the photo copy, not the "costume could
+/// not be saved" fallback.
+String costumeCommandErrorCopy(CostumeCommandFailure failure) =>
+    failure.surface == CostumeCommandSurface.photo
+    ? photoErrorCopy(failure.error)
+    : costumeErrorCopy(failure.error);
 
 /// `CostumesController(seasonId)` on the shared reconciliation runner.
 @Riverpod(keepAlive: true)
@@ -318,14 +341,66 @@ class CostumesController extends _$CostumesController {
     return gate;
   }
 
-  GateDecision? _deny(GateDecision gate) {
+  /// Freshest known `character_id` binding for [costumeId], returned as a
+  /// tri-state (CodeRabbit #4101353477): a row ABSENT from the local state
+  /// is [CostumeBinding.unknown] — NOT confirmed-unassigned. The fence-held
+  /// overlay (this client's latest ack) is read first, then the reconciled
+  /// projection row (mirror of the detail screen's `_resolveCostume`
+  /// precedence).
+  CostumeBinding _resolveCharacterBinding(String costumeId) {
+    for (final o in ref.read(costumesOverlaysProvider(seasonId))) {
+      if (o.id == costumeId) {
+        return o.overlay.characterId == null
+            ? CostumeBinding.unassigned
+            : CostumeBinding.assigned;
+      }
+    }
+    for (final row in ref.read(costumesViewProvider(seasonId)).rows) {
+      if (row.id == costumeId) {
+        return row.characterId == null
+            ? CostumeBinding.unassigned
+            : CostumeBinding.assigned;
+      }
+    }
+    return CostumeBinding.unknown;
+  }
+
+  /// Client-side AUTHZ-GATE mirror for the backend's character-derived photo
+  /// season (issue #513): photo commands (upload/delete) require the costume
+  /// to be assigned to a character — the backend resolves the photo season
+  /// through `costume.character_id → character.season_id` and 422s
+  /// `domain.validation` on an unassigned costume. A denial surfaces the
+  /// localized, actionable narrative ([photo.requires_character]) and NEVER
+  /// issues the request (provable by a fake repository call count of zero).
+  ///
+  /// Only a CONFIRMED unassigned binding is denied client-side. An
+  /// [CostumeBinding.unknown] row (missing locally — e.g. a costume assigned
+  /// by another client before this one cached it) falls through and lets the
+  /// authoritative server decide; a photo-command `domain.validation` from
+  /// that fall-through still renders the photo copy via the command origin.
+  bool _denyUnassignedPhotoCommand(String costumeId) {
+    if (_resolveCharacterBinding(costumeId) != CostumeBinding.unassigned) {
+      return false;
+    }
+    _setCommandError(
+      CostumeCommandSurface.photo,
+      const ProblemError(code: 'photo.requires_character', status: 403),
+    );
+    return true;
+  }
+
+  GateDecision? _deny(CostumeCommandSurface surface, GateDecision gate) {
     if (gate is GateDeny) {
-      final error = ProblemError(code: gate.code, status: 403);
-      ref.read(costumesCommandErrorProvider(seasonId).notifier).set(error);
+      _setCommandError(surface, ProblemError(code: gate.code, status: 403));
       return gate;
     }
     return null;
   }
+
+  void _setCommandError(CostumeCommandSurface surface, ProblemError error) =>
+      ref
+          .read(costumesCommandErrorProvider(seasonId).notifier)
+          .set(CostumeCommandFailure(surface, error));
 
   /// Resolves the freshest version for [costumeId] at command time (issue
   /// #473). A write must echo the version the server aggregate currently
@@ -367,7 +442,7 @@ class CostumesController extends _$CostumesController {
     // AUTHZ-GATE: authenticated session required before any network call.
     if (await _resolveSession() == null) {
       const error = ProblemError(code: 'auth.session_required', status: 403);
-      ref.read(costumesCommandErrorProvider(seasonId).notifier).set(error);
+      _setCommandError(CostumeCommandSurface.costume, error);
       return const Left(error);
     }
     final repo = ref.read(costumeRepositoryProvider);
@@ -376,7 +451,7 @@ class CostumesController extends _$CostumesController {
     final ack = await repo.create(seasonId);
     return ack.match(
       (err) {
-        ref.read(costumesCommandErrorProvider(seasonId).notifier).set(err);
+        _setCommandError(CostumeCommandSurface.costume, err);
         return Left<ProblemError, IdVersionResponse>(err);
       },
       (res) {
@@ -438,7 +513,7 @@ class CostumesController extends _$CostumesController {
     }
     // AUTHZ-GATE: capability check before any network call.
     final gate = await _assignGate();
-    if (_deny(gate) != null) {
+    if (_deny(CostumeCommandSurface.costume, gate) != null) {
       return Left(ProblemError(code: (gate as GateDeny).code, status: 403));
     }
     final repo = ref.read(costumeRepositoryProvider);
@@ -458,7 +533,7 @@ class CostumesController extends _$CostumesController {
     );
     return res.match(
       (err) {
-        ref.read(costumesCommandErrorProvider(seasonId).notifier).set(err);
+        _setCommandError(CostumeCommandSurface.costume, err);
         return Left<ProblemError, int>(err);
       },
       (version) => _recordAssignmentOverlay(
@@ -496,7 +571,7 @@ class CostumesController extends _$CostumesController {
     );
     return unResult.match(
       (err) {
-        ref.read(costumesCommandErrorProvider(seasonId).notifier).set(err);
+        _setCommandError(CostumeCommandSurface.costume, err);
         return Left<ProblemError, int>(err);
       },
       (unVersion) async {
@@ -524,7 +599,7 @@ class CostumesController extends _$CostumesController {
         );
         return assignResult.match(
           (err) {
-            ref.read(costumesCommandErrorProvider(seasonId).notifier).set(err);
+            _setCommandError(CostumeCommandSurface.costume, err);
             // The unassign leg already succeeded and recorded an
             // acknowledged unassigned overlay, but the assign leg failed;
             // the costume is genuinely UNASSIGNED server-side. Reconcile now
@@ -580,7 +655,7 @@ class CostumesController extends _$CostumesController {
   Future<Result<int>> unassign({required CostumeView costume}) async {
     // AUTHZ-GATE: capability check before any network call.
     final gate = await _assignGate();
-    if (_deny(gate) != null) {
+    if (_deny(CostumeCommandSurface.costume, gate) != null) {
       return Left(ProblemError(code: (gate as GateDeny).code, status: 403));
     }
     final repo = ref.read(costumeRepositoryProvider);
@@ -592,7 +667,7 @@ class CostumesController extends _$CostumesController {
     );
     return res.match(
       (err) {
-        ref.read(costumesCommandErrorProvider(seasonId).notifier).set(err);
+        _setCommandError(CostumeCommandSurface.costume, err);
         return Left<ProblemError, int>(err);
       },
       (version) {
@@ -625,7 +700,7 @@ class CostumesController extends _$CostumesController {
   }) async {
     if (await _resolveSession() == null) {
       const error = ProblemError(code: 'auth.session_required', status: 403);
-      ref.read(costumesCommandErrorProvider(seasonId).notifier).set(error);
+      _setCommandError(CostumeCommandSurface.costume, error);
       return const Left(error);
     }
     final repo = ref.read(costumeRepositoryProvider);
@@ -647,7 +722,7 @@ class CostumesController extends _$CostumesController {
     );
     return res.match(
       (err) {
-        ref.read(costumesCommandErrorProvider(seasonId).notifier).set(err);
+        _setCommandError(CostumeCommandSurface.costume, err);
         return Left<ProblemError, int>(err);
       },
       (version) {
@@ -687,7 +762,7 @@ class CostumesController extends _$CostumesController {
   }) async {
     if (await _resolveSession() == null) {
       const error = ProblemError(code: 'auth.session_required', status: 403);
-      ref.read(costumesCommandErrorProvider(seasonId).notifier).set(error);
+      _setCommandError(CostumeCommandSurface.costume, error);
       return const Left(error);
     }
     final repo = ref.read(costumeRepositoryProvider);
@@ -701,7 +776,7 @@ class CostumesController extends _$CostumesController {
     );
     return res.match(
       (err) {
-        ref.read(costumesCommandErrorProvider(seasonId).notifier).set(err);
+        _setCommandError(CostumeCommandSurface.costume, err);
         return Left<ProblemError, int>(err);
       },
       (version) {
@@ -736,16 +811,26 @@ class CostumesController extends _$CostumesController {
     required Uint8ListBytes bytes,
     required String contentType,
   }) async {
+    // Assignment precondition (issue #513 / CodeRabbit #4101353483): the
+    // backend resolves the photo season through the costume's character, so
+    // a CONFIRMED unassigned costume cannot upload (422 `domain.validation`).
+    // Checked BEFORE the membership fetch — it is pure local state, so the
+    // client refuses with zero network calls (not even a membership request).
+    if (_denyUnassignedPhotoCommand(costumeId)) {
+      return const Left(
+        ProblemError(code: 'photo.requires_character', status: 403),
+      );
+    }
     // AUTHZ-GATE: photo capability checked before any network call.
     final gate = await _photoGate();
-    if (_deny(gate) != null) {
+    if (_deny(CostumeCommandSurface.photo, gate) != null) {
       return Left(ProblemError(code: (gate as GateDeny).code, status: 403));
     }
     final repo = ref.read(costumePhotoRepositoryProvider);
     final res = await repo.upload(costumeId, bytes.bytes, contentType);
     return res.match(
       (err) {
-        ref.read(costumesCommandErrorProvider(seasonId).notifier).set(err);
+        _setCommandError(CostumeCommandSurface.photo, err);
         return Left<ProblemError, PhotoView>(err);
       },
       (view) {
@@ -764,16 +849,25 @@ class CostumesController extends _$CostumesController {
     required String costumeId,
     required String photoId,
   }) async {
+    // Assignment precondition (issue #513 / CodeRabbit #4101353483): the
+    // same character-derived season seam as upload — a CONFIRMED unassigned
+    // costume cannot delete either (backend 422 `domain.validation`). Checked
+    // BEFORE the membership fetch (pure local state — zero network calls).
+    if (_denyUnassignedPhotoCommand(costumeId)) {
+      return const Left(
+        ProblemError(code: 'photo.requires_character', status: 403),
+      );
+    }
     // AUTHZ-GATE: photo capability checked before any network call.
     final gate = await _photoGate();
-    if (_deny(gate) != null) {
+    if (_deny(CostumeCommandSurface.photo, gate) != null) {
       return Left(ProblemError(code: (gate as GateDeny).code, status: 403));
     }
     final repo = ref.read(costumePhotoRepositoryProvider);
     final res = await repo.delete(costumeId, photoId);
     return res.match(
       (err) {
-        ref.read(costumesCommandErrorProvider(seasonId).notifier).set(err);
+        _setCommandError(CostumeCommandSurface.photo, err);
         return Left<ProblemError, void>(err);
       },
       (_) {
