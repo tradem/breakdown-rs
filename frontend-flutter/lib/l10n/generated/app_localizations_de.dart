@@ -861,7 +861,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get aiImportScheduleHint =>
-      'Drehpläne: Füge den CSV-/Board-Text ein oder wähle eine CSV- oder PDF-Datei.';
+      'Drehpläne: Wähle eine CSV- oder PDF-Datei.';
 
   @override
   String get aiImportScriptHint => 'Skripte: Wähle eine PDF-Datei.';
@@ -882,8 +882,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get aiImportNoFile => 'Keine Datei gewählt';
 
   @override
-  String get aiImportDocMissing =>
-      'Füge zuerst den Drehplan ein oder wähle eine Datei.';
+  String get aiImportDocMissing => 'Wähle zuerst eine Datei.';
 
   @override
   String aiImportStampWarning(Object code) {

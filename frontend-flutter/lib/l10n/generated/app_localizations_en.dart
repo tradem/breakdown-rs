@@ -845,8 +845,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get aiImportScript => 'Script';
 
   @override
-  String get aiImportScheduleHint =>
-      'Schedules: paste the CSV/board text, or pick a CSV or PDF file.';
+  String get aiImportScheduleHint => 'Schedules: pick a CSV or PDF file.';
 
   @override
   String get aiImportScriptHint => 'Scripts: pick a PDF file.';
@@ -867,7 +866,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get aiImportNoFile => 'No file picked';
 
   @override
-  String get aiImportDocMissing => 'Paste the schedule or pick a file first.';
+  String get aiImportDocMissing => 'Pick a file first.';
 
   @override
   String aiImportStampWarning(Object code) {

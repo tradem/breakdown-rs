@@ -7,6 +7,7 @@
 # Co-authored-by: omen-alpha (opencode-go)
 # Co-authored-by: glm-5.3-flash (neuralwatt)
 # Co-authored-by: deepseek-v4-flash (neuralwatt)
+# Co-authored-by: space-bunny-free (opencode-go)
 
 
 name: frontend_flutter
@@ -27,7 +28,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 0.3.0-alpha.21+31
+version: 0.3.0-alpha.21+32
 
 environment:
   sdk: ^3.13.1
@@ -96,6 +97,12 @@ dependencies:
   share_plus: ^13.3.0
   path_provider: ^2.1.6
   file_picker: ^13.1.0
+  # Editable XML prompt editor with token-aware syntax highlighting (issue
+  # #520). Token colors are supplied from Material 3 color-scheme roles.
+  flutter_code_editor: ^0.3.5
+  # XML grammar consumed by the prompt editor. Declared directly because the
+  # feature imports `package:highlight/languages/xml.dart` itself.
+  highlight: ^0.7.0
   # Flutter-free annotations for the dev-auth membership override seam
   # (issue #368 — lib/auth/membership/debug_membership_override.dart): that
   # file is compiled into the gherkin runner HOST process (headless dart, no

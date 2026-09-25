@@ -2,12 +2,14 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/problem_error.dart';
+import '../../../design/components/xml_prompt_editor.dart';
 import '../../../design/spacing.dart';
 import '../../../l10n/app_localizations_provider.dart';
 import 'ai_config_controller.dart';
@@ -318,6 +320,14 @@ class _ModelPickers extends ConsumerWidget {
               border: const OutlineInputBorder(),
             ),
             items: [
+              if (state.selectedAssistantModelId != null &&
+                  !value.any(
+                    (model) => model.id == state.selectedAssistantModelId,
+                  ))
+                DropdownMenuItem<String>(
+                  value: state.selectedAssistantModelId,
+                  child: Text(state.selectedAssistantModelId!),
+                ),
               for (final model in value)
                 DropdownMenuItem<String>(
                   value: model.id,
@@ -341,6 +351,12 @@ class _ModelPickers extends ConsumerWidget {
                 value: null,
                 child: Text(l10nOf(context).aiConfigNoModel),
               ),
+              if (state.selectedImageModelId != null &&
+                  !value.any((model) => model.id == state.selectedImageModelId))
+                DropdownMenuItem<String?>(
+                  value: state.selectedImageModelId,
+                  child: Text(state.selectedImageModelId!),
+                ),
               for (final model in value)
                 DropdownMenuItem<String?>(
                   value: model.id,
@@ -368,82 +384,33 @@ class _ModelPickers extends ConsumerWidget {
 }
 
 /// Per-document-kind prompt drafts (script/schedule), backed by the
-/// controller's draft store.
-class _PromptFields extends ConsumerStatefulWidget {
+/// controller's draft store. The editor source text is the same value sent
+/// to create/update — syntax spans are presentation-only.
+class _PromptFields extends ConsumerWidget {
   const _PromptFields({required this.scriptKey, required this.scheduleKey});
 
   final String scriptKey;
   final String scheduleKey;
 
   @override
-  ConsumerState<_PromptFields> createState() => _PromptFieldsState();
-}
-
-class _PromptFieldsState extends ConsumerState<_PromptFields> {
-  TextEditingController? _script;
-  TextEditingController? _schedule;
-  String? _seededScript;
-  String? _seededSchedule;
-
-  @override
-  void dispose() {
-    _script?.dispose();
-    _schedule?.dispose();
-    super.dispose();
-  }
-
-  /// (Re)creates the controllers when the seeded drafts change EXTERNALLY
-  /// (the configured form pre-fills from the fetched view; the first-run
-  /// form starts empty). A rebuild driven by the user's own keystrokes
-  /// MUST keep the controllers: recreating mid-composition resets the
-  /// caret and breaks IME input. Reseed only when the state value differs
-  /// from BOTH the seed marker and the controller's current text (an
-  /// external change the user did not type).
-  void _sync(AiConfigScreenState state) {
-    if (_script == null ||
-        (_seededScript != state.scriptPrompt &&
-            _script!.text != state.scriptPrompt)) {
-      _script?.dispose();
-      _script = TextEditingController(text: state.scriptPrompt);
-      _seededScript = state.scriptPrompt;
-    }
-    if (_schedule == null ||
-        (_seededSchedule != state.schedulePrompt &&
-            _schedule!.text != state.schedulePrompt)) {
-      _schedule?.dispose();
-      _schedule = TextEditingController(text: state.schedulePrompt);
-      _seededSchedule = state.schedulePrompt;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(aiConfigControllerProvider);
-    _sync(state);
     final controller = ref.read(aiConfigControllerProvider.notifier);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        TextField(
-          key: Key(widget.scriptKey),
-          controller: _script,
+        XmlPromptEditor(
+          key: Key(scriptKey),
+          text: state.scriptPrompt,
+          label: l10nOf(context).aiConfigScriptPromptLabel,
           onChanged: controller.setScriptPrompt,
-          decoration: InputDecoration(
-            labelText: l10nOf(context).aiConfigScriptPromptLabel,
-            border: const OutlineInputBorder(),
-          ),
-          maxLines: 2,
         ),
-        const SizedBox(height: 12),
-        TextField(
-          key: Key(widget.scheduleKey),
-          controller: _schedule,
+        const SizedBox(height: AppSpacing.space12),
+        XmlPromptEditor(
+          key: Key(scheduleKey),
+          text: state.schedulePrompt,
+          label: l10nOf(context).aiConfigSchedulePromptLabel,
           onChanged: controller.setSchedulePrompt,
-          decoration: InputDecoration(
-            labelText: l10nOf(context).aiConfigSchedulePromptLabel,
-            border: const OutlineInputBorder(),
-          ),
-          maxLines: 2,
         ),
       ],
     );
@@ -452,8 +419,8 @@ class _PromptFieldsState extends ConsumerState<_PromptFields> {
 
 // --- Configured form ---------------------------------------------------------
 
-/// The configured state: summary, prompt edit (version echo carried by
-/// the controller), and revoke-with-confirm.
+/// The configured state: summary, provider/model editing, prompt edit
+/// (version echo carried by the controller), and revoke-with-confirm.
 class _ConfiguredForm extends ConsumerStatefulWidget {
   const _ConfiguredForm({required this.state});
 
@@ -489,7 +456,6 @@ class _ConfiguredFormState extends ConsumerState<_ConfiguredForm> {
       ),
     );
     if (confirmed != true) return;
-    if (confirmed != true) return;
     setState(() => _busy = true);
     try {
       final revoked = await ref
@@ -505,7 +471,8 @@ class _ConfiguredFormState extends ConsumerState<_ConfiguredForm> {
 
   @override
   Widget build(BuildContext context) {
-    final config = ref.watch(aiConfigControllerProvider).config!;
+    final state = ref.watch(aiConfigControllerProvider);
+    final config = state.config!;
     return Column(
       key: const Key('ai-config-configured'),
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -524,15 +491,19 @@ class _ConfiguredFormState extends ConsumerState<_ConfiguredForm> {
             '${config.imageModel == null ? '' : l10nOf(context).aiConfigImageSuffix(config.imageModel!)}',
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: AppSpacing.space8),
+        const _ProviderPicker(),
+        const SizedBox(height: AppSpacing.space12),
+        const _ModelPickers(),
+        const SizedBox(height: AppSpacing.space8),
         const _PromptFields(
           scriptKey: 'ai-edit-script-prompt',
           scheduleKey: 'ai-edit-schedule-prompt',
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: AppSpacing.space12),
         FilledButton(
           key: const Key('ai-config-edit-save'),
-          onPressed: _busy
+          onPressed: _busy || state.selectedAssistantModelId == null
               ? null
               : () async {
                   setState(() => _busy = true);
@@ -542,6 +513,7 @@ class _ConfiguredFormState extends ConsumerState<_ConfiguredForm> {
                     );
                     final state = ref.read(aiConfigControllerProvider);
                     final edited = await controller.edit(
+                      providerKey: state.selectedProviderKey,
                       assistantModelId: state.selectedAssistantModelId,
                       imageModelId: state.selectedImageModelId,
                       scriptPrompt: state.scriptPrompt,

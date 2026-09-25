@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
 
 import 'dart:async';
 
@@ -246,38 +247,31 @@ class AiConfigController extends _$AiConfigController {
       _ => const AsyncValue<AiImportDefaults>.loading(),
     };
 
-    // First-run prompt prefill: the single-source defaults from
-    // `GET /v1/ai-import/defaults` (editable — once the user touches a
-    // prompt field, THAT field's draft wins and its seed is dropped; the
-    // other field keeps its prefill until touched too, CodeRabbit review
-    // PR #489). A failed defaults fetch degrades to empty fields, never a
-    // blocking state.
-    final firstRunScriptDefault = firstRunResolved
-        ? switch (promptDefaults) {
-            AsyncData(:final value) => value.match(
-              (_) => null,
-              (dto) => dto.script,
-            ),
-            _ => null,
-          }
-        : null;
-    final firstRunScheduleDefault = firstRunResolved
-        ? switch (promptDefaults) {
-            AsyncData(:final value) => value.match(
-              (_) => null,
-              (dto) => dto.schedule,
-            ),
-            _ => null,
-          }
-        : null;
+    // Prompt defaults from `GET /v1/ai-import/defaults` are the fallback
+    // for both first-run and configured forms (issue #520). A failed fetch
+    // degrades to empty fields, never a blocking state. Non-empty stored
+    // prompts still win; an empty stored prompt falls through to the
+    // deployment default. The field remains editable and its touched flag
+    // makes the user's exact text (including a deliberate clear) authoritative.
+    final scriptDefault = switch (promptDefaults) {
+      AsyncData(:final value) => value.match((_) => null, (dto) => dto.script),
+      _ => null,
+    };
+    final scheduleDefault = switch (promptDefaults) {
+      AsyncData(:final value) => value.match(
+        (_) => null,
+        (dto) => dto.schedule,
+      ),
+      _ => null,
+    };
 
-    // Prompt drafts (edit path, issue #490): the configured form must
-    // render the STORED prompt texts, not start empty — otherwise an
-    // untouched save would echo an empty `prompts` map and silently clear
-    // them (the update command replaces the map wholesale). Center the
-    // seed on the fetched view (`config.prompts`), which has precedence
-    // over the first-run defaults. A user edit (touched flag) keeps its
-    // draft; the first-run path (config == null) is unaffected.
+    String promptSeed(String kind, String? defaultValue) {
+      final stored = config?.prompts[kind];
+      return stored != null && stored.isNotEmpty
+          ? stored
+          : (defaultValue ?? '');
+    }
+
     return AiConfigScreenState(
       config: config,
       discoveryError: discoveryError,
@@ -294,10 +288,10 @@ class AiConfigController extends _$AiConfigController {
           : (config?.imageModel ?? drafts.selectedImageModelId),
       scriptPrompt: drafts.scriptPromptTouched
           ? drafts.scriptPrompt
-          : (config?.prompts['script'] ?? firstRunScriptDefault ?? ''),
+          : promptSeed('script', scriptDefault),
       schedulePrompt: drafts.schedulePromptTouched
           ? drafts.schedulePrompt
-          : (config?.prompts['schedule'] ?? firstRunScheduleDefault ?? ''),
+          : promptSeed('schedule', scheduleDefault),
       unresolved: drafts.unresolved,
     );
   }
@@ -308,6 +302,9 @@ class AiConfigController extends _$AiConfigController {
       d.selectedProviderKey = key;
       d.selectedAssistantModelId = null;
       d.selectedImageModelId = null;
+      // The old provider's image model is invalid for the new catalog. Mark
+      // the clear as intentional so build() does not restore it from config.
+      d.imageModelTouched = true;
     });
     state = state.copyWith(clearCommandError: true);
   }
@@ -606,6 +603,7 @@ class AiConfigController extends _$AiConfigController {
   /// `AiConfigView`; a 409 renders "changed elsewhere — refresh" with NO
   /// automatic version-bump re-dispatch (spec `flutter-ai-config`).
   Future<Result<int>> edit({
+    required String? providerKey,
     required String? assistantModelId,
     required String? imageModelId,
     required String scriptPrompt,
@@ -615,13 +613,19 @@ class AiConfigController extends _$AiConfigController {
     if (config == null) {
       return const Left(ProblemError(code: 'ai_config.not-found'));
     }
+    final provider = _resolveProvider(providerKey);
+    if (provider == null || assistantModelId == null) {
+      const error = ProblemError(code: 'ai_config.incomplete_selection');
+      state = state.copyWith(commandError: error);
+      return const Left(error);
+    }
     final repo = ref.read(aiConfigRepositoryProvider);
     final res = await repo.updateConfig(
       config.id,
       UpdateAiConfigRequest(
         (b) => b
-          ..provider = config.provider
-          ..assistantModel = assistantModelId ?? config.assistantModel
+          ..provider = provider
+          ..assistantModel = assistantModelId
           ..vaultKeyId = config.vaultKeyId
           ..version = config.version
           ..imageModel = imageModelId

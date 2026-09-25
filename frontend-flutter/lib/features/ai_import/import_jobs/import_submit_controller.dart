@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -33,18 +34,16 @@ part 'import_submit_controller.g.dart';
 @Riverpod(keepAlive: false)
 class AiImportSubmitController extends _$AiImportSubmitController {
   @override
-  AiImportKind build() => AiImportKind.schedule;
+  AiImportKind build() => AiImportKind.script;
 
-  /// Switches the document kind (schedule CSV/PDF/plain, script PDF).
-  /// The pending body is KIND-SPECIFIC: a carried-over paste/CSV would
-  /// be uploaded with the wrong declared content type (e.g. plain text
-  /// declared as `application/pdf`), so the switch clears both pending
-  /// sources — the user re-provides the document for the new kind.
+  /// Switches the document kind (schedule CSV/PDF, script PDF).
+  /// The pending file is KIND-SPECIFIC: a carried-over CSV would be
+  /// uploaded on the script route with the wrong declared content type, so
+  /// the switch clears it — the user re-provides the file for the new kind.
   void selectKind(AiImportKind kind) {
     if (state == kind) return;
     state = kind;
     ref.read(pendingDocumentProvider.notifier).set(null);
-    ref.read(pendingPasteProvider.notifier).clear();
   }
 
   /// The submit dispatch. Returns the acknowledgement on success (the
@@ -202,23 +201,6 @@ class AiImportSubmitController extends _$AiImportSubmitController {
     }
   }
 }
-
-/// The submit-time paste text (transient controller state, cleared after
-/// dispatch; it is a document body, not a secret). Lives HERE (the
-/// controller layer) so [selectKind] can clear it — the screen only
-/// binds to it.
-class PendingPaste extends Notifier<String> {
-  @override
-  String build() => '';
-
-  void set(String text) => state = text;
-
-  void clear() => state = '';
-}
-
-final pendingPasteProvider = NotifierProvider<PendingPaste, String>(
-  PendingPaste.new,
-);
 
 /// The pending document (picked file). Cleared after every dispatch —
 /// by [selectKind] (a kind switch invalidates the body) and by the
