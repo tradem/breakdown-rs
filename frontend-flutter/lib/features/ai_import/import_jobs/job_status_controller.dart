@@ -14,6 +14,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../../../core/problem_error.dart';
 import '../../../core/result.dart';
 import '../../../data/ai_import_providers.dart';
+import '../../../l10n/generated/app_localizations.dart';
 
 part 'job_status_controller.g.dart';
 
@@ -115,14 +116,11 @@ class AiJobContext {
 /// (CodeRabbit #480). The not-found arm keys on `ai-import.not-found`, the
 /// scoped wire code the backend emits for a missing/oracle-hidden job (issue
 /// #481) — the client never fabricates a job not-found code of its own.
-String jobWatchErrorCopy(ProblemError error) => switch (error.code) {
-  'ai-import.forbidden' => 'You do not have access to this AI import job.',
-  'ai_import.watch_exhausted' =>
-    'Still no update from the backend — the job keeps processing. '
-        'Re-arm the watch or come back later.',
-  'ai-import.not-found' =>
-    'This job does not exist (or belongs to another account).',
-  _ when error.code.startsWith('transport.') =>
-    'Network problem — the status could not be refreshed.',
-  _ => 'The status could not be refreshed (${error.code}).',
-};
+String jobWatchErrorCopy(AppLocalizations l10n, ProblemError error) =>
+    switch (error.code) {
+      'ai-import.forbidden' => l10n.jobWatchForbidden,
+      'ai_import.watch_exhausted' => l10n.jobWatchExhausted,
+      'ai-import.not-found' => l10n.jobWatchNotFound,
+      _ when error.code.startsWith('transport.') => l10n.jobWatchNetwork,
+      _ => l10n.jobWatchGeneric(error.code),
+    };

@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: space-bunny-free (opencode)
 
 import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../l10n/app_localizations_provider.dart';
 
 import '../characters/characters_screen.dart';
 import '../costumes/costumes_screen.dart';
@@ -35,7 +38,7 @@ class CostumingTabScreen extends ConsumerWidget {
     final season = ref.watch(shellControllerProvider).activeSeason;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Garderobe')),
+      appBar: AppBar(title: Text(l10nOf(context).navCostumes)),
       body: season == null
           ? ListView(
               key: const Key('kleidung-empty'),
@@ -44,12 +47,7 @@ class CostumingTabScreen extends ConsumerWidget {
                 const SizedBox(height: 120),
                 const Icon(Icons.checkroom_outlined, size: 48),
                 const SizedBox(height: 16),
-                const Center(
-                  child: Text(
-                    'Wähle eine Season im Planen-Tab, um Kostüme '
-                    'und Figuren zu sehen.',
-                  ),
-                ),
+                Center(child: Text(l10nOf(context).costumingTabNoSeason)),
                 const SizedBox(height: 16),
                 Center(
                   child: FilledButton(
@@ -57,7 +55,7 @@ class CostumingTabScreen extends ConsumerWidget {
                     onPressed: () => ref
                         .read(shellControllerProvider.notifier)
                         .selectTab(kPlanenTabIndex),
-                    child: const Text('Season im Planen-Tab wählen'),
+                    child: Text(l10nOf(context).costumingTabPickSeason),
                   ),
                 ),
               ],
@@ -69,8 +67,11 @@ class CostumingTabScreen extends ConsumerWidget {
                 ListTile(
                   key: const Key('kleidung-costumes-entry'),
                   leading: const Icon(Icons.checkroom_outlined),
-                  title: const Text('Kostüme'),
-                  subtitle: Text(season.title ?? 'Season ${season.number}'),
+                  title: Text(l10nOf(context).navCostumes),
+                  subtitle: Text(
+                    season.title ??
+                        l10nOf(context).wizardReviewSeason('${season.number}'),
+                  ),
                   trailing: const Icon(Icons.chevron_right),
                   // Fire-and-forget navigation (no result consumed).
                   onTap: () => unawaited(
@@ -84,8 +85,11 @@ class CostumingTabScreen extends ConsumerWidget {
                 ListTile(
                   key: const Key('kleidung-characters-entry'),
                   leading: const Icon(Icons.person_outline),
-                  title: const Text('Figuren'),
-                  subtitle: Text(season.title ?? 'Season ${season.number}'),
+                  title: Text(l10nOf(context).navCharacters),
+                  subtitle: Text(
+                    season.title ??
+                        l10nOf(context).wizardReviewSeason('${season.number}'),
+                  ),
                   trailing: const Icon(Icons.chevron_right),
                   // Fire-and-forget navigation (no result consumed).
                   onTap: () => unawaited(

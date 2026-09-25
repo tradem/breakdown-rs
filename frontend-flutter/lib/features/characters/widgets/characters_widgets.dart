@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:flutter/material.dart';
 
-import '../../../domain/reconciliation/reconciliation_scheduler.dart';
+import '../../../l10n/app_localizations_provider.dart';
 import '../characters_state.dart';
 
 /// Pure presentation trees for `CharactersScreen`: plain data + callbacks
@@ -17,37 +18,43 @@ class CharacterTile extends StatelessWidget {
   final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) => switch (row) {
-    ProjectedCharacterRow(:final character) => Semantics(
-      label: 'Character ${character.name}',
-      child: ListTile(
-        key: Key('character-${character.id}'),
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    return switch (row) {
+      ProjectedCharacterRow(:final character) => Semantics(
+        label: l10n.characterTileLabel(character.name),
+        child: ListTile(
+          key: Key('character-${character.id}'),
+          minTileHeight: 48,
+          title: Text(
+            character.name,
+            key: Key('character-name-${character.id}'),
+          ),
+          subtitle: Text(characterCategoryLabel(l10n, character)),
+          trailing: const Icon(Icons.person_outline),
+          onTap: onTap,
+        ),
+      ),
+      OptimisticCharacterRow(:final overlay) => ListTile(
+        key: Key('overlay-${overlay.id}'),
         minTileHeight: 48,
-        title: Text(character.name, key: Key('character-name-${character.id}')),
-        subtitle: Text(characterCategoryLabel(character)),
-        trailing: const Icon(Icons.person_outline),
-        onTap: onTap,
+        title: Text(overlay.name ?? ''),
+        subtitle: Text(
+          overlay.status == OverlayStatus.stale
+              ? (overlay.warning ?? l10n.characterTileSyncingStale)
+              : l10n.characterTileSyncing,
+        ),
+        trailing: overlay.status == OverlayStatus.stale
+            ? const Icon(Icons.cloud_off, key: Key('overlay-warning'))
+            : const SizedBox(
+                key: Key('overlay-spinner'),
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
       ),
-    ),
-    OptimisticCharacterRow(:final overlay) => ListTile(
-      key: Key('overlay-${overlay.id}'),
-      minTileHeight: 48,
-      title: Text(overlay.name ?? ''),
-      subtitle: Text(
-        overlay.status == OverlayStatus.stale
-            ? (overlay.warning ?? kReconcileStaleWarning)
-            : 'Just created — syncing…',
-      ),
-      trailing: overlay.status == OverlayStatus.stale
-          ? const Icon(Icons.cloud_off, key: Key('overlay-warning'))
-          : const SizedBox(
-              key: Key('overlay-spinner'),
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-    ),
-  };
+    };
+  }
 }
 
 class CharactersEmptyView extends StatelessWidget {
@@ -63,13 +70,16 @@ class CharactersEmptyView extends StatelessWidget {
         const Icon(Icons.person_outline, size: 48),
         const SizedBox(height: 8),
         // Honest empty state — never implies characters exist that do not.
-        const Text('No characters yet', key: Key('characters-empty')),
+        Text(
+          l10nOf(context).charactersEmpty,
+          key: const Key('characters-empty'),
+        ),
         if (onCreate != null) ...[
           const SizedBox(height: 8),
           FilledButton.tonal(
             key: const Key('characters-empty-create'),
             onPressed: onCreate,
-            child: const Text('Create character'),
+            child: Text(l10nOf(context).characterAddFab),
           ),
         ],
       ],
@@ -88,9 +98,15 @@ class CharactersNotFoundView extends StatelessWidget {
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text('The season is gone ($code).', key: const Key('characters-gone')),
+        Text(
+          l10nOf(context).charactersGone(code),
+          key: const Key('characters-gone'),
+        ),
         if (onBack != null)
-          FilledButton.tonal(onPressed: onBack, child: const Text('Back')),
+          FilledButton.tonal(
+            onPressed: onBack,
+            child: Text(l10nOf(context).commonBack),
+          ),
       ],
     ),
   );

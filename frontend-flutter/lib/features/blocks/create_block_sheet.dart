@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../l10n/app_localizations_provider.dart';
+import '../../l10n/generated/app_localizations.dart';
 import 'blocks_controller.dart';
 
 /// Opens the Create Block form: a centered dialog on macOS (side-sheet
@@ -86,9 +90,9 @@ class _CreateBlockFormState extends ConsumerState<_CreateBlockForm> {
     return Date(y, m, d);
   }
 
-  String? _dateValidator(String? v) {
+  String? _dateValidator(String? v, AppLocalizations l10n) {
     if (v == null || v.trim().isEmpty) return null; // optional
-    return _parseDate(v) == null ? 'Use YYYY-MM-DD' : null;
+    return _parseDate(v) == null ? l10n.blocksDateFormatError : null;
   }
 
   Future<void> _submit() async {
@@ -113,6 +117,7 @@ class _CreateBlockFormState extends ConsumerState<_CreateBlockForm> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -123,7 +128,7 @@ class _CreateBlockFormState extends ConsumerState<_CreateBlockForm> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'Create block',
+                l10n.blocksCreateTitle,
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 16),
@@ -131,28 +136,24 @@ class _CreateBlockFormState extends ConsumerState<_CreateBlockForm> {
                 key: const Key('create-block-number'),
                 controller: _numberController,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Number'),
+                decoration: InputDecoration(labelText: l10n.blocksNumberLabel),
                 validator: (v) => int.tryParse((v ?? '').trim()) == null
-                    ? 'A whole number is required'
+                    ? l10n.blocksNumberRequired
                     : null,
               ),
               const SizedBox(height: 8),
               TextFormField(
                 key: const Key('create-block-start'),
                 controller: _startController,
-                decoration: const InputDecoration(
-                  labelText: 'Start date (YYYY-MM-DD, optional)',
-                ),
-                validator: _dateValidator,
+                decoration: InputDecoration(labelText: l10n.blocksStartDate),
+                validator: (v) => _dateValidator(v, l10n),
               ),
               const SizedBox(height: 8),
               TextFormField(
                 key: const Key('create-block-end'),
                 controller: _endController,
-                decoration: const InputDecoration(
-                  labelText: 'End date (YYYY-MM-DD, optional)',
-                ),
-                validator: _dateValidator,
+                decoration: InputDecoration(labelText: l10n.blocksEndDate),
+                validator: (v) => _dateValidator(v, l10n),
               ),
               const SizedBox(height: 16),
               FilledButton(
@@ -164,7 +165,7 @@ class _CreateBlockFormState extends ConsumerState<_CreateBlockForm> {
                         height: 20,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Text('Create'),
+                    : Text(l10n.blocksCreateButton),
               ),
               const SizedBox(height: 8),
             ],

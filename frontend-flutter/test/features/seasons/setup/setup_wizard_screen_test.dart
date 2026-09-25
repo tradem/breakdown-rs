@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 
@@ -27,6 +28,7 @@ import 'package:frontend_flutter/domain/reconciliation/reconciliation.dart';
 import 'package:frontend_flutter/features/seasons/setup/setup_wizard_controller.dart';
 import 'package:frontend_flutter/features/seasons/setup/setup_wizard_screen.dart';
 import 'package:frontend_flutter/features/seasons/setup/setup_wizard_state.dart';
+import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 
 import '../seasons_test_fakes.dart';
 import 'setup_wizard_test_fakes.dart';
@@ -164,6 +166,9 @@ Future<void> _pumpWizard(
       container: ctx.container,
       child: MaterialApp(
         theme: theme ?? AppThemes.light(),
+        locale: const Locale('de'),
+        supportedLocales: const [Locale('de'), Locale('en')],
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
         home: const SetupWizardScreen(),
       ),
     ),

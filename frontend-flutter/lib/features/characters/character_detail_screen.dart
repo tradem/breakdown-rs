@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
+import '../../l10n/app_localizations_provider.dart';
 import 'characters_controller.dart';
 import 'characters_state.dart';
 
@@ -45,7 +47,11 @@ class CharacterDetailScreen extends ConsumerWidget {
     final character = _resolve(state);
 
     return Scaffold(
-      appBar: AppBar(title: Text(character?.name ?? 'Character')),
+      appBar: AppBar(
+        title: Text(
+          character?.name ?? l10nOf(context).characterDetailTitleFallback,
+        ),
+      ),
       body: switch ((character, state.projected)) {
         // Resolved row: editors render (prefilled from the read DTO).
         (final c?, _) => RefreshIndicator(
@@ -57,7 +63,7 @@ class CharacterDetailScreen extends ConsumerWidget {
             children: [
               if (state.commandError case final error?)
                 _InlineError(
-                  text: characterErrorCopy(error),
+                  text: characterErrorCopy(l10nOf(context), error),
                   onDismiss: controller.dismissCommandError,
                 ),
               _CategoryRow(character: c),
@@ -119,7 +125,7 @@ class _InlineError extends StatelessWidget {
             if (onDismiss != null)
               IconButton(
                 onPressed: onDismiss,
-                tooltip: 'Dismiss',
+                tooltip: l10nOf(context).episodesDismiss,
                 icon: const Icon(Icons.close),
               ),
           ],
@@ -147,7 +153,7 @@ class _CategoryRow extends StatelessWidget {
       const SizedBox(width: 8),
       Chip(
         key: Key('character-category-${character.id}'),
-        label: Text(characterCategoryLabel(character)),
+        label: Text(characterCategoryLabel(l10nOf(context), character)),
       ),
     ],
   );
@@ -195,15 +201,18 @@ class _ContactSectionState extends ConsumerState<_ContactSection> {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Text('Contact', style: Theme.of(context).textTheme.titleMedium),
+      Text(
+        l10nOf(context).characterContact,
+        style: Theme.of(context).textTheme.titleMedium,
+      ),
       const SizedBox(height: 8),
       TextField(
         key: Key('character-email-${widget.character.id}'),
         controller: _email,
         keyboardType: TextInputType.emailAddress,
-        decoration: const InputDecoration(
-          border: OutlineInputBorder(),
-          labelText: 'Email',
+        decoration: InputDecoration(
+          border: const OutlineInputBorder(),
+          labelText: l10nOf(context).characterEmail,
         ),
       ),
       const SizedBox(height: 8),
@@ -211,9 +220,9 @@ class _ContactSectionState extends ConsumerState<_ContactSection> {
         key: Key('character-phone-${widget.character.id}'),
         controller: _phone,
         keyboardType: TextInputType.phone,
-        decoration: const InputDecoration(
-          border: OutlineInputBorder(),
-          labelText: 'Phone',
+        decoration: InputDecoration(
+          border: const OutlineInputBorder(),
+          labelText: l10nOf(context).characterPhone,
         ),
       ),
       const SizedBox(height: 8),
@@ -228,7 +237,7 @@ class _ContactSectionState extends ConsumerState<_ContactSection> {
                 email: _email.text.isEmpty ? null : _email.text,
                 phone: _phone.text.isEmpty ? null : _phone.text,
               ),
-          child: const Text('Save contact'),
+          child: Text(l10nOf(context).characterSaveContact),
         ),
       ),
     ],
@@ -305,7 +314,10 @@ class _MeasurementsSectionState extends ConsumerState<_MeasurementsSection> {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Text('Measurements', style: Theme.of(context).textTheme.titleMedium),
+      Text(
+        l10nOf(context).characterMeasurements,
+        style: Theme.of(context).textTheme.titleMedium,
+      ),
       const SizedBox(height: 8),
       for (final k in _keys) ...[
         TextField(
@@ -313,7 +325,16 @@ class _MeasurementsSectionState extends ConsumerState<_MeasurementsSection> {
           controller: _fields[k],
           decoration: InputDecoration(
             border: const OutlineInputBorder(),
-            labelText: k,
+            labelText: switch (k) {
+              'height' => l10nOf(context).characterMeasurementHeight,
+              'weight' => l10nOf(context).characterMeasurementWeight,
+              'chest' => l10nOf(context).characterMeasurementChest,
+              'waist' => l10nOf(context).characterMeasurementWaist,
+              'hips' => l10nOf(context).characterMeasurementHips,
+              'shoeSize' => l10nOf(context).characterMeasurementShoeSize,
+              'hatSize' => l10nOf(context).characterMeasurementHatSize,
+              _ => k,
+            },
           ),
         ),
         const SizedBox(height: 8),
@@ -337,7 +358,7 @@ class _MeasurementsSectionState extends ConsumerState<_MeasurementsSection> {
                     ..hatSize = _fields['hatSize']!.text,
                 ),
               ),
-          child: const Text('Save measurements'),
+          child: Text(l10nOf(context).characterSaveMeasurements),
         ),
       ),
     ],
@@ -356,14 +377,14 @@ class _DetailErrorView extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          'Could not load the character ($code).',
+          l10nOf(context).characterDetailFetchError(code),
           key: const Key('character-detail-error'),
         ),
         const SizedBox(height: 8),
         FilledButton.tonal(
           key: const Key('character-detail-retry'),
           onPressed: onRetry,
-          child: const Text('Retry'),
+          child: Text(l10nOf(context).commonRetry),
         ),
       ],
     ),
@@ -380,12 +401,15 @@ class _DetailNotFoundView extends StatelessWidget {
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Text(
-          'This character no longer exists.',
-          key: Key('character-detail-gone'),
+        Text(
+          l10nOf(context).characterDetailGone,
+          key: const Key('character-detail-gone'),
         ),
         if (onBack != null)
-          FilledButton.tonal(onPressed: onBack, child: const Text('Back')),
+          FilledButton.tonal(
+            onPressed: onBack,
+            child: Text(l10nOf(context).commonBack),
+          ),
       ],
     ),
   );

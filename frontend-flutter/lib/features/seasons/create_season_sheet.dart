@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/auth_providers.dart';
+import '../../l10n/app_localizations_provider.dart';
 import 'seasons_controller.dart';
 import 'setup/setup_wizard_screen.dart';
 
@@ -108,16 +109,18 @@ class _CreateSeasonFormState extends ConsumerState<_CreateSeasonForm> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'Create season',
+                l10nOf(context).createSeasonTitle,
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 16),
               TextFormField(
                 key: const Key('create-series-id'),
                 controller: _seriesIdController,
-                decoration: const InputDecoration(labelText: 'Series id'),
+                decoration: InputDecoration(
+                  labelText: l10nOf(context).createSeasonSeriesId,
+                ),
                 validator: (v) => (v == null || v.trim().isEmpty)
-                    ? 'Series id is required'
+                    ? l10nOf(context).createSeasonSeriesIdRequired
                     : null,
               ),
               const SizedBox(height: 8),
@@ -125,16 +128,20 @@ class _CreateSeasonFormState extends ConsumerState<_CreateSeasonForm> {
                 key: const Key('create-number'),
                 controller: _numberController,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Number'),
+                decoration: InputDecoration(
+                  labelText: l10nOf(context).blocksNumberLabel,
+                ),
                 validator: (v) => int.tryParse((v ?? '').trim()) == null
-                    ? 'A whole number is required'
+                    ? l10nOf(context).blocksNumberRequired
                     : null,
               ),
               const SizedBox(height: 8),
               TextFormField(
                 key: const Key('create-title'),
                 controller: _titleController,
-                decoration: const InputDecoration(labelText: 'Title'),
+                decoration: InputDecoration(
+                  labelText: l10nOf(context).createSeasonTitleLabel,
+                ),
               ),
               const SizedBox(height: 16),
               FilledButton(
@@ -146,7 +153,7 @@ class _CreateSeasonFormState extends ConsumerState<_CreateSeasonForm> {
                         height: 20,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Text('Create'),
+                    : Text(l10nOf(context).blocksCreateButton),
               ),
               const SizedBox(height: 8),
               // Guided-path entry (add-season-setup-wizard task 5.1): the
@@ -167,10 +174,7 @@ class _CreateSeasonFormState extends ConsumerState<_CreateSeasonForm> {
                     ),
                   );
                 },
-                child: const Text(
-                  'Oder geführt einrichten: Season-Setup '
-                  'starten',
-                ),
+                child: Text(l10nOf(context).createSeasonWizardCta),
               ),
             ],
           ),

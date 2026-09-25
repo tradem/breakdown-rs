@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'dart:async' show unawaited;
 
@@ -8,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/auth_providers.dart';
+import '../../l10n/app_localizations_provider.dart';
 import '../app_info/info_dialog.dart';
 import '../app_info/settings_dialog.dart';
 import '../auth/sign_out.dart';
@@ -34,9 +37,10 @@ class MoreTabScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final season = ref.watch(shellControllerProvider).activeSeason;
+    final l10n = l10nOf(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Mehr')),
+      appBar: AppBar(title: Text(l10n.moreTitle)),
       body: ListView(
         key: const Key('mehr-list'),
         physics: const AlwaysScrollableScrollPhysics(),
@@ -54,8 +58,8 @@ class MoreTabScreen extends ConsumerWidget {
                 key: const Key('menu-identity'),
                 enabled: false,
                 leading: const Icon(Icons.account_circle),
-                title: Text(sub.isEmpty ? 'Signed out' : sub),
-                subtitle: const Text('Signed in'),
+                title: Text(sub.isEmpty ? l10n.moreSignedOut : sub),
+                subtitle: Text(l10n.moreSignedIn),
               );
             },
           ),
@@ -63,13 +67,16 @@ class MoreTabScreen extends ConsumerWidget {
           ListTile(
             key: const Key('mehr-categories-entry'),
             leading: const Icon(Icons.style_outlined),
-            title: const Text('Kostüm-Kategorien'),
+            title: Text(l10n.moreCategories),
             subtitle: season == null
                 // CodeRabbit review fix: name the tab that CAN set the
                 // active season (Planen — from the acted-on season row
                 // DTO); the entry itself jumps there when disabled.
-                ? const Text('Season im Planen-Tab öffnen')
-                : Text(season.title ?? 'Season ${season.number}'),
+                ? Text(l10n.moreCategoriesOpenPlanen)
+                : Text(
+                    season.title ??
+                        l10nOf(context).wizardReviewSeason('${season.number}'),
+                  ),
             trailing: const Icon(Icons.chevron_right),
             onTap: season == null
                 ? () => ref
@@ -87,19 +94,19 @@ class MoreTabScreen extends ConsumerWidget {
           ListTile(
             key: const Key('mehr-about'),
             leading: const Icon(Icons.info_outline),
-            title: const Text('Über die App'),
+            title: Text(l10n.commonAbout),
             onTap: () => showAppInfoDialog(context),
           ),
           ListTile(
             key: const Key('mehr-settings'),
             leading: const Icon(Icons.settings_outlined),
-            title: const Text('Einstellungen'),
+            title: Text(l10n.commonSettings),
             onTap: () => showSettingsDialog(context),
           ),
           ListTile(
             key: const Key('mehr-signout'),
             leading: const Icon(Icons.logout),
-            title: const Text('Abmelden'),
+            title: Text(l10n.commonSignOut),
             onTap: () async {
               await ref.read(sessionResetProvider.notifier).signOut();
             },

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
 import '../../design/spacing.dart';
+import '../../l10n/app_localizations_provider.dart';
 import 'login_errors.dart';
 import 'widgets/login_widgets.dart';
 
@@ -80,9 +83,10 @@ class LoginScreen extends ConsumerWidget {
     final inFlight = ref.watch(signInInFlightProvider);
     final signInError = ref.watch(signInErrorProvider);
     final error = signInError ?? restoreError;
+    final l10n = l10nOf(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Breakdown')),
+      appBar: AppBar(title: Text(l10n.appTitleBreakdown)),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(AppSpacing.space24),
@@ -106,7 +110,7 @@ class LoginScreen extends ConsumerWidget {
               if (error != null) ...[
                 const SizedBox(height: AppSpacing.space16),
                 LoginErrorBanner(
-                  copy: loginErrorCopy(error),
+                  copy: loginErrorCopy(error, l10n),
                   // Disabled while a dispatch is in flight: a second tap
                   // must not start a concurrent OIDC flow.
                   onRetry: inFlight ? null : () => _dispatchSignIn(ref),

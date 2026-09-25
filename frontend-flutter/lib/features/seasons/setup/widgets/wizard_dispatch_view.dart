@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode)
 // Co-authored-by: omen-alpha (opencode-go)
 
 import 'package:flutter/material.dart';
 
 import '../../../../design/spacing.dart';
+import '../../../../l10n/app_localizations_provider.dart';
 
 /// Dispatch overlay of the setup wizard (tasks 3.2/4.5): the per-command
 /// progress ("Season wird erstellt…", linear indicator, sub-step label).
@@ -40,7 +42,7 @@ class WizardDispatchView extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              'Season wird erstellt…',
+              l10nOf(context).wizardDispatchProgress,
               key: const Key('wizard-dispatch-title'),
               style: theme.textTheme.titleMedium,
               textAlign: TextAlign.center,
@@ -56,7 +58,8 @@ class WizardDispatchView extends StatelessWidget {
               key: const Key('wizard-dispatch-count'),
               // Semantics: screen readers announce the sub-step, not just
               // the raw fraction (spec Accessibility).
-              semanticsLabel: '$done von $total Befehlen bestätigt',
+              semanticsLabel: l10nOf(context)
+                  .wizardDispatchSemantics('$done', '$total'),
             ),
             if (label.isNotEmpty)
               Text(

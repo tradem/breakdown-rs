@@ -21,6 +21,7 @@ import 'package:fpdart/fpdart.dart';
 import 'package:frontend_flutter/app_config.dart';
 import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/core/result.dart';
+import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 import 'package:drift/native.dart';
 import 'package:frontend_flutter/data/ai_import_providers.dart';
 import 'package:frontend_flutter/data/ai_import_repository.dart';
@@ -121,6 +122,9 @@ void main() {
             theme: ThemeData.light(),
             darkTheme: ThemeData.dark(),
             themeMode: mode,
+            locale: const Locale('en'),
+            supportedLocales: const [Locale('en'), Locale('de')],
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
             home: AiJobStatusScreen(jobId: 'job-1', duplicate: duplicate),
           ),
         ),

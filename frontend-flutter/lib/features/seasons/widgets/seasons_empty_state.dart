@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:flutter/material.dart';
+
+import '../../../l10n/app_localizations_provider.dart';
 
 /// Guided empty state of the Season tab (`redesign-seasons-home` task 3.4):
 /// headline + one sentence of guidance + two CTAs —
@@ -27,6 +31,7 @@ class SeasonsEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -36,15 +41,14 @@ class SeasonsEmptyState extends StatelessWidget {
             const Icon(Icons.home_outlined, size: 48),
             const SizedBox(height: 16),
             Text(
-              'Noch keine Seasons',
+              l10n.seasonsEmptyTitle,
               key: const Key('seasons-empty-title'),
               style: Theme.of(context).textTheme.headlineSmall,
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 8),
             Text(
-              'Lege deine erste Season an — oder importiere einen '
-              'bestehenden Spielplan per KI.',
+              l10n.seasonsEmptyGuidance,
               key: const Key('seasons-empty-guidance'),
               style: Theme.of(context).textTheme.bodyMedium,
               textAlign: TextAlign.center,
@@ -54,14 +58,14 @@ class SeasonsEmptyState extends StatelessWidget {
               key: const Key('seasons-empty-setup-cta'),
               onPressed: onSetup,
               icon: const Icon(Icons.add),
-              label: const Text('Season-Setup starten'),
+              label: Text(l10n.seasonsEmptySetupCta),
             ),
             const SizedBox(height: 8),
             OutlinedButton.icon(
               key: const Key('seasons-empty-import-cta'),
               onPressed: onImport,
               icon: const Icon(Icons.smart_toy_outlined),
-              label: const Text('KI-Import öffnen'),
+              label: Text(l10n.seasonsEmptyImportCta),
             ),
           ],
         ),

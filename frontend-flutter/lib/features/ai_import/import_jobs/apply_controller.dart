@@ -13,6 +13,7 @@ import '../../../core/result.dart';
 import '../../../data/ai_import_providers.dart';
 import '../../../data/ai_import_repository.dart';
 import '../../../domain/reconciliation/reconciliation_scheduler.dart';
+import '../../../l10n/generated/app_localizations.dart';
 import 'job_status_controller.dart';
 
 part 'apply_controller.g.dart';
@@ -282,17 +283,12 @@ class AiApplyController extends _$AiApplyController {
 /// access-neutral rather than role/block-specific (CodeRabbit #480). The
 /// apply screen has no client pre-gate, so only the server code reaches this
 /// switch.
-String aiApplyErrorCopy(ProblemError error) => switch (error.code) {
-  'ai-import.forbidden' => 'You do not have access to this AI import job.',
-  'ai_import.apply_job_not_succeeded' =>
-    'The preview can no longer be applied — check the job status.',
-  'ai_import.apply_unresolved' =>
-    'The apply outcome is unknown — the server may still have applied '
-        'it. Check the affected episode before retrying.',
-  'ai_import.apply_context_missing' =>
-    'Pick the target episode before applying.',
-  _ when error.code.startsWith('transport.') =>
-    'Network problem — the apply may not have gone through. Check the '
-        'affected episode before retrying.',
-  _ => 'The apply failed (${error.code}).',
-};
+String aiApplyErrorCopy(AppLocalizations l10n, ProblemError error) =>
+    switch (error.code) {
+      'ai-import.forbidden' => l10n.jobWatchForbidden,
+      'ai_import.apply_job_not_succeeded' => l10n.aiApplyErrorNotSucceeded,
+      'ai_import.apply_unresolved' => l10n.aiApplyErrorUnresolved,
+      'ai_import.apply_context_missing' => l10n.aiApplyErrorContextMissing,
+      _ when error.code.startsWith('transport.') => l10n.aiApplyErrorNetwork,
+      _ => l10n.aiApplyErrorGeneric(error.code),
+    };

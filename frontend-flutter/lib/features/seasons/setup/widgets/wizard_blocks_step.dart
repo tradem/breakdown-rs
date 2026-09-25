@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode)
 // Co-authored-by: omen-alpha (opencode-go)
 
 import 'package:flutter/material.dart';
 
 import '../../../../design/spacing.dart';
+import '../../../../l10n/app_localizations_provider.dart';
 import '../setup_wizard_state.dart';
 
 /// The wizard's block templates as suggestion chips (spec `Block Draft
@@ -151,13 +153,13 @@ class _WizardBlocksStepState extends State<WizardBlocksStep> {
       key: const Key('wizard-step-blocks'),
       padding: const EdgeInsets.all(AppSpacing.space16),
       children: [
-        Text('Blöcke', style: theme.textTheme.titleMedium),
+        Text(l10nOf(context).navBlocks, style: theme.textTheme.titleMedium),
         const SizedBox(height: AppSpacing.space8),
         // Inline submit-time validation copy (spec: "Weiter" disabled
         // WITH inline copy keyed per error code — noBlocks).
         if (widget.blocks.isEmpty)
           Text(
-            'Mindestens ein Block ist nötig.',
+            l10nOf(context).wizardFieldBlocks,
             key: const Key('wizard-blocks-error'),
             style: TextStyle(color: theme.colorScheme.error),
           ),
@@ -177,10 +179,13 @@ class _WizardBlocksStepState extends State<WizardBlocksStep> {
           key: const Key('wizard-add-draft'),
           onPressed: widget.onAddBlock,
           icon: const Icon(Icons.add),
-          label: const Text('Block hinzufügen'),
+          label: Text(l10nOf(context).blocksAddFab),
         ),
         const SizedBox(height: AppSpacing.space16),
-        Text('Vorlagen', style: theme.textTheme.labelLarge),
+        Text(
+          l10nOf(context).wizardTemplates,
+          style: theme.textTheme.labelLarge,
+        ),
         const SizedBox(height: AppSpacing.space8),
         Wrap(
           spacing: AppSpacing.space8,
@@ -244,14 +249,14 @@ class _DraftCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    'Block $blockNumber',
+                    l10nOf(context).blockTileLabel('$blockNumber'),
                     key: Key('wizard-block-number-$index'),
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
                 ),
                 IconButton(
                   key: Key('wizard-remove-draft-$index'),
-                  tooltip: 'Block entfernen',
+                  tooltip: l10nOf(context).wizardRemoveBlock,
                   onPressed: onRemove,
                   icon: const Icon(Icons.delete_outline),
                 ),
@@ -262,10 +267,10 @@ class _DraftCard extends StatelessWidget {
               controller: countController,
               keyboardType: TextInputType.number,
               decoration: InputDecoration(
-                labelText: 'Episoden',
+                labelText: l10nOf(context).navEpisodes,
                 errorText: countError == null
                     ? null
-                    : wizardErrorCopyForField(countError!),
+                    : wizardErrorCopyForField(l10nOf(context), countError!),
               ),
               onChanged: onCountChanged,
             ),
@@ -273,7 +278,9 @@ class _DraftCard extends StatelessWidget {
             TextFormField(
               key: Key('wizard-draft-title-$index'),
               controller: titleController,
-              decoration: const InputDecoration(labelText: 'Titel (optional)'),
+              decoration: InputDecoration(
+                labelText: l10nOf(context).wizardEpisodeTitlePlaceholder,
+              ),
               onChanged: onTitleChanged,
             ),
           ],

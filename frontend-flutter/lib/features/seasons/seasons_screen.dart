@@ -4,6 +4,8 @@
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'dart:async' show unawaited;
 
@@ -15,6 +17,9 @@ import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
 import '../../data/cache/relative_time.dart';
 import '../../data/cache/seasons_cache_providers.dart';
+import '../../l10n/app_localizations_provider.dart';
+import '../../l10n/generated/app_localizations.dart';
+import '../../l10n/generated/app_localizations_en.dart';
 import '../shell/shell_controller.dart';
 import 'create_season_sheet.dart';
 import 'seasons_controller.dart';
@@ -28,17 +33,19 @@ import 'widgets/seasons_skeleton.dart';
 /// Localized client-side copy for a create-command failure, keyed on the
 /// stable problem `code` (AGENTS.md §5 — never branch on / show the server's
 /// localized `detail`). Unknown codes fall back to a code-carrying generic.
-String createErrorCopy(ProblemError error) => switch (error.code) {
-  // Real backend code first (issue #443); legacy aliases kept for stale
-  // fixtures.
-  'season.number-already-exists' ||
-  'seasons.conflict' ||
-  'season.conflict' => 'A season with that number already exists.',
-  'authz.denied' || 'auth.session_required' => 'Please sign in to continue.',
-  _ when error.code.startsWith('transport.') =>
-    'Network problem — the season was not created. Try again.',
-  _ => 'The season could not be created (${error.code}).',
-};
+String createErrorCopy(ProblemError error, [AppLocalizations? catalog]) {
+  final l10n = catalog ?? AppLocalizationsEn();
+  return switch (error.code) {
+    // Real backend code first (issue #443); legacy aliases kept for stale
+    // fixtures.
+    'season.number-already-exists' ||
+    'seasons.conflict' ||
+    'season.conflict' => l10n.seasonsCreateConflict,
+    'authz.denied' || 'auth.session_required' => l10n.seasonsCreateAuth,
+    _ when error.code.startsWith('transport.') => l10n.seasonsCreateNetwork,
+    _ => l10n.seasonsCreateGeneric,
+  };
+}
 
 /// The seasons screen — the reference pattern for every subsequent screen
 /// (spec `flutter-first-screen`; AGENTS.md §9).
@@ -59,6 +66,7 @@ class SeasonsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = l10nOf(context);
     final state = ref.watch(seasonsControllerProvider);
     final controller = ref.read(seasonsControllerProvider.notifier);
     // Err branch of the metrics source → `null` map: cards render without
@@ -67,13 +75,13 @@ class SeasonsScreen extends ConsumerWidget {
     final rows = state.rowsWithMetrics(metrics);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Seasons')),
+      appBar: AppBar(title: Text(l10n.seasonsTitle)),
       body: Column(
         children: [
           if (state.commandError case final error?)
             _Banner(
               key: const Key('create-error-banner'),
-              text: createErrorCopy(error),
+              text: createErrorCopy(error, l10n),
               tone: BannerTone.error,
               onDismiss: controller.dismissCommandError,
               action: const Icon(Icons.close, key: Key('create-error-dismiss')),
@@ -81,7 +89,7 @@ class SeasonsScreen extends ConsumerWidget {
           if (state.isStale)
             _Banner(
               key: const Key('seasons-stale-banner'),
-              text: 'Cached data may be outdated',
+              text: l10n.seasonsStale,
               tone: BannerTone.warning,
             ),
           Expanded(
@@ -103,7 +111,7 @@ class SeasonsScreen extends ConsumerWidget {
               key: const Key('season-add-fab'),
               onPressed: () => showCreateSeasonSheet(context, ref),
               icon: const Icon(Icons.add),
-              label: const Text('Season erstellen'),
+              label: Text(l10n.seasonsCreate),
             )
           : null,
     );
@@ -132,9 +140,9 @@ class SeasonsScreen extends ConsumerWidget {
         return ListView(
           key: const Key('seasons-list'),
           physics: const AlwaysScrollableScrollPhysics(),
-          children: const [
-            SizedBox(height: 160),
-            Center(child: Text('Seasons could not be loaded')),
+          children: [
+            const SizedBox(height: 160),
+            Center(child: Text(l10nOf(context).seasonsLoadError)),
           ],
         );
       }
@@ -196,12 +204,13 @@ class _SeasonCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = l10nOf(context);
     return switch (row) {
       ProjectedSeasonRow(:final season, :final metrics) => SeasonCard(
         key: Key('season-${season.id}'),
-        title: season.title ?? 'Season ${season.number}',
-        metadata: _metadataLine(metrics),
-        staleLabel: _staleLabel(ref, metrics),
+        title: season.title ?? l10n.seasonsDefaultTitle(season.number),
+        metadata: _metadataLine(metrics, l10n),
+        staleLabel: _staleLabel(ref, metrics, l10n),
         // Task 4.4 + spec `flutter-hierarchy-navigation`: the season-row
         // BlocksScreen push stays on the PLANEN tab's navigator (the
         // shell's hierarchy spine — the Season tab never hosts hierarchy
@@ -214,12 +223,16 @@ class _SeasonCard extends ConsumerWidget {
         key: Key('overlay-${overlay.id}'),
         title: overlay.name?.isNotEmpty == true
             ? overlay.name!
-            : 'Season ${overlay.number ?? ''}',
+            : l10n.seasonsDefaultTitle(overlay.number ?? ''),
         // The overlay's status copy (keys/semantics unchanged from the
         // tile era): the syncing line, or the retained stale warning.
         metadata: overlay.status == OverlayStatus.stale
-            ? (overlay.warning ?? kReconcileStaleWarning)
-            : 'Just created — syncing…',
+            // The domain layer stores a stable warning CODE; the
+            // user-facing wording comes from the catalog.
+            ? (overlay.warning == kReconcileStaleWarningCode
+                  ? l10n.reconcileStaleWarning
+                  : overlay.warning)
+            : l10n.seasonsSyncing,
         trailing: overlay.status == OverlayStatus.stale
             ? const Icon(Icons.cloud_off, key: Key('overlay-warning'))
             : const SizedBox(
@@ -235,9 +248,27 @@ class _SeasonCard extends ConsumerWidget {
   /// Relative staleness label computed with the injectable clock (D2):
   /// `null` while the metadata is fresh or absent — goldens stay
   /// deterministic because the clock is pinned by the test container.
-  String? _staleLabel(WidgetRef ref, SeasonMetrics? metrics) {
+  String? _staleLabel(
+    WidgetRef ref,
+    SeasonMetrics? metrics,
+    AppLocalizations l10n,
+  ) {
     if (metrics == null || !metrics.isStale) return null;
-    return 'Stand: ${relativeTimeSince(metrics.cachedAt, clock: ref.read(clockProvider))}';
+    return l10n.seasonsStaleAt(
+      relativeTimeSince(
+        metrics.cachedAt,
+        clock: ref.read(clockProvider),
+        // The data-layer formatter stays free of user-facing strings; the
+        // units come from the resolved catalog, so an English card never
+        // renders a German relative timestamp.
+        copy: RelativeTimeCopy(
+          justNow: l10n.seasonsStaleJustNow,
+          minutes: (count) => l10n.seasonsStaleMinutes('$count'),
+          hours: (count) => l10n.seasonsStaleHours('$count'),
+          days: (count) => l10n.seasonsStaleDays('$count'),
+        ),
+      ),
+    );
   }
 
   /// Cached counts joined into the metadata line (glossary keys
@@ -245,15 +276,12 @@ class _SeasonCard extends ConsumerWidget {
   /// season has no cached entry at all (the line is omitted — spec
   /// "No cached metadata" scenario). Singular inflection when the count
   /// is one ("1 Block", "1 Szene", "1 Kostüm" — review grammar fix).
-  String? _metadataLine(SeasonMetrics? metrics) {
+  String? _metadataLine(SeasonMetrics? metrics, AppLocalizations l10n) {
     if (metrics == null) return null;
-    String unit(String plural, String singular, int n) =>
-        n == 1 ? singular : plural;
     final parts = [
-      if (metrics.blockCount case final b?) '$b ${unit('Blöcke', 'Block', b)}',
-      if (metrics.sceneCount case final s?) '$s ${unit('Szenen', 'Szene', s)}',
-      if (metrics.costumeCount case final c?)
-        '$c ${unit('Kostüme', 'Kostüm', c)}',
+      if (metrics.blockCount case final b?) l10n.seasonsMetaBlocks(b),
+      if (metrics.sceneCount case final s?) l10n.seasonsMetaScenes(s),
+      if (metrics.costumeCount case final c?) l10n.seasonsMetaCostumes(c),
     ];
     if (parts.isEmpty) return null;
     return parts.join(' · ');

@@ -22,6 +22,7 @@ import '../../data/cache/seasons_cache_providers.dart';
 import '../../data/scene_shoot_repository.dart';
 import '../../domain/reconciliation/reconcile_coordinator.dart';
 import '../../domain/reconciliation/reconciliation_scheduler.dart';
+import '../../l10n/generated/app_localizations.dart';
 import '../costumes/costumes_controller.dart';
 import 'scene_shoots_state.dart';
 
@@ -210,27 +211,25 @@ class SceneShootsCommandError extends _$SceneShootsCommandError {
 
 /// Localized client-side copy for scene-shoot command failures, keyed on
 /// the stable problem `code` (never the server's localized `detail`).
-String sceneShootErrorCopy(ProblemError error) => switch (error.code) {
-  // 409 `concurrency.version-mismatch`: the backend's sole version-conflict
-  // code (the old `concurrency.conflict`/`scene_shoot.version_conflict`
-  // keys were never emitted, so a real 409 fell through to the generic
-  // fallback — issue #481).
-  'concurrency.version-mismatch' =>
-    'Changed elsewhere — refresh and try again.',
-  'scene-shoot.shooting-day-wrapped' =>
-    // Wrap finality (issue #376): a frozen execution command 409ed because
-    // the day was wrapped concurrently (other device / projector lag). Same
-    // narrative as the wrapped board banner.
-    'This day is wrapped — execution is final and read-only.',
-  'photo.forbidden' ||
-  'authz.denied' => 'You need an active costume role in this season.',
-  'membership.pending' =>
-    'Could not verify permissions — check the connection and retry.',
-  'auth.session_required' => 'Please sign in to continue.',
-  _ when error.code.startsWith('transport.') =>
-    'Network problem — the change was not saved. Try again.',
-  _ => 'The scene shoot could not be saved (${error.code}).',
-};
+String sceneShootErrorCopy(AppLocalizations l10n, ProblemError error) =>
+    switch (error.code) {
+      // 409 `concurrency.version-mismatch`: the backend's sole
+      // version-conflict code (the old
+      // `concurrency.conflict`/`scene_shoot.version_conflict` keys were
+      // never emitted, so a real 409 fell through to the generic fallback
+      // — issue #481).
+      'concurrency.version-mismatch' => l10n.costumeCategoryErrorChanged,
+      'scene-shoot.shooting-day-wrapped' =>
+        // Wrap finality (issue #376): a frozen execution command 409ed
+        // because the day was wrapped concurrently (other device /
+        // projector lag). Same narrative as the wrapped board banner.
+        l10n.sceneShootsWrappedBanner,
+      'photo.forbidden' || 'authz.denied' => l10n.costumeErrorForbidden,
+      'membership.pending' => l10n.costumeErrorMembership,
+      'auth.session_required' => l10n.blocksCreateErrorSignIn,
+      _ when error.code.startsWith('transport.') => l10n.sceneShootErrorNetwork,
+      _ => l10n.sceneShootErrorGeneric(error.code),
+    };
 
 /// `SceneShootsController(scope)` on the shared reconciliation runner:
 /// plan derives no client ids (path-authoritative); execution commands

@@ -3,6 +3,8 @@
 <!-- Co-authored-by: hy3 (opencode-go) -->
 <!-- Co-authored-by: qwen3.8-flash (opencode-go) -->
 <!-- Co-authored-by: omen-alpha (opencode-go) -->
+<!-- Co-authored-by: space-bunny-free (opencode-go) -->
+<!-- Co-authored-by: deepseek-v4-flash (neuralwatt) -->
 
 
 # Agent Guidelines for the Flutter App (`frontend-flutter/`)
@@ -308,6 +310,8 @@ CI runs:
 - `flutter test --coverage` + `coverde` threshold gate on changed code
 - OpenAPI-client drift check (§3)
 - `gitleaks` on `.dart` / `.yaml` / `.arb`
+- `flutter gen-l10n` with a parsed `l10n-untranslated.json` report, a
+  de/en ARB key-parity check, and generated-output drift detection
 - SHA-pinned GitHub Actions following the backend's CI-hardening rules (no
   moving `@v4` tags; Dependabot bumps SHAs)
 
@@ -429,9 +433,13 @@ CI runs:
   `lib/design/`; theme tokens are the single source for colors, type, and
   spacing. No hardcoded colors/styles inline in widgets.
 - **Codegen conventions:** `build_runner`, `freezed`, `json_serializable`,
-  `riverpod_generator`, `drift_dev`, `openapi_generator`. Generated files
-  (`.g.dart`, `.freezed.dart`, `vendor/breakdown_api/`) are read-only —
-  regenerate, don't edit.
+  `riverpod_generator`, `drift_dev`, `openapi_generator`, and the official
+  `flutter gen-l10n` pipeline. User-facing copy comes from `lib/l10n/*.arb`
+  (German template plus complete English catalog), with placeholders and
+  plurals expressed in ICU syntax. Generated files (`.g.dart`,
+  `.freezed.dart`, `vendor/breakdown_api/`, `lib/l10n/generated/`) are
+  read-only — regenerate, don't edit. Run `flutter gen-l10n` before commit;
+  goldens use the German template locale.
 - **`flutter/genui` (Decision Q4 → defer-ban):** Not adopted as a
   prescribed drafting workflow. The conventions here are opinionated enough
   that genui output is an 80%+ rewrite (StatefulWidget+setState rejected,

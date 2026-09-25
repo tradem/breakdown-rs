@@ -15,6 +15,7 @@ import '../../auth/membership/capability.dart';
 import '../../auth/membership/membership_providers.dart';
 import '../../core/problem_error.dart';
 import '../../data/photo_repository.dart';
+import '../../l10n/app_localizations_provider.dart';
 import '../characters/characters_controller.dart';
 import '../costume_categories/costume_categories_controller.dart';
 import '../photos/capture.dart';
@@ -75,7 +76,7 @@ class CostumeDetailScreen extends ConsumerWidget {
     final costume = _resolveCostume(state);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Costume')),
+      appBar: AppBar(title: Text(l10nOf(context).costumeDetailTitle)),
       body: costume == null
           ? const Center(
               child: CircularProgressIndicator(key: Key('costume-loading')),
@@ -89,7 +90,7 @@ class CostumeDetailScreen extends ConsumerWidget {
                 children: [
                   if (state.commandError case final failure?)
                     _InlineError(
-                      text: costumeCommandErrorCopy(failure),
+                      text: costumeCommandErrorCopy(l10nOf(context), failure),
                       onDismiss: controller.dismissCommandError,
                     ),
                   _AssignmentSection(season: season, costume: costume),
@@ -145,7 +146,7 @@ class _InlineError extends StatelessWidget {
             if (onDismiss != null)
               IconButton(
                 onPressed: onDismiss,
-                tooltip: 'Dismiss',
+                tooltip: l10nOf(context).episodesDismiss,
                 icon: const Icon(Icons.close),
               ),
           ],
@@ -191,13 +192,15 @@ class _AssignmentSection extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Character', style: Theme.of(context).textTheme.titleMedium),
+        Text(
+          l10nOf(context).costumeDetailCharacter,
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
         const SizedBox(height: 8),
         if (denied)
-          const Text(
-            'You need an active costume role in this season to assign '
-            'characters.',
-            key: Key('costume-assign-denied'),
+          Text(
+            l10nOf(context).costumeDetailAssignGate,
+            key: const Key('costume-assign-denied'),
           )
         else
           ListTile(
@@ -210,7 +213,9 @@ class _AssignmentSection extends ConsumerWidget {
                   : 'assigned-${costume.id}-$assignedId',
             ),
             contentPadding: EdgeInsets.zero,
-            title: Text(assignedName ?? 'Unassigned'),
+            title: Text(
+              assignedName ?? l10nOf(context).costumeDetailUnassigned,
+            ),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -218,7 +223,7 @@ class _AssignmentSection extends ConsumerWidget {
                   IconButton(
                     key: Key('costume-unassign-${costume.id}'),
                     icon: const Icon(Icons.person_remove_outlined),
-                    tooltip: 'Unassign',
+                    tooltip: l10nOf(context).costumeDetailUnassignTooltip,
                     onPressed: () => _confirmUnassign(context, ref),
                   ),
                 FilledButton.tonal(
@@ -229,7 +234,9 @@ class _AssignmentSection extends ConsumerWidget {
                       ? null
                       : () => _pickCharacter(context, ref, characters.rows),
                   child: Text(
-                    costume.characterId == null ? 'Assign' : 'Reassign',
+                    costume.characterId == null
+                        ? l10nOf(context).costumeDetailAssign
+                        : l10nOf(context).costumeDetailReassign,
                   ),
                 ),
               ],
@@ -272,18 +279,16 @@ class _AssignmentSection extends ConsumerWidget {
   }
 
   Future<void> _confirmUnassign(BuildContext context, WidgetRef ref) {
+    final l10n = l10nOf(context);
     return showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Unassign character?'),
-        content: const Text(
-          'The costume keeps its details and notes; only the character '
-          'binding is removed.',
-        ),
+        title: Text(l10n.costumeDetailUnassignTitle),
+        content: Text(l10n.costumeDetailUnassignMessage),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
+            child: Text(l10n.commonCancel),
           ),
           FilledButton(
             key: Key('costume-unassign-confirm-${costume.id}'),
@@ -295,7 +300,7 @@ class _AssignmentSection extends ConsumerWidget {
               unassignResult.match<void>((_) {}, (_) {});
               if (dialogContext.mounted) Navigator.of(dialogContext).pop();
             },
-            child: const Text('Unassign'),
+            child: Text(l10n.costumeDetailUnassignTooltip),
           ),
         ],
       ),
@@ -341,15 +346,18 @@ class _NotesSectionState extends ConsumerState<_NotesSection> {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Text('Notes', style: Theme.of(context).textTheme.titleMedium),
+      Text(
+        l10nOf(context).costumeDetailNotes,
+        style: Theme.of(context).textTheme.titleMedium,
+      ),
       const SizedBox(height: 8),
       TextField(
         key: Key('costume-notes-${widget.costume.id}'),
         controller: _controller,
         maxLines: 3,
-        decoration: const InputDecoration(
-          border: OutlineInputBorder(),
-          hintText: 'Fitting notes…',
+        decoration: InputDecoration(
+          border: const OutlineInputBorder(),
+          hintText: l10nOf(context).costumeDetailNotesHint,
         ),
       ),
       const SizedBox(height: 8),
@@ -364,7 +372,7 @@ class _NotesSectionState extends ConsumerState<_NotesSection> {
                 .updateNotes(costume: widget.costume, notes: _controller.text);
             notesResult.match<void>((_) {}, (_) {});
           },
-          child: const Text('Save notes'),
+          child: Text(l10nOf(context).costumeDetailSaveNotes),
         ),
       ),
     ],
@@ -385,12 +393,15 @@ class _DetailsSection extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Details', style: Theme.of(context).textTheme.titleMedium),
+        Text(
+          l10nOf(context).costumeDetailDetails,
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
         const SizedBox(height: 8),
         if (costume.details.isEmpty)
-          const Text(
-            'No details yet — add the first one below.',
-            key: Key('costume-details-empty'),
+          Text(
+            l10nOf(context).costumeDetailNoDetails,
+            key: const Key('costume-details-empty'),
           )
         else
           for (final d in costume.details)
@@ -416,7 +427,7 @@ class _DetailsSection extends ConsumerWidget {
         FilledButton.tonal(
           key: Key('costume-detail-add-${costume.id}'),
           onPressed: () => _showAddDetail(context, ref, categories.rows),
-          child: const Text('Add detail'),
+          child: Text(l10nOf(context).costumeDetailAddDetail),
         ),
       ],
     );
@@ -480,7 +491,7 @@ class _AddDetailFormState extends ConsumerState<_AddDetailForm> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Add detail'),
+    title: Text(l10nOf(context).costumeDetailAddDetail),
     content: Form(
       key: _formKey,
       child: Column(
@@ -489,18 +500,25 @@ class _AddDetailFormState extends ConsumerState<_AddDetailForm> {
           TextFormField(
             key: const Key('add-detail-subject'),
             controller: _subject,
-            decoration: const InputDecoration(labelText: 'Subject'),
+            decoration: InputDecoration(
+              labelText: l10nOf(context).costumeDetailSubject,
+            ),
           ),
           TextFormField(
             key: const Key('add-detail-text'),
             controller: _text,
-            decoration: const InputDecoration(labelText: 'Text'),
-            validator: (v) =>
-                (v == null || v.trim().isEmpty) ? 'Text is required' : null,
+            decoration: InputDecoration(
+              labelText: l10nOf(context).costumeDetailText,
+            ),
+            validator: (v) => (v == null || v.trim().isEmpty)
+                ? l10nOf(context).costumeDetailTextRequired
+                : null,
           ),
           DropdownButtonFormField<String>(
             key: const Key('add-detail-category'),
-            decoration: const InputDecoration(labelText: 'Category'),
+            decoration: InputDecoration(
+              labelText: l10nOf(context).costumeDetailCategory,
+            ),
             items: [
               for (final c in widget.categories)
                 DropdownMenuItem(value: c.id, child: Text(c.name)),
@@ -513,7 +531,7 @@ class _AddDetailFormState extends ConsumerState<_AddDetailForm> {
     actions: [
       TextButton(
         onPressed: () => Navigator.of(context).pop(),
-        child: const Text('Cancel'),
+        child: Text(l10nOf(context).commonCancel),
       ),
       FilledButton(
         key: const Key('add-detail-submit'),
@@ -535,7 +553,7 @@ class _AddDetailFormState extends ConsumerState<_AddDetailForm> {
             Navigator.of(context).pop();
           }
         },
-        child: const Text('Add'),
+        child: Text(l10nOf(context).commonAdd),
       ),
     ],
   );
@@ -587,7 +605,10 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
       children: [
         Row(
           children: [
-            Text('Photos', style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              l10nOf(context).costumeDetailPhotos,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const Spacer(),
             if (_busy)
               const SizedBox(
@@ -600,15 +621,14 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
         ),
         const SizedBox(height: 8),
         if (denied)
-          const Text(
-            'You need an active costume role in this season to manage '
-            'photos.',
-            key: Key('photo-denied-narrative'),
+          Text(
+            l10nOf(context).photoErrorForbidden,
+            key: const Key('photo-denied-narrative'),
           ),
         if (unassigned)
-          const Text(
-            'Assign the costume to a character before managing photos.',
-            key: Key('photo-assignment-gate-narrative'),
+          Text(
+            l10nOf(context).photoErrorRequiresCharacter,
+            key: const Key('photo-assignment-gate-narrative'),
           ),
         PhotoGallery(
           costume: widget.costume,
@@ -633,14 +653,14 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
                 key: Key('photo-capture-camera-${widget.costume.id}'),
                 onPressed: _busy ? null : () => _capture(ImageSource.camera),
                 icon: const Icon(Icons.photo_camera),
-                label: const Text('Camera'),
+                label: Text(l10nOf(context).costumeDetailCamera),
               ),
               const SizedBox(width: 8),
               FilledButton.tonalIcon(
                 key: Key('photo-capture-gallery-${widget.costume.id}'),
                 onPressed: _busy ? null : () => _capture(ImageSource.gallery),
                 icon: const Icon(Icons.photo_library),
-                label: const Text('Gallery'),
+                label: Text(l10nOf(context).costumeDetailGallery),
               ),
             ],
           ),
@@ -683,20 +703,17 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
     final accepted = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Document costumes with photos?'),
-        content: const Text(
-          'Photos let the wardrobe team document costumes and track '
-          'continuity. The system will ask for camera access next.',
-        ),
+        title: Text(l10nOf(dialogContext).costumeDetailPromptTitle),
+        content: Text(l10nOf(dialogContext).costumeDetailPromptBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Not now'),
+            child: Text(l10nOf(dialogContext).costumeDetailNotNow),
           ),
           FilledButton(
             key: const Key('photo-rationale-accept'),
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Continue'),
+            child: Text(l10nOf(dialogContext).costumeDetailContinue),
           ),
         ],
       ),
@@ -709,12 +726,12 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
     return showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text(captureDeniedTitle(denied)),
-        content: Text(captureOutcomeCopy(denied)),
+        title: Text(captureDeniedTitle(l10nOf(dialogContext), denied)),
+        content: Text(captureOutcomeCopy(l10nOf(dialogContext), denied)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Close'),
+            child: Text(l10nOf(dialogContext).settingsClose),
           ),
           FilledButton(
             key: const Key('photo-open-settings'),
@@ -724,7 +741,7 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
                 Navigator.of(dialogContext).pop();
               }
             },
-            child: const Text('Open settings'),
+            child: Text(l10nOf(dialogContext).costumeDetailOpenSettings),
           ),
         ],
       ),
@@ -733,7 +750,11 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
 
   void _showUnavailable() {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(captureOutcomeCopy(const CaptureUnavailable()))),
+      SnackBar(
+        content: Text(
+          captureOutcomeCopy(l10nOf(context), const CaptureUnavailable()),
+        ),
+      ),
     );
   }
 
@@ -749,7 +770,10 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            photoErrorCopy(const ProblemError(code: 'photo.read_failed')),
+            photoErrorCopy(
+              l10nOf(context),
+              const ProblemError(code: 'photo.read_failed'),
+            ),
           ),
         ),
       );
@@ -777,7 +801,11 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
         uploadResult.match<void>((_) {}, (_) {});
       case PrepareFailure(:final code):
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(photoErrorCopy(ProblemError(code: code)))),
+          SnackBar(
+            content: Text(
+              photoErrorCopy(l10nOf(context), ProblemError(code: code)),
+            ),
+          ),
         );
     }
   }
@@ -786,14 +814,12 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
     return showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Delete photo?'),
-        content: const Text(
-          'The photo and its variants are removed. This cannot be undone.',
-        ),
+        title: Text(l10nOf(dialogContext).photoDeleteTitle),
+        content: Text(l10nOf(dialogContext).costumeDetailDeletePhotoMessage),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
+            child: Text(l10nOf(dialogContext).commonCancel),
           ),
           FilledButton(
             key: Key('photo-delete-confirm-$photoId'),
@@ -805,7 +831,7 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
               deleteResult.match<void>((_) {}, (_) {});
               if (dialogContext.mounted) Navigator.of(dialogContext).pop();
             },
-            child: const Text('Delete'),
+            child: Text(l10nOf(dialogContext).commonDelete),
           ),
         ],
       ),

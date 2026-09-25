@@ -4,6 +4,8 @@
 # Co-authored-by: qwen3.8-flash (opencode-go)
 # Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 # Co-authored-by: deepseek-v4-flash (neuralwatt)
+# Co-authored-by: space-bunny-free (opencode-go)
+# Co-authored-by: space-bunny-free (opencode)
 
 #
 # Flutter CI — gates changes under frontend-flutter/**.
@@ -281,6 +283,68 @@ jobs:
           sarif_file: ${{ github.workspace }}/gitleaks-frontend-flutter.sarif
           category: gitleaks-frontend-flutter
         continue-on-error: true
+
+  l10n-drift:
+    name: Localization catalog and generated output
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend-flutter
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate and validate localization catalog
+        run: |
+          set -euo pipefail
+          flutter pub get
+          flutter gen-l10n
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          def keys(path):
+              data = json.loads(Path(path).read_text(encoding='utf-8'))
+              return {key for key in data if not key.startswith('@')}
+
+          de = keys('lib/l10n/app_de.arb')
+          en = keys('lib/l10n/app_en.arb')
+          if de != en:
+              only_de = sorted(de - en)
+              only_en = sorted(en - de)
+              raise SystemExit(
+                  'ARB key-set parity failed: '
+                  f'German-only={only_de}, English-only={only_en}'
+              )
+
+          report_path = Path('l10n-untranslated.json')
+          report = json.loads(report_path.read_text(encoding='utf-8'))
+          if report:
+              raise SystemExit(
+                  'Untranslated localization entries found: '
+                  f'{sorted(report)}'
+              )
+          PY
+          git diff --exit-code -- lib/l10n/generated
+          echo 'Localization catalog is complete and generated output is current.'
+
+      - name: Reject user-facing inline copy under lib/features
+        run: |
+          set -euo pipefail
+          ./tool/check_inline_copy.sh
+
+      - name: Verify the glossary ARB inventory
+        run: |
+          set -euo pipefail
+          ./tool/check_glossary_catalog.py
 
   # OpenAPI-client drift check (issue #301 follow-up / wire-openapi-dart-client
   # task 4). Regenerates vendor/breakdown_api/ from backend/openapi.yaml into a

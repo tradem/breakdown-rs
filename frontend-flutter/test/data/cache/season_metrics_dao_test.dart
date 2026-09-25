@@ -223,12 +223,28 @@ void main() {
   });
 
   group('relativeTimeSince (task 2.3, deterministic via Clock.fixed)', () {
+    // The data layer holds no user-facing copy: the test injects the same
+    // unit wording the ARB catalog supplies at runtime.
+    final de = RelativeTimeCopy(
+      justNow: 'gerade eben',
+      minutes: (n) => 'vor $n min',
+      hours: (n) => 'vor $n h',
+      days: (n) => 'vor $n d',
+    );
+    final en = RelativeTimeCopy(
+      justNow: 'just now',
+      minutes: (n) => '$n min ago',
+      hours: (n) => '$n h ago',
+      days: (n) => '$n d ago',
+    );
+
     test('buckets: just now / minutes / hours / days', () {
-      expect(relativeTimeSince(_now, clock: _clock), 'gerade eben');
+      expect(relativeTimeSince(_now, clock: _clock, copy: de), 'gerade eben');
       expect(
         relativeTimeSince(
           _now.subtract(const Duration(minutes: 5)),
           clock: _clock,
+          copy: de,
         ),
         'vor 5 min',
       );
@@ -236,6 +252,7 @@ void main() {
         relativeTimeSince(
           _now.subtract(const Duration(hours: 2)),
           clock: _clock,
+          copy: de,
         ),
         'vor 2 h',
       );
@@ -243,6 +260,7 @@ void main() {
         relativeTimeSince(
           _now.subtract(const Duration(days: 3)),
           clock: _clock,
+          copy: de,
         ),
         'vor 3 d',
       );
@@ -253,6 +271,7 @@ void main() {
         relativeTimeSince(
           _now.subtract(const Duration(minutes: 1)),
           clock: _clock,
+          copy: de,
         ),
         'vor 1 min',
       );
@@ -260,6 +279,7 @@ void main() {
         relativeTimeSince(
           _now.subtract(const Duration(hours: 1)),
           clock: _clock,
+          copy: de,
         ),
         'vor 1 h',
       );
@@ -267,9 +287,18 @@ void main() {
         relativeTimeSince(
           _now.subtract(const Duration(hours: 24)),
           clock: _clock,
+          copy: de,
         ),
         'vor 1 d',
       );
+    });
+
+    test('the same bucket renders the injected locale copy', () {
+      // Regression guard for CodeRabbit: the formatter must not carry a
+      // hardcoded German unit — the wording comes from the caller.
+      final when = _now.subtract(const Duration(hours: 2));
+      expect(relativeTimeSince(when, clock: _clock, copy: de), 'vor 2 h');
+      expect(relativeTimeSince(when, clock: _clock, copy: en), '2 h ago');
     });
   });
 }

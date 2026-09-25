@@ -106,7 +106,7 @@ void main() {
         h.ack('n1');
         await h.drain(h.coordinator.reconcile());
         expect(h.overlays.keys, ['n1']);
-        expect(h.overlays['n1'], 'stale:$kReconcileStaleWarning');
+        expect(h.overlays['n1'], 'stale:$kReconcileStaleWarningCode');
         // Bounded budget: attempts 1..3 each requested one tick.
         expect(h.scheduler.ticks, kMaxReconcileAttempts - 1);
         expect(h.refetches, kMaxReconcileAttempts);

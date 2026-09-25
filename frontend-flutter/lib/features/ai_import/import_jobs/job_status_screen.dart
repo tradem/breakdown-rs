@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/problem_error.dart';
+import '../../../l10n/app_localizations_provider.dart';
 import 'import_state.dart';
 import 'job_status_controller.dart';
 import 'preview_screen.dart';
@@ -42,7 +44,7 @@ class AiJobStatusScreen extends ConsumerWidget {
     final status = ref.watch(aiJobStatusControllerProvider(jobId));
 
     return Scaffold(
-      appBar: AppBar(title: const Text('AI import job')),
+      appBar: AppBar(title: Text(l10nOf(context).aiJobTitle)),
       body: ListView(
         key: const Key('ai-job-status-screen'),
         padding: const EdgeInsets.all(16),
@@ -51,12 +53,9 @@ class AiJobStatusScreen extends ConsumerWidget {
             Card(
               key: const Key('ai-job-duplicate-callout'),
               color: Theme.of(context).colorScheme.tertiaryContainer,
-              child: const Padding(
-                padding: EdgeInsets.all(12),
-                child: Text(
-                  'Already imported (duplicate) — showing the existing '
-                  'job. No second import was created.',
-                ),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text(l10nOf(context).aiJobDuplicate),
               ),
             ),
           switch (status) {
@@ -107,7 +106,7 @@ class _JobCard extends ConsumerWidget {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      jobStatusCopy(job.status),
+                      jobStatusCopy(l10nOf(context), job.status),
                       style: TextStyle(
                         color: scheme.onErrorContainer,
                         fontWeight: FontWeight.bold,
@@ -149,7 +148,7 @@ class _JobCard extends ConsumerWidget {
                 child: CircularProgressIndicator(strokeWidth: 3),
               ),
               const SizedBox(width: 12),
-              Expanded(child: Text(jobStatusCopy(job.status))),
+              Expanded(child: Text(jobStatusCopy(l10nOf(context), job.status))),
             ],
           ),
         ),
@@ -165,11 +164,14 @@ class _JobCard extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(jobStatusCopy(job.status)),
+              Text(jobStatusCopy(l10nOf(context), job.status)),
               const SizedBox(height: 4),
               Text(
                 key: const Key('ai-job-retry-budget'),
-                'Retry ${job.retries + 1} of ${job.maxRetries + 1}',
+                l10nOf(context).aiJobRetryBudget(
+                  '${job.maxRetries + 1}',
+                  '${job.retries + 1}',
+                ),
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
@@ -190,7 +192,9 @@ class _JobCard extends ConsumerWidget {
               children: [
                 Icon(Icons.check_circle_outline, color: scheme.primary),
                 const SizedBox(width: 8),
-                Expanded(child: Text(jobStatusCopy(job.status))),
+                Expanded(
+                  child: Text(jobStatusCopy(l10nOf(context), job.status)),
+                ),
               ],
             ),
             const SizedBox(height: 12),
@@ -201,7 +205,7 @@ class _JobCard extends ConsumerWidget {
                   builder: (_) => AiPreviewScreen(jobId: job.id),
                 ),
               ),
-              child: const Text('Review preview'),
+              child: Text(l10nOf(context).aiJobReviewPreview),
             ),
           ],
         ),
@@ -229,7 +233,7 @@ class _WatchErrorCard extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              jobWatchErrorCopy(error),
+              jobWatchErrorCopy(l10nOf(context), error),
               style: TextStyle(
                 color: Theme.of(context).colorScheme.onErrorContainer,
               ),
@@ -238,7 +242,7 @@ class _WatchErrorCard extends ConsumerWidget {
             OutlinedButton(
               key: const Key('ai-job-rearm'),
               onPressed: controller.rearm,
-              child: const Text('Check again'),
+              child: Text(l10nOf(context).aiJobCheckAgain),
             ),
           ],
         ),

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 // Tier-2 tests for the photo gallery + capture intent (Task 3.4): variant
 // states (Pending spinner / Ready thumb / Failed explanation +
@@ -20,6 +21,7 @@ import 'package:fpdart/fpdart.dart';
 import 'package:image_picker/image_picker.dart';
 
 import 'package:frontend_flutter/core/problem_error.dart';
+import 'package:frontend_flutter/l10n/generated/app_localizations_en.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/photo_repository.dart';
 import 'package:frontend_flutter/features/photos/capture.dart';
@@ -213,7 +215,10 @@ void main() {
           showRationale: () async => true,
         );
         expect(outcome, isA<CaptureDenied>());
-        expect(captureOutcomeCopy(outcome), contains('settings'));
+        expect(
+          captureOutcomeCopy(AppLocalizationsEn(), outcome),
+          contains('settings'),
+        );
       },
     );
 
@@ -230,10 +235,19 @@ void main() {
           showRationale: () async => true,
         );
         expect(outcome, isA<CaptureDenied>());
-        expect(captureOutcomeCopy(outcome), contains('Photo library access'));
-        expect(captureDeniedTitle(outcome), 'Photo library access disabled');
         expect(
-          captureDeniedTitle(const CaptureDenied(ImageSource.camera)),
+          captureOutcomeCopy(AppLocalizationsEn(), outcome),
+          contains('Photo library access'),
+        );
+        expect(
+          captureDeniedTitle(AppLocalizationsEn(), outcome),
+          'Photo library access disabled',
+        );
+        expect(
+          captureDeniedTitle(
+            AppLocalizationsEn(),
+            const CaptureDenied(ImageSource.camera),
+          ),
           'Camera access disabled',
         );
       },
@@ -250,7 +264,10 @@ void main() {
         showRationale: () async => true,
       );
       expect(outcome, isA<CaptureUnavailable>());
-      expect(captureOutcomeCopy(outcome), contains('unavailable'));
+      expect(
+        captureOutcomeCopy(AppLocalizationsEn(), outcome),
+        contains('unavailable'),
+      );
     });
 
     test('granted capture picks the file', () async {
@@ -270,17 +287,24 @@ void main() {
   group('photoErrorCopy branches', () {
     test('413/415/403 map to localized copy', () {
       expect(
-        photoErrorCopy(const ProblemError(code: 'photo.too_large')),
+        photoErrorCopy(
+          AppLocalizationsEn(),
+          const ProblemError(code: 'photo.too_large'),
+        ),
         contains('too large'),
       );
       expect(
         photoErrorCopy(
+          AppLocalizationsEn(),
           const ProblemError(code: 'photo.unsupported_media_type'),
         ),
         contains('JPEG'),
       );
       expect(
-        photoErrorCopy(const ProblemError(code: 'photo.forbidden')),
+        photoErrorCopy(
+          AppLocalizationsEn(),
+          const ProblemError(code: 'photo.forbidden'),
+        ),
         contains('costume role'),
       );
     });

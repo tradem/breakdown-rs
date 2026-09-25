@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'dart:async';
 
@@ -9,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/problem_error.dart';
+import '../../../l10n/app_localizations_provider.dart';
 import 'apply_controller.dart';
 import 'apply_screen.dart';
 import 'job_status_controller.dart';
@@ -34,7 +36,7 @@ class AiPreviewScreen extends ConsumerWidget {
     final preview = ref.watch(aiPreviewProvider(jobId));
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Import preview')),
+      appBar: AppBar(title: Text(l10nOf(context).aiPreviewTitle)),
       body: ListView(
         key: const Key('ai-preview-screen'),
         padding: const EdgeInsets.all(16),
@@ -82,20 +84,18 @@ class _DegradedCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (degraded)
-              const Text(
-                key: Key('ai-preview-kind-unknown'),
-                'Unrecognized preview payload — the backend produced a '
-                'shape this app version cannot render. No rows are '
-                'guessed; update the app or re-run the import.',
+              Text(
+                key: const Key('ai-preview-kind-unknown'),
+                l10nOf(context).aiPreviewKindUnknown,
               )
             else if (error.code == 'ai_import.preview_missing' ||
                 error.status == 404)
-              const Text(
-                key: Key('ai-preview-missing'),
-                'No preview available for this job yet.',
+              Text(
+                key: const Key('ai-preview-missing'),
+                l10nOf(context).aiPreviewMissing,
               )
             else
-              Text('The preview could not be loaded (${error.code}).'),
+              Text(l10nOf(context).aiPreviewLoadError(error.code)),
           ],
         ),
       ),
@@ -151,7 +151,7 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
         if (!mounted) return;
         ref
             .read(aiApplyControllerProvider(widget.jobId).notifier)
-            .seedRows(_actionableRows(payload), context);
+            .seedRows(_actionableRows(this.context, payload), context);
       }());
     }
 
@@ -170,7 +170,7 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
   }
 
   Widget _payloadHeader(BuildContext context, Object payload) {
-    final (title, subtitle) = _headerOf(payload);
+    final (title, subtitle) = _headerOf(context, payload);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -185,21 +185,25 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
     );
   }
 
-  (String, String) _headerOf(Object payload) => switch (payload) {
-    AiPreviewPayloadOneOf() => (
-      'Script preview',
-      '${payload.data.scenes.length} draft scene(s)',
-    ),
-    AiPreviewPayloadOneOf1() => (
-      'Schedule preview (pre-merge)',
-      '${payload.data.rows.length} schedule row(s)',
-    ),
-    AiPreviewPayloadOneOf2() => (
-      'Merged preview',
-      '${payload.data.scenes.length} matched scene(s)',
-    ),
-    _ => ('Preview', ''),
-  };
+  (String, String) _headerOf(BuildContext context, Object payload) =>
+      switch (payload) {
+        AiPreviewPayloadOneOf() => (
+          l10nOf(context).aiPreviewScriptTitle,
+          l10nOf(context)
+              .aiPreviewScriptSubtitle('${payload.data.scenes.length}'),
+        ),
+        AiPreviewPayloadOneOf1() => (
+          l10nOf(context).aiPreviewScheduleTitle,
+          l10nOf(context)
+              .aiPreviewScheduleSubtitle('${payload.data.rows.length}'),
+        ),
+        AiPreviewPayloadOneOf2() => (
+          l10nOf(context).aiPreviewMergedTitle,
+          l10nOf(context)
+              .aiPreviewMergedSubtitle('${payload.data.scenes.length}'),
+        ),
+        _ => (l10nOf(context).aiPreviewFallbackTitle, ''),
+      };
 
   List<Widget> _payloadRows(
     BuildContext context,
@@ -210,13 +214,15 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
         _PreviewRowCard(
           jobId: widget.jobId,
           draftRef: scene.draftRef,
-          label:
-              'Scene ${scene.sceneNumber ?? '?'}'
-              '${scene.summary == null ? '' : ' — ${scene.summary}'}',
+          label: l10nOf(context).aiPreviewSceneWithSummary(
+            '${scene.sceneNumber ?? '?'}',
+            scene.summary == null ? '' : ' — ${scene.summary}',
+          ),
         ),
       for (final uncertainty in payload.data.uncertainties)
         _InfoRowCard(
-          label: 'Uncertainty (${uncertainty.field}): ${uncertainty.note}',
+          label: l10nOf(context)
+              .aiPreviewUncertainty(uncertainty.field, uncertainty.note),
         ),
     ],
     AiPreviewPayloadOneOf1() => [
@@ -224,10 +230,11 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
       // them into actionable drafts; no decision chips on this shape.
       for (final row in payload.data.rows)
         _InfoRowCard(
-          label:
-              'Row ${row.rowRef}: '
-              '${row.sceneNumber == null ? '' : 'scene ${row.sceneNumber} · '}'
-              '${row.shootingDayLabel ?? row.date?.toString() ?? 'unscheduled'}',
+          label: l10nOf(context).aiPreviewRowRef(
+            row.rowRef,
+            '${row.sceneNumber == null ? '' : 'Szene ${row.sceneNumber} · '}'
+            '${row.shootingDayLabel ?? row.date?.toString() ?? l10nOf(context).aiPreviewUnscheduled}',
+          ),
         ),
     ],
     AiPreviewPayloadOneOf2() => [
@@ -235,42 +242,51 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
         _PreviewRowCard(
           jobId: widget.jobId,
           draftRef: merged.scene.id,
-          label:
-              'Scene ${merged.scene.sceneNumber ?? merged.scene.id}'
-              '${merged.scene.summary == null ? '' : ' — ${merged.scene.summary}'}'
-              ' · ${merged.scheduleRows.length} schedule row(s)',
+          label: l10nOf(context).aiPreviewSceneWithSummary(
+            '${merged.scene.sceneNumber ?? merged.scene.id}',
+            '${merged.scene.summary == null ? '' : ' — ${merged.scene.summary}'}'
+                '${l10nOf(context).aiPreviewScheduledRowCount('${merged.scheduleRows.length}')}',
+          ),
         ),
       // Unmatched rows render as NON-actionable info cards — they are
       // excluded from the decisions and from one-tap accept-all (no
       // silent coercion into fabricated typed rows).
       for (final row in payload.data.unmatchedScheduleRows)
-        _InfoRowCard(label: 'Unmatched schedule row: ${row.rowRef}'),
+        _InfoRowCard(
+          label: l10nOf(context).aiPreviewUnmatchedScheduleRow(row.rowRef),
+        ),
       for (final scene in payload.data.unmatchedScriptScenes)
-        _InfoRowCard(label: 'Unmatched script scene: ${scene.id}'),
+        _InfoRowCard(
+          label: l10nOf(context).aiPreviewUnmatchedScriptScene(scene.id),
+        ),
     ],
-    _ => const [_InfoRowCard(label: 'Unrecognized payload shape.')],
+    _ => [_InfoRowCard(label: l10nOf(context).aiPreviewUnrecognizedShape)],
   };
 
   /// The actionable rows (never the info cards): script scenes carry
   /// their `draft_ref`s; merged previews act on the merged scene ids.
-  List<PreviewRow> _actionableRows(Object payload) => switch (payload) {
-    AiPreviewPayloadOneOf() => [
-      for (final scene in payload.data.scenes)
-        PreviewRow(
-          draftRef: scene.draftRef,
-          label: 'Scene ${scene.sceneNumber ?? '?'}',
-        ),
-    ],
-    AiPreviewPayloadOneOf2() => [
-      for (final merged in payload.data.scenes)
-        PreviewRow(
-          draftRef: merged.scene.id,
-          label: 'Scene ${merged.scene.sceneNumber ?? merged.scene.id}',
-        ),
-    ],
-    // Pre-merge schedule previews expose no actionable drafts yet.
-    _ => const <PreviewRow>[],
-  };
+  List<PreviewRow> _actionableRows(BuildContext context, Object payload) =>
+      switch (payload) {
+        AiPreviewPayloadOneOf() => [
+          for (final scene in payload.data.scenes)
+            PreviewRow(
+              draftRef: scene.draftRef,
+              label: l10nOf(context)
+                  .sceneTileLabel('${scene.sceneNumber ?? '?'}'),
+            ),
+        ],
+        AiPreviewPayloadOneOf2() => [
+          for (final merged in payload.data.scenes)
+            PreviewRow(
+              draftRef: merged.scene.id,
+              label: l10nOf(context).sceneTileLabel(
+                '${merged.scene.sceneNumber ?? merged.scene.id}',
+              ),
+            ),
+        ],
+        // Pre-merge schedule previews expose no actionable drafts yet.
+        _ => const <PreviewRow>[],
+      };
 }
 
 /// One actionable preview row: the verbatim `draft_ref` with its decision
@@ -308,10 +324,19 @@ class _PreviewRowCard extends ConsumerWidget {
             const SizedBox(height: 8),
             SegmentedButton<String>(
               key: Key('ai-row-decision-$draftRef'),
-              segments: const [
-                ButtonSegment(value: 'create', label: Text('Create')),
-                ButtonSegment(value: 'update', label: Text('Update')),
-                ButtonSegment(value: 'skip', label: Text('Skip')),
+              segments: [
+                ButtonSegment(
+                  value: 'create',
+                  label: Text(l10nOf(context).aiPreviewCreate),
+                ),
+                ButtonSegment(
+                  value: 'update',
+                  label: Text(l10nOf(context).aiPreviewUpdate),
+                ),
+                ButtonSegment(
+                  value: 'skip',
+                  label: Text(l10nOf(context).aiPreviewSkip),
+                ),
               ],
               selected: {
                 switch (decision) {
@@ -350,8 +375,10 @@ class _PreviewRowCard extends ConsumerWidget {
             if (decision is UpdateDecision)
               Text(
                 key: Key('ai-preview-row-picked-$draftRef'),
-                'Updates scene ${decision.aggregateId} '
-                '(v${decision.version})',
+                l10nOf(context).aiPreviewUpdatesScene(
+                  decision.aggregateId,
+                  '${decision.version}',
+                ),
                 style: Theme.of(context).textTheme.bodySmall,
               ),
           ],

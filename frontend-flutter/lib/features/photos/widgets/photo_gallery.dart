@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: space-bunny-free (opencode)
 
 import 'dart:async';
 import 'dart:collection';
@@ -14,6 +15,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/problem_error.dart';
 import '../../../data/photo_repository.dart';
+import '../../../l10n/app_localizations_provider.dart';
+import '../../../l10n/generated/app_localizations.dart';
 
 /// In-memory LRU bytes cache for photo variants (Task 3.3).
 ///
@@ -276,13 +279,16 @@ class _EmptyGallery extends StatelessWidget {
         const SizedBox(height: 8),
         // Explicit empty state — no placeholder images pretending to be
         // photos (spec flutter-photos-feature).
-        Text('No photos yet', key: Key('photo-gallery-empty-$costumeId')),
+        Text(
+          l10nOf(context).photoGalleryEmpty,
+          key: Key('photo-gallery-empty-$costumeId'),
+        ),
         if (canCapture && onCapture != null) ...[
           const SizedBox(height: 8),
           FilledButton.tonal(
             key: Key('photo-capture-$costumeId'),
             onPressed: onCapture,
-            child: const Text('Add photo'),
+            child: Text(l10nOf(context).photoGalleryAddPhoto),
           ),
         ],
       ],
@@ -315,7 +321,7 @@ class PhotoTile extends StatelessWidget {
     final status = photoRowStatus(photo);
     return Semantics(
       // Semantic label carries "photo of costume X" (spec §5).
-      label: 'Photo of costume $costumeId',
+      label: l10nOf(context).photoTileSemantics(costumeId),
       child: Card(
         key: Key('photo-tile-${photo.id}'),
         clipBehavior: Clip.antiAlias,
@@ -347,15 +353,15 @@ class PhotoTile extends StatelessWidget {
                   children: [
                     const Icon(Icons.error_outline),
                     const SizedBox(height: 4),
-                    const Text(
-                      'Processing failed',
-                      key: Key('photo-failed-explanation'),
+                    Text(
+                      l10nOf(context).photoGalleryProcessingFailed,
+                      key: const Key('photo-failed-explanation'),
                     ),
                     if (onRetryCapture != null)
                       TextButton(
                         key: Key('photo-capture-again-${photo.id}'),
                         onPressed: onRetryCapture,
-                        child: const Text('Capture again'),
+                        child: Text(l10nOf(context).photoGalleryCaptureAgain),
                       ),
                   ],
                 ),
@@ -374,7 +380,7 @@ class PhotoTile extends StatelessWidget {
                 child: IconButton(
                   key: Key('photo-delete-${photo.id}'),
                   icon: const Icon(Icons.delete_outline),
-                  tooltip: 'Delete photo',
+                  tooltip: l10nOf(context).photoGalleryDeleteTooltip,
                   onPressed: onDelete,
                 ),
               ),
@@ -412,18 +418,16 @@ class _StatusChip extends StatelessWidget {
 
 /// Localized copy for photo command failures, keyed on the stable problem
 /// `code` (never `detail` text).
-String photoErrorCopy(ProblemError error) => switch (error.code) {
-  // Client-side AUTHZ-GATE mirror denial (issue #513): the backend resolves
-  // the photo season through the costume's character; the client refuses
-  // upload/delete on an unassigned costume before any network call.
-  'photo.requires_character' =>
-    'Assign the costume to a character before managing photos.',
-  'photo.too_large' => 'The image is too large even after resizing.',
-  'photo.unsupported_media_type' =>
-    'Only JPEG, PNG and WebP photos are supported.',
-  'photo.forbidden' || 'authz.denied' =>
-    'You need an active costume role in this season to manage photos.',
-  _ when error.code.startsWith('transport.') =>
-    'Network problem — the photo change was not saved. Try again.',
-  _ => 'The photo could not be saved (${error.code}).',
-};
+String photoErrorCopy(AppLocalizations l10n, ProblemError error) =>
+    switch (error.code) {
+      // Client-side AUTHZ-GATE mirror denial (issue #513): the backend
+      // resolves the photo season through the costume's character; the
+      // client refuses upload/delete on an unassigned costume before any
+      // network call.
+      'photo.requires_character' => l10n.photoErrorRequiresCharacter,
+      'photo.too_large' => l10n.photoErrorTooLarge,
+      'photo.unsupported_media_type' => l10n.photoErrorUnsupported,
+      'photo.forbidden' || 'authz.denied' => l10n.photoErrorForbidden,
+      _ when error.code.startsWith('transport.') => l10n.photoErrorNetwork,
+      _ => l10n.photoErrorGeneric(error.code),
+    };

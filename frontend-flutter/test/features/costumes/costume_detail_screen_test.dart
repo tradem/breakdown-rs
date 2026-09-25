@@ -24,6 +24,7 @@ import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
+import 'package:frontend_flutter/l10n/generated/app_localizations_en.dart';
 import 'package:frontend_flutter/data/cache/hierarchy_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/data/character_repository.dart';
@@ -1019,6 +1020,7 @@ void main() {
     test('photo-command failures route to the photo copy, never "costume"', () {
       expect(
         costumeCommandErrorCopy(
+          AppLocalizationsEn(),
           const CostumeCommandFailure(
             CostumeCommandSurface.photo,
             ProblemError(code: 'photo.requires_character'),
@@ -1028,6 +1030,7 @@ void main() {
       );
       expect(
         costumeCommandErrorCopy(
+          AppLocalizationsEn(),
           const CostumeCommandFailure(
             CostumeCommandSurface.photo,
             ProblemError(code: 'photo.not-found'),
@@ -1037,6 +1040,7 @@ void main() {
       );
       expect(
         costumeCommandErrorCopy(
+          AppLocalizationsEn(),
           const CostumeCommandFailure(
             CostumeCommandSurface.photo,
             ProblemError(code: 'photo.forbidden'),
@@ -1054,6 +1058,7 @@ void main() {
       // saved".
       expect(
         costumeCommandErrorCopy(
+          AppLocalizationsEn(),
           const CostumeCommandFailure(
             CostumeCommandSurface.photo,
             ProblemError(code: 'domain.validation'),
@@ -1066,6 +1071,7 @@ void main() {
     test('costume-command codes keep the costume copy', () {
       expect(
         costumeCommandErrorCopy(
+          AppLocalizationsEn(),
           const CostumeCommandFailure(
             CostumeCommandSurface.costume,
             ProblemError(code: 'concurrency.version-mismatch'),
@@ -1075,6 +1081,7 @@ void main() {
       );
       expect(
         costumeCommandErrorCopy(
+          AppLocalizationsEn(),
           const CostumeCommandFailure(
             CostumeCommandSurface.costume,
             ProblemError(code: 'domain.validation'),

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/problem_error.dart';
 import '../../../data/cache/hierarchy_cache_dao.dart';
+import '../../../l10n/app_localizations_provider.dart';
 import '../../../data/cache/seasons_cache_providers.dart';
 import '../../scenes/scenes_controller.dart';
 import 'apply_controller.dart';
@@ -39,9 +41,9 @@ class AiApplySection extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Apply to episode',
-              style: TextStyle(fontWeight: FontWeight.bold),
+            Text(
+              l10nOf(context).aiApplyTitle,
+              style: const TextStyle(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             if (state.context != null)
@@ -49,10 +51,11 @@ class AiApplySection extends ConsumerWidget {
                 key: const Key('ai-apply-context'),
                 dense: true,
                 leading: const Icon(Icons.movie_creation_outlined),
-                title: Text('Episode ${state.context!.episodeId}'),
-                subtitle: const Text(
-                  'Remembered with this job — change below if needed.',
+                title: Text(
+                  l10nOf(context)
+                      .aiApplyContextEpisode(state.context!.episodeId),
                 ),
+                subtitle: Text(l10nOf(context).aiApplyContextRemembered),
               )
             else
               const _EpisodePickerRequired(),
@@ -60,10 +63,12 @@ class AiApplySection extends ConsumerWidget {
             Text(
               key: const Key('ai-apply-selection-summary'),
               state.acceptAsIs
-                  ? 'Create all drafts as-is (no edits).'
-                  : '${state.rows.where((r) => r.decision is UpdateDecision).length} update(s), '
-                        '${state.rows.where((r) => r.decision is SkipDecision).length} skip(s) — '
-                        'edit distance ${state.editDistance}.',
+                  ? l10nOf(context).aiApplyAcceptAsIs
+                  : l10nOf(context).aiApplySelectionSummary(
+                      '${state.rows.where((r) => r.decision is UpdateDecision).length}',
+                      '${state.rows.where((r) => r.decision is SkipDecision).length}',
+                      '${state.editDistance}',
+                    ),
             ),
             const SizedBox(height: 12),
             if (state.commandError != null)
@@ -71,7 +76,7 @@ class AiApplySection extends ConsumerWidget {
                 padding: const EdgeInsets.only(bottom: 12),
                 child: Text(
                   key: const Key('ai-apply-error'),
-                  aiApplyErrorCopy(state.commandError!),
+                  aiApplyErrorCopy(l10nOf(context), state.commandError!),
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ),
@@ -89,7 +94,7 @@ class AiApplySection extends ConsumerWidget {
                         applied.match<void>((_) {}, (_) {});
                       }
                     : null,
-                child: const Text('Apply import'),
+                child: Text(l10nOf(context).aiApplySubmit),
               ),
               const SizedBox(height: 8),
               // The explicit episode re-pick (also the missing-context
@@ -108,7 +113,7 @@ class AiApplySection extends ConsumerWidget {
                     );
                   }
                 },
-                child: const Text('Pick episode…'),
+                child: Text(l10nOf(context).aiApplyPickEpisode),
               ),
             ],
           ],
@@ -131,8 +136,8 @@ class _EpisodePickerRequired extends StatelessWidget {
       Icons.warning_amber_outlined,
       color: Theme.of(context).colorScheme.error,
     ),
-    title: const Text('No target episode remembered for this job.'),
-    subtitle: const Text('Pick an episode below to enable the apply.'),
+    title: Text(l10nOf(context).aiApplyNoContextTitle),
+    subtitle: Text(l10nOf(context).aiApplyNoContextSubtitle),
   );
 }
 
@@ -155,9 +160,11 @@ class _OutcomeCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
         ),
         child: Text(
-          'Applied ${outcome.appliedCount} draft(s): '
-          '${outcome.createdDays} shooting day(s) created, '
-          '${outcome.plannedSceneShoots} scene shoot(s) planned.',
+          l10nOf(context).aiApplyOutcome(
+            '${outcome.appliedCount}',
+            '${outcome.createdDays}',
+            '${outcome.plannedSceneShoots}',
+          ),
         ),
       ),
       const SizedBox(height: 12),
@@ -171,7 +178,7 @@ class _OutcomeCard extends StatelessWidget {
           // through the hierarchy navigation.
           Navigator.of(context).popUntil((route) => route.isFirst);
         },
-        child: const Text('Back to start'),
+        child: Text(l10nOf(context).aiApplyBackToStart),
       ),
     ],
   );
@@ -197,7 +204,7 @@ Future<SceneView?> showExistingScenePicker(
             AsyncData(:final value) => value.match(
               (err) => ListTile(
                 key: const Key('ai-scene-picker-error'),
-                title: Text('Scenes could not be loaded (${err.code}).'),
+                title: Text(l10nOf(context).aiScenePickerError(err.code)),
               ),
               (rows) => ListView(
                 key: const Key('ai-scene-picker'),
@@ -209,15 +216,16 @@ Future<SceneView?> showExistingScenePicker(
                       title: Text(
                         scene.sceneNumber == null
                             ? scene.id
-                            : 'Scene ${scene.sceneNumber}',
+                            : l10nOf(context)
+                                  .sceneTileLabel('${scene.sceneNumber}'),
                       ),
                       subtitle: Text(scene.summary ?? 'v${scene.version}'),
                       onTap: () => Navigator.of(sheetContext).pop(scene),
                     ),
                   if (rows.isEmpty)
-                    const ListTile(
-                      key: Key('ai-scene-picker-empty'),
-                      title: Text('No existing scenes in this episode.'),
+                    ListTile(
+                      key: const Key('ai-scene-picker-empty'),
+                      title: Text(l10nOf(context).aiScenePickerEmpty),
                     ),
                 ],
               ),
@@ -249,9 +257,9 @@ Future<EpisodeView?> showEpisodePicker(BuildContext context, WidgetRef ref) {
             height: 400,
             child: Column(
               children: [
-                const Padding(
-                  padding: EdgeInsets.all(12),
-                  child: Text('Pick the target episode'),
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Text(l10nOf(context).aiEpisodePickerTitle),
                 ),
                 Expanded(
                   child: switch (episodes) {
@@ -267,25 +275,25 @@ Future<EpisodeView?> showEpisodePicker(BuildContext context, WidgetRef ref) {
                     AsyncError(:final error) => ListTile(
                       key: const Key('ai-episode-picker-error'),
                       title: Text(
-                        'Cached episodes could not be read '
-                        '(${error is ProblemError ? error.code : error}).',
-                      ),
-                    ),
-                    AsyncData(:final value) when value.isEmpty =>
-                      const ListTile(
-                        key: Key('ai-episode-picker-empty'),
-                        title: Text(
-                          'No cached episodes — open a production '
-                          'block first, then pick.',
+                        l10nOf(context).aiEpisodePickerError(
+                          error is ProblemError ? error.code : '$error',
                         ),
                       ),
+                    ),
+                    AsyncData(:final value) when value.isEmpty => ListTile(
+                      key: const Key('ai-episode-picker-empty'),
+                      title: Text(l10nOf(context).aiEpisodePickerEmpty),
+                    ),
                     AsyncData(:final value) => ListView(
                       key: const Key('ai-episode-picker'),
                       children: [
                         for (final episode in value)
                           ListTile(
                             key: Key('ai-episode-pick-${episode.id}'),
-                            title: Text('Episode ${episode.number}'),
+                            title: Text(
+                              l10nOf(context)
+                                  .episodeTileLabel('${episode.number}'),
+                            ),
                             subtitle: Text(episode.name ?? episode.id),
                             onTap: () =>
                                 Navigator.of(sheetContext).pop(episode),

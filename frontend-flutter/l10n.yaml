@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: space-bunny-free (opencode-go)
+# Co-authored-by: deepseek-v4-flash (neuralwatt)
+
+arb-dir: lib/l10n
+template-arb-file: app_de.arb
+output-localization-file: app_localizations.dart
+output-dir: lib/l10n/generated
+nullable-getter: false
+untranslated-messages-file: l10n-untranslated.json

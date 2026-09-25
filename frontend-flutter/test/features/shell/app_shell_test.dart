@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 // Widget tests for the adaptive navigation shell (`redesign-app-shell-navigation`
 // tasks 5.1/5.2): three morphologies via `tester.view.physicalSize`
@@ -30,6 +32,7 @@ import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.
 import 'package:frontend_flutter/features/blocks/blocks_screen.dart';
 import 'package:frontend_flutter/features/seasons/seasons_screen.dart';
 import 'package:frontend_flutter/features/shell/app_shell.dart';
+import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 import 'package:frontend_flutter/features/shell/more_tab_screen.dart';
 import 'package:frontend_flutter/features/shell/planning_tab_screen.dart';
 import 'package:frontend_flutter/features/shell/shell_controller.dart';
@@ -197,10 +200,10 @@ void main() {
         // element-based `bySemanticsLabel` cannot reach it.
         SemanticsFinder hasLabel(String label) =>
             find.semantics.byPredicate((SemanticsNode n) => n.label == label);
-        expect(hasLabel('Season, Tab 1 of 4'), findsOneWidget);
-        expect(hasLabel('Planen, Tab 2 of 4'), findsOneWidget);
-        expect(hasLabel('Garderobe, Tab 3 of 4'), findsOneWidget);
-        expect(hasLabel('Mehr, Tab 4 of 4'), findsOneWidget);
+        expect(hasLabel('Season, Tab 1 von 4'), findsOneWidget);
+        expect(hasLabel('Planen, Tab 2 von 4'), findsOneWidget);
+        expect(hasLabel('Garderobe, Tab 3 von 4'), findsOneWidget);
+        expect(hasLabel('Mehr, Tab 4 von 4'), findsOneWidget);
         semantics.dispose();
       },
     );
@@ -336,6 +339,12 @@ void main() {
             theme: AppThemes.light(),
             darkTheme: AppThemes.dark(),
             themeMode: mode,
+            // AGENTS.md §6: goldens use the German template locale. Without
+            // it this harness mixed German nav labels with English
+            // nested-screen copy.
+            locale: const Locale('de'),
+            supportedLocales: AppLocalizations.supportedLocales,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
             home: AppShell(),
           ),
         ),

@@ -2,6 +2,7 @@
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: gpt-5.6-luna (opencode-go) -->
 <!-- Co-authored-by: deepseek-v4-flash (opencode-go) -->
+<!-- Co-authored-by: deepseek-v4-flash (neuralwatt) -->
 
 # Architecture Decision Records (ADRs)
 
@@ -58,6 +59,7 @@ and their consequences.
 | [030](ADR-030-ai-import-bounded-context.md) | AI Import Bounded Context | Accepted | 2026-08-02 | Tobias Rademacher (@tradem); gpt-5.6-luna (opencode-go) |
 | [031](ADR-031-http-error-surface.md) | HTTP Error Surface — RFC 9457 Problem Details, Stable Codes, Server-Side i18n | Accepted | 2026-08-12 | Tobias Rademacher (@tradem); kimi-k3 (neuralwatt) |
 | [032](ADR-032-flutter-client-tls-pinning-rotation.md) | Flutter Client TLS Certificate Pinning & Production Rotation Policy | Proposed | 2026-09-01 | Tobias Rademacher (@tradem); hy3 (opencode-go) |
+| [034](ADR-034-flutter-app-localization-gen-l10n.md) | Flutter App Localization with the Official gen-l10n Pipeline | Accepted | 2026-09-04 | Tobias Rademacher (@tradem); glm-5.3 (neuralwatt) |
 
 ## Creating a New ADR
 

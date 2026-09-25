@@ -3,6 +3,8 @@
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'dart:async';
 
@@ -28,6 +30,7 @@ import 'package:frontend_flutter/design/theme.dart';
 import 'package:frontend_flutter/features/shell/shell_controller.dart';
 import 'package:frontend_flutter/features/seasons/seasons_controller.dart';
 import 'package:frontend_flutter/features/seasons/seasons_screen.dart';
+import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 
 import 'seasons_test_fakes.dart';
 
@@ -134,6 +137,11 @@ void main() {
         container: container,
         child: MaterialApp(
           theme: theme ?? AppThemes.light(),
+          // AGENTS.md §6: goldens use the German template locale, so the
+          // localized season copy must be rendered in German here.
+          locale: const Locale('de'),
+          supportedLocales: AppLocalizations.supportedLocales,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
           home: const SeasonsScreen(),
         ),
       ),
@@ -250,7 +258,8 @@ void main() {
       await pumpFrames(tester);
 
       expect(repo.createCalls, 0);
-      expect(find.text('A whole number is required'), findsOneWidget);
+      // The golden harness renders the German template locale (AGENTS.md §6).
+      expect(find.text('Es ist eine ganze Zahl erforderlich'), findsOneWidget);
     });
   });
 
@@ -265,7 +274,7 @@ void main() {
       await submitCreate(tester, seriesId: 's1', number: '1', title: 'Ghost');
 
       expect(find.byKey(const Key('create-error-banner')), findsOneWidget);
-      expect(find.textContaining('Network problem'), findsOneWidget);
+      expect(find.textContaining('Netzwerkproblem'), findsOneWidget);
       // No phantom optimistic row.
       expect(find.byKey(const Key('overlay-n1')), findsNothing);
       expect(find.text('Ghost'), findsNothing);
@@ -283,7 +292,7 @@ void main() {
       await submitCreate(tester, seriesId: 's1', number: '1', title: 'Dup');
 
       expect(find.byKey(const Key('create-error-banner')), findsOneWidget);
-      expect(find.textContaining('already exists'), findsOneWidget);
+      expect(find.textContaining('existiert bereits'), findsOneWidget);
       // No overlay was ever created (the 2xx never happened).
       expect(find.byKey(const Key('overlay-n1')), findsNothing);
       // The pre-existing projected row is untouched.
@@ -324,7 +333,7 @@ void main() {
 
       // Stale UI: warning copy + non-spinner icon, row still visible.
       expect(find.byKey(const Key('overlay-n1')), findsOneWidget);
-      expect(find.textContaining('catching up'), findsOneWidget);
+      expect(find.textContaining('noch aktualisiert'), findsOneWidget);
       expect(find.byIcon(Icons.cloud_off), findsOneWidget);
       expect(find.byKey(const Key('overlay-spinner')), findsNothing);
 
@@ -459,7 +468,10 @@ void main() {
       // Keys/semantics unchanged from the tile era.
       expect(find.byKey(const Key('overlay-n1')), findsOneWidget);
       expect(find.text('Autumn'), findsOneWidget);
-      expect(find.text('Just created — syncing…'), findsOneWidget);
+      expect(
+        find.text('Wird erstellt — Synchronisierung läuft…'),
+        findsOneWidget,
+      );
       expect(find.byKey(const Key('overlay-spinner')), findsOneWidget);
     });
 

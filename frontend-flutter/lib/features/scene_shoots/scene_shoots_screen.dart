@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3 (opencode)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
@@ -9,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
+import '../../l10n/app_localizations_provider.dart';
 import '../reports/reports_screen.dart';
 import '../shooting_days/shooting_days_controller.dart';
 import 'scene_shoots_controller.dart';
@@ -73,12 +75,12 @@ class SceneShootsScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(dayNow.label ?? 'Shooting day'),
+        title: Text(dayNow.label ?? l10nOf(context).sceneShootDayFallback),
         actions: [
           IconButton(
             key: const Key('reports-open'),
             icon: const Icon(Icons.summarize_outlined),
-            tooltip: 'Reports',
+            tooltip: l10nOf(context).sceneShootsReportsTooltip,
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (context) =>
@@ -93,18 +95,18 @@ class SceneShootsScreen extends ConsumerWidget {
           if (state.commandError case final error?)
             _Banner(
               key: const Key('scene-shoot-command-error-banner'),
-              text: sceneShootErrorCopy(error),
+              text: sceneShootErrorCopy(l10nOf(context), error),
               onDismiss: controller.dismissCommandError,
             ),
           if (state.isStale && notFound == null)
-            const _Banner(
-              key: Key('scene-shoots-stale-banner'),
-              text: 'Cached data may be outdated',
+            _Banner(
+              key: const Key('scene-shoots-stale-banner'),
+              text: l10nOf(context).sceneShootsStaleBanner,
             ),
           if (wrapped)
-            const _Banner(
-              key: Key('scene-shoots-wrapped-banner'),
-              text: 'This day is wrapped — execution is final and read-only.',
+            _Banner(
+              key: const Key('scene-shoots-wrapped-banner'),
+              text: l10nOf(context).sceneShootsWrappedBanner,
             ),
           Expanded(
             child: notFound != null
@@ -191,7 +193,7 @@ class SceneShootsScreen extends ConsumerWidget {
                   key: const Key('scene-shoots-wrap'),
                   onPressed: () =>
                       _confirmWrap(context, ref, scope, dayNow.version),
-                  child: const Text('Wrap shooting day'),
+                  child: Text(l10nOf(context).sceneShootWrapButton),
                 ),
               ),
             ),
@@ -206,26 +208,23 @@ class SceneShootsScreen extends ConsumerWidget {
     SceneShootDayScope scope,
     int dayVersion,
   ) async {
+    final l10n = l10nOf(context);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         key: const Key('wrap-confirm-dialog'),
-        title: const Text('Wrap this shooting day?'),
-        content: const Text(
-          'Wrapping marks the day as final: started, finished and skipped '
-          'states can no longer be changed. This cannot be undone — there '
-          'is no unwrap in the contract.',
-        ),
+        title: Text(l10n.sceneShootWrapTitle),
+        content: Text(l10n.sceneShootWrapMessage),
         actions: [
           TextButton(
             key: const Key('wrap-cancel-button'),
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
+            child: Text(l10n.commonCancel),
           ),
           FilledButton(
             key: const Key('wrap-confirm-button'),
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Wrap day'),
+            child: Text(l10n.sceneShootWrapConfirm),
           ),
         ],
       ),
@@ -312,7 +311,7 @@ class _ShootCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    'Scene $sceneRef',
+                    l10nOf(context).sceneTileLabel(sceneRef),
                     style: theme.textTheme.titleSmall,
                   ),
                 ),
@@ -334,14 +333,19 @@ class _ShootCard extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               shoot.actualOrder != null
-                  ? 'Actual ${shoot.actualOrder} (planned ${shoot.plannedOrder})'
-                  : 'Planned ${shoot.plannedOrder}',
+                  ? l10nOf(context).sceneShootActualOrder(
+                      shoot.actualOrder!,
+                      shoot.plannedOrder,
+                    )
+                  : l10nOf(context).sceneShootPlannedOrder(shoot.plannedOrder),
               key: Key('scene-shoot-order-${shoot.id}'),
               style: theme.textTheme.bodySmall,
             ),
             Text(
-              '${shoot.notes.length} notes · '
-              '${shoot.continuityPhotoIds.length} continuity photos',
+              l10nOf(context).sceneShootCounts(
+                '${shoot.notes.length}',
+                '${shoot.continuityPhotoIds.length}',
+              ),
               style: theme.textTheme.bodySmall,
             ),
             _ShootNotes(shoot: shoot, scope: scope, enabled: !wrapped),
@@ -355,19 +359,19 @@ class _ShootCard extends StatelessWidget {
                     TextButton(
                       key: Key('scene-shoot-start-${shoot.id}'),
                       onPressed: onStart,
-                      child: const Text('Start'),
+                      child: Text(l10nOf(context).sceneShootStart),
                     ),
                   if (onFinish != null)
                     TextButton(
                       key: Key('scene-shoot-finish-${shoot.id}'),
                       onPressed: onFinish,
-                      child: const Text('Finish'),
+                      child: Text(l10nOf(context).sceneShootFinish),
                     ),
                   if (onSkip != null)
                     TextButton(
                       key: Key('scene-shoot-skip-${shoot.id}'),
                       onPressed: onSkip,
-                      child: const Text('Skip'),
+                      child: Text(l10nOf(context).sceneShootSkip),
                     ),
                 ],
               ),
@@ -394,7 +398,7 @@ class _ShootOrderMenu extends ConsumerWidget {
     return PopupMenuButton<String>(
       key: Key('scene-shoot-menu-${shoot.id}'),
       icon: const Icon(Icons.unfold_more),
-      tooltip: 'Order',
+      tooltip: l10nOf(context).sceneShootOrderTooltip,
       onSelected: (value) async {
         if (value == 'actual') {
           await _editActualOrder(context, controller);
@@ -406,12 +410,12 @@ class _ShootOrderMenu extends ConsumerWidget {
         PopupMenuItem(
           key: Key('scene-shoot-actual-order-${shoot.id}'),
           value: 'actual',
-          child: const Text('Set actual order…'),
+          child: Text(l10nOf(context).sceneShootSetActualOrder),
         ),
         PopupMenuItem(
           key: Key('scene-shoot-replan-${shoot.id}'),
           value: 'replan',
-          child: const Text('Change planned position…'),
+          child: Text(l10nOf(context).sceneShootChangePlanned),
         ),
       ],
     );
@@ -423,9 +427,8 @@ class _ShootOrderMenu extends ConsumerWidget {
   ) async {
     final key = await _OrderKeyDialog.show(
       context,
-      title: 'Set actual order',
-      explanation:
-          'The Ist execution key — sorts this shoot in the actual sequence.',
+      title: l10nOf(context).sceneShootSetActualTitle,
+      explanation: l10nOf(context).sceneShootSetActualExplanation,
       initial: shoot.actualOrder ?? shoot.plannedOrder,
     );
     if (key != null && key.isNotEmpty && key != shoot.actualOrder) {
@@ -444,8 +447,8 @@ class _ShootOrderMenu extends ConsumerWidget {
   ) async {
     final key = await _OrderKeyDialog.show(
       context,
-      title: 'Change planned position',
-      explanation: 'The Soll position key for this shoot.',
+      title: l10nOf(context).sceneShootChangePlannedTitle,
+      explanation: l10nOf(context).sceneShootChangePlannedExplanation,
       initial: shoot.plannedOrder,
     );
     if (key != null && key.isNotEmpty && key != shoot.plannedOrder) {
@@ -511,8 +514,8 @@ class _OrderKeyDialogState extends State<_OrderKeyDialog> {
           key: const Key('order-key-field'),
           controller: _field,
           autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'Order key (printable ASCII)',
+          decoration: InputDecoration(
+            hintText: l10nOf(context).sceneShootOrderKeyHint,
           ),
           onChanged: (_) => setState(() {}),
         ),
@@ -521,14 +524,14 @@ class _OrderKeyDialogState extends State<_OrderKeyDialog> {
     actions: [
       TextButton(
         onPressed: () => Navigator.of(context).pop(),
-        child: const Text('Cancel'),
+        child: Text(l10nOf(context).commonCancel),
       ),
       FilledButton(
         key: const Key('order-key-save'),
         onPressed: _field.text.trim().isEmpty
             ? null
             : () => Navigator.of(context).pop(_field.text.trim()),
-        child: const Text('Save'),
+        child: Text(l10nOf(context).commonSave),
       ),
     ],
   );
@@ -555,7 +558,9 @@ class _ShootNotes extends ConsumerWidget {
     final controller = ref.read(sceneShootsControllerProvider(scope).notifier);
     return ExpansionTile(
       key: Key('scene-shoot-notes-${shoot.id}'),
-      title: Text('Notes (${shoot.notes.length})'),
+      title: Text(
+        l10nOf(context).sceneShootNotesTitle('${shoot.notes.length}'),
+      ),
       children: [
         for (final note in shoot.notes)
           ListTile(
@@ -568,13 +573,13 @@ class _ShootNotes extends ConsumerWidget {
                       IconButton(
                         key: Key('scene-shoot-note-edit-${note.id}'),
                         icon: const Icon(Icons.edit),
-                        tooltip: 'Edit note',
+                        tooltip: l10nOf(context).sceneShootEditNoteTooltip,
                         onPressed: () => _editNote(context, controller, note),
                       ),
                       IconButton(
                         key: Key('scene-shoot-note-delete-${note.id}'),
                         icon: const Icon(Icons.delete),
-                        tooltip: 'Delete note',
+                        tooltip: l10nOf(context).sceneShootDeleteNoteTooltip,
                         onPressed: () =>
                             _confirmDelete(context, controller, note),
                       ),
@@ -588,7 +593,7 @@ class _ShootNotes extends ConsumerWidget {
             child: TextButton.icon(
               key: Key('scene-shoot-note-add-${shoot.id}'),
               icon: const Icon(Icons.add),
-              label: const Text('Add note'),
+              label: Text(l10nOf(context).sceneShootAddNote),
               onPressed: () => _addNote(context, controller),
             ),
           ),
@@ -634,17 +639,17 @@ class _ShootNotes extends ConsumerWidget {
       context: context,
       builder: (context) => AlertDialog(
         key: const Key('note-delete-confirm-dialog'),
-        title: const Text('Delete this note?'),
-        content: Text('“${note.body}” will be removed from the shoot.'),
+        title: Text(l10nOf(context).sceneShootDeleteNoteTitle),
+        content: Text(l10nOf(context).sceneShootDeleteNoteMessage(note.body)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
+            child: Text(l10nOf(context).commonCancel),
           ),
           FilledButton(
             key: const Key('note-delete-confirm-button'),
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Delete'),
+            child: Text(l10nOf(context).commonDelete),
           ),
         ],
       ),
@@ -687,26 +692,30 @@ class _NoteEditorDialogState extends State<_NoteEditorDialog> {
   @override
   Widget build(BuildContext context) => AlertDialog(
     key: const Key('note-editor-dialog'),
-    title: Text(widget.initial == null ? 'Add note' : 'Edit note'),
+    title: Text(
+      widget.initial == null
+          ? l10nOf(context).sceneShootAddNoteTitle
+          : l10nOf(context).sceneShootEditNoteTitle,
+    ),
     content: TextField(
       key: const Key('note-editor-field'),
       controller: _field,
       autofocus: true,
       maxLines: 4,
-      decoration: const InputDecoration(hintText: 'Note text'),
+      decoration: InputDecoration(hintText: l10nOf(context).sceneShootNoteHint),
       onChanged: (_) => setState(() {}),
     ),
     actions: [
       TextButton(
         onPressed: () => Navigator.of(context).pop(),
-        child: const Text('Cancel'),
+        child: Text(l10nOf(context).commonCancel),
       ),
       FilledButton(
         key: const Key('note-editor-save'),
         onPressed: _field.text.trim().isEmpty
             ? null
             : () => Navigator.of(context).pop(_field.text.trim()),
-        child: const Text('Save'),
+        child: Text(l10nOf(context).commonSave),
       ),
     ],
   );
@@ -725,15 +734,16 @@ class _StatusChip extends StatelessWidget {
     // `SceneShootStatus` is a built_value EnumClass, not a sealed enum,
     // so the label resolves through identity checks and renders the
     // projection's status verbatim (D2).
+    final l10n = l10nOf(context);
     final label = status == SceneShootStatus.inProgress
-        ? 'In progress'
+        ? l10n.sceneShootStatusInProgress
         : status == SceneShootStatus.shot
-        ? 'Shot'
+        ? l10n.sceneShootStatusShot
         : status == SceneShootStatus.skipped
-        ? 'Skipped'
+        ? l10n.sceneShootStatusSkipped
         : status == SceneShootStatus.scheduled
-        ? 'Scheduled'
-        : 'Planned';
+        ? l10n.sceneScheduled
+        : l10n.sceneShootStatusPlanned;
     return Chip(
       key: Key('scene-shoot-status-${status.name}'),
       label: Text(label),
@@ -769,7 +779,7 @@ class _Banner extends StatelessWidget {
               IconButton(
                 onPressed: onDismiss,
                 color: scheme.onErrorContainer,
-                tooltip: 'Dismiss',
+                tooltip: l10nOf(context).episodesDismiss,
                 icon: const Icon(Icons.close),
               ),
           ],
@@ -787,13 +797,13 @@ class _EmptyView extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Column(
     children: [
-      const Text('No scene shoots planned for this day yet.'),
+      Text(l10nOf(context).sceneShootsEmpty),
       const SizedBox(height: 12),
       if (onPlan != null)
         FilledButton.tonal(
           key: const Key('scene-shoots-plan-first'),
           onPressed: onPlan,
-          child: const Text('Plan first shoot'),
+          child: Text(l10nOf(context).sceneShootsPlanFirst),
         ),
     ],
   );
@@ -810,12 +820,12 @@ class _FetchErrorView extends StatelessWidget {
     child: Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Text('Could not load the day board ($code).'),
+        Text(l10nOf(context).sceneShootsFetchError(code)),
         const SizedBox(height: 12),
         FilledButton.tonal(
           key: const Key('scene-shoots-retry'),
           onPressed: onRetry,
-          child: const Text('Retry'),
+          child: Text(l10nOf(context).commonRetry),
         ),
       ],
     ),
@@ -833,9 +843,12 @@ class _NotFoundView extends StatelessWidget {
     child: Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Text('No longer available ($code).'),
+        Text(l10nOf(context).sceneShootsNotFound(code)),
         const SizedBox(height: 12),
-        FilledButton.tonal(onPressed: onBack, child: const Text('Back')),
+        FilledButton.tonal(
+          onPressed: onBack,
+          child: Text(l10nOf(context).commonBack),
+        ),
       ],
     ),
   );

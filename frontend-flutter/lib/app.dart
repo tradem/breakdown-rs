@@ -4,13 +4,15 @@
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart'
-    show debugPrint, kReleaseMode, visibleForTesting;
+    show SynchronousFuture, debugPrint, kReleaseMode, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -24,7 +26,11 @@ import 'design/spacing.dart';
 import 'design/theme.dart';
 import 'features/auth/login_screen.dart';
 import 'features/shell/app_shell.dart';
+import 'l10n/app_localizations_provider.dart';
+import 'l10n/generated/app_localizations.dart';
 import 'src/network/api_client.dart';
+
+import 'package:intl/date_symbol_data_local.dart';
 
 /// Root widget. Riverpod is the sole composition mechanism (AGENTS.md §1, D3);
 /// widgets render and dispatch, they never branch on domain semantics.
@@ -40,14 +46,66 @@ class App extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return MaterialApp(
+    return MaterialApp.router(
       title: 'Breakdown',
       theme: AppThemes.light(),
       darkTheme: AppThemes.dark(),
       themeMode: ThemeMode.system,
-      home: const AuthGate(),
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      routeInformationParser: const _RootRouteInformationParser(),
+      routerDelegate: _RootRouterDelegate(),
+      builder: (context, child) => ProviderScope(
+        // The provider is populated from the locale MaterialApp actually
+        // resolved. Controllers therefore observe the same catalog as the
+        // widget tree and never perform an independent system-locale read.
+        overrides: [
+          appLocalizationsProvider.overrideWithValue(
+            AppLocalizations.of(context),
+          ),
+        ],
+        child: child ?? const SizedBox.shrink(),
+      ),
     );
   }
+}
+
+/// The root router deliberately owns only the auth gate. Feature navigation
+/// remains in the four nested navigators owned by [AppShell].
+class _RootRouteInformationParser extends RouteInformationParser<Object> {
+  const _RootRouteInformationParser();
+
+  @override
+  Future<Object> parseRouteInformation(RouteInformation routeInformation) =>
+      SynchronousFuture<Object>(0);
+
+  @override
+  RouteInformation? restoreRouteInformation(Object configuration) => null;
+}
+
+class _RootRouterDelegate extends RouterDelegate<Object>
+    with ChangeNotifier, PopNavigatorRouterDelegateMixin<Object> {
+  @override
+  final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+  /// The root route is wrapped in a [Navigator] keyed with [navigatorKey].
+  ///
+  /// [PopNavigatorRouterDelegateMixin.popRoute] dispatches the system back
+  /// action through `navigatorKey.currentState?.maybePop()`. Returning
+  /// [AuthGate] directly left that key without a [NavigatorState], so the
+  /// call returned false and Android back exited the app instead of
+  /// reaching [AppShell]'s nested navigators (which register their own
+  /// [PopEntry]s and are consulted through this root route).
+  @override
+  Widget build(BuildContext context) => Navigator(
+    key: navigatorKey,
+    onGenerateRoute: (_) => MaterialPageRoute<void>(
+      builder: (_) => const HeroControllerScope.none(child: AuthGate()),
+    ),
+  );
+
+  @override
+  Future<void> setNewRoutePath(Object configuration) async {}
 }
 
 /// Root auth gate (D1, spec `flutter-auth-shell`). The ONLY place that
@@ -153,32 +211,42 @@ class FatalConfigErrorApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Breakdown — configuration error',
+      // The fatal screen is its own MaterialApp (it renders before the real
+      // app exists), so it must install the generated delegates itself.
+      // Without them `Localizations.of` finds no catalog on this subtree.
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       home: Scaffold(
         backgroundColor: const Color(0xFFB71C1C),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.gpp_bad, size: 48, color: Colors.white),
-                const SizedBox(height: 16),
-                const Text(
-                  'TLS configuration invalid',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
+        body: Builder(
+          // Descendant of the MaterialApp above: the localized copy is
+          // resolved against THIS app's locale, not the caller's context
+          // (which sits above the MaterialApp and would fall back to
+          // English even on a German device).
+          builder: (localizedContext) => Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.gpp_bad, size: 48, color: Colors.white),
+                  const SizedBox(height: 16),
+                  Text(
+                    l10nOf(localizedContext).fatalConfigTitle,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'The app cannot start safely: $error\n'
-                  'No network requests were made.',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white70),
-                ),
-              ],
+                  const SizedBox(height: 8),
+                  Text(
+                    l10nOf(localizedContext).fatalConfigBody(error),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -203,6 +271,7 @@ class FatalConfigErrorApp extends StatelessWidget {
 ///   fail-closed posture).
 Future<void> bootstrap(Flavor flavor) async {
   WidgetsFlutterBinding.ensureInitialized();
+  await initializeDateFormatting();
   final config = await resolveAppConfig(flavor);
   // Non-fatal dev-build diagnostic (issue #483): a dev build shipped without
   // --dart-define=DEFAULT_SERIES_ID surfaces here at boot (before any screen),

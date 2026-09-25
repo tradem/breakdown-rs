@@ -19,6 +19,7 @@ import '../../data/cache/costume_domains_cache_dao.dart';
 import '../../data/cache/seasons_cache_providers.dart';
 import '../../data/character_repository.dart';
 import '../../domain/reconciliation/overlay_store.dart';
+import '../../l10n/generated/app_localizations.dart';
 import '../../domain/reconciliation/reconcile_coordinator.dart';
 import '../../domain/reconciliation/reconciliation_scheduler.dart';
 import 'characters_state.dart';
@@ -178,18 +179,18 @@ class CharactersCommandError extends _$CharactersCommandError {
 
 /// Localized client-side copy for character command failures, keyed on the
 /// stable problem `code` (never the server's localized `detail`).
-String characterErrorCopy(ProblemError error) => switch (error.code) {
-  // 409 `concurrency.version-mismatch`: the backend's sole version-conflict
-  // code (the old `character.version_conflict`/`concurrency.conflict` keys
-  // were never emitted, so a real 409 fell through to the generic fallback
-  // — issue #481).
-  'concurrency.version-mismatch' =>
-    'Changed elsewhere — refresh and try again.',
-  'authz.denied' || 'auth.session_required' => 'Please sign in to continue.',
-  _ when error.code.startsWith('transport.') =>
-    'Network problem — the change was not saved. Try again.',
-  _ => 'The character could not be saved (${error.code}).',
-};
+String characterErrorCopy(AppLocalizations l10n, ProblemError error) =>
+    switch (error.code) {
+      // 409 `concurrency.version-mismatch`: the backend's sole
+      // version-conflict code (the old
+      // `character.version_conflict`/`concurrency.conflict` keys were
+      // never emitted, so a real 409 fell through to the generic fallback
+      // — issue #481).
+      'concurrency.version-mismatch' => l10n.costumeCategoryErrorChanged,
+      'authz.denied' || 'auth.session_required' => l10n.blocksCreateErrorSignIn,
+      _ when error.code.startsWith('transport.') => l10n.characterErrorNetwork,
+      _ => l10n.characterErrorGeneric(error.code),
+    };
 
 /// `CharactersController(seasonId)` on the shared reconciliation runner:
 /// create follows the optimistic-overlay pattern; contact/measurements are

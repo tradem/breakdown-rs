@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/problem_error.dart';
 import '../../../design/spacing.dart';
+import '../../../l10n/app_localizations_provider.dart';
 import 'ai_config_controller.dart';
 import 'ai_config_state.dart';
 
@@ -35,7 +36,7 @@ class AiConfigScreen extends ConsumerWidget {
     final controller = ref.read(aiConfigControllerProvider.notifier);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('AI import configuration')),
+      appBar: AppBar(title: Text(l10nOf(context).aiConfigTitle)),
       body: ListView(
         key: const Key('ai-config-screen'),
         padding: const EdgeInsets.all(16),
@@ -49,7 +50,7 @@ class AiConfigScreen extends ConsumerWidget {
           if (state.commandError != null)
             _Banner(
               key: const Key('ai-config-error-banner'),
-              text: aiConfigErrorCopy(state.commandError!),
+              text: aiConfigErrorCopy(l10nOf(context), state.commandError!),
               onDismiss: controller.dismissCommandError,
             ),
           if (state.discoveryError != null && state.config == null)
@@ -63,7 +64,9 @@ class AiConfigScreen extends ConsumerWidget {
                 color: Theme.of(context).colorScheme.errorContainer,
                 child: Padding(
                   padding: const EdgeInsets.all(AppSpacing.space12),
-                  child: Text(aiConfigErrorCopy(state.discoveryError!)),
+                  child: Text(
+                    aiConfigErrorCopy(l10nOf(context), state.discoveryError!),
+                  ),
                 ),
               )
             else
@@ -79,14 +82,14 @@ class AiConfigScreen extends ConsumerWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'The configuration could not be loaded '
-                        '(${state.discoveryError!.code}).',
+                        l10nOf(context)
+                            .aiConfigDiscoveryError(state.discoveryError!.code),
                       ),
                       const SizedBox(height: 8),
                       OutlinedButton(
                         key: const Key('ai-config-discovery-retry'),
                         onPressed: controller.refresh,
-                        child: const Text('Retry'),
+                        child: Text(l10nOf(context).commonRetry),
                       ),
                     ],
                   ),
@@ -130,9 +133,9 @@ class _FirstRunFormState extends ConsumerState<_FirstRunForm> {
     final secret = _keyController.text;
     if (secret.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          key: Key('ai-config-key-missing'),
-          content: Text('Enter the API key first.'),
+        SnackBar(
+          key: const Key('ai-config-key-missing'),
+          content: Text(l10nOf(context).aiConfigKeyMissing),
         ),
       );
       return;
@@ -160,11 +163,10 @@ class _FirstRunFormState extends ConsumerState<_FirstRunForm> {
   Widget _prefillCaption(AsyncValue<AiImportDefaults>? promptDefaults) {
     if (promptDefaults case AsyncData(:final value)) {
       if (value.script.isNotEmpty && value.schedule.isNotEmpty) {
-        return const Text(
-          'Prompt fields are prefilled from the server defaults — you can '
-          'edit them.',
-          key: Key('ai-prefill-hint'),
-          style: TextStyle(fontSize: 12),
+        return Text(
+          l10nOf(context).aiConfigPrefillHint,
+          key: const Key('ai-prefill-hint'),
+          style: const TextStyle(fontSize: 12),
         );
       }
     }
@@ -178,16 +180,12 @@ class _FirstRunFormState extends ConsumerState<_FirstRunForm> {
       key: const Key('ai-config-first-run'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Not configured yet',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        Text(
+          l10nOf(context).aiConfigNotConfigured,
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
-        const Text(
-          'Pick a provider, choose the assistant model and submit your API '
-          'key. The key is sent to the server vault and never stored on '
-          'this device.',
-        ),
+        Text(l10nOf(context).aiConfigFirstRunBody),
         const SizedBox(height: 16),
         const _ProviderPicker(),
         const SizedBox(height: 16),
@@ -200,9 +198,9 @@ class _FirstRunFormState extends ConsumerState<_FirstRunForm> {
           autocorrect: false,
           enableSuggestions: false,
           autofillHints: const <String>[],
-          decoration: const InputDecoration(
-            labelText: 'API key (sent to the server vault)',
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            labelText: l10nOf(context).aiConfigApiKeyLabel,
+            border: const OutlineInputBorder(),
           ),
         ),
         const SizedBox(height: 16),
@@ -221,7 +219,7 @@ class _FirstRunFormState extends ConsumerState<_FirstRunForm> {
                         state.selectedAssistantModelId != null
                     ? _submit
                     : null),
-          child: const Text('Save configuration'),
+          child: Text(l10nOf(context).aiConfigSaveConfiguration),
         ),
       ],
     );
@@ -241,16 +239,16 @@ class _ProviderPicker extends ConsumerWidget {
     return switch (state.providers) {
       AsyncData(:final value) =>
         value.isEmpty
-            ? const Text(
-                key: Key('ai-providers-empty'),
-                'No AI providers are offered on this backend.',
+            ? Text(
+                key: const Key('ai-providers-empty'),
+                l10nOf(context).aiConfigNoProviders,
               )
             : DropdownButtonFormField<String>(
                 key: const Key('ai-provider-picker'),
                 initialValue: state.selectedProviderKey,
-                decoration: const InputDecoration(
-                  labelText: 'Provider',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: l10nOf(context).aiConfigProviderLabel,
+                  border: const OutlineInputBorder(),
                 ),
                 items: [
                   for (final info in value)
@@ -269,10 +267,10 @@ class _ProviderPicker extends ConsumerWidget {
           Text(
             key: const Key('ai-providers-degraded'),
             error is ProblemError && isAiImportDisabled(error)
-                ? aiConfigErrorCopy(error)
+                ? aiConfigErrorCopy(l10nOf(context), error)
                 : error is ProblemError && error.status == 404
-                ? aiConfigErrorCopy(error)
-                : 'Providers could not be loaded.',
+                ? aiConfigErrorCopy(l10nOf(context), error)
+                : l10nOf(context).aiConfigProvidersUnavailable,
           ),
           // The disabled state is a server configuration, not a transient
           // failure (issue #422): no retry affordance — retrying cannot
@@ -281,7 +279,7 @@ class _ProviderPicker extends ConsumerWidget {
             TextButton(
               key: const Key('ai-providers-retry'),
               onPressed: controller.refresh,
-              child: const Text('Retry'),
+              child: Text(l10nOf(context).commonRetry),
             ),
         ],
       ),
@@ -315,9 +313,9 @@ class _ModelPickers extends ConsumerWidget {
           DropdownButtonFormField<String>(
             key: const Key('ai-assistant-model-picker'),
             initialValue: state.selectedAssistantModelId,
-            decoration: const InputDecoration(
-              labelText: 'Assistant model',
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              labelText: l10nOf(context).aiConfigAssistantModelLabel,
+              border: const OutlineInputBorder(),
             ),
             items: [
               for (final model in value)
@@ -334,14 +332,14 @@ class _ModelPickers extends ConsumerWidget {
           DropdownButtonFormField<String?>(
             key: const Key('ai-image-model-picker'),
             initialValue: state.selectedImageModelId,
-            decoration: const InputDecoration(
-              labelText: 'Image model (optional)',
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              labelText: l10nOf(context).aiConfigImageModelLabel,
+              border: const OutlineInputBorder(),
             ),
             items: [
-              const DropdownMenuItem<String?>(
+              DropdownMenuItem<String?>(
                 value: null,
-                child: Text('— none —'),
+                child: Text(l10nOf(context).aiConfigNoModel),
               ),
               for (final model in value)
                 DropdownMenuItem<String?>(
@@ -356,8 +354,8 @@ class _ModelPickers extends ConsumerWidget {
       AsyncError(:final error) => Text(
         key: const Key('ai-models-degraded'),
         error is ProblemError && error.status == 422
-            ? 'Provider unavailable — the model catalog cannot be read.'
-            : 'The model catalog could not be loaded.',
+            ? l10nOf(context).aiConfigProviderUnavailable
+            : l10nOf(context).aiConfigModelCatalogUnavailable,
       ),
       _ => const SizedBox(
         key: Key('ai-models-loading'),
@@ -430,9 +428,9 @@ class _PromptFieldsState extends ConsumerState<_PromptFields> {
           key: Key(widget.scriptKey),
           controller: _script,
           onChanged: controller.setScriptPrompt,
-          decoration: const InputDecoration(
-            labelText: 'Script prompt',
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            labelText: l10nOf(context).aiConfigScriptPromptLabel,
+            border: const OutlineInputBorder(),
           ),
           maxLines: 2,
         ),
@@ -441,9 +439,9 @@ class _PromptFieldsState extends ConsumerState<_PromptFields> {
           key: Key(widget.scheduleKey),
           controller: _schedule,
           onChanged: controller.setSchedulePrompt,
-          decoration: const InputDecoration(
-            labelText: 'Schedule prompt',
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            labelText: l10nOf(context).aiConfigSchedulePromptLabel,
+            border: const OutlineInputBorder(),
           ),
           maxLines: 2,
         ),
@@ -469,29 +467,28 @@ class _ConfiguredFormState extends ConsumerState<_ConfiguredForm> {
   bool _busy = false;
 
   Future<void> _revoke() async {
+    final l10n = l10nOf(context);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         key: const Key('ai-config-revoke-confirm'),
-        title: const Text('Revoke configuration?'),
-        content: const Text(
-          'The AI import configuration is revoked. The server-held API '
-          'key is destroyed. Imports you already applied are kept.',
-        ),
+        title: Text(l10n.aiConfigRevokeTitle),
+        content: Text(l10n.aiConfigRevokeBody),
         actions: [
           TextButton(
             key: const Key('ai-config-revoke-cancel'),
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancel'),
+            child: Text(l10n.commonCancel),
           ),
           TextButton(
             key: const Key('ai-config-revoke-confirm-yes'),
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Revoke'),
+            child: Text(l10n.aiConfigRevokeButton),
           ),
         ],
       ),
     );
+    if (confirmed != true) return;
     if (confirmed != true) return;
     setState(() => _busy = true);
     try {
@@ -513,9 +510,9 @@ class _ConfiguredFormState extends ConsumerState<_ConfiguredForm> {
       key: const Key('ai-config-configured'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Active configuration',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        Text(
+          l10nOf(context).aiConfigActiveTitle,
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
         ListTile(
@@ -523,8 +520,8 @@ class _ConfiguredFormState extends ConsumerState<_ConfiguredForm> {
           leading: const Icon(Icons.psychology_alt_outlined),
           title: Text(config.assistantModel),
           subtitle: Text(
-            'Provider: ${config.provider.name}'
-            '${config.imageModel == null ? '' : ' · Image: ${config.imageModel}'}',
+            '${l10nOf(context).aiConfigProviderPrefix(config.provider.name)}'
+            '${config.imageModel == null ? '' : l10nOf(context).aiConfigImageSuffix(config.imageModel!)}',
           ),
         ),
         const SizedBox(height: 8),
@@ -558,7 +555,7 @@ class _ConfiguredFormState extends ConsumerState<_ConfiguredForm> {
                     if (mounted) setState(() => _busy = false);
                   }
                 },
-          child: const Text('Save changes'),
+          child: Text(l10nOf(context).aiConfigSaveChanges),
         ),
         const SizedBox(height: 24),
         OutlinedButton(
@@ -567,7 +564,7 @@ class _ConfiguredFormState extends ConsumerState<_ConfiguredForm> {
             foregroundColor: Theme.of(context).colorScheme.error,
           ),
           onPressed: _busy ? null : _revoke,
-          child: const Text('Revoke configuration'),
+          child: Text(l10nOf(context).aiConfigRevokeButton),
         ),
       ],
     );
@@ -598,29 +595,25 @@ class _UnresolvedCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Configuration state unknown — verify',
-            style: TextStyle(fontWeight: FontWeight.bold),
+          Text(
+            l10nOf(context).aiConfigUnresolvedTitle,
+            style: const TextStyle(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 4),
-          const Text(
-            'The setup may or may not have completed. Nothing was deleted '
-            '— re-check, or clean up the server-held key if you are sure '
-            'the setup failed.',
-          ),
+          Text(l10nOf(context).aiConfigUnresolvedBody),
           const SizedBox(height: 8),
           Row(
             children: [
               FilledButton(
                 key: const Key('ai-config-unresolved-recheck'),
                 onPressed: onRecheck,
-                child: const Text('Re-check'),
+                child: Text(l10nOf(context).aiConfigRecheck),
               ),
               const SizedBox(width: 8),
               OutlinedButton(
                 key: const Key('ai-config-unresolved-cleanup'),
                 onPressed: onCleanup,
-                child: const Text('Clean up'),
+                child: Text(l10nOf(context).aiConfigCleanup),
               ),
             ],
           ),

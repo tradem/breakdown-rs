@@ -2,6 +2,8 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'dart:async' show unawaited;
 
@@ -13,6 +15,8 @@ import '../../auth/active_block.dart';
 import '../../auth/auth_providers.dart';
 import '../../auth/season_membership_provider.dart';
 import '../../core/problem_error.dart';
+import '../../l10n/app_localizations_provider.dart';
+import '../../l10n/generated/app_localizations.dart';
 import '../episodes/episodes_screen.dart';
 import 'blocks_controller.dart';
 import 'blocks_state.dart';
@@ -21,17 +25,18 @@ import 'widgets/blocks_widgets.dart';
 
 /// Localized client-side copy for a create-block failure, keyed on the
 /// stable problem `code` (never the server's localized `detail`).
-String blockCreateErrorCopy(ProblemError error) => switch (error.code) {
-  // Real backend code first (issue #443); legacy aliases kept for stale
-  // fixtures.
-  'block.number-already-exists' ||
-  'blocks.conflict' ||
-  'block.conflict' => 'A block with that number already exists.',
-  'authz.denied' || 'auth.session_required' => 'Please sign in to continue.',
-  _ when error.code.startsWith('transport.') =>
-    'Network problem — the block was not created. Try again.',
-  _ => 'The block could not be created (${error.code}).',
-};
+String blockCreateErrorCopy(AppLocalizations l10n, ProblemError error) =>
+    switch (error.code) {
+      // Real backend code first (issue #443); legacy aliases kept for stale
+      // fixtures.
+      'block.number-already-exists' ||
+      'blocks.conflict' ||
+      'block.conflict' => l10n.blocksCreateErrorExists,
+      'authz.denied' || 'auth.session_required' => l10n.blocksCreateErrorSignIn,
+      _ when error.code.startsWith('transport.') =>
+        l10n.blocksCreateErrorNetwork,
+      _ => l10n.blocksCreateErrorGeneric(error.code),
+    };
 
 /// `BlocksScreen` — the season's blocks (`GET /v1/blocks?season_id=…`).
 ///
@@ -62,10 +67,11 @@ class BlocksScreen extends ConsumerWidget {
     final controller = ref.read(blocksControllerProvider(season.id).notifier);
     final rows = state.rows;
     final notFound = state.notFound;
+    final l10n = l10nOf(context);
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(season.title ?? 'Season ${season.number}'),
+        title: Text(season.title ?? l10n.blockSeasonNumber('${season.number}')),
         actions: [_MembershipChip(seasonId: season.id)],
       ),
       body: Column(
@@ -73,13 +79,13 @@ class BlocksScreen extends ConsumerWidget {
           if (state.commandError case final error?)
             _Banner(
               key: const Key('block-create-error-banner'),
-              text: blockCreateErrorCopy(error),
+              text: blockCreateErrorCopy(l10n, error),
               onDismiss: controller.dismissCommandError,
             ),
           if (state.isStale && notFound == null)
-            const _Banner(
-              key: Key('blocks-stale-banner'),
-              text: 'Cached data may be outdated',
+            _Banner(
+              key: const Key('blocks-stale-banner'),
+              text: l10n.blocksStaleBanner,
             ),
           Expanded(
             child: notFound != null
@@ -170,7 +176,7 @@ class BlocksScreen extends ConsumerWidget {
           ? FloatingActionButton(
               key: const Key('block-add-fab'),
               onPressed: () => showCreateBlockSheet(context, ref, season),
-              tooltip: 'Add block',
+              tooltip: l10n.blocksAddFab,
               child: const Icon(Icons.add),
             )
           : null,
@@ -198,7 +204,7 @@ class _MembershipChip extends ConsumerWidget {
       AsyncData(:final value) => value.match(
         (err) => Chip(
           key: const Key('membership-chip-error'),
-          label: Text('Role unknown (${err.code})'),
+          label: Text(l10nOf(context).blocksRoleUnknown(err.code)),
         ),
         (dto) => dto.hasActiveCostumeRoleInSeason
             ? Chip(
@@ -206,19 +212,21 @@ class _MembershipChip extends ConsumerWidget {
                 avatar: const Icon(Icons.check, size: 16),
                 label: Text(
                   dto.capabilities.isEmpty
-                      ? 'Costume role'
+                      ? l10nOf(context).blocksRoleCostume
                       : dto.capabilities.join(', '),
                 ),
               )
-            : const Chip(
-                key: Key('membership-chip-none'),
-                label: Text('No role in this season'),
+            : Chip(
+                key: const Key('membership-chip-none'),
+                label: Text(l10nOf(context).blocksRoleNone),
               ),
       ),
       AsyncError(:final error) => Chip(
         key: const Key('membership-chip-error'),
         label: Text(
-          'Role unknown (${error is ProblemError ? error.code : 'unknown'})',
+          l10nOf(
+            context,
+          ).blocksRoleUnknown(error is ProblemError ? error.code : 'unknown'),
         ),
       ),
       _ => const Chip(
@@ -240,22 +248,25 @@ class _FetchErrorView extends StatelessWidget {
   final VoidCallback? onRetry;
 
   @override
-  Widget build(BuildContext context) => ListView(
-    key: const Key('blocks-error'),
-    physics: const AlwaysScrollableScrollPhysics(),
-    children: [
-      const SizedBox(height: 160),
-      Center(child: Text('Could not load blocks ($code).')),
-      const SizedBox(height: 8),
-      Center(
-        child: FilledButton.tonal(
-          key: const Key('blocks-retry'),
-          onPressed: onRetry,
-          child: const Text('Retry'),
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    return ListView(
+      key: const Key('blocks-error'),
+      physics: const AlwaysScrollableScrollPhysics(),
+      children: [
+        const SizedBox(height: 160),
+        Center(child: Text(l10n.blocksFetchError(code))),
+        const SizedBox(height: 8),
+        Center(
+          child: FilledButton.tonal(
+            key: const Key('blocks-retry'),
+            onPressed: onRetry,
+            child: Text(l10n.commonRetry),
+          ),
         ),
-      ),
-    ],
-  );
+      ],
+    );
+  }
 }
 
 class _Banner extends StatelessWidget {
@@ -283,7 +294,7 @@ class _Banner extends StatelessWidget {
               IconButton(
                 onPressed: onDismiss,
                 color: scheme.onErrorContainer,
-                tooltip: 'Dismiss',
+                tooltip: l10nOf(context).episodesDismiss,
                 icon: const Icon(
                   Icons.close,
                   key: Key('block-create-error-dismiss'),

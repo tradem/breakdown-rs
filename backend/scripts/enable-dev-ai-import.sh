@@ -27,7 +27,9 @@ set -euo pipefail
 #   4. Verifies the Garage + Vault ports are reachable from the host.
 #   5. Writes `.env.dev-ai.local` (git-ignored, chmod 600) with the complete
 #      host-run env: AI_IMPORT_ENABLED + AI_PAYLOAD_S3_* + VAULT_ADDR +
-#      VAULT_APP_TOKEN_FILE + DB/SierraDB.
+#      VAULT_APP_TOKEN_FILE + DB/SierraDB, plus the photo-storage S3_* trio
+#      (same single-node dev Garage, costume-photos bucket) so photo upload
+#      and the AI import work against the same host-run API.
 #
 # Usage (from `backend/`):
 #   ./scripts/enable-dev-ai-import.sh            # boot + provision + env file
@@ -164,6 +166,13 @@ SIERRADB_URL=redis://127.0.0.1:9090/?protocol=resp3
 # Dev Vault (issue #468) — merged from scripts/enable-dev-vault.sh.
 VAULT_ADDR=$(sed -n 's/^VAULT_ADDR=//p' .env.dev-vault.local)
 VAULT_APP_TOKEN_FILE=$(sed -n 's/^VAULT_APP_TOKEN_FILE=//p' .env.dev-vault.local)
+# Photo storage (Garage / S3, ADR-019) — same single-node dev Garage and key
+# as the AI payloads; the costume-photos bucket is provisioned above. The SSE-C
+# key for photo bytes comes from Vault transit/keys/photo-sse-c (issue #468).
+S3_ENDPOINT=http://localhost:3900
+S3_ACCESS_KEY=$ACCESS_KEY
+S3_SECRET_KEY=$SECRET_KEY
+S3_BUCKET=costume-photos
 EOF
 chmod 600 "$ENV_FILE"
 
@@ -174,6 +183,7 @@ else
     vault_status="Vault: NOT configured"
 fi
 echo "AI import is enabled for the host-run dev API ($vault_status)."
+echo "Photo upload (costume-photos bucket) uses the same dev Garage (S3_*)."
 echo ""
 echo "Start the API with:"
 echo "  set -a; . ./$ENV_FILE; set +a; cargo run -p api"

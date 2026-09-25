@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3 (opencode)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: space-bunny-free (opencode)
 
 import 'dart:typed_data';
 
@@ -13,6 +15,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../../auth/membership/capability.dart';
 import '../../../auth/membership/membership_providers.dart';
 import '../../../core/problem_error.dart';
+import '../../../l10n/app_localizations_provider.dart';
 import '../../costumes/costumes_controller.dart';
 import '../../photos/capture.dart';
 import '../../photos/prepare.dart';
@@ -82,7 +85,8 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
         Row(
           children: [
             Text(
-              'Continuity (${widget.shoot.continuityPhotoIds.length})',
+              l10nOf(context)
+                  .continuityTitle('${widget.shoot.continuityPhotoIds.length}'),
               style: Theme.of(context).textTheme.titleSmall,
             ),
             const Spacer(),
@@ -97,13 +101,12 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
         ),
         const SizedBox(height: 4),
         if (denied && widget.enabled)
-          const Text(
-            'You need an active costume role in this season to manage '
-            'continuity photos.',
-            key: Key('continuity-denied-narrative'),
+          Text(
+            l10nOf(context).continuityRoleGate,
+            key: const Key('continuity-denied-narrative'),
           ),
         if (resolved.isEmpty && !widget.enabled)
-          const Text('No continuity photos linked.'),
+          Text(l10nOf(context).continuityEmpty),
         Wrap(
           key: Key('continuity-strip-${widget.shoot.id}'),
           spacing: 8,
@@ -133,7 +136,9 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
                 _OrphanPhoto(:final id) => Chip(
                   key: Key('continuity-orphan-$id'),
                   label: Text(
-                    'Photo ${id.length > 8 ? id.substring(0, 8) : id}',
+                    l10nOf(context).continuityPhotoLabel(
+                      id.length > 8 ? id.substring(0, 8) : id,
+                    ),
                   ),
                   deleteIcon: widget.enabled
                       ? Icon(
@@ -151,7 +156,7 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
           DropdownButtonFormField<String>(
             key: Key('continuity-costume-pick-${widget.shoot.id}'),
             initialValue: _costumeId,
-            hint: const Text('Store photo on…'),
+            hint: Text(l10nOf(context).continuityStoreOn),
             items: [
               for (final c in costumes.rows)
                 DropdownMenuItem(
@@ -173,7 +178,7 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
                     ? null
                     : () => _capture(ImageSource.camera),
                 icon: const Icon(Icons.photo_camera),
-                label: const Text('Camera'),
+                label: Text(l10nOf(context).costumeDetailCamera),
               ),
               const SizedBox(width: 8),
               FilledButton.tonalIcon(
@@ -182,14 +187,13 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
                     ? null
                     : () => _capture(ImageSource.gallery),
                 icon: const Icon(Icons.photo_library),
-                label: const Text('Gallery'),
+                label: Text(l10nOf(context).costumeDetailGallery),
               ),
             ],
           ),
           if (_costumeId == null)
             Text(
-              'Pick the costume the photo belongs to — it is stored on '
-              'the costume and linked to this shoot.',
+              l10nOf(context).continuityCostumeHint,
               key: Key('continuity-costume-hint-${widget.shoot.id}'),
             ),
         ],
@@ -236,20 +240,17 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
     final accepted = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Document continuity with photos?'),
-        content: const Text(
-          'Continuity photos pin the on-set state (Anschluss) to this '
-          'scene shoot. The system will ask for camera access next.',
-        ),
+        title: Text(l10nOf(dialogContext).continuityRationaleTitle),
+        content: Text(l10nOf(dialogContext).continuityRationaleBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Not now'),
+            child: Text(l10nOf(dialogContext).costumeDetailNotNow),
           ),
           FilledButton(
             key: const Key('continuity-rationale-accept'),
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Continue'),
+            child: Text(l10nOf(dialogContext).costumeDetailContinue),
           ),
         ],
       ),
@@ -262,12 +263,12 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
     return showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text(captureDeniedTitle(denied)),
-        content: Text(captureOutcomeCopy(denied)),
+        title: Text(captureDeniedTitle(l10nOf(dialogContext), denied)),
+        content: Text(captureOutcomeCopy(l10nOf(dialogContext), denied)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Close'),
+            child: Text(l10nOf(dialogContext).settingsClose),
           ),
           FilledButton(
             key: const Key('continuity-open-settings'),
@@ -277,7 +278,7 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
                 Navigator.of(dialogContext).pop();
               }
             },
-            child: const Text('Open settings'),
+            child: Text(l10nOf(dialogContext).costumeDetailOpenSettings),
           ),
         ],
       ),
@@ -286,7 +287,11 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
 
   void _showUnavailable() {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(captureOutcomeCopy(const CaptureUnavailable()))),
+      SnackBar(
+        content: Text(
+          captureOutcomeCopy(l10nOf(context), const CaptureUnavailable()),
+        ),
+      ),
     );
   }
 
@@ -299,7 +304,10 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            photoErrorCopy(const ProblemError(code: 'photo.read_failed')),
+            photoErrorCopy(
+              l10nOf(context),
+              const ProblemError(code: 'photo.read_failed'),
+            ),
           ),
         ),
       );
@@ -335,7 +343,11 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
         });
       case PrepareFailure(:final code):
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(photoErrorCopy(ProblemError(code: code)))),
+          SnackBar(
+            content: Text(
+              photoErrorCopy(l10nOf(context), ProblemError(code: code)),
+            ),
+          ),
         );
     }
   }
@@ -349,17 +361,14 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
-          title: const Text('Unlink continuity photo?'),
-          content: const Text(
-            'The photo stays on its costume — only the link to this shoot '
-            'is removed.',
-          ),
+          title: Text(l10nOf(dialogContext).continuityUnlinkTitle),
+          content: Text(l10nOf(dialogContext).continuityUnlinkBody),
           actions: [
             TextButton(
               onPressed: tapped
                   ? null
                   : () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
+              child: Text(l10nOf(dialogContext).commonCancel),
             ),
             FilledButton(
               key: Key('continuity-unlink-confirm-$photoId'),
@@ -383,7 +392,7 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
                         Navigator.of(dialogContext).pop();
                       }
                     },
-              child: const Text('Unlink'),
+              child: Text(l10nOf(dialogContext).continuityUnlinkButton),
             ),
           ],
         ),

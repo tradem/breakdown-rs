@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 
@@ -7,6 +8,7 @@ import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/features/seasons/setup/setup_wizard_state.dart';
+import 'package:frontend_flutter/l10n/generated/app_localizations_de.dart';
 
 /// Pure unit tier (task 2.1/2.3): the wizard state machine's validation
 /// functions and the smart-default season number — no Flutter framework
@@ -79,11 +81,17 @@ void main() {
   group('wizardErrorCopyForField (code → inline copy)', () {
     test('each error code gets its own narrative', () {
       expect(
-        wizardErrorCopyForField(WizardFieldError.notPositiveNumber),
+        wizardErrorCopyForField(
+          AppLocalizationsDe(),
+          WizardFieldError.notPositiveNumber,
+        ),
         contains('größer als 0'),
       );
       expect(
-        wizardErrorCopyForField(WizardFieldError.noBlocks),
+        wizardErrorCopyForField(
+          AppLocalizationsDe(),
+          WizardFieldError.noBlocks,
+        ),
         contains('Mindestens ein Block'),
       );
     });
@@ -110,7 +118,10 @@ void main() {
       // The copy is asserted VERBATIM — a wrong mapping (e.g. the generic
       // fallback) must fail, not just "anything without the word detail".
       expect(
-        wizardErrorCopy(const ProblemError(code: 'seasons.conflict')),
+        wizardErrorCopy(
+          AppLocalizationsDe(),
+          const ProblemError(code: 'seasons.conflict'),
+        ),
         'Eine Season mit dieser Nummer existiert bereits.',
       );
     });
@@ -123,6 +134,7 @@ void main() {
         // never appear on the wire. The real code MUST hit the same copy.
         expect(
           wizardErrorCopy(
+            AppLocalizationsDe(),
             const ProblemError(code: 'season.number-already-exists'),
           ),
           'Eine Season mit dieser Nummer existiert bereits.',
@@ -138,6 +150,7 @@ void main() {
         // partial-failure scenario asserts on device.
         expect(
           wizardErrorCopy(
+            AppLocalizationsDe(),
             const ProblemError(code: 'block.number-already-exists'),
           ),
           'Ein Block mit dieser Nummer existiert bereits in der Serie.',
@@ -150,6 +163,7 @@ void main() {
       () {
         expect(
           wizardErrorCopy(
+            AppLocalizationsDe(),
             const ProblemError(code: 'episode.number-already-exists'),
           ),
           'Eine Episode mit dieser Nummer existiert bereits in der Serie.',
@@ -159,35 +173,50 @@ void main() {
 
     test('block conflict copy names the SERIES scope (never per season)', () {
       expect(
-        wizardErrorCopy(const ProblemError(code: 'blocks.conflict')),
+        wizardErrorCopy(
+          AppLocalizationsDe(),
+          const ProblemError(code: 'blocks.conflict'),
+        ),
         'Ein Block mit dieser Nummer existiert bereits in der Serie.',
       );
     });
 
     test('episode conflict copy names the SERIES scope (never per block)', () {
       expect(
-        wizardErrorCopy(const ProblemError(code: 'episodes.conflict')),
+        wizardErrorCopy(
+          AppLocalizationsDe(),
+          const ProblemError(code: 'episodes.conflict'),
+        ),
         'Eine Episode mit dieser Nummer existiert bereits in der Serie.',
       );
     });
 
     test('auth denial narrative', () {
       expect(
-        wizardErrorCopy(const ProblemError(code: 'authz.denied')),
+        wizardErrorCopy(
+          AppLocalizationsDe(),
+          const ProblemError(code: 'authz.denied'),
+        ),
         contains('melde dich an'),
       );
     });
 
     test('transport narrative for the transport.* namespace', () {
       expect(
-        wizardErrorCopy(const ProblemError(code: 'transport.connectionError')),
+        wizardErrorCopy(
+          AppLocalizationsDe(),
+          const ProblemError(code: 'transport.connectionError'),
+        ),
         contains('Netzwerkproblem'),
       );
     });
 
     test('unknown code falls back to a code-carrying generic', () {
       expect(
-        wizardErrorCopy(const ProblemError(code: 'weird.failure')),
+        wizardErrorCopy(
+          AppLocalizationsDe(),
+          const ProblemError(code: 'weird.failure'),
+        ),
         contains('weird.failure'),
       );
     });

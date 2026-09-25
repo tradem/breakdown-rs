@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: space-bunny-free (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
@@ -9,23 +10,26 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
+import '../../l10n/app_localizations_provider.dart';
+import '../../l10n/generated/app_localizations.dart';
 import 'costume_categories_controller.dart';
 import 'costume_categories_state.dart';
 import 'widgets/costume_categories_widgets.dart';
 
 /// Localized client-side copy for category command failures, keyed on the
 /// stable problem `code` (never the server's localized `detail`).
-String costumeCategoryErrorCopy(ProblemError error) => switch (error.code) {
-  // 409 `concurrency.version-mismatch`: the backend's sole version-conflict
-  // code (the old `costume_category.version_conflict`/`concurrency.conflict`
-  // keys were never emitted — issue #481).
-  'concurrency.version-mismatch' =>
-    'Changed elsewhere — refresh and try again.',
-  'authz.denied' || 'auth.session_required' => 'Please sign in to continue.',
-  _ when error.code.startsWith('transport.') =>
-    'Network problem — the change was not saved. Try again.',
-  _ => 'The category could not be saved (${error.code}).',
-};
+String costumeCategoryErrorCopy(AppLocalizations l10n, ProblemError error) =>
+    switch (error.code) {
+      // 409 `concurrency.version-mismatch`: the backend's sole
+      // version-conflict code (the old
+      // `costume_category.version_conflict`/`concurrency.conflict` keys
+      // were never emitted — issue #481).
+      'concurrency.version-mismatch' => l10n.costumeCategoryErrorChanged,
+      'authz.denied' || 'auth.session_required' => l10n.blocksCreateErrorSignIn,
+      _ when error.code.startsWith('transport.') =>
+        l10n.costumeCategoryErrorNetwork,
+      _ => l10n.costumeCategoryErrorGeneric(error.code),
+    };
 
 /// `CostumeCategoriesScreen` — the season's costume-category vocabulary
 /// ordered ascending by `order_key` (server `ORDER BY order_key ASC`).
@@ -56,15 +60,16 @@ class CostumeCategoriesScreen extends ConsumerWidget {
     );
     final rows = state.rows;
     final notFound = state.notFound;
+    final l10n = l10nOf(context);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Costume categories'),
+        title: Text(l10n.costumeCategoriesTitle),
         actions: [
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('Archived'),
+              Text(l10n.costumeCategoryArchived),
               Switch(
                 key: const Key('categories-archived-toggle'),
                 value: state.showArchived,
@@ -79,13 +84,13 @@ class CostumeCategoriesScreen extends ConsumerWidget {
           if (state.commandError case final error?)
             _Banner(
               key: const Key('category-command-error-banner'),
-              text: costumeCategoryErrorCopy(error),
+              text: costumeCategoryErrorCopy(l10n, error),
               onDismiss: controller.dismissCommandError,
             ),
           if (state.isStale && notFound == null)
-            const _Banner(
-              key: Key('categories-stale-banner'),
-              text: 'Cached data may be outdated',
+            _Banner(
+              key: const Key('categories-stale-banner'),
+              text: l10n.costumeCategoriesStaleBanner,
             ),
           Expanded(
             child: notFound != null
@@ -155,7 +160,7 @@ class CostumeCategoriesScreen extends ConsumerWidget {
           ? FloatingActionButton(
               key: const Key('category-add-fab'),
               onPressed: () => _showCreateDialog(context, ref),
-              tooltip: 'Add category',
+              tooltip: l10n.costumeCategoryAddFab,
               child: const Icon(Icons.add),
             )
           : null,
@@ -170,24 +175,28 @@ class CostumeCategoriesScreen extends ConsumerWidget {
   Future<void> _showCreateDialog(BuildContext context, WidgetRef ref) {
     final nameController = TextEditingController();
     final formKey = GlobalKey<FormState>();
+    final l10n = l10nOf(context);
     return showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Create category'),
+        title: Text(l10n.costumeCategoryCreateTitle),
         content: Form(
           key: formKey,
           child: TextFormField(
             key: const Key('create-category-name'),
             controller: nameController,
-            decoration: const InputDecoration(labelText: 'Name'),
-            validator: (v) =>
-                (v == null || v.trim().isEmpty) ? 'A name is required' : null,
+            decoration: InputDecoration(
+              labelText: l10n.costumeCategoryNameLabel,
+            ),
+            validator: (v) => (v == null || v.trim().isEmpty)
+                ? l10n.costumeCategoryNameRequired
+                : null,
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
+            child: Text(l10n.commonCancel),
           ),
           FilledButton(
             key: const Key('create-category-submit'),
@@ -199,7 +208,7 @@ class CostumeCategoriesScreen extends ConsumerWidget {
               result.match<void>((_) {}, (_) {});
               if (dialogContext.mounted) Navigator.of(dialogContext).pop();
             },
-            child: const Text('Create'),
+            child: Text(l10n.blocksCreateButton),
           ),
         ],
       ),
@@ -213,24 +222,28 @@ class CostumeCategoriesScreen extends ConsumerWidget {
   ) {
     final nameController = TextEditingController(text: category.name);
     final formKey = GlobalKey<FormState>();
+    final l10n = l10nOf(context);
     return showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Rename category'),
+        title: Text(l10n.costumeCategoryRenameTitle),
         content: Form(
           key: formKey,
           child: TextFormField(
             key: const Key('rename-category-name'),
             controller: nameController,
-            decoration: const InputDecoration(labelText: 'Name'),
-            validator: (v) =>
-                (v == null || v.trim().isEmpty) ? 'A name is required' : null,
+            decoration: InputDecoration(
+              labelText: l10n.costumeCategoryNameLabel,
+            ),
+            validator: (v) => (v == null || v.trim().isEmpty)
+                ? l10n.costumeCategoryNameRequired
+                : null,
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
+            child: Text(l10n.commonCancel),
           ),
           FilledButton(
             key: const Key('rename-category-submit'),
@@ -242,7 +255,7 @@ class CostumeCategoriesScreen extends ConsumerWidget {
               result.match<void>((_) {}, (_) {});
               if (dialogContext.mounted) Navigator.of(dialogContext).pop();
             },
-            child: const Text('Rename'),
+            child: Text(l10n.costumeCategoryRenameButton),
           ),
         ],
       ),
@@ -254,18 +267,16 @@ class CostumeCategoriesScreen extends ConsumerWidget {
     WidgetRef ref,
     CostumeCategoryView category,
   ) {
+    final l10n = l10nOf(context);
     return showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Archive category?'),
-        content: Text(
-          '"${category.name}" will be hidden from the active vocabulary. '
-          'Use the Archived toggle to reveal it.',
-        ),
+        title: Text(l10n.costumeCategoryArchiveTitle),
+        content: Text(l10n.costumeCategoryArchiveMessage(category.name)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
+            child: Text(l10n.commonCancel),
           ),
           FilledButton(
             key: const Key('archive-category-confirm'),
@@ -276,7 +287,7 @@ class CostumeCategoriesScreen extends ConsumerWidget {
               result.match<void>((_) {}, (_) {});
               if (dialogContext.mounted) Navigator.of(dialogContext).pop();
             },
-            child: const Text('Archive'),
+            child: Text(l10n.costumeCategoryArchiveButton),
           ),
         ],
       ),
@@ -296,13 +307,13 @@ class _FetchErrorView extends StatelessWidget {
     physics: const AlwaysScrollableScrollPhysics(),
     children: [
       const SizedBox(height: 160),
-      Center(child: Text('Could not load categories ($code).')),
+      Center(child: Text(l10nOf(context).costumeCategoriesFetchError(code))),
       const SizedBox(height: 8),
       Center(
         child: FilledButton.tonal(
           key: const Key('categories-retry'),
           onPressed: onRetry,
-          child: const Text('Retry'),
+          child: Text(l10nOf(context).commonRetry),
         ),
       ),
     ],
@@ -334,7 +345,7 @@ class _Banner extends StatelessWidget {
               IconButton(
                 onPressed: onDismiss,
                 color: scheme.onErrorContainer,
-                tooltip: 'Dismiss',
+                tooltip: l10nOf(context).episodesDismiss,
                 icon: const Icon(
                   Icons.close,
                   key: Key('category-command-error-dismiss'),
