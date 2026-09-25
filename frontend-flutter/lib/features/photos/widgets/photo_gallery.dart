@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'dart:async';
 import 'dart:collection';
@@ -412,6 +413,11 @@ class _StatusChip extends StatelessWidget {
 /// Localized copy for photo command failures, keyed on the stable problem
 /// `code` (never `detail` text).
 String photoErrorCopy(ProblemError error) => switch (error.code) {
+  // Client-side AUTHZ-GATE mirror denial (issue #513): the backend resolves
+  // the photo season through the costume's character; the client refuses
+  // upload/delete on an unassigned costume before any network call.
+  'photo.requires_character' =>
+    'Assign the costume to a character before managing photos.',
   'photo.too_large' => 'The image is too large even after resizing.',
   'photo.unsupported_media_type' =>
     'Only JPEG, PNG and WebP photos are supported.',

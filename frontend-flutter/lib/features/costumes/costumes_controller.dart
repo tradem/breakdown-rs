@@ -23,6 +23,7 @@ import '../../data/costume_repository.dart';
 import '../../data/photo_repository.dart';
 import '../../domain/reconciliation/reconcile_coordinator.dart';
 import '../characters/characters_controller.dart';
+import '../photos/widgets/photo_gallery.dart';
 import '../../domain/reconciliation/reconciliation_scheduler.dart';
 import 'costumes_state.dart';
 
@@ -229,6 +230,23 @@ String costumeErrorCopy(ProblemError error) => switch (error.code) {
   _ => 'The costume could not be saved (${error.code}).',
 };
 
+/// Copy for the shared season-scoped command-error banner (list + detail
+/// screens).
+///
+/// Photo-domain failures — upload/delete set the same
+/// `costumesCommandErrorProvider` as costume writes — route through
+/// [photoErrorCopy] while everything else uses [costumeErrorCopy]. A photo
+/// failure must never render the generic "costume could not be saved"
+/// fallback (issue #513: it masked the real photo cause — an unassigned
+/// costume). Routing is by the stable `photo.*` namespace: after the
+/// client-side assignment gate below, every reachable photo-command failure
+/// (forbidden, too-large, unsupported-media-type, not-found, …) is
+/// `photo.*`-prefixed or a handled auth/transport code.
+String costumeCommandErrorCopy(ProblemError error) =>
+    error.code.startsWith('photo.')
+    ? photoErrorCopy(error)
+    : costumeErrorCopy(error);
+
 /// `CostumesController(seasonId)` on the shared reconciliation runner.
 @Riverpod(keepAlive: true)
 class CostumesController extends _$CostumesController {
@@ -316,6 +334,34 @@ class CostumesController extends _$CostumesController {
       gate = const GateDeny('membership.pending');
     }
     return gate;
+  }
+
+  /// Freshest known `character_id` binding for [costumeId]: the fence-held
+  /// overlay (this client's latest ack) first, then the reconciled
+  /// projection row — mirror of the detail screen's `_resolveCostume`
+  /// precedence. `null` when the costume is unassigned.
+  String? _resolveCharacterBinding(String costumeId) {
+    for (final o in ref.read(costumesOverlaysProvider(seasonId))) {
+      if (o.id == costumeId) return o.overlay.characterId;
+    }
+    for (final row in ref.read(costumesViewProvider(seasonId)).rows) {
+      if (row.id == costumeId) return row.characterId;
+    }
+    return null;
+  }
+
+  /// Client-side AUTHZ-GATE mirror for the backend's character-derived photo
+  /// season (issue #513): photo commands (upload/delete) require the costume
+  /// to be assigned to a character — the backend resolves the photo season
+  /// through `costume.character_id → character.season_id` and 422s
+  /// `domain.validation` on an unassigned costume. A denial surfaces the
+  /// localized, actionable narrative ([photo.requires_character]) and NEVER
+  /// issues the request (provable by a fake repository call count of zero).
+  bool _denyUnassignedPhotoCommand(String costumeId) {
+    if (_resolveCharacterBinding(costumeId) != null) return false;
+    const error = ProblemError(code: 'photo.requires_character', status: 403);
+    ref.read(costumesCommandErrorProvider(seasonId).notifier).set(error);
+    return true;
   }
 
   GateDecision? _deny(GateDecision gate) {
@@ -741,6 +787,14 @@ class CostumesController extends _$CostumesController {
     if (_deny(gate) != null) {
       return Left(ProblemError(code: (gate as GateDeny).code, status: 403));
     }
+    // Assignment precondition (issue #513): the backend resolves the photo
+    // season through the costume's character, so an unassigned costume
+    // cannot upload (422 `domain.validation`). Deny before any network call.
+    if (_denyUnassignedPhotoCommand(costumeId)) {
+      return const Left(
+        ProblemError(code: 'photo.requires_character', status: 403),
+      );
+    }
     final repo = ref.read(costumePhotoRepositoryProvider);
     final res = await repo.upload(costumeId, bytes.bytes, contentType);
     return res.match(
@@ -768,6 +822,15 @@ class CostumesController extends _$CostumesController {
     final gate = await _photoGate();
     if (_deny(gate) != null) {
       return Left(ProblemError(code: (gate as GateDeny).code, status: 403));
+    }
+    // Assignment precondition (issue #513): the same character-derived
+    // season seam as upload — an unassigned costume cannot delete either
+    // (backend 422 `domain.validation`). Deny before any network call so
+    // the costumer sees the actionable narrative, not a 422.
+    if (_denyUnassignedPhotoCommand(costumeId)) {
+      return const Left(
+        ProblemError(code: 'photo.requires_character', status: 403),
+      );
     }
     final repo = ref.read(costumePhotoRepositoryProvider);
     final res = await repo.delete(costumeId, photoId);

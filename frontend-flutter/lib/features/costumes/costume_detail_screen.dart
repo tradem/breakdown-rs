@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/foundation.dart';
@@ -88,7 +89,7 @@ class CostumeDetailScreen extends ConsumerWidget {
                 children: [
                   if (state.commandError case final error?)
                     _InlineError(
-                      text: costumeErrorCopy(error),
+                      text: costumeCommandErrorCopy(error),
                       onDismiss: controller.dismissCommandError,
                     ),
                   _AssignmentSection(season: season, costume: costume),
@@ -566,11 +567,18 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
       AsyncData(:final value) => value.canUploadContinuityPhotos,
       _ => false,
     };
-    final canCapture = canUpload;
     final denied = switch (membership) {
       AsyncData(:final value) => !value.canUploadContinuityPhotos,
       _ => false,
     };
+    // Assignment pre-gate (AUTHZ-GATE mirror, issue #513): the backend
+    // resolves the photo season through the costume's character, so an
+    // unassigned costume cannot upload OR delete photos (422
+    // `domain.validation`). Gate the affordances client-side AND explain
+    // the precondition — a posted command on an unassigned costume is a
+    // doomed request the controller refuses before any network call.
+    final unassigned = widget.costume.characterId == null;
+    final canManagePhotos = canUpload && !unassigned;
     final repo = ref.watch(costumePhotoRepositoryProvider);
     final lru = ref.watch(photoBytesLruProvider);
 
@@ -597,18 +605,27 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
             'photos.',
             key: Key('photo-denied-narrative'),
           ),
+        if (unassigned)
+          const Text(
+            'Assign the costume to a character before managing photos.',
+            key: Key('photo-assignment-gate-narrative'),
+          ),
         PhotoGallery(
           costume: widget.costume,
           repository: repo,
           lru: lru,
-          canCapture: canCapture,
-          onCapture: canCapture ? () => _capture(ImageSource.camera) : null,
-          onDelete: (photo) => _confirmDelete(photo.id),
-          onRetryCapture: canCapture
+          canCapture: canManagePhotos,
+          onCapture: canManagePhotos
+              ? () => _capture(ImageSource.camera)
+              : null,
+          onDelete: canManagePhotos
+              ? (photo) => _confirmDelete(photo.id)
+              : null,
+          onRetryCapture: canManagePhotos
               ? () => _capture(ImageSource.camera)
               : null,
         ),
-        if (canCapture) ...[
+        if (canManagePhotos) ...[
           const SizedBox(height: 8),
           Row(
             children: [
