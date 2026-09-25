@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: longcat-2.0-free (opencode)
+// Co-authored-by: space-bunny-free (opencode-go)
 
 //! Cancellation-safe PostgreSQL concurrency permits for AI import workers
 //! (issue #178).
@@ -41,6 +42,7 @@
 //! Neither mechanism can double-free: release, drop-reclaim and lease-reclaim
 //! are all `DELETE ... WHERE id = $1`, which is idempotent by construction.
 
+use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
@@ -53,6 +55,33 @@ use uuid::Uuid;
 /// How many renewals fit in one lease window (two spare renewals absorb a
 /// transient database blip), mirroring [`super::heartbeat`].
 const RENEWALS_PER_LEASE: u32 = 3;
+
+/// Attempts the reclaimer makes per dropped permit before leaving the row to
+/// its lease (issue #528 follow-up). Diagnostics and tests only.
+///
+/// A single attempt turned one transient failure into a full lease outage for
+/// the reclaimed capacity: the fast path exists precisely so a cancelled
+/// worker's slot is free again within milliseconds, and a lock timeout or a
+/// dropped connection must not silently demote it to the 30 s lease floor.
+/// The bound is deliberate and small — an unbounded retry would stall every
+/// later reclaim behind one permanently broken row, which is the failure the
+/// lease fallback exists to cover.
+pub const RECLAIM_ATTEMPTS: u32 = 4;
+
+/// Backoff before the next reclaim attempt, multiplied by the attempt number
+/// (`100 ms, 200 ms, 300 ms, …`).
+const RECLAIM_BACKOFF_BASE: Duration = Duration::from_millis(100);
+
+/// Upper bound on how long ONE reclaim statement may wait for the row lock.
+/// Diagnostics and tests only.
+///
+/// The row of a permit whose acquisition was cancelled mid-`commit` can still
+/// be locked by that transaction while it resolves. Without a bound, such a
+/// delete blocks the reclaim loop head-of-line: every later dropped permit
+/// waits behind it even though their own rows are free. The wait is therefore
+/// capped and the attempt is retried by [`reclaim_permit_with_retry`]; the
+/// loop keeps moving either way.
+pub const RECLAIM_LOCK_TIMEOUT: Duration = Duration::from_millis(200);
 
 /// The one named unit both lease bounds derive from: the recovery horizon
 /// shared with the AI import claim lease (`LEASE_UNIT_SECS` in
@@ -86,6 +115,13 @@ const _LEASE_ORDERING_INVARIANT: () = assert!(
 // lowering the latter cannot silently invert the relationship.
 const _RENEWAL_FITS_IN_LEASE: () =
     assert!(MIN_PERMIT_LEASE.as_secs() > MIN_PERMIT_LEASE.as_secs() / RENEWALS_PER_LEASE as u64);
+
+/// Compile-time ordering the reclaim budget relies on: more than one attempt
+/// (a single attempt would demote every transient failure to the lease) and a
+/// lock wait that resolves inside the lease floor.
+const _RECLAIM_BUDGET_INVARIANT: () = assert!(
+    RECLAIM_ATTEMPTS > 1 && RECLAIM_LOCK_TIMEOUT.as_millis() < MIN_PERMIT_LEASE.as_millis()
+);
 
 /// Renewal interval for a lease window. Holders that may outlive the lease
 /// call [`PgAiConcurrencyPermit::renew`] at this cadence.
@@ -382,11 +418,13 @@ impl Drop for PermitReclaimer {
 
 /// Delete permits whose holders were dropped without releasing.
 ///
-/// A failed delete is logged and left to the lease: retrying forever inside
-/// this loop would starve later reclaims behind a permanently broken row.
+/// Each id is reclaimed through [`reclaim_permit_with_retry`] (a bounded
+/// number of attempts, each statement bounded by [`RECLAIM_LOCK_TIMEOUT`]).
+/// Only once those attempts are exhausted is the row left to the lease, and
+/// that is logged as the capacity outage it is.
 async fn reclaim_loop(pool: PgPool, mut receiver: UnboundedReceiver<Uuid>) {
     while let Some(id) = receiver.recv().await {
-        match delete_permit(&pool, id).await {
+        match reclaim_permit_with_retry(id, || delete_permit_bounded(&pool, id)).await {
             Ok(true) => tracing::warn!(
                 permit_id = %id,
                 "reclaimed AI concurrency permit dropped without release (task cancelled)"
@@ -397,11 +435,65 @@ async fn reclaim_loop(pool: PgPool, mut receiver: UnboundedReceiver<Uuid>) {
             Err(error) => tracing::error!(
                 permit_id = %id,
                 error = %error,
-                "failed to reclaim dropped AI concurrency permit; \
-                 capacity returns when the lease expires"
+                attempts = RECLAIM_ATTEMPTS,
+                "failed to reclaim dropped AI concurrency permit within {} attempts; \
+                 capacity returns when the lease expires",
+                RECLAIM_ATTEMPTS
             ),
         }
     }
+}
+
+/// The reclaim retry policy, isolated from the database so it can be proved
+/// without one: [delete_once] performs a single bounded delete and may fail
+/// transiently (lock timeout, connection blip). The loop stops at the first
+/// success — including "the row was already gone" — and gives up after
+/// [`RECLAIM_ATTEMPTS`], never blocking the loop behind one broken row.
+async fn reclaim_permit_with_retry<F, Fut>(
+    id: Uuid,
+    mut delete_once: F,
+) -> Result<bool, DomainError>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<bool, DomainError>>,
+{
+    let mut attempt: u32 = 1;
+    loop {
+        match delete_once().await {
+            Ok(freed) => return Ok(freed),
+            Err(error) if attempt >= RECLAIM_ATTEMPTS => return Err(error),
+            Err(error) => {
+                tracing::warn!(
+                    permit_id = %id,
+                    attempt,
+                    error = %error,
+                    "AI concurrency permit reclaim attempt failed; retrying"
+                );
+                tokio::time::sleep(reclaim_backoff(attempt)).await;
+                attempt += 1;
+            }
+        }
+    }
+}
+
+/// Backoff before attempt number [attempt] (1-based): linear growth from
+/// [`RECLAIM_BACKOFF_BASE`], so the whole retry budget stays bounded and
+/// predictable.
+fn reclaim_backoff(attempt: u32) -> Duration {
+    RECLAIM_BACKOFF_BASE.saturating_mul(attempt)
+}
+
+/// Worst-case time the reclaimer spends on ONE dropped permit before handing
+/// it to the lease: every attempt may burn the full lock timeout, plus the
+/// linear backoffs in between. Diagnostics and the analytic budget that
+/// integration tests assert against (never a guessed sleep).
+#[must_use]
+pub fn reclaim_retry_budget() -> Duration {
+    let lock_waits = RECLAIM_LOCK_TIMEOUT.saturating_mul(RECLAIM_ATTEMPTS);
+    let backoffs = (1..RECLAIM_ATTEMPTS).fold(Duration::ZERO, |acc, attempt| {
+        acc + reclaim_backoff(attempt)
+    });
+    lock_waits + backoffs
 }
 
 /// A held unit of AI import capacity.
@@ -552,6 +644,49 @@ async fn delete_permit(pool: &PgPool, id: Uuid) -> Result<bool, DomainError> {
     Ok(affected > 0)
 }
 
+/// The reclaimer variant of [`delete_permit`]: the same idempotent delete,
+/// but inside a short transaction whose row-lock wait is capped by
+/// [`RECLAIM_LOCK_TIMEOUT`].
+///
+/// A permit whose acquisition was cancelled mid-`commit` can still be locked
+/// by that transaction; an uncapped delete would block the whole reclaim loop
+/// behind it. `set_config(..., is_local = true)` is the bindable form of
+/// `SET LOCAL lock_timeout` — `SET` itself takes no parameters, and a bound
+/// value keeps the statement free of string interpolation.
+///
+/// Only the reclaim path is bounded: [`PgAiConcurrencyPermit::release`] is
+/// awaited by its holder, which may legitimately block, and a timeout there
+/// would turn a slow-but-successful release into a spurious error.
+async fn delete_permit_bounded(pool: &PgPool, id: Uuid) -> Result<bool, DomainError> {
+    let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
+    sqlx::query("SELECT set_config('lock_timeout', $1, true)")
+        .bind(format!("{}ms", RECLAIM_LOCK_TIMEOUT.as_millis()))
+        .execute(&mut *tx)
+        .await
+        .map_err(map_sqlx_error)?;
+    let affected = match sqlx::query(
+        r#"
+        DELETE FROM ai_import.concurrency_permit WHERE id = $1
+        "#,
+    )
+    .bind(id)
+    .execute(&mut *tx)
+    .await
+    {
+        Ok(result) => result.rows_affected(),
+        Err(error) => {
+            // A timed-out statement aborts the transaction. Roll back
+            // explicitly — the deletion did NOT happen — so the connection is
+            // handed back clean for the next attempt. Rolling back on the
+            // success path instead would silently undo the delete.
+            tx.rollback().await.map_err(map_sqlx_error)?;
+            return Err(map_sqlx_error(error));
+        }
+    };
+    tx.commit().await.map_err(map_sqlx_error)?;
+    Ok(affected > 0)
+}
+
 fn map_sqlx_error(error: sqlx::Error) -> DomainError {
     DomainError::service_unavailable(format!("AI concurrency database error: {error}"))
 }
@@ -559,9 +694,14 @@ fn map_sqlx_error(error: sqlx::Error) -> DomainError {
 #[cfg(test)]
 mod tests {
     use super::{
-        DEFAULT_PERMIT_LEASE, MIN_PERMIT_LEASE, RENEWALS_PER_LEASE, permit_renewal_interval,
+        DEFAULT_PERMIT_LEASE, MIN_PERMIT_LEASE, RECLAIM_ATTEMPTS, RECLAIM_BACKOFF_BASE,
+        RENEWALS_PER_LEASE, permit_renewal_interval, reclaim_backoff, reclaim_permit_with_retry,
+        reclaim_retry_budget,
     };
+    use breakdown_core::error::DomainError;
+    use std::cell::Cell;
     use std::time::Duration;
+    use uuid::Uuid;
 
     #[test]
     fn renewal_interval_is_a_strict_fraction_of_the_lease() {
@@ -623,5 +763,111 @@ mod tests {
     fn renewal_interval_for_large_lease() {
         let interval = permit_renewal_interval(Duration::from_secs(3600));
         assert_eq!(interval, Duration::from_secs(1200));
+    }
+
+    // --- Reclaim retry policy (issue #528 follow-up) -------------------------
+    //
+    // The policy is proved here WITHOUT a database and WITHOUT timing
+    // assertions: the deleter is a closure, so the test counts attempts and
+    // sees the returned outcome only. The database-level fault (a locked row)
+    // is injected separately by the integration test.
+
+    /// A deleter that fails [failures] times, then reports the row freed.
+    fn flaky_deleter(
+        calls: &Cell<u32>,
+        failures: u32,
+    ) -> impl FnMut() -> std::pin::Pin<Box<dyn Future<Output = Result<bool, DomainError>>>> {
+        move || {
+            calls.set(calls.get() + 1);
+            let attempt = calls.get();
+            Box::pin(async move {
+                if attempt <= failures {
+                    Err(DomainError::service_unavailable(
+                        "transient reclaim failure",
+                    ))
+                } else {
+                    Ok(true)
+                }
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn reclaim_stops_at_the_first_success() {
+        let calls = Cell::new(0);
+        let freed = reclaim_permit_with_retry(Uuid::now_v7(), flaky_deleter(&calls, 0))
+            .await
+            .expect("the first attempt succeeds");
+        assert!(freed);
+        assert_eq!(calls.get(), 1, "a healthy delete must not be repeated");
+    }
+
+    #[tokio::test]
+    async fn reclaim_retries_a_transient_failure() {
+        let calls = Cell::new(0);
+        let freed = reclaim_permit_with_retry(Uuid::now_v7(), flaky_deleter(&calls, 2))
+            .await
+            .expect("a transient failure must be retried, not surfaced");
+        assert!(freed);
+        assert_eq!(
+            calls.get(),
+            3,
+            "two failures then one success — one attempt per failure plus the winner"
+        );
+    }
+
+    #[tokio::test]
+    async fn reclaim_gives_up_after_the_bounded_attempts() {
+        let calls = Cell::new(0);
+        // Fails more often than the policy allows, so the lease fallback is
+        // reached: the error is returned instead of retried forever.
+        let error =
+            reclaim_permit_with_retry(Uuid::now_v7(), flaky_deleter(&calls, RECLAIM_ATTEMPTS + 1))
+                .await
+                .expect_err("a permanently broken row must surface to the lease fallback");
+        assert!(matches!(error, DomainError::ServiceUnavailable { .. }));
+        assert_eq!(
+            calls.get(),
+            RECLAIM_ATTEMPTS,
+            "the retry must be bounded, never open-ended"
+        );
+    }
+
+    #[tokio::test]
+    async fn reclaim_stops_when_the_row_is_already_gone() {
+        let calls = Cell::new(0);
+        // "Already gone" is a success (release() won the race), not a failure:
+        // the policy must not keep deleting an absent row.
+        let freed = reclaim_permit_with_retry(Uuid::now_v7(), || {
+            calls.set(calls.get() + 1);
+            Box::pin(async { Ok(false) })
+        })
+        .await
+        .expect("an already-reclaimed row is not an error");
+        assert!(!freed);
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn reclaim_backoff_grows_linearly_and_stays_bounded() {
+        assert_eq!(reclaim_backoff(1), RECLAIM_BACKOFF_BASE);
+        assert_eq!(reclaim_backoff(2), RECLAIM_BACKOFF_BASE * 2);
+        // The whole retry budget stays far below the lease floor, so a
+        // transient failure can never cost a lease window of capacity.
+        let budget = reclaim_retry_budget();
+        assert!(
+            budget < MIN_PERMIT_LEASE,
+            "retry budget {budget:?} must stay below the {MIN_PERMIT_LEASE:?} lease floor"
+        );
+    }
+
+    #[test]
+    fn reclaim_lock_timeout_is_below_the_lease_floor() {
+        // The attempt count / lock-timeout ordering is asserted at compile time
+        // by `_RECLAIM_BUDGET_INVARIANT`; here the *runtime* budget is checked.
+        assert!(
+            reclaim_retry_budget() < MIN_PERMIT_LEASE,
+            "the whole reclaim budget must resolve inside the lease window"
+        );
     }
 }
