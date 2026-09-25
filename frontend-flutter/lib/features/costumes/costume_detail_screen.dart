@@ -44,10 +44,9 @@ Stream<PhotoWatchEvent> costumePhotoWatch(
   );
 }
 
-/// `CostumeDetailScreen` — detail elements (denormalized `category_name`),
-/// add-detail form (category picker from the season categories projection),
-/// notes editor, assign/unassign (character picker, version echo), and the
-/// photo gallery (capture → prepare → raw-bytes upload → variant watch).
+/// `CostumeDetailScreen` is retained as a compatibility entry point for
+/// callers that still provide a route. New overview navigation uses
+/// [CostumeDetailPanel] directly, keeping editing on the first screen.
 class CostumeDetailScreen extends ConsumerWidget {
   const CostumeDetailScreen({
     super.key,
@@ -68,48 +67,84 @@ class CostumeDetailScreen extends ConsumerWidget {
         Navigator.of(context).popUntil((route) => route.isFirst);
       }
     });
-    // Keep the variant watch alive while visible; terminal events refresh
-    // through the cache write in `getAndCache` (the projection rebuilds).
+    final controller = ref.read(costumesControllerProvider(season.id).notifier);
+    return Scaffold(
+      appBar: AppBar(title: Text(l10nOf(context).costumeDetailTitle)),
+      body: RefreshIndicator(
+        onRefresh: controller.refresh,
+        child: ListView(
+          key: Key('costume-detail-$costumeId'),
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
+          children: [CostumeDetailPanel(season: season, costumeId: costumeId)],
+        ),
+      ),
+    );
+  }
+}
+
+/// The costume identity editor embedded below the overview tile grid.
+///
+/// It deliberately contains the existing assignment, detail, notes, and photo
+/// controls so the old detail route is no longer required for editing.
+class CostumeDetailPanel extends ConsumerWidget {
+  const CostumeDetailPanel({
+    super.key,
+    required this.season,
+    required this.costumeId,
+  });
+
+  final SeasonView season;
+  final String costumeId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Keep the variant watch alive while the panel is visible; terminal
+    // events refresh the costume cache and rebuild the projection.
     ref.listen(costumePhotoWatchProvider(season.id, costumeId), (_, _) {});
     final state = ref.watch(costumesControllerProvider(season.id));
     final controller = ref.read(costumesControllerProvider(season.id).notifier);
     final costume = _resolveCostume(state);
-
-    return Scaffold(
-      appBar: AppBar(title: Text(l10nOf(context).costumeDetailTitle)),
-      body: costume == null
-          ? const Center(
-              child: CircularProgressIndicator(key: Key('costume-loading')),
-            )
-          : RefreshIndicator(
-              onRefresh: controller.refresh,
-              child: ListView(
-                key: Key('costume-detail-$costumeId'),
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(16),
-                children: [
-                  if (state.commandError case final failure?)
-                    _InlineError(
-                      text: costumeCommandErrorCopy(l10nOf(context), failure),
-                      onDismiss: controller.dismissCommandError,
-                    ),
-                  _AssignmentSection(season: season, costume: costume),
-                  const Divider(height: 32),
-                  _NotesSection(season: season, costume: costume),
-                  const Divider(height: 32),
-                  _DetailsSection(season: season, costume: costume),
-                  const Divider(height: 32),
-                  _PhotosSection(season: season, costume: costume),
-                ],
-              ),
-            ),
+    if (costume == null) {
+      return const SizedBox(
+        height: 160,
+        child: Center(
+          child: CircularProgressIndicator(key: Key('costume-loading')),
+        ),
+      );
+    }
+    return Column(
+      key: Key('costume-editor-body-$costumeId'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
+          child: Text(
+            l10nOf(context).costumeDetailTitle,
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+        ),
+        const SizedBox(height: 16),
+        if (state.commandError case final failure?)
+          _InlineError(
+            text: costumeCommandErrorCopy(l10nOf(context), failure),
+            onDismiss: controller.dismissCommandError,
+          ),
+        _AssignmentSection(season: season, costume: costume),
+        const Divider(height: 32),
+        // Identity is primary; notes are deliberately secondary.
+        _DetailsSection(season: season, costume: costume),
+        const Divider(height: 32),
+        _NotesSection(season: season, costume: costume),
+        const Divider(height: 32),
+        _PhotosSection(season: season, costume: costume),
+        const SizedBox(height: 24),
+      ],
     );
   }
 
-  /// Resolves the effective row: the fence-held overlay first (its notes,
-  /// details and assignment are newer than the cached projection), then
-  /// the cached row. The overlay version already advanced to the ack, so
-  /// follow-up commands echo it instead of the pre-command version.
+  /// Resolves the effective row: the fence-held overlay first, then the
+  /// projected/cached row. The overlay version is the freshest command ack.
   CostumeView? _resolveCostume(CostumesScreenState state) {
     for (final o in state.overlays) {
       if (o.id == costumeId) return o.overlay;
@@ -370,7 +405,15 @@ class _NotesSectionState extends ConsumerState<_NotesSection> {
             final notesResult = await ref
                 .read(costumesControllerProvider(widget.season.id).notifier)
                 .updateNotes(costume: widget.costume, notes: _controller.text);
-            notesResult.match<void>((_) {}, (_) {});
+            final saved = notesResult.match((_) => false, (_) => true);
+            if (saved && context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  key: const Key('costume-saved-confirmation'),
+                  content: Text(l10nOf(context).costumeDetailSaved),
+                ),
+              );
+            }
           },
           child: Text(l10nOf(context).costumeDetailSaveNotes),
         ),
@@ -387,9 +430,6 @@ class _DetailsSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Subscribe early so the category picker reads warm rows (providers
-    // are lazy — a one-shot read in the dialog alone would still load).
-    final categories = ref.watch(costumeCategoriesViewProvider(season.id));
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -426,25 +466,18 @@ class _DetailsSection extends ConsumerWidget {
         const SizedBox(height: 8),
         FilledButton.tonal(
           key: Key('costume-detail-add-${costume.id}'),
-          onPressed: () => _showAddDetail(context, ref, categories.rows),
+          onPressed: () => _showAddDetail(context, ref),
           child: Text(l10nOf(context).costumeDetailAddDetail),
         ),
       ],
     );
   }
 
-  Future<void> _showAddDetail(
-    BuildContext context,
-    WidgetRef ref,
-    List<CostumeCategoryView> categories,
-  ) {
+  Future<void> _showAddDetail(BuildContext context, WidgetRef ref) {
     return showDialog<void>(
       context: context,
-      builder: (dialogContext) => _AddDetailForm(
-        season: season,
-        costume: costume,
-        categories: categories,
-      ),
+      builder: (dialogContext) =>
+          _AddDetailForm(season: season, costume: costume),
     );
   }
 }
@@ -454,15 +487,10 @@ class _DetailsSection extends ConsumerWidget {
 /// exit transition) — never while the exit animation still rebuilds, which a
 /// `whenComplete` on the dialog future cannot guarantee.
 class _AddDetailForm extends ConsumerStatefulWidget {
-  const _AddDetailForm({
-    required this.season,
-    required this.costume,
-    required this.categories,
-  });
+  const _AddDetailForm({required this.season, required this.costume});
 
   final SeasonView season;
   final CostumeView costume;
-  final List<CostumeCategoryView> categories;
 
   @override
   ConsumerState<_AddDetailForm> createState() => _AddDetailFormState();
@@ -490,73 +518,86 @@ class _AddDetailFormState extends ConsumerState<_AddDetailForm> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: Text(l10nOf(context).costumeDetailAddDetail),
-    content: Form(
-      key: _formKey,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextFormField(
-            key: const Key('add-detail-subject'),
-            controller: _subject,
-            decoration: InputDecoration(
-              labelText: l10nOf(context).costumeDetailSubject,
+  Widget build(BuildContext context) {
+    final categories = ref
+        .watch(costumeCategoriesViewProvider(widget.season.id))
+        .rows;
+    return AlertDialog(
+      title: Text(l10nOf(context).costumeDetailAddDetail),
+      content: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextFormField(
+              key: const Key('add-detail-subject'),
+              controller: _subject,
+              decoration: InputDecoration(
+                labelText: l10nOf(context).costumeDetailSubject,
+              ),
             ),
-          ),
-          TextFormField(
-            key: const Key('add-detail-text'),
-            controller: _text,
-            decoration: InputDecoration(
-              labelText: l10nOf(context).costumeDetailText,
+            TextFormField(
+              key: const Key('add-detail-text'),
+              controller: _text,
+              decoration: InputDecoration(
+                labelText: l10nOf(context).costumeDetailText,
+              ),
+              validator: (v) => (v == null || v.trim().isEmpty)
+                  ? l10nOf(context).costumeDetailTextRequired
+                  : null,
             ),
-            validator: (v) => (v == null || v.trim().isEmpty)
-                ? l10nOf(context).costumeDetailTextRequired
-                : null,
-          ),
-          DropdownButtonFormField<String>(
-            key: const Key('add-detail-category'),
-            decoration: InputDecoration(
-              labelText: l10nOf(context).costumeDetailCategory,
+            DropdownButtonFormField<String>(
+              key: const Key('add-detail-category'),
+              decoration: InputDecoration(
+                labelText: l10nOf(context).costumeDetailCategory,
+              ),
+              items: [
+                for (final c in categories)
+                  DropdownMenuItem(value: c.id, child: Text(c.name)),
+              ],
+              onChanged: (v) => setState(() => _categoryId = v),
             ),
-            items: [
-              for (final c in widget.categories)
-                DropdownMenuItem(value: c.id, child: Text(c.name)),
-            ],
-            onChanged: (v) => setState(() => _categoryId = v),
-          ),
-        ],
+          ],
+        ),
       ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.of(context).pop(),
-        child: Text(l10nOf(context).commonCancel),
-      ),
-      FilledButton(
-        key: const Key('add-detail-submit'),
-        onPressed: () async {
-          if (!(_formKey.currentState?.validate() ?? false)) return;
-          // Handled: failures surface via the command-error provider.
-          final detailResult = await ref
-              .read(costumesControllerProvider(widget.season.id).notifier)
-              .addDetail(
-                costume: widget.costume,
-                text: _text.text.trim(),
-                subject: _subject.text.trim().isEmpty
-                    ? null
-                    : _subject.text.trim(),
-                categoryId: _categoryId,
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(l10nOf(context).commonCancel),
+        ),
+        FilledButton(
+          key: const Key('add-detail-submit'),
+          onPressed: () async {
+            if (!(_formKey.currentState?.validate() ?? false)) return;
+            // Handled: failures surface via the command-error provider.
+            final detailResult = await ref
+                .read(costumesControllerProvider(widget.season.id).notifier)
+                .addDetail(
+                  costume: widget.costume,
+                  text: _text.text.trim(),
+                  subject: _subject.text.trim().isEmpty
+                      ? null
+                      : _subject.text.trim(),
+                  categoryId: _categoryId,
+                );
+            final saved = detailResult.match((_) => false, (_) => true);
+            if (saved && context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  key: const Key('costume-saved-confirmation'),
+                  content: Text(l10nOf(context).costumeDetailSaved),
+                ),
               );
-          detailResult.match<void>((_) {}, (_) {});
-          if (context.mounted) {
-            Navigator.of(context).pop();
-          }
-        },
-        child: Text(l10nOf(context).commonAdd),
-      ),
-    ],
-  );
+            }
+            if (context.mounted) {
+              Navigator.of(context).pop();
+            }
+          },
+          child: Text(l10nOf(context).commonAdd),
+        ),
+      ],
+    );
+  }
 }
 
 /// Photos section: gallery (from `CostumeView.photos`), capture affordance
@@ -597,7 +638,11 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
     // doomed request the controller refuses before any network call.
     final unassigned = widget.costume.characterId == null;
     final canManagePhotos = canUpload && !unassigned;
-    final repo = ref.watch(costumePhotoRepositoryProvider);
+    // Do not construct the network-backed photo repository while the
+    // capability is denied or still pending. This keeps the overview's
+    // inline editor renderable during membership resolution and enforces the
+    // client-side photo gate before any bytes request.
+    final repo = canUpload ? ref.watch(costumePhotoRepositoryProvider) : null;
     final lru = ref.watch(photoBytesLruProvider);
 
     return Column(
@@ -630,21 +675,27 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
             l10nOf(context).photoErrorRequiresCharacter,
             key: const Key('photo-assignment-gate-narrative'),
           ),
-        PhotoGallery(
-          costume: widget.costume,
-          repository: repo,
-          lru: lru,
-          canCapture: canManagePhotos,
-          onCapture: canManagePhotos
-              ? () => _capture(ImageSource.camera)
-              : null,
-          onDelete: canManagePhotos
-              ? (photo) => _confirmDelete(photo.id)
-              : null,
-          onRetryCapture: canManagePhotos
-              ? () => _capture(ImageSource.camera)
-              : null,
-        ),
+        if (repo != null)
+          PhotoGallery(
+            costume: widget.costume,
+            repository: repo,
+            lru: lru,
+            canCapture: canManagePhotos,
+            onCapture: canManagePhotos
+                ? () => _capture(ImageSource.camera)
+                : null,
+            onDelete: canManagePhotos
+                ? (photo) => _confirmDelete(photo.id)
+                : null,
+            onRetryCapture: canManagePhotos
+                ? () => _capture(ImageSource.camera)
+                : null,
+          )
+        else
+          Text(
+            l10nOf(context).photoGalleryEmpty,
+            key: Key('photo-gallery-empty-${widget.costume.id}'),
+          ),
         if (canManagePhotos) ...[
           const SizedBox(height: 8),
           Row(

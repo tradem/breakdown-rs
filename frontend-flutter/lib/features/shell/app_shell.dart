@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/generated/app_localizations.dart';
 import '../../l10n/generated/app_localizations_de.dart';
+import '../../design/material_icons.dart';
 import 'more_tab_screen.dart';
 import 'planning_tab_screen.dart';
 import '../seasons/seasons_screen.dart';
@@ -288,15 +289,15 @@ class _DestinationSpec {
   // Glossary (`docs/design/glossary.md`): home_outlined/Season,
   // edit_calendar_outlined/Planen, checkroom/Garderobe, more_horiz/Mehr.
   static const _outlineIcons = [
-    Icons.home_outlined,
-    Icons.edit_calendar_outlined,
-    Icons.checkroom_outlined,
-    Icons.more_horiz,
+    BreakdownMaterialIcons.shellHomeOutline,
+    BreakdownMaterialIcons.shellPlanenOutline,
+    BreakdownMaterialIcons.shellCostumesOutline,
+    BreakdownMaterialIcons.shellMore,
   ];
   static const _filledIcons = [
-    Icons.home,
-    Icons.edit_calendar,
-    Icons.checkroom,
-    Icons.more_horiz,
+    BreakdownMaterialIcons.shellHomeFilled,
+    BreakdownMaterialIcons.shellPlanenFilled,
+    BreakdownMaterialIcons.shellCostumesFilled,
+    BreakdownMaterialIcons.shellMore,
   ];
 }

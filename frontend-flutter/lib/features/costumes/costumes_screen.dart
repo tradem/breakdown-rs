@@ -8,28 +8,39 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/auth_providers.dart';
+import '../../auth/membership/capability.dart';
+import '../../auth/membership/membership_providers.dart';
 import '../../core/problem_error.dart';
+import '../../data/photo_repository.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../blocks/active_block_gate.dart';
 import '../blocks/blocks_controller.dart';
 import 'costume_detail_screen.dart';
 import 'costumes_controller.dart';
 import 'costumes_state.dart';
+import '../photos/widgets/photo_gallery.dart';
 import 'widgets/costumes_widgets.dart';
 
-/// `CostumesScreen` — the season's costumes (season-scoped list + create).
+/// `CostumesScreen` — the season's costumes and the inline costume editor.
 ///
 /// Create dispatches the empty-body `POST /v1/costumes` after the session
-/// AUTHZ-GATE; on 201 the overlay row (server id) renders and immediately
-/// chains to the first detail/assignment flow so the created row never
-/// dead-ends (D1). Detail navigation pushes [CostumeDetailScreen].
-class CostumesScreen extends ConsumerWidget {
+/// AUTHZ-GATE. Selecting a tile opens the editor in this screen; there is no
+/// separate detail route.
+class CostumesScreen extends ConsumerStatefulWidget {
   const CostumesScreen({super.key, required this.season});
 
   final SeasonView season;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<CostumesScreen> createState() => _CostumesScreenState();
+}
+
+class _CostumesScreenState extends ConsumerState<CostumesScreen> {
+  String? _selectedId;
+  SeasonView get season => widget.season;
+
+  @override
+  Widget build(BuildContext context) {
     ref.listen(authSessionControllerProvider, (_, session) {
       final signedOut =
           (session is AsyncData && session.value == null) ||
@@ -69,6 +80,18 @@ class CostumesScreen extends ConsumerWidget {
     final controller = ref.read(costumesControllerProvider(season.id).notifier);
     final rows = state.rows;
     final notFound = state.notFound;
+    final canViewPhotos = switch (ref.watch(
+      currentMembershipProvider(season.id),
+    )) {
+      AsyncData(:final value) => value.canUploadContinuityPhotos,
+      _ => false,
+    };
+    // Do not construct the photo repository until the capability is known.
+    // No photo repository means no bytes request.
+    final photoRepository = canViewPhotos
+        ? ref.watch(costumePhotoRepositoryProvider)
+        : null;
+    final photoBytesLru = ref.watch(photoBytesLruProvider);
 
     return Scaffold(
       appBar: AppBar(title: Text(l10nOf(context).navCostumes)),
@@ -114,32 +137,20 @@ class CostumesScreen extends ConsumerWidget {
                                   CostumesEmptyView(
                                     onCreate: _canCreate(ref)
                                         ? () =>
-                                              _createAndOpenDetail(context, ref)
+                                              _createAndShowEditor(context, ref)
                                         : null,
                                   ),
                                 ],
                               )
-                            : ListView.builder(
-                                key: const Key('costumes-list'),
-                                physics: const AlwaysScrollableScrollPhysics(),
-                                itemCount: rows.length,
-                                itemBuilder: (context, i) {
-                                  final row = rows[i];
-                                  return CostumeTile(
-                                    row: row,
-                                    onTap: row is ProjectedCostumeRow
-                                        ? () => Navigator.of(context).push(
-                                            MaterialPageRoute(
-                                              builder: (_) =>
-                                                  CostumeDetailScreen(
-                                                    season: season,
-                                                    costumeId: row.costume.id,
-                                                  ),
-                                            ),
-                                          )
-                                        : null,
-                                  );
-                                },
+                            : _CostumeOverview(
+                                rows: rows,
+                                season: season,
+                                canViewPhotos: canViewPhotos,
+                                photoRepository: photoRepository,
+                                photoBytesLru: photoBytesLru,
+                                selectedId: _selectedId,
+                                onSelect: (id) =>
+                                    setState(() => _selectedId = id),
                               ),
                     },
                   ),
@@ -149,7 +160,7 @@ class CostumesScreen extends ConsumerWidget {
       floatingActionButton: _canCreate(ref)
           ? FloatingActionButton(
               key: const Key('costume-add-fab'),
-              onPressed: () => _createAndOpenDetail(context, ref),
+              onPressed: () => _createAndShowEditor(context, ref),
               tooltip: l10nOf(context).costumeAddFab,
               child: const Icon(Icons.add),
             )
@@ -162,20 +173,76 @@ class CostumesScreen extends ConsumerWidget {
     return session is AsyncData && session.value != null;
   }
 
-  /// Creates the empty shell and chains to the detail screen so the first
-  /// detail/assignment flow starts immediately (D1 — no dead-end row).
-  Future<void> _createAndOpenDetail(BuildContext context, WidgetRef ref) async {
+  /// Creates the empty shell and keeps the editor on the first screen.
+  Future<void> _createAndShowEditor(BuildContext context, WidgetRef ref) async {
     final result = await ref
         .read(costumesControllerProvider(season.id).notifier)
         .create();
     final id = result.match((_) => null, (ack) => ack.id);
-    if (id != null && context.mounted) {
-      await Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => CostumeDetailScreen(season: season, costumeId: id),
+    if (id != null && mounted) setState(() => _selectedId = id);
+  }
+}
+
+class _CostumeOverview extends StatelessWidget {
+  const _CostumeOverview({
+    required this.rows,
+    required this.season,
+    required this.canViewPhotos,
+    required this.photoRepository,
+    required this.photoBytesLru,
+    required this.selectedId,
+    required this.onSelect,
+  });
+
+  final List<CostumeRow> rows;
+  final SeasonView season;
+  final bool canViewPhotos;
+  final PhotoRepository? photoRepository;
+  final PhotoBytesLru photoBytesLru;
+  final String? selectedId;
+  final ValueChanged<String> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final columns = MediaQuery.sizeOf(context).width < 600 ? 2 : 3;
+    return CustomScrollView(
+      key: const Key('costumes-list'),
+      physics: const AlwaysScrollableScrollPhysics(),
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+          sliver: SliverGrid.builder(
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columns,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+              childAspectRatio: 0.82,
+            ),
+            itemCount: rows.length,
+            itemBuilder: (context, index) {
+              final row = rows[index];
+              return CostumeTile(
+                row: row,
+                photoRepository: photoRepository,
+                photoBytesLru: photoBytesLru,
+                canViewPhotos: canViewPhotos,
+                onTap: row is ProjectedCostumeRow
+                    ? () => onSelect(row.costume.id)
+                    : null,
+              );
+            },
+          ),
         ),
-      );
-    }
+        if (selectedId != null)
+          SliverToBoxAdapter(
+            child: CostumeDetailPanel(
+              key: Key('costume-editor-$selectedId'),
+              season: season,
+              costumeId: selectedId!,
+            ),
+          ),
+      ],
+    );
   }
 }
 

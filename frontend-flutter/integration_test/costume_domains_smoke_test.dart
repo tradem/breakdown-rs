@@ -386,11 +386,11 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Create shell → detail chains automatically (D1, no dead-end row).
+      // Create shell → inline editor appears automatically (D1, no dead-end row).
       await tester.tap(find.byKey(const Key('costume-add-fab')));
       await tester.pumpAndSettle();
       expect(
-        find.byKey(const Key('costume-detail-e2e-costume')),
+        find.byKey(const Key('costume-editor-e2e-costume')),
         findsOneWidget,
       );
 

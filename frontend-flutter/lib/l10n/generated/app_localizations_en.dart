@@ -288,6 +288,15 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get costumeTileLabelFallback => 'Costume';
+
+  @override
+  String get costumeCategoryUncategorized => 'Uncategorized';
+
+  @override
+  String get costumeDetailSaved => 'Costume details saved.';
+
+  @override
   String costumeWornBy(Object name) {
     return 'Worn by $name';
   }

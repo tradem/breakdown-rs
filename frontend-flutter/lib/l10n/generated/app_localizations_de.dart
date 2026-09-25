@@ -293,6 +293,15 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String get costumeTileLabelFallback => 'Kostüm';
+
+  @override
+  String get costumeCategoryUncategorized => 'Ohne Kategorie';
+
+  @override
+  String get costumeDetailSaved => 'Kostümdaten gespeichert.';
+
+  @override
   String costumeWornBy(Object name) {
     return 'Getragen von $name';
   }
