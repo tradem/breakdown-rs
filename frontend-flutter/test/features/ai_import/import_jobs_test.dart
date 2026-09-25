@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: space-bunny-free (opencode-go)
 
 // Tier-1 + Tier-2 tests for the AI-import submission + job-status
 // features (`flutter-ai-import-workflow` tasks 3.1–3.4, 5.2):

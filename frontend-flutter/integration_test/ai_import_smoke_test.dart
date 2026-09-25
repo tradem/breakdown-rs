@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
 
 // On-device E2E smoke for the AI-import pipeline (`flutter-ai-import`
 // task 6.1): submit → job → preview → apply → summary, driven through the
