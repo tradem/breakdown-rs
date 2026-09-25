@@ -234,7 +234,7 @@ Iterable<StepDefinitionGeneric> costumeAssignmentSteps() => [
   }),
 ];
 
-/// Opens the seeded costume's DETAIL screen from the Garderobe stream row.
+/// Opens the seeded costume's inline editor from the Garderobe tile grid.
 ///
 /// Projection-lag guard (#368 on-device run): the freshly seeded costume
 /// reaches the read model a few seconds AFTER its 201 — if the tile is
@@ -244,7 +244,7 @@ Iterable<StepDefinitionGeneric> costumeAssignmentSteps() => [
 /// advanced (the acted-on row must echo the authoritative version).
 Future<void> _openCostumeDetail(FlutterWorld world, String realCostume) async {
   final driver = world.driver!;
-  final tile = find.byValueKey('costume-$realCostume');
+  final tile = find.byValueKey('costume-tile-$realCostume');
   try {
     await driver.waitFor(tile, timeout: const Duration(seconds: 10));
   } on Object {

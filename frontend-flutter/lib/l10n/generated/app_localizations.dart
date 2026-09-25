@@ -566,6 +566,24 @@ abstract class AppLocalizations {
   /// **'Kostüm {id}'**
   String costumeTileLabel(Object id);
 
+  /// No description provided for @costumeTileLabelFallback.
+  ///
+  /// In de, this message translates to:
+  /// **'Kostüm'**
+  String get costumeTileLabelFallback;
+
+  /// No description provided for @costumeCategoryUncategorized.
+  ///
+  /// In de, this message translates to:
+  /// **'Ohne Kategorie'**
+  String get costumeCategoryUncategorized;
+
+  /// No description provided for @costumeDetailSaved.
+  ///
+  /// In de, this message translates to:
+  /// **'Kostümdaten gespeichert.'**
+  String get costumeDetailSaved;
+
   /// No description provided for @costumeWornBy.
   ///
   /// In de, this message translates to:

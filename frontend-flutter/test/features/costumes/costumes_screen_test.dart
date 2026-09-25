@@ -56,13 +56,15 @@ CostumeView _costume(
   String? characterId,
   int version = 1,
   String notes = '',
+  List<CostumeDetailView> details = const [],
+  List<CostumePhotoView> photos = const [],
 }) => CostumeView(
   (b) => b
     ..id = id
     ..characterId = characterId
     ..notes = notes.isEmpty ? 'Costume $id' : notes
-    ..details.replace(BuiltList<CostumeDetailView>())
-    ..photos.replace(BuiltList<CostumePhotoView>())
+    ..details.replace(BuiltList<CostumeDetailView>(details))
+    ..photos.replace(BuiltList<CostumePhotoView>(photos))
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = version,
 );
@@ -291,10 +293,54 @@ void main() {
         ],
       );
       await pumpScreen(tester);
-      // Semantic pair: byType never alone for layout.
-      expect(find.byType(ListTile), findsNWidgets(2));
+      // Semantic pair: tile keys and text, never byType alone for layout.
+      expect(find.byKey(const Key('costume-tile-c-1')), findsOneWidget);
+      expect(find.byKey(const Key('costume-tile-c-2')), findsOneWidget);
       expect(find.text('Costume c-1'), findsOneWidget);
       expect(find.text('Costume c-2'), findsOneWidget);
+    });
+
+    testWidgets('tile surfaces identity, category icon, and placeholder', (
+      tester,
+    ) async {
+      await setupContainer(
+        initialRows: [
+          _costume(
+            'c-1',
+            details: [
+              CostumeDetailView(
+                (b) => b
+                  ..id = 'detail-1'
+                  ..subject = 'Rote Lederjacke'
+                  ..text = 'Aus roter Lederware'
+                  ..categoryName = 'Jacke',
+              ),
+            ],
+          ),
+        ],
+      );
+      await pumpScreen(tester);
+      expect(find.byKey(const Key('costume-name-c-1')), findsOneWidget);
+      expect(find.text('Rote Lederjacke'), findsOneWidget);
+      expect(find.text('Jacke'), findsOneWidget);
+      expect(
+        find.byKey(const Key('costume-category-icon-c-1')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('costume-placeholder-c-1')), findsOneWidget);
+      expect(find.textContaining('c-1'), findsNothing);
+    });
+
+    testWidgets('selecting a tile opens the editor on the first screen', (
+      tester,
+    ) async {
+      await setupContainer(initialRows: [_costume('c-1')]);
+      await pumpScreen(tester);
+      await tester.tap(find.byKey(const Key('costume-tile-c-1')));
+      await tester.pump();
+      expect(find.byKey(const Key('costume-editor-c-1')), findsOneWidget);
+      expect(find.byKey(const Key('costume-detail-add-c-1')), findsOneWidget);
+      expect(find.byType(Scaffold), findsOneWidget);
     });
 
     testWidgets('empty: honest empty state with create affordance', (
@@ -364,6 +410,11 @@ void main() {
           .assign(costume: row, characterId: 'ch-3');
       expect(result.isLeft(), isTrue);
       await _pumpFrames(tester);
+      expect(
+        find.byKey(const Key('costume-command-error-banner')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('costume-detail-error')), findsNothing);
       expect(
         find.text('Changed elsewhere — pull to refresh and try again.'),
         findsOneWidget,

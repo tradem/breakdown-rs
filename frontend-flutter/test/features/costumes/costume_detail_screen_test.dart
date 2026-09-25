@@ -516,6 +516,10 @@ void main() {
       await _pumpFrames(tester);
       expect(repo.detailCalls, 1);
       expect(repo.lastDetailVersion, 2);
+      expect(
+        find.byKey(const Key('costume-saved-confirmation')),
+        findsOneWidget,
+      );
     });
 
     testWidgets('409 version-mismatch renders pull-to-refresh copy', (
