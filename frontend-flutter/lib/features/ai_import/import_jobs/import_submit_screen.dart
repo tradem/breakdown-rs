@@ -80,7 +80,7 @@ class AiImportSubmitScreen extends ConsumerWidget {
           else
             Text(l10nOf(context).aiImportScriptHint),
           const SizedBox(height: 16),
-          _FilePickRow(kind: kind),
+          _FilePickRow(key: ValueKey(kind), kind: kind),
           const SizedBox(height: 24),
           _SubmitButton(seasonId: seasonId),
         ],
@@ -93,7 +93,7 @@ class AiImportSubmitScreen extends ConsumerWidget {
 /// bytes are read immediately into the pending document — nothing is
 /// persisted client-side beyond the in-flight upload).
 class _FilePickRow extends ConsumerStatefulWidget {
-  const _FilePickRow({required this.kind});
+  const _FilePickRow({super.key, required this.kind});
 
   final AiImportKind kind;
 

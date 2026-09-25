@@ -655,6 +655,11 @@ void main() {
       container.read(aiConfigControllerProvider).selectedProviderKey,
       'neuralwatt',
     );
+    expect(
+      container.read(aiConfigControllerProvider).selectedAssistantModelId,
+      isNull,
+      reason: 'changing providers must not restore the old assistant model',
+    );
 
     // Prompt: typing into the script field is never clobbered by a later
     // defaults delivery, and the OTHER prefilled prompt (schedule) is NOT
@@ -719,17 +724,17 @@ void main() {
     expect(repo.lastUpdateRequest!.prompts['schedule'], 'S2');
   });
 
-  testWidgets('configured model editor PATCHes provider, assistant model, '
-      'image model, vault key, and optimistic-lock version (issue #509)', (
+  testWidgets('configured model editor keeps the bound provider while PATCHing '
+      'assistant model, image model, vault key, and version (issue #509)', (
     tester,
   ) async {
     await setupContainer(discoveryValue: Right([_config(version: 7)]));
     await pumpScreen(tester);
 
-    await tester.tap(find.byKey(const Key('ai-provider-picker')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('neuralwatt').last);
-    await tester.pumpAndSettle();
+    final providerPicker = tester.widget<DropdownButtonFormField<String>>(
+      find.byKey(const Key('ai-provider-picker')),
+    );
+    expect(providerPicker.onChanged, isNull);
 
     await tester.tap(find.byKey(const Key('ai-assistant-model-picker')));
     await tester.pumpAndSettle();
@@ -745,11 +750,36 @@ void main() {
     await tester.pumpAndSettle();
 
     final sent = repo.lastUpdateRequest!;
-    expect(sent.provider, LlmProvider.neuralwatt);
+    expect(sent.provider, LlmProvider.openai);
     expect(sent.assistantModel, 'gpt-5.6-terra');
     expect(sent.imageModel, 'gpt-5.6-luna');
     expect(sent.vaultKeyId, 'vk-1');
     expect(sent.version, 7);
+  });
+
+  testWidgets('configured prompt-only edit survives provider-catalog failure '
+      'without requiring provider discovery (issue #509)', (tester) async {
+    await setupContainer(
+      discoveryValue: Right([
+        _config(
+          prompts: {'script': 'Stored Script', 'schedule': 'Stored Schedule'},
+        ),
+      ]),
+      providersValue: const Left(ProblemError(code: 'transport.down')),
+    );
+    await pumpScreen(tester);
+
+    await _enterPrompt(
+      tester,
+      'ai-edit-script-prompt',
+      'Edited without catalog',
+    );
+    await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+    await tester.pumpAndSettle();
+
+    expect(repo.updateCalls, 1);
+    expect(repo.lastUpdateRequest!.provider, LlmProvider.openai);
+    expect(repo.lastUpdateRequest!.prompts['script'], 'Edited without catalog');
   });
 
   testWidgets('XML editor highlights tags distinctly and saves the exact '

@@ -67,6 +67,7 @@ class AiConfigDraftData {
     this.selectedProviderKey,
     this.selectedAssistantModelId,
     this.selectedImageModelId,
+    this.assistantModelTouched = false,
     this.imageModelTouched = false,
     this.scriptPrompt = '',
     this.schedulePrompt = '',
@@ -78,6 +79,10 @@ class AiConfigDraftData {
   String? selectedProviderKey;
   String? selectedAssistantModelId;
   String? selectedImageModelId;
+
+  /// True once the user picked a provider, so the old assistant model is
+  /// not restored from the configured view after a provider change.
+  bool assistantModelTouched;
 
   /// True once the user picked (or cleared) the image model, so an
   /// explicit `null` is honoured instead of falling back to the config —
@@ -110,6 +115,7 @@ class AiConfigDrafts extends Notifier<AiConfigDraftData> {
       selectedProviderKey: state.selectedProviderKey,
       selectedAssistantModelId: state.selectedAssistantModelId,
       selectedImageModelId: state.selectedImageModelId,
+      assistantModelTouched: state.assistantModelTouched,
       imageModelTouched: state.imageModelTouched,
       scriptPrompt: state.scriptPrompt,
       schedulePrompt: state.schedulePrompt,
@@ -279,10 +285,11 @@ class AiConfigController extends _$AiConfigController {
       models: models,
       promptDefaults: promptDefaultsState,
       selectedProviderKey: selectedProviderKey,
-      selectedAssistantModelId:
-          drafts.selectedAssistantModelId ??
-          suggestedAssistantModelId ??
-          config?.assistantModel,
+      selectedAssistantModelId: drafts.assistantModelTouched
+          ? drafts.selectedAssistantModelId
+          : (drafts.selectedAssistantModelId ??
+                suggestedAssistantModelId ??
+                config?.assistantModel),
       selectedImageModelId: drafts.imageModelTouched
           ? drafts.selectedImageModelId
           : (config?.imageModel ?? drafts.selectedImageModelId),
@@ -301,6 +308,7 @@ class AiConfigController extends _$AiConfigController {
     _draftsNotifier.mutate((d) {
       d.selectedProviderKey = key;
       d.selectedAssistantModelId = null;
+      d.assistantModelTouched = true;
       d.selectedImageModelId = null;
       // The old provider's image model is invalid for the new catalog. Mark
       // the clear as intentional so build() does not restore it from config.
@@ -310,7 +318,10 @@ class AiConfigController extends _$AiConfigController {
   }
 
   void selectAssistantModel(String id) {
-    _draftsNotifier.mutate((d) => d.selectedAssistantModelId = id);
+    _draftsNotifier.mutate((d) {
+      d.selectedAssistantModelId = id;
+      d.assistantModelTouched = true;
+    });
     state = state.copyWith(clearCommandError: true);
   }
 
@@ -613,7 +624,13 @@ class AiConfigController extends _$AiConfigController {
     if (config == null) {
       return const Left(ProblemError(code: 'ai_config.not-found'));
     }
-    final provider = _resolveProvider(providerKey);
+    // A configured edit cannot replace the provider: the existing vault key
+    // is bound to its provider. If discovery is temporarily unavailable, the
+    // unchanged configured provider is still a valid prompt-only edit; a
+    // different provider requires a separate credential-replacement flow.
+    final provider =
+        _resolveProvider(providerKey) ??
+        (providerKey == config.provider.name ? config.provider : null);
     if (provider == null || assistantModelId == null) {
       const error = ProblemError(code: 'ai_config.incomplete_selection');
       state = state.copyWith(commandError: error);

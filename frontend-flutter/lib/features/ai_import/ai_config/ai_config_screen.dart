@@ -232,7 +232,11 @@ class _FirstRunFormState extends ConsumerState<_FirstRunForm> {
 /// is honest (loading spinner, error retry, empty list copy) — never an
 /// empty picker masquerading as "no providers exist".
 class _ProviderPicker extends ConsumerWidget {
-  const _ProviderPicker();
+  const _ProviderPicker({this.enabled = true});
+
+  /// Configured edits keep the existing provider because the vault key is
+  /// provider-bound; new configurations can still choose one.
+  final bool enabled;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -259,9 +263,11 @@ class _ProviderPicker extends ConsumerWidget {
                       child: Text(info.key),
                     ),
                 ],
-                onChanged: (key) {
-                  if (key != null) controller.selectProvider(key);
-                },
+                onChanged: enabled
+                    ? (key) {
+                        if (key != null) controller.selectProvider(key);
+                      }
+                    : null,
               ),
       AsyncError(:final error) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -419,8 +425,8 @@ class _PromptFields extends ConsumerWidget {
 
 // --- Configured form ---------------------------------------------------------
 
-/// The configured state: summary, provider/model editing, prompt edit
-/// (version echo carried by the controller), and revoke-with-confirm.
+/// The configured state: summary, vault-bound provider display, model editing,
+/// prompt edit (version echo carried by the controller), and revoke-with-confirm.
 class _ConfiguredForm extends ConsumerStatefulWidget {
   const _ConfiguredForm({required this.state});
 
@@ -492,7 +498,7 @@ class _ConfiguredFormState extends ConsumerState<_ConfiguredForm> {
           ),
         ),
         const SizedBox(height: AppSpacing.space8),
-        const _ProviderPicker(),
+        const _ProviderPicker(enabled: false),
         const SizedBox(height: AppSpacing.space12),
         const _ModelPickers(),
         const SizedBox(height: AppSpacing.space8),

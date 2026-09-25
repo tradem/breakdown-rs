@@ -24,10 +24,12 @@ No backend or OpenAPI schema change is required.
   transient controller state are removed rather than hidden.
 - Script is the initial kind and is ordered before Schedule in the segmented
   control.
-- The configured form reuses the existing provider/model discovery and picker
-  components. `edit` resolves the selected provider from the fetched catalog
-  and sends it with the selected assistant model, optional image model, stored
-  vault-key reference, prompts, and the fetched optimistic-lock version.
+- The configured form reuses the existing model discovery and picker
+  components. Its provider is displayed but locked to the vault-bound provider
+  because the backend aggregate rejects a provider change paired with the old
+  vault key. Assistant model, optional image model, prompts, and the fetched
+  optimistic-lock version remain editable. Provider replacement is tracked in
+  issue #528 and requires a backend credential hand-off.
 - A non-empty stored prompt always wins. When a configured prompt is absent or
   empty, `GET /v1/ai-import/defaults` supplies the editable fallback. An
   untouched save therefore persists that default; a user edit remains
@@ -45,7 +47,8 @@ No backend or OpenAPI schema change is required.
 - The schedule CSV mapping/upload wire seam is tested to carry UTF-8-decoded CSV
   with `AiScheduleSource.csv` to the schedule upload path.
 - Configured-form widget tests prove model editing and the PATCH body, prompt
-  fallback precedence, exact saved XML, and XML token styling.
+  fallback precedence, exact saved XML, XML token styling, provider locking,
+  and prompt-only edits when provider discovery is unavailable.
 - Existing conflict, first-run, stored-prompt, and configured-form goldens are
   updated to the new editor/model-editor layout.
 
