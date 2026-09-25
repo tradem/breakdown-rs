@@ -2,6 +2,7 @@
 // Copyright (C) 2024 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: longcat-2.0 (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 use chrono::{DateTime, Utc};
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
@@ -171,7 +172,19 @@ impl Command<NormalizeOriginal> for PhotoAggregate {
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         self.check_not_deleted()?;
-        self.check_version(cmd.version)?;
+        // Idempotency for saga redelivery (issue #515): the thumbnail saga
+        // may replay `PhotoUploaded` after the aggregate has already advanced,
+        // so re-normalizing an already `Ready` original is a no-op rather than
+        // a version conflict. The `cmd.version` field is advisory for this
+        // saga-only command — the emitted event version is always derived from
+        // the aggregate's own state (`self.version.next()`).
+        if self
+            .variants
+            .iter()
+            .any(|v| v.kind == PhotoVariant::Original && v.status == VariantStatus::Ready)
+        {
+            return Ok(vec![]);
+        }
         Ok(vec![PhotoEvent::OriginalNormalized {
             id: self.id,
             new_size: cmd.new_size,
@@ -190,16 +203,19 @@ impl Command<GenerateVariant> for PhotoAggregate {
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         self.check_not_deleted()?;
-        self.check_version(cmd.version)?;
+        // Idempotency for saga redelivery (issue #515): the thumbnail saga may
+        // replay `PhotoUploaded` after the variant was already generated (the
+        // aggregate has advanced past the caller's stale expected version), so
+        // regenerating an already `Ready` variant is a no-op rather than an
+        // error. The `cmd.version` field is advisory for this saga-only
+        // command — the emitted event version is always derived from the
+        // aggregate's own state (`self.version.next()`).
         if self
             .variants
             .iter()
             .any(|v| v.kind == cmd.variant && v.status == VariantStatus::Ready)
         {
-            return Err(PhotoError::ValidationError(format!(
-                "Variant {:?} is already ready",
-                cmd.variant
-            )));
+            return Ok(vec![]);
         }
         Ok(vec![PhotoEvent::VariantGenerated {
             id: self.id,
@@ -332,13 +348,13 @@ mod tests {
         assert_eq!(err, PhotoError::AlreadyDeleted);
     }
 
-    /// Kills `replace == with != in <impl Command<GenerateVariant> for
-    /// PhotoAggregate>::handle`: the guard must reject generating a variant
-    /// that is *already* `Ready`, not the inverse.
+    /// Kills `replace == with !=` in the `GenerateVariant` idempotency guard
+    /// (issue #515): regenerating a variant that is *already* `Ready` must be
+    /// a **no-op** (no duplicate event), not the inverse.
     #[test]
-    fn generate_variant_rejects_already_ready_variant() {
+    fn generate_variant_is_idempotent_when_already_ready() {
         let photo = sample_photo();
-        // Original is Ready in the sample — regenerating it must be rejected.
+        // Original is Ready in the sample — regenerating it must not emit.
         let cmd = GenerateVariant {
             id: photo.id,
             variant: PhotoVariant::Original,
@@ -347,10 +363,37 @@ mod tests {
             version: AggregateVersion::INITIAL,
         };
 
-        let err = photo
+        let events = photo
             .handle(cmd, test_ctx())
-            .expect_err("Regenerating a Ready variant must fail");
-        assert!(matches!(err, PhotoError::ValidationError(_)));
+            .expect("Regenerating a Ready variant must not fail");
+        assert!(
+            events.is_empty(),
+            "no duplicate event for an already-Ready variant"
+        );
+    }
+
+    /// Kills `replace == with !=` in the `NormalizeOriginal` idempotency guard
+    /// (issue #515): re-normalizing an already-normalized (`Ready`) original
+    /// must be a **no-op**, not the inverse.
+    #[test]
+    fn normalize_original_is_idempotent_when_already_ready() {
+        let photo = sample_photo();
+        // Original is Ready in the sample — re-normalizing it must not emit.
+        let cmd = NormalizeOriginal {
+            id: photo.id,
+            new_size: 2048,
+            rotated: false,
+            series_id: None,
+            version: AggregateVersion::INITIAL,
+        };
+
+        let events = photo
+            .handle(cmd, test_ctx())
+            .expect("Re-normalizing a Ready original must not fail");
+        assert!(
+            events.is_empty(),
+            "no duplicate event for an already-normalized original"
+        );
     }
 
     /// Complements the above: generating a `Pending` variant succeeds and

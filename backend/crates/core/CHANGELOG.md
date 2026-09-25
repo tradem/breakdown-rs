@@ -16,6 +16,18 @@ commits (ADR-020 D5).
 
 ## [0.12.0] - Unreleased
 
+### Fixed — photo thumbnail saga version-conflict crash-loop (issue #515)
+
+- `NormalizeOriginal` / `GenerateVariant` are now **state-based idempotent
+  no-ops** when the original / variant is already `Ready`, and the emitted
+  event version is always derived from the aggregate's own state
+  (`self.version.next()`) instead of the (stale) `version` field carried by a
+  saga replay. Replaying `PhotoUploaded` after the aggregate has advanced no
+  longer raises `VersionMismatch { expected: 1, actual: N }`; the saga
+  converges instead of crash-looping under supervisor redelivery.
+- `MarkVariantFailed` / `DeletePhoto` keep their strict optimistic-concurrency
+  version check.
+
 ### Added — `AiConfigView` exposes the stored prompt texts (issue #490)
 
 - `AiConfigView` gains `prompts: HashMap<DocumentKind, String>` — the same

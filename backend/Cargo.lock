@@ -3141,6 +3141,7 @@ dependencies = [
  "base64 0.23.1",
  "breakdown_core",
  "chrono",
+ "ciborium",
  "csv",
  "fastrand",
  "futures",

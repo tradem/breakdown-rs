@@ -132,20 +132,136 @@ fn test_generate_variant_success() {
     );
 }
 
+/// Saga-redelivery regression (issue #515): a `GenerateVariant` carrying a
+/// stale `version` (the thumbnail saga hardcodes `AggregateVersion::INITIAL`)
+/// must not fail with a version mismatch once the aggregate has advanced. The
+/// emitted event version is derived from the aggregate's own state.
 #[test]
-fn test_generate_variant_wrong_version() {
-    let agg = make_uploaded_photo();
-    let result = agg.handle(
-        GenerateVariant {
-            id: agg.id,
-            variant: PhotoVariant::Thumb,
-            series_id: Some(series_id()),
-            size_bytes: 50000,
-            version: AggregateVersion(99),
-        },
-        make_ctx(),
+fn test_generate_variant_tolerates_stale_version_after_advance() {
+    let mut agg = make_uploaded_photo();
+    // Advance the aggregate past INITIAL by normalizing the original.
+    let events = agg
+        .handle(
+            NormalizeOriginal {
+                id: agg.id,
+                new_size: 500,
+                series_id: Some(series_id()),
+                rotated: false,
+                version: agg.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    test_support::replay_events(&mut agg, events);
+    assert_eq!(agg.version, AggregateVersion(2));
+
+    // A stale expected version (INITIAL) from a saga replay is tolerated.
+    let events = agg
+        .handle(
+            GenerateVariant {
+                id: agg.id,
+                variant: PhotoVariant::Thumb,
+                series_id: Some(series_id()),
+                size_bytes: 100,
+                version: AggregateVersion::INITIAL,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    test_support::replay_events(&mut agg, events);
+    assert_eq!(
+        agg.variants
+            .iter()
+            .find(|v| v.kind == PhotoVariant::Thumb)
+            .map(|v| v.status),
+        Some(VariantStatus::Ready)
     );
-    assert!(result.is_err());
+}
+
+/// Redelivery idempotency (issue #515): generating an already-`Ready` variant
+/// is a no-op — no duplicate `VariantGenerated` event, no version growth.
+#[test]
+fn test_generate_variant_idempotent_when_already_ready() {
+    let mut agg = make_uploaded_photo();
+    let version_before = agg.version;
+
+    let events = agg
+        .handle(
+            GenerateVariant {
+                id: agg.id,
+                variant: PhotoVariant::Thumb,
+                series_id: Some(series_id()),
+                size_bytes: 50000,
+                version: agg.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    test_support::replay_events(&mut agg, events);
+    assert_eq!(
+        agg.variants
+            .iter()
+            .find(|v| v.kind == PhotoVariant::Thumb)
+            .map(|v| v.status),
+        Some(VariantStatus::Ready)
+    );
+
+    // Re-dispatch the same generation — must be a no-op.
+    let events = agg
+        .handle(
+            GenerateVariant {
+                id: agg.id,
+                variant: PhotoVariant::Thumb,
+                series_id: Some(series_id()),
+                size_bytes: 50000,
+                version: version_before,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    assert!(
+        events.is_empty(),
+        "no duplicate VariantGenerated on redelivery"
+    );
+}
+
+/// Redelivery idempotency (issue #515): re-normalizing an already-normalized
+/// original is a no-op — no duplicate `OriginalNormalized` event.
+#[test]
+fn test_normalize_original_idempotent_when_already_ready() {
+    let mut agg = make_uploaded_photo();
+    let events = agg
+        .handle(
+            NormalizeOriginal {
+                id: agg.id,
+                new_size: 900000,
+                series_id: Some(series_id()),
+                rotated: true,
+                version: agg.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    test_support::replay_events(&mut agg, events);
+    assert!(agg.exif_stripped_at.is_some());
+
+    // Re-dispatch the same normalization — must be a no-op.
+    let events = agg
+        .handle(
+            NormalizeOriginal {
+                id: agg.id,
+                new_size: 900000,
+                series_id: Some(series_id()),
+                rotated: true,
+                version: AggregateVersion::INITIAL,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    assert!(
+        events.is_empty(),
+        "no duplicate OriginalNormalized on redelivery"
+    );
 }
 
 #[test]
