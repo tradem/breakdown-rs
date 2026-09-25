@@ -3,6 +3,7 @@
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: muse-spark (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
@@ -125,8 +126,10 @@ void main() {
       expect(find.text('Seeded'), findsOneWidget);
       expect(find.byKey(const Key('season-add-fab')), findsOneWidget);
 
-      // Open the form and submit a create command.
-      await tester.tap(find.byKey(const Key('season-add-fab')));
+      // Open the MANUAL form via the secondary app-bar action (issue #511:
+      // the FAB is the guided wizard; manual create is the alternative) and
+      // submit a create command.
+      await tester.tap(find.byKey(const Key('season-manual-create')));
       await tester.pumpAndSettle();
       await tester.enterText(find.byKey(const Key('create-number')), '2');
       await tester.enterText(find.byKey(const Key('create-title')), 'Created');

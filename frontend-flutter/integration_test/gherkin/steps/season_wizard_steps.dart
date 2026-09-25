@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: space-bunny-free (opencode-go)
 //Co-authored-by: glm-5.3 (neuralwatt)
 
 import 'dart:convert';
@@ -76,10 +77,10 @@ Iterable<StepDefinitionGeneric> seasonWizardSteps() => [
   ) async {
     // Post-#439 harness repair (discovered by the #368 on-device run): the
     // seasons home renders the SEASONS EMPTY STATE only when the backend has
-    // no seasons — with seeded dev data it renders the card grid, whose
-    // wizard entry is the extended FAB → create sheet → "Oder geführt
-    // einrichten" (create-open-wizard). Both entries open the same
-    // SetupWizardScreen route; the driver wait below is the assertion.
+    // no seasons — with seeded dev data it renders the card grid. Since issue
+    // #511 the extended FAB is the GUIDED entry in BOTH states: it opens the
+    // SetupWizardScreen directly (the manual quick-create sheet moved to the
+    // app bar's secondary action). The driver wait below is the assertion.
     // Try the FAB path first (works in both states — the FAB renders whenever
     // creation is permitted), fall back to the empty-state CTA.
     final world = context.world as AppWorld;
@@ -101,11 +102,8 @@ Iterable<StepDefinitionGeneric> seasonWizardSteps() => [
       final fab = find.byValueKey('season-add-fab');
       await driver.waitFor(fab, timeout: const Duration(seconds: 10));
       await FlutterDriverUtils.tap(driver, fab);
-      final wizardEntry = find.byValueKey('create-open-wizard');
-      await driver.waitFor(wizardEntry, timeout: const Duration(seconds: 10));
-      await FlutterDriverUtils.tap(driver, wizardEntry);
     } on Object {
-      // No FAB / create sheet (e.g. a wiped dev backend): fall back to the
+      // No FAB (e.g. a wiped dev backend / signed out): fall back to the
       // empty-state CTA — the original #442 entry path.
       await FlutterDriverUtils.tap(
         driver,
@@ -464,9 +462,10 @@ Iterable<StepDefinitionGeneric> seasonWizardSteps() => [
     // The wizard popped back to the seasons home and nothing was
     // created. The seasons home renders the empty-state CTA only when the
     // backend has ZERO seasons; under accumulated dev data it renders the
-    // card grid + the create FAB. Both states are guaranteed by the
+    // card grid. Both states are guaranteed by the
     // authenticated-session gate, so assert the seasons home is showing
-    // (wizard gone) via the FAB — the same entry the wizard came from.
+    // (wizard gone) via the guided FAB — the same entry the wizard came
+    // from (#511).
     await context.world.driver!.waitFor(
       find.byValueKey('season-add-fab'),
       timeout: const Duration(seconds: 30),

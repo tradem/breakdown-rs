@@ -58,9 +58,13 @@ String createErrorCopy(ProblemError error, [AppLocalizations? catalog]) {
 /// overlays layered by the controller (never a Drift write).
 ///
 /// Presentation per the seasons-home capability (tasks 3.1–3.5): rows
-/// render as Material 3 cards, the create action is an extended FAB with
-/// a visible label, and the empty/loading states are the guided empty
-/// state and the skeleton.
+/// render as Material 3 cards and the states are the guided empty state
+/// and the skeleton.
+///
+/// Entry-point ranking (issue #511): the extended FAB is the **guided
+/// setup wizard** (primary, available whether or not seasons exist); the
+/// manual quick-create sheet is the **secondary** alternative behind the
+/// app bar's "Manuell" action.
 class SeasonsScreen extends ConsumerWidget {
   const SeasonsScreen({super.key});
 
@@ -73,9 +77,25 @@ class SeasonsScreen extends ConsumerWidget {
     // a metadata line (task 2.1 merge; never fabricated counts).
     final metrics = ref.watch(seasonMetricsProvider).asData?.value;
     final rows = state.rowsWithMetrics(metrics);
+    // AUTHZ-GATE (see the FAB comment): both create entries are
+    // auth-only, so both hide for a non-resolved session.
+    final canCreate = _canCreateSeason(ref);
 
     return Scaffold(
-      appBar: AppBar(title: Text(l10n.seasonsTitle)),
+      appBar: AppBar(
+        title: Text(l10n.seasonsTitle),
+        // Manual/advanced create: the demoted alternative to the guided
+        // wizard (issue #511). Fires the same command the sheet always
+        // did; the series is derived, not typed.
+        actions: [
+          if (canCreate)
+            TextButton(
+              key: const Key('season-manual-create'),
+              onPressed: () => showCreateSeasonSheet(context, ref),
+              child: Text(l10n.seasonsManualCreateCta),
+            ),
+        ],
+      ),
       body: Column(
         children: [
           if (state.commandError case final error?)
@@ -106,14 +126,29 @@ class SeasonsScreen extends ConsumerWidget {
       // exist yet). The extended FAB is therefore shown only for a
       // resolved authenticated session; loading and error states show
       // nothing (the request would be refused server-side anyway).
-      floatingActionButton: _canCreateSeason(ref)
+      //
+      // Issue #511: the FAB is the GUIDED path — it opens the setup
+      // wizard (season → blocks in one flow), the preferred way to create
+      // a production's season. The manual sheet lives in the app bar.
+      floatingActionButton: canCreate
           ? FloatingActionButton.extended(
               key: const Key('season-add-fab'),
-              onPressed: () => showCreateSeasonSheet(context, ref),
-              icon: const Icon(Icons.add),
-              label: Text(l10n.seasonsCreate),
+              onPressed: () => _openSetupWizard(context),
+              icon: const Icon(Icons.rocket_launch_outlined),
+              label: Text(l10n.seasonsSetupCta),
             )
           : null,
+    );
+  }
+
+  /// Pushes the guided setup wizard on this tab's navigator. Fire-and-
+  /// forget: no result is consumed (the wizard owns its own settle/discard
+  /// semantics).
+  void _openSetupWizard(BuildContext context) {
+    unawaited(
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const SetupWizardScreen()),
+      ),
     );
   }
 
@@ -153,10 +188,10 @@ class SeasonsScreen extends ConsumerWidget {
           const SizedBox(height: 96),
           SeasonsEmptyState(
             // Session gate: same rule as the FAB (auth-only create).
-            // Guided path entry (add-season-setup-wizard): opens the setup
-            // wizard as a full-screen route on THIS tab's navigator; the
-            // quick-create sheet remains the FAB's path (additive, not a
-            // replacement).
+            // The setup wizard is the guided path (add-season-setup-wizard;
+            // issue #511 made it the primary entry) — opened as a
+            // full-screen route on THIS tab's navigator, the same route
+            // the FAB now opens.
             onSetup: _canCreateSeason(ref)
                 ? () => unawaited(
                     Navigator.of(context).push(

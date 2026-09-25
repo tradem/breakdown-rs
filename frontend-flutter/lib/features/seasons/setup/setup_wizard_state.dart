@@ -289,7 +289,10 @@ String wizardErrorCopy(AppLocalizations l10n, ProblemError error) =>
         // (`idx_projection_episode_series_number`), not per block.
         l10n.wizardErrorEpisodeExistsSeries,
       'authz.denied' || 'auth.session_required' => l10n.blocksCreateErrorSignIn,
-      'config.series-id-missing' => l10n.wizardErrorSeriesIdMissing,
+      // Shared with the manual create sheet (issue #511): both paths
+      // derive the series id from the build config, so both fail fast
+      // with the same copy instead of asking the user for an id.
+      'config.series-id-missing' => l10n.seasonsCreateSeriesIdMissing,
       _ when error.code.startsWith('transport.') => l10n.wizardErrorNetwork,
       _ => l10n.wizardErrorGeneric(error.code),
     };
