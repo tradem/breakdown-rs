@@ -39,6 +39,7 @@ import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:frontend_flutter/features/costumes/costume_detail_screen.dart';
 import 'package:frontend_flutter/features/costumes/costumes_controller.dart';
+import 'package:frontend_flutter/features/costumes/costumes_state.dart';
 import 'package:frontend_flutter/features/photos/capture.dart';
 import 'package:frontend_flutter/features/photos/prepare.dart';
 import 'package:frontend_flutter/features/photos/widgets/photo_gallery.dart';
@@ -912,14 +913,20 @@ void main() {
         expect(gated?.code, 'photo.requires_character');
         expect(photos.uploadCalls, 0);
         // Err-branch assertion: the rejected upload renders the new,
-        // actionable narrative (never the generic "costume could not be
-        // saved (domain.validation)" fallback from issue #513).
+        // actionable narrative in the COMMAND-ERROR banner (issue #513).
+        // Scoped to `costume-detail-error` — the assignment narrative is
+        // already on-screen before the upload, so a broad text finder would
+        // pass even if the gate denial never rendered (CodeRabbit
+        // #4101353494).
         await _pumpFrames(tester);
         expect(
-          find.text(
-            'Assign the costume to a character before managing photos.',
+          find.descendant(
+            of: find.byKey(const Key('costume-detail-error')),
+            matching: find.text(
+              'Assign the costume to a character before managing photos.',
+            ),
           ),
-          findsWidgets,
+          findsOneWidget,
         );
       },
     );
@@ -981,39 +988,98 @@ void main() {
       expect(gated?.code, 'photo.requires_character');
       expect(photos.deleteCalls, 0);
     });
+
+    testWidgets(
+      'unknown costume binding lets the server decide (no pre-deny)',
+      (tester) async {
+        // CodeRabbit #4101353477: a costume row ABSENT from the local
+        // projection is UNKNOWN, not confirmed-unassigned — the client must
+        // not pre-deny; it falls through and lets the authoritative server
+        // decide. (The fake repo serves the upload, proving the request is
+        // issued rather than refused on an unknown binding.)
+        await setupContainer(costume: _costume('c-1')); // projection: c-1 only
+        final result = await container
+            .read(costumesControllerProvider('season-1').notifier)
+            .uploadPhoto(
+              costumeId: 'c-unknown', // absent from overlays + projection
+              bytes: Uint8ListBytes(Uint8List.fromList(const [1, 2, 3])),
+              contentType: 'image/jpeg',
+            );
+        // Proceeds → the fake repo serves a success (server decides).
+        expect(result.isRight(), isTrue);
+        expect(photos.uploadCalls, 1);
+        await _pumpFrames(tester);
+        // No client-side gate denial surfaces.
+        expect(find.byKey(const Key('costume-detail-error')), findsNothing);
+      },
+    );
   });
 
   group('command-error copy routing (issue #513)', () {
-    test('photo.* failures route to the photo copy, never "costume"', () {
+    test('photo-command failures route to the photo copy, never "costume"', () {
       expect(
         costumeCommandErrorCopy(
-          const ProblemError(code: 'photo.requires_character'),
+          const CostumeCommandFailure(
+            CostumeCommandSurface.photo,
+            ProblemError(code: 'photo.requires_character'),
+          ),
         ),
         'Assign the costume to a character before managing photos.',
       );
       expect(
-        costumeCommandErrorCopy(const ProblemError(code: 'photo.not-found')),
+        costumeCommandErrorCopy(
+          const CostumeCommandFailure(
+            CostumeCommandSurface.photo,
+            ProblemError(code: 'photo.not-found'),
+          ),
+        ),
         'The photo could not be saved (photo.not-found).',
       );
       expect(
-        costumeCommandErrorCopy(const ProblemError(code: 'photo.forbidden')),
+        costumeCommandErrorCopy(
+          const CostumeCommandFailure(
+            CostumeCommandSurface.photo,
+            ProblemError(code: 'photo.forbidden'),
+          ),
+        ),
         'You need an active costume role in this season to manage photos.',
       );
     });
 
-    test('costume/domain codes keep the costume copy', () {
+    test('generic domain.validation from a PHOTO command uses photo copy', () {
+      // CodeRabbit #4101353471: the ORIGIN, not the `photo.*` prefix,
+      // decides. A concurrent unassign makes the local gate stale; the
+      // backend then 422s `domain.validation` for the photo command, which
+      // must STILL render the photo copy — never "The costume could not be
+      // saved".
       expect(
         costumeCommandErrorCopy(
-          const ProblemError(code: 'concurrency.version-mismatch'),
+          const CostumeCommandFailure(
+            CostumeCommandSurface.photo,
+            ProblemError(code: 'domain.validation'),
+          ),
+        ),
+        'The photo could not be saved (domain.validation).',
+      );
+    });
+
+    test('costume-command codes keep the costume copy', () {
+      expect(
+        costumeCommandErrorCopy(
+          const CostumeCommandFailure(
+            CostumeCommandSurface.costume,
+            ProblemError(code: 'concurrency.version-mismatch'),
+          ),
         ),
         'Changed elsewhere — pull to refresh and try again.',
       );
-      // A generic `domain.validation` from a COSTUME write (e.g. a stale
-      // version echo) still uses the costume copy — routing is by the
-      // stable `photo.*` namespace, never by inference. The client-side
-      // assignment gate makes the no-character upload unreachable.
       expect(
-        costumeCommandErrorCopy(const ProblemError(code: 'domain.validation')),
+        costumeCommandErrorCopy(
+          const CostumeCommandFailure(
+            CostumeCommandSurface.costume,
+            ProblemError(code: 'domain.validation'),
+          ),
+        ),
         'The costume could not be saved (domain.validation).',
       );
     });

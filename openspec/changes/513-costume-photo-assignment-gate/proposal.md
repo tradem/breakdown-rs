@@ -36,29 +36,39 @@ Client behaviour (AUTHZ-GATE mirror, Decision D6 / `frontend-flutter/AGENTS.md`
 
 1. **Assignment gate before any network call.** `uploadPhoto` and
    `deletePhoto` refuse with a client-side denial
-   (`code: photo.requires_character`, 403) when the costume's freshest
-   known `character_id` is `null` (fence-held overlay first, then the
-   reconciled projection). Zero requests leave the device (provable by a
-   fake repository call count).
+   (`code: photo.requires_character`, 403) when the costume's **confirmed**
+   binding is unassigned (fence-held overlay first, then the reconciled
+   projection). Zero requests leave the device (provable by a fake
+   repository call count). The check runs **before** the season-membership
+   fetch (pure local state — no unnecessary membership request). A binding
+   that is *unknown* locally (e.g. a costume assigned by another client
+   before this one cached it) is **not** pre-denied — the authoritative
+   server decides.
 2. **Gated affordances.** On the costume detail screen, photo capture,
    capture-again, and delete affordances are hidden when the costume is
    unassigned; the section explains the precondition instead of offering a
    doomed action.
-3. **Honest error copy.** Photo-domain failures (`photo.*` codes) — from
-   this gate or from whatever remains reachable (forbidden, too-large,
-   unsupported-media-type, not-found) — route through `photoErrorCopy`,
-   never the "costume could not be saved" fallback. A shared
-   `costumeCommandErrorCopy` helper (used by both the list and detail
-   screens) routes `photo.*` → photo copy, everything else → costume copy.
+3. **Honest error copy by command origin.** The command-error provider now
+   carries the originating surface (`CostumeCommandSurface.costume |
+   .photo`) alongside the `ProblemError`. A shared `costumeCommandErrorCopy`
+   (used by both the list and detail screens) routes **photo-command**
+   failures through `photoErrorCopy`, outfit commands through
+   `costumeErrorCopy`. Routing is by origin, never by the `photo.*`
+   prefix: a photo command that fails with the generic `domain.validation`
+   (a concurrent unassign racing the local gate) still renders the photo
+   copy, not the "costume could not be saved" fallback.
 
 ## Changes
 
 - **`lib/features/costumes/costumes_controller.dart`**
-  - `_resolveCharacterBinding(costumeId)` + `_denyUnassignedPhotoCommand`
-    (AUTHZ-GATE mirror for the character-derived photo season).
-  - Gate `uploadPhoto` and `deletePhoto` on assignment before the network call.
-  - `costumeCommandErrorCopy` — shared banner copy routing `photo.*` →
-    `photoErrorCopy`.
+  - `_resolveCharacterBinding` returns a tri-state
+    (`CostumeBinding.assigned | unassigned | unknown`);
+    `_denyUnassignedPhotoCommand` only pre-denies a **confirmed**
+    unassigned binding and runs before the membership fetch. Gate
+    `uploadPhoto` and `deletePhoto` on assignment before the network call.
+  - `CostumesCommandError` carries `CostumeCommandFailure(surface, error)`;
+    `costumeCommandErrorCopy` routes by command **origin** (photo vs.
+    costume write), never by the `photo.*` code prefix.
 - **`lib/features/photos/widgets/photo_gallery.dart`** — `photoErrorCopy`
   branch for `photo.requires_character` ("Assign the costume to a character
   before managing photos.").
@@ -70,9 +80,12 @@ Client behaviour (AUTHZ-GATE mirror, Decision D6 / `frontend-flutter/AGENTS.md`
 - **Tests** (`test/features/costumes/costume_detail_screen_test.dart`)
   - New: err-branch assertion for the rejected upload (direct `uploadPhoto`
     on an unassigned costume → `Left(photo.requires_character)`, zero network
-    calls, actionable narrative rendered); delete refusal on an unassigned
-    costume holding photos (zero delete calls, no delete affordance);
-    `costumeCommandErrorCopy` routing unit tests.
+    calls, actionable narrative rendered — scoped to the `costume-detail-error`
+    banner); delete refusal on an unassigned costume holding photos (zero
+    delete calls, no delete affordance); origin-routing unit tests (a generic
+    `domain.validation` from a **photo** command renders the photo copy); an
+    **unknown** binding (row absent locally) is NOT pre-denied — the request
+    proceeds and the server decides.
   - Updated: capture-flow fixtures and the delete-confirm fixture now use an
     **assigned** costume (the gate would otherwise hide the affordances).
 

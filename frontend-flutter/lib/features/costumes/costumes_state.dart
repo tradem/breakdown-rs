@@ -19,6 +19,23 @@ export '../../data/costume_repository.dart'
         shouldClearCostumeOverlay,
         mergeCostumeOverlays;
 
+/// The command surface a failure belongs to — photo commands (upload/delete)
+/// vs. costume writes. The command-error banner routes the localized copy by
+/// this ORIGIN, never by the `photo.*` code prefix: a photo command can fail
+/// with the generic `domain.validation` (e.g. a concurrent unassign races the
+/// local gate) and must still render the photo copy — not the costume
+/// "could not be saved" fallback (issue #513).
+enum CostumeCommandSurface { costume, photo }
+
+/// A command failure with its originating surface, so the UI picks the right
+/// copy without inferring the origin from the error code.
+class CostumeCommandFailure {
+  const CostumeCommandFailure(this.surface, this.error);
+
+  final CostumeCommandSurface surface;
+  final ProblemError error;
+}
+
 /// Controller-state optimistic overlay for a costume-row command: ephemeral
 /// UI state keyed by costume `id` — never in Drift.
 ///
@@ -128,8 +145,9 @@ class CostumesScreenState {
   /// projection — never aggregate reconstruction).
   final Map<String, String> characterNames;
 
-  /// Last command failure keyed by its stable problem `code`.
-  final ProblemError? commandError;
+  /// Last command failure (with its originating surface) keyed by its
+  /// stable problem `code`.
+  final CostumeCommandFailure? commandError;
 
   /// The `*.not-found` problem of a deleted parent (D5).
   ProblemError? get notFound {

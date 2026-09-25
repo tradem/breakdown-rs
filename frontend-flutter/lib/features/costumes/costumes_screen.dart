@@ -73,10 +73,10 @@ class CostumesScreen extends ConsumerWidget {
       appBar: AppBar(title: const Text('Costumes')),
       body: Column(
         children: [
-          if (state.commandError case final error?)
+          if (state.commandError case final failure?)
             _Banner(
               key: const Key('costume-command-error-banner'),
-              text: costumeCommandErrorCopy(error),
+              text: costumeCommandErrorCopy(failure),
               onDismiss: controller.dismissCommandError,
             ),
           if (state.isStale && notFound == null)

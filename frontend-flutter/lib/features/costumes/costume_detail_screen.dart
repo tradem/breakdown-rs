@@ -87,9 +87,9 @@ class CostumeDetailScreen extends ConsumerWidget {
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(16),
                 children: [
-                  if (state.commandError case final error?)
+                  if (state.commandError case final failure?)
                     _InlineError(
-                      text: costumeCommandErrorCopy(error),
+                      text: costumeCommandErrorCopy(failure),
                       onDismiss: controller.dismissCommandError,
                     ),
                   _AssignmentSection(season: season, costume: costume),
