@@ -252,7 +252,7 @@ class _TileIdentityOverlay extends StatelessWidget {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodySmall
-                    ?.copyWith(color: scheme.onInverseSurface),
+                    ?.copyWith(color: onScrim),
               ),
             if (status != null)
               Row(
