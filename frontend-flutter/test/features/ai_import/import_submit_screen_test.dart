@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: space-bunny-free (opencode-go)
 
 // Tier-2 widget tests for the AI-import submission screen
 // (`flutter-ai-import-workflow` tasks 3.1 + 3.4): the kind picker, the
@@ -9,6 +10,9 @@
 // navigation and the 200-duplicate navigation with the callout. The
 // file-picker path is exercised on-device (integration smoke) — the
 // paste path is fully covered here.
+
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:drift/native.dart';
@@ -29,6 +33,7 @@ import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/clock.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
+import 'package:frontend_flutter/features/ai_import/import_jobs/import_submit_controller.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/import_submit_screen.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/job_status_screen.dart';
 
@@ -69,6 +74,8 @@ class FakePipelineRepository extends AiImportRepository {
   Result<AiUploadAck>? uploadResult;
   Result<AiImportJob>? jobResult;
   int uploadCalls = 0;
+  Object? lastUploadBody;
+  AiScheduleSource? lastUploadSource;
 
   @override
   Future<Result<AiUploadAck>> uploadSchedule({
@@ -77,6 +84,8 @@ class FakePipelineRepository extends AiImportRepository {
     void Function(int, int)? onSendProgress,
   }) async {
     uploadCalls++;
+    lastUploadBody = body;
+    lastUploadSource = source;
     return uploadResult ?? Right(AiUploadAck(jobId: 'job-1', duplicate: false));
   }
 
@@ -152,19 +161,27 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('the kind picker switches schedule/script copy; the '
-      'paste field exists for schedules only', (tester) async {
+  testWidgets('Script is the default and ordered first; schedule is '
+      'file-only with no paste affordance (issue #508)', (tester) async {
     await setupContainer();
     await pumpScreen(tester);
-    expect(find.byKey(const Key('ai-import-paste-field')), findsOneWidget);
-    expect(find.text('Scripts: pick a PDF file.'), findsNothing);
 
-    await tester.tap(find.text('Script'));
-    await tester.pumpAndSettle();
+    final picker = tester.widget<SegmentedButton<AiImportKind>>(
+      find.byKey(const Key('ai-import-kind-picker')),
+    );
+    expect(picker.selected, {AiImportKind.script});
+    expect(picker.segments.map((segment) => segment.value), [
+      AiImportKind.script,
+      AiImportKind.schedule,
+    ]);
     expect(find.text('Scripts: pick a PDF file.'), findsOneWidget);
-    // The paste field disappears for the script kind (PDF only).
     expect(find.byKey(const Key('ai-import-paste-field')), findsNothing);
-    await tester.pump();
+
+    await tester.tap(find.text('Schedule'));
+    await tester.pumpAndSettle();
+    expect(find.text('Schedules: pick a CSV or PDF file.'), findsOneWidget);
+    expect(find.byKey(const Key('ai-import-paste-field')), findsNothing);
+    expect(find.byKey(const Key('ai-import-pick-file')), findsOneWidget);
   });
 
   testWidgets('submit without a document surfaces the guard snackbar — '
@@ -180,21 +197,30 @@ void main() {
     await tester.pump();
   });
 
-  testWidgets('a 202 upload pushes the job-status screen (no callout)', (
-    tester,
-  ) async {
+  testWidgets('a picked schedule CSV keeps the upload wire path: UTF-8 body '
+      '+ csv source, then a 202 pushes the job-status screen', (tester) async {
     await setupContainer(jobResult: Right(_job('job-1', JobStatus.pending)));
     await pumpScreen(tester);
-    await tester.enterText(
-      find.byKey(const Key('ai-import-paste-field')),
-      'day,scene\n1,12',
-    );
+    container
+        .read(aiImportSubmitControllerProvider.notifier)
+        .selectKind(AiImportKind.schedule);
+    container
+        .read(pendingDocumentProvider.notifier)
+        .set(
+          documentFromBytes(
+            AiImportKind.schedule,
+            Uint8List.fromList(utf8.encode('day,scene\n1,12')),
+            'csv',
+          ),
+        );
     await tester.ensureVisible(find.byKey(const Key('ai-import-submit')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('ai-import-submit')));
     await tester.pumpAndSettle();
 
     expect(repo.uploadCalls, 1);
+    expect(repo.lastUploadBody, 'day,scene\n1,12');
+    expect(repo.lastUploadSource, AiScheduleSource.csv);
     expect(find.byType(AiJobStatusScreen), findsOneWidget);
     expect(
       find.byKey(const Key('ai-job-duplicate-callout')),
@@ -211,10 +237,12 @@ void main() {
       jobResult: Right(_job('job-0', JobStatus.pending)),
     );
     await pumpScreen(tester);
-    await tester.enterText(
-      find.byKey(const Key('ai-import-paste-field')),
-      'same bytes',
-    );
+    container
+        .read(aiImportSubmitControllerProvider.notifier)
+        .selectKind(AiImportKind.schedule);
+    container
+        .read(pendingDocumentProvider.notifier)
+        .set(AiImportDocument.csv('same bytes'));
     await tester.ensureVisible(find.byKey(const Key('ai-import-submit')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('ai-import-submit')));
@@ -233,10 +261,12 @@ void main() {
       ),
     );
     await pumpScreen(tester);
-    await tester.enterText(
-      find.byKey(const Key('ai-import-paste-field')),
-      'big',
-    );
+    container
+        .read(aiImportSubmitControllerProvider.notifier)
+        .selectKind(AiImportKind.schedule);
+    container
+        .read(pendingDocumentProvider.notifier)
+        .set(AiImportDocument.csv('big'));
     await tester.ensureVisible(find.byKey(const Key('ai-import-submit')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('ai-import-submit')));

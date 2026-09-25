@@ -1469,7 +1469,7 @@ abstract class AppLocalizations {
   /// No description provided for @aiImportScheduleHint.
   ///
   /// In de, this message translates to:
-  /// **'Drehpläne: Füge den CSV-/Board-Text ein oder wähle eine CSV- oder PDF-Datei.'**
+  /// **'Drehpläne: Wähle eine CSV- oder PDF-Datei.'**
   String get aiImportScheduleHint;
 
   /// No description provided for @aiImportScriptHint.
@@ -1511,7 +1511,7 @@ abstract class AppLocalizations {
   /// No description provided for @aiImportDocMissing.
   ///
   /// In de, this message translates to:
-  /// **'Füge zuerst den Drehplan ein oder wähle eine Datei.'**
+  /// **'Wähle zuerst eine Datei.'**
   String get aiImportDocMissing;
 
   /// No description provided for @aiImportStampWarning.

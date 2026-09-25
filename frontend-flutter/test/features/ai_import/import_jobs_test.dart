@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: space-bunny-free (opencode-go)
 
 // Tier-1 + Tier-2 tests for the AI-import submission + job-status
 // features (`flutter-ai-import-workflow` tasks 3.1–3.4, 5.2):
@@ -238,9 +239,9 @@ void main() {
       await setupContainer(capabilities: const []);
       final controller = container.read(
         aiImportSubmitControllerProvider.notifier,
-      );
+      )..selectKind(AiImportKind.schedule);
       final res = await controller.submit(
-        AiImportDocument.pasted('day,scene\n1,12'),
+        AiImportDocument.csv('day,scene\n1,12'),
       );
       expect(res.isLeft(), isTrue);
       expect(res.getLeft().toNullable()!.code, 'ai_import.forbidden');
@@ -260,7 +261,7 @@ void main() {
       );
       // The dispatch is in flight while the fetch is pending: it waits
       // (no call, no error — loading is never misread as denial).
-      final done = controller.submit(AiImportDocument.pasted('x'));
+      final done = controller.submit(AiImportDocument.csv('x'));
       await Future<void>.delayed(const Duration(milliseconds: 10));
       expect(repo.uploadCalls, 0, reason: 'the dispatch waits at the gate');
       // The fetch settles with a transport failure → the gate reads the
@@ -277,7 +278,7 @@ void main() {
       await setupContainer();
       final controller = container.read(
         aiImportSubmitControllerProvider.notifier,
-      );
+      )..selectKind(AiImportKind.schedule);
       container
           .read(pendingEpisodeProvider.notifier)
           .set(
@@ -292,7 +293,7 @@ void main() {
             ),
           );
       final res = await controller.submit(
-        AiImportDocument.pasted('day,scene\n1,12'),
+        AiImportDocument.csv('day,scene\n1,12'),
       );
       final ack = res.getRight().toNullable()!;
       expect(ack.jobId, 'job-1');
@@ -311,7 +312,7 @@ void main() {
       await setupContainer();
       final controller = container.read(
         aiImportSubmitControllerProvider.notifier,
-      );
+      )..selectKind(AiImportKind.schedule);
       container
           .read(pendingEpisodeProvider.notifier)
           .set(
@@ -330,7 +331,7 @@ void main() {
       // path — review). The job EXISTS server-side (the ack carried
       // its id): the ack must SURVIVE and the warning must surface.
       repo.jobResult = const Left(ProblemError(code: 'http.500'));
-      final res = await controller.submit(AiImportDocument.pasted('x'));
+      final res = await controller.submit(AiImportDocument.csv('x'));
       expect(res.getRight().toNullable()!.jobId, 'job-1');
       expect(container.read(aiStampWarningProvider)?.code, 'http.500');
       container.dispose();
@@ -344,9 +345,9 @@ void main() {
         aiImportSubmitControllerProvider.notifier,
       );
       controller.selectKind(AiImportKind.script);
-      // Pasted text under the script kind: uploadScript declares
-      // application/pdf — the client must refuse BEFORE any call.
-      final res = await controller.submit(AiImportDocument.pasted('not a pdf'));
+      // A stale CSV under the script kind declares the wrong source; the
+      // client must refuse BEFORE any call.
+      final res = await controller.submit(AiImportDocument.csv('not a pdf'));
       final err = res.getLeft().toNullable()!;
       expect(err.code, 'ai_import.unsupported_media_type');
       expect(err.status, 415);
@@ -354,37 +355,34 @@ void main() {
       container.dispose();
     });
 
-    test(
-      'selectKind clears the pending document and paste (review: a '
-      'carried-over body would upload with the wrong content type)',
-      () async {
-        await setupContainer();
-        final controller = container.read(
-          aiImportSubmitControllerProvider.notifier,
-        );
-        // Seed a schedule paste, then switch kinds.
-        container.read(pendingPasteProvider.notifier).set('day,scene');
-        container
-            .read(pendingDocumentProvider.notifier)
-            .set(AiImportDocument.csv('day,scene'));
-        controller.selectKind(AiImportKind.script);
-        expect(container.read(pendingPasteProvider), isEmpty);
-        expect(container.read(pendingDocumentProvider), isNull);
-        // Same-kind selection is a no-op (does not clear an in-progress
-        // document).
-        container.read(pendingPasteProvider.notifier).set('x');
-        controller.selectKind(AiImportKind.script);
-        expect(container.read(pendingPasteProvider), 'x');
-        container.dispose();
-      },
-    );
+    test('selectKind clears a pending file (review: a carried-over body would '
+        'upload with the wrong content type)', () async {
+      await setupContainer();
+      final controller = container.read(
+        aiImportSubmitControllerProvider.notifier,
+      );
+      container
+          .read(pendingDocumentProvider.notifier)
+          .set(AiImportDocument.csv('day,scene'));
+      controller.selectKind(AiImportKind.schedule);
+      expect(container.read(pendingDocumentProvider), isNull);
+      // Same-kind selection is a no-op (does not clear an in-progress
+      // document).
+      container
+          .read(pendingDocumentProvider.notifier)
+          .set(AiImportDocument.csv('day,scene'));
+      controller.selectKind(AiImportKind.schedule);
+      expect(container.read(pendingDocumentProvider), isNotNull);
+      container.dispose();
+    });
 
     test('duplicate upload (200) is a first-class ack', () async {
       await setupContainer();
       repo.uploadResult = Right(AiUploadAck(jobId: 'job-0', duplicate: true));
-      final res = await container
-          .read(aiImportSubmitControllerProvider.notifier)
-          .submit(AiImportDocument.pasted('x'));
+      final controller = container.read(
+        aiImportSubmitControllerProvider.notifier,
+      )..selectKind(AiImportKind.schedule);
+      final res = await controller.submit(AiImportDocument.csv('x'));
       expect(res.getRight().toNullable()!.duplicate, isTrue);
       container.dispose();
     });
@@ -398,9 +396,10 @@ void main() {
         (404, 'ai-import.disabled'),
       ]) {
         repo.uploadResult = Left(ProblemError(code: code, status: status));
-        final res = await container
-            .read(aiImportSubmitControllerProvider.notifier)
-            .submit(AiImportDocument.pasted('x'));
+        final controller = container.read(
+          aiImportSubmitControllerProvider.notifier,
+        )..selectKind(AiImportKind.schedule);
+        final res = await controller.submit(AiImportDocument.csv('x'));
         expect(res.getLeft().toNullable()!.code, code, reason: code);
         expect(
           aiUploadErrorCopy(AppLocalizationsEn(), res.getLeft().toNullable()!),

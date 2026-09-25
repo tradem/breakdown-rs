@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: space-bunny-free (opencode-go)
 
 // Tier-2 widget tests for the AI-import configuration screen
 // (`flutter-ai-config` task 2.2): first-run discovery (list-first + empty
@@ -16,6 +17,7 @@ import 'package:built_collection/built_collection.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_code_editor/flutter_code_editor.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
 import 'package:fpdart/fpdart.dart';
@@ -497,10 +499,7 @@ void main() {
     await pumpScreen(tester);
     expect(find.byKey(const Key('ai-config-configured')), findsOneWidget);
 
-    await tester.enterText(
-      find.byKey(const Key('ai-edit-script-prompt')),
-      'new prompt',
-    );
+    await _enterPrompt(tester, 'ai-edit-script-prompt', 'new prompt');
     await tester.tap(find.byKey(const Key('ai-config-edit-save')));
     await tester.pumpAndSettle();
 
@@ -593,20 +592,8 @@ void main() {
     expect(state.scriptPrompt, 'S1');
     expect(state.schedulePrompt, 'S2');
     // The rendered fields carry the defaults and the provenance hint shows.
-    expect(
-      tester
-          .widget<TextField>(find.byKey(const Key('ai-script-prompt')))
-          .controller!
-          .text,
-      'S1',
-    );
-    expect(
-      tester
-          .widget<TextField>(find.byKey(const Key('ai-schedule-prompt')))
-          .controller!
-          .text,
-      'S2',
-    );
+    expect(_codeField(tester, 'ai-script-prompt').controller.fullText, 'S1');
+    expect(_codeField(tester, 'ai-schedule-prompt').controller.fullText, 'S2');
     expect(find.byKey(const Key('ai-prefill-hint')), findsOneWidget);
   });
 
@@ -668,15 +655,17 @@ void main() {
       container.read(aiConfigControllerProvider).selectedProviderKey,
       'neuralwatt',
     );
+    expect(
+      container.read(aiConfigControllerProvider).selectedAssistantModelId,
+      isNull,
+      reason: 'changing providers must not restore the old assistant model',
+    );
 
     // Prompt: typing into the script field is never clobbered by a later
     // defaults delivery, and the OTHER prefilled prompt (schedule) is NOT
     // wiped by editing the script field (CodeRabbit review, PR #489): the
     // touched-guard is per-field.
-    await tester.enterText(
-      find.byKey(const Key('ai-script-prompt')),
-      'my custom prompt',
-    );
+    await _enterPrompt(tester, 'ai-script-prompt', 'my custom prompt');
     await tester.pump();
     final after1 = container.read(aiConfigControllerProvider);
     expect(after1.scriptPrompt, 'my custom prompt');
@@ -703,9 +692,9 @@ void main() {
     );
   });
 
-  testWidgets('configured state: NO prefill — provider/model come from the '
-      'config, prompt fields stay empty (never silently replaced by '
-      'defaults)', (tester) async {
+  testWidgets('configured state with empty stored prompts falls back to '
+      'backend defaults; provider/model still come from the config '
+      '(issue #520)', (tester) async {
     await setupContainer(
       discoveryValue: Right([_config()]),
       defaultsValue: Right(_defaults(script: 'S1', schedule: 'S2')),
@@ -714,12 +703,120 @@ void main() {
 
     expect(find.byKey(const Key('ai-config-configured')), findsOneWidget);
     final state = container.read(aiConfigControllerProvider);
-    // Configured values win; the prefill never touched the drafts.
     expect(state.selectedProviderKey, 'openai');
     expect(state.selectedAssistantModelId, 'gpt-5.6-luna');
-    expect(state.scriptPrompt, '');
-    expect(state.schedulePrompt, '');
-    expect(find.byKey(const Key('ai-prefill-hint')), findsNothing);
+    expect(state.scriptPrompt, 'S1');
+    expect(state.schedulePrompt, 'S2');
+    expect(
+      _codeField(tester, 'ai-edit-script-prompt').controller.fullText,
+      'S1',
+    );
+    expect(
+      _codeField(tester, 'ai-edit-schedule-prompt').controller.fullText,
+      'S2',
+    );
+
+    // Recommended save semantics: an untouched configured save persists the
+    // visible defaults, repairing a config that was stored with empty prompts.
+    await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+    await tester.pumpAndSettle();
+    expect(repo.lastUpdateRequest!.prompts['script'], 'S1');
+    expect(repo.lastUpdateRequest!.prompts['schedule'], 'S2');
+  });
+
+  testWidgets('configured model editor keeps the bound provider while PATCHing '
+      'assistant model, image model, vault key, and version (issue #509)', (
+    tester,
+  ) async {
+    await setupContainer(discoveryValue: Right([_config(version: 7)]));
+    await pumpScreen(tester);
+
+    final providerPicker = tester.widget<DropdownButtonFormField<String>>(
+      find.byKey(const Key('ai-provider-picker')),
+    );
+    expect(providerPicker.onChanged, isNull);
+
+    await tester.tap(find.byKey(const Key('ai-assistant-model-picker')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('gpt-5.6-terra').last);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('ai-image-model-picker')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('gpt-5.6-luna').last);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+    await tester.pumpAndSettle();
+
+    final sent = repo.lastUpdateRequest!;
+    expect(sent.provider, LlmProvider.openai);
+    expect(sent.assistantModel, 'gpt-5.6-terra');
+    expect(sent.imageModel, 'gpt-5.6-luna');
+    expect(sent.vaultKeyId, 'vk-1');
+    expect(sent.version, 7);
+  });
+
+  testWidgets('configured prompt-only edit survives provider-catalog failure '
+      'without requiring provider discovery (issue #509)', (tester) async {
+    await setupContainer(
+      discoveryValue: Right([
+        _config(
+          prompts: {'script': 'Stored Script', 'schedule': 'Stored Schedule'},
+        ),
+      ]),
+      providersValue: const Left(ProblemError(code: 'transport.down')),
+    );
+    await pumpScreen(tester);
+
+    await _enterPrompt(
+      tester,
+      'ai-edit-script-prompt',
+      'Edited without catalog',
+    );
+    await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+    await tester.pumpAndSettle();
+
+    expect(repo.updateCalls, 1);
+    expect(repo.lastUpdateRequest!.provider, LlmProvider.openai);
+    expect(repo.lastUpdateRequest!.prompts['script'], 'Edited without catalog');
+  });
+
+  testWidgets('XML editor highlights tags distinctly and saves the exact '
+      'source string without style markup (issue #520)', (tester) async {
+    const defaultXml = '<role>Extract scenes</role>';
+    const editedXml =
+        '<role>Extract scenes</role>\n'
+        '<context>Only scenes in this act</context>';
+    await setupContainer(
+      discoveryValue: Right([_config()]),
+      defaultsValue: Right(
+        _defaults(script: defaultXml, schedule: '<role>Map days</role>'),
+      ),
+    );
+    await pumpScreen(tester);
+
+    final field = _codeField(tester, 'ai-edit-script-prompt');
+    final scheme = Theme.of(
+      tester.element(find.byKey(const Key('ai-config-configured'))),
+    ).colorScheme;
+    final spans = _flattenSpans(field.controller.lastTextSpan!).toList();
+    final primaryRuns = spans
+        .where((span) => span.style?.color == scheme.primary)
+        .map((span) => span.toPlainText())
+        .join();
+    expect(primaryRuns, contains('<role>'));
+    expect(
+      spans.map((span) => span.toPlainText()).join(),
+      contains('Extract scenes'),
+    );
+
+    await _enterPrompt(tester, 'ai-edit-script-prompt', editedXml);
+    await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+    await tester.pumpAndSettle();
+
+    expect(container.read(aiConfigControllerProvider).scriptPrompt, editedXml);
+    expect(repo.lastUpdateRequest!.prompts['script'], editedXml);
   });
 
   // --- Edit path: stored prompt texts (issue #490) -------------------------
@@ -745,17 +842,11 @@ void main() {
     // …and the rendered text fields carry them (the same `_sync`
     // mechanism the prefill already uses, issue #471).
     expect(
-      tester
-          .widget<TextField>(find.byKey(const Key('ai-edit-script-prompt')))
-          .controller!
-          .text,
+      _codeField(tester, 'ai-edit-script-prompt').controller.fullText,
       'Stored Script',
     );
     expect(
-      tester
-          .widget<TextField>(find.byKey(const Key('ai-edit-schedule-prompt')))
-          .controller!
-          .text,
+      _codeField(tester, 'ai-edit-schedule-prompt').controller.fullText,
       'Stored Schedule',
     );
     // The edit form never shows the first-run prefill provenance hint.
@@ -804,7 +895,7 @@ void main() {
     expect(find.byKey(const Key('ai-config-configured')), findsOneWidget);
 
     // Clear ONLY the script field; the schedule field stays untouched.
-    await tester.enterText(find.byKey(const Key('ai-edit-script-prompt')), '');
+    await _enterPrompt(tester, 'ai-edit-script-prompt', '');
     await tester.tap(find.byKey(const Key('ai-config-edit-save')));
     await tester.pumpAndSettle();
 
@@ -915,6 +1006,32 @@ void main() {
       );
     });
   });
+}
+
+CodeField _codeField(WidgetTester tester, String key) =>
+    tester.widget<CodeField>(
+      find.descendant(
+        of: find.byKey(Key(key)),
+        matching: find.byType(CodeField),
+      ),
+    );
+
+Future<void> _enterPrompt(WidgetTester tester, String key, String text) =>
+    tester.enterText(
+      find.descendant(
+        of: find.byKey(Key(key)),
+        matching: find.byType(EditableText),
+      ),
+      text,
+    );
+
+Iterable<InlineSpan> _flattenSpans(InlineSpan span) sync* {
+  yield span;
+  if (span is TextSpan) {
+    for (final child in span.children ?? const <InlineSpan>[]) {
+      yield* _flattenSpans(child);
+    }
+  }
 }
 
 /// In-memory [FlutterSecureStoragePlatform] double (same pattern as the

@@ -18,6 +18,14 @@ releases are cut as `flutter-vX.Y.Z` tags.
 
 ### Added
 
+- **AI-import usability:** Script is now the default import kind and schedules
+  are file-only (CSV/PDF); configured AI-imports can change assistant and
+  image-model selections while the vault-bound provider remains protected;
+  empty stored prompts fall back to the backend defaults in an editable
+  XML-highlighted editor (issues #508, #509, #520).
+- **Version bump:** `0.3.0-alpha.21+31 → 0.3.0-alpha.22+32` (pre-release
+  increment per merged-PR practice on the alpha line; `+N` stays strictly
+  monotonic for the Play `versionCode`).
 - **Version bump:** `0.3.0-alpha.20+30 → 0.3.0-alpha.21+31` (pre-release
   increment for the localization feature; `+N` stays strictly monotonic for
   the Play `versionCode`).

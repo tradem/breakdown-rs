@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
 
 // On-device E2E smoke for the AI-import pipeline (`flutter-ai-import`
 // task 6.1): submit → job → preview → apply → summary, driven through the
@@ -222,8 +223,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // 1. Submit: paste the schedule text and dispatch (the membership
-    //    pre-gate runs in dev-auth mode → permissive, no IdP).
+    // 1. Submit a schedule CSV and dispatch (the membership pre-gate runs
+    //    in dev-auth mode → permissive, no IdP). The UI no longer accepts a
+    //    pasted schedule, so the picked-document seam is seeded directly.
     container
         .read(pendingEpisodeProvider.notifier)
         .set(
@@ -237,7 +239,12 @@ void main() {
               ..version = 1,
           ),
         );
-    container.read(pendingPasteProvider.notifier).set('day,scene\n1,12\n1,13');
+    container
+        .read(aiImportSubmitControllerProvider.notifier)
+        .selectKind(AiImportKind.schedule);
+    container
+        .read(pendingDocumentProvider.notifier)
+        .set(AiImportDocument.csv('day,scene\n1,12\n1,13'));
     await tester.tap(find.byKey(const Key('ai-import-submit')));
     await tester.pumpAndSettle();
 

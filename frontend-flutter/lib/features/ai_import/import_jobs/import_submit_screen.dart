@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
 
 import 'dart:convert';
 import 'dart:typed_data';
@@ -21,12 +22,9 @@ import 'import_submit_controller.dart';
 import 'job_status_screen.dart';
 
 /// The AI-import submission screen (`flutter-ai-import-workflow` task
-/// 3.1): kind picker (schedule CSV/PDF/plain, script PDF), paste field or
-/// `file_picker` document selection, upload with linear progress, and the
-/// duplicate callout branch (200 → "already imported (duplicate)").
-///
-/// A `ConsumerWidget` for the shell; the paste field is a
-/// `ConsumerStatefulWidget` carve-out (ephemeral text state).
+/// 3.1): kind picker (schedule CSV/PDF, script PDF), file-only document
+/// selection, upload with linear progress, and the duplicate callout branch
+/// (200 → "already imported (duplicate)").
 class AiImportSubmitScreen extends ConsumerWidget {
   const AiImportSubmitScreen({super.key, this.seasonId});
 
@@ -64,12 +62,12 @@ class AiImportSubmitScreen extends ConsumerWidget {
             key: const Key('ai-import-kind-picker'),
             segments: [
               ButtonSegment(
-                value: AiImportKind.schedule,
-                label: Text(l10nOf(context).aiImportSchedule),
-              ),
-              ButtonSegment(
                 value: AiImportKind.script,
                 label: Text(l10nOf(context).aiImportScript),
+              ),
+              ButtonSegment(
+                value: AiImportKind.schedule,
+                label: Text(l10nOf(context).aiImportSchedule),
               ),
             ],
             selected: {kind},
@@ -82,16 +80,7 @@ class AiImportSubmitScreen extends ConsumerWidget {
           else
             Text(l10nOf(context).aiImportScriptHint),
           const SizedBox(height: 16),
-          if (kind == AiImportKind.schedule) ...[
-            const _PasteField(),
-            const SizedBox(height: 12),
-            Text(
-              l10nOf(context).aiImportOrPickFile,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 12),
-          ],
-          _FilePickRow(kind: kind),
+          _FilePickRow(key: ValueKey(kind), kind: kind),
           const SizedBox(height: 24),
           _SubmitButton(seasonId: seasonId),
         ],
@@ -100,42 +89,11 @@ class AiImportSubmitScreen extends ConsumerWidget {
   }
 }
 
-/// The paste field (schedules only). The text lives in this widget's
-/// controller until submit — read at submit time.
-class _PasteField extends ConsumerStatefulWidget {
-  const _PasteField();
-
-  @override
-  ConsumerState<_PasteField> createState() => _PasteFieldState();
-}
-
-class _PasteFieldState extends ConsumerState<_PasteField> {
-  final _pasteController = TextEditingController();
-
-  @override
-  void dispose() {
-    _pasteController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => TextField(
-    key: const Key('ai-import-paste-field'),
-    controller: _pasteController,
-    onChanged: (text) => ref.read(pendingPasteProvider.notifier).set(text),
-    decoration: InputDecoration(
-      labelText: l10nOf(context).aiImportPasteLabel,
-      border: const OutlineInputBorder(),
-    ),
-    maxLines: 8,
-  );
-}
-
 /// File picker row: `file_picker` at point of use only (FOSS; the picked
 /// bytes are read immediately into the pending document — nothing is
 /// persisted client-side beyond the in-flight upload).
 class _FilePickRow extends ConsumerStatefulWidget {
-  const _FilePickRow({required this.kind});
+  const _FilePickRow({super.key, required this.kind});
 
   final AiImportKind kind;
 
@@ -208,10 +166,9 @@ AiImportDocument documentFromBytes(
   return AiImportDocument.csv(utf8.decode(bytes, allowMalformed: true));
 }
 
-/// The submit dispatch: prefers the picked file, falls back to the paste
-/// field. Shows linear progress while the upload is in flight; on a 200
-/// duplicate the status screen opens with the duplicate callout; on a 202
-/// the plain status screen opens.
+/// The submit dispatch for the picked file. Shows linear progress while the
+/// upload is in flight; on a 200 duplicate the status screen opens with the
+/// duplicate callout; on a 202 the plain status screen opens.
 class _SubmitButton extends ConsumerStatefulWidget {
   const _SubmitButton({this.seasonId});
 
@@ -225,11 +182,7 @@ class _SubmitButtonState extends ConsumerState<_SubmitButton> {
   bool _busy = false;
 
   Future<void> _submit() async {
-    final document =
-        ref.read(pendingDocumentProvider) ??
-        (ref.read(pendingPasteProvider).isEmpty
-            ? null
-            : AiImportDocument.pasted(ref.read(pendingPasteProvider)));
+    final document = ref.read(pendingDocumentProvider);
     if (document == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -258,7 +211,6 @@ class _SubmitButtonState extends ConsumerState<_SubmitButton> {
           );
         },
         (ack) {
-          ref.read(pendingPasteProvider.notifier).clear();
           ref.read(pendingDocumentProvider.notifier).set(null);
           // Non-fatal stamp warning (review): the job EXISTS — navigate
           // regardless; the warning rides on top of the status screen.

@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: space-bunny-free (opencode-go)
 
 import 'dart:typed_data';
 
@@ -11,14 +12,10 @@ import '../../../core/problem_error.dart';
 import '../../../data/ai_import_repository.dart';
 import '../../../l10n/generated/app_localizations.dart';
 
-/// The submitted document (task 3.1): pasted text (plain) or a picked
-/// file (bytes + declared source). PDFs travel as raw bytes.
+/// The submitted document (task 3.1): a picked file (bytes/text plus its
+/// declared source). PDFs travel as raw bytes.
 class AiImportDocument {
   AiImportDocument._({required this.body, required this.source});
-
-  /// Pasted plain text (schedules only — `text/plain`).
-  factory AiImportDocument.pasted(String text) =>
-      AiImportDocument._(body: text, source: AiScheduleSource.plainText);
 
   /// A picked CSV file (`text/csv`).
   factory AiImportDocument.csv(String text) =>
