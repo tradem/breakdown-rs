@@ -466,6 +466,14 @@ class AiConfigController extends _$AiConfigController {
         // Success: remember the config id (fast-path for the next launch;
         // the list route stays authoritative, D2) and refresh discovery.
         await _rememberConfigId(idVersion.id);
+        await _rememberCredential(
+          providerKey,
+          ProviderCredentialReference(
+            settingsId: credential.settingsId,
+            settingsVersion: credential.settingsVersion,
+            vaultKeyId: credential.vaultKeyId,
+          ),
+        );
         if (!ref.mounted) {
           return Right<ProblemError, IdVersionResponse>(idVersion);
         }
@@ -486,6 +494,22 @@ class AiConfigController extends _$AiConfigController {
     // A hand-off write failure must not fail the create (the list route is
     // authoritative); it surfaces only if the fallback path is ever hit.
     res.getLeft().toNullable();
+  }
+
+  Future<void> _rememberCredential(
+    String providerKey,
+    ProviderCredentialReference credential,
+  ) async {
+    final session = await ref.read(authSessionControllerProvider.future);
+    final sub = session?.sub ?? '';
+    final res = await ref
+        .read(aiImportHandoffStoreProvider)
+        .rememberCredential(sub, providerKey, credential);
+    // Credential retention is deliberately best effort: a storage failure must
+    // not turn a committed config update into a failed command. The secret is
+    // never stored here; only opaque references are.
+    res.getLeft().toNullable();
+    if (ref.mounted) ref.invalidate(aiImportHandoffProvider);
   }
 
   /// The bounded rollback against explicit aggregate identity (the
@@ -538,6 +562,17 @@ class AiConfigController extends _$AiConfigController {
       case ConfigCommitted(:final view):
         // Committed — keep the credential, continue to the config screen.
         await _rememberConfigId(view.id);
+        final providerKey = snapshot.selectedProviderKey;
+        if (providerKey != null) {
+          await _rememberCredential(
+            providerKey,
+            ProviderCredentialReference(
+              settingsId: credential.settingsId,
+              settingsVersion: credential.settingsVersion,
+              vaultKeyId: credential.vaultKeyId,
+            ),
+          );
+        }
         if (!ref.mounted) return;
         ref.invalidate(aiConfigDiscoveryProvider);
         ref.invalidate(aiImportHandoffProvider);
@@ -619,15 +654,12 @@ class AiConfigController extends _$AiConfigController {
     required String? imageModelId,
     required String scriptPrompt,
     required String schedulePrompt,
+    String? replacementSecret,
   }) async {
     final config = state.config;
     if (config == null) {
       return const Left(ProblemError(code: 'ai_config.not-found'));
     }
-    // A configured edit cannot replace the provider: the existing vault key
-    // is bound to its provider. If discovery is temporarily unavailable, the
-    // unchanged configured provider is still a valid prompt-only edit; a
-    // different provider requires a separate credential-replacement flow.
     final provider =
         _resolveProvider(providerKey) ??
         (providerKey == config.provider.name ? config.provider : null);
@@ -636,6 +668,40 @@ class AiConfigController extends _$AiConfigController {
       state = state.copyWith(commandError: error);
       return const Left(error);
     }
+    final selectedProviderKey = providerKey!;
+
+    // Provider replacement is a two-phase hand-off. Reuse a retained
+    // provider credential when available; otherwise create one and keep it
+    // even if the subsequent PATCH fails so retrying never requires re-entry.
+    var vaultKeyId = config.vaultKeyId;
+    CredentialHandoff? createdCredential;
+    if (selectedProviderKey != config.provider.name) {
+      final handoff = await ref.read(aiImportHandoffProvider.future);
+      final retained = handoff.credentials[selectedProviderKey];
+      if (retained != null) {
+        vaultKeyId = retained.vaultKeyId;
+      } else {
+        if (replacementSecret == null || replacementSecret.isEmpty) {
+          const error = ProblemError(code: 'ai_config.key_missing');
+          state = state.copyWith(commandError: error);
+          return const Left(error);
+        }
+        final outcome = await submitCredentialWithHandoff(
+          ref.read(aiConfigRepositoryProvider),
+          provider: selectedProviderKey,
+          secret: replacementSecret,
+        );
+        switch (outcome) {
+          case HandoffSucceeded(:final handoff):
+            createdCredential = handoff;
+            vaultKeyId = handoff.vaultKeyId;
+          case HandoffFailed(:final error):
+            if (ref.mounted) state = state.copyWith(commandError: error);
+            return Left(error);
+        }
+      }
+    }
+
     final repo = ref.read(aiConfigRepositoryProvider);
     final res = await repo.updateConfig(
       config.id,
@@ -643,7 +709,7 @@ class AiConfigController extends _$AiConfigController {
         (b) => b
           ..provider = provider
           ..assistantModel = assistantModelId
-          ..vaultKeyId = config.vaultKeyId
+          ..vaultKeyId = vaultKeyId
           ..version = config.version
           ..imageModel = imageModelId
           ..prompts.replace({
@@ -653,11 +719,49 @@ class AiConfigController extends _$AiConfigController {
       ),
     );
     return res.match(
-      (err) {
+      (err) async {
+        // A replacement credential is retained even when the config PATCH
+        // fails. This makes retrying safe and avoids asking for the same API
+        // key again on the next attempt.
+        if (createdCredential != null) {
+          await _rememberCredential(
+            selectedProviderKey,
+            ProviderCredentialReference(
+              settingsId: createdCredential.settingsId,
+              settingsVersion: createdCredential.settingsVersion,
+              vaultKeyId: createdCredential.vaultKeyId,
+            ),
+          );
+        }
+        // A timeout may have committed. Reconcile before deciding whether a
+        // newly-created credential is committed; either way it is retained.
+        if (isAmbiguousTimeoutError(err) &&
+            selectedProviderKey != config.provider.name) {
+          final reconciled = await repo.getConfig(config.id);
+          final view = reconciled.getRight().toNullable();
+          if (view != null &&
+              !view.revoked &&
+              view.provider.name == provider.name &&
+              view.vaultKeyId == vaultKeyId) {
+            ref.invalidate(aiConfigDiscoveryProvider);
+            if (ref.mounted) state = state.copyWith(clearCommandError: true);
+            return Right<ProblemError, int>(view.version);
+          }
+        }
         if (ref.mounted) state = state.copyWith(commandError: err);
         return Left<ProblemError, int>(err);
       },
       (version) async {
+        if (createdCredential != null) {
+          await _rememberCredential(
+            selectedProviderKey,
+            ProviderCredentialReference(
+              settingsId: createdCredential.settingsId,
+              settingsVersion: createdCredential.settingsVersion,
+              vaultKeyId: createdCredential.vaultKeyId,
+            ),
+          );
+        }
         ref.invalidate(aiConfigDiscoveryProvider);
         if (!ref.mounted) {
           return Right<ProblemError, int>(version);

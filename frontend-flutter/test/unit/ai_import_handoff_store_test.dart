@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
 
 // Tier-1 unit tests for the AI-import hand-off store (task 1.3): round-trip,
 // bounded/deduplicated job list, per-subject keying (the A → B switch
@@ -30,6 +31,7 @@ void main() {
       final state = (await store().read('user-a')).getRight().toNullable()!;
       expect(state.configId, isNull);
       expect(state.jobIds, isEmpty);
+      expect(state.credentials, isEmpty);
     });
 
     test('round-trip: config id + jobs per subject', () async {
@@ -42,6 +44,52 @@ void main() {
       expect(state.configId, 'config-1');
       // Newest first.
       expect(state.jobIds, ['job-2', 'job-1']);
+    });
+
+    test('retains opaque credential references per provider', () async {
+      final s = store();
+      const openAi = ProviderCredentialReference(
+        settingsId: 'settings-openai',
+        settingsVersion: 1,
+        vaultKeyId: 'vault-openai',
+      );
+      const ollama = ProviderCredentialReference(
+        settingsId: 'settings-ollama',
+        settingsVersion: 1,
+        vaultKeyId: 'vault-ollama',
+      );
+
+      expect(
+        (await s.rememberCredential('user-a', 'openai', openAi)).isRight(),
+        isTrue,
+      );
+      expect(
+        (await s.rememberCredential('user-a', 'ollama', ollama)).isRight(),
+        isTrue,
+      );
+
+      final state = (await s.read('user-a')).getRight().toNullable()!;
+      expect(state.credentials['openai']?.vaultKeyId, 'vault-openai');
+      expect(state.credentials['ollama']?.settingsId, 'settings-ollama');
+      expect(state.credentials['openai']?.settingsVersion, 1);
+      expect(state.credentials['openai']?.vaultKeyId, openAi.vaultKeyId);
+    });
+
+    test('credential references remain isolated per subject', () async {
+      final s = store();
+      await s.rememberCredential(
+        'user-a',
+        'openai',
+        const ProviderCredentialReference(
+          settingsId: 'settings-a',
+          settingsVersion: 1,
+          vaultKeyId: 'vault-a',
+        ),
+      );
+      expect(
+        (await s.read('user-b')).getRight().toNullable()!.credentials,
+        isEmpty,
+      );
     });
 
     test('rememberJob deduplicates and moves the id to the front', () async {

@@ -457,6 +457,10 @@ class AppLocalizationsDe extends AppLocalizations {
       'Dieser Anbieter ist gerade nicht verfügbar.';
 
   @override
+  String get aiConfigErrorProviderMismatch =>
+      'Der API-Schlüssel gehört nicht zu diesem Anbieter. Wähle den Anbieter, zu dem der gespeicherte Schlüssel gehört, oder sende einen neuen Schlüssel.';
+
+  @override
   String get aiConfigErrorDisabled =>
       'KI-Import ist auf dieser Instanz nicht aktiviert. Das ist eine Server-Konfiguration – hier gibt es nichts zu wiederholen.';
 

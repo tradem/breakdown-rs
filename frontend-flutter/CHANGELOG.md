@@ -20,9 +20,18 @@ releases are cut as `flutter-vX.Y.Z` tags.
 
 - **AI-import usability:** Script is now the default import kind and schedules
   are file-only (CSV/PDF); configured AI-imports can change assistant and
-  image-model selections while the vault-bound provider remains protected;
-  empty stored prompts fall back to the backend defaults in an editable
+  image-model selections while the configured provider remains available for
+  safe replacement; empty stored prompts fall back to the backend defaults in an editable
   XML-highlighted editor (issues #508, #509, #520).
+- **AI-import provider replacement:** configured imports can switch providers
+  with a safe two-phase credential hand-off. Previously entered provider
+  credentials are retained as opaque references, so switching back does not
+  require re-entering the API key. The server refuses to persist a vault key
+  that is not an active credential of the selected provider, and the mismatch
+  is reported with its own localized copy (issue #528).
+- **Version bump:** `0.3.0-alpha.22+32 → 0.3.0-alpha.23+33` (pre-release
+  increment per merged-PR practice on the alpha line; `+N` stays strictly
+  monotonic for the Play `versionCode`).
 - **Version bump:** `0.3.0-alpha.21+31 → 0.3.0-alpha.22+32` (pre-release
   increment per merged-PR practice on the alpha line; `+N` stays strictly
   monotonic for the Play `versionCode`).

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: longcat-2.0-free (opencode)
+// Co-authored-by: space-bunny-free (opencode-go)
 
 //! Cancellation-safety contract for the AI concurrency permit (issue #178).
 //!
@@ -22,11 +23,22 @@
 //! State is observed only through the public API —
 //! `PgAiConcurrencyLimiter::in_flight` for capacity and
 //! `PgAiConcurrencyPermit::deadline` for the lease. Raw SQL appears in exactly
-//! one place: an `UPDATE` that moves a deadline into the past, because expiry
+//! two places: an `UPDATE` that moves a deadline into the past, because expiry
 //! has no public setter (it is not something production code may do) and the
 //! alternative would be sleeping out the 30-second lease floor, which the
-//! deterministic-test rule forbids. This is the same carve-out
-//! `ai_import_queue_lease.rs` makes for `lease_expires_at`.
+//! deterministic-test rule forbids (the same carve-out
+//! `ai_import_queue_lease.rs` makes for `lease_expires_at`), and the
+//! database-level fault injection of
+//! [`a_locked_row_does_not_block_the_reclaim_loop`].
+//
+//! **Fault injection without a test-only branch.** The reclaim fault is
+//! injected *in PostgreSQL*: a second connection takes a row lock on a permit
+//! row, which is exactly the state a permit whose acquisition was cancelled
+//! mid-`commit` leaves behind. Production code therefore keeps no test hook
+//! (`rules/test-shim-leak.yml`), and the observations are database state
+//! (a waiting backend) rather than elapsed time. The retry policy itself is
+//! proved separately, without a database, by the unit tests in
+//! `pg_concurrency.rs`.
 
 // Test-only lint suppressions: an unmet expectation must abort the test rather
 // than be threaded through a Result.
@@ -38,9 +50,12 @@ use std::time::Duration;
 
 use anyhow::Result;
 use breakdown_core::error::DomainError;
-use infra::ai::{AiWorkerRuntime, PgAiConcurrencyLimiter};
+use infra::ai::{
+    AiWorkerRuntime, PgAiConcurrencyLimiter, RECLAIM_LOCK_TIMEOUT, reclaim_retry_budget,
+};
 use sqlx::PgPool;
 use tokio::sync::oneshot;
+use uuid::Uuid;
 
 /// Bound for the reclaimer round-trip (channel hand-off + one DELETE). Five
 /// seconds is orders of magnitude above the expected latency; the test still
@@ -63,6 +78,63 @@ async fn await_capacity_released(limiter: &PgAiConcurrencyLimiter, context: &str
         );
         tokio::time::sleep(POLL_INTERVAL).await;
     }
+}
+
+/// Count the backends currently BLOCKED on a permit delete — the observable
+/// proof that the injected lock fault is actually in the reclaimer's way.
+///
+/// `pg_stat_activity` is read, never written: the fault itself is the row lock
+/// taken by [`hold_row_lock`], and this is only how the test knows the
+/// reclaimer reached the statement.
+async fn blocked_reclaim_deletes(pool: &PgPool) -> i64 {
+    sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*) FROM pg_stat_activity
+        WHERE wait_event_type = 'Lock'
+          AND query LIKE '%DELETE FROM ai_import.concurrency_permit%'
+        "#,
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+/// Hold a conflicting row lock on the permit [id] until the returned guard is
+/// dropped — the database-level fault the reclaimer has to cope with.
+///
+/// A plain `SELECT … FOR UPDATE` on a *live* permit row is enough: the reclaim
+/// delete needs the same row lock, so it waits. Ordering matters and is
+/// arranged by the caller — the lock is taken while the permit is still held,
+/// so the row cannot disappear before the fault is armed.
+struct RowLock {
+    tx: sqlx::Transaction<'static, sqlx::Postgres>,
+}
+
+impl RowLock {
+    /// Release the lock (commit) so a pending reclaim can complete.
+    async fn release(self) -> Result<()> {
+        self.tx.commit().await?;
+        Ok(())
+    }
+}
+
+async fn hold_row_lock(pool: &PgPool, id: Uuid) -> Result<RowLock> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("SELECT id FROM ai_import.concurrency_permit WHERE id = $1 FOR UPDATE")
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+    Ok(RowLock { tx })
+}
+
+/// True while the permit row [id] is still present.
+async fn permit_row_exists(pool: &PgPool, id: Uuid) -> Result<bool> {
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM ai_import.concurrency_permit WHERE id = $1")
+            .bind(id)
+            .fetch_one(pool)
+            .await?;
+    Ok(count > 0)
 }
 
 /// Force every live permit's lease into the past, simulating a process that
@@ -261,6 +333,120 @@ async fn cancelling_an_acquisition_leaves_no_orphan_permit() -> Result<()> {
     assert!(
         limiter.try_acquire("commit-race-user").await?.is_some(),
         "a cancelled acquisition must not strand the slot"
+    );
+
+    reclaimer.abort();
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_locked_row_does_not_block_the_reclaim_loop() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    // Two slots: one permit can be pinned by the injected fault while another
+    // is dropped, which is the only way to observe the loop's head-of-line
+    // behaviour.
+    let (limiter, reclaimer) = PgAiConcurrencyLimiter::new(pool.clone(), 2, 2)?.spawn_reclaimer();
+    let observer = PgAiConcurrencyLimiter::new(pool.clone(), 2, 2)?;
+
+    let pinned = limiter
+        .try_acquire("pinned-user")
+        .await?
+        .expect("slot 1 free");
+    let pinned_id = pinned.id();
+    let other = limiter
+        .try_acquire("other-user")
+        .await?
+        .expect("slot 2 free");
+    let other_id = other.id();
+
+    // --- Fault injection (database level, no production test hook) ----------
+    //
+    // Lock the FIRST permit's row while it is still held, so the row cannot
+    // disappear before the fault is armed. This is the state a permit whose
+    // acquisition was cancelled mid-`commit` leaves behind: the row exists and
+    // its lock is still held by the transaction that is resolving.
+    let lock = hold_row_lock(&pool, pinned_id).await?;
+    drop(pinned);
+
+    // The reclaim of `pinned` now waits on our lock — wait until the database
+    // says so, instead of assuming a schedule.
+    let fault_deadline = tokio::time::Instant::now() + RECLAIM_DEADLINE;
+    loop {
+        if blocked_reclaim_deletes(&pool).await > 0 {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < fault_deadline,
+            "the injected lock never blocked the reclaim delete — the fault did not arm"
+        );
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
+
+    // Drop the second permit. Its row is free, so the reclaimer must reclaim
+    // it even though the loop is currently waiting on `pinned`.
+    drop(other);
+
+    // The bound is derived from the shipped constants, not guessed: the
+    // reclaimer is one sequential consumer, so it can only reach the second id
+    // after exhausting the first one's bounded attempts — the analytic worst
+    // case is exactly `reclaim_retry_budget()`. Doubling it absorbs scheduling
+    // jitter while staying far below the lease floor: an uncapped delete (the
+    // pre-hardening behaviour) waits forever, and the lease fallback needs
+    // 30 s — neither can pass this budget.
+    let head_of_line_budget = reclaim_retry_budget() * 2;
+    assert!(
+        head_of_line_budget < RECLAIM_LOCK_TIMEOUT * 20,
+        "the analytic budget must remain far below the lease floor"
+    );
+    let free_deadline = tokio::time::Instant::now() + head_of_line_budget;
+    loop {
+        if !permit_row_exists(&pool, other_id).await? {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < free_deadline,
+            "a locked row blocked the whole reclaim loop: the free permit was not \
+             reclaimed within {head_of_line_budget:?} (one lock wait + two backoffs)"
+        );
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
+    assert!(
+        permit_row_exists(&pool, pinned_id).await?,
+        "the locked permit must still be owned — its reclaim is what was bounded, \
+         not its existence"
+    );
+
+    // --- Releasing the fault ---------------------------------------------
+    lock.release().await?;
+
+    // `pinned` has now spent its whole bounded budget, so its own row stays
+    // until the lease sweep reclaims it — the documented fallback, and the
+    // price of a row that is locked by somebody else. What must NOT happen is
+    // that this one stuck row costs the *next* permit its fast path: a fresh
+    // permit dropped after the fault is gone must come back immediately.
+    let after = limiter
+        .try_acquire("after-user")
+        .await?
+        .expect("the second slot is free again");
+    let after_id = after.id();
+    drop(after);
+    let fast_path_deadline = tokio::time::Instant::now() + head_of_line_budget;
+    loop {
+        if !permit_row_exists(&pool, after_id).await? {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < fast_path_deadline,
+            "one stuck row must not cost later permits their fast path: the permit \
+             dropped after the fault was cleared was not reclaimed within \
+             {head_of_line_budget:?}"
+        );
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
+    assert_eq!(
+        observer.in_flight().await?,
+        1,
+        "only the locked permit's own row may remain"
     );
 
     reclaimer.abort();

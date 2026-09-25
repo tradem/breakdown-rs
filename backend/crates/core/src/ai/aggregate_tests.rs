@@ -2,6 +2,10 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
+
 use std::collections::HashMap;
 
 use kameo_es::Entity;
@@ -144,16 +148,39 @@ fn update_config_rejects_if_revoked() {
 }
 
 #[test]
-fn update_config_rejects_provider_mismatch() {
+fn update_config_rejects_provider_mismatch_with_old_vault_key() {
     let create_cmd = make_create_cmd();
     let id = create_cmd.id;
 
     AiConfig::given(vec![created_event(&create_cmd)])
         .when(UpdateAiConfig {
             provider: LlmProvider::Ollama, // different from Created
+            vault_key_id: "key-123".into(),
             ..make_update_cmd(id, AggregateVersion::INITIAL)
         })
         .then_error(AiConfigError::ProviderMismatch);
+}
+
+#[test]
+fn update_config_accepts_provider_replacement_with_new_vault_key() {
+    let create_cmd = make_create_cmd();
+    let id = create_cmd.id;
+
+    AiConfig::given(vec![created_event(&create_cmd)])
+        .when(UpdateAiConfig {
+            provider: LlmProvider::Ollama,
+            vault_key_id: "key-789".into(),
+            ..make_update_cmd(id, AggregateVersion::INITIAL)
+        })
+        .then(vec![AiConfigEvent::Updated {
+            id,
+            provider: LlmProvider::Ollama,
+            assistant_model: "gpt-4o-mini".into(),
+            image_model: None,
+            prompts: HashMap::from([(DocumentKind::Script, "New prompt".into())]),
+            vault_key_id: "key-789".into(),
+            version: AggregateVersion::INITIAL.next(),
+        }]);
 }
 
 #[test]

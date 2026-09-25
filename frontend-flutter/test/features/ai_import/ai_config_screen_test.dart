@@ -116,6 +116,11 @@ class FakeAiConfigRepository extends AiConfigRepository {
 
   String? lastSecret;
 
+  /// The provider passed to the most recent [submitCredential] call
+  /// (issue #528): the handoff must bind the key to the provider the user
+  /// actually selected, not to whichever provider the fake defaults to.
+  String? lastProvider;
+
   @override
   Future<Result<List<AiConfigView>>> listConfigs() async =>
       listResult ?? const Right(<AiConfigView>[]);
@@ -126,6 +131,7 @@ class FakeAiConfigRepository extends AiConfigRepository {
     required String secret,
   }) async {
     submitCalls++;
+    lastProvider = provider;
     lastSecret = secret;
     return submitResult ??
         Right(
@@ -734,7 +740,7 @@ void main() {
     final providerPicker = tester.widget<DropdownButtonFormField<String>>(
       find.byKey(const Key('ai-provider-picker')),
     );
-    expect(providerPicker.onChanged, isNull);
+    expect(providerPicker.onChanged, isNotNull);
 
     await tester.tap(find.byKey(const Key('ai-assistant-model-picker')));
     await tester.pumpAndSettle();
@@ -755,6 +761,130 @@ void main() {
     expect(sent.imageModel, 'gpt-5.6-luna');
     expect(sent.vaultKeyId, 'vk-1');
     expect(sent.version, 7);
+  });
+
+  testWidgets('provider replacement reuses a retained credential without '
+      'asking for its secret again (issue #528)', (tester) async {
+    await setupContainer(discoveryValue: Right([_config()]));
+    await AiImportHandoffStore.secure().rememberCredential(
+      'dev-user',
+      'neuralwatt',
+      const ProviderCredentialReference(
+        settingsId: 'settings-neuralwatt',
+        settingsVersion: 1,
+        vaultKeyId: 'vk-neuralwatt',
+      ),
+    );
+    await pumpScreen(tester);
+
+    await tester.tap(find.byKey(const Key('ai-provider-picker')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('neuralwatt').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('ai-assistant-model-picker')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('gpt-5.6-terra').last);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('ai-config-replacement-api-key-field')),
+      findsNothing,
+    );
+    await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+    await tester.pumpAndSettle();
+
+    expect(repo.submitCalls, 0);
+    expect(repo.lastUpdateRequest!.provider, LlmProvider.neuralwatt);
+    expect(repo.lastUpdateRequest!.vaultKeyId, 'vk-neuralwatt');
+  });
+
+  testWidgets('provider replacement submits a new credential and retains it '
+      'for later provider switches (issue #528)', (tester) async {
+    await setupContainer(discoveryValue: Right([_config()]));
+    // A DISTINCT vault key for the replacement provider: the assertion can
+    // then fail if the implementation reused the original OpenAI key.
+    repo.settingsResult = Right(
+      SettingsView(
+        (b) => b
+          ..id = 'settings-1'
+          ..provider = 'neuralwatt'
+          ..vaultKeyId = 'vk-neuralwatt'
+          ..vaultVersion = 1
+          ..version = 1
+          ..bindingState = CredentialBindingState.active,
+      ),
+    );
+    await pumpScreen(tester);
+
+    await tester.tap(find.byKey(const Key('ai-provider-picker')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('neuralwatt').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('ai-config-replacement-api-key-field')),
+      'new-provider-secret',
+    );
+    await tester.tap(find.byKey(const Key('ai-assistant-model-picker')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('gpt-5.6-terra').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+    await tester.pumpAndSettle();
+
+    expect(repo.submitCalls, 1);
+    expect(repo.lastProvider, 'neuralwatt');
+    expect(repo.lastSecret, 'new-provider-secret');
+    expect(repo.lastUpdateRequest!.provider, LlmProvider.neuralwatt);
+    expect(repo.lastUpdateRequest!.vaultKeyId, 'vk-neuralwatt');
+    expect(
+      secureStorage.store[AiImportHandoffStore.key],
+      contains('neuralwatt'),
+    );
+
+    // The just-retained provider can be selected again without a key prompt.
+    await tester.tap(find.byKey(const Key('ai-provider-picker')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('openai').last);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('ai-config-replacement-api-key-field')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('provider replacement retains the new credential when the '
+      'config PATCH fails (issue #528)', (tester) async {
+    await setupContainer(discoveryValue: Right([_config()]));
+    repo.updateResult = const Left(
+      ProblemError(code: 'ai-config.version-mismatch', status: 409),
+    );
+    await pumpScreen(tester);
+
+    await tester.tap(find.byKey(const Key('ai-provider-picker')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('neuralwatt').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('ai-config-replacement-api-key-field')),
+      'new-provider-secret',
+    );
+    await tester.tap(find.byKey(const Key('ai-assistant-model-picker')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('gpt-5.6-terra').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+    await tester.pumpAndSettle();
+
+    expect(repo.submitCalls, 1);
+    expect(repo.updateCalls, 1);
+    expect(
+      find.text('Changed elsewhere — refresh and re-apply your edit.'),
+      findsOneWidget,
+    );
+    expect(
+      secureStorage.store[AiImportHandoffStore.key],
+      contains('neuralwatt'),
+    );
   });
 
   testWidgets('configured prompt-only edit survives provider-catalog failure '

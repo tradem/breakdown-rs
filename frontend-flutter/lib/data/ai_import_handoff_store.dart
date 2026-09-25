@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
 
 import 'dart:async' show Completer;
 import 'dart:convert';
@@ -24,14 +25,36 @@ const int kMaxRememberedJobIds = 20;
 ///   authoritative for discovery; this list is the fast path and the
 ///   "what did I import" surface.
 class AiImportHandoffState {
-  const AiImportHandoffState({this.configId, this.jobIds = const <String>[]});
+  const AiImportHandoffState({
+    this.configId,
+    this.jobIds = const <String>[],
+    this.credentials = const <String, ProviderCredentialReference>{},
+  });
 
   final String? configId;
 
   /// Newest first, deduplicated, bounded to [kMaxRememberedJobIds].
   final List<String> jobIds;
 
+  /// Opaque credential references keyed by provider key. The API secret is
+  /// never part of this state; retaining these references lets the user switch
+  /// back to a provider without entering its key again.
+  final Map<String, ProviderCredentialReference> credentials;
+
   static const AiImportHandoffState empty = AiImportHandoffState();
+}
+
+/// A non-secret reference to a provider-bound Settings credential.
+class ProviderCredentialReference {
+  const ProviderCredentialReference({
+    required this.settingsId,
+    required this.settingsVersion,
+    required this.vaultKeyId,
+  });
+
+  final String settingsId;
+  final int settingsVersion;
+  final String vaultKeyId;
 }
 
 /// Secure-storage hand-off store for AI-import ids (task 1.3).
@@ -99,6 +122,23 @@ class AiImportHandoffStore {
       final doc = await _readDoc();
       final entry = doc.userState(sub);
       doc.users[sub] = entry..configId = configId;
+      return _writeDoc(doc);
+    }),
+  );
+
+  /// Retains the opaque reference for a provider credential. This is not a
+  /// secret store for API keys; it only remembers which existing vault key may
+  /// be used when the user switches back to [providerKey].
+  Future<Result<void>> rememberCredential(
+    String sub,
+    String providerKey,
+    ProviderCredentialReference reference,
+  ) => _mutex.run(
+    () => _guarded(() async {
+      final doc = await _readDoc();
+      final entry = doc.userState(sub);
+      entry.credentials[providerKey] = reference;
+      doc.users[sub] = entry;
       return _writeDoc(doc);
     }),
   );
@@ -226,6 +266,8 @@ class _HandoffDoc {
 class _HandoffEntry {
   String? configId;
   List<String> jobIds = <String>[];
+  Map<String, ProviderCredentialReference> credentials =
+      <String, ProviderCredentialReference>{};
 
   _HandoffEntry({this.configId, List<String>? jobIds}) {
     if (jobIds != null) this.jobIds = jobIds;
@@ -239,17 +281,46 @@ class _HandoffEntry {
     if (jobIds is List) {
       entry.jobIds = jobIds.whereType<String>().toList();
     }
+    final credentials = json['credentials'];
+    if (credentials is Map<String, dynamic>) {
+      for (final item in credentials.entries) {
+        final value = item.value;
+        if (value is! Map<String, dynamic>) continue;
+        final settingsId = value['settings_id'];
+        final settingsVersion = value['settings_version'];
+        final vaultKeyId = value['vault_key_id'];
+        if (settingsId is String &&
+            settingsVersion is num &&
+            vaultKeyId is String) {
+          entry.credentials[item.key] = ProviderCredentialReference(
+            settingsId: settingsId,
+            settingsVersion: settingsVersion.toInt(),
+            vaultKeyId: vaultKeyId,
+          );
+        }
+      }
+    }
     return entry;
   }
 
   AiImportHandoffState toState() => AiImportHandoffState(
     configId: configId,
     jobIds: List<String>.unmodifiable(jobIds),
+    credentials: Map<String, ProviderCredentialReference>.unmodifiable(
+      credentials,
+    ),
   );
 
   Map<String, dynamic> toJson() => {
     if (configId != null) 'config_id': configId,
     'job_ids': jobIds,
+    'credentials': credentials.map(
+      (provider, reference) => MapEntry(provider, {
+        'settings_id': reference.settingsId,
+        'settings_version': reference.settingsVersion,
+        'vault_key_id': reference.vaultKeyId,
+      }),
+    ),
   };
 }
 

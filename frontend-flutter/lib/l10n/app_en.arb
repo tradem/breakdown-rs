@@ -124,6 +124,7 @@
   "aiConfigErrorChanged": "Changed elsewhere — refresh and re-apply your edit.",
   "aiConfigErrorOrphaned": "The API key could not be removed from the server vault after the failed setup. Retry the cleanup from the configuration screen.",
   "aiConfigErrorProvider": "This provider is unavailable right now.",
+  "aiConfigErrorProviderMismatch": "This API key does not belong to that provider. Pick the provider the stored key belongs to, or submit a new key.",
   "aiConfigErrorDisabled": "AI import is not enabled on this instance. This is a server configuration — nothing to retry here.",
   "aiConfigErrorNetwork": "Network problem — the change was not applied. Try again.",
   "aiConfigErrorGeneric": "The configuration change failed ({code}).",

@@ -9,6 +9,7 @@ applyTo:
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: glm-5.3 (neuralwatt) -->
+<!-- Co-authored-by: space-bunny-free (opencode-go) -->
 
 # AI import (`add-ai-script-and-schedule-import`)
 
@@ -37,6 +38,18 @@ applyTo:
 > `PgAiConcurrencyPermit::renew` at `permit_renewal_interval` (1/3 of the
 > window). All release paths are `DELETE ... WHERE id = $1`, so double-release
 > is impossible.
+>
+> **The reclaim is bounded per permit (issue #528 follow-up).** A permit whose
+> acquisition was cancelled mid-`commit` can still have its row locked by that
+> transaction, so the reclaimer's delete is executed in a short transaction with
+> `set_config('lock_timeout', …, true)` (`RECLAIM_LOCK_TIMEOUT`, 200 ms) and
+> retried up to `RECLAIM_ATTEMPTS` (4) times with a linear backoff
+> (`RECLAIM_BACKOFF_BASE`, 100 ms × attempt). Without the bound, one stuck row
+> blocked the single reclaim loop head-of-line and delayed every later permit;
+> without the retry, a single transient failure demoted the fast path to the
+> lease floor (30 s). `reclaim_retry_budget()` is the analytic worst case per
+> permit and is what integration tests budget against — never a guessed sleep.
+> Only after the budget is exhausted is the row left to the lease.
 >
 > `AiWorkerRuntime::run_job` renews the permit while the operation runs, so a
 > multi-hour script job cannot have its capacity swept out from under it (that

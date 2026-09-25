@@ -232,11 +232,7 @@ class _FirstRunFormState extends ConsumerState<_FirstRunForm> {
 /// is honest (loading spinner, error retry, empty list copy) — never an
 /// empty picker masquerading as "no providers exist".
 class _ProviderPicker extends ConsumerWidget {
-  const _ProviderPicker({this.enabled = true});
-
-  /// Configured edits keep the existing provider because the vault key is
-  /// provider-bound; new configurations can still choose one.
-  final bool enabled;
+  const _ProviderPicker();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -263,11 +259,9 @@ class _ProviderPicker extends ConsumerWidget {
                       child: Text(info.key),
                     ),
                 ],
-                onChanged: enabled
-                    ? (key) {
-                        if (key != null) controller.selectProvider(key);
-                      }
-                    : null,
+                onChanged: (key) {
+                  if (key != null) controller.selectProvider(key);
+                },
               ),
       AsyncError(:final error) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -425,7 +419,7 @@ class _PromptFields extends ConsumerWidget {
 
 // --- Configured form ---------------------------------------------------------
 
-/// The configured state: summary, vault-bound provider display, model editing,
+/// The configured state: summary, provider replacement picker, model editing,
 /// prompt edit (version echo carried by the controller), and revoke-with-confirm.
 class _ConfiguredForm extends ConsumerStatefulWidget {
   const _ConfiguredForm({required this.state});
@@ -437,7 +431,14 @@ class _ConfiguredForm extends ConsumerStatefulWidget {
 }
 
 class _ConfiguredFormState extends ConsumerState<_ConfiguredForm> {
+  final _replacementKeyController = TextEditingController();
   bool _busy = false;
+
+  @override
+  void dispose() {
+    _replacementKeyController.dispose();
+    super.dispose();
+  }
 
   Future<void> _revoke() async {
     final l10n = l10nOf(context);
@@ -478,7 +479,16 @@ class _ConfiguredFormState extends ConsumerState<_ConfiguredForm> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(aiConfigControllerProvider);
+    final handoff = ref.watch(aiImportHandoffProvider);
     final config = state.config!;
+    final selectedProviderKey = state.selectedProviderKey;
+    final providerChanged =
+        selectedProviderKey != null &&
+        selectedProviderKey != config.provider.name;
+    final hasRetainedCredential =
+        selectedProviderKey != null &&
+        handoff.value?.credentials.containsKey(selectedProviderKey) == true;
+    final showReplacementKey = providerChanged && !hasRetainedCredential;
     return Column(
       key: const Key('ai-config-configured'),
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -498,7 +508,22 @@ class _ConfiguredFormState extends ConsumerState<_ConfiguredForm> {
           ),
         ),
         const SizedBox(height: AppSpacing.space8),
-        const _ProviderPicker(enabled: false),
+        const _ProviderPicker(),
+        if (showReplacementKey) ...[
+          const SizedBox(height: AppSpacing.space12),
+          TextField(
+            key: const Key('ai-config-replacement-api-key-field'),
+            controller: _replacementKeyController,
+            obscureText: true,
+            autocorrect: false,
+            enableSuggestions: false,
+            autofillHints: const <String>[],
+            decoration: InputDecoration(
+              labelText: l10nOf(context).aiConfigApiKeyLabel,
+              border: const OutlineInputBorder(),
+            ),
+          ),
+        ],
         const SizedBox(height: AppSpacing.space12),
         const _ModelPickers(),
         const SizedBox(height: AppSpacing.space8),
@@ -524,6 +549,9 @@ class _ConfiguredFormState extends ConsumerState<_ConfiguredForm> {
                       imageModelId: state.selectedImageModelId,
                       scriptPrompt: state.scriptPrompt,
                       schedulePrompt: state.schedulePrompt,
+                      replacementSecret: showReplacementKey
+                          ? _replacementKeyController.text
+                          : null,
                     );
                     // Explicitly consumed: Err renders the
                     // changed-elsewhere copy (controller state); Ok

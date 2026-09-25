@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
 
 //! AI infrastructure adapters.
 //!
@@ -53,7 +54,7 @@ pub use payload_storage::OpenDalAiPayloadStorage;
 pub use pdf::PdfTextExtractor;
 pub use pg_concurrency::{
     DEFAULT_PERMIT_LEASE, PermitReclaimer, PgAiConcurrencyLimiter, PgAiConcurrencyPermit,
-    permit_renewal_interval,
+    RECLAIM_ATTEMPTS, RECLAIM_LOCK_TIMEOUT, permit_renewal_interval, reclaim_retry_budget,
 };
 pub use preview_store::{
     AiDocumentSource, AiDocumentStore, AiPreviewStore, MemoryAiPreviewStore,

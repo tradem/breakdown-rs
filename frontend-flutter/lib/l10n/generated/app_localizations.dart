@@ -842,6 +842,12 @@ abstract class AppLocalizations {
   /// **'Dieser Anbieter ist gerade nicht verfügbar.'**
   String get aiConfigErrorProvider;
 
+  /// No description provided for @aiConfigErrorProviderMismatch.
+  ///
+  /// In de, this message translates to:
+  /// **'Der API-Schlüssel gehört nicht zu diesem Anbieter. Wähle den Anbieter, zu dem der gespeicherte Schlüssel gehört, oder sende einen neuen Schlüssel.'**
+  String get aiConfigErrorProviderMismatch;
+
   /// No description provided for @aiConfigErrorDisabled.
   ///
   /// In de, this message translates to:
