@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
 use async_trait::async_trait;
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::SETTINGS_NOT_FOUND;
@@ -40,28 +41,58 @@ impl SettingsRepository for SettingsRepositoryImpl {
             resource: "settings",
             id,
         })?;
-
-        let state: String = row
-            .try_get("binding_state")
-            .map_err(|err| DomainError::conflict(err.to_string()))?;
-        let binding_state = match state.as_str() {
-            "active" => CredentialBindingState::Active,
-            "revoked" => CredentialBindingState::Revoked,
-            other => {
-                return Err(DomainError::conflict(format!(
-                    "invalid binding state: {other}"
-                )));
-            }
-        };
-        Ok(SettingsView {
-            id: row.try_get("id").map_err(map_error)?,
-            provider: row.try_get("provider").map_err(map_error)?,
-            vault_key_id: row.try_get("vault_key_id").map_err(map_error)?,
-            vault_version: row.try_get::<i64, _>("vault_version").map_err(map_error)? as u64,
-            binding_state,
-            version: AggregateVersion(row.try_get::<i64, _>("version").map_err(map_error)? as u64),
-        })
+        map_settings_row(&row)
     }
+
+    /// Resolve the reference-only binding for an opaque `vault_key_id`
+    /// (issue #528). `Ok(None)` when the projection holds no such key — the
+    /// caller decides how an unknown key is surfaced; a miss is never an
+    /// error here (best-effort read-model lookup).
+    async fn find_by_vault_key(
+        &self,
+        vault_key_id: &str,
+    ) -> Result<Option<SettingsView>, DomainError> {
+        let row = sqlx::query(
+            r#"
+            SELECT id, provider, vault_key_id, vault_version, binding_state, version
+            FROM projection_settings
+            WHERE vault_key_id = $1
+            ORDER BY version DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(vault_key_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|err| DomainError::conflict(err.to_string()))?;
+        row.as_ref().map(map_settings_row).transpose()
+    }
+}
+
+/// Map one `projection_settings` row to its public view. Shared by the
+/// id and vault-key lookups so the row parsing (and its error text) stays
+/// in one place.
+fn map_settings_row(row: &sqlx::postgres::PgRow) -> Result<SettingsView, DomainError> {
+    let state: String = row
+        .try_get("binding_state")
+        .map_err(|err| DomainError::conflict(err.to_string()))?;
+    let binding_state = match state.as_str() {
+        "active" => CredentialBindingState::Active,
+        "revoked" => CredentialBindingState::Revoked,
+        other => {
+            return Err(DomainError::conflict(format!(
+                "invalid binding state: {other}"
+            )));
+        }
+    };
+    Ok(SettingsView {
+        id: row.try_get("id").map_err(map_error)?,
+        provider: row.try_get("provider").map_err(map_error)?,
+        vault_key_id: row.try_get("vault_key_id").map_err(map_error)?,
+        vault_version: row.try_get::<i64, _>("vault_version").map_err(map_error)? as u64,
+        binding_state,
+        version: AggregateVersion(row.try_get::<i64, _>("version").map_err(map_error)? as u64),
+    })
 }
 
 fn map_error(err: sqlx::Error) -> DomainError {

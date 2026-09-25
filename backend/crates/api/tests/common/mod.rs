@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: longcat-2.0-free (opencode)
@@ -68,7 +69,7 @@ use breakdown_core::settings::commands::{
 use breakdown_core::settings::ports::{
     CredentialVault, SecretValue, SettingsCommands, SettingsRepository,
 };
-use breakdown_core::settings::views::SettingsView;
+use breakdown_core::settings::views::{CredentialBindingState, SettingsView};
 use breakdown_core::shared::{
     AggregateVersion, BlockId, EpisodeId, PhotoId, PhotoVariant, SceneShootId, SeasonId, SeriesId,
     ShootingDayId,
@@ -1634,13 +1635,40 @@ impl SettingsCommands for FakeSettingsCommands {
 #[allow(dead_code)]
 pub struct FakeSettingsRepo {
     pub view: Arc<Mutex<Option<SettingsView>>>,
+    /// Credential references keyed by their opaque `vault_key_id` — backs the
+    /// API-edge provider-binding pre-check of issue #528. Unseeded keys read
+    /// as unknown, exactly like a real projection miss.
+    pub by_vault_key: Arc<Mutex<HashMap<String, SettingsView>>>,
 }
 
 impl Default for FakeSettingsRepo {
     fn default() -> Self {
         Self {
             view: Arc::new(Mutex::new(None)),
+            by_vault_key: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+}
+
+// Each test binary that includes this shared module compiles it separately, so
+// a helper only some binaries call (here: the AI-config provider-binding
+// pre-check) is dead code in the rest — same reason the struct above is
+// annotated.
+#[allow(dead_code)]
+impl FakeSettingsRepo {
+    /// Register an active credential reference for `vault_key_id`.
+    pub async fn bind_vault_key(&self, vault_key_id: &str, provider: &str) {
+        self.by_vault_key.lock().await.insert(
+            vault_key_id.to_owned(),
+            SettingsView {
+                id: Uuid::now_v7(),
+                provider: provider.to_owned(),
+                vault_key_id: vault_key_id.to_owned(),
+                vault_version: 1,
+                binding_state: CredentialBindingState::Active,
+                version: AggregateVersion::INITIAL,
+            },
+        );
     }
 }
 
@@ -1652,6 +1680,13 @@ impl SettingsRepository for FakeSettingsRepo {
             .await
             .clone()
             .ok_or_else(|| DomainError::not_found("settings"))
+    }
+
+    async fn find_by_vault_key(
+        &self,
+        vault_key_id: &str,
+    ) -> Result<Option<SettingsView>, DomainError> {
+        Ok(self.by_vault_key.lock().await.get(vault_key_id).cloned())
     }
 }
 

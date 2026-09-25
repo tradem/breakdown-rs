@@ -116,6 +116,11 @@ class FakeAiConfigRepository extends AiConfigRepository {
 
   String? lastSecret;
 
+  /// The provider passed to the most recent [submitCredential] call
+  /// (issue #528): the handoff must bind the key to the provider the user
+  /// actually selected, not to whichever provider the fake defaults to.
+  String? lastProvider;
+
   @override
   Future<Result<List<AiConfigView>>> listConfigs() async =>
       listResult ?? const Right(<AiConfigView>[]);
@@ -126,6 +131,7 @@ class FakeAiConfigRepository extends AiConfigRepository {
     required String secret,
   }) async {
     submitCalls++;
+    lastProvider = provider;
     lastSecret = secret;
     return submitResult ??
         Right(
@@ -795,6 +801,19 @@ void main() {
   testWidgets('provider replacement submits a new credential and retains it '
       'for later provider switches (issue #528)', (tester) async {
     await setupContainer(discoveryValue: Right([_config()]));
+    // A DISTINCT vault key for the replacement provider: the assertion can
+    // then fail if the implementation reused the original OpenAI key.
+    repo.settingsResult = Right(
+      SettingsView(
+        (b) => b
+          ..id = 'settings-1'
+          ..provider = 'neuralwatt'
+          ..vaultKeyId = 'vk-neuralwatt'
+          ..vaultVersion = 1
+          ..version = 1
+          ..bindingState = CredentialBindingState.active,
+      ),
+    );
     await pumpScreen(tester);
 
     await tester.tap(find.byKey(const Key('ai-provider-picker')));
@@ -813,9 +832,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repo.submitCalls, 1);
+    expect(repo.lastProvider, 'neuralwatt');
     expect(repo.lastSecret, 'new-provider-secret');
     expect(repo.lastUpdateRequest!.provider, LlmProvider.neuralwatt);
-    expect(repo.lastUpdateRequest!.vaultKeyId, 'vk-1');
+    expect(repo.lastUpdateRequest!.vaultKeyId, 'vk-neuralwatt');
     expect(
       secureStorage.store[AiImportHandoffStore.key],
       contains('neuralwatt'),

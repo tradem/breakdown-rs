@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
@@ -233,4 +234,21 @@ pub trait SettingsCommands: Send + Sync {
 #[async_trait]
 pub trait SettingsRepository: Send + Sync {
     async fn find_by_id(&self, id: Uuid) -> Result<SettingsView, DomainError>;
+
+    /// Resolve the credential reference behind an opaque `vault_key_id`.
+    ///
+    /// Backs the API-edge provider-binding pre-check of an AI-config
+    /// provider replacement (issue #528): a PATCH that introduces a NEW
+    /// vault key may only reference a binding the settings projection
+    /// records as active for the requested provider. The aggregate cannot
+    /// enforce this — it stores the opaque key without knowing which
+    /// provider the key was vaulted for — and the read-model lookup stays
+    /// at the API edge (the only legitimate consumer, CQRS boundary).
+    ///
+    /// `Ok(None)` means the key is unknown to the reference projection
+    /// (never created, already purged, or the projector has not caught up).
+    async fn find_by_vault_key(
+        &self,
+        vault_key_id: &str,
+    ) -> Result<Option<SettingsView>, DomainError>;
 }

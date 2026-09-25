@@ -124,6 +124,7 @@
   "aiConfigErrorChanged": "Woanders geändert – aktualisiere und wende deine Änderung erneut an.",
   "aiConfigErrorOrphaned": "Der API-Schlüssel konnte nach dem fehlgeschlagenen Setup nicht aus dem Server-Vault entfernt werden. Wiederhole die Bereinigung im Konfigurationsbildschirm.",
   "aiConfigErrorProvider": "Dieser Anbieter ist gerade nicht verfügbar.",
+  "aiConfigErrorProviderMismatch": "Der API-Schlüssel gehört nicht zu diesem Anbieter. Wähle den Anbieter, zu dem der gespeicherte Schlüssel gehört, oder sende einen neuen Schlüssel.",
   "aiConfigErrorDisabled": "KI-Import ist auf dieser Instanz nicht aktiviert. Das ist eine Server-Konfiguration – hier gibt es nichts zu wiederholen.",
   "aiConfigErrorNetwork": "Netzwerkproblem – die Änderung wurde nicht angewendet. Versuch es erneut.",
   "aiConfigErrorGeneric": "Die Konfigurationsänderung ist fehlgeschlagen ({code}).",

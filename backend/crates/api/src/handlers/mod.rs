@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
@@ -105,7 +106,7 @@ use breakdown_core::settings::commands::{
 use breakdown_core::settings::ports::{
     CredentialVault, GDriveCredentialBundle, SecretValue, SettingsCommands, SettingsRepository,
 };
-use breakdown_core::settings::views::SettingsView;
+use breakdown_core::settings::views::{CredentialBindingState, SettingsView};
 use breakdown_core::shared::{
     AggregateVersion, BlockId, EpisodeId, LexicalSortKey, PhotoId, PhotoVariant, SceneShootId,
     SeasonId, SeriesId, ShootingDayId, UserId, VariantStatus,
@@ -4985,6 +4986,38 @@ fn forbidden_ai_config() -> ApiError {
     ApiError::AiConfigForbidden("not authorized to manage AI configuration")
 }
 
+/// Resolve an opaque `vault_key_id` to its credential reference and require
+/// that it is an ACTIVE binding of [provider] (issue #528).
+///
+/// An unknown key, a revoked binding, and a key bound to another provider all
+/// surface as the same scoped `ai-config.provider-mismatch` 409 the aggregate
+/// emits for the mirrored case (new provider + current key), so the client
+/// branches on one stable code and never learns whether a foreign key exists.
+async fn validate_replacement_vault_key<P: Ports>(
+    state: &AppState<P>,
+    vault_key_id: &str,
+    provider: LlmProvider,
+) -> Result<(), ApiError> {
+    let binding = state
+        .ports
+        .settings_repo()
+        .find_by_vault_key(vault_key_id)
+        .await?;
+    let matches = match binding {
+        Some(view) => {
+            view.provider == provider.as_str()
+                && view.binding_state == CredentialBindingState::Active
+        }
+        None => false,
+    };
+    if matches {
+        return Ok(());
+    }
+    Err(ApiError::AiConfigProviderMismatch(
+        "the submitted vault key is not an active credential of the requested provider",
+    ))
+}
+
 /// Season-role/ownership denial on an AI import job (upload block-scope,
 /// status/preview/apply) → 403 `ai-import.forbidden` (issue #470). Distinct
 /// from `forbidden_ai_config()` so the job/apply screens can render their
@@ -5096,8 +5129,10 @@ pub async fn list_ai_configs<P: Ports>(
     params(("id" = Uuid, Path)),
     request_body = UpdateAiConfigRequest,
     // 409 `ai-config.version-mismatch`: a stale optimistic-lock `version` on
-    // edit surfaces the scoped version-conflict code (issue #481) — declared
-    // here so the wire contract models the reachable conflict response.
+    // edit surfaces the scoped version-conflict code (issue #481), and a
+    // replacement key that is not an active credential of the requested
+    // provider surfaces `ai-config.provider-mismatch` (issue #528) — both
+    // declared here as the reachable 409 of the same route.
     responses(
         (status = 200, body = AggregateVersion),
         (status = 403, body = ProblemDetails),
@@ -5117,6 +5152,20 @@ pub async fn update_ai_config<P: Ports>(
     let view = state.ports.ai_config_repo().find_by_id(id).await?;
     if view.user_id != current_user.sub {
         return Err(forbidden_ai_config());
+    }
+    // Provider-binding pre-check for an INTRODUCED credential (issue #528).
+    // The aggregate rejects a provider change that reuses the CURRENT vault
+    // key; this edge check closes the other half — a NEW key must actually be
+    // an active credential of the requested provider, otherwise the worker
+    // would later pick the client from `provider` and authenticate with a
+    // foreign key. The read-model lookup lives here because the handler is
+    // the only legitimate projection consumer (CQRS boundary); the aggregate
+    // only ever sees the opaque key and cannot resolve its provider. Skipped
+    // for an unchanged key: the stored binding was validated when it was
+    // introduced, and a spurious rejection on projector lag must not block a
+    // prompt/model-only edit.
+    if request.vault_key_id != view.vault_key_id {
+        validate_replacement_vault_key(&state, &request.vault_key_id, request.provider).await?;
     }
     // Optimistic lock: the request echoes the fetched config's `version`; a
     // stale version surfaces as the scoped `ai-config.version-mismatch` (409,

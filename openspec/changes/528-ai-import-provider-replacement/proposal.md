@@ -35,13 +35,25 @@ its existing per-user secure hand-off document.
 - The configured form enables the provider picker, shows a masked credential
   field only when no remembered credential exists for the selected provider, and
   keeps the existing model/prompt editing and optimistic version behavior.
+- The PATCH handler pre-checks an INTRODUCED vault key against the
+  reference-only settings projection: the key must be an active credential of
+  the requested provider. The aggregate only ever sees the opaque key and
+  cannot resolve its provider, and the read-model lookup stays at the API edge
+  (the only legitimate projection consumer). Unknown, revoked, and
+  foreign-provider keys all surface the existing scoped
+  `ai-config.provider-mismatch` 409 — the same code the aggregate emits for the
+  mirrored case (new provider + current key) — so the client branches on one
+  stable code. An unchanged key is not re-validated, so a prompt/model-only
+  edit cannot be blocked by a projection miss.
 
 ## Validation
 
 - Core aggregate tests cover rejection of provider replacement with the old
   vault key and acceptance with a new key.
 - API port tests cover a provider replacement request reaching the command port
-  with the new provider and vault key.
+  with the new provider and vault key, plus the provider-binding pre-check: a
+  foreign-provider key, an unknown key, and an unchanged key (no re-validation)
+  each prove the command is dispatched only for a valid provider/key pair.
 - Flutter repository/unit tests cover per-provider hand-off persistence and
   reuse, including missing/empty secret paths.
 - Flutter widget/wire tests cover provider selection, retained credentials

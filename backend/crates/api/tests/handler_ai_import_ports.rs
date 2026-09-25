@@ -697,6 +697,12 @@ async fn ai_config_lifecycle_runs_through_the_config_ports() {
         .await;
     let commands = ports.ai_config_commands.clone();
     let repo = ports.ai_config_repo.clone();
+    // The replacement key is an active Ollama credential (issue #528) — the
+    // API-edge pre-check resolves it before dispatching the update.
+    ports
+        .settings_repo
+        .bind_vault_key("replacement-vault-key", LlmProvider::Ollama.as_str())
+        .await;
     let state = state(ports);
 
     let (status, Json(created)) = create_ai_config::<FakePorts>(
@@ -791,6 +797,161 @@ async fn ai_config_lifecycle_runs_through_the_config_ports() {
     .expect("owner may revoke their config");
     assert_eq!(status, StatusCode::OK);
     assert_eq!(commands.revoked.lock().await.len(), 1);
+}
+
+#[tokio::test]
+async fn ai_config_update_rejects_vault_key_from_another_provider() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    let commands = ports.ai_config_commands.clone();
+    // The key IS a real credential — it just belongs to OpenAI, not to the
+    // Ollama provider the request pairs it with.
+    ports
+        .settings_repo
+        .bind_vault_key("openai-vault-key", LlmProvider::OpenAI.as_str())
+        .await;
+    let id = Uuid::now_v7();
+    ports.ai_config_repo.views.lock().await.insert(
+        id,
+        AiConfigView {
+            id,
+            user_id: UserId::from_sub(TEST_SUB),
+            provider: LlmProvider::Neuralwatt,
+            assistant_model: "assistant".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            prompt_kinds: vec![],
+            vault_key_id: "vault-key".to_owned(),
+            version: AggregateVersion(2),
+            revoked: false,
+        },
+    );
+    let state = state(ports);
+
+    let problem = update_ai_config::<FakePorts>(
+        State(state.clone()),
+        user(),
+        Path(id),
+        Json(UpdateAiConfigRequest {
+            provider: LlmProvider::Ollama,
+            assistant_model: "assistant-v2".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            vault_key_id: "openai-vault-key".to_owned(),
+            version: AggregateVersion(2),
+        }),
+    )
+    .await
+    .expect_err("a key bound to another provider must not be paired with it")
+    .into_problem();
+
+    assert_eq!(problem.status, StatusCode::CONFLICT.as_u16());
+    assert_eq!(problem.code, "ai-config.provider-mismatch");
+    // The command was never dispatched — no write-side event.
+    assert!(commands.updated.lock().await.is_empty());
+}
+
+#[tokio::test]
+async fn ai_config_update_rejects_unknown_vault_key() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    let commands = ports.ai_config_commands.clone();
+    // No credential is registered for this key (never created, purged, or a
+    // projection miss) — same stable code as a foreign provider.
+    let id = Uuid::now_v7();
+    ports.ai_config_repo.views.lock().await.insert(
+        id,
+        AiConfigView {
+            id,
+            user_id: UserId::from_sub(TEST_SUB),
+            provider: LlmProvider::Neuralwatt,
+            assistant_model: "assistant".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            prompt_kinds: vec![],
+            vault_key_id: "vault-key".to_owned(),
+            version: AggregateVersion(2),
+            revoked: false,
+        },
+    );
+    let state = state(ports);
+
+    let problem = update_ai_config::<FakePorts>(
+        State(state.clone()),
+        user(),
+        Path(id),
+        Json(UpdateAiConfigRequest {
+            provider: LlmProvider::Ollama,
+            assistant_model: "assistant-v2".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            vault_key_id: "never-vaulted-key".to_owned(),
+            version: AggregateVersion(2),
+        }),
+    )
+    .await
+    .expect_err("an unknown vault key must not be persisted")
+    .into_problem();
+
+    assert_eq!(problem.status, StatusCode::CONFLICT.as_u16());
+    assert_eq!(problem.code, "ai-config.provider-mismatch");
+    assert!(commands.updated.lock().await.is_empty());
+}
+
+#[tokio::test]
+async fn ai_config_update_keeps_unchanged_vault_key_without_binding_lookup() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    let commands = ports.ai_config_commands.clone();
+    // NO credential is registered for the currently bound key: an unchanged
+    // key must not be re-validated, so a prompt/model-only edit cannot be
+    // blocked by a projection miss (the aggregate remains the authority for
+    // the provider/key pairing).
+    let id = Uuid::now_v7();
+    ports.ai_config_repo.views.lock().await.insert(
+        id,
+        AiConfigView {
+            id,
+            user_id: UserId::from_sub(TEST_SUB),
+            provider: LlmProvider::Neuralwatt,
+            assistant_model: "assistant".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            prompt_kinds: vec![],
+            vault_key_id: "vault-key".to_owned(),
+            version: AggregateVersion(2),
+            revoked: false,
+        },
+    );
+    let state = state(ports);
+
+    let (status, Json(_)) = update_ai_config::<FakePorts>(
+        State(state.clone()),
+        user(),
+        Path(id),
+        Json(UpdateAiConfigRequest {
+            provider: LlmProvider::Neuralwatt,
+            assistant_model: "assistant-v2".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            vault_key_id: "vault-key".to_owned(),
+            version: AggregateVersion(2),
+        }),
+    )
+    .await
+    .expect("an unchanged key keeps the prompt/model edit working");
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(commands.updated.lock().await.len(), 1);
 }
 
 #[tokio::test]

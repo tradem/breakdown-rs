@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
@@ -172,6 +173,13 @@ String aiConfigErrorCopy(AppLocalizations l10n, ProblemError error) =>
       // preserving the typed expected/current extensions. Same narrative as
       // the client-wide version-conflict copy.
       'ai-config.version-mismatch' => l10n.aiConfigErrorChanged,
+      // 409 `ai-config.provider-mismatch` — the API edge refuses to persist a
+      // vault key that is not an active credential of the requested provider
+      // (issue #528). Distinct from `provider.unavailable` (the model catalog
+      // of a provider could not be read): here the STORED key belongs to a
+      // different provider, so the copy asks for the matching provider or a
+      // new key instead of pretending the provider is down.
+      'ai-config.provider-mismatch' => l10n.aiConfigErrorProviderMismatch,
       'ai_config.orphaned_credential' => l10n.aiConfigErrorOrphaned,
       'provider.unavailable' => l10n.aiConfigErrorProvider,
       // Wire code of the backend's `ai-import.disabled` problem (issue

@@ -450,6 +450,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get aiConfigErrorProvider => 'This provider is unavailable right now.';
 
   @override
+  String get aiConfigErrorProviderMismatch =>
+      'This API key does not belong to that provider. Pick the provider the stored key belongs to, or submit a new key.';
+
+  @override
   String get aiConfigErrorDisabled =>
       'AI import is not enabled on this instance. This is a server configuration — nothing to retry here.';
 
