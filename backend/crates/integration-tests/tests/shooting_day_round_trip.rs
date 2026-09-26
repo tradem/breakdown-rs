@@ -38,7 +38,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow, bail};
 use breakdown_core::error::DomainError;
-use breakdown_core::scene::events::{SceneDetails, SceneEvent};
+use breakdown_core::scene::events::{SceneDetails, SceneEvent, SceneSource};
 use breakdown_core::scene::ports::SceneRepository as _;
 use breakdown_core::scene::views::SceneView;
 use breakdown_core::shared::{AggregateVersion, EpisodeId, LexicalSortKey, ShootingDayId};
@@ -335,6 +335,7 @@ async fn eappend_schedule_scene_links_join_and_reverse_query() -> Result<()> {
         },
         assigned_characters: vec![],
         version: AggregateVersion::INITIAL,
+        source: SceneSource::Manual,
     };
     let payload = encode_event(&scene_created)?;
     eappend(
@@ -446,6 +447,7 @@ async fn eappend_archive_while_referenced_hides_from_picker_keeps_link() -> Resu
         },
         assigned_characters: vec![],
         version: AggregateVersion::INITIAL,
+        source: SceneSource::Manual,
     };
     let payload = encode_event(&scene_created)?;
     eappend(

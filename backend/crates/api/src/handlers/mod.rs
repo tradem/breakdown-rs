@@ -85,7 +85,7 @@ use breakdown_core::scene::commands::{
     AssignCharacter, CreateScene, RemoveCharacter, ScheduleSceneOnShootingDay,
     UnscheduleSceneFromShootingDay, UpdateSceneDetails,
 };
-use breakdown_core::scene::events::SceneDetails;
+use breakdown_core::scene::events::{SceneDetails, SceneSource};
 use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
 use breakdown_core::scene::views::SceneView;
 use breakdown_core::scene_shoot::commands::{
@@ -1347,6 +1347,9 @@ pub async fn create_scene<P: Ports>(
         episode_id: req.episode_id,
         series_id,
         details: req.details,
+        // REST-created scenes are user-created; AI provenance is set
+        // server-side only by the AI import worker (issue #517).
+        source: SceneSource::Manual,
     };
     let (id, version) = state
         .ports

@@ -13,7 +13,7 @@
 use api::problems::Json; // test-only alias for the wrapper extractor (ADR-031)
 use axum::extract::State;
 use axum::http::StatusCode;
-use breakdown_core::scene::events::SceneDetails;
+use breakdown_core::scene::events::{SceneDetails, SceneSource};
 use breakdown_core::scene::views::SceneView;
 use breakdown_core::shared::{AggregateVersion, EpisodeId};
 use chrono::Utc;
@@ -59,6 +59,7 @@ async fn get_scene_returns_view_from_repo() {
         assigned_characters: Vec::new(),
         version: AggregateVersion::INITIAL,
         updated_at: Utc::now(),
+        source: Some(SceneSource::Manual),
     };
     ports
         .scene_repo

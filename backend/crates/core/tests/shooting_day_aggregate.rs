@@ -263,7 +263,7 @@ fn test_view_shape_round_trips_source() {
         source: ShootingDaySource::AiExtracted {
             document_id: uuid::Uuid::now_v7(),
             external_ref: Some("call-sheet-1".into()),
-            confidence: 0.92,
+            confidence: Some(0.92),
         },
         ..manual
     };

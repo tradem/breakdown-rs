@@ -34,7 +34,7 @@ use breakdown_core::costume::ports::{CostumeCommands, CostumeRepository};
 use breakdown_core::episode::commands::CreateEpisode;
 use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::scene::commands::CreateScene;
-use breakdown_core::scene::events::SceneDetails;
+use breakdown_core::scene::events::{SceneDetails, SceneSource};
 use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
 use breakdown_core::season::commands::CreateSeason;
 use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
@@ -225,6 +225,7 @@ async fn scenes_by_episode_returns_data() -> Result<()> {
             summary: None,
             script_day: None,
         },
+        source: SceneSource::Manual,
     };
     scene_cmd.create(test_user(), cmd).await?;
 

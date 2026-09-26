@@ -12,6 +12,7 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
+use breakdown_core::scene::events::SceneSource;
 use breakdown_core::scene::*;
 use breakdown_core::shared::{AggregateVersion, EpisodeId, SeriesId, ShootingDayId};
 use kameo_es::Command;
@@ -38,6 +39,7 @@ fn create_scene() -> SceneAggregate {
             episode_id,
             series_id: Some(series_id()),
             details: details.clone(),
+            source: SceneSource::Manual,
         },
         make_ctx(),
     );
@@ -50,6 +52,7 @@ fn create_scene() -> SceneAggregate {
                 episode_id,
                 series_id: Some(series_id()),
                 details,
+                source: SceneSource::Manual,
             },
             make_ctx(),
         )
@@ -75,6 +78,7 @@ fn test_create_scene_success() {
             episode_id,
             series_id: Some(series_id()),
             details,
+            source: SceneSource::Manual,
         },
         make_ctx(),
     );

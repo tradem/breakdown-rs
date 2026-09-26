@@ -12,9 +12,14 @@ use crate::shared::{AggregateVersion, EpisodeId, LexicalSortKey, ShootingDayId};
 
 /// Provenance discriminator for how a `ShootingDay` came into existence.
 ///
-/// `Manual` is the user-created path. `AiExtracted` reserves the shape for the
-/// future AI call-sheet extraction increment; retrofitting this onto already
-/// persisted events would be impossible, so the field exists from day one.
+/// `Manual` is the user-created path. `AiExtracted` marks a day created by the
+/// AI schedule import, carrying the import `document_id` (the AI job id), an
+/// optional `external_ref` and the extraction `confidence`.
+///
+/// `confidence` is `Option<f32>` (issue #517): the import has no per-model or
+/// per-row confidence value, so the apply records `None` — the former
+/// hard-coded `1.0` was a misleading constant. Persisted events with a plain
+/// numeric value (pre-change apply) deserialize losslessly as `Some(...)`.
 ///
 /// Serialized as an externally-tagged enum, e.g. `{"Manual":null}` or
 /// `{"AiExtracted":{"document_id":...,"external_ref":...,"confidence":...}}`,
@@ -25,7 +30,7 @@ pub enum ShootingDaySource {
     AiExtracted {
         document_id: Uuid,
         external_ref: Option<String>,
-        confidence: f32,
+        confidence: Option<f32>,
     },
 }
 

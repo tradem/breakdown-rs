@@ -24,6 +24,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow, bail};
 use breakdown_core::error::DomainError;
+use breakdown_core::scene::events::SceneSource;
 use breakdown_core::scene_shoot::events::SceneShootEvent;
 use breakdown_core::scene_shoot::ports::{SceneShootReportRepository, SceneShootRepository as _};
 use breakdown_core::scene_shoot::views::SceneShootView;
@@ -397,6 +398,7 @@ async fn wrapped_shooting_day_flips_report_final() -> Result<()> {
         },
         assigned_characters: vec![],
         version: AggregateVersion::INITIAL,
+        source: SceneSource::Manual,
     };
     eappend(
         &client,

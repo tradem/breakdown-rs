@@ -13,7 +13,7 @@ mod fixtures;
 
 use anyhow::Result;
 use breakdown_core::scene::aggregate::SceneAggregate;
-use breakdown_core::scene::events::{SceneDetails, SceneEvent};
+use breakdown_core::scene::events::{SceneDetails, SceneEvent, SceneSource};
 use breakdown_core::shared::{AggregateVersion, EpisodeId};
 use chrono::Utc;
 use infra::projectors::SceneProjector;
@@ -43,6 +43,7 @@ async fn scene_created_event_projects_to_projection_scene() -> Result<()> {
         details: details.clone(),
         assigned_characters: vec![Uuid::now_v7()],
         version: AggregateVersion::INITIAL,
+        source: SceneSource::Manual,
     };
 
     let mut tx = pool.begin().await?;

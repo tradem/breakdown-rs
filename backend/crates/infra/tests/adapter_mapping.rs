@@ -12,7 +12,7 @@
 )]
 use breakdown_core::scene::aggregate::SceneAggregate;
 use breakdown_core::scene::error::SceneError;
-use breakdown_core::scene::events::{SceneDetails, SceneEvent};
+use breakdown_core::scene::events::{SceneDetails, SceneEvent, SceneSource};
 use breakdown_core::shared::{AggregateVersion, EpisodeId};
 use chrono::Utc;
 use infra::event_store::{
@@ -31,6 +31,7 @@ fn appended_event(stream_version: u64) -> AppendedEvent<SceneEvent> {
             details: SceneDetails::default(),
             assigned_characters: Vec::new(),
             version: AggregateVersion(1),
+            source: SceneSource::Manual,
         },
         event_id: Uuid::nil(),
         partition_id: 0,

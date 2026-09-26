@@ -1733,6 +1733,47 @@ components:
       - version
       - updated_at
       type: object
+    SceneSource:
+      description: |-
+        Provenance discriminator for how a `Scene` came into existence.
+
+        `Manual` is the user-created path (REST handler). `AiExtracted` marks a
+        scene created by the AI script import, carrying the import `document_id`
+        (the AI job id) and the `draft_ref` as `external_ref` — the data the EU AI
+        Act transparency provenance needs (issue #517).
+
+        `confidence` is `Option<f32>` from day one: the preview pipeline carries no
+        model confidence value, so the AI apply records `None` instead of inventing
+        one (in contrast to the legacy hard-coded `1.0` on `ShootingDaySource`).
+
+        Serialized as an externally-tagged enum, e.g. `{"Manual":null}` or
+        `{"AiExtracted":{"document_id":...,"external_ref":...,"confidence":null}}`,
+        which maps directly onto the `source JSONB` projection column.
+      oneOf:
+      - enum:
+        - Manual
+        type: string
+      - properties:
+          AiExtracted:
+            properties:
+              confidence:
+                format: float
+                type:
+                - number
+                - 'null'
+              document_id:
+                format: uuid
+                type: string
+              external_ref:
+                type:
+                - string
+                - 'null'
+            required:
+            - document_id
+            type: object
+        required:
+        - AiExtracted
+        type: object
     SceneView:
       description: |-
         Complete scene read model.
@@ -1778,6 +1819,16 @@ components:
           items:
             $ref: '#/components/schemas/ShootingDayId'
           type: array
+        source:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SceneSource'
+            description: |-
+              Provenance discriminator (EU AI Act transparency, issue #517).
+              `Some(AiExtracted)` marks AI-imported scenes; `Some(Manual)` is the
+              user-created path; `None` is only produced by clients that do not know
+              the field (legacy caches). Serde-`default`-backed and additive on the
+              wire (ADR-021 D3/MINOR).
         summary:
           type:
           - string
@@ -2008,9 +2059,14 @@ components:
       description: |-
         Provenance discriminator for how a `ShootingDay` came into existence.
 
-        `Manual` is the user-created path. `AiExtracted` reserves the shape for the
-        future AI call-sheet extraction increment; retrofitting this onto already
-        persisted events would be impossible, so the field exists from day one.
+        `Manual` is the user-created path. `AiExtracted` marks a day created by the
+        AI schedule import, carrying the import `document_id` (the AI job id), an
+        optional `external_ref` and the extraction `confidence`.
+
+        `confidence` is `Option<f32>` (issue #517): the import has no per-model or
+        per-row confidence value, so the apply records `None` — the former
+        hard-coded `1.0` was a misleading constant. Persisted events with a plain
+        numeric value (pre-change apply) deserialize losslessly as `Some(...)`.
 
         Serialized as an externally-tagged enum, e.g. `{"Manual":null}` or
         `{"AiExtracted":{"document_id":...,"external_ref":...,"confidence":...}}`,
@@ -2024,7 +2080,9 @@ components:
             properties:
               confidence:
                 format: float
-                type: number
+                type:
+                - number
+                - 'null'
               document_id:
                 format: uuid
                 type: string
@@ -2034,7 +2092,6 @@ components:
                 - 'null'
             required:
             - document_id
-            - confidence
             type: object
         required:
         - AiExtracted

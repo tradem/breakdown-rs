@@ -35,7 +35,7 @@ use breakdown_core::episode::commands::CreateEpisode;
 use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::error::DomainError;
 use breakdown_core::scene::commands::{AssignCharacter, CreateScene};
-use breakdown_core::scene::events::SceneDetails;
+use breakdown_core::scene::events::{SceneDetails, SceneSource};
 use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
 use breakdown_core::scene_shoot::commands::{PlanSceneShoot, StartSceneShoot};
 use breakdown_core::scene_shoot::ports::SceneShootCommands;
@@ -275,6 +275,7 @@ async fn scene_create() -> Result<()> {
             summary: None,
             script_day: None,
         },
+        source: SceneSource::Manual,
     };
 
     let (rid, rv) = scene_cmd.create(test_user(), cmd).await?;
@@ -311,6 +312,7 @@ async fn scene_update_details() -> Result<()> {
             summary: None,
             script_day: None,
         },
+        source: SceneSource::Manual,
     };
     let (_id, ver) = scene_cmd.create(test_user(), cmd).await?;
     await_proj(&pool, "projection_scene", scene_id).await;
@@ -368,6 +370,7 @@ async fn scene_assign_remove_character() -> Result<()> {
             summary: None,
             script_day: None,
         },
+        source: SceneSource::Manual,
     };
     let (_id, ver) = scene_cmd.create(test_user(), cmd).await?;
     await_proj(&pool, "projection_scene", scene_id).await;
@@ -906,6 +909,7 @@ async fn scene_shoot_start_rejected_on_wrapped_day_write_side() -> Result<()> {
                     summary: None,
                     script_day: None,
                 },
+                source: SceneSource::Manual,
             },
         )
         .await?;

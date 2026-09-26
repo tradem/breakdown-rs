@@ -57,7 +57,7 @@ use breakdown_core::character::events::{CharacterEvent, CharacterMeasurements, C
 use breakdown_core::costume::events::CostumeEvent;
 use breakdown_core::costume_category::events::CostumeCategoryEvent;
 use breakdown_core::episode::events::EpisodeEvent;
-use breakdown_core::scene::events::{SceneDetails, SceneEvent};
+use breakdown_core::scene::events::{SceneDetails, SceneEvent, SceneSource};
 use breakdown_core::scene_shoot::events::SceneShootEvent;
 use breakdown_core::season::events::SeasonEvent;
 use breakdown_core::shared::{
@@ -233,6 +233,7 @@ fn sample_chain() -> SampleChain {
             },
             assigned_characters: vec![],
             version: AggregateVersion(1),
+            source: SceneSource::Manual,
         },
         character: CharacterEvent::CharacterCreated {
             id: character_id,
@@ -685,6 +686,9 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
             "is_schedule_set": false,
             "summary": "Eröffnungsszene",
             "script_day": "1. Spieltag",
+            // #517: legacy SceneCreated fixtures carry no `source`; serde
+            // replay defaults it to `Manual` — the projection mirrors that.
+            "source": "Manual",
             "version": 1,
             "projector_version": PROJECTOR_VERSION,
         }),

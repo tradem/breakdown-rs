@@ -18,6 +18,7 @@ use breakdown_core::ai::{
     ShootingScheduleRow, SourceFormat, Telemetry, TelemetryApplyState, merge_schedule_to_scenes,
 };
 use breakdown_core::error::DomainError;
+use breakdown_core::scene::events::SceneSource;
 use breakdown_core::shared::UserId;
 use chrono::Utc;
 use reqwest::StatusCode;
@@ -228,6 +229,7 @@ async fn merge_worker_empty_input_is_non_retryable() {
 async fn merge_worker_success_records_telemetry() {
     use super::QueueMergeWorker;
     use breakdown_core::ai::MergeInput;
+    use breakdown_core::scene::events::SceneSource;
     use breakdown_core::scene::views::SceneView;
     use breakdown_core::shared::{AggregateVersion, EpisodeId};
     use chrono::TimeZone;
@@ -346,6 +348,7 @@ async fn merge_worker_success_records_telemetry() {
             assigned_characters: Vec::new(),
             version: AggregateVersion::INITIAL,
             updated_at: Utc.timestamp_opt(0, 0).single().unwrap(),
+            source: Some(SceneSource::Manual),
         }
     }
 
@@ -1269,6 +1272,7 @@ impl ScheduleApplyFixture {
             assigned_characters: Vec::new(),
             version: breakdown_core::shared::AggregateVersion::INITIAL,
             updated_at: Utc::now(),
+            source: Some(SceneSource::Manual),
         };
         let schedule = breakdown_core::ai::ShootingSchedule {
             block_id: None,

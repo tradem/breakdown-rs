@@ -14,6 +14,23 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.13.0] - Unreleased
+
+### Added — `SceneSource` provenance discriminator (issue #517, EU AI Act Art. 50)
+
+- New `SceneSource` enum (`Manual` | `AiExtracted { document_id, external_ref, confidence }`)
+  records how a scene came into existence. `SceneCreated` gains an additive
+  `source` field (serde default `Manual`, so historic events replay unchanged),
+  `CreateScene` carries it and `SceneAggregate` keeps it; `SceneView` exposes
+  it as an optional additive field (`Option<SceneSource>`, ADR-021 D3/MINOR).
+- `ShootingDaySource::AiExtracted.confidence` is now `Option<f32>`: the apply
+  records `None` (the preview carries no model confidence) instead of the
+  misleading hard-coded `1.0`. Persisted events with a plain numeric value
+  deserialize losslessly as `Some(...)`.
+- **MINOR bump (ADR-020 D2):** new public enum + new public command field;
+  `confidence` type change is serde-compatible but is part of the public type:
+  **0.12.0 → 0.13.0**.
+
 ## [0.12.0] - Unreleased
 
 ### Fixed — photo thumbnail saga version-conflict crash-loop (issue #515)

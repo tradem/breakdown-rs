@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+use crate::scene::events::SceneSource;
 use crate::shared::{AggregateVersion, EpisodeId, ShootingDayId};
 
 /// Complete scene read model.
@@ -36,6 +37,12 @@ pub struct SceneView {
     /// Shooting days this scene is scheduled on.
     pub shooting_day_ids: Vec<ShootingDayId>,
     pub assigned_characters: Vec<Uuid>,
+    /// Provenance discriminator (EU AI Act transparency, issue #517).
+    /// `Some(AiExtracted)` marks AI-imported scenes; `Some(Manual)` is the
+    /// user-created path; `None` is only produced by clients that do not know
+    /// the field (legacy caches). Serde-`default`-backed and additive on the
+    /// wire (ADR-021 D3/MINOR).
+    pub source: Option<SceneSource>,
     /// Aggregate version of the last applied event; echo back in optimistic-locking commands.
     pub version: AggregateVersion,
     pub updated_at: DateTime<Utc>,

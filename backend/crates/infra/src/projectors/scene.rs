@@ -37,14 +37,22 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                 episode_id,
                 details,
                 assigned_characters,
+                source,
                 version,
             } => {
                 let version = version.0 as i64;
+                let source_json =
+                    serde_json::to_value(&source).map_err(|_e| sqlx::Error::ColumnDecode {
+                        index: "source".to_owned(),
+                        source: Box::new(std::io::Error::other(
+                            "SceneSource failed to serialize to projection JSON",
+                        )),
+                    })?;
                 sqlx::query(
                     r#"
                     INSERT INTO projection_scene
-                        (id, episode_id, scene_number, location, mood, is_schedule_set, summary, script_day, version, projector_version, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                        (id, episode_id, scene_number, location, mood, is_schedule_set, summary, script_day, source, version, projector_version, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                     ON CONFLICT (id) DO UPDATE SET
                         episode_id = EXCLUDED.episode_id,
                         scene_number = EXCLUDED.scene_number,
@@ -53,6 +61,7 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                         is_schedule_set = EXCLUDED.is_schedule_set,
                         summary = EXCLUDED.summary,
                         script_day = EXCLUDED.script_day,
+                        source = EXCLUDED.source,
                         version = EXCLUDED.version,
                         projector_version = EXCLUDED.projector_version,
                         updated_at = EXCLUDED.updated_at
@@ -66,6 +75,7 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                 .bind(details.is_schedule_set)
                 .bind(details.summary)
                 .bind(details.script_day)
+                .bind(source_json)
                 .bind(version)
                 .bind(PROJECTOR_VERSION)
                 .bind(updated_at)

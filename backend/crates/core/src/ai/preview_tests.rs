@@ -24,6 +24,7 @@ fn scene(number: u32) -> SceneView {
         assigned_characters: Vec::new(),
         version: AggregateVersion::INITIAL,
         updated_at: Utc.timestamp_opt(0, 0).single().unwrap(),
+        source: Some(SceneSource::Manual),
     }
 }
 
@@ -87,6 +88,7 @@ fn planner_uses_update_for_a_previously_mapped_row() {
         }],
         EpisodeId::new(),
         None,
+        AiImportJobId(Uuid::now_v7()),
     )
     .unwrap();
     assert!(
@@ -135,7 +137,13 @@ fn open_uncertainties_and_unmatched_rows_block_apply() {
         ..Default::default()
     };
     assert!(matches!(
-        plan_scene_apply(&unmapped, &[], EpisodeId::new(), None),
+        plan_scene_apply(
+            &unmapped,
+            &[],
+            EpisodeId::new(),
+            None,
+            AiImportJobId(Uuid::now_v7())
+        ),
         Err(ApplyGateError::MissingMapping(_))
     ));
 }

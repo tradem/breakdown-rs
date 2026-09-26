@@ -14,6 +14,24 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.18.0] - Unreleased
+
+### Added — Scene AI provenance projection + honest day confidence (issue #517, EU AI Act Art. 50)
+
+- Migration `20260926000001_projection_scene_source`: `projection_scene` gains
+  `source JSONB NOT NULL DEFAULT '{"Manual":null}'` (down drops it). The scene
+  projector writes the event's `SceneSource` on `SceneCreated` (insert +
+  redelivery update), the scene/shooting-day query mappers deserialize it into
+  `SceneView.source`.
+- AI script apply (`ApplyWorker::create_scene_reserved`) now dispatches
+  `CreateScene` with `SceneSource::AiExtracted { document_id: job_id,
+  external_ref: draft_ref, confidence: None }` — AI-imported scenes are
+  distinguishable from manual ones and the recorded confidence is honest
+  (no invented value), same for the schedule apply's `ShootingDaySource`.
+- **MINOR bump (ADR-020 D2):** additive projection column + projector behavior
+  and re-pin `breakdown_core` 0.13.0 (`SceneSource`, `Option<f32>` confidence):
+  **0.17.0 → 0.18.0**.
+
 ## [0.17.0] - Unreleased
 
 ### Fixed — photo thumbnail saga crash-loop on aggregate version conflict (issue #515)
