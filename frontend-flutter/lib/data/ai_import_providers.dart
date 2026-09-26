@@ -34,13 +34,20 @@ AiImportRepository aiImportRepository(Ref ref) => AiImportRepository(
 /// wire values only (never the vault reference, never prompt texts). `null`
 /// when no configuration exists or discovery fails: the disclosure screen
 /// renders its honest "unconfigured" state and NEVER invents a name.
+///
+/// The list contract only guarantees NEWEST-FIRST ordering, so a revoked
+/// configuration can head the list while an active one follows. Revoked
+/// entries are filtered before the first pick — otherwise the disclosure
+/// could name a configuration the caller can no longer use.
 @riverpod
 Future<AiConfigView?> configuredAiNaming(Ref ref) async {
   final res = await ref.watch(aiConfigRepositoryProvider).listConfigs();
-  return res.match(
-    (_) => null,
-    (configs) => configs.isEmpty ? null : configs.first,
-  );
+  return res.match((_) => null, (configs) {
+    for (final config in configs) {
+      if (!config.revoked) return config;
+    }
+    return null;
+  });
 }
 
 /// The AI-import secure-storage hand-off seam (task 1.3 — manual provider,

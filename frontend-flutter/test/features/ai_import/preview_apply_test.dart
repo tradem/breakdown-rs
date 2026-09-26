@@ -562,6 +562,77 @@ void main() {
       );
     });
 
+    testWidgets('a REFRESHED preview drops the review acknowledgement: the '
+        'replacement rows cannot be applied unreviewed (issue #538 review)', (
+      tester,
+    ) async {
+      await setupContainer(applyQueue: [Right(_outcome())]);
+      await pumpPreview(tester);
+
+      FilledButton submit() =>
+          tester.widget<FilledButton>(find.byKey(const Key('ai-apply-submit')));
+
+      // Acknowledge the CURRENT payload and dispatch it.
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pumpAndSettle();
+      expect(submit().onPressed, isNotNull);
+      await tester.tap(find.byKey(const Key('ai-apply-submit')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('ai-apply-outcome')), findsOneWidget);
+
+      // A provider refresh replaces the payload with DIFFERENT rows at the
+      // same element position (the unkeyed AiApplySection is reused). The
+      // stale acknowledgement must not carry over to the new content.
+      preview.value = Right(
+        _previewResponse(
+          AiPreviewPayload(
+            (b) => b
+              ..oneOf =
+                  OneOf.fromValue3<
+                    AiPreviewPayloadOneOf,
+                    AiPreviewPayloadOneOf1,
+                    AiPreviewPayloadOneOf2
+                  >(
+                    value: AiPreviewPayloadOneOf(
+                      (b2) => b2
+                        ..kind = AiPreviewPayloadOneOfKindEnum.script
+                        ..data.replace(
+                          ScriptContext(
+                            (b3) => b3
+                              ..scenes.replace([
+                                _draft('fresh-1'),
+                                _draft('fresh-2'),
+                                _draft('fresh-3'),
+                              ])
+                              ..uncertainties.replace([]),
+                          ),
+                        ),
+                    ),
+                  ),
+          ),
+        ),
+      );
+      container.invalidate(aiPreviewProvider);
+      await pumpPreview(tester);
+
+      // The fresh rows seeded…
+      expect(
+        container.read(aiApplyControllerProvider('job-1')).rows,
+        hasLength(3),
+      );
+      // …but the acknowledgement was reset: the dispatch is gated again.
+      expect(
+        submit().onPressed,
+        isNull,
+        reason: 'a replacement payload needs its own review acknowledgement',
+      );
+      expect(find.byKey(const Key('ai-apply-review-checkbox')), findsOneWidget);
+      // Re-acknowledging unlocks exactly one further dispatch.
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pumpAndSettle();
+      expect(submit().onPressed, isNotNull);
+    });
+
     testWidgets('apply review acknowledgement: unchecked disabled, checked '
         'dispatches (issue #538)', (tester) async {
       await setupContainer(applyQueue: [Right(_outcome())]);

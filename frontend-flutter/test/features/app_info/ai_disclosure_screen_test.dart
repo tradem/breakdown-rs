@@ -100,6 +100,34 @@ void main() {
     expect(find.byKey(const Key('ai-disclosure-act')), findsOneWidget);
     expect(find.byKey(const Key('ai-disclosure-source')), findsOneWidget);
     expect(find.byKey(const Key('ai-disclosure-source-link')), findsOneWidget);
+
+    // Focused semantics coverage for the interactive control (issue #538
+    // review): the source link is a labelled, tappable button — a
+    // screen-reader user must reach it by its localized label, and the
+    // widget must stay enabled (the injected launcher seam is what the tap
+    // would use).
+    final sourceLink = find.byKey(const Key('ai-disclosure-source-link'));
+    expect(
+      find.widgetWithText(TextButton, 'View source'),
+      findsOneWidget,
+      reason: 'the affordance shows the catalog label, icon-only would fail',
+    );
+    final button = tester.widget<TextButton>(sourceLink);
+    expect(
+      button.onPressed,
+      isNotNull,
+      reason: 'the source link is an enabled affordance',
+    );
+    expect(
+      button.style?.minimumSize?.resolve({}),
+      const Size(48, 48),
+      reason: 'the 48x48 minimum touch target (glossary accessibility rule)',
+    );
+    expect(
+      find.byIcon(Icons.open_in_new),
+      findsOneWidget,
+      reason: 'the icon reinforces the label, never replaces it',
+    );
   });
 
   testWidgets('configured naming carries the wire provider + model — '

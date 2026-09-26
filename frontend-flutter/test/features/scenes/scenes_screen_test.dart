@@ -33,36 +33,46 @@ import '../seasons/seasons_test_fakes.dart';
 const _networkDown = ProblemError(code: 'transport.connectionError');
 const _gone = ProblemError(code: 'episode.not-found', status: 404);
 
-SceneView _scene(String id, {String? summary, bool aiExtracted = false}) =>
-    SceneView(
-      (b) => b
-        ..id = id
-        ..episodeId = 'episode-1'
-        // Provenance discriminator fixture (issue #538): the AI path tags the
-        // read row with the externally-tagged AiExtracted variant.
-        ..source_ = !aiExtracted
-            ? null
-            : SceneSource(
-                (s) => s
-                  ..oneOf = OneOf.fromValue2<String, SceneSourceOneOf>(
-                    value: SceneSourceOneOf(
-                      (d) => d
-                        ..aiExtracted = SceneSourceOneOfAiExtracted(
-                          (d2) => d2..documentId = 'job-1',
-                        ).toBuilder(),
-                    ),
-                  ),
-              ).toBuilder()
-        ..assignedCharacters.replace(const ['char-1'])
-        ..isScheduleSet = true
-        ..location = 'Studio A'
-        ..mood = 'tense'
-        ..scriptDay = 'Day 1'
-        ..shootingDayIds.replace(const ['day-1', 'day-2'])
-        ..summary = summary ?? 'A scene $id'
-        ..updatedAt = DateTime.utc(2026, 1, 1)
-        ..version = 1,
-    );
+SceneView _scene(
+  String id, {
+  String? summary,
+
+  /// Provenance fixture (issue #538). `absent` (the default) models a
+  /// pre-#538/legacy row with no discriminator, `manual` a real
+  /// `Some(Manual)` source, `ai` the `Some(AiExtracted)` arm — so a badge
+  /// assertion distinguishes manual provenance from absent provenance.
+  String source = 'absent',
+}) => SceneView(
+  (b) => b
+    ..id = id
+    ..episodeId = 'episode-1'
+    ..source_ = switch (source) {
+      'manual' => SceneSource(
+        (s) => s..oneOf = OneOf.fromValue1<String>(value: 'Manual'),
+      ).toBuilder(),
+      'ai' => SceneSource(
+        (s) => s
+          ..oneOf = OneOf.fromValue2<String, SceneSourceOneOf>(
+            value: SceneSourceOneOf(
+              (d) => d
+                ..aiExtracted = SceneSourceOneOfAiExtracted(
+                  (d2) => d2..documentId = 'job-1',
+                ).toBuilder(),
+            ),
+          ),
+      ).toBuilder(),
+      _ => null,
+    }
+    ..assignedCharacters.replace(const ['char-1'])
+    ..isScheduleSet = true
+    ..location = 'Studio A'
+    ..mood = 'tense'
+    ..scriptDay = 'Day 1'
+    ..shootingDayIds.replace(const ['day-1', 'day-2'])
+    ..summary = summary ?? 'A scene $id'
+    ..updatedAt = DateTime.utc(2026, 1, 1)
+    ..version = 1,
+);
 
 EpisodeView _episode() => EpisodeView(
   (b) => b
@@ -186,13 +196,21 @@ void main() {
     testWidgets('AI-extracted scene carries the provenance badge; Manual '
         'none (issue #538)', (tester) async {
       await setupContainer(
-        initialRows: [_scene('s-ai', aiExtracted: true), _scene('s-m')],
+        initialRows: [
+          _scene('s-ai', source: 'ai'),
+          // A real `Some(Manual)` row (not the absent one) so the assertion
+          // proves the badge is withheld for manual provenance specifically.
+          _scene('s-m', source: 'manual'),
+          // A pre-#538 row with no discriminator must stay badge-free too.
+          _scene('s-absent'),
+        ],
       );
       await pumpScreen(tester);
       // Row-id-scoped badge: exactly one element per AI row, none on the
-      // manual row (no false attribution in either direction).
+      // manual or absent row (no false attribution in either direction).
       expect(find.byKey(const Key('scene-ai-badge-s-ai')), findsOneWidget);
       expect(find.byKey(const Key('scene-ai-badge-s-m')), findsNothing);
+      expect(find.byKey(const Key('scene-ai-badge-s-absent')), findsNothing);
     });
 
     testWidgets('empty: plain-language state with create CTA', (tester) async {

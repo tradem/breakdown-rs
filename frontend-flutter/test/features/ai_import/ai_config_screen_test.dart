@@ -1054,6 +1054,24 @@ void main() {
       isTrue,
       reason: 'the Art. 4 helper is scroll-ordered above the forms',
     );
+
+    // The CONFIGURED state too: a configured discovery result must keep the
+    // helper card (and keep it above the configured form) — a first-run-only
+    // assertion cannot detect its removal there.
+    discovery.value = Right([_config()]);
+    await refreshDiscovery(tester);
+    expect(find.byKey(const Key('ai-config-literacy')), findsOneWidget);
+    final configuredLiteracyY = tester
+        .getTopLeft(find.byKey(const Key('ai-config-literacy')))
+        .dy;
+    final configuredFormY = tester
+        .getTopLeft(find.byKey(const Key('ai-config-configured')))
+        .dy;
+    expect(
+      configuredLiteracyY < configuredFormY,
+      isTrue,
+      reason: 'the helper is also scroll-ordered above the configured form',
+    );
   });
 
   group('AiConfigScreen goldens (2.2): {light,dark}×{android,macos}', () {

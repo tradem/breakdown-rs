@@ -206,7 +206,13 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
         const SizedBox(height: 24),
         // The apply action: rows + decisions + persisted episode context
         // (or the explicit picker) drive it.
-        AiApplySection(jobId: widget.jobId),
+        AiApplySection(
+          jobId: widget.jobId,
+          // The reviewed payload identity: a provider refresh delivers a NEW
+          // response at the same element position, so the acknowledgement
+          // must not carry over to the replacement rows (#538).
+          reviewToken: widget.response,
+        ),
       ],
     );
   }

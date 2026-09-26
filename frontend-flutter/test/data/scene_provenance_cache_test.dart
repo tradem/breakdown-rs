@@ -131,14 +131,15 @@ void main() {
     // the `from < 9` branch: the guarded ADD COLUMN, the v8 row survives
     // and reads as ABSENT provenance — never as `Manual` (no invented
     // attribution on legacy installs).
+    // `db` is closed explicitly before the reopen assertion below, so it is
+    // not registered for tear-down (a double close is not the contract we
+    // want to exercise).
     final db = CacheDatabase(NativeDatabase(file));
-    addTearDown(db.close);
     final rows = await SceneCacheDao(db).readByEpisode('episode-1');
     expect(rows.single.id, 's-1');
     expect(sceneProvenance(rows.single.source_), AiProvenanceVariant.absent);
 
-    // A fresh snapshot applies cleanly on the migrated schema and the
-    // column round-trips (the AI-tagged row survives a re-open).
+    // A fresh snapshot applies cleanly on the migrated schema.
     final dao = SceneCacheDao(db);
     final ai = SceneSource(
       (s) => s
@@ -154,11 +155,22 @@ void main() {
     await dao.applySnapshotForEpisode('episode-1', [
       _scene('s-2', source: ai),
     ], DateTime.utc(2026, 1, 2));
-    final after = await SceneCacheDao(db).readByEpisode('episode-1');
+
+    // Reopen through a FRESH connection before the final provenance
+    // assertion: the claim is persistence across a restart, not an
+    // in-connection read (the previous version asserted through the still
+    // open `db`, which proves nothing about the stored column).
+    await db.close();
+    final reopened = CacheDatabase(NativeDatabase(file));
+    addTearDown(reopened.close);
+    final after = await SceneCacheDao(reopened).readByEpisode('episode-1');
     expect(after.single.id, 's-2');
     expect(
       sceneProvenance(after.single.source_),
       AiProvenanceVariant.aiExtracted,
+      reason:
+          'the AI provenance survived the close/reopen through '
+          'source_json',
     );
   });
 }
