@@ -26,6 +26,8 @@ class _$SceneView extends SceneView {
   @override
   final BuiltList<String> shootingDayIds;
   @override
+  final SceneSource source_;
+  @override
   final String? summary;
   @override
   final DateTime updatedAt;
@@ -45,6 +47,7 @@ class _$SceneView extends SceneView {
       this.sceneNumber,
       this.scriptDay,
       required this.shootingDayIds,
+      required this.source_,
       this.summary,
       required this.updatedAt,
       required this.version})
@@ -69,6 +72,7 @@ class _$SceneView extends SceneView {
         sceneNumber == other.sceneNumber &&
         scriptDay == other.scriptDay &&
         shootingDayIds == other.shootingDayIds &&
+        source_ == other.source_ &&
         summary == other.summary &&
         updatedAt == other.updatedAt &&
         version == other.version;
@@ -86,6 +90,7 @@ class _$SceneView extends SceneView {
     _$hash = $jc(_$hash, sceneNumber.hashCode);
     _$hash = $jc(_$hash, scriptDay.hashCode);
     _$hash = $jc(_$hash, shootingDayIds.hashCode);
+    _$hash = $jc(_$hash, source_.hashCode);
     _$hash = $jc(_$hash, summary.hashCode);
     _$hash = $jc(_$hash, updatedAt.hashCode);
     _$hash = $jc(_$hash, version.hashCode);
@@ -105,6 +110,7 @@ class _$SceneView extends SceneView {
           ..add('sceneNumber', sceneNumber)
           ..add('scriptDay', scriptDay)
           ..add('shootingDayIds', shootingDayIds)
+          ..add('source_', source_)
           ..add('summary', summary)
           ..add('updatedAt', updatedAt)
           ..add('version', version))
@@ -156,6 +162,10 @@ class SceneViewBuilder implements Builder<SceneView, SceneViewBuilder> {
   set shootingDayIds(ListBuilder<String>? shootingDayIds) =>
       _$this._shootingDayIds = shootingDayIds;
 
+  SceneSourceBuilder? _source_;
+  SceneSourceBuilder get source_ => _$this._source_ ??= SceneSourceBuilder();
+  set source_(SceneSourceBuilder? source_) => _$this._source_ = source_;
+
   String? _summary;
   String? get summary => _$this._summary;
   set summary(String? summary) => _$this._summary = summary;
@@ -184,6 +194,7 @@ class SceneViewBuilder implements Builder<SceneView, SceneViewBuilder> {
       _sceneNumber = $v.sceneNumber;
       _scriptDay = $v.scriptDay;
       _shootingDayIds = $v.shootingDayIds.toBuilder();
+      _source_ = $v.source_.toBuilder();
       _summary = $v.summary;
       _updatedAt = $v.updatedAt;
       _version = $v.version;
@@ -221,6 +232,7 @@ class SceneViewBuilder implements Builder<SceneView, SceneViewBuilder> {
             sceneNumber: sceneNumber,
             scriptDay: scriptDay,
             shootingDayIds: shootingDayIds.build(),
+            source_: source_.build(),
             summary: summary,
             updatedAt: BuiltValueNullFieldError.checkNotNull(
                 updatedAt, r'SceneView', 'updatedAt'),
@@ -235,6 +247,8 @@ class SceneViewBuilder implements Builder<SceneView, SceneViewBuilder> {
 
         _$failedField = 'shootingDayIds';
         shootingDayIds.build();
+        _$failedField = 'source_';
+        source_.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'SceneView', _$failedField, e.toString());

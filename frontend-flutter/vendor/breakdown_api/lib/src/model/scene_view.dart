@@ -5,6 +5,7 @@
 //
 
 // ignore_for_file: unused_element
+import 'package:breakdown_api/src/model/scene_source.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
@@ -23,6 +24,7 @@ part 'scene_view.g.dart';
 /// * [sceneNumber]
 /// * [scriptDay] - Fictional script-chronology day (e.g. \"1. Spieltag\"), distinct from the calendar `ShootingDay.date`.
 /// * [shootingDayIds] - Shooting days this scene is scheduled on.
+/// * [source_] - Provenance discriminator (EU AI Act transparency, issue #517): `Manual` for user-created scenes, `AiExtracted` for AI-imported ones.
 /// * [summary]
 /// * [updatedAt]
 /// * [version] - Aggregate version of the last applied event; echo back in optimistic-locking commands.
@@ -57,6 +59,10 @@ abstract class SceneView implements Built<SceneView, SceneViewBuilder> {
   /// Shooting days this scene is scheduled on.
   @BuiltValueField(wireName: r'shooting_day_ids')
   BuiltList<String> get shootingDayIds;
+
+  /// Provenance discriminator (EU AI Act transparency, issue #517): `Manual` for user-created scenes, `AiExtracted` for AI-imported ones.
+  @BuiltValueField(wireName: r'source')
+  SceneSource get source_;
 
   @BuiltValueField(wireName: r'summary')
   String? get summary;
@@ -143,6 +149,11 @@ class _$SceneViewSerializer implements PrimitiveSerializer<SceneView> {
     yield serializers.serialize(
       object.shootingDayIds,
       specifiedType: const FullType(BuiltList, [FullType(String)]),
+    );
+    yield r'source';
+    yield serializers.serialize(
+      object.source_,
+      specifiedType: const FullType(SceneSource),
     );
     if (object.summary != null) {
       yield r'summary';
@@ -252,6 +263,13 @@ class _$SceneViewSerializer implements PrimitiveSerializer<SceneView> {
             specifiedType: const FullType(BuiltList, [FullType(String)]),
           ) as BuiltList<String>;
           result.shootingDayIds.replace(valueDes);
+          break;
+        case r'source':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(SceneSource),
+          ) as SceneSource;
+          result.source_.replace(valueDes);
           break;
         case r'summary':
           final valueDes = serializers.deserialize(

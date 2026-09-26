@@ -1,40 +1,39 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 
-part of 'shooting_day_source_one_of_ai_extracted.dart';
+part of 'scene_source_one_of_ai_extracted.dart';
 
 // **************************************************************************
 // BuiltValueGenerator
 // **************************************************************************
 
-class _$ShootingDaySourceOneOfAiExtracted
-    extends ShootingDaySourceOneOfAiExtracted {
+class _$SceneSourceOneOfAiExtracted extends SceneSourceOneOfAiExtracted {
   @override
-  final double confidence;
+  final double? confidence;
   @override
   final String documentId;
   @override
   final String? externalRef;
 
-  factory _$ShootingDaySourceOneOfAiExtracted(
-          [void Function(ShootingDaySourceOneOfAiExtractedBuilder)? updates]) =>
-      (ShootingDaySourceOneOfAiExtractedBuilder()..update(updates))._build();
+  factory _$SceneSourceOneOfAiExtracted(
+          [void Function(SceneSourceOneOfAiExtractedBuilder)? updates]) =>
+      (SceneSourceOneOfAiExtractedBuilder()..update(updates))._build();
 
-  _$ShootingDaySourceOneOfAiExtracted._(
-      {required this.confidence, required this.documentId, this.externalRef})
+  _$SceneSourceOneOfAiExtracted._(
+      {this.confidence, required this.documentId, this.externalRef})
       : super._();
   @override
-  ShootingDaySourceOneOfAiExtracted rebuild(
-          void Function(ShootingDaySourceOneOfAiExtractedBuilder) updates) =>
+  SceneSourceOneOfAiExtracted rebuild(
+          void Function(SceneSourceOneOfAiExtractedBuilder) updates) =>
       (toBuilder()..update(updates)).build();
 
   @override
-  ShootingDaySourceOneOfAiExtractedBuilder toBuilder() =>
-      ShootingDaySourceOneOfAiExtractedBuilder()..replace(this);
+  SceneSourceOneOfAiExtractedBuilder toBuilder() =>
+      SceneSourceOneOfAiExtractedBuilder()..replace(this);
 
   @override
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
-    return other is ShootingDaySourceOneOfAiExtracted &&
+    return other is SceneSourceOneOfAiExtracted &&
         confidence == other.confidence &&
         documentId == other.documentId &&
         externalRef == other.externalRef;
@@ -52,7 +51,7 @@ class _$ShootingDaySourceOneOfAiExtracted
 
   @override
   String toString() {
-    return (newBuiltValueToStringHelper(r'ShootingDaySourceOneOfAiExtracted')
+    return (newBuiltValueToStringHelper(r'SceneSourceOneOfAiExtracted')
           ..add('confidence', confidence)
           ..add('documentId', documentId)
           ..add('externalRef', externalRef))
@@ -60,11 +59,11 @@ class _$ShootingDaySourceOneOfAiExtracted
   }
 }
 
-class ShootingDaySourceOneOfAiExtractedBuilder
+class SceneSourceOneOfAiExtractedBuilder
     implements
-        Builder<ShootingDaySourceOneOfAiExtracted,
-            ShootingDaySourceOneOfAiExtractedBuilder> {
-  _$ShootingDaySourceOneOfAiExtracted? _$v;
+        Builder<SceneSourceOneOfAiExtracted,
+            SceneSourceOneOfAiExtractedBuilder> {
+  _$SceneSourceOneOfAiExtracted? _$v;
 
   double? _confidence;
   double? get confidence => _$this._confidence;
@@ -78,11 +77,11 @@ class ShootingDaySourceOneOfAiExtractedBuilder
   String? get externalRef => _$this._externalRef;
   set externalRef(String? externalRef) => _$this._externalRef = externalRef;
 
-  ShootingDaySourceOneOfAiExtractedBuilder() {
-    ShootingDaySourceOneOfAiExtracted._defaults(this);
+  SceneSourceOneOfAiExtractedBuilder() {
+    SceneSourceOneOfAiExtracted._defaults(this);
   }
 
-  ShootingDaySourceOneOfAiExtractedBuilder get _$this {
+  SceneSourceOneOfAiExtractedBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
       _confidence = $v.confidence;
@@ -94,26 +93,24 @@ class ShootingDaySourceOneOfAiExtractedBuilder
   }
 
   @override
-  void replace(ShootingDaySourceOneOfAiExtracted other) {
-    _$v = other as _$ShootingDaySourceOneOfAiExtracted;
+  void replace(SceneSourceOneOfAiExtracted other) {
+    _$v = other as _$SceneSourceOneOfAiExtracted;
   }
 
   @override
-  void update(
-      void Function(ShootingDaySourceOneOfAiExtractedBuilder)? updates) {
+  void update(void Function(SceneSourceOneOfAiExtractedBuilder)? updates) {
     if (updates != null) updates(this);
   }
 
   @override
-  ShootingDaySourceOneOfAiExtracted build() => _build();
+  SceneSourceOneOfAiExtracted build() => _build();
 
-  _$ShootingDaySourceOneOfAiExtracted _build() {
+  _$SceneSourceOneOfAiExtracted _build() {
     final _$result = _$v ??
-        _$ShootingDaySourceOneOfAiExtracted._(
-          confidence: BuiltValueNullFieldError.checkNotNull(
-              confidence, r'ShootingDaySourceOneOfAiExtracted', 'confidence'),
+        _$SceneSourceOneOfAiExtracted._(
+          confidence: confidence,
           documentId: BuiltValueNullFieldError.checkNotNull(
-              documentId, r'ShootingDaySourceOneOfAiExtracted', 'documentId'),
+              documentId, r'SceneSourceOneOfAiExtracted', 'documentId'),
           externalRef: externalRef,
         );
     replace(_$result);

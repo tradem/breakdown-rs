@@ -8,21 +8,20 @@
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
-part 'shooting_day_source_one_of_ai_extracted.g.dart';
+part 'scene_source_one_of_ai_extracted.g.dart';
 
-/// ShootingDaySourceOneOfAiExtracted
+/// SceneSourceOneOfAiExtracted
 ///
 /// Properties:
 /// * [confidence]
 /// * [documentId]
 /// * [externalRef]
 @BuiltValue()
-abstract class ShootingDaySourceOneOfAiExtracted
+abstract class SceneSourceOneOfAiExtracted
     implements
-        Built<ShootingDaySourceOneOfAiExtracted,
-            ShootingDaySourceOneOfAiExtractedBuilder> {
+        Built<SceneSourceOneOfAiExtracted, SceneSourceOneOfAiExtractedBuilder> {
   @BuiltValueField(wireName: r'confidence')
-  double get confidence;
+  double? get confidence;
 
   @BuiltValueField(wireName: r'document_id')
   String get documentId;
@@ -30,41 +29,43 @@ abstract class ShootingDaySourceOneOfAiExtracted
   @BuiltValueField(wireName: r'external_ref')
   String? get externalRef;
 
-  ShootingDaySourceOneOfAiExtracted._();
+  SceneSourceOneOfAiExtracted._();
 
-  factory ShootingDaySourceOneOfAiExtracted(
-          [void updates(ShootingDaySourceOneOfAiExtractedBuilder b)]) =
-      _$ShootingDaySourceOneOfAiExtracted;
+  factory SceneSourceOneOfAiExtracted(
+          [void updates(SceneSourceOneOfAiExtractedBuilder b)]) =
+      _$SceneSourceOneOfAiExtracted;
 
   @BuiltValueHook(initializeBuilder: true)
-  static void _defaults(ShootingDaySourceOneOfAiExtractedBuilder b) => b;
+  static void _defaults(SceneSourceOneOfAiExtractedBuilder b) => b;
 
   @BuiltValueSerializer(custom: true)
-  static Serializer<ShootingDaySourceOneOfAiExtracted> get serializer =>
-      _$ShootingDaySourceOneOfAiExtractedSerializer();
+  static Serializer<SceneSourceOneOfAiExtracted> get serializer =>
+      _$SceneSourceOneOfAiExtractedSerializer();
 }
 
-class _$ShootingDaySourceOneOfAiExtractedSerializer
-    implements PrimitiveSerializer<ShootingDaySourceOneOfAiExtracted> {
+class _$SceneSourceOneOfAiExtractedSerializer
+    implements PrimitiveSerializer<SceneSourceOneOfAiExtracted> {
   @override
   final Iterable<Type> types = const [
-    ShootingDaySourceOneOfAiExtracted,
-    _$ShootingDaySourceOneOfAiExtracted
+    SceneSourceOneOfAiExtracted,
+    _$SceneSourceOneOfAiExtracted
   ];
 
   @override
-  final String wireName = r'ShootingDaySourceOneOfAiExtracted';
+  final String wireName = r'SceneSourceOneOfAiExtracted';
 
   Iterable<Object?> _serializeProperties(
     Serializers serializers,
-    ShootingDaySourceOneOfAiExtracted object, {
+    SceneSourceOneOfAiExtracted object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    yield r'confidence';
-    yield serializers.serialize(
-      object.confidence,
-      specifiedType: const FullType(double),
-    );
+    if (object.confidence != null) {
+      yield r'confidence';
+      yield serializers.serialize(
+        object.confidence,
+        specifiedType: const FullType.nullable(double),
+      );
+    }
     yield r'document_id';
     yield serializers.serialize(
       object.documentId,
@@ -82,7 +83,7 @@ class _$ShootingDaySourceOneOfAiExtractedSerializer
   @override
   Object serialize(
     Serializers serializers,
-    ShootingDaySourceOneOfAiExtracted object, {
+    SceneSourceOneOfAiExtracted object, {
     FullType specifiedType = FullType.unspecified,
   }) {
     return _serializeProperties(serializers, object,
@@ -95,7 +96,7 @@ class _$ShootingDaySourceOneOfAiExtractedSerializer
     Object serialized, {
     FullType specifiedType = FullType.unspecified,
     required List<Object?> serializedList,
-    required ShootingDaySourceOneOfAiExtractedBuilder result,
+    required SceneSourceOneOfAiExtractedBuilder result,
     required List<Object?> unhandled,
   }) {
     for (var i = 0; i < serializedList.length; i += 2) {
@@ -105,8 +106,9 @@ class _$ShootingDaySourceOneOfAiExtractedSerializer
         case r'confidence':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(double),
-          ) as double;
+            specifiedType: const FullType.nullable(double),
+          ) as double?;
+          if (valueDes == null) continue;
           result.confidence = valueDes;
           break;
         case r'document_id':
@@ -133,12 +135,12 @@ class _$ShootingDaySourceOneOfAiExtractedSerializer
   }
 
   @override
-  ShootingDaySourceOneOfAiExtracted deserialize(
+  SceneSourceOneOfAiExtracted deserialize(
     Serializers serializers,
     Object serialized, {
     FullType specifiedType = FullType.unspecified,
   }) {
-    final result = ShootingDaySourceOneOfAiExtractedBuilder();
+    final result = SceneSourceOneOfAiExtractedBuilder();
     final serializedList = (serialized as Iterable<Object?>).toList();
     final unhandled = <Object?>[];
     _deserializeProperties(

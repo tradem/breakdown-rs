@@ -100,6 +100,9 @@ import 'package:breakdown_api/src/model/role.dart';
 import 'package:breakdown_api/src/model/scene_details.dart';
 import 'package:breakdown_api/src/model/scene_shoot_status.dart';
 import 'package:breakdown_api/src/model/scene_shoot_view.dart';
+import 'package:breakdown_api/src/model/scene_source.dart';
+import 'package:breakdown_api/src/model/scene_source_one_of.dart';
+import 'package:breakdown_api/src/model/scene_source_one_of_ai_extracted.dart';
 import 'package:breakdown_api/src/model/scene_view.dart';
 import 'package:breakdown_api/src/model/schedule_scene_request.dart';
 import 'package:breakdown_api/src/model/script_context.dart';
@@ -110,8 +113,6 @@ import 'package:breakdown_api/src/model/set_actual_order_request.dart';
 import 'package:breakdown_api/src/model/settings_view.dart';
 import 'package:breakdown_api/src/model/shoot_day_row.dart';
 import 'package:breakdown_api/src/model/shooting_day_source.dart';
-import 'package:breakdown_api/src/model/shooting_day_source_one_of.dart';
-import 'package:breakdown_api/src/model/shooting_day_source_one_of_ai_extracted.dart';
 import 'package:breakdown_api/src/model/shooting_day_view.dart';
 import 'package:breakdown_api/src/model/shooting_schedule.dart';
 import 'package:breakdown_api/src/model/shooting_schedule_row.dart';
@@ -222,6 +223,9 @@ part 'serializers.g.dart';
   SceneDetails,
   SceneShootStatus,
   SceneShootView,
+  SceneSource,
+  SceneSourceOneOf,
+  SceneSourceOneOfAiExtracted,
   SceneView,
   ScheduleSceneRequest,
   ScriptContext,
@@ -232,8 +236,6 @@ part 'serializers.g.dart';
   SettingsView,
   ShootDayRow,
   ShootingDaySource,
-  ShootingDaySourceOneOf,
-  ShootingDaySourceOneOfAiExtracted,
   ShootingDayView,
   ShootingSchedule,
   ShootingScheduleRow,
