@@ -38,6 +38,7 @@ use breakdown_core::block::views::BlockView;
 use breakdown_core::character::category::CharacterCategory;
 use breakdown_core::character::views::CharacterView;
 use breakdown_core::costume::CostumeView;
+use breakdown_core::error::DomainError;
 use breakdown_core::photo::ports::PhotoStorage;
 use breakdown_core::shared::{
     AggregateVersion, BlockId, PhotoId, PhotoVariant, SeasonId, SeriesId,
@@ -311,8 +312,8 @@ async fn upload_costume_photo_authorizes_via_repertoire_when_character_season_de
     let costume_id = seed_scoped_costume(&ports, character_season, &[repertoire_season]).await;
     {
         let mut by_season = ports.membership_repo.costume_role_by_season.lock().await;
-        by_season.insert(character_season.0, false);
-        by_season.insert(repertoire_season.0, true);
+        by_season.insert(character_season.0, Ok(false));
+        by_season.insert(repertoire_season.0, Ok(true));
     }
     let state = AppState::new(ports);
 
@@ -375,4 +376,68 @@ async fn upload_costume_photo_denies_when_no_scope_authorizes() {
 
     assert_eq!(problem.status, StatusCode::FORBIDDEN);
     assert_eq!(problem.code, "domain.forbidden");
+}
+
+/// A failing membership lookup must fail **closed** (no access) but must not
+/// masquerade as a permission error: `unwrap_or(false)` would turn a database
+/// outage into a 403 that neither the caller nor an operator can explain
+/// (CodeRabbit review on issue #532). The predicate's only production error is
+/// `DomainError::Internal` → 500.
+#[tokio::test]
+async fn upload_costume_photo_reports_lookup_failure_as_server_error() {
+    let ports = FakePorts::default();
+    let season = SeasonId::new();
+    let costume_id = seed_repertoire_costume(&ports, &[season]).await;
+    *ports.membership_repo.costume_role_override.lock().await =
+        Some(Err(DomainError::internal("membership table unavailable")));
+    let photo_commands = ports.photo_commands.clone();
+    let state = AppState::new(ports);
+
+    let problem = upload_costume_photo::<FakePorts>(
+        State(state),
+        dummy_user(),
+        Path(costume_id),
+        jpeg_headers(),
+        Bytes::from_static(b"fake-image-data"),
+    )
+    .await
+    .expect_err("a failing predicate must never authorize")
+    .into_problem();
+
+    // Fail closed: nothing was written.
+    assert!(photo_commands.uploads.lock().await.is_empty());
+    assert_ne!(problem.status, StatusCode::FORBIDDEN);
+    assert_eq!(problem.status, StatusCode::INTERNAL_SERVER_ERROR);
+}
+
+/// One failing scope must not sink the gate when another scope authorizes —
+/// the lookup error is logged, not propagated (the ANY semantics survive an
+/// infrastructure hiccup on an unrelated season).
+#[tokio::test]
+async fn upload_costume_photo_authorizes_via_other_scope_despite_lookup_failure() {
+    let ports = FakePorts::default();
+    let character_season = SeasonId::new();
+    let repertoire_season = SeasonId::new();
+    let costume_id = seed_scoped_costume(&ports, character_season, &[repertoire_season]).await;
+    {
+        let mut by_season = ports.membership_repo.costume_role_by_season.lock().await;
+        by_season.insert(
+            character_season.0,
+            Err(DomainError::internal("block projection unavailable")),
+        );
+        by_season.insert(repertoire_season.0, Ok(true));
+    }
+    let state = AppState::new(ports);
+
+    let (status, Json(_)) = upload_costume_photo::<FakePorts>(
+        State(state),
+        dummy_user(),
+        Path(costume_id),
+        jpeg_headers(),
+        Bytes::from_static(b"fake-image-data"),
+    )
+    .await
+    .expect("an authorizing scope must win even if another lookup would fail");
+
+    assert_eq!(status, StatusCode::CREATED);
 }

@@ -679,7 +679,18 @@ async fn costume_season_scopes<P: Ports>(
 /// Errors:
 /// - 422 `domain.validation` when the costume has **no** scope at all (no
 ///   character and no repertoire) — nothing to authorize against,
-/// - 403 `domain.forbidden` ([denial]) when scopes exist but none authorizes.
+/// - 403 `domain.forbidden` ([denial]) when every scope lookup **succeeded**
+///   and none authorizes,
+/// - 500 when a scope lookup **failed** (see below — fail *closed*, but do not
+///   let an outage masquerade as a permission error).
+///
+/// Lookup failures are tracked instead of being collapsed into a denial
+/// (`unwrap_or(false)`, the older single-scope pattern in this file). With N
+/// scopes a swallowed error would silently turn a database outage into a 403
+/// that no operator can trace; the gate still grants **nothing** either way —
+/// only the reported reason becomes honest. Follow-up: hoist this into one
+/// shared membership-gate helper for all handler-internal AUTHZ-GATEs
+/// (issue #537).
 async fn authorize_costume_photo<P: Ports>(
     state: &AppState<P>,
     costume: &CostumeView,
@@ -692,18 +703,40 @@ async fn authorize_costume_photo<P: Ports>(
             "costume has no assigned character and no season repertoire — cannot determine season",
         ));
     }
+    let mut last_lookup_error: Option<DomainError> = None;
     for season_id in scopes {
-        let is_authorized = state
+        match state
             .ports
             .membership_repo()
             .has_active_costume_role_in_season(season_id, user_id.clone())
             .await
-            .unwrap_or(false);
-        if is_authorized {
-            return Ok(season_id);
+        {
+            Ok(true) => return Ok(season_id),
+            Ok(false) => {}
+            Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    season_id = %season_id.0,
+                    "costume-role lookup failed; continuing with the remaining scopes"
+                );
+                last_lookup_error = Some(err);
+            }
         }
     }
-    Err(ApiError::Forbidden(denial))
+    match last_lookup_error {
+        // Fail closed, but report the real reason: the predicate's only
+        // production error is `DomainError::Internal` (a database failure), so
+        // this renders as 500 — never as a 403 the caller cannot explain.
+        Some(err) => {
+            tracing::error!(
+                error = %err,
+                costume_id = %costume.id,
+                "authorization predicate failed for every scope; denying with a server error"
+            );
+            Err(err.into())
+        }
+        None => Err(ApiError::Forbidden(denial)),
+    }
 }
 
 #[utoipa::path(

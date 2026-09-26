@@ -433,12 +433,14 @@ pub struct FakeMembershipRepo {
     /// tests exercise the allow/deny branches of handler-internal authz gates.
     /// `None` = resolve from seeded data.
     pub costume_role_override: Arc<Mutex<Option<Result<bool, DomainError>>>>,
-    /// Per-season pin for `has_active_costume_role_in_season` (issue #532):
-    /// `season_id → bool`. Consulted **before** [Self::costume_role_override],
-    /// so a test can deny the character's season while allowing a repertoire
-    /// season (the ANY semantics of the costume scope resolution). Seasons
-    /// absent from the map fall through to the next source.
-    pub costume_role_by_season: Arc<Mutex<HashMap<Uuid, bool>>>,
+    /// Per-season outcome for `has_active_costume_role_in_season`
+    /// (issue #532): `season_id → Result`. Consulted **before**
+    /// [Self::costume_role_override], so a test can deny the character's
+    /// season while allowing a repertoire season (the ANY semantics of the
+    /// costume scope resolution) and — via an `Err` entry — simulate a
+    /// database failure for one season only. Seasons absent from the map fall
+    /// through to the next source.
+    pub costume_role_by_season: Arc<Mutex<HashMap<Uuid, Result<bool, DomainError>>>>,
     /// Configurable outcome of `has_active_report_archive_role_in_season` — lets handler
     /// tests exercise the allow/deny branches of report-archive authz gates.
     /// `None` = resolve from seeded data.
@@ -655,8 +657,8 @@ impl MembershipRepository for FakeMembershipRepo {
         season_id: SeasonId,
         user_id: UserId,
     ) -> Result<bool, DomainError> {
-        if let Some(allowed) = self.costume_role_by_season.lock().await.get(&season_id.0) {
-            return Ok(*allowed);
+        if let Some(result) = self.costume_role_by_season.lock().await.get(&season_id.0) {
+            return result.clone();
         }
         if let Some(result) = self.costume_role_override.lock().await.clone() {
             return result;
