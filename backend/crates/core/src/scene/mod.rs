@@ -16,6 +16,6 @@ pub use commands::{
     UnscheduleSceneFromShootingDay, UpdateSceneDetails,
 };
 pub use error::SceneError;
-pub use events::{SceneDetails, SceneEvent};
+pub use events::{SceneDetails, SceneEvent, SceneSource, default_scene_source};
 pub use ports::{SceneCommands, SceneRepository};
 pub use views::SceneView;

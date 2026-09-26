@@ -7,10 +7,10 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use super::views::{DocumentKind, JobStatus};
+use super::views::{AiImportJobId, DocumentKind, JobStatus};
 use crate::error::DomainError;
 use crate::scene::commands::{CreateScene, UpdateSceneDetails};
-use crate::scene::events::SceneDetails;
+use crate::scene::events::{SceneDetails, SceneSource};
 use crate::scene::views::SceneView;
 use crate::shared::{AggregateVersion, BlockId, EpisodeId, SeriesId};
 
@@ -213,6 +213,7 @@ pub fn plan_scene_apply(
     mappings: &[ApplyMapping],
     episode_id: EpisodeId,
     series_id: Option<SeriesId>,
+    preview_id: AiImportJobId,
 ) -> Result<Vec<SceneApplyCommand>, ApplyGateError> {
     ensure_script_applyable(preview)?;
     let mut ordered = Vec::with_capacity(preview.scenes.len());
@@ -234,6 +235,14 @@ pub fn plan_scene_apply(
                 episode_id,
                 series_id,
                 details,
+                // Planned by the AI apply, so the provenance is AI-extracted;
+                // the document id is the import job id, the draft ref the
+                // external_ref (mirrors `ApplyWorker::create_scene_reserved`).
+                source: SceneSource::AiExtracted {
+                    document_id: preview_id.as_uuid(),
+                    external_ref: Some(draft_ref.clone()),
+                    confidence: None,
+                },
             }),
             ApplyMappingDecision::Update {
                 aggregate_id,

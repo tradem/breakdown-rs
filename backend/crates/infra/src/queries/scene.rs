@@ -5,6 +5,7 @@
 
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::SCENE_NOT_FOUND;
+use breakdown_core::scene::events::SceneSource;
 use breakdown_core::scene::ports::SceneRepository;
 use breakdown_core::scene::views::SceneView;
 use breakdown_core::shared::{AggregateVersion, EpisodeId, ShootingDayId};
@@ -46,6 +47,7 @@ impl SceneRepository for SceneRepositoryImpl {
                 s.is_schedule_set,
                 s.summary,
                 s.script_day,
+                s.source,
                 s.version,
                 s.updated_at,
                 COALESCE(array_agg(sc.character_id) FILTER (WHERE sc.character_id IS NOT NULL), ARRAY[]::uuid[]) AS assigned_characters,
@@ -83,6 +85,7 @@ impl SceneRepository for SceneRepositoryImpl {
                 s.is_schedule_set,
                 s.summary,
                 s.script_day,
+                s.source,
                 s.version,
                 s.updated_at,
                 COALESCE(array_agg(sc.character_id) FILTER (WHERE sc.character_id IS NOT NULL), ARRAY[]::uuid[]) AS assigned_characters,
@@ -118,6 +121,7 @@ impl SceneRepository for SceneRepositoryImpl {
                 s.is_schedule_set,
                 s.summary,
                 s.script_day,
+                s.source,
                 s.version,
                 s.updated_at,
                 COALESCE(array_agg(sc2.character_id) FILTER (WHERE sc2.character_id IS NOT NULL), ARRAY[]::uuid[]) AS assigned_characters,
@@ -144,6 +148,12 @@ fn map_scene_row(row: sqlx::postgres::PgRow) -> Result<SceneView, DomainError> {
     let summary: Option<String> = row.try_get("summary").map_err(map_err)?;
     let script_day: Option<String> = row.try_get("script_day").map_err(map_err)?;
     let shooting_day_ids: Vec<Uuid> = row.try_get("shooting_day_ids").map_err(map_err)?;
+    let source_json: serde_json::Value = row.try_get("source").map_err(map_err)?;
+    let source = serde_json::from_value::<SceneSource>(source_json.clone()).map_err(|e| {
+        DomainError::conflict(format!(
+            "failed to deserialize scene provenance from projection row: {e}; json={source_json}"
+        ))
+    })?;
     Ok(SceneView {
         id: row.try_get("id").map_err(map_err)?,
         episode_id: EpisodeId(row.try_get("episode_id").map_err(map_err)?),
@@ -155,6 +165,7 @@ fn map_scene_row(row: sqlx::postgres::PgRow) -> Result<SceneView, DomainError> {
         script_day,
         shooting_day_ids: shooting_day_ids.into_iter().map(ShootingDayId).collect(),
         assigned_characters: row.try_get("assigned_characters").map_err(map_err)?,
+        source,
         version: AggregateVersion(row.try_get::<i64, _>("version").map_err(map_err)? as u64),
         updated_at: row
             .try_get::<DateTime<Utc>, _>("updated_at")

@@ -223,6 +223,7 @@ use utoipa::OpenApi;
         breakdown_core::photo::views::PhotoVariantView,
         breakdown_core::shooting_day::views::ShootingDayView,
         breakdown_core::shooting_day::events::ShootingDaySource,
+        breakdown_core::scene::events::SceneSource,
         // SceneShoot DTOs (issue #333): command payloads and read models.
         handlers::PlanSceneShootRequest,
         handlers::ReplanSceneShootRequest,

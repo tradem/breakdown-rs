@@ -47,7 +47,7 @@ use std::time::Duration;
 use anyhow::{Result, anyhow, bail};
 use breakdown_core::error::DomainError;
 use breakdown_core::scene::commands::{CreateScene, UpdateSceneDetails};
-use breakdown_core::scene::events::{SceneDetails, SceneEvent};
+use breakdown_core::scene::events::{SceneDetails, SceneEvent, SceneSource};
 use breakdown_core::scene::ports::{SceneCommands as _, SceneRepository as _};
 use breakdown_core::shared::{AggregateVersion, EpisodeId, UserId};
 use chrono::Utc;
@@ -119,6 +119,7 @@ async fn eappend_scene_created_round_trips_into_projection() -> Result<()> {
         },
         assigned_characters: vec![],
         version: AggregateVersion::INITIAL,
+        source: SceneSource::Manual,
     };
 
     // CBOR-encode the event (kameo_es uses ciborium internally).
@@ -235,6 +236,7 @@ async fn eappend_character_assigned_twice_is_idempotent() -> Result<()> {
         },
         assigned_characters: vec![],
         version: AggregateVersion::INITIAL,
+        source: SceneSource::Manual,
     };
 
     let mut payload = Vec::new();
@@ -396,6 +398,7 @@ async fn command_service_create_scene_round_trips_via_escan() -> Result<()> {
                     summary: None,
                     script_day: None,
                 },
+                source: SceneSource::Manual,
             },
         )
         .await

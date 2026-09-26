@@ -47,7 +47,7 @@ async fn get_scene_returns_view_from_repo() {
         assigned_characters: Vec::new(),
         version: AggregateVersion::INITIAL,
         updated_at: Utc::now(),
-    };
+        source: SceneSource::Manual,    };
     ports
         .scene_repo
         .scenes

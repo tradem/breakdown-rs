@@ -15,6 +15,21 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.12.0] - Unreleased
+
+### Added — Scene provenance in the wire contract (issue #517, EU AI Act Art. 50)
+
+- `SceneView` responses (GET scene / scenes-by-episode / scenes-by-day /
+  scenes-by-character) gain an additive `source` field (`Manual` |
+  `AiExtracted { document_id, external_ref, confidence }`) so clients can
+  render persistent AI badges — point-of-interaction transparency data, EU AI
+  Act Art. 50. Additive wire field, `/v1` path version stays (ADR-021 D3);
+  `openapi.yaml` regenerated, wire fixture additively allowlisted (MINOR).
+- REST scene creation is unaffected: the handler records `Manual`; AI
+  provenance is set server-side only by the import worker.
+- **MINOR bump (ADR-020 D2):** additive response schema field plus re-pinned
+  `breakdown_core` 0.13.0 / `infra` 0.18.0: **0.11.0 → 0.12.0**.
+
 ## [0.11.0] - Unreleased
 
 ### Fixed — photo upload returns a spurious 404 when the photo projector lags (issue #514)

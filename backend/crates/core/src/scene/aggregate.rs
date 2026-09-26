@@ -18,7 +18,7 @@ use super::commands::{
 use super::error::SceneError;
 use super::events::SceneEvent;
 
-use crate::scene::events::SceneDetails;
+use crate::scene::events::{SceneDetails, SceneSource};
 
 /// State persisted by the Scene aggregate.
 ///
@@ -32,6 +32,8 @@ pub struct SceneAggregate {
     pub assigned_characters: Vec<Uuid>,
     /// Shooting days this scene is linked to (the scene owns the collection).
     pub shooting_day_ids: Vec<ShootingDayId>,
+    /// Provenance discriminator (Manual | AiExtracted); see `SceneSource`.
+    pub source: SceneSource,
     pub version: AggregateVersion,
 }
 
@@ -55,12 +57,14 @@ impl Apply for SceneAggregate {
                 episode_id,
                 details,
                 assigned_characters,
+                source,
                 version,
             } => {
                 self.id = id;
                 self.episode_id = episode_id;
                 self.details = details;
                 self.assigned_characters = assigned_characters;
+                self.source = source;
                 // Legacy `SceneCreated` events carry no shooting-day links; the
                 // collection is always initialised empty and grown via commands.
                 self.shooting_day_ids = Vec::new();
@@ -126,6 +130,7 @@ impl Command<CreateScene> for SceneAggregate {
             episode_id: cmd.episode_id,
             details: cmd.details,
             assigned_characters: Vec::new(),
+            source: cmd.source,
             version: AggregateVersion::INITIAL,
         }])
     }

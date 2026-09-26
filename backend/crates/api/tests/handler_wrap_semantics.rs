@@ -31,6 +31,7 @@ use api::handlers::{
 use api::problems::{Json, Path};
 use api::state::AppState;
 use breakdown_core::episode::views::EpisodeView;
+use breakdown_core::scene::events::SceneSource;
 use breakdown_core::scene::views::SceneView;
 use breakdown_core::scene_shoot::views::SceneShootView;
 use breakdown_core::shared::{
@@ -107,6 +108,7 @@ async fn seed_scene_with_episode(ports: &FakePorts) -> Uuid {
             assigned_characters: Vec::new(),
             version: AggregateVersion::INITIAL,
             updated_at: chrono::Utc::now(),
+            source: SceneSource::Manual,
         },
     );
     scene_id

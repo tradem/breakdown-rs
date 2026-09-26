@@ -6,7 +6,7 @@
 
 use uuid::Uuid;
 
-use super::events::SceneDetails;
+use super::events::{SceneDetails, SceneSource, default_scene_source};
 use crate::shared::{AggregateVersion, EpisodeId, SeriesId, ShootingDayId};
 
 /// Create a scene within an episode.
@@ -14,12 +14,19 @@ use crate::shared::{AggregateVersion, EpisodeId, SeriesId, ShootingDayId};
 /// `series_id` is carried for the `EventMetadata` audit trail (the audit
 /// projector keys on `series_id`); it is resolved at the API edge from the
 /// episode projection, never queried again by the command adapter.
+///
+/// `source` records the scene's provenance: the REST handler passes `Manual`,
+/// the AI script-apply worker passes `AiExtracted` with the import job id and
+/// the draft ref issued for this scene (issue #517). Defaults to `Manual` on
+/// wire inputs that omit it.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct CreateScene {
     pub id: Uuid,
     pub episode_id: EpisodeId,
     pub series_id: Option<SeriesId>,
     pub details: SceneDetails,
+    #[serde(default = "default_scene_source")]
+    pub source: SceneSource,
 }
 
 /// Update a scene's details.

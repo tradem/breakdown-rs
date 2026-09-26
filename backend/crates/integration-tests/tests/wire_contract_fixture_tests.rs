@@ -52,6 +52,7 @@ use breakdown_core::costume_category::views::CostumeCategoryView;
 use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::membership::Role;
 use breakdown_core::membership::views::{MembershipStateKind, MembershipView};
+use breakdown_core::scene::events::SceneSource;
 use breakdown_core::scene::views::SceneView;
 use breakdown_core::season::views::SeasonView;
 use breakdown_core::shared::{
@@ -72,7 +73,12 @@ const FIXTURES_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/wire")
 /// the frozen fixture (older clients tolerate it: `#[serde(default)]` and
 /// default-identical to prior behaviour — MINOR, ADR-021 D3/D5). Anything
 /// else that is new, removed, or changed is a hard MAJOR failure.
-const ADDITIVE_ALLOWLIST: &[(&str, &str)] = &[];
+const ADDITIVE_ALLOWLIST: &[(&str, &str)] = &[
+    // #517 (EU AI Act Art. 50 transparency): scene provenance discriminator,
+    // additive on `SceneView`. `Manual` is the value every pre-#517 scene keeps
+    // (default-identical for existing clients), the AI path is opt-in MINOR.
+    ("scene_view", "scene_view.source"),
+];
 
 /// Deterministic UUIDv7 fixture identifier (same scheme as the event
 /// fixtures): stable across runs (no `Uuid::now_v7()`) while carrying the
@@ -175,6 +181,7 @@ fn sample_views() -> Vec<(&'static str, Value)> {
                 assigned_characters: vec![character_id],
                 version: AggregateVersion(4),
                 updated_at: t,
+                source: SceneSource::Manual,
             },
         ),
         snapshot(

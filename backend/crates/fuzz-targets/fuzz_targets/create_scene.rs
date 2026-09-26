@@ -18,7 +18,7 @@ use libfuzzer_sys::fuzz_target;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use breakdown_core::scene::events::SceneDetails;
+use breakdown_core::scene::events::{SceneDetails, SceneSource};
 use breakdown_core::shared::EpisodeId;
 
 /// Mirrors `breakdown_api::handlers::CreateSceneRequest` to avoid heavy
@@ -51,5 +51,6 @@ fuzz_target!(|data: &[u8]| {
         episode_id: req.episode_id,
         series_id: None,
         details: req.details,
+        source: SceneSource::Manual,
     };
 });

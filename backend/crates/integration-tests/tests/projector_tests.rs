@@ -31,6 +31,7 @@ use anyhow::{Result, anyhow};
 use breakdown_core::character::category::CharacterCategory;
 use breakdown_core::character::ports::CharacterRepository;
 use breakdown_core::costume::ports::CostumeRepository;
+use breakdown_core::scene::events::SceneSource;
 use breakdown_core::scene::ports::SceneRepository;
 use breakdown_core::shared::{AggregateVersion, EpisodeId, SeasonId};
 use chrono::Utc;
@@ -167,6 +168,7 @@ async fn scene_created_projects_scene_details() -> Result<()> {
         },
         assigned_characters: vec![],
         version: AggregateVersion::INITIAL,
+        source: SceneSource::Manual,
     };
 
     eappend_event(
@@ -228,6 +230,7 @@ async fn scene_details_updated_projects_changes() -> Result<()> {
         },
         assigned_characters: vec![],
         version: AggregateVersion::INITIAL,
+        source: SceneSource::Manual,
     };
     eappend_event(
         Arc::clone(&redis_client),
@@ -310,6 +313,7 @@ async fn scene_assign_character_creates_sub_row() -> Result<()> {
             },
             assigned_characters: vec![],
             version: AggregateVersion::INITIAL,
+            source: SceneSource::Manual,
         },
     )
     .await?;
@@ -374,6 +378,7 @@ async fn scene_remove_character_clears_sub_row() -> Result<()> {
             },
             assigned_characters: vec![character_id],
             version: AggregateVersion::INITIAL,
+            source: SceneSource::Manual,
         },
     )
     .await?;

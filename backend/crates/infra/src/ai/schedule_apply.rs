@@ -321,7 +321,10 @@ where
                         source: ShootingDaySource::AiExtracted {
                             document_id: draft.preview_id.as_uuid(),
                             external_ref: Some(draft.draft_ref),
-                            confidence: 1.0,
+                            // Honest provenance (issue #517): the preview
+                            // carries no model confidence, so record `None`
+                            // instead of the hard-coded `1.0`.
+                            confidence: None,
                         },
                     },
                 )

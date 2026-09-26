@@ -16,7 +16,7 @@ use breakdown_core::ai::{
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::scene::commands::{CreateScene, UpdateSceneDetails};
-use breakdown_core::scene::events::SceneDetails;
+use breakdown_core::scene::events::{SceneDetails, SceneSource};
 use breakdown_core::scene::ports::SceneCommands;
 use breakdown_core::shared::{AggregateVersion, EpisodeId, SeriesId, UserId};
 
@@ -839,6 +839,16 @@ where
                         episode_id,
                         series_id,
                         details,
+                        // AI-provenance for the script import (issue #517):
+                        // the document id is the import job id, the draft_ref
+                        // the external_ref. Confidence is `None` — the preview
+                        // pipeline carries no model confidence, so we record no
+                        // invented value.
+                        source: SceneSource::AiExtracted {
+                            document_id: preview_id.as_uuid(),
+                            external_ref: Some(reservation.draft_ref.clone()),
+                            confidence: None,
+                        },
                     },
                 )
                 .await

@@ -64,7 +64,9 @@ fuzz_target!(|data: &[u8]| {
             } => {
                 let _ = document_id;
                 let _ = external_ref.as_deref();
-                let _ = confidence.is_finite();
+                if let Some(confidence) = confidence {
+                    let _ = confidence.is_finite();
+                }
             }
         }
 
