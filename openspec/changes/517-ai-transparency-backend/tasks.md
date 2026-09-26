@@ -9,7 +9,8 @@
 - [x] 1.1 Add `SceneSource` (`Manual` | `AiExtracted { document_id, external_ref, confidence: Option<f32> }`) in `crates/core/src/scene/events.rs`
 - [x] 1.2 Add serde-defaulted `source` field to `SceneCreated` (historic events replay as `Manual`)
 - [x] 1.3 Add `CreateScene.source` (serde default) and keep it through `SceneAggregate` apply/replay
-- [x] 1.4 Expose `SceneView.source`; re-export `SceneSource` from `scene` + OpenAPI components
+- [x] 1.4 Expose `SceneView.source` (optional additive field, `Option<SceneSource>`, ADR-021 D3/MINOR); re-export `SceneSource` from `scene` + OpenAPI components
+- [x] 1.7 Regenerate the vendored Dart client (`frontend-flutter/scripts/regen-client.sh`) so the `OpenAPI client drift` gate stays green (frontend AGENTS §3)
 - [x] 1.5 Change `ShootingDaySource::AiExtracted.confidence` to `Option<f32>` with replay-compat docs
 - [x] 1.6 Stamp `SceneSource::AiExtracted` in `plan_scene_apply` (planner truth) with the import job id
 

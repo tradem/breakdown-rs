@@ -1820,10 +1820,15 @@ components:
             $ref: '#/components/schemas/ShootingDayId'
           type: array
         source:
-          $ref: '#/components/schemas/SceneSource'
-          description: |-
-            Provenance discriminator (EU AI Act transparency, issue #517):
-            `Manual` for user-created scenes, `AiExtracted` for AI-imported ones.
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SceneSource'
+            description: |-
+              Provenance discriminator (EU AI Act transparency, issue #517).
+              `Some(AiExtracted)` marks AI-imported scenes; `Some(Manual)` is the
+              user-created path; `None` is only produced by clients that do not know
+              the field (legacy caches). Serde-`default`-backed and additive on the
+              wire (ADR-021 D3/MINOR).
         summary:
           type:
           - string
@@ -1840,7 +1845,6 @@ components:
       - is_schedule_set
       - shooting_day_ids
       - assigned_characters
-      - source
       - version
       - updated_at
       type: object

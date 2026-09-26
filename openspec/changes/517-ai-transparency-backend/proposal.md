@@ -44,16 +44,19 @@ substratum, no persistent provenance badge anywhere in the app is possible.
 - `SceneShoot` provenance is **deferred** (user decision): its provenance is
   transitively implied by the pair-unique (scene, day) pair; tracted as a
   follow-up if a read surface ever needs it.
-- Wire: `SceneView.source` is an additive field (ADR-021 D3 — MINOR, `/v1` path
-  version stays); wire fixture allowlisted, `openapi.yaml` regenerated.
+- Wire: `SceneView.source` is an additive optional field
+  (`Option<SceneSource>`, serde-`default`-backed — ADR-021 D3/D5 MINOR, `/v1`
+  path version stays); wire fixture allowlisted, `openapi.yaml` regenerated,
+  and the vendored Dart client regenerated (drift gate).
 
 ## Validation
 
 - `cargo test -p breakdown_core`: 337 passed (incl. new
   `tests/scene_provenance.rs` — legacy-event replay defaults, numeric-confidence
   lossless decode, AI provenance round-trip through aggregate + replay).
-- `cargo test -p infra`: 371 passed (projector writes source JSONB).
+- `cargo test -p infra`: 368 passed (projector writes source JSONB).
 - `cargo test -p api`: all green, `openapi_drift` 4/4 after regeneration.
+- `flutter test` (frontend, vendor client regen): 1037 passed.
 - Integration tests (Postgres/SierraDB testcontainers): projector_scene_test,
   projector_tests, command_adapter_tests, query_repository_tests,
   repository_scene_test, scene/shooting_day round-trips, event fixture chain

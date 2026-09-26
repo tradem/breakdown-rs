@@ -24,7 +24,7 @@ fn scene(number: u32) -> SceneView {
         assigned_characters: Vec::new(),
         version: AggregateVersion::INITIAL,
         updated_at: Utc.timestamp_opt(0, 0).single().unwrap(),
-        source: SceneSource::Manual,
+        source: Some(SceneSource::Manual),
     }
 }
 

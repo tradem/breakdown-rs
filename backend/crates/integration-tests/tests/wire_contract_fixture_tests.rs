@@ -181,7 +181,7 @@ fn sample_views() -> Vec<(&'static str, Value)> {
                 assigned_characters: vec![character_id],
                 version: AggregateVersion(4),
                 updated_at: t,
-                source: SceneSource::Manual,
+                source: Some(SceneSource::Manual),
             },
         ),
         snapshot(

@@ -164,7 +164,7 @@ fn map_scene_view_row(row: sqlx::postgres::PgRow) -> Result<SceneView, DomainErr
         script_day,
         shooting_day_ids: shooting_day_ids.into_iter().map(ShootingDayId).collect(),
         assigned_characters: row.try_get("assigned_characters").map_err(map_err)?,
-        source,
+        source: Some(source),
         version: AggregateVersion(row.try_get::<i64, _>("version").map_err(map_err)? as u64),
         updated_at: row
             .try_get::<DateTime<Utc>, _>("updated_at")

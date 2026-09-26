@@ -348,7 +348,7 @@ async fn merge_worker_success_records_telemetry() {
             assigned_characters: Vec::new(),
             version: AggregateVersion::INITIAL,
             updated_at: Utc.timestamp_opt(0, 0).single().unwrap(),
-            source: SceneSource::Manual,
+            source: Some(SceneSource::Manual),
         }
     }
 
@@ -1272,7 +1272,7 @@ impl ScheduleApplyFixture {
             assigned_characters: Vec::new(),
             version: breakdown_core::shared::AggregateVersion::INITIAL,
             updated_at: Utc::now(),
-            source: SceneSource::Manual,
+            source: Some(SceneSource::Manual),
         };
         let schedule = breakdown_core::ai::ShootingSchedule {
             block_id: None,

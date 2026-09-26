@@ -11,7 +11,11 @@ The AI script apply SHALL stamp every scene it creates with
 `document_id` is the AI import job id, `external_ref` is the draft ref, and
 `confidence` is `None` (the pipeline measures no per-row model confidence). The
 REST scene-creation path and every client request SHALL record `Manual`; clients
-SHALL NOT be able to set provenance on `CreateSceneRequest`.
+SHALL NOT be able to set provenance on `CreateSceneRequest`. The `SceneView`
+read model SHALL expose the discriminator as an optional additive field
+(`source: Option<SceneSource>`, ADR-021 D3/MINOR): `Some(AiExtracted)` marks
+AI-imported scenes, `Some(Manual)` the user-created path and `None` only
+legacy clients that predate the field.
 
 #### Scenario: Script apply marks the scene as AI-extracted
 

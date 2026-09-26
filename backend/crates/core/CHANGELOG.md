@@ -21,7 +21,8 @@ commits (ADR-020 D5).
 - New `SceneSource` enum (`Manual` | `AiExtracted { document_id, external_ref, confidence }`)
   records how a scene came into existence. `SceneCreated` gains an additive
   `source` field (serde default `Manual`, so historic events replay unchanged),
-  `CreateScene` carries it and `SceneAggregate` keeps it; `SceneView` exposes it.
+  `CreateScene` carries it and `SceneAggregate` keeps it; `SceneView` exposes
+  it as an optional additive field (`Option<SceneSource>`, ADR-021 D3/MINOR).
 - `ShootingDaySource::AiExtracted.confidence` is now `Option<f32>`: the apply
   records `None` (the preview carries no model confidence) instead of the
   misleading hard-coded `1.0`. Persisted events with a plain numeric value
