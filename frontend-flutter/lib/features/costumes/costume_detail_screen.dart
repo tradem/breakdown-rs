@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 
@@ -639,14 +640,14 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
       AsyncData(:final value) => !value.canUploadContinuityPhotos,
       _ => false,
     };
-    // Assignment pre-gate (AUTHZ-GATE mirror, issue #513): the backend
-    // resolves the photo season through the costume's character, so an
-    // unassigned costume cannot upload OR delete photos (422
-    // `domain.validation`). Gate the affordances client-side AND explain
-    // the precondition — a posted command on an unassigned costume is a
-    // doomed request the controller refuses before any network call.
-    final unassigned = widget.costume.characterId == null;
-    final canManagePhotos = canUpload && !unassigned;
+    // Photo affordances are gated on the membership capability only. The
+    // costume's season *scope* is the server's call (issue #532): an
+    // unassigned costume that stands in the season's repertoire (which is how
+    // the client creates every costume, issue #453) CAN manage photos, so no
+    // client-side character-assignment gate remains here. A costume with no
+    // scope at all is rejected by the server with `domain.validation`, which
+    // surfaces through the photo command-error copy.
+    final canManagePhotos = canUpload;
     // Do not construct the network-backed photo repository while the
     // capability is denied or still pending. This keeps the overview's
     // inline editor renderable during membership resolution and enforces the
@@ -678,11 +679,6 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
           Text(
             l10nOf(context).photoErrorForbidden,
             key: const Key('photo-denied-narrative'),
-          ),
-        if (unassigned)
-          Text(
-            l10nOf(context).photoErrorRequiresCharacter,
-            key: const Key('photo-assignment-gate-narrative'),
           ),
         if (repo != null)
           PhotoGallery(

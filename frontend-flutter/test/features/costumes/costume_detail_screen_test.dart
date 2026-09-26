@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 
@@ -222,9 +223,17 @@ class _FakePhotoRepository extends PhotoRepository {
   int deleteCalls = 0;
   int uploadCalls = 0;
 
+  /// Scripted server failure for the next call (issue #532: the server owns
+  /// the costume-scope decision, so its rejection must be asserted through the
+  /// honest code-keyed copy). `null` = serve a success.
+  ProblemError? uploadError;
+  ProblemError? deleteError;
+
   @override
   Future<Result<void>> delete(String costumeId, String photoId) {
     deleteCalls++;
+    final error = deleteError;
+    if (error != null) return Future.value(Left(error));
     return Future.value(const Right(null));
   }
 
@@ -236,6 +245,8 @@ class _FakePhotoRepository extends PhotoRepository {
     ProgressCallback? onSendProgress,
   }) {
     uploadCalls++;
+    final error = uploadError;
+    if (error != null) return Future.value(Left(error));
     return Future.value(
       Right(
         PhotoView(
@@ -879,34 +890,33 @@ void main() {
     );
   });
 
-  group('CostumeDetailScreen photo assignment gate (issue #513)', () {
+  group('CostumeDetailScreen photo scope gate (issue #532)', () {
     testWidgets(
-      'unassigned costume: photo affordances gated, actionable narrative, '
-      'zero network calls on upload',
+      'unassigned costume: affordances stay enabled, upload is dispatched '
+      '(server owns the season scope)',
       (tester) async {
-        // Issue #513: the backend resolves the photo season through the
-        // costume's character, so an unassigned costume 422s
-        // `domain.validation`. The client mirrors the gate (AUTHZ-GATE):
-        // the affordances are gated AND a direct upload is refused with a
-        // code-keyed denial before any network call.
+        // Issue #532: the server resolves a costume's season scopes as
+        // `character season ∪ repertoire seasons` (issue #453), so an
+        // unassigned costume in the season's repertoire — how the client
+        // creates every costume — CAN manage photos. The client-side
+        // character pre-deny of issue #513 is resolved: no gate narrative,
+        // no hidden affordances, and the request actually leaves the device.
         await setupContainer(costume: _costume('c-1')); // characterId: null
         await pumpDetail(tester, 'c-1');
-        // Actionable gate narrative replaces the misleading generic copy.
+        // The #513 gate narrative is gone: there is nothing to pre-explain.
         expect(
           find.byKey(const Key('photo-assignment-gate-narrative')),
-          findsOneWidget,
-        );
-        // No capture affordances: empty-gallery "Add photo", camera, gallery.
-        expect(find.byKey(const Key('photo-capture-c-1')), findsNothing);
-        expect(find.byKey(const Key('photo-capture-camera-c-1')), findsNothing);
-        expect(
-          find.byKey(const Key('photo-capture-gallery-c-1')),
           findsNothing,
         );
-        // Controller-level gate: a direct upload on the unassigned costume
-        // is a code-keyed denial with ZERO network calls (fake repo counter
-        // provable — the request never left the device).
-        ProblemError? gated;
+        // Capture affordances render on an unassigned costume.
+        expect(find.byKey(const Key('photo-capture-c-1')), findsOneWidget);
+        expect(
+          find.byKey(const Key('photo-capture-camera-c-1')),
+          findsOneWidget,
+        );
+        // The command is dispatched — the server decides (fake repo counter
+        // proves the request left the device).
+        ProblemError? failure;
         final result = await container
             .read(costumesControllerProvider('season-1').notifier)
             .uploadPhoto(
@@ -914,85 +924,107 @@ void main() {
               bytes: Uint8ListBytes(Uint8List.fromList(const [1, 2, 3])),
               contentType: 'image/jpeg',
             );
-        result.match((e) => gated = e, (_) {});
-        expect(gated?.code, 'photo.requires_character');
-        expect(photos.uploadCalls, 0);
-        // Err-branch assertion: the rejected upload renders the new,
-        // actionable narrative in the COMMAND-ERROR banner (issue #513).
-        // Scoped to `costume-detail-error` — the assignment narrative is
-        // already on-screen before the upload, so a broad text finder would
-        // pass even if the gate denial never rendered (CodeRabbit
-        // #4101353494).
+        result.match((e) => failure = e, (_) {});
+        expect(failure, isNull);
+        expect(photos.uploadCalls, 1);
+        // No client-side gate denial surfaces on the happy path.
+        await _pumpFrames(tester);
+        expect(find.byKey(const Key('costume-detail-error')), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'delete dispatches on an unassigned costume that holds photos',
+      (tester) async {
+        // Same scope resolution as upload: the server authorizes against the
+        // costume's repertoire season, so the delete affordance is not hidden.
+        final photo = CostumePhotoView(
+          (b) => b
+            ..id = 'p-1'
+            ..contentType = 'image/jpeg'
+            ..sizeBytes = 10
+            ..variants.replace(
+              BuiltList<PhotoVariantView>([
+                PhotoVariantView(
+                  (v) => v
+                    ..kind = serializers.deserializeWith(
+                      PhotoVariant.serializer,
+                      'Thumb',
+                    )!
+                    ..status = serializers.deserializeWith(
+                      VariantStatus.serializer,
+                      'Ready',
+                    )!
+                    ..sizeBytes = 5,
+                ),
+              ]),
+            ),
+        );
+        final costume = CostumeView(
+          (b) => b
+            ..id = 'c-1'
+            ..notes = 'n'
+            ..details.replace(BuiltList<CostumeDetailView>())
+            ..photos.replace(BuiltList<CostumePhotoView>([photo]))
+            ..updatedAt = DateTime.utc(2026, 1, 1)
+            ..version = 1,
+        );
+        await setupContainer(costume: costume);
+        await pumpDetail(tester, 'c-1');
+        expect(find.byKey(const Key('photo-tile-p-1')), findsOneWidget);
+        expect(find.byKey(const Key('photo-delete-p-1')), findsOneWidget);
+        expect(
+          find.byKey(const Key('photo-assignment-gate-narrative')),
+          findsNothing,
+        );
+        ProblemError? failure;
+        final result = await container
+            .read(costumesControllerProvider('season-1').notifier)
+            .deletePhoto(costumeId: 'c-1', photoId: 'p-1');
+        result.match((e) => failure = e, (_) {});
+        expect(failure, isNull);
+        expect(photos.deleteCalls, 1);
+      },
+    );
+
+    testWidgets(
+      'server-side no-scope rejection renders the honest photo copy (Err branch)',
+      (tester) async {
+        // Err-branch assertion for the resolved #532 client gate: a costume
+        // with NO season scope at all (not assigned, not in any repertoire) is
+        // rejected by the server with `domain.validation`. The request IS
+        // issued (the server owns the decision) and the failure surfaces
+        // through the photo copy, never the "costume could not be saved"
+        // fallback (origin-routed copy, issue #513).
+        await setupContainer(costume: _costume('c-1')); // characterId: null
+        photos.uploadError = const ProblemError(
+          code: 'domain.validation',
+          status: 422,
+        );
+        await pumpDetail(tester, 'c-1');
+        ProblemError? failure;
+        final result = await container
+            .read(costumesControllerProvider('season-1').notifier)
+            .uploadPhoto(
+              costumeId: 'c-1',
+              bytes: Uint8ListBytes(Uint8List.fromList(const [1, 2, 3])),
+              contentType: 'image/jpeg',
+            );
+        result.match((e) => failure = e, (_) {});
+        expect(failure?.code, 'domain.validation');
+        expect(photos.uploadCalls, 1);
         await _pumpFrames(tester);
         expect(
           find.descendant(
             of: find.byKey(const Key('costume-detail-error')),
             matching: find.text(
-              'Assign the costume to a character before managing photos.',
+              'The photo could not be saved (domain.validation).',
             ),
           ),
           findsOneWidget,
         );
       },
     );
-
-    testWidgets('delete refused on an unassigned costume that holds photos', (
-      tester,
-    ) async {
-      // Same character-derived season seam as upload: an unassigned
-      // costume cannot delete photos either (backend 422 `domain.validation`).
-      // The client gates the affordance AND refuses at the controller with
-      // zero network calls.
-      final photo = CostumePhotoView(
-        (b) => b
-          ..id = 'p-1'
-          ..contentType = 'image/jpeg'
-          ..sizeBytes = 10
-          ..variants.replace(
-            BuiltList<PhotoVariantView>([
-              PhotoVariantView(
-                (v) => v
-                  ..kind = serializers.deserializeWith(
-                    PhotoVariant.serializer,
-                    'Thumb',
-                  )!
-                  ..status = serializers.deserializeWith(
-                    VariantStatus.serializer,
-                    'Ready',
-                  )!
-                  ..sizeBytes = 5,
-              ),
-            ]),
-          ),
-      );
-      final costume = CostumeView(
-        (b) => b
-          ..id = 'c-1'
-          ..notes = 'n'
-          ..details.replace(BuiltList<CostumeDetailView>())
-          ..photos.replace(BuiltList<CostumePhotoView>([photo]))
-          ..updatedAt = DateTime.utc(2026, 1, 1)
-          ..version = 1,
-      );
-      await setupContainer(costume: costume);
-      await pumpDetail(tester, 'c-1');
-      // The tile still renders read-only, but the delete affordance is
-      // gated away; the assignment narrative explains why.
-      expect(find.byKey(const Key('photo-tile-p-1')), findsOneWidget);
-      expect(find.byKey(const Key('photo-delete-p-1')), findsNothing);
-      expect(
-        find.byKey(const Key('photo-assignment-gate-narrative')),
-        findsOneWidget,
-      );
-      // Controller-level denial: zero delete calls.
-      ProblemError? gated;
-      final result = await container
-          .read(costumesControllerProvider('season-1').notifier)
-          .deletePhoto(costumeId: 'c-1', photoId: 'p-1');
-      result.match((e) => gated = e, (_) {});
-      expect(gated?.code, 'photo.requires_character');
-      expect(photos.deleteCalls, 0);
-    });
 
     testWidgets(
       'unknown costume binding lets the server decide (no pre-deny)',

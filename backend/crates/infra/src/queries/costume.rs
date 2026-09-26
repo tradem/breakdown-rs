@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: longcat-2.0 (opencode-go)
 
@@ -212,6 +213,26 @@ impl CostumeRepository for CostumeRepositoryImpl {
 
     async fn costume_with_details_photos(&self, id: Uuid) -> Result<CostumeView, DomainError> {
         self.costumefind_by_id_with_children(id).await
+    }
+
+    /// Repertoire seasons of a costume (issue #453 binding, read by issue
+    /// #532). Ordered by `season_id` so the result is deterministic for the
+    /// m:n case — callers must not treat it as a single season.
+    async fn repertoire_seasons(&self, costume_id: Uuid) -> Result<Vec<SeasonId>, DomainError> {
+        let rows: Vec<Uuid> = sqlx::query_scalar(
+            r#"
+            SELECT season_id
+            FROM projection_costume_season
+            WHERE costume_id = $1
+            ORDER BY season_id
+            "#,
+        )
+        .bind(costume_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DomainError::internal(e.to_string()))?;
+
+        Ok(rows.into_iter().map(SeasonId).collect())
     }
 }
 

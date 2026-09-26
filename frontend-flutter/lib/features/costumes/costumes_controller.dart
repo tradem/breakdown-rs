@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 
@@ -211,12 +212,6 @@ class CostumesCommandError extends _$CostumesCommandError {
   void clear() => state = null;
 }
 
-/// Tri-state result of the controller's character-binding resolution
-/// (CodeRabbit #4101353477): distinguishes a CONFIRMED unassigned costume
-/// from one whose row is unknown locally, so the assignment gate only
-/// pre-denies what it knows for sure.
-enum CostumeBinding { assigned, unassigned, unknown }
-
 /// Localized client-side copy for costume command failures, keyed on the
 /// stable problem `code` (never the server's localized `detail`).
 String costumeErrorCopy(AppLocalizations l10n, ProblemError error) =>
@@ -341,54 +336,6 @@ class CostumesController extends _$CostumesController {
       gate = const GateDeny('membership.pending');
     }
     return gate;
-  }
-
-  /// Freshest known `character_id` binding for [costumeId], returned as a
-  /// tri-state (CodeRabbit #4101353477): a row ABSENT from the local state
-  /// is [CostumeBinding.unknown] — NOT confirmed-unassigned. The fence-held
-  /// overlay (this client's latest ack) is read first, then the reconciled
-  /// projection row (mirror of the detail screen's `_resolveCostume`
-  /// precedence).
-  CostumeBinding _resolveCharacterBinding(String costumeId) {
-    for (final o in ref.read(costumesOverlaysProvider(seasonId))) {
-      if (o.id == costumeId) {
-        return o.overlay.characterId == null
-            ? CostumeBinding.unassigned
-            : CostumeBinding.assigned;
-      }
-    }
-    for (final row in ref.read(costumesViewProvider(seasonId)).rows) {
-      if (row.id == costumeId) {
-        return row.characterId == null
-            ? CostumeBinding.unassigned
-            : CostumeBinding.assigned;
-      }
-    }
-    return CostumeBinding.unknown;
-  }
-
-  /// Client-side AUTHZ-GATE mirror for the backend's character-derived photo
-  /// season (issue #513): photo commands (upload/delete) require the costume
-  /// to be assigned to a character — the backend resolves the photo season
-  /// through `costume.character_id → character.season_id` and 422s
-  /// `domain.validation` on an unassigned costume. A denial surfaces the
-  /// localized, actionable narrative ([photo.requires_character]) and NEVER
-  /// issues the request (provable by a fake repository call count of zero).
-  ///
-  /// Only a CONFIRMED unassigned binding is denied client-side. An
-  /// [CostumeBinding.unknown] row (missing locally — e.g. a costume assigned
-  /// by another client before this one cached it) falls through and lets the
-  /// authoritative server decide; a photo-command `domain.validation` from
-  /// that fall-through still renders the photo copy via the command origin.
-  bool _denyUnassignedPhotoCommand(String costumeId) {
-    if (_resolveCharacterBinding(costumeId) != CostumeBinding.unassigned) {
-      return false;
-    }
-    _setCommandError(
-      CostumeCommandSurface.photo,
-      const ProblemError(code: 'photo.requires_character', status: 403),
-    );
-    return true;
   }
 
   GateDecision? _deny(CostumeCommandSurface surface, GateDecision gate) {
@@ -807,22 +754,17 @@ class CostumesController extends _$CostumesController {
   /// Returns the Gallery ack; the screen reconciles via the costume refetch
   /// + [PhotoRepository.watch].
   ///
-  /// // AUTHZ-GATE: season-scoped photo policy checked before the call.
+  /// // AUTHZ-GATE: season-scoped photo policy checked before the call. The
+  /// season *scope* of the costume is the server's call (issue #532): an
+  /// unassigned costume in the season's repertoire is uploadable, so the
+  /// client no longer pre-denies a `null` character binding (issue #513's
+  /// client mirror). The server's `domain.validation` for a costume with no
+  /// scope at all renders through [photoErrorCopy].
   Future<Result<PhotoView>> uploadPhoto({
     required String costumeId,
     required Uint8ListBytes bytes,
     required String contentType,
   }) async {
-    // Assignment precondition (issue #513 / CodeRabbit #4101353483): the
-    // backend resolves the photo season through the costume's character, so
-    // a CONFIRMED unassigned costume cannot upload (422 `domain.validation`).
-    // Checked BEFORE the membership fetch — it is pure local state, so the
-    // client refuses with zero network calls (not even a membership request).
-    if (_denyUnassignedPhotoCommand(costumeId)) {
-      return const Left(
-        ProblemError(code: 'photo.requires_character', status: 403),
-      );
-    }
     // AUTHZ-GATE: photo capability checked before any network call.
     final gate = await _photoGate();
     if (_deny(CostumeCommandSurface.photo, gate) != null) {
@@ -846,20 +788,13 @@ class CostumesController extends _$CostumesController {
   /// Deletes a costume photo (confirm-first in the UI; 204 → optimistic
   /// removal + reconcile).
   ///
-  /// // AUTHZ-GATE: season-scoped photo policy checked before the call.
+  /// // AUTHZ-GATE: season-scoped photo policy checked before the call; the
+  /// costume's season *scope* is resolved by the server (issue #532) for the
+  /// same reason as [uploadPhoto].
   Future<Result<void>> deletePhoto({
     required String costumeId,
     required String photoId,
   }) async {
-    // Assignment precondition (issue #513 / CodeRabbit #4101353483): the
-    // same character-derived season seam as upload — a CONFIRMED unassigned
-    // costume cannot delete either (backend 422 `domain.validation`). Checked
-    // BEFORE the membership fetch (pure local state — zero network calls).
-    if (_denyUnassignedPhotoCommand(costumeId)) {
-      return const Left(
-        ProblemError(code: 'photo.requires_character', status: 403),
-      );
-    }
     // AUTHZ-GATE: photo capability checked before any network call.
     final gate = await _photoGate();
     if (_deny(CostumeCommandSurface.photo, gate) != null) {
