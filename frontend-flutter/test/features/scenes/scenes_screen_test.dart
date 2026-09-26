@@ -4,6 +4,7 @@
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:drift/native.dart';
+import 'package:one_of/one_of.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -32,10 +33,36 @@ import '../seasons/seasons_test_fakes.dart';
 const _networkDown = ProblemError(code: 'transport.connectionError');
 const _gone = ProblemError(code: 'episode.not-found', status: 404);
 
-SceneView _scene(String id, {String? summary}) => SceneView(
+SceneView _scene(
+  String id, {
+  String? summary,
+
+  /// Provenance fixture (issue #538). `absent` (the default) models a
+  /// pre-#538/legacy row with no discriminator, `manual` a real
+  /// `Some(Manual)` source, `ai` the `Some(AiExtracted)` arm — so a badge
+  /// assertion distinguishes manual provenance from absent provenance.
+  String source = 'absent',
+}) => SceneView(
   (b) => b
     ..id = id
     ..episodeId = 'episode-1'
+    ..source_ = switch (source) {
+      'manual' => SceneSource(
+        (s) => s..oneOf = OneOf.fromValue1<String>(value: 'Manual'),
+      ).toBuilder(),
+      'ai' => SceneSource(
+        (s) => s
+          ..oneOf = OneOf.fromValue2<String, SceneSourceOneOf>(
+            value: SceneSourceOneOf(
+              (d) => d
+                ..aiExtracted = SceneSourceOneOfAiExtracted(
+                  (d2) => d2..documentId = 'job-1',
+                ).toBuilder(),
+            ),
+          ),
+      ).toBuilder(),
+      _ => null,
+    }
     ..assignedCharacters.replace(const ['char-1'])
     ..isScheduleSet = true
     ..location = 'Studio A'
@@ -164,6 +191,26 @@ void main() {
       expect(find.textContaining('Scheduled'), findsOneWidget);
       expect(find.textContaining('1 characters'), findsOneWidget);
       expect(find.textContaining('2 shooting days'), findsOneWidget);
+    });
+
+    testWidgets('AI-extracted scene carries the provenance badge; Manual '
+        'none (issue #538)', (tester) async {
+      await setupContainer(
+        initialRows: [
+          _scene('s-ai', source: 'ai'),
+          // A real `Some(Manual)` row (not the absent one) so the assertion
+          // proves the badge is withheld for manual provenance specifically.
+          _scene('s-m', source: 'manual'),
+          // A pre-#538 row with no discriminator must stay badge-free too.
+          _scene('s-absent'),
+        ],
+      );
+      await pumpScreen(tester);
+      // Row-id-scoped badge: exactly one element per AI row, none on the
+      // manual or absent row (no false attribution in either direction).
+      expect(find.byKey(const Key('scene-ai-badge-s-ai')), findsOneWidget);
+      expect(find.byKey(const Key('scene-ai-badge-s-m')), findsNothing);
+      expect(find.byKey(const Key('scene-ai-badge-s-absent')), findsNothing);
     });
 
     testWidgets('empty: plain-language state with create CTA', (tester) async {

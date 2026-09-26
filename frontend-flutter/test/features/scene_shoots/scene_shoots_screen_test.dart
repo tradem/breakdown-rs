@@ -72,13 +72,31 @@ SerializedNote _note(String id, String body) => SerializedNote(
     ..body = body,
 );
 
-ShootingDayView _day({DateTime? wrappedAt, int version = 1}) => ShootingDayView(
+ShootingDayView _day({
+  DateTime? wrappedAt,
+  int version = 1,
+  bool aiExtracted = false,
+}) => ShootingDayView(
   (b) => b
     ..id = 'day-1'
     ..episodeId = 'episode-1'
     ..orderKey = 'a0'
     ..source_.replace(
-      ShootingDaySource((s) => s..oneOf = OneOf.fromValue1(value: 'Manual')),
+      aiExtracted
+          ? ShootingDaySource(
+              (s) => s
+                ..oneOf = OneOf.fromValue2<String, SceneSourceOneOf>(
+                  value: SceneSourceOneOf(
+                    (d) => d
+                      ..aiExtracted = SceneSourceOneOfAiExtracted(
+                        (d2) => d2..documentId = 'job-1',
+                      ).toBuilder(),
+                  ),
+                ),
+            )
+          : ShootingDaySource(
+              (s) => s..oneOf = OneOf.fromValue1(value: 'Manual'),
+            ),
     )
     ..label = 'Day 1'
     ..archived = false
@@ -353,6 +371,19 @@ void main() {
   }
 
   group('SceneShootsScreen states (2.4, semantic finders)', () {
+    testWidgets('AI-tagged day board carries the provenance badge in the '
+        'day title (issue #538)', (tester) async {
+      await setupContainer();
+      await pumpScreen(tester, day: _day(aiExtracted: true));
+      expect(find.byKey(const Key('scene-shoots-ai-badge')), findsOneWidget);
+    });
+
+    testWidgets('manual day board carries NO badge (no invented '
+        'attribution, issue #538)', (tester) async {
+      await setupContainer();
+      await pumpScreen(tester);
+      expect(find.byKey(const Key('scene-shoots-ai-badge')), findsNothing);
+    });
     testWidgets('statuses: every lifecycle state renders its chip', (
       tester,
     ) async {

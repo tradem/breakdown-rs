@@ -1037,6 +1037,43 @@ void main() {
     expect(sent.prompts['schedule'], 'Stored Schedule');
   });
 
+  testWidgets('the AI-literacy helper card precedes the first-run and the '
+      'configured forms and stays persistent (issue #538)', (tester) async {
+    await setupContainer();
+    await pumpScreen(tester);
+    // First-run state: helper ABOVE the form.
+    expect(find.byKey(const Key('ai-config-literacy')), findsOneWidget);
+    final literacyY = tester
+        .getTopLeft(find.byKey(const Key('ai-config-literacy')))
+        .dy;
+    final formY = tester
+        .getTopLeft(find.byKey(const Key('ai-config-first-run')))
+        .dy;
+    expect(
+      literacyY < formY,
+      isTrue,
+      reason: 'the Art. 4 helper is scroll-ordered above the forms',
+    );
+
+    // The CONFIGURED state too: a configured discovery result must keep the
+    // helper card (and keep it above the configured form) — a first-run-only
+    // assertion cannot detect its removal there.
+    discovery.value = Right([_config()]);
+    await refreshDiscovery(tester);
+    expect(find.byKey(const Key('ai-config-literacy')), findsOneWidget);
+    final configuredLiteracyY = tester
+        .getTopLeft(find.byKey(const Key('ai-config-literacy')))
+        .dy;
+    final configuredFormY = tester
+        .getTopLeft(find.byKey(const Key('ai-config-configured')))
+        .dy;
+    expect(
+      configuredLiteracyY < configuredFormY,
+      isTrue,
+      reason: 'the helper is also scroll-ordered above the configured form',
+    );
+  });
+
   group('AiConfigScreen goldens (2.2): {light,dark}×{android,macos}', () {
     Future<void> pumpGolden(
       WidgetTester tester, {

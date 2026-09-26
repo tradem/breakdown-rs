@@ -2012,6 +2012,81 @@ class AppLocalizationsEn extends AppLocalizations {
       'When you explicitly submit an import, the text you provide is sent to a configured server-side AI provider. This app never communicates with an AI provider directly.';
 
   @override
+  String get aiImportDisclosureTitle => 'AI processing';
+
+  @override
+  String get aiImportDisclosureBody =>
+      'The picked file is processed by a server-side AI import. The results are AI-generated and must be verified in the preview before they are applied.';
+
+  @override
+  String get aiPreviewAiBanner => 'AI-extracted content — review carefully';
+
+  @override
+  String get aiPreviewAiNote =>
+      'Every row is a machine-extracted draft. The preview carries no machine-verified confidence values.';
+
+  @override
+  String get aiApplyReviewCheckbox =>
+      'I have reviewed the AI-extracted content';
+
+  @override
+  String get aiProvenanceBadge => 'AI-extracted';
+
+  @override
+  String get aiDisclosureTitle => 'About AI in this app';
+
+  @override
+  String get aiDisclosurePurposeTitle => 'Purpose';
+
+  @override
+  String get aiDisclosurePurposeBody =>
+      'The AI import extracts structure (scenes, shooting days) from the schedule and script documents you provide, so collaboration can start faster.';
+
+  @override
+  String get aiDisclosureFlowTitle => 'Data flow';
+
+  @override
+  String get aiDisclosureFlowBody =>
+      'Device → backend → configured AI provider → drafts → preview → explicit apply. This app never communicates with the AI provider directly.';
+
+  @override
+  String get aiDisclosureNamingTitle => 'Provider and models';
+
+  @override
+  String aiDisclosureNamingBodyConfigured(Object model, Object provider) {
+    return 'Configured: provider $provider, assistant model $model.';
+  }
+
+  @override
+  String get aiDisclosureNamingBodyUnconfigured =>
+      'No AI configuration is set up for this account.';
+
+  @override
+  String get aiDisclosureNamingBodyLoading =>
+      'Provider and models are loading …';
+
+  @override
+  String get aiDisclosureRetentionTitle => 'Retention';
+
+  @override
+  String get aiDisclosureRetentionBody =>
+      'Imported document data is deleted automatically after 7 days; afterwards only the explicitly applied result remains in the project.';
+
+  @override
+  String get aiDisclosureActTitle => 'EU AI Act';
+
+  @override
+  String get aiDisclosureActBody =>
+      'This disclosure follows the AI Regulation (EU) 2024/1689, Article 4 (AI literacy) and Article 50 (transparency): AI-generated content is labelled here and must be reviewed.';
+
+  @override
+  String get aiConfigLiteracyTitle => 'AI literacy';
+
+  @override
+  String get aiConfigLiteracyBody =>
+      'This configuration controls which AI provider and models the server-side import uses and which extraction prompts apply. The configured provider processes documents provided by users — configure curated providers and models honestly.';
+
+  @override
   String get moreTitle => 'More';
 
   @override

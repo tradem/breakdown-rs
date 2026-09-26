@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
 
+import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -27,6 +28,27 @@ AiImportRepository aiImportRepository(Ref ref) => AiImportRepository(
   ref.watch(apiClientProvider),
   AiImportJobsCacheDao(ref.watch(cacheDatabaseProvider)),
 );
+
+/// The caller's configured AI naming for the About-AI disclosure screen
+/// (EU AI Act Art. 50, issue #538): provider + assistant model — NON-secret
+/// wire values only (never the vault reference, never prompt texts). `null`
+/// when no configuration exists or discovery fails: the disclosure screen
+/// renders its honest "unconfigured" state and NEVER invents a name.
+///
+/// The list contract only guarantees NEWEST-FIRST ordering, so a revoked
+/// configuration can head the list while an active one follows. Revoked
+/// entries are filtered before the first pick — otherwise the disclosure
+/// could name a configuration the caller can no longer use.
+@riverpod
+Future<AiConfigView?> configuredAiNaming(Ref ref) async {
+  final res = await ref.watch(aiConfigRepositoryProvider).listConfigs();
+  return res.match((_) => null, (configs) {
+    for (final config in configs) {
+      if (!config.revoked) return config;
+    }
+    return null;
+  });
+}
 
 /// The AI-import secure-storage hand-off seam (task 1.3 — manual provider,
 /// no codegen, so tests override with an in-memory double via

@@ -122,3 +122,60 @@ final class AiImportRepositoryProvider
 
 String _$aiImportRepositoryHash() =>
     r'90fd00af647f7b508b5511460868546341aef2bc';
+
+/// The caller's configured AI naming for the About-AI disclosure screen
+/// (EU AI Act Art. 50, issue #538): provider + assistant model — NON-secret
+/// wire values only (never the vault reference, never prompt texts). `null`
+/// when no configuration exists or discovery fails: the disclosure screen
+/// renders its honest "unconfigured" state and NEVER invents a name.
+
+@ProviderFor(configuredAiNaming)
+final configuredAiNamingProvider = ConfiguredAiNamingProvider._();
+
+/// The caller's configured AI naming for the About-AI disclosure screen
+/// (EU AI Act Art. 50, issue #538): provider + assistant model — NON-secret
+/// wire values only (never the vault reference, never prompt texts). `null`
+/// when no configuration exists or discovery fails: the disclosure screen
+/// renders its honest "unconfigured" state and NEVER invents a name.
+
+final class ConfiguredAiNamingProvider
+    extends
+        $FunctionalProvider<
+          AsyncValue<AiConfigView?>,
+          AiConfigView?,
+          FutureOr<AiConfigView?>
+        >
+    with $FutureModifier<AiConfigView?>, $FutureProvider<AiConfigView?> {
+  /// The caller's configured AI naming for the About-AI disclosure screen
+  /// (EU AI Act Art. 50, issue #538): provider + assistant model — NON-secret
+  /// wire values only (never the vault reference, never prompt texts). `null`
+  /// when no configuration exists or discovery fails: the disclosure screen
+  /// renders its honest "unconfigured" state and NEVER invents a name.
+  ConfiguredAiNamingProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'configuredAiNamingProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$configuredAiNamingHash();
+
+  @$internal
+  @override
+  $FutureProviderElement<AiConfigView?> $createElement(
+    $ProviderPointer pointer,
+  ) => $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<AiConfigView?> create(Ref ref) {
+    return configuredAiNaming(ref);
+  }
+}
+
+String _$configuredAiNamingHash() =>
+    r'bff5d1984b6df8638c56b0249a75445dd73386ed';

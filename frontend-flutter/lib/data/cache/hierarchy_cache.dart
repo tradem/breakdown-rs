@@ -116,6 +116,12 @@ class SceneCacheRows extends Table {
   /// display count-only in Phase 1b).
   TextColumn get shootingDayIds => text()();
 
+  /// Mirrors `SceneView.source` as wire JSON (`"Manual"`,
+  /// `{"AiExtracted":{...}}` or `"null"`) — nullable because existing v8
+  /// scenes predate the field (issue #538). Null reads as absent provenance
+  /// (no invented attribution); stored verbatim so future variants survive.
+  TextColumn get sourceJson => text().nullable()();
+
   /// Mirrors `SceneView.summary` (nullable, read-only detail data).
   TextColumn get summary => text().nullable()();
 

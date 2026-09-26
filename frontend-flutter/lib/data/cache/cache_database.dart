@@ -48,7 +48,7 @@ class CacheDatabase extends _$CacheDatabase {
   CacheDatabase.connect(super.executor);
 
   @override
-  int get schemaVersion => 8;
+  int get schemaVersion => 9;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -134,6 +134,31 @@ class CacheDatabase extends _$CacheDatabase {
           await m.alterTable(TableMigration(characterCacheRows));
         }
       }
+      if (from < 9) {
+        // Issue #538 (v9): scene provenance on the cache — `SceneView.source`
+        // drifted in with #540 and the read surfaces now render it. Plain
+        // ADD COLUMN on a NULLABLE text column: no `NOT NULL`/default
+        // wrinkle (contrast to the guarded v3 snapshot-index case);
+        // existing rows read `source_json = NULL` and the DAO maps null to
+        // absent provenance (no invented attribution). The branch targets
+        // what the real v8 install meets (scene table at the v8 shape),
+        // so it is guarded by (a) the table existing — an upgrade landing
+        // on partial/probe markers that lack the scene table has NOTHING
+        // to alter (drift's m.addColumn emits a bare ALTER, which fails on
+        // a missing table) and (b) COLUMN presence — every earlier create
+        // path that ran against the CURRENT definition (fresh onCreate,
+        // migration probes that create the table mid-upgrade) already
+        // carries the column — a second ALTER would fail with
+        // `duplicate column name`.
+        if (await _tableExists(m.database, 'scene_cache_rows') &&
+            !(await _columnExists(
+              m.database,
+              'scene_cache_rows',
+              'source_json',
+            ))) {
+          await m.addColumn(sceneCacheRows, sceneCacheRows.sourceJson);
+        }
+      }
       if (from < 8) {
         // `redesign-app-shell-navigation` 2.2: shell-state key-value table
         // (persisted active-season reference, design D5). Fresh table for
@@ -145,6 +170,24 @@ class CacheDatabase extends _$CacheDatabase {
       }
     },
   );
+
+  /// Whether `name` exists as a column of `table` (SQLite catalog probe —
+  /// the same tolerance as `_tableExists`, resolved per-column so migration
+  /// branches targeting a COLUMN never run against a table shape that
+  /// already carries it).
+  static Future<bool> _columnExists(
+    DatabaseConnectionUser db,
+    String table,
+    String name,
+  ) async {
+    final rows = await db
+        .customSelect(
+          "SELECT COUNT(*) AS c FROM pragma_table_info(?) WHERE name = ?",
+          variables: [Variable.withString(table), Variable.withString(name)],
+        )
+        .getSingle();
+    return rows.read<int>('c') > 0;
+  }
 
   /// Whether `name` exists as a table in the SQLite master catalog.
   /// Migration branches must tolerate probe databases (and partial

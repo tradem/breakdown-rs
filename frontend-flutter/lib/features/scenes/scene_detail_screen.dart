@@ -12,6 +12,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
+import '../../design/components/ai_provenance_badge.dart';
+import '../../domain/ai_provenance.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../characters/characters_controller.dart';
 import '../costumes/widgets/costumes_widgets.dart';
@@ -387,9 +389,28 @@ class _SceneShootingDaysSection extends ConsumerWidget {
           for (final id in scheduled)
             ListTile(
               key: Key('scene-shooting-day-$id'),
-              title: Text(
-                byId[id]?.label ?? l10nOf(context).sceneShootDayFallback,
-              ),
+              // Provenance badge keyed like the day list #538 — the
+              // scheduled read-DTO join renders the day's wire source.
+              title: switch (byId[id] == null
+                  ? AiProvenanceVariant.absent
+                  : dayProvenance(byId[id]!.source_)) {
+                AiProvenanceVariant.aiExtracted => Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    AiProvenanceBadge(semanticKey: 'shooting-day-ai-badge-$id'),
+                    Flexible(
+                      child: Text(
+                        byId[id]?.label ??
+                            l10nOf(context).sceneShootDayFallback,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+                _ => Text(
+                  byId[id]?.label ?? l10nOf(context).sceneShootDayFallback,
+                ),
+              },
               subtitle: byId[id]?.date != null
                   ? Text(l10nOf(context).shootingDayDate('${byId[id]!.date}'))
                   : null,
@@ -473,7 +494,25 @@ class _SceneShootingDaysSection extends ConsumerWidget {
                   final d = candidates[i];
                   return ListTile(
                     key: Key('schedule-day-${d.id}'),
-                    title: Text(d.label ?? l10nOf(context).shootingDayUntitled),
+                    // Day picker provenance badge (issue #538): the picker
+                    // carries the same AI framing as the day list.
+                    title: switch (dayProvenance(d.source_)) {
+                      AiProvenanceVariant.aiExtracted => Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          AiProvenanceBadge(
+                            semanticKey: 'shooting-day-ai-badge-${d.id}',
+                          ),
+                          Flexible(
+                            child: Text(
+                              d.label ?? l10nOf(context).shootingDayUntitled,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      _ => Text(d.label ?? l10nOf(context).shootingDayUntitled),
+                    },
                     subtitle: d.date != null
                         ? Text(l10nOf(context).shootingDayDate('${d.date}'))
                         : null,

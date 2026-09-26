@@ -81,6 +81,12 @@ class AiImportSubmitScreen extends ConsumerWidget {
             Text(l10nOf(context).aiImportScriptHint),
           const SizedBox(height: 16),
           _FilePickRow(key: ValueKey(kind), kind: kind),
+          const SizedBox(height: 16),
+          // Persistent disclosure card (EU AI Act Art. 50, issue #538):
+          // the point of AI interaction names itself BEFORE the submit
+          // action, at scroll position above the button — never skippable
+          // content below the fold.
+          _DisclosureCard(),
           const SizedBox(height: 24),
           _SubmitButton(seasonId: seasonId),
         ],
@@ -164,6 +170,50 @@ AiImportDocument documentFromBytes(
     return AiImportDocument.pdf(bytes);
   }
   return AiImportDocument.csv(utf8.decode(bytes, allowMalformed: true));
+}
+
+/// The persistent AI disclosure card (spec `flutter-ai-import-workflow`
+/// delta "Point-of-interaction AI disclosure", issue #538): icon + icon
+/// surface so the disclosure is visibly distinct, copy keyed on the ARB
+/// catalogs (no inline copy), rendered before the submit button.
+class _DisclosureCard extends StatelessWidget {
+  const _DisclosureCard();
+
+  @override
+  Widget build(BuildContext context) => Card(
+    key: const Key('ai-import-disclosure'),
+    color: Theme.of(context).colorScheme.tertiaryContainer,
+    child: Padding(
+      padding: const EdgeInsets.all(12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.smart_toy_outlined,
+            color: Theme.of(context).colorScheme.tertiary,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  key: const Key('ai-import-disclosure-title'),
+                  l10nOf(context).aiImportDisclosureTitle,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  key: const Key('ai-import-disclosure-body'),
+                  l10nOf(context).aiImportDisclosureBody,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 /// The submit dispatch for the picked file. Shows linear progress while the

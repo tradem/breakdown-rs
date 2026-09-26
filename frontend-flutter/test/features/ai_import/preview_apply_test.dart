@@ -541,6 +541,123 @@ void main() {
       await tester.pump();
     });
 
+    testWidgets('the AI-extracted banner precedes the typed payload; the '
+        'degraded card does NOT carry it (issue #538)', (tester) async {
+      await setupContainer();
+      await pumpPreview(tester);
+      expect(find.byKey(const Key('ai-preview-ai-banner')), findsOneWidget);
+      // The honest review note (no machine-verified confidence values) —
+      // never fabricated per-row confidence chips (the wire has none).
+      expect(find.textContaining('machine-extracted draft'), findsOneWidget);
+      final bannerY = tester
+          .getTopLeft(find.byKey(const Key('ai-preview-ai-banner')))
+          .dy;
+      final headerY = tester
+          .getTopLeft(find.byKey(const Key('ai-preview-title')))
+          .dy;
+      expect(
+        bannerY < headerY,
+        isTrue,
+        reason: 'the AI framing precedes the payload header in scroll order',
+      );
+    });
+
+    testWidgets('a REFRESHED preview drops the review acknowledgement: the '
+        'replacement rows cannot be applied unreviewed (issue #538 review)', (
+      tester,
+    ) async {
+      await setupContainer(applyQueue: [Right(_outcome())]);
+      await pumpPreview(tester);
+
+      FilledButton submit() =>
+          tester.widget<FilledButton>(find.byKey(const Key('ai-apply-submit')));
+
+      // Acknowledge the CURRENT payload and dispatch it.
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pumpAndSettle();
+      expect(submit().onPressed, isNotNull);
+      await tester.tap(find.byKey(const Key('ai-apply-submit')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('ai-apply-outcome')), findsOneWidget);
+
+      // A provider refresh replaces the payload with DIFFERENT rows at the
+      // same element position (the unkeyed AiApplySection is reused). The
+      // stale acknowledgement must not carry over to the new content.
+      preview.value = Right(
+        _previewResponse(
+          AiPreviewPayload(
+            (b) => b
+              ..oneOf =
+                  OneOf.fromValue3<
+                    AiPreviewPayloadOneOf,
+                    AiPreviewPayloadOneOf1,
+                    AiPreviewPayloadOneOf2
+                  >(
+                    value: AiPreviewPayloadOneOf(
+                      (b2) => b2
+                        ..kind = AiPreviewPayloadOneOfKindEnum.script
+                        ..data.replace(
+                          ScriptContext(
+                            (b3) => b3
+                              ..scenes.replace([
+                                _draft('fresh-1'),
+                                _draft('fresh-2'),
+                                _draft('fresh-3'),
+                              ])
+                              ..uncertainties.replace([]),
+                          ),
+                        ),
+                    ),
+                  ),
+          ),
+        ),
+      );
+      container.invalidate(aiPreviewProvider);
+      await pumpPreview(tester);
+
+      // The fresh rows seeded…
+      expect(
+        container.read(aiApplyControllerProvider('job-1')).rows,
+        hasLength(3),
+      );
+      // …but the acknowledgement was reset: the dispatch is gated again.
+      expect(
+        submit().onPressed,
+        isNull,
+        reason: 'a replacement payload needs its own review acknowledgement',
+      );
+      expect(find.byKey(const Key('ai-apply-review-checkbox')), findsOneWidget);
+      // Re-acknowledging unlocks exactly one further dispatch.
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pumpAndSettle();
+      expect(submit().onPressed, isNotNull);
+    });
+
+    testWidgets('apply review acknowledgement: unchecked disabled, checked '
+        'dispatches (issue #538)', (tester) async {
+      await setupContainer(applyQueue: [Right(_outcome())]);
+      await pumpPreview(tester);
+      FilledButton submit() =>
+          tester.widget<FilledButton>(find.byKey(const Key('ai-apply-submit')));
+      expect(
+        submit().onPressed,
+        isNull,
+        reason: 'context valid but the review ack is unchecked — disabled',
+      );
+      expect(find.byKey(const Key('ai-apply-review-checkbox')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pumpAndSettle();
+      expect(
+        submit().onPressed,
+        isNotNull,
+        reason: 'acknowledged — the single dispatch unlocks',
+      );
+      await tester.tap(find.byKey(const Key('ai-apply-submit')));
+      await tester.pumpAndSettle();
+      // Acknowledgement adds no second dispatch: exactly one apply call.
+      expect(repo.applyRequests, hasLength(1));
+    });
+
     testWidgets('a null oneOf value renders the degraded card — never a '
         'build-time cast throw (review: OneOf.value is nullable)', (
       tester,
@@ -684,6 +801,16 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // NEW (issue #538): the acknowledgement gates the dispatch.
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const Key('ai-apply-submit')))
+            .onPressed,
+        isNull,
+        reason: 'the dispatch stays gated until the ack is checked',
+      );
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('ai-apply-submit')));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('ai-apply-outcome')), findsOneWidget);
@@ -700,6 +827,8 @@ void main() {
         ],
       );
       await pumpPreview(tester);
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('ai-apply-submit')));
       await tester.pumpAndSettle();
       expect(
@@ -722,6 +851,8 @@ void main() {
         ],
       );
       await pumpPreview(tester);
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('ai-apply-submit')));
       await tester.pumpAndSettle();
       expect(find.textContaining('check the job status'), findsOneWidget);

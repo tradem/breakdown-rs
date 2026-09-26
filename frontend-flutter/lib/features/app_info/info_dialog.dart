@@ -4,11 +4,14 @@
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../auth/auth_providers.dart';
+import 'ai_disclosure_screen.dart';
 import '../../design/spacing.dart';
 import '../../l10n/app_localizations_provider.dart';
 
@@ -101,6 +104,26 @@ class AppInfoDialog extends ConsumerWidget {
               leading: const Icon(Icons.smart_toy_outlined),
               title: Text(l10n.infoAiUsage),
               subtitle: Text(l10n.infoAiBody),
+              // Doorway to the dedicated About-AI disclosure screen (spec
+              // `flutter-app-dialogs` "Info Dialog Contents → About-AI
+              // screen", issue #538): the notice remains AND navigates.
+              // The navigator is captured before the pop so the push runs
+              // on the root navigator after the dialog route closes.
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                final nav = Navigator.of(context);
+                nav.pop();
+                // Intentionally unawaited (fire-and-forget navigation):
+                // the pushed screen's pop result is not a consumable
+                // value here.
+                unawaited(
+                  nav.push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const AiDisclosureScreen(),
+                    ),
+                  ),
+                );
+              },
             ),
           ],
         ),

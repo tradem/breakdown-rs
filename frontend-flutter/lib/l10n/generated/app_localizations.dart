@@ -3428,6 +3428,132 @@ abstract class AppLocalizations {
   /// **'Beim ausdrücklichen Absenden von Importen wird der von Dir bereitgestellte Text an einen konfigurierten serverseitigen KI-Anbieter gesendet. Diese App kontaktiert KI-Anbieter nicht direkt.'**
   String get infoAiBody;
 
+  /// No description provided for @aiImportDisclosureTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'KI-Verarbeitung'**
+  String get aiImportDisclosureTitle;
+
+  /// No description provided for @aiImportDisclosureBody.
+  ///
+  /// In de, this message translates to:
+  /// **'Die gewählte Datei wird von einem serverseitigen KI-Import verarbeitet. Die Ergebnisse sind KI-generiert und müssen vor dem Anwenden in der Vorschau geprüft werden.'**
+  String get aiImportDisclosureBody;
+
+  /// No description provided for @aiPreviewAiBanner.
+  ///
+  /// In de, this message translates to:
+  /// **'KI-extrahierter Inhalt – sorgfältig prüfen'**
+  String get aiPreviewAiBanner;
+
+  /// No description provided for @aiPreviewAiNote.
+  ///
+  /// In de, this message translates to:
+  /// **'Alle Zeilen sind maschinell extrahierte Entwürfe. Die Vorschau enthält keine maschinell verifizierten Zuverlässigkeitswerte.'**
+  String get aiPreviewAiNote;
+
+  /// No description provided for @aiApplyReviewCheckbox.
+  ///
+  /// In de, this message translates to:
+  /// **'Ich habe den KI-extrahierten Inhalt geprüft'**
+  String get aiApplyReviewCheckbox;
+
+  /// No description provided for @aiProvenanceBadge.
+  ///
+  /// In de, this message translates to:
+  /// **'KI-extrahiert'**
+  String get aiProvenanceBadge;
+
+  /// No description provided for @aiDisclosureTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Über KI in der App'**
+  String get aiDisclosureTitle;
+
+  /// No description provided for @aiDisclosurePurposeTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Zweck'**
+  String get aiDisclosurePurposeTitle;
+
+  /// No description provided for @aiDisclosurePurposeBody.
+  ///
+  /// In de, this message translates to:
+  /// **'Der KI-Import extrahiert Strukturen (Szenen, Drehtage) aus von Dir bereitgestellten Drehplan- und Skript-Dokumenten, damit die Zusammenarbeit schneller beginnt.'**
+  String get aiDisclosurePurposeBody;
+
+  /// No description provided for @aiDisclosureFlowTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Datenfluss'**
+  String get aiDisclosureFlowTitle;
+
+  /// No description provided for @aiDisclosureFlowBody.
+  ///
+  /// In de, this message translates to:
+  /// **'Gerät → Backend → konfigurierter KI-Anbieter → Entwürfe → Vorschau → ausdrückliches Anwenden. Die App kommuniziert nie direkt mit dem KI-Anbieter.'**
+  String get aiDisclosureFlowBody;
+
+  /// No description provided for @aiDisclosureNamingTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Anbieter und Modelle'**
+  String get aiDisclosureNamingTitle;
+
+  /// No description provided for @aiDisclosureNamingBodyConfigured.
+  ///
+  /// In de, this message translates to:
+  /// **'Konfiguriert: Anbieter {provider}, Assistent-Modell {model}.'**
+  String aiDisclosureNamingBodyConfigured(Object model, Object provider);
+
+  /// No description provided for @aiDisclosureNamingBodyUnconfigured.
+  ///
+  /// In de, this message translates to:
+  /// **'Für dieses Konto ist keine KI-Konfiguration eingerichtet.'**
+  String get aiDisclosureNamingBodyUnconfigured;
+
+  /// No description provided for @aiDisclosureNamingBodyLoading.
+  ///
+  /// In de, this message translates to:
+  /// **'Anbieter und Modelle werden geladen …'**
+  String get aiDisclosureNamingBodyLoading;
+
+  /// No description provided for @aiDisclosureRetentionTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Aufbewahrung'**
+  String get aiDisclosureRetentionTitle;
+
+  /// No description provided for @aiDisclosureRetentionBody.
+  ///
+  /// In de, this message translates to:
+  /// **'Importierte Dokumentdaten werden nach 7 Tagen automatisch gelöscht; danach bleibt nur das ausdrücklich angewendete Ergebnis im Projekt.'**
+  String get aiDisclosureRetentionBody;
+
+  /// No description provided for @aiDisclosureActTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'EU-KI-Gesetz'**
+  String get aiDisclosureActTitle;
+
+  /// No description provided for @aiDisclosureActBody.
+  ///
+  /// In de, this message translates to:
+  /// **'Dieser Hinweis folgt der KI-Verordnung (EU) 2024/1689, Artikel 4 (KI-Kompetenz) und Artikel 50 (Transparenz): KI-generierte Inhalte werden gekennzeichnet und müssen geprüft werden.'**
+  String get aiDisclosureActBody;
+
+  /// No description provided for @aiConfigLiteracyTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'KI-Kompetenz'**
+  String get aiConfigLiteracyTitle;
+
+  /// No description provided for @aiConfigLiteracyBody.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Konfiguration steuert, welchen KI-Anbieter und welche Modelle der serverseitige Import nutzt und welche Extraktions-Prompts gelten. Der konfigurierte Anbieter verarbeitet die von Nutzenden bereitgestellten Dokumente — konfiguriere kuratierte Anbieter und Modelle ehrlich.'**
+  String get aiConfigLiteracyBody;
+
   /// No description provided for @moreTitle.
   ///
   /// In de, this message translates to:

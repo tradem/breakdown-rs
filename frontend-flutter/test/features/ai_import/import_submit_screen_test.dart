@@ -184,6 +184,32 @@ void main() {
     expect(find.byKey(const Key('ai-import-pick-file')), findsOneWidget);
   });
 
+  testWidgets('the AI disclosure card precedes the submit action and stays '
+      'persistent regardless of the kind pick (issue #538)', (tester) async {
+    await setupContainer();
+    await pumpScreen(tester);
+
+    final disclosure = find.byKey(const Key('ai-import-disclosure'));
+    expect(disclosure, findsOneWidget);
+    final disclosureY = tester.getTopLeft(disclosure).dy;
+    final submitY = tester
+        .getTopLeft(find.byKey(const Key('ai-import-submit')))
+        .dy;
+    expect(
+      disclosureY < submitY,
+      isTrue,
+      reason:
+          'the disclosure is scroll-ordered ABOVE the submit button — '
+          'visible before any submission',
+    );
+
+    // Persistent: also present after the kind switch (never kind-scoped
+    // skippable content).
+    await tester.tap(find.text('Schedule'));
+    await tester.pumpAndSettle();
+    expect(disclosure, findsOneWidget);
+  });
+
   testWidgets('submit without a document surfaces the guard snackbar — '
       'zero upload calls', (tester) async {
     await setupContainer();
