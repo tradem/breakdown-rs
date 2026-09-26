@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 
 //! Hexagonal ports for the Costume context.
 
@@ -75,4 +76,13 @@ pub trait CostumeRepository: Send + Sync {
     ) -> Result<Vec<CostumeView>, DomainError>;
     /// Fetch a costume together with all details and linked photos.
     async fn costume_with_details_photos(&self, id: Uuid) -> Result<CostumeView, DomainError>;
+    /// Seasons the costume stands in as **repertoire** (issue #453): the rows
+    /// of `projection_costume_season` written by the costume projector from
+    /// `CostumeCreated.season_id`. Empty for a costume without a repertoire
+    /// binding.
+    ///
+    /// The binding is m:n — one costume may stand in several seasons'
+    /// repertoires — so callers must not assume a single season (issue #532).
+    /// A read-model port: only the API edge may consume it (CQRS boundary).
+    async fn repertoire_seasons(&self, costume_id: Uuid) -> Result<Vec<SeasonId>, DomainError>;
 }

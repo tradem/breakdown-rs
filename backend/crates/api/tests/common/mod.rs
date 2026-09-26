@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: space-bunny-free (opencode-go)
@@ -433,6 +434,12 @@ pub struct FakeMembershipRepo {
     /// tests exercise the allow/deny branches of handler-internal authz gates.
     /// `None` = resolve from seeded data.
     pub costume_role_override: Arc<Mutex<Option<Result<bool, DomainError>>>>,
+    /// Per-season pin for `has_active_costume_role_in_season` (issue #532):
+    /// `season_id → bool`. Consulted **before** [Self::costume_role_override],
+    /// so a test can deny the character's season while allowing a repertoire
+    /// season (the ANY semantics of the costume scope resolution). Seasons
+    /// absent from the map fall through to the next source.
+    pub costume_role_by_season: Arc<Mutex<HashMap<Uuid, bool>>>,
     /// Configurable outcome of `has_active_report_archive_role_in_season` — lets handler
     /// tests exercise the allow/deny branches of report-archive authz gates.
     /// `None` = resolve from seeded data.
@@ -649,6 +656,9 @@ impl MembershipRepository for FakeMembershipRepo {
         season_id: SeasonId,
         user_id: UserId,
     ) -> Result<bool, DomainError> {
+        if let Some(allowed) = self.costume_role_by_season.lock().await.get(&season_id.0) {
+            return Ok(*allowed);
+        }
         if let Some(result) = self.costume_role_override.lock().await.clone() {
             return result;
         }
@@ -793,6 +803,10 @@ impl CharacterRepository for FakeCharacterRepo {
 #[allow(dead_code)]
 pub struct FakeCostumeRepo {
     pub costumes: Arc<Mutex<HashMap<Uuid, CostumeView>>>,
+    /// Costume → repertoire seasons (`projection_costume_season`, issue #453;
+    /// read by issue #532). Unseeded costumes have an empty repertoire, which
+    /// is the pre-repertoire / no-scope case.
+    pub repertoire: Arc<Mutex<HashMap<Uuid, Vec<SeasonId>>>>,
 }
 
 impl CostumeRepository for FakeCostumeRepo {
@@ -820,6 +834,15 @@ impl CostumeRepository for FakeCostumeRepo {
     }
     async fn costume_with_details_photos(&self, _id: Uuid) -> Result<CostumeView, DomainError> {
         Err(DomainError::not_found("costume"))
+    }
+    async fn repertoire_seasons(&self, costume_id: Uuid) -> Result<Vec<SeasonId>, DomainError> {
+        Ok(self
+            .repertoire
+            .lock()
+            .await
+            .get(&costume_id)
+            .cloned()
+            .unwrap_or_default())
     }
 }
 
@@ -1234,10 +1257,20 @@ impl ShootingDayRepository for FakeShootingDayRepo {
     }
 }
 
-/// Placeholder photo storage for tests — panics if called.
+/// Seeded photo objects of [FakePhotoStorage], keyed by
+/// `(photo_id, variant)` → `(bytes, content_type)`.
+pub type FakePhotoObjects = Arc<Mutex<HashMap<(Uuid, PhotoVariant), (Vec<u8>, String)>>>;
+
+/// Photo storage for tests — serves only the objects a test seeded.
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-pub struct FakePhotoStorage;
+pub struct FakePhotoStorage {
+    /// Seeded object bytes, keyed by `(photo_id, variant)`. Empty by default,
+    /// so `fetch` keeps the production-shaped not-found behaviour unless a
+    /// test seeds the object (issue #532: the costume-photo bytes handler
+    /// needs a 2xx path to prove the scope gate passed).
+    pub objects: FakePhotoObjects,
+}
 
 /// Placeholder photo commands for tests — records dispatched commands and
 /// echoes a fixed initial version (issue #514 regression: the upload handler
@@ -1259,17 +1292,37 @@ pub struct FakePhotoRepo;
 impl PhotoStorage for FakePhotoStorage {
     async fn store(
         &self,
-        _id: PhotoId,
-        _variant: PhotoVariant,
-        _bytes: Vec<u8>,
-        _content_type: String,
+        id: PhotoId,
+        variant: PhotoVariant,
+        bytes: Vec<u8>,
+        content_type: String,
     ) -> Result<(), DomainError> {
+        self.objects
+            .lock()
+            .await
+            .insert((id.0, variant), (bytes, content_type));
         Ok(())
     }
-    async fn fetch(&self, _id: PhotoId, _variant: PhotoVariant) -> Result<PhotoBytes, DomainError> {
-        Err(DomainError::not_found("photo"))
+    async fn fetch(&self, id: PhotoId, variant: PhotoVariant) -> Result<PhotoBytes, DomainError> {
+        let stored = self.objects.lock().await.get(&(id.0, variant)).cloned();
+        match stored {
+            Some((bytes, content_type)) => {
+                let size_bytes = bytes.len() as u64;
+                Ok(PhotoBytes {
+                    bytes,
+                    content_type,
+                    size_bytes,
+                    etag: None,
+                })
+            }
+            None => Err(DomainError::not_found("photo")),
+        }
     }
-    async fn delete_all(&self, _id: PhotoId) -> Result<(), DomainError> {
+    async fn delete_all(&self, id: PhotoId) -> Result<(), DomainError> {
+        self.objects
+            .lock()
+            .await
+            .retain(|(photo_id, _), _| *photo_id != id.0);
         Ok(())
     }
     async fn list(&self) -> Result<Vec<PhotoId>, DomainError> {

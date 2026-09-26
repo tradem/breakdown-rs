@@ -15,6 +15,7 @@
 
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: hy4-preview (opencode-go)
@@ -548,10 +549,12 @@ async fn ensure_execution_open<P: Ports>(
 }
 
 /// Resolve the (optional) `series_id` for a costume
-/// (costume → character(opt) → season → series).
+/// (costume → character(opt) → season → series, with the repertoire as the
+/// fallback for an unassigned costume).
 ///
-/// `Ok(None)` when the costume is unassigned (mirrors the pre-migration
-/// adapter semantics); hard-404 when the costume itself is missing.
+/// `Ok(None)` when the costume is neither assigned to a character nor bound to
+/// any season's repertoire (mirrors the pre-migration adapter semantics);
+/// hard-404 when the costume itself is missing.
 async fn series_id_for_costume<P: Ports>(
     state: &AppState<P>,
     costume_id: Uuid,
@@ -567,8 +570,141 @@ async fn series_id_for_costume<P: Ports>(
             let season = state.ports.season_repo().find_by_id(ch.season_id.0).await?;
             Ok(Some(season.series_id))
         }
-        None => Ok(None),
+        // Repertoire fallback (issue #532): an unassigned costume can still
+        // stand in a season's repertoire (`projection_costume_season`,
+        // issue #453), and that season resolves the series. The binding is
+        // m:n, so the *first* season in the repository's deterministic order
+        // is used — the audit metadata only needs one valid series.
+        // Best-effort by design: a projection miss narrows the metadata to
+        // `None` instead of blocking the command (hard rule "audit metadata
+        // must never block command processing").
+        None => {
+            let seasons = match state
+                .ports
+                .costume_repo()
+                .repertoire_seasons(costume_id)
+                .await
+            {
+                Ok(seasons) => seasons,
+                Err(err) => {
+                    tracing::warn!(
+                        error = %err,
+                        costume_id = %costume_id,
+                        "repertoire lookup failed; continuing without series_id (issue #532)"
+                    );
+                    return Ok(None);
+                }
+            };
+            let Some(season_id) = seasons.into_iter().next() else {
+                return Ok(None);
+            };
+            match state.ports.season_repo().find_by_id(season_id.0).await {
+                Ok(season) => Ok(Some(season.series_id)),
+                Err(err) => {
+                    tracing::warn!(
+                        error = %err,
+                        season_id = %season_id.0,
+                        "season lookup failed; continuing without series_id (issue #532)"
+                    );
+                    Ok(None)
+                }
+            }
+        }
     }
+}
+
+/// Season scopes of a costume: the character's season (when assigned) **∪**
+/// the seasons it stands in as repertoire (issue #532).
+///
+/// Best-effort projection reads at the API edge — the only legitimate
+/// read-model consumer per the CQRS boundary hard rule. A character that has
+/// not projected yet must not swallow the repertoire scope, so the character
+/// lookup is a logged fallback rather than a hard error.
+async fn costume_season_scopes<P: Ports>(
+    state: &AppState<P>,
+    costume: &CostumeView,
+) -> Vec<SeasonId> {
+    let mut scopes: Vec<SeasonId> = Vec::new();
+    if let Some(character_id) = costume.character_id {
+        match state.ports.character_repo().find_by_id(character_id).await {
+            Ok(character) => scopes.push(character.season_id),
+            Err(err) => tracing::warn!(
+                error = %err,
+                character_id = %character_id,
+                costume_id = %costume.id,
+                "character scope lookup failed; falling back to the costume's \
+                 repertoire scopes (issue #532)"
+            ),
+        }
+    }
+    match state
+        .ports
+        .costume_repo()
+        .repertoire_seasons(costume.id)
+        .await
+    {
+        Ok(seasons) => {
+            for season_id in seasons {
+                if !scopes.contains(&season_id) {
+                    scopes.push(season_id);
+                }
+            }
+        }
+        Err(err) => tracing::warn!(
+            error = %err,
+            costume_id = %costume.id,
+            "repertoire scope lookup failed; continuing with the character scope only (issue #532)"
+        ),
+    }
+    scopes
+}
+
+/// AUTHZ-GATE seam for the costume-photo handlers (issue #532): authorize the
+/// caller against **any** season scope the costume belongs to, and return that
+/// season.
+///
+/// All three photo handlers (`upload_costume_photo`,
+/// `get_costume_photo_bytes`, `delete_costume_photo`) route their
+/// handler-internal authorization through this one function. Before issue
+/// #532 they only ever looked at the character's season, so a costume that
+/// carries a repertoire season (which the client always sets, issue #453) was
+/// rejected as "unassigned" even though the server already knew the season —
+/// a lookup omission, not a feature.
+///
+/// The ANY semantics are required because the repertoire binding is m:n: a
+/// costume may stand in several seasons' repertoires, and holding the costume
+/// role in *any* of them is what authorizes the photo operation. This helper
+/// is the single seam the 0.4.x series extends (issues #534/#535) — keep it
+/// container-neutral.
+///
+/// Errors:
+/// - 422 `domain.validation` when the costume has **no** scope at all (no
+///   character and no repertoire) — nothing to authorize against,
+/// - 403 `domain.forbidden` ([denial]) when scopes exist but none authorizes.
+async fn authorize_costume_photo<P: Ports>(
+    state: &AppState<P>,
+    costume: &CostumeView,
+    user_id: UserId,
+    denial: &'static str,
+) -> Result<SeasonId, ApiError> {
+    let scopes = costume_season_scopes(state, costume).await;
+    if scopes.is_empty() {
+        return Err(ApiError::Validation(
+            "costume has no assigned character and no season repertoire — cannot determine season",
+        ));
+    }
+    for season_id in scopes {
+        let is_authorized = state
+            .ports
+            .membership_repo()
+            .has_active_costume_role_in_season(season_id, user_id.clone())
+            .await
+            .unwrap_or(false);
+        if is_authorized {
+            return Ok(season_id);
+        }
+    }
+    Err(ApiError::Forbidden(denial))
 }
 
 #[utoipa::path(
@@ -2467,34 +2603,20 @@ pub async fn upload_costume_photo<P: Ports>(
         ));
     }
 
-    // Fetch the costume to get its season_id for authorization.
+    // Fetch the costume to resolve its season scopes for authorization.
     let costume = state.ports.costume_repo().find_by_id(costume_id).await?;
 
-    // Resolve season_id from the costume's character.
-    let season_id = match costume.character_id {
-        Some(char_id) => {
-            let character = state.ports.character_repo().find_by_id(char_id).await?;
-            character.season_id
-        }
-        None => {
-            return Err(ApiError::Validation(
-                "costume has no assigned character — cannot determine season",
-            ));
-        }
-    };
-
-    // AUTHZ-GATE: authorize_season — handler-internal auth gate (see AGENTS.md)
-    let is_authorized = state
-        .ports
-        .membership_repo()
-        .has_active_costume_role_in_season(season_id, current_user.sub.clone())
-        .await
-        .unwrap_or(false);
-    if !is_authorized {
-        return Err(ApiError::Forbidden(
-            "not authorized to upload photos in this season",
-        ));
-    }
+    // AUTHZ-GATE: authorize_season — handler-internal auth gate (see AGENTS.md),
+    // against ANY scope of the costume (character season ∪ repertoire seasons,
+    // issue #532). An unassigned costume in the season's repertoire is allowed;
+    // only a costume with no scope at all stays a 422.
+    let _season_id = authorize_costume_photo(
+        &state,
+        &costume,
+        current_user.sub.clone(),
+        "not authorized to upload photos in this season",
+    )
+    .await?;
 
     // Generate a new photo_id (UUIDv7).
     let photo_id = PhotoId::new();
@@ -2647,32 +2769,18 @@ pub async fn get_costume_photo_bytes<P: Ports>(
     Path((costume_id, photo_id)): Path<(Uuid, Uuid)>,
     Query(query): Query<PhotoBytesQuery>,
 ) -> Result<(StatusCode, axum::http::HeaderMap, Vec<u8>), ApiError> {
-    // Fetch the costume to get its season_id for authorization.
+    // Fetch the costume to resolve its season scopes for authorization.
     let costume = state.ports.costume_repo().find_by_id(costume_id).await?;
 
-    // Resolve season_id from the costume's character.
-    let season_id = match costume.character_id {
-        Some(char_id) => {
-            let character = state.ports.character_repo().find_by_id(char_id).await?;
-            character.season_id
-        }
-        None => {
-            return Err(ApiError::Validation("costume has no assigned character"));
-        }
-    };
-
-    // AUTHZ-GATE: authorize_season — handler-internal auth gate (see AGENTS.md)
-    let is_authorized = state
-        .ports
-        .membership_repo()
-        .has_active_costume_role_in_season(season_id, current_user.sub.clone())
-        .await
-        .unwrap_or(false);
-    if !is_authorized {
-        return Err(ApiError::Forbidden(
-            "not authorized to download photos in this season",
-        ));
-    }
+    // AUTHZ-GATE: authorize_season — handler-internal auth gate (see AGENTS.md),
+    // against ANY scope of the costume (issue #532 — same seam as upload/delete).
+    let _season_id = authorize_costume_photo(
+        &state,
+        &costume,
+        current_user.sub.clone(),
+        "not authorized to download photos in this season",
+    )
+    .await?;
 
     // Resolve variant.
     let variant = match query.variant.as_deref().unwrap_or("original") {
@@ -2747,32 +2855,18 @@ pub async fn delete_costume_photo<P: Ports>(
     current_user: CurrentUser,
     Path((costume_id, photo_id)): Path<(Uuid, Uuid)>,
 ) -> ApiResult<()> {
-    // Fetch the costume to get its season_id for authorization.
+    // Fetch the costume to resolve its season scopes for authorization.
     let costume = state.ports.costume_repo().find_by_id(costume_id).await?;
 
-    // Resolve season_id from the costume's character.
-    let season_id = match costume.character_id {
-        Some(char_id) => {
-            let character = state.ports.character_repo().find_by_id(char_id).await?;
-            character.season_id
-        }
-        None => {
-            return Err(ApiError::Validation("costume has no assigned character"));
-        }
-    };
-
-    // AUTHZ-GATE: authorize_season — handler-internal auth gate (see AGENTS.md)
-    let is_authorized = state
-        .ports
-        .membership_repo()
-        .has_active_costume_role_in_season(season_id, current_user.sub.clone())
-        .await
-        .unwrap_or(false);
-    if !is_authorized {
-        return Err(ApiError::Forbidden(
-            "not authorized to delete photos in this season",
-        ));
-    }
+    // AUTHZ-GATE: authorize_season — handler-internal auth gate (see AGENTS.md),
+    // against ANY scope of the costume (issue #532 — same seam as upload/bytes).
+    let _season_id = authorize_costume_photo(
+        &state,
+        &costume,
+        current_user.sub.clone(),
+        "not authorized to delete photos in this season",
+    )
+    .await?;
 
     // Dispatch UnlinkPhoto on the costume aggregate.
     let series_id = series_id_for_costume(&state, costume_id).await?;

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: hy4-preview (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
@@ -624,6 +625,12 @@ impl CostumeRepository for FakeCostumeRepo {
     }
     async fn costume_with_details_photos(&self, id: Uuid) -> Result<CostumeView, DomainError> {
         Err(DomainError::not_found("costume"))
+    }
+    async fn repertoire_seasons(
+        &self,
+        _costume_id: Uuid,
+    ) -> Result<Vec<SeasonId>, DomainError> {
+        Ok(Vec::new())
     }
 }
 
