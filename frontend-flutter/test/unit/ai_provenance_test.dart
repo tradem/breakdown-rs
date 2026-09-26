@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: glm-5.3-flash (opencode-go)
 
 // Tier-1 unit tests for the pure provenance parsing (issue #538, EU AI Act
 // Art. 50): every variant of the generated externally-tagged enum resolves
