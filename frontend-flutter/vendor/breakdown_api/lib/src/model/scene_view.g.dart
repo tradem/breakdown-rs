@@ -26,7 +26,7 @@ class _$SceneView extends SceneView {
   @override
   final BuiltList<String> shootingDayIds;
   @override
-  final SceneSource source_;
+  final SceneSource? source_;
   @override
   final String? summary;
   @override
@@ -47,7 +47,7 @@ class _$SceneView extends SceneView {
       this.sceneNumber,
       this.scriptDay,
       required this.shootingDayIds,
-      required this.source_,
+      this.source_,
       this.summary,
       required this.updatedAt,
       required this.version})
@@ -194,7 +194,7 @@ class SceneViewBuilder implements Builder<SceneView, SceneViewBuilder> {
       _sceneNumber = $v.sceneNumber;
       _scriptDay = $v.scriptDay;
       _shootingDayIds = $v.shootingDayIds.toBuilder();
-      _source_ = $v.source_.toBuilder();
+      _source_ = $v.source_?.toBuilder();
       _summary = $v.summary;
       _updatedAt = $v.updatedAt;
       _version = $v.version;
@@ -232,7 +232,7 @@ class SceneViewBuilder implements Builder<SceneView, SceneViewBuilder> {
             sceneNumber: sceneNumber,
             scriptDay: scriptDay,
             shootingDayIds: shootingDayIds.build(),
-            source_: source_.build(),
+            source_: _source_?.build(),
             summary: summary,
             updatedAt: BuiltValueNullFieldError.checkNotNull(
                 updatedAt, r'SceneView', 'updatedAt'),
@@ -248,7 +248,7 @@ class SceneViewBuilder implements Builder<SceneView, SceneViewBuilder> {
         _$failedField = 'shootingDayIds';
         shootingDayIds.build();
         _$failedField = 'source_';
-        source_.build();
+        _source_?.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'SceneView', _$failedField, e.toString());

@@ -24,7 +24,7 @@ part 'scene_view.g.dart';
 /// * [sceneNumber]
 /// * [scriptDay] - Fictional script-chronology day (e.g. \"1. Spieltag\"), distinct from the calendar `ShootingDay.date`.
 /// * [shootingDayIds] - Shooting days this scene is scheduled on.
-/// * [source_] - Provenance discriminator (EU AI Act transparency, issue #517): `Manual` for user-created scenes, `AiExtracted` for AI-imported ones.
+/// * [source_] - Provenance discriminator (EU AI Act transparency, issue #517). `Some(AiExtracted)` marks AI-imported scenes; `Some(Manual)` is the user-created path; `None` is only produced by clients that do not know the field (legacy caches). Serde-`default`-backed and additive on the wire (ADR-021 D3/MINOR).
 /// * [summary]
 /// * [updatedAt]
 /// * [version] - Aggregate version of the last applied event; echo back in optimistic-locking commands.
@@ -60,9 +60,9 @@ abstract class SceneView implements Built<SceneView, SceneViewBuilder> {
   @BuiltValueField(wireName: r'shooting_day_ids')
   BuiltList<String> get shootingDayIds;
 
-  /// Provenance discriminator (EU AI Act transparency, issue #517): `Manual` for user-created scenes, `AiExtracted` for AI-imported ones.
+  /// Provenance discriminator (EU AI Act transparency, issue #517). `Some(AiExtracted)` marks AI-imported scenes; `Some(Manual)` is the user-created path; `None` is only produced by clients that do not know the field (legacy caches). Serde-`default`-backed and additive on the wire (ADR-021 D3/MINOR).
   @BuiltValueField(wireName: r'source')
-  SceneSource get source_;
+  SceneSource? get source_;
 
   @BuiltValueField(wireName: r'summary')
   String? get summary;
@@ -150,11 +150,13 @@ class _$SceneViewSerializer implements PrimitiveSerializer<SceneView> {
       object.shootingDayIds,
       specifiedType: const FullType(BuiltList, [FullType(String)]),
     );
-    yield r'source';
-    yield serializers.serialize(
-      object.source_,
-      specifiedType: const FullType(SceneSource),
-    );
+    if (object.source_ != null) {
+      yield r'source';
+      yield serializers.serialize(
+        object.source_,
+        specifiedType: const FullType.nullable(SceneSource),
+      );
+    }
     if (object.summary != null) {
       yield r'summary';
       yield serializers.serialize(
@@ -267,8 +269,9 @@ class _$SceneViewSerializer implements PrimitiveSerializer<SceneView> {
         case r'source':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(SceneSource),
-          ) as SceneSource;
+            specifiedType: const FullType.nullable(SceneSource),
+          ) as SceneSource?;
+          if (valueDes == null) continue;
           result.source_.replace(valueDes);
           break;
         case r'summary':
