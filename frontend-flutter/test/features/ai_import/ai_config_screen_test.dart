@@ -1037,6 +1037,25 @@ void main() {
     expect(sent.prompts['schedule'], 'Stored Schedule');
   });
 
+  testWidgets('the AI-literacy helper card precedes the first-run and the '
+      'configured forms and stays persistent (issue #538)', (tester) async {
+    await setupContainer();
+    await pumpScreen(tester);
+    // First-run state: helper ABOVE the form.
+    expect(find.byKey(const Key('ai-config-literacy')), findsOneWidget);
+    final literacyY = tester
+        .getTopLeft(find.byKey(const Key('ai-config-literacy')))
+        .dy;
+    final formY = tester
+        .getTopLeft(find.byKey(const Key('ai-config-first-run')))
+        .dy;
+    expect(
+      literacyY < formY,
+      isTrue,
+      reason: 'the Art. 4 helper is scroll-ordered above the forms',
+    );
+  });
+
   group('AiConfigScreen goldens (2.2): {light,dark}×{android,macos}', () {
     Future<void> pumpGolden(
       WidgetTester tester, {

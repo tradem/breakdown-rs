@@ -9,8 +9,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:breakdown_api/breakdown_api.dart';
 import 'package:frontend_flutter/app_config.dart';
 import 'package:frontend_flutter/auth/auth_providers.dart';
+import 'package:frontend_flutter/data/ai_import_providers.dart';
 import 'package:frontend_flutter/design/theme.dart';
 import 'package:frontend_flutter/features/app_info/info_dialog.dart';
 
@@ -49,9 +51,18 @@ void main() {
     Brightness brightness = Brightness.light,
     LaunchUri? launchUri,
     double textScaler = 1.0,
+    AiConfigView? aiNaming,
   }) async {
     container = ProviderContainer(
-      overrides: [appConfigProvider.overrideWithValue(config)],
+      overrides: [
+        appConfigProvider.overrideWithValue(config),
+        // The AI-notice doorway pushes the About-AI disclosure screen,
+        // which reads the configured-naming discovery — overridden so the
+        // push never issues a real discovery call from the dialog tests.
+        configuredAiNamingProvider.overrideWith(
+          (ref) => Future.value(aiNaming),
+        ),
+      ],
     );
     addTearDown(container.dispose);
     tester.view.physicalSize = const Size(800, 1200);
@@ -159,6 +170,25 @@ void main() {
       await pumpFrames(tester);
 
       expect(find.byKey(const Key('info-dialog')), findsNothing);
+    });
+
+    testWidgets('the AI notice is the doorway: tap closes the dialog and '
+        'pushes the About-AI disclosure screen (issue #538)', (tester) async {
+      await pumpDialog(tester);
+
+      await tester.tap(find.byKey(const Key('info-ai-notice')));
+      await pumpFrames(tester, n: 12);
+
+      // The dialog route closed AND the dedicated screen pushes over the
+      // same navigator (spec: the notice remains AND navigates).
+      expect(find.byKey(const Key('info-dialog')), findsNothing);
+      expect(find.byKey(const Key('ai-disclosure-screen')), findsOneWidget);
+      // The doorway hands over to the configured-naming state (none
+      // configured in this harness — the honest degradation copy).
+      expect(
+        find.textContaining('No AI configuration is set up'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('holds at textScaler 1.3 without overflow', (tester) async {

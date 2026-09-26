@@ -24,15 +24,35 @@ import 'job_status_controller.dart';
 /// `apply_as_is` + `edit_distance` come from the REAL selection state —
 /// never invented (the controller reports them; the backend rejects
 /// `accept_as_is` with a non-zero `edit_distance`).
-class AiApplySection extends ConsumerWidget {
+///
+/// The apply dispatch is gated behind an explicit review acknowledgement
+/// (EU AI Act Art. 50, issue #538): the checkbox is widget state (ephemeral
+/// acknowledgement, not domain state), the submit button stays disabled
+/// until it is checked — together with the existing context gate.
+class AiApplySection extends ConsumerStatefulWidget {
   const AiApplySection({required this.jobId, super.key});
 
   final String jobId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<AiApplySection> createState() => _AiApplySectionState();
+}
+
+class _AiApplySectionState extends ConsumerState<AiApplySection> {
+  /// The explicit review acknowledgement (EU AI Act Art. 50, issue #538):
+  /// a persistent, per-entry checkbox — the submit button never dispatches
+  /// while it is unchecked. Widget state on purpose (ephemeral
+  /// acknowledgement, not domain state; resets when the section re-enters
+  /// or the outcome renders).
+  bool _reviewAcknowledged = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final jobId = widget.jobId;
+
     final state = ref.watch(aiApplyControllerProvider(jobId));
     final controller = ref.read(aiApplyControllerProvider(jobId).notifier);
+    final canApply = controller.canApply && _reviewAcknowledged;
 
     return Card(
       key: const Key('ai-apply-section'),
@@ -83,9 +103,19 @@ class AiApplySection extends ConsumerWidget {
             if (state.outcome != null)
               _OutcomeCard(outcome: state.outcome!)
             else ...[
+              CheckboxListTile(
+                key: const Key('ai-apply-review-checkbox'),
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                value: _reviewAcknowledged,
+                onChanged: (checked) =>
+                    setState(() => _reviewAcknowledged = checked ?? false),
+                title: Text(l10nOf(context).aiApplyReviewCheckbox),
+              ),
               FilledButton(
                 key: const Key('ai-apply-submit'),
-                onPressed: controller.canApply
+                onPressed: canApply
                     ? () async {
                         final applied = await controller.apply();
                         // Explicitly consumed: Err renders the

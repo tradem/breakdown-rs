@@ -158,6 +158,48 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // AI-extracted banner (EU AI Act Art. 50, issue #538): the AI
+        // framing precedes every typed payload; the note states the honest
+        // fact that the wire preview carries NO machine-verified confidence
+        // values (`confidence` exists only on the applied provenance) —
+        // per-row confidence chips would be fabricated, so none render.
+        Container(
+          key: const Key('ai-preview-ai-banner'),
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.tertiaryContainer,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.smart_toy_outlined,
+                    color: Theme.of(context).colorScheme.tertiary,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      key: const Key('ai-preview-ai-banner-title'),
+                      l10nOf(context).aiPreviewAiBanner,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                key: const Key('ai-preview-ai-banner-note'),
+                l10nOf(context).aiPreviewAiNote,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
+        ),
         _payloadHeader(context, payload),
         const SizedBox(height: 12),
         ..._payloadRows(context, payload),

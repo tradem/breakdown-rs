@@ -10,6 +10,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
+import '../../design/components/ai_provenance_badge.dart';
+import '../../domain/ai_provenance.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../reports/reports_screen.dart';
 import '../shooting_days/shooting_days_controller.dart';
@@ -75,7 +77,25 @@ class SceneShootsScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(dayNow.label ?? l10nOf(context).sceneShootDayFallback),
+        // Provenance badge on the acted-on day (issue #538, EU AI Act
+        // Art. 50): evolves with the live projection (dayNow) so an
+        // in-session recomposition keeps the AI framing from the wire
+        // source; `Manual` days carry none.
+        title: switch (dayProvenance(dayNow.source_)) {
+          AiProvenanceVariant.aiExtracted => Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const AiProvenanceBadge(semanticKey: 'scene-shoots-ai-badge'),
+              Flexible(
+                child: Text(
+                  dayNow.label ?? l10nOf(context).sceneShootDayFallback,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          _ => Text(dayNow.label ?? l10nOf(context).sceneShootDayFallback),
+        },
         actions: [
           IconButton(
             key: const Key('reports-open'),

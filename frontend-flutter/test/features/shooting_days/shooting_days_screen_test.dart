@@ -44,13 +44,28 @@ ShootingDayView _day(
   Date? date,
   bool archived = false,
   int version = 1,
+  bool aiExtracted = false,
 }) => ShootingDayView(
   (b) => b
     ..id = id
     ..episodeId = 'episode-1'
     ..orderKey = orderKey
     ..source_.replace(
-      ShootingDaySource((s) => s..oneOf = OneOf.fromValue1(value: 'Manual')),
+      aiExtracted
+          ? ShootingDaySource(
+              (s) => s
+                ..oneOf = OneOf.fromValue2<String, SceneSourceOneOf>(
+                  value: SceneSourceOneOf(
+                    (d) => d
+                      ..aiExtracted = SceneSourceOneOfAiExtracted(
+                        (d2) => d2..documentId = 'job-1',
+                      ).toBuilder(),
+                  ),
+                ),
+            )
+          : ShootingDaySource(
+              (s) => s..oneOf = OneOf.fromValue1(value: 'Manual'),
+            ),
     )
     ..label = label
     ..date = date
@@ -205,6 +220,27 @@ void main() {
       // The DAO orders by order_key ASC; the screen renders that order.
       final tiles = tester.widgetList<ListTile>(find.byType(ListTile));
       expect(tiles.map((t) => (t.title! as Text).data), ['First', 'Second']);
+    });
+
+    testWidgets('AI-extracted day carries the provenance badge; Manual none '
+        '(issue #538)', (tester) async {
+      await setupContainer(
+        initialRows: [
+          _day('d-ai', orderKey: 'a', aiExtracted: true),
+          _day('d-manual', orderKey: 'b'),
+        ],
+      );
+      await pumpScreen(tester);
+      // Row-id-scoped badge: exactly one element per AI row, none on the
+      // manual row (no false attribution in either direction).
+      expect(
+        find.byKey(const Key('shooting-day-ai-badge-d-ai')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('shooting-day-ai-badge-d-manual')),
+        findsNothing,
+      );
     });
 
     testWidgets('empty + error states', (tester) async {

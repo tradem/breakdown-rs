@@ -284,6 +284,18 @@ class SceneCacheDao {
         sceneNumber: Value(view.sceneNumber),
         scriptDay: Value(view.scriptDay),
         shootingDayIds: jsonEncode(view.shootingDayIds.toList()),
+        // Provenance verbatim (`"Manual"` / `{"AiExtracted":{…}}` / `"null"`),
+        // the same shape as `ShootingDayCacheRows.sourceJson` (issue #538).
+        sourceJson: Value(
+          view.source_ == null
+              ? null
+              : jsonEncode(
+                  serializers.serializeWith(
+                    SceneSource.serializer,
+                    view.source_,
+                  ),
+                ),
+        ),
         summary: Value(view.summary),
         updatedAt: view.updatedAt,
         version: view.version,
@@ -360,6 +372,19 @@ class SceneCacheDao {
       ..sceneNumber = row.sceneNumber
       ..scriptDay = row.scriptDay
       ..shootingDayIds.replace(_stringList(row.shootingDayIds))
+      // A pre-#538 row (null `source_json`) reads as absent provenance —
+      // never as `Manual` (no invented user-creation attribution). The
+      // generated builder stores the optional field as its own builder,
+      // so the deserialized view value mirrors via `toBuilder()` (the
+      // same shape the generated `$v.source_?.toBuilder()` path uses).
+      ..source_ = row.sourceJson == null
+          ? null
+          : serializers
+                .deserializeWith<SceneSource>(
+                  SceneSource.serializer,
+                  jsonDecode(row.sourceJson!),
+                )
+                ?.toBuilder()
       ..summary = row.summary
       ..updatedAt = row.updatedAt.toUtc()
       ..version = row.version,

@@ -6,6 +6,9 @@
 
 import 'package:flutter/material.dart';
 
+import '../../../design/components/ai_provenance_badge.dart';
+import '../../../domain/ai_provenance.dart';
+
 import '../../../l10n/app_localizations_provider.dart';
 import '../scenes_state.dart';
 
@@ -32,11 +35,31 @@ class SceneTile extends StatelessWidget {
           key: Key('scene-${scene.id}'),
           onTap: onTap,
           minTileHeight: 48,
-          title: Text(
-            scene.summary?.isNotEmpty == true
-                ? scene.summary!
-                : tileLabel(scene.sceneNumber),
-          ),
+          // Provenance badge (issue #538, EU AI Act Art. 50): ONE element
+          // only when the scene's wire source is AI-extracted; `Manual`
+          // and pre-#538 null rows never carry it (no invented
+          // attribution in either direction).
+          title: switch (sceneProvenance(scene.source_)) {
+            AiProvenanceVariant.aiExtracted => Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AiProvenanceBadge(semanticKey: 'scene-ai-badge-${scene.id}'),
+                Flexible(
+                  child: Text(
+                    scene.summary?.isNotEmpty == true
+                        ? scene.summary!
+                        : tileLabel(scene.sceneNumber),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            _ => Text(
+              scene.summary?.isNotEmpty == true
+                  ? scene.summary!
+                  : tileLabel(scene.sceneNumber),
+            ),
+          },
           subtitle: Text(
             [
               if (scene.mood case final mood?) l10n.sceneMood(mood),

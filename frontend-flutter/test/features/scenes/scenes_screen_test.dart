@@ -4,6 +4,7 @@
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:drift/native.dart';
+import 'package:one_of/one_of.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -32,20 +33,36 @@ import '../seasons/seasons_test_fakes.dart';
 const _networkDown = ProblemError(code: 'transport.connectionError');
 const _gone = ProblemError(code: 'episode.not-found', status: 404);
 
-SceneView _scene(String id, {String? summary}) => SceneView(
-  (b) => b
-    ..id = id
-    ..episodeId = 'episode-1'
-    ..assignedCharacters.replace(const ['char-1'])
-    ..isScheduleSet = true
-    ..location = 'Studio A'
-    ..mood = 'tense'
-    ..scriptDay = 'Day 1'
-    ..shootingDayIds.replace(const ['day-1', 'day-2'])
-    ..summary = summary ?? 'A scene $id'
-    ..updatedAt = DateTime.utc(2026, 1, 1)
-    ..version = 1,
-);
+SceneView _scene(String id, {String? summary, bool aiExtracted = false}) =>
+    SceneView(
+      (b) => b
+        ..id = id
+        ..episodeId = 'episode-1'
+        // Provenance discriminator fixture (issue #538): the AI path tags the
+        // read row with the externally-tagged AiExtracted variant.
+        ..source_ = !aiExtracted
+            ? null
+            : SceneSource(
+                (s) => s
+                  ..oneOf = OneOf.fromValue2<String, SceneSourceOneOf>(
+                    value: SceneSourceOneOf(
+                      (d) => d
+                        ..aiExtracted = SceneSourceOneOfAiExtracted(
+                          (d2) => d2..documentId = 'job-1',
+                        ).toBuilder(),
+                    ),
+                  ),
+              ).toBuilder()
+        ..assignedCharacters.replace(const ['char-1'])
+        ..isScheduleSet = true
+        ..location = 'Studio A'
+        ..mood = 'tense'
+        ..scriptDay = 'Day 1'
+        ..shootingDayIds.replace(const ['day-1', 'day-2'])
+        ..summary = summary ?? 'A scene $id'
+        ..updatedAt = DateTime.utc(2026, 1, 1)
+        ..version = 1,
+    );
 
 EpisodeView _episode() => EpisodeView(
   (b) => b
@@ -164,6 +181,18 @@ void main() {
       expect(find.textContaining('Scheduled'), findsOneWidget);
       expect(find.textContaining('1 characters'), findsOneWidget);
       expect(find.textContaining('2 shooting days'), findsOneWidget);
+    });
+
+    testWidgets('AI-extracted scene carries the provenance badge; Manual '
+        'none (issue #538)', (tester) async {
+      await setupContainer(
+        initialRows: [_scene('s-ai', aiExtracted: true), _scene('s-m')],
+      );
+      await pumpScreen(tester);
+      // Row-id-scoped badge: exactly one element per AI row, none on the
+      // manual row (no false attribution in either direction).
+      expect(find.byKey(const Key('scene-ai-badge-s-ai')), findsOneWidget);
+      expect(find.byKey(const Key('scene-ai-badge-s-m')), findsNothing);
     });
 
     testWidgets('empty: plain-language state with create CTA', (tester) async {

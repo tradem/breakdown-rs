@@ -1679,6 +1679,17 @@ class $SceneCacheRowsTable extends SceneCacheRows
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _sourceJsonMeta = const VerificationMeta(
+    'sourceJson',
+  );
+  @override
+  late final GeneratedColumn<String> sourceJson = GeneratedColumn<String>(
+    'source_json',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _summaryMeta = const VerificationMeta(
     'summary',
   );
@@ -1734,6 +1745,7 @@ class $SceneCacheRowsTable extends SceneCacheRows
     sceneNumber,
     scriptDay,
     shootingDayIds,
+    sourceJson,
     summary,
     updatedAt,
     version,
@@ -1824,6 +1836,12 @@ class $SceneCacheRowsTable extends SceneCacheRows
     } else if (isInserting) {
       context.missing(_shootingDayIdsMeta);
     }
+    if (data.containsKey('source_json')) {
+      context.handle(
+        _sourceJsonMeta,
+        sourceJson.isAcceptableOrUnknown(data['source_json']!, _sourceJsonMeta),
+      );
+    }
     if (data.containsKey('summary')) {
       context.handle(
         _summaryMeta,
@@ -1899,6 +1917,10 @@ class $SceneCacheRowsTable extends SceneCacheRows
         DriftSqlType.string,
         data['${effectivePrefix}shooting_day_ids'],
       )!,
+      sourceJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_json'],
+      ),
       summary: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}summary'],
@@ -1955,6 +1977,12 @@ class SceneCacheRow extends DataClass implements Insertable<SceneCacheRow> {
   /// display count-only in Phase 1b).
   final String shootingDayIds;
 
+  /// Mirrors `SceneView.source` as wire JSON (`"Manual"`,
+  /// `{"AiExtracted":{...}}` or `"null"`) — nullable because existing v8
+  /// scenes predate the field (issue #538). Null reads as absent provenance
+  /// (no invented attribution); stored verbatim so future variants survive.
+  final String? sourceJson;
+
   /// Mirrors `SceneView.summary` (nullable, read-only detail data).
   final String? summary;
 
@@ -1976,6 +2004,7 @@ class SceneCacheRow extends DataClass implements Insertable<SceneCacheRow> {
     this.sceneNumber,
     this.scriptDay,
     required this.shootingDayIds,
+    this.sourceJson,
     this.summary,
     required this.updatedAt,
     required this.version,
@@ -2001,6 +2030,9 @@ class SceneCacheRow extends DataClass implements Insertable<SceneCacheRow> {
       map['script_day'] = Variable<String>(scriptDay);
     }
     map['shooting_day_ids'] = Variable<String>(shootingDayIds);
+    if (!nullToAbsent || sourceJson != null) {
+      map['source_json'] = Variable<String>(sourceJson);
+    }
     if (!nullToAbsent || summary != null) {
       map['summary'] = Variable<String>(summary);
     }
@@ -2027,6 +2059,9 @@ class SceneCacheRow extends DataClass implements Insertable<SceneCacheRow> {
           ? const Value.absent()
           : Value(scriptDay),
       shootingDayIds: Value(shootingDayIds),
+      sourceJson: sourceJson == null && nullToAbsent
+          ? const Value.absent()
+          : Value(sourceJson),
       summary: summary == null && nullToAbsent
           ? const Value.absent()
           : Value(summary),
@@ -2053,6 +2088,7 @@ class SceneCacheRow extends DataClass implements Insertable<SceneCacheRow> {
       sceneNumber: serializer.fromJson<int?>(json['sceneNumber']),
       scriptDay: serializer.fromJson<String?>(json['scriptDay']),
       shootingDayIds: serializer.fromJson<String>(json['shootingDayIds']),
+      sourceJson: serializer.fromJson<String?>(json['sourceJson']),
       summary: serializer.fromJson<String?>(json['summary']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
       version: serializer.fromJson<int>(json['version']),
@@ -2072,6 +2108,7 @@ class SceneCacheRow extends DataClass implements Insertable<SceneCacheRow> {
       'sceneNumber': serializer.toJson<int?>(sceneNumber),
       'scriptDay': serializer.toJson<String?>(scriptDay),
       'shootingDayIds': serializer.toJson<String>(shootingDayIds),
+      'sourceJson': serializer.toJson<String?>(sourceJson),
       'summary': serializer.toJson<String?>(summary),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
       'version': serializer.toJson<int>(version),
@@ -2089,6 +2126,7 @@ class SceneCacheRow extends DataClass implements Insertable<SceneCacheRow> {
     Value<int?> sceneNumber = const Value.absent(),
     Value<String?> scriptDay = const Value.absent(),
     String? shootingDayIds,
+    Value<String?> sourceJson = const Value.absent(),
     Value<String?> summary = const Value.absent(),
     DateTime? updatedAt,
     int? version,
@@ -2103,6 +2141,7 @@ class SceneCacheRow extends DataClass implements Insertable<SceneCacheRow> {
     sceneNumber: sceneNumber.present ? sceneNumber.value : this.sceneNumber,
     scriptDay: scriptDay.present ? scriptDay.value : this.scriptDay,
     shootingDayIds: shootingDayIds ?? this.shootingDayIds,
+    sourceJson: sourceJson.present ? sourceJson.value : this.sourceJson,
     summary: summary.present ? summary.value : this.summary,
     updatedAt: updatedAt ?? this.updatedAt,
     version: version ?? this.version,
@@ -2127,6 +2166,9 @@ class SceneCacheRow extends DataClass implements Insertable<SceneCacheRow> {
       shootingDayIds: data.shootingDayIds.present
           ? data.shootingDayIds.value
           : this.shootingDayIds,
+      sourceJson: data.sourceJson.present
+          ? data.sourceJson.value
+          : this.sourceJson,
       summary: data.summary.present ? data.summary.value : this.summary,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       version: data.version.present ? data.version.value : this.version,
@@ -2146,6 +2188,7 @@ class SceneCacheRow extends DataClass implements Insertable<SceneCacheRow> {
           ..write('sceneNumber: $sceneNumber, ')
           ..write('scriptDay: $scriptDay, ')
           ..write('shootingDayIds: $shootingDayIds, ')
+          ..write('sourceJson: $sourceJson, ')
           ..write('summary: $summary, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('version: $version, ')
@@ -2165,6 +2208,7 @@ class SceneCacheRow extends DataClass implements Insertable<SceneCacheRow> {
     sceneNumber,
     scriptDay,
     shootingDayIds,
+    sourceJson,
     summary,
     updatedAt,
     version,
@@ -2183,6 +2227,7 @@ class SceneCacheRow extends DataClass implements Insertable<SceneCacheRow> {
           other.sceneNumber == this.sceneNumber &&
           other.scriptDay == this.scriptDay &&
           other.shootingDayIds == this.shootingDayIds &&
+          other.sourceJson == this.sourceJson &&
           other.summary == this.summary &&
           other.updatedAt == this.updatedAt &&
           other.version == this.version &&
@@ -2199,6 +2244,7 @@ class SceneCacheRowsCompanion extends UpdateCompanion<SceneCacheRow> {
   final Value<int?> sceneNumber;
   final Value<String?> scriptDay;
   final Value<String> shootingDayIds;
+  final Value<String?> sourceJson;
   final Value<String?> summary;
   final Value<DateTime> updatedAt;
   final Value<int> version;
@@ -2214,6 +2260,7 @@ class SceneCacheRowsCompanion extends UpdateCompanion<SceneCacheRow> {
     this.sceneNumber = const Value.absent(),
     this.scriptDay = const Value.absent(),
     this.shootingDayIds = const Value.absent(),
+    this.sourceJson = const Value.absent(),
     this.summary = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.version = const Value.absent(),
@@ -2230,6 +2277,7 @@ class SceneCacheRowsCompanion extends UpdateCompanion<SceneCacheRow> {
     this.sceneNumber = const Value.absent(),
     this.scriptDay = const Value.absent(),
     required String shootingDayIds,
+    this.sourceJson = const Value.absent(),
     this.summary = const Value.absent(),
     required DateTime updatedAt,
     required int version,
@@ -2253,6 +2301,7 @@ class SceneCacheRowsCompanion extends UpdateCompanion<SceneCacheRow> {
     Expression<int>? sceneNumber,
     Expression<String>? scriptDay,
     Expression<String>? shootingDayIds,
+    Expression<String>? sourceJson,
     Expression<String>? summary,
     Expression<DateTime>? updatedAt,
     Expression<int>? version,
@@ -2269,6 +2318,7 @@ class SceneCacheRowsCompanion extends UpdateCompanion<SceneCacheRow> {
       if (sceneNumber != null) 'scene_number': sceneNumber,
       if (scriptDay != null) 'script_day': scriptDay,
       if (shootingDayIds != null) 'shooting_day_ids': shootingDayIds,
+      if (sourceJson != null) 'source_json': sourceJson,
       if (summary != null) 'summary': summary,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (version != null) 'version': version,
@@ -2287,6 +2337,7 @@ class SceneCacheRowsCompanion extends UpdateCompanion<SceneCacheRow> {
     Value<int?>? sceneNumber,
     Value<String?>? scriptDay,
     Value<String>? shootingDayIds,
+    Value<String?>? sourceJson,
     Value<String?>? summary,
     Value<DateTime>? updatedAt,
     Value<int>? version,
@@ -2303,6 +2354,7 @@ class SceneCacheRowsCompanion extends UpdateCompanion<SceneCacheRow> {
       sceneNumber: sceneNumber ?? this.sceneNumber,
       scriptDay: scriptDay ?? this.scriptDay,
       shootingDayIds: shootingDayIds ?? this.shootingDayIds,
+      sourceJson: sourceJson ?? this.sourceJson,
       summary: summary ?? this.summary,
       updatedAt: updatedAt ?? this.updatedAt,
       version: version ?? this.version,
@@ -2341,6 +2393,9 @@ class SceneCacheRowsCompanion extends UpdateCompanion<SceneCacheRow> {
     if (shootingDayIds.present) {
       map['shooting_day_ids'] = Variable<String>(shootingDayIds.value);
     }
+    if (sourceJson.present) {
+      map['source_json'] = Variable<String>(sourceJson.value);
+    }
     if (summary.present) {
       map['summary'] = Variable<String>(summary.value);
     }
@@ -2371,6 +2426,7 @@ class SceneCacheRowsCompanion extends UpdateCompanion<SceneCacheRow> {
           ..write('sceneNumber: $sceneNumber, ')
           ..write('scriptDay: $scriptDay, ')
           ..write('shootingDayIds: $shootingDayIds, ')
+          ..write('sourceJson: $sourceJson, ')
           ..write('summary: $summary, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('version: $version, ')
@@ -7599,7 +7655,16 @@ class $$SeasonCacheRowsTableTableManager
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map(
+                (e) => (
+                  e.readTable<$SeasonCacheRowsTable, SeasonCacheRow>(table),
+                  BaseReferences<
+                    _$CacheDatabase,
+                    $SeasonCacheRowsTable,
+                    SeasonCacheRow
+                  >(db, table, e),
+                ),
+              )
               .toList(),
           prefetchHooksCallback: null,
         ),
@@ -7881,7 +7946,16 @@ class $$BlockCacheRowsTableTableManager
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map(
+                (e) => (
+                  e.readTable<$BlockCacheRowsTable, BlockCacheRow>(table),
+                  BaseReferences<
+                    _$CacheDatabase,
+                    $BlockCacheRowsTable,
+                    BlockCacheRow
+                  >(db, table, e),
+                ),
+              )
               .toList(),
           prefetchHooksCallback: null,
         ),
@@ -8144,7 +8218,16 @@ class $$EpisodeCacheRowsTableTableManager
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map(
+                (e) => (
+                  e.readTable<$EpisodeCacheRowsTable, EpisodeCacheRow>(table),
+                  BaseReferences<
+                    _$CacheDatabase,
+                    $EpisodeCacheRowsTable,
+                    EpisodeCacheRow
+                  >(db, table, e),
+                ),
+              )
               .toList(),
           prefetchHooksCallback: null,
         ),
@@ -8183,6 +8266,7 @@ typedef $$SceneCacheRowsTableCreateCompanionBuilder =
       Value<int?> sceneNumber,
       Value<String?> scriptDay,
       required String shootingDayIds,
+      Value<String?> sourceJson,
       Value<String?> summary,
       required DateTime updatedAt,
       required int version,
@@ -8200,6 +8284,7 @@ typedef $$SceneCacheRowsTableUpdateCompanionBuilder =
       Value<int?> sceneNumber,
       Value<String?> scriptDay,
       Value<String> shootingDayIds,
+      Value<String?> sourceJson,
       Value<String?> summary,
       Value<DateTime> updatedAt,
       Value<int> version,
@@ -8258,6 +8343,11 @@ class $$SceneCacheRowsTableFilterComposer
 
   ColumnFilters<String> get shootingDayIds => $composableBuilder(
     column: $table.shootingDayIds,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sourceJson => $composableBuilder(
+    column: $table.sourceJson,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -8336,6 +8426,11 @@ class $$SceneCacheRowsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get sourceJson => $composableBuilder(
+    column: $table.sourceJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get summary => $composableBuilder(
     column: $table.summary,
     builder: (column) => ColumnOrderings(column),
@@ -8401,6 +8496,11 @@ class $$SceneCacheRowsTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get sourceJson => $composableBuilder(
+    column: $table.sourceJson,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<String> get summary =>
       $composableBuilder(column: $table.summary, builder: (column) => column);
 
@@ -8460,6 +8560,7 @@ class $$SceneCacheRowsTableTableManager
                 Value<int?> sceneNumber = const Value.absent(),
                 Value<String?> scriptDay = const Value.absent(),
                 Value<String> shootingDayIds = const Value.absent(),
+                Value<String?> sourceJson = const Value.absent(),
                 Value<String?> summary = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<int> version = const Value.absent(),
@@ -8475,6 +8576,7 @@ class $$SceneCacheRowsTableTableManager
                 sceneNumber: sceneNumber,
                 scriptDay: scriptDay,
                 shootingDayIds: shootingDayIds,
+                sourceJson: sourceJson,
                 summary: summary,
                 updatedAt: updatedAt,
                 version: version,
@@ -8492,6 +8594,7 @@ class $$SceneCacheRowsTableTableManager
                 Value<int?> sceneNumber = const Value.absent(),
                 Value<String?> scriptDay = const Value.absent(),
                 required String shootingDayIds,
+                Value<String?> sourceJson = const Value.absent(),
                 Value<String?> summary = const Value.absent(),
                 required DateTime updatedAt,
                 required int version,
@@ -8507,6 +8610,7 @@ class $$SceneCacheRowsTableTableManager
                 sceneNumber: sceneNumber,
                 scriptDay: scriptDay,
                 shootingDayIds: shootingDayIds,
+                sourceJson: sourceJson,
                 summary: summary,
                 updatedAt: updatedAt,
                 version: version,
@@ -8514,7 +8618,16 @@ class $$SceneCacheRowsTableTableManager
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map(
+                (e) => (
+                  e.readTable<$SceneCacheRowsTable, SceneCacheRow>(table),
+                  BaseReferences<
+                    _$CacheDatabase,
+                    $SceneCacheRowsTable,
+                    SceneCacheRow
+                  >(db, table, e),
+                ),
+              )
               .toList(),
           prefetchHooksCallback: null,
         ),
@@ -8786,7 +8899,19 @@ class $$CostumeCategoryCacheRowsTableTableManager
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map(
+                (e) => (
+                  e.readTable<
+                    $CostumeCategoryCacheRowsTable,
+                    CostumeCategoryCacheRow
+                  >(table),
+                  BaseReferences<
+                    _$CacheDatabase,
+                    $CostumeCategoryCacheRowsTable,
+                    CostumeCategoryCacheRow
+                  >(db, table, e),
+                ),
+              )
               .toList(),
           prefetchHooksCallback: null,
         ),
@@ -9099,7 +9224,16 @@ class $$CostumeCacheRowsTableTableManager
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map(
+                (e) => (
+                  e.readTable<$CostumeCacheRowsTable, CostumeCacheRow>(table),
+                  BaseReferences<
+                    _$CacheDatabase,
+                    $CostumeCacheRowsTable,
+                    CostumeCacheRow
+                  >(db, table, e),
+                ),
+              )
               .toList(),
           prefetchHooksCallback: null,
         ),
@@ -9521,7 +9655,18 @@ class $$CharacterCacheRowsTableTableManager
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map(
+                (e) => (
+                  e.readTable<$CharacterCacheRowsTable, CharacterCacheRow>(
+                    table,
+                  ),
+                  BaseReferences<
+                    _$CacheDatabase,
+                    $CharacterCacheRowsTable,
+                    CharacterCacheRow
+                  >(db, table, e),
+                ),
+              )
               .toList(),
           prefetchHooksCallback: null,
         ),
@@ -9853,7 +9998,18 @@ class $$ShootingDayCacheRowsTableTableManager
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map(
+                (e) => (
+                  e.readTable<$ShootingDayCacheRowsTable, ShootingDayCacheRow>(
+                    table,
+                  ),
+                  BaseReferences<
+                    _$CacheDatabase,
+                    $ShootingDayCacheRowsTable,
+                    ShootingDayCacheRow
+                  >(db, table, e),
+                ),
+              )
               .toList(),
           prefetchHooksCallback: null,
         ),
@@ -10250,7 +10406,18 @@ class $$SceneShootCacheRowsTableTableManager
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map(
+                (e) => (
+                  e.readTable<$SceneShootCacheRowsTable, SceneShootCacheRow>(
+                    table,
+                  ),
+                  BaseReferences<
+                    _$CacheDatabase,
+                    $SceneShootCacheRowsTable,
+                    SceneShootCacheRow
+                  >(db, table, e),
+                ),
+              )
               .toList(),
           prefetchHooksCallback: null,
         ),
@@ -10725,7 +10892,18 @@ class $$AiImportJobCacheRowsTableTableManager
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map(
+                (e) => (
+                  e.readTable<$AiImportJobCacheRowsTable, AiImportJobCacheRow>(
+                    table,
+                  ),
+                  BaseReferences<
+                    _$CacheDatabase,
+                    $AiImportJobCacheRowsTable,
+                    AiImportJobCacheRow
+                  >(db, table, e),
+                ),
+              )
               .toList(),
           prefetchHooksCallback: null,
         ),
@@ -10897,7 +11075,16 @@ class $$ShellStateRowsTableTableManager
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map(
+                (e) => (
+                  e.readTable<$ShellStateRowsTable, ShellStateRow>(table),
+                  BaseReferences<
+                    _$CacheDatabase,
+                    $ShellStateRowsTable,
+                    ShellStateRow
+                  >(db, table, e),
+                ),
+              )
               .toList(),
           prefetchHooksCallback: null,
         ),

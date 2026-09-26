@@ -7,6 +7,8 @@
 
 import 'package:flutter/material.dart';
 
+import '../../../design/components/ai_provenance_badge.dart';
+import '../../../domain/ai_provenance.dart';
 import '../../../domain/reconciliation/reconciliation_scheduler.dart';
 import '../../../l10n/app_localizations_provider.dart';
 import '../../../l10n/locale_formatters.dart';
@@ -46,11 +48,32 @@ class ShootingDayTile extends StatelessWidget {
           builder: (_) => ListTile(
             key: Key('shooting-day-${day.id}'),
             minTileHeight: 48,
-            // Compact date/label calendar-row layout on Android (spec §5).
-            title: Text(
-              day.label ?? l10n.shootingDayUntitled,
-              key: Key('shooting-day-label-${day.id}'),
-            ),
+            // Provenance badge (issue #538, EU AI Act Art. 50): ONE
+            // element only when the day's wire source is AI-extracted;
+            // every other variant renders the plain label (no element,
+            // no invented attribution). The badge scopes its test key by
+            // row id so a tree-shuffled tile still fails the test.
+            title: switch (dayProvenance(day.source_)) {
+              AiProvenanceVariant.aiExtracted => Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  AiProvenanceBadge(
+                    semanticKey: 'shooting-day-ai-badge-${day.id}',
+                  ),
+                  Flexible(
+                    child: Text(
+                      day.label ?? l10n.shootingDayUntitled,
+                      key: Key('shooting-day-label-${day.id}'),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+              _ => Text(
+                day.label ?? l10n.shootingDayUntitled,
+                key: Key('shooting-day-label-${day.id}'),
+              ),
+            },
             subtitle: Text(
               [
                 // Framework locale data performs the date formatting; no

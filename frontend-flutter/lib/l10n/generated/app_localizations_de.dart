@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024-2026 Breakdown RS Contributors
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 
@@ -2036,6 +2039,81 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get infoAiBody =>
       'Beim ausdrücklichen Absenden von Importen wird der von Dir bereitgestellte Text an einen konfigurierten serverseitigen KI-Anbieter gesendet. Diese App kontaktiert KI-Anbieter nicht direkt.';
+
+  @override
+  String get aiImportDisclosureTitle => 'KI-Verarbeitung';
+
+  @override
+  String get aiImportDisclosureBody =>
+      'Die gewählte Datei wird von einem serverseitigen KI-Import verarbeitet. Die Ergebnisse sind KI-generiert und müssen vor dem Anwenden in der Vorschau geprüft werden.';
+
+  @override
+  String get aiPreviewAiBanner => 'KI-extrahierter Inhalt – sorgfältig prüfen';
+
+  @override
+  String get aiPreviewAiNote =>
+      'Alle Zeilen sind maschinell extrahierte Entwürfe. Die Vorschau enthält keine maschinell verifizierten Zuverlässigkeitswerte.';
+
+  @override
+  String get aiApplyReviewCheckbox =>
+      'Ich habe den KI-extrahierten Inhalt geprüft';
+
+  @override
+  String get aiProvenanceBadge => 'KI-extrahiert';
+
+  @override
+  String get aiDisclosureTitle => 'Über KI in der App';
+
+  @override
+  String get aiDisclosurePurposeTitle => 'Zweck';
+
+  @override
+  String get aiDisclosurePurposeBody =>
+      'Der KI-Import extrahiert Strukturen (Szenen, Drehtage) aus von Dir bereitgestellten Drehplan- und Skript-Dokumenten, damit die Zusammenarbeit schneller beginnt.';
+
+  @override
+  String get aiDisclosureFlowTitle => 'Datenfluss';
+
+  @override
+  String get aiDisclosureFlowBody =>
+      'Gerät → Backend → konfigurierter KI-Anbieter → Entwürfe → Vorschau → ausdrückliches Anwenden. Die App kommuniziert nie direkt mit dem KI-Anbieter.';
+
+  @override
+  String get aiDisclosureNamingTitle => 'Anbieter und Modelle';
+
+  @override
+  String aiDisclosureNamingBodyConfigured(Object model, Object provider) {
+    return 'Konfiguriert: Anbieter $provider, Assistent-Modell $model.';
+  }
+
+  @override
+  String get aiDisclosureNamingBodyUnconfigured =>
+      'Für dieses Konto ist keine KI-Konfiguration eingerichtet.';
+
+  @override
+  String get aiDisclosureNamingBodyLoading =>
+      'Anbieter und Modelle werden geladen …';
+
+  @override
+  String get aiDisclosureRetentionTitle => 'Aufbewahrung';
+
+  @override
+  String get aiDisclosureRetentionBody =>
+      'Importierte Dokumentdaten werden nach 7 Tagen automatisch gelöscht; danach bleibt nur das ausdrücklich angewendete Ergebnis im Projekt.';
+
+  @override
+  String get aiDisclosureActTitle => 'EU-KI-Gesetz';
+
+  @override
+  String get aiDisclosureActBody =>
+      'Dieser Hinweis folgt der KI-Verordnung (EU) 2024/1689, Artikel 4 (KI-Kompetenz) und Artikel 50 (Transparenz): KI-generierte Inhalte werden gekennzeichnet und müssen geprüft werden.';
+
+  @override
+  String get aiConfigLiteracyTitle => 'KI-Kompetenz';
+
+  @override
+  String get aiConfigLiteracyBody =>
+      'Diese Konfiguration steuert, welchen KI-Anbieter und welche Modelle der serverseitige Import nutzt und welche Extraktions-Prompts gelten. Der konfigurierte Anbieter verarbeitet die von Nutzenden bereitgestellten Dokumente — konfiguriere kuratierte Anbieter und Modelle ehrlich.';
 
   @override
   String get moreTitle => 'Mehr';

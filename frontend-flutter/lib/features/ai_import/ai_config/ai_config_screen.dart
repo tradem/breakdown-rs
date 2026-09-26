@@ -43,6 +43,12 @@ class AiConfigScreen extends ConsumerWidget {
         key: const Key('ai-config-screen'),
         padding: const EdgeInsets.all(16),
         children: [
+          // Admin-facing AI-literacy helper (EU AI Act Art. 4, issue
+          // #538): persistent ABOVE the forms in BOTH the first-run and
+          // configured states — what the configuration controls, whose
+          // data the configured provider processes, and the duty to
+          // configure honestly. Catalog copy only (inline-copy gate).
+          _LiteracyCard(),
           if (state.unresolved != null)
             _UnresolvedCard(
               unresolved: state.unresolved!,
@@ -105,6 +111,51 @@ class AiConfigScreen extends ConsumerWidget {
       ),
     );
   }
+}
+
+// --- Literacy helper ---------------------------------------------------------
+
+/// The persistent AI-literacy helper card (spec `flutter-ai-config` delta
+/// "Admin AI-literacy helper text", issue #538): `tertiaryContainer`
+/// surface so it reads as explanatory framing, not as a form error.
+class _LiteracyCard extends StatelessWidget {
+  const _LiteracyCard();
+
+  @override
+  Widget build(BuildContext context) => Card(
+    key: const Key('ai-config-literacy'),
+    color: Theme.of(context).colorScheme.tertiaryContainer,
+    child: Padding(
+      padding: const EdgeInsets.all(AppSpacing.space12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.psychology_alt_outlined,
+                color: Theme.of(context).colorScheme.tertiary,
+              ),
+              const SizedBox(width: AppSpacing.space8),
+              Expanded(
+                child: Text(
+                  key: const Key('ai-config-literacy-title'),
+                  l10nOf(context).aiConfigLiteracyTitle,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.space2),
+          Text(
+            key: const Key('ai-config-literacy-body'),
+            l10nOf(context).aiConfigLiteracyBody,
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 // --- First-run form ----------------------------------------------------------
