@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/problem_error.dart';
 import '../../../data/cache/hierarchy_cache_dao.dart';
 import '../../../l10n/app_localizations_provider.dart';
+import '../../../l10n/generated/app_localizations.dart';
 import '../../../data/cache/seasons_cache_providers.dart';
 import '../../scenes/scenes_controller.dart';
 import 'apply_controller.dart';
@@ -212,13 +213,46 @@ class _OutcomeCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
         ),
         child: Text(
-          l10nOf(context).aiApplyOutcome(
-            '${outcome.appliedCount}',
-            '${outcome.createdDays}',
-            '${outcome.plannedSceneShoots}',
-          ),
+          // A script apply that produced figures or costumes reports them
+          // explicitly. The schedule wording stays the fallback, so a schedule
+          // apply — and a pre-costume server that sends neither field — renders
+          // exactly as before instead of showing invented counts.
+          outcome.createdCharacters > 0 ||
+                  outcome.createdCostumes > 0 ||
+                  outcome.unappliedCostumes.isNotEmpty
+              ? l10nOf(context).aiApplyOutcomeScript(
+                  '${outcome.appliedCount}',
+                  '${outcome.createdCharacters}',
+                  '${outcome.createdCostumes}',
+                )
+              : l10nOf(context).aiApplyOutcome(
+                  '${outcome.appliedCount}',
+                  '${outcome.createdDays}',
+                  '${outcome.plannedSceneShoots}',
+                ),
         ),
       ),
+      // Rows that did NOT become a `Costume` are named with their reason: a
+      // partially applied row must never read as a fully applied one (spec
+      // `costume-character-binding` — "report the row as partially applied with
+      // the reason"). `reason` is a typed wire enum, so this copy is keyed on it
+      // and never parsed out of server prose.
+      for (final unapplied in outcome.unappliedCostumes)
+        Text(
+          key: Key(
+            'ai-apply-unapplied-costume-${unapplied.draftRef}'
+            '-${unapplied.ordinal}',
+          ),
+          l10nOf(context).aiApplyUnappliedCostume(
+            unapplied.characterName,
+            unapplied.description,
+            aiUnappliedCostumeReasonCopy(l10nOf(context), unapplied.reason),
+          ),
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.error,
+            fontSize: 12,
+          ),
+        ),
       const SizedBox(height: 12),
       OutlinedButton(
         key: const Key('ai-apply-open-episode'),
@@ -374,3 +408,24 @@ final _cachedEpisodesProvider = FutureProvider<List<EpisodeView>>((ref) async {
   // SessionReset clears the table wholesale (identity-scoped, §3).
   return EpisodeCacheDao(db).readAllEpisodes();
 }, name: 'aiEpisodePickerRows');
+
+/// Localized copy for a costume row the apply could not finish, keyed on the
+/// stable wire enum. `_ => commonUnknown` is forward-compat, not dead code: the
+/// generated enum carries no `$default`, so a reason a future backend adds must
+/// not take the whole outcome card down with it.
+String aiUnappliedCostumeReasonCopy(
+  AppLocalizations l10n,
+  UnappliedCostumeReason reason,
+) => switch (reason) {
+  UnappliedCostumeReason.characterNotPlanned =>
+    l10n.aiApplyUnappliedReasonCharacterNotPlanned,
+  UnappliedCostumeReason.characterUnavailable =>
+    l10n.aiApplyUnappliedReasonCharacterUnavailable,
+  UnappliedCostumeReason.createRejected =>
+    l10n.aiApplyUnappliedReasonCreateRejected,
+  UnappliedCostumeReason.notesRejected =>
+    l10n.aiApplyUnappliedReasonNotesRejected,
+  UnappliedCostumeReason.bindingRejected =>
+    l10n.aiApplyUnappliedReasonBindingRejected,
+  _ => l10n.commonUnknown,
+};

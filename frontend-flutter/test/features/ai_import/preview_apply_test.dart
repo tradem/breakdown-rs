@@ -52,13 +52,26 @@ const devAuthConfig = AppConfig(
   defaultSeriesId: 'series-1',
 );
 
-DraftScene _draft(String ref, {int? number}) => DraftScene(
+DraftScene _draft(
+  String ref, {
+  int? number,
+  List<DraftCostume> costumes = const [],
+}) => DraftScene(
   (b) => b
     ..draftRef = ref
     ..sceneNumber = number
     ..summary = 'Scene $ref'
-    ..characters.replace(const <String>['ch-1']),
+    ..characters.replace(const <String>['ch-1'])
+    ..costumes.replace(costumes),
 );
+
+DraftCostume _costume(String character, String description, {String? quote}) =>
+    DraftCostume(
+      (b) => b
+        ..characterName = character
+        ..description = description
+        ..sourceQuote = quote ?? 'trägt $description',
+    );
 
 SceneView _scene(String id, {int version = 1, int? number}) => SceneView(
   (b) => b
@@ -78,6 +91,34 @@ ShootingScheduleRow _scheduleRow(String ref) => ShootingScheduleRow(
     ..rowRef = ref
     ..sceneNumber = 12
     ..order = 1,
+);
+
+/// Wraps script draft rows into the typed preview payload's `OneOf` variant 3.
+/// (The oneOf nesting is deep enough that inlining it per test hurts readability.)
+AiPreviewPayload _scriptPayloadWith(
+  List<DraftScene> scenes, {
+  List<Uncertainty> uncertainties = const [],
+}) => AiPreviewPayload(
+  (b) => b
+    ..oneOf =
+        OneOf.fromValue3<
+          AiPreviewPayloadOneOf,
+          AiPreviewPayloadOneOf1,
+          AiPreviewPayloadOneOf2
+        >(
+          value: AiPreviewPayloadOneOf(
+            (b) => b
+              ..kind = AiPreviewPayloadOneOfKindEnum.script
+              ..data.replace(
+                ScriptContext(
+                  (b) => b
+                    ..title = 'Pilot'
+                    ..scenes.replace(scenes)
+                    ..uncertainties.replace(uncertainties),
+                ),
+              ),
+          ),
+        ),
 );
 
 AiPreviewPayload _scriptPayload() => AiPreviewPayload(
@@ -228,11 +269,17 @@ ApplyAiImportResponse _outcome({
   int appliedCount = 2,
   int createdDays = 1,
   int plannedSceneShoots = 3,
+  int createdCharacters = 0,
+  int createdCostumes = 0,
+  List<UnappliedCostume> unappliedCostumes = const [],
 }) => ApplyAiImportResponse(
   (b) => b
     ..appliedCount = appliedCount
     ..createdDays = createdDays
-    ..plannedSceneShoots = plannedSceneShoots,
+    ..plannedSceneShoots = plannedSceneShoots
+    ..createdCharacters = createdCharacters
+    ..createdCostumes = createdCostumes
+    ..unappliedCostumes.addAll(unappliedCostumes),
 );
 
 void main() {
@@ -256,6 +303,96 @@ void main() {
       // Create serializes as the bare "Create" string variant.
       expect(mappings.first.decision.oneOf.value, 'Create');
       expect(mappings.first.draftRef, 'd1');
+    });
+
+    // Tasks 2.x/7.4 (`ai-import` — costumes are decided independently of the
+    // scene row): only REJECTIONS travel. An absent ordinal reads as accepted
+    // server-side, so an untouched row's request stays byte-identical to a
+    // pre-costume client's.
+    test('an accepted costume sends NO decision; a rejected one sends its '
+        'ordinal with accepted=false', () {
+      final state = AiApplyState(
+        rows: [
+          const PreviewRow(
+            draftRef: 'd1',
+            label: 'A',
+            costumes: [
+              PreviewCostume(
+                ordinal: 0,
+                characterName: 'Renee',
+                description: 'Blue linen dress',
+                sourceQuote: 'trägt das blaue Leinenkleid',
+              ),
+              PreviewCostume(
+                ordinal: 1,
+                characterName: 'Renee',
+                description: 'Leather coat',
+                sourceQuote: 'greift zum Ledermantel',
+              ),
+            ],
+          ),
+        ],
+      );
+      expect(
+        state.buildMappings().single.costumeDecisions,
+        isNull,
+        reason: 'default-accepted rows are not noise on the wire',
+      );
+
+      final vetoed = AiApplyState(
+        rows: [state.rows.single.withCostumeDecision(1, false)],
+      );
+      final rejected = vetoed.buildMappings();
+      final decisions = rejected.single.costumeDecisions!;
+      expect(decisions, hasLength(1));
+      expect(decisions.single.ordinal, 1);
+      expect(decisions.single.accepted, isFalse);
+    });
+
+    test('a rejected costume is an EDIT: accept_as_is must not be claimed '
+        'over a row whose extraction the reviewer vetoed', () {
+      const rows = [
+        PreviewRow(
+          draftRef: 'd1',
+          label: 'A',
+          costumes: [
+            PreviewCostume(
+              ordinal: 0,
+              characterName: 'Renee',
+              description: 'Blue linen dress',
+              sourceQuote: 'q',
+            ),
+          ],
+        ),
+      ];
+      expect(AiApplyState(rows: rows).acceptAsIs, isTrue);
+      expect(AiApplyState(rows: rows).editDistance, 0);
+
+      final vetoed = AiApplyState(
+        rows: [rows.single.withCostumeDecision(0, false)],
+      );
+      expect(vetoed.editDistance, 1);
+      expect(vetoed.acceptAsIs, isFalse);
+    });
+
+    test('an unknown costume ordinal is ignored, never fabricating a row the '
+        'payload does not carry', () {
+      const row = PreviewRow(
+        draftRef: 'd1',
+        label: 'A',
+        costumes: [
+          PreviewCostume(
+            ordinal: 0,
+            characterName: 'Renee',
+            description: 'Blue linen dress',
+            sourceQuote: 'q',
+          ),
+        ],
+      );
+      expect(
+        row.withCostumeDecision(7, false).costumes.single.accepted,
+        isTrue,
+      );
     });
 
     test('Update carries the picked aggregate id + version; skip is '
@@ -857,6 +994,216 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.textContaining('check the job status'), findsOneWidget);
       await tester.pump();
+    });
+
+    // Task 7.4 (`ai-import` — the reviewer sees the extraction, its evidence,
+    // and can veto it per row).
+    testWidgets('a draft row with costumes lists them with their grounding '
+        'quote, all accepted by default', (tester) async {
+      await setupContainer(
+        previewValue: Right(
+          _previewResponse(
+            _scriptPayloadWith([
+              _draft(
+                'draft-1',
+                costumes: [
+                  _costume('Renee Sanders', 'blue linen dress'),
+                  _costume(
+                    'Renee Sanders',
+                    'leather coat',
+                    quote: 'greift zum Ledermantel',
+                  ),
+                ],
+              ),
+            ]),
+          ),
+        ),
+      );
+      await pumpPreview(tester);
+
+      expect(find.text('Costumes (2)'), findsOneWidget);
+      expect(find.text('Renee Sanders: blue linen dress'), findsOneWidget);
+      // The quote is visible NEXT TO the description so the reviewer can verify
+      // the extraction without opening the document (spec `ai-import`).
+      expect(find.text('Source: greift zum Ledermantel'), findsOneWidget);
+      // Default state: both accepted, so no rejection marker anywhere.
+      for (final ordinal in [0, 1]) {
+        expect(
+          tester
+              .widget<CheckboxListTile>(
+                find.byKey(Key('ai-preview-costume-toggle-draft-1-$ordinal')),
+              )
+              .value,
+          isTrue,
+        );
+        expect(
+          find.byKey(Key('ai-preview-costume-rejected-draft-1-$ordinal')),
+          findsNothing,
+        );
+      }
+    });
+
+    testWidgets('rejecting ONE costume leaves the scene decision Create and '
+        'marks only that costume rejected', (tester) async {
+      await setupContainer(
+        previewValue: Right(
+          _previewResponse(
+            _scriptPayloadWith([
+              _draft(
+                'draft-1',
+                costumes: [
+                  _costume('Renee Sanders', 'blue linen dress'),
+                  _costume('Renee Sanders', 'leather coat'),
+                ],
+              ),
+            ]),
+          ),
+        ),
+        applyQueue: [
+          Right(
+            _outcome(
+              appliedCount: 1,
+              createdDays: 0,
+              plannedSceneShoots: 0,
+              createdCharacters: 1,
+              createdCostumes: 1,
+            ),
+          ),
+        ],
+      );
+      await pumpPreview(tester);
+
+      await tester.tap(
+        find.byKey(const Key('ai-preview-costume-toggle-draft-1-1')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('ai-preview-costume-rejected-draft-1-1')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('ai-preview-costume-rejected-draft-1-0')),
+        findsNothing,
+        reason: 'the veto is per costume row, not per scene',
+      );
+      // The scene row itself is still a Create (the costume veto did not touch
+      // it) — the row stays actionable and accept_as_is is gone.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('ai-row-decision-draft-1')),
+          matching: find.text('Create'),
+        ),
+        findsOneWidget,
+      );
+      final state = container.read(aiApplyControllerProvider('job-1'));
+      expect(state.acceptAsIs, isFalse);
+      expect(state.editDistance, 1);
+
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-apply-submit')));
+      await tester.pumpAndSettle();
+
+      // Only the REJECTED ordinal travels; the accepted one stays absent and
+      // reads as accepted server-side.
+      final mapping = repo.lastRequest!.mappings.single;
+      expect(mapping.draftRef, 'draft-1');
+      expect(mapping.costumeDecisions, hasLength(1));
+      expect(mapping.costumeDecisions!.single.ordinal, 1);
+      expect(mapping.costumeDecisions!.single.accepted, isFalse);
+      // The scene was still created: the veto never drops the row.
+      expect(mapping.decision.oneOf.value, 'Create');
+    });
+
+    testWidgets('a costume the apply could not bind is NAMED with a localized '
+        'reason — a partial apply never reads as a full one', (tester) async {
+      await setupContainer(
+        applyQueue: [
+          Right(
+            _outcome(
+              appliedCount: 1,
+              createdDays: 0,
+              plannedSceneShoots: 0,
+              createdCharacters: 1,
+              createdCostumes: 1,
+              unappliedCostumes: [
+                UnappliedCostume(
+                  (b) => b
+                    ..draftRef = 'draft-1'
+                    ..ordinal = 2
+                    ..characterName = 'Renee Sanders'
+                    ..description = 'wedding dress'
+                    ..reason = UnappliedCostumeReason.bindingRejected,
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+      await pumpPreview(tester);
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-apply-submit')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('ai-apply-outcome')), findsOneWidget);
+      // The script wording reports the figures/costumes it produced.
+      expect(
+        find.textContaining('Applied 1 scene(s), 1 character(s), 1 costume(s)'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('Not applied: Renee Sanders – wedding dress'),
+        findsOneWidget,
+      );
+      // Keyed on the typed wire enum, not on server prose.
+      expect(
+        find.textContaining('costume created, binding refused (unassigned)'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a costume the server DROPPED is visible as an uncertainty row '
+        'and does NOT gate the apply (design D8)', (tester) async {
+      await setupContainer(
+        previewValue: Right(
+          _previewResponse(
+            _scriptPayloadWith(
+              [_draft('draft-1')],
+              uncertainties: [
+                Uncertainty(
+                  (u) => u
+                    ..sceneIndex = 1
+                    ..field = 'costumes'
+                    // The exact note shape the worker writes (design D8): the
+                    // stable reason slug first, then the dropped entry.
+                    ..note =
+                        'ungrounded_quote: costume of "Renee" '
+                        '("ball gown") was dropped; row draft-1'
+                    ..kind = UncertaintyKind.droppedRow,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await pumpPreview(tester);
+
+      // The reviewer sees the MISSING entry (the note carries the stable reason
+      // slug) instead of concluding the script named no costuming.
+      expect(find.textContaining('Uncertainty (costumes)'), findsOneWidget);
+      expect(find.textContaining('ungrounded_quote'), findsOneWidget);
+      // `droppedRow` is information, not a gate: the apply stays dispatchable.
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const Key('ai-apply-submit')))
+            .onPressed,
+        isNotNull,
+        reason: 'a dropped costume row must not block the whole import',
+      );
     });
 
     group('goldens (4.4): merged preview {light,dark}×{android,macos}', () {

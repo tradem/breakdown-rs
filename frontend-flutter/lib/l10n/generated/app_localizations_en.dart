@@ -740,6 +740,77 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String aiPreviewCostumeHeading(Object count) {
+    return 'Costumes ($count)';
+  }
+
+  @override
+  String aiPreviewCostumeFor(Object character, Object description) {
+    return '$character: $description';
+  }
+
+  @override
+  String aiPreviewCostumeQuote(Object quote) {
+    return 'Source: $quote';
+  }
+
+  @override
+  String get aiPreviewCostumeRejectedStatus => 'rejected';
+
+  @override
+  String get aiPreviewCostumeToggleTooltip =>
+      'Accept or reject this costume independently of its scene';
+
+  @override
+  String aiApplyOutcomeScript(
+    Object applied,
+    Object characters,
+    Object costumes,
+  ) {
+    return 'Applied $applied scene(s), $characters character(s), $costumes costume(s).';
+  }
+
+  @override
+  String aiApplyUnappliedCostume(
+    Object character,
+    Object description,
+    Object reason,
+  ) {
+    return 'Not applied: $character – $description ($reason)';
+  }
+
+  @override
+  String get aiApplyUnappliedReasonCharacterNotPlanned =>
+      'character missing from this row';
+
+  @override
+  String get aiApplyUnappliedReasonCharacterUnavailable =>
+      'the character could not be created';
+
+  @override
+  String get aiApplyUnappliedReasonCreateRejected =>
+      'the costume could not be created';
+
+  @override
+  String get aiApplyUnappliedReasonNotesRejected =>
+      'costume created, description refused';
+
+  @override
+  String get aiApplyUnappliedReasonBindingRejected =>
+      'costume created, binding refused (unassigned)';
+
+  @override
+  String get aiConfigStoredPromptNote =>
+      'A stored prompt is in effect — it does not follow deployment defaults.';
+
+  @override
+  String get aiConfigResetPrompt => 'Reset to default';
+
+  @override
+  String get aiConfigDefaultPromptNote =>
+      'No stored prompt — the deployment default is in effect.';
+
+  @override
   String get aiApplyErrorNotSucceeded =>
       'The preview can no longer be applied — check the job status.';
 

@@ -754,6 +754,77 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String aiPreviewCostumeHeading(Object count) {
+    return 'Kostüme ($count)';
+  }
+
+  @override
+  String aiPreviewCostumeFor(Object character, Object description) {
+    return '$character: $description';
+  }
+
+  @override
+  String aiPreviewCostumeQuote(Object quote) {
+    return 'Beleg: $quote';
+  }
+
+  @override
+  String get aiPreviewCostumeRejectedStatus => 'verworfen';
+
+  @override
+  String get aiPreviewCostumeToggleTooltip =>
+      'Dieses Kostüm unabhängig von der Szene übernehmen oder verwerfen';
+
+  @override
+  String aiApplyOutcomeScript(
+    Object applied,
+    Object characters,
+    Object costumes,
+  ) {
+    return 'Angewendet: $applied Szene(n), $characters Figur(en), $costumes Kostüm(e).';
+  }
+
+  @override
+  String aiApplyUnappliedCostume(
+    Object character,
+    Object description,
+    Object reason,
+  ) {
+    return 'Nicht angewendet: $character – $description ($reason)';
+  }
+
+  @override
+  String get aiApplyUnappliedReasonCharacterNotPlanned =>
+      'Figur fehlt in dieser Zeile';
+
+  @override
+  String get aiApplyUnappliedReasonCharacterUnavailable =>
+      'Figur konnte nicht angelegt werden';
+
+  @override
+  String get aiApplyUnappliedReasonCreateRejected =>
+      'Kostüm konnte nicht angelegt werden';
+
+  @override
+  String get aiApplyUnappliedReasonNotesRejected =>
+      'Kostüm angelegt, Beschreibung abgelehnt';
+
+  @override
+  String get aiApplyUnappliedReasonBindingRejected =>
+      'Kostüm angelegt, Bindung abgelehnt (unzugeordnet)';
+
+  @override
+  String get aiConfigStoredPromptNote =>
+      'Gespeicherter Prompt aktiv – folgt nicht den Deployment-Voreinstellungen.';
+
+  @override
+  String get aiConfigResetPrompt => 'Auf Voreinstellung zurücksetzen';
+
+  @override
+  String get aiConfigDefaultPromptNote =>
+      'Kein gespeicherter Prompt – die Deployment-Voreinstellung gilt.';
+
+  @override
   String get aiApplyErrorNotSucceeded =>
       'Die Vorschau kann nicht mehr angewendet werden – prüfe den Auftragsstatus.';
 
